@@ -33,6 +33,7 @@
   import ListX from '@lucide/svelte/icons/list-x';
   import X from '@lucide/svelte/icons/x';
   import StatusNote from '$lib/components/StatusNote.svelte';
+  import ToolTile from '$lib/components/ToolTile.svelte';
   import TrackRow from '$lib/components/TrackRow.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
@@ -63,7 +64,7 @@
   const source = choicePref(SOURCE_PREF, PAGE, SOURCES);
 
   // What the other tools do with a batch, in the order the menu lists them.
-  // Nothing else here knows about them: the name, the icon and the colour of
+  // Nothing else here knows about them: the name, the icon and the tone of
   // each button come from the registry.
   const HINTS = new Map([
     ['soundcloud-playlist-to-text', 'turn the queue into text you can paste.'],
@@ -193,7 +194,7 @@
       type="button"
       tabindex="-1"
       aria-hidden="true"
-      class="absolute inset-0 bg-foreground/30 backdrop-blur-[1px]"
+      class="absolute inset-0 bg-black/50"
       transition:fade={{ duration: 150 }}
       onclick={onclose}
     ></button>
@@ -202,24 +203,15 @@
       role="dialog"
       aria-modal="true"
       aria-label="session queue"
-      class="relative flex max-h-[85vh] flex-col rounded-t-2xl border-t border-border/70
-             bg-background shadow-[0_-8px_30px_oklch(0_0_0/12%)]"
+      class="relative flex max-h-[85vh] flex-col rounded-t-xl border-t border-line-strong bg-canvas"
       transition:fly={{ y: 240, duration: 240, easing: cubicOut, opacity: 1 }}
     >
-      <header
-        class="brand-wash flex shrink-0 items-center gap-2.5 rounded-t-2xl border-b
-               border-border/70 px-3 py-2.5"
-      >
-        <div
-          class="brand-tile grid size-8 shrink-0 place-items-center rounded-[10px] text-white"
-          aria-hidden="true"
-        >
-          <ListChecks class="size-4" />
-        </div>
+      <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
+        <ToolTile icon={ListChecks} />
 
         <div class="min-w-0 flex-1">
-          <h2 class="truncate text-[13px] leading-tight font-semibold">session queue</h2>
-          <p class="tabular truncate text-[11px] leading-tight text-muted-foreground" title={meta}>
+          <h2 class="m-0 truncate text-label leading-tight font-semibold">session queue</h2>
+          <p class="tabular m-0 truncate text-caption leading-tight text-fg-muted" title={meta}>
             {meta}
           </p>
         </div>
@@ -228,8 +220,8 @@
           {#if queue.count > 0}
             <Button
               size="sm"
-              variant={armed ? 'default' : 'outline'}
-              class={armed ? 'bg-destructive text-white hover:bg-destructive/90' : ''}
+              variant={armed ? 'destructive' : 'outline'}
+              class={armed ? 'bg-critical/10' : ''}
               title="empties the queue. marks stay."
               onclick={onClear}
             >
@@ -247,7 +239,7 @@
           <Button
             variant="ghost"
             size="icon-sm"
-            class="-mr-1 text-muted-foreground"
+            class="-mr-1"
             aria-label="close the queue"
             title="close"
             onclick={onclose}
@@ -283,8 +275,8 @@
               </Button>
             {/if}
 
-            <div class="flex flex-col gap-1.5 rounded-xl border border-border/70 bg-card p-2.5">
-              <span class="text-[11.5px] text-muted-foreground"> send the queue somewhere </span>
+            <div class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5">
+              <span class="section-title">send the queue somewhere</span>
               <div class="flex flex-wrap gap-1.5">
                 {#each sendTo as entry (entry.id)}
                   {@const Icon = entry.icon}
@@ -293,12 +285,17 @@
                       {#snippet child({ props })}
                         <Button
                           {...props}
-                          size="xs"
+                          size="sm"
                           variant="outline"
-                          style="--brand: {entry.brand}"
+                          class="pl-1"
                           onclick={() => open(entry.id)}
                         >
-                          <Icon />
+                          <span
+                            class="grid size-5 place-items-center rounded-xs {entry.tone} text-black"
+                            aria-hidden="true"
+                          >
+                            <Icon class="size-3" />
+                          </span>
                           {entry.short}
                         </Button>
                       {/snippet}
@@ -324,8 +321,8 @@
                       size="icon-sm"
                       variant={isDownloaded ? 'default' : 'outline'}
                       class={isDownloaded
-                        ? 'bg-success text-success-foreground hover:bg-success/85'
-                        : 'text-muted-foreground'}
+                        ? 'bg-good text-fg-inverse hover:bg-good/85'
+                        : 'text-fg-muted'}
                       aria-pressed={isDownloaded}
                       aria-label="mark downloaded"
                       title="toggle the downloaded mark"
@@ -336,7 +333,7 @@
                     <Button
                       size="icon-sm"
                       variant="ghost"
-                      class="text-muted-foreground"
+                      class="text-fg-muted"
                       aria-label="remove from the queue"
                       title="take out of the queue. its mark stays."
                       onclick={() => queue.remove(item.permalink)}

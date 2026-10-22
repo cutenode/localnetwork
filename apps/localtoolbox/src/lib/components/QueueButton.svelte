@@ -35,11 +35,7 @@
 -->
 <button
   type="button"
-  class="flex h-7 shrink-0 items-center gap-0.5 rounded-[min(var(--radius-md),12px)] border
-         border-transparent bg-clip-padding px-1 text-muted-foreground transition-all
-         outline-none select-none hover:bg-muted hover:text-foreground
-         focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50
-         active:translate-y-px dark:hover:bg-muted/50"
+  class="icon-btn"
   aria-label={label}
   title={label}
   aria-expanded={view.queueOpen}
@@ -47,13 +43,13 @@
 >
   <ListChecks class="size-4 shrink-0" />
   {#if queue.count > 0}
-    <!-- The count in the open tool's own colour: a queue with something in it
-         is worth noticing, and this is the one place it can be noticed from
-         without leaving the tool. `aria-hidden`, because the label above says
-         the same thing in words. -->
+    <!-- The count as a white pill: a queue with something in it is worth
+         noticing, and this is the one place it can be noticed from without
+         leaving the tool. `aria-hidden`, because the label above says the same
+         thing in words. -->
     <span
-      class="tabular grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-primary px-0.5
-             text-[10px] leading-none font-semibold text-primary-foreground"
+      class="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-fg px-1 font-mono
+             text-[10px] leading-none font-semibold text-fg-inverse"
       aria-hidden="true"
     >
       {queue.count}

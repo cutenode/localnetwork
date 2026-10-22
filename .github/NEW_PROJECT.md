@@ -57,7 +57,7 @@ Logging: the website logs with [pino](https://getpino.io) (`apps/web/src/lib/ser
 | localtoolbox | Vitest with jsdom; its README is its spec, checked by `test/docs.test.ts`                                                     | per-file thresholds in `vitest.config.ts`; Stryker mutation score of at least 91 (`stryker.config.mjs`)                           |
 | Rust         | cargo-nextest (`.config/nextest.toml`); unit tests in each module's `tests.rs`; Hegel property tests; fuzz targets in `fuzz/` | `cargo coverage` (`.cargo/config.toml`) fails under its thresholds; `tools/hegel-coverage.sh` holds the Hegel tests alone to them |
 
-`LOCALLIBRARY_BLESS=1` regenerates the Rust golden files: locallibrary's RPC schema, loclib-equipment's JSON, and `crates/loclib-model/src/tokens.rs` from `packages/tokens/colors.json`. `TOKENS_BLESS=1` regenerates the website's `data-colors.css` from the same file.
+`LOCALLIBRARY_BLESS=1` regenerates the Rust golden files: locallibrary's RPC schema, loclib-equipment's JSON, and `crates/loclib-model/src/tokens.rs` from `packages/tokens/colors.json`. `TOKENS_BLESS=1` regenerates `packages/tokens/data-colors.css` from the same file.
 
 ### CI
 
@@ -96,6 +96,7 @@ localtoolbox has no release workflow. `pnpm zip` builds `localtoolbox.zip`, peop
 
 - Lexicons live in `lexicons/` by NSID. A new tool's own records go under `computer.localnetwork.<tool>.*`, and records several tools read go in a group named for what they are (`computer.localnetwork.dj.*`). The website's records predate this and sit at the top level (`booking`, `epk`, `project`). A tool's OAuth permission set is a top-level document too, like `locallibraryPublishing.json`. A new shared group goes in the list in `tools/policy/lexicons.rego`. locallibrary's tests list every document in `locallibrary/` and `dj/` (`crates/locallibrary/src/atmosphere/lexicon/tests.rs`), so a new one there needs adding to them. `pnpm lexicons:format` formats the lexicons and `pnpm lexicons:publish` (in `apps/web`) publishes all of them.
 - `packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn. Use it instead of new colours for the same things.
+- `packages/tokens/theme.css` is the Local Network design system the website and localtoolbox share (tokens, type scale, shared classes). A new web UI imports it after `@import 'tailwindcss'`, along with the two `@fontsource-variable` fonts it names.
 - Each tool has a page at `localnetwork.computer/tools/<tool>`: one file in `apps/web/src/lib/tools/`, listed in its `index.ts`. The page shows the tool's `README.md` and `docs/*.md`, which the website's Docker build picks up from `apps/<tool>/`.
 
 ## A new TypeScript app
@@ -150,4 +151,4 @@ A new capability is a change to loclib-plugin, and also needs a case in `means()
 
 A Rust library other DJ tools can use is a `loclib-<thing>` crate in `crates/`: in `[workspace.dependencies]` with `version = "0.1.0"` and its path, and in the layout in `apps/locallibrary/docs/how-it-works.md`, with `[lints] workspace = true`, a `README.md` that is its crate docs (`#![doc = include_str!("../README.md")]`, so its examples are doctests), a `LICENSE`, and a line in [Crates for other DJ tools](../apps/locallibrary/README.md#crates-for-other-dj-tools). It never depends on `locallibrary`.
 
-Shared TypeScript code goes in `packages/`. `packages/tokens` is plain JSON that apps import by relative path, so it isn't a workspace package; a package with code of its own has a `package.json`, which makes it part of the workspace like an app.
+Shared TypeScript code goes in `packages/`. `packages/tokens` is plain JSON and CSS that apps import by relative path, so it isn't a workspace package; a package with code of its own has a `package.json`, which makes it part of the workspace like an app.

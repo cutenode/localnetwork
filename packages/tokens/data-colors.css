@@ -1,4 +1,4 @@
-/* Generated from packages/tokens/colors.json: don't edit by hand. Regenerate with `TOKENS_BLESS=1 pnpm vitest run --project server src/lib/ui/data-colors.test.ts`. */
+/* Generated from packages/tokens/colors.json: don't edit by hand. Regenerate with `TOKENS_BLESS=1 pnpm -C apps/web vitest run --project server src/lib/ui/data-colors.test.ts`. */
 @theme {
 	--color-band-low: #3987e5;
 	--color-band-mid: #d95926;
@@ -26,4 +26,13 @@
 	--color-warning: #ffc456;
 	--color-critical: #ff6464;
 	--color-playhead: #ffffff;
+}
+
+/* On the light palette (theme.css) good, warning and critical take their light values. */
+:root {
+	@variant light {
+		--color-good: #1e7b34;
+		--color-warning: #8a5a00;
+		--color-critical: #c62828;
+	}
 }

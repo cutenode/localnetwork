@@ -1,0 +1,290 @@
+/*
+ * The Local Network design system, shared by the website and localtoolbox. Dark ink neutrals with a
+ * slight cool bias, white type, and no brand accent: the only colour comes from DJ data (waveform
+ * bands, phrases, track colours), which data-colors.css generates from colors.json. Instrument Sans
+ * for words, JetBrains Mono for numbers, labels and records.
+ *
+ * Import after `@import 'tailwindcss'`. Each app imports the two fonts itself
+ * (@fontsource-variable/instrument-sans and @fontsource-variable/jetbrains-mono), since they
+ * resolve from the app's own dependencies.
+ */
+@import './data-colors.css';
+
+@theme {
+	--font-*: initial;
+	--font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+
+	/* Surfaces, darkest to lightest. */
+	--color-canvas: #09090b;
+	--color-sunken: #0b0b0d;
+	--color-surface: #0e0e11;
+	--color-raised: #111114;
+	--color-well: #16161a;
+	--color-line: #1f1f24;
+	--color-line-strong: #2c2c33;
+
+	/* Text, strongest to quietest. Every step reads at 4.5:1 or better on every surface. */
+	--color-fg: #f4f4f5;
+	--color-fg-soft: #d4d4d8;
+	--color-fg-muted: #a1a1aa;
+	--color-fg-subtle: #8b8b94;
+	--color-fg-inverse: #09090b;
+
+	--color-link: #8fbcff;
+	--color-link-wash: #1c2a40;
+
+	--text-*: initial;
+	--text-caption: 0.75rem;
+	--text-caption--line-height: 1.4;
+	--text-label: 0.8125rem;
+	--text-label--line-height: 1.4;
+	--text-small: 0.875rem;
+	--text-small--line-height: 1.5;
+	--text-body: 1rem;
+	--text-body--line-height: 1.55;
+	--text-emphasis: 1.0625rem;
+	--text-emphasis--line-height: 1.4;
+	--text-lede: 1.125rem;
+	--text-lede--line-height: 1.55;
+	--text-intro: 1.25rem;
+	--text-intro--line-height: 1.5;
+	--text-heading: 1.5rem;
+	--text-heading--line-height: 1.2;
+	--text-heading--letter-spacing: -0.02em;
+	--text-title: clamp(2rem, 4vw, 3.5rem);
+	--text-title--line-height: 1.02;
+	--text-title--letter-spacing: -0.035em;
+	--text-display: clamp(2.5rem, 6.4vw, 5.5rem);
+	--text-display--line-height: 0.98;
+	--text-display--letter-spacing: -0.045em;
+
+	--tracking-eyebrow: 0.08em;
+
+	--radius-*: initial;
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius-md: 8px;
+	--radius-lg: 10px;
+	--radius-xl: 14px;
+	--radius-2xl: 16px;
+	--radius-full: 9999px;
+
+	--shadow-*: initial;
+	--shadow-glow: 0 -40px 120px -40px var(--color-link-wash);
+
+	--container-page: 77.5rem;
+}
+
+/*
+ * The same tokens with light values: printed pages (a press kit saved as PDF), and anything under a
+ * `light` class (localtoolbox's light theme). The DJ-data colours stay as they are, apart from good,
+ * warning and critical, which have light values of their own in data-colors.css.
+ */
+@custom-variant light {
+	@media print {
+		@slot;
+	}
+	&:where(.light) {
+		@slot;
+	}
+}
+
+:root {
+	@variant light {
+		color-scheme: light;
+		--color-canvas: #ffffff;
+		--color-sunken: #ffffff;
+		--color-surface: #ffffff;
+		--color-raised: #f4f4f5;
+		--color-well: #f4f4f5;
+		--color-line: #e4e4e7;
+		--color-line-strong: #d4d4d8;
+		--color-fg: #09090b;
+		--color-fg-soft: #27272a;
+		--color-fg-muted: #52525b;
+		--color-fg-subtle: #71717a;
+		--color-fg-inverse: #ffffff;
+		--color-link: #1d4ed8;
+		--color-link-wash: #dbeafe;
+	}
+}
+
+@layer base {
+	:root {
+		color-scheme: dark;
+	}
+	html {
+		@apply bg-canvas font-sans text-body text-fg antialiased;
+		font-synthesis: none;
+	}
+	:focus-visible {
+		@apply outline-2 outline-offset-2 outline-link;
+	}
+	::selection {
+		@apply bg-link-wash text-fg;
+	}
+	h1,
+	h2,
+	h3,
+	h4 {
+		text-wrap: balance;
+	}
+	select.input {
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23a1a1aa' stroke-linecap='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+	}
+	input[type='date']::-webkit-calendar-picker-indicator {
+		filter: invert(1);
+	}
+	input[type='file']::file-selector-button {
+		@apply mr-3 cursor-pointer rounded-md border-0 bg-raised px-3 py-1.5 text-small font-semibold text-fg;
+		font: inherit;
+	}
+}
+
+/* The faint 64px grid behind heroes and closing sections. */
+@utility bg-grid {
+	background-image:
+		linear-gradient(var(--color-well) 1px, transparent 1px),
+		linear-gradient(90deg, var(--color-well) 1px, transparent 1px);
+	background-size: 64px 64px;
+}
+
+/* A mono, letter-spaced label: eyebrows, record names, table heads. */
+@utility eyebrow {
+	@apply font-mono text-caption tracking-eyebrow uppercase;
+}
+
+/* Page width with the gutter every section shares. */
+@utility container-page {
+	@apply mx-auto w-full max-w-page px-4 sm:px-8;
+}
+
+/*
+ * The shared building blocks, as classes so a plain <button> in a form, a link and the Svelte
+ * components (Button, Field, Card, Tag) all draw the same way.
+ */
+@utility btn {
+	@apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4.5 text-body font-semibold whitespace-nowrap no-underline transition-colors select-none disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility btn-primary {
+	@apply btn bg-fg text-fg-inverse hover:bg-white;
+}
+
+@utility btn-secondary {
+	@apply btn border border-line-strong bg-raised text-fg hover:border-fg-subtle;
+}
+
+@utility btn-ghost {
+	@apply btn text-fg-muted hover:bg-raised hover:text-fg;
+}
+
+@utility btn-danger {
+	@apply btn border border-critical/40 text-critical hover:bg-critical/10;
+}
+
+@utility btn-sm {
+	@apply min-h-9 rounded-md px-3.5 text-small;
+}
+
+@utility btn-lg {
+	@apply min-h-12 px-5.5;
+}
+
+@utility input {
+	@apply block min-h-11 w-full rounded-lg border border-line-strong bg-well px-3 text-body text-fg placeholder:text-fg-subtle focus:border-link focus:ring-0 focus:outline-none aria-[invalid=true]:border-critical;
+	/* Room for a select's chevron, which the side padding would otherwise run text under. */
+	&:is(select) {
+		@apply pr-10;
+	}
+}
+
+@utility label {
+	@apply mb-1.5 block text-label font-medium text-fg-soft;
+}
+
+@utility hint {
+	@apply mt-1.5 text-label text-fg-subtle;
+}
+
+@utility checkbox {
+	@apply size-5 rounded-xs border-line-strong bg-well text-fg focus:ring-2 focus:ring-link focus:ring-offset-canvas;
+}
+
+@utility card {
+	@apply rounded-xl border border-line bg-surface;
+}
+
+@utility chip {
+	@apply inline-flex items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-0.5 text-label text-fg no-underline;
+}
+
+/* A checkbox drawn as a filter chip; the input inside is visually hidden. */
+@utility chip-toggle {
+	@apply chip min-h-9 cursor-pointer px-3 select-none hover:border-fg-subtle;
+	&:has(:checked) {
+		@apply border-fg bg-fg font-semibold text-fg-inverse;
+	}
+	&:has(:focus-visible) {
+		@apply outline-2 outline-offset-2 outline-link;
+	}
+}
+
+@utility pill {
+	@apply inline-flex items-center rounded-full px-2 py-0.5 text-caption font-medium whitespace-nowrap;
+}
+
+@utility muted {
+	@apply text-fg-muted;
+}
+
+@utility link {
+	@apply text-link underline decoration-link/40 underline-offset-4 hover:decoration-link;
+}
+
+@utility menu-link {
+	@apply text-fg-muted no-underline hover:text-fg;
+	&[aria-current='page'] {
+		@apply text-fg;
+	}
+}
+
+@utility table-base {
+	@apply w-full text-left text-small;
+	& th {
+		@apply eyebrow border-b border-line-strong px-3 py-2 font-normal text-fg-subtle;
+	}
+	& td {
+		@apply border-b border-line px-3 py-2.5 align-top;
+	}
+}
+
+/* A small label over a group: "Sounds on file", "Directory". */
+@utility section-title {
+	@apply eyebrow text-fg-subtle;
+}
+
+@utility mono {
+	@apply font-mono text-label break-all;
+}
+
+@utility notice {
+	@apply rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-small text-fg;
+}
+
+@utility notice-info {
+	@apply border-line bg-surface text-fg-soft;
+}
+
+@utility notice-ok {
+	@apply border-good/40 bg-good/5;
+}
+
+@utility notice-error {
+	@apply border-critical/40 bg-critical/5;
+}
+
+@utility code-block {
+	@apply overflow-x-auto rounded-lg border border-line bg-canvas p-3 font-mono text-label text-fg-soft;
+}
