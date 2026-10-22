@@ -275,7 +275,10 @@ jobs:
 
   # How long the release CLI takes to start and to read a real 3,886-track library
   # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this
-  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary.
+  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary. On
+  # main, this commit's timings also go to Bencher (https://bencher.dev/perf/localnetwork), which
+  # keeps their history and raises an alert when a command is slower than the upper 99% bound of a
+  # t-test over its last 64 runs.
   cli-timings:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -310,12 +313,28 @@ jobs:
           fi
           git checkout --quiet --detach "$GITHUB_SHA"
       - run: cargo build --release --locked -p locallibrary-cli
-      - run: |
+      - id: timings
+        run: |
           if [ -x "$RUNNER_TEMP/old" ]; then
             tools/cli-timings.sh target/release/locallibrary "$RUNNER_TEMP/old"
           else
             tools/cli-timings.sh target/release/locallibrary
           fi
+        env:
+          CLI_TIMINGS_BMF: ${{ runner.temp }}/cli-timings.json
+      # Also when the timings failed against last week's build, so Bencher has every week. Alerts
+      # show on Bencher without failing the job, which the comparison above already does.
+      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
+        uses: bencherdev/bencher@f80847436d7157936b40525db4c2a1064124f04a # v0.6.13
+      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
+        run: >-
+          bencher run --branch main --testbed ubuntu-latest --adapter json
+          --file "$RUNNER_TEMP/cli-timings.json"
+          --threshold-measure latency --threshold-test t_test --threshold-max-sample-size 64
+          --threshold-upper-boundary 0.99 --thresholds-reset
+        env:
+          BENCHER_PROJECT: localnetwork
+          BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
 
   # dist's release build of every target, unsigned and without a tag or a GitHub Release, so a
   # change that breaks packaging shows here rather than when a version is tagged. The same jobs as

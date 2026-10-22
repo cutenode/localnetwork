@@ -98,7 +98,10 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
   same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
-  command's fastest run is more than 25% (and 3 ms) slower;
+  command's fastest run is more than 25% (and 3 ms) slower. On `main`, each run's timings also go
+  to [Bencher](https://bencher.dev/perf/localnetwork), which charts them over time and raises an
+  alert when one is slower than its last 64 runs suggest (it needs the `BENCHER_API_KEY` secret,
+  a project key for the `localnetwork` project);
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
