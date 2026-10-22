@@ -1,0 +1,31 @@
+name: Last passed commit
+description: >-
+  The commit of this workflow's last successful push run on the branch pushed to, for a changes
+  job's paths-filter `base`. A push diffed against the commit before it drops what a cancelled or
+  failed run never checked whenever the next push doesn't touch the same files; diffed against the
+  last commit that passed, those files count until a run passes. Empty when no run has passed yet,
+  which leaves paths-filter on the commit before the push. Needs `actions: read`.
+
+outputs:
+  sha:
+    description: The commit, or empty.
+    value: ${{ steps.last.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: last
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        WORKFLOW_REF: ${{ github.workflow_ref }}
+        BRANCH: ${{ github.ref_name }}
+      run: |
+        # owner/repo/.github/workflows/<file>@<ref> to <file>.
+        workflow=${WORKFLOW_REF%@*}
+        workflow=${workflow##*/}
+        sha=$(gh run list --workflow "$workflow" --branch "$BRANCH" --event push --status success \
+          --limit 1 --json headSha --jq '.[0].headSha // empty')
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "Changes since ${sha:-the commit before the push}"

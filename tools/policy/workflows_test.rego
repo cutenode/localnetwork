@@ -75,8 +75,34 @@ test_no_concurrency if {
 	".github/workflows/site-ci.yml: add a concurrency group that cancels superseded runs" in workflows.deny with input as with_ci(broken)
 }
 
+test_main_runs_not_cancelled if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/concurrency/cancel-in-progress", "value": "${{ github.event_name == 'pull_request' }}"}])
+	".github/workflows/site-ci.yml: add a concurrency group that cancels superseded runs" in workflows.deny with input as with_ci(broken)
+}
+
+base_msg := ".github/workflows/site-ci.yml: job \"changes\"'s paths-filter needs `base` from an earlier ./.github/actions/last-passed step"
+
+test_push_diffed_against_commit_before if {
+	broken := json.remove(ci, ["jobs/changes/steps/1/with/base"])
+	base_msg in workflows.deny with input as with_ci(broken)
+}
+
+test_last_passed_after_filter if {
+	steps := ci.jobs.changes.steps
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps", "value": [steps[1], steps[0]]}])
+	base_msg in workflows.deny with input as with_ci(broken)
+}
+
+test_pull_request_only_needs_no_base if {
+	pr_only := json.patch(ci, [
+		{"op": "replace", "path": "/true", "value": "pull_request"},
+		{"op": "remove", "path": "/jobs/changes/steps/1/with/base"},
+	])
+	count(workflows.deny) == 0 with input as with_ci(pr_only)
+}
+
 test_project_outside_every_filter if {
-	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/0/with/filters", "value": "run:\n  - 'apps/tool/**'\n"}])
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": "run:\n  - 'apps/tool/**'\n"}])
 	denied := workflows.deny with input as with_ci(broken)
 	"apps/site/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in denied
 	"packages/kit/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in denied
