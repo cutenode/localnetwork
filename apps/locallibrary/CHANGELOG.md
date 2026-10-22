@@ -649,6 +649,9 @@ their old names.
   error making a temp file names its folder, without the random name it tried.
 - When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
   which folder each is about.
+- What other code writes to stderr while the player runs goes to its messages (`!`) instead of
+  over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
+  player before it said there's no audio output.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
 - A drive holding a state the library's latest snapshot went through, though no snapshot holds
