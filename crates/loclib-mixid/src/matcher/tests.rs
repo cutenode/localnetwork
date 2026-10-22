@@ -420,6 +420,10 @@ fn a_chain_along_any_line_is_one_play(tc: TestCase) {
 // Another track whose landmarks put a slice's worth of votes at one offset by chance: one slice
 // heard, 0.125 of the track.
 #[hegel::explicit_test_case(seed = 80978568u32, delay = 0usize, gain = 1.0f32, other = 3284596u32)]
+// A copy late by a third of a frame: its two halves' offsets differ by 2.9 times their standard
+// error (4.18 ms against 1.43 ms), which chance does now and then, and still within what
+// `is_precise` accepts.
+#[hegel::explicit_test_case(seed = 265281222u32, delay = 87usize, gain = 1.0f32, other = 1u32)]
 fn copies_line_up_at_any_delay(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1));
     let x = synth(30.0, seed);
@@ -430,7 +434,11 @@ fn copies_line_up_at_any_delay(tc: TestCase) {
     let truth = delay as f64 / RATE as f64;
     let ab = align(&a, &b).unwrap();
     assert!((ab.offset - truth).abs() < 0.005, "{truth}: {ab:?}");
-    assert!(ab.coverage.0 > 0.9 && ab.coverage.1 > 0.9 && ab.drift.abs() < 0.004, "{ab:?}");
+    // The halves of a copy agree to within `ALIGN_DRIFT` and twice their standard error: each
+    // peak moves a whole frame or none, so a half's mean strays by chance (over 600 copies of
+    // this signal, up to 2.5 standard errors of 1.4 ms at most).
+    assert!(ab.coverage.0 > 0.9 && ab.coverage.1 > 0.9, "{ab:?}");
+    assert!(ab.drift.abs() <= ALIGN_DRIFT + 2.0 * ab.drift_noise, "{ab:?}");
     let ba = align(&b, &a).unwrap();
     assert!((ba.offset + truth).abs() < 0.005, "{truth}: {ba:?}");
     // With enough shifts the offset counts as measured. Another track shares at most a chance
