@@ -26,15 +26,15 @@ gated[path] := wf if {
 	some path in lib.paths(".github/workflows/*.yml")
 	not path in ungated
 	wf := lib.file(path)
-	runs_on_pull_requests(triggers(wf))
+	runs_on(triggers(wf), "pull_request")
 }
 
 # `on:` is an event, a list of them, or an object keyed by them (`pull_request:` is often empty).
-runs_on_pull_requests(on) if on == "pull_request"
+runs_on(on, event) if on == event
 
-runs_on_pull_requests(on) if "pull_request" in on
+runs_on(on, event) if event in on
 
-runs_on_pull_requests(on) if "pull_request" in object.keys(on)
+runs_on(on, event) if event in object.keys(on)
 
 # The jobs a job waits for, as a set.
 needs(job) := lib.strings(object.get(job, "needs", []))
@@ -106,8 +106,32 @@ deny contains msg if {
 
 deny contains msg if {
 	some path, wf in gated
-	not wf.concurrency
+	not cancels_superseded(wf)
 	msg := sprintf("%s: add a concurrency group that cancels superseded runs", [path])
+}
+
+# On every event: on main too, the next run's changes job covers what a cancelled run didn't check
+# (see the rule below).
+cancels_superseded(wf) if wf.concurrency["cancel-in-progress"] == true
+
+# A push diffed against the commit before it drops what a cancelled or failed run never checked
+# whenever the next push touches other files, so it's diffed against the last commit the workflow
+# passed on, from an earlier .github/actions/last-passed step.
+deny contains msg if {
+	some path, wf in gated
+	runs_on(triggers(wf), "push")
+	some id, job in wf.jobs
+	some i, step in job.steps
+	startswith(step.uses, "dorny/paths-filter@")
+	not base_from_last_passed(job, i)
+	msg := sprintf("%s: job %q's paths-filter needs `base` from an earlier ./.github/actions/last-passed step", [path, id])
+}
+
+base_from_last_passed(job, filter) if {
+	some i, step in job.steps
+	i < filter
+	step.uses == "./.github/actions/last-passed"
+	job.steps[filter]["with"].base == sprintf("${{ steps.%s.outputs.sha }}", [step.id])
 }
 
 # Every glob a gated workflow's changes job filters on.
