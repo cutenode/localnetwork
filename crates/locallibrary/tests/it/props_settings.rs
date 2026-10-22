@@ -48,8 +48,7 @@ fn real_files(file: SettingsFile) -> &'static [Vec<u8>] {
 
 #[hegel::test_helper]
 fn settings_file(tc: &TestCase) -> SettingsFile {
-    let i = tc.draw(gs::integers::<usize>().max_value(3));
-    SettingsFile::ALL[i]
+    tc.draw(gs::sampled_from(&SettingsFile::ALL))
 }
 
 /// A file to edit: the defaults, or one rekordbox wrote.
@@ -67,9 +66,9 @@ fn base_blob(tc: &TestCase, file: SettingsFile) -> SettingsBlob {
 #[hegel::test_helper]
 fn setting(tc: &TestCase, file: Option<SettingsFile>) -> (&'static SettingDef, usize) {
     let defs: Vec<&'static SettingDef> = SCHEMA.iter().filter(|d| file.is_none_or(|f| d.file == f)).collect();
-    let d = tc.draw(gs::integers::<usize>().max_value(defs.len() - 1));
-    let c = tc.draw(gs::integers::<usize>().max_value(defs[d].choices.len() - 1));
-    (defs[d], c)
+    let def = tc.draw(gs::sampled_from(&defs));
+    let c = tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1));
+    (def, c)
 }
 
 /// `s` as a person might type it: any case, `-`, `_` (and, with `spaces`, a space) between
@@ -86,8 +85,7 @@ fn spelled(tc: &TestCase, s: &str, spaces: bool) -> String {
     let mut out = String::new();
     for (i, ch) in cased.chars().enumerate() {
         if i > 0 && matches!(ch, '-' | '_' | ' ') {
-            let sep = tc.draw(gs::integers::<usize>().max_value(separators.len() - 1));
-            out.push(separators[sep]);
+            out.push(tc.draw(gs::sampled_from(separators)));
         } else {
             out.push(ch);
         }
@@ -313,8 +311,7 @@ fn no_drift_after_applying_a_profile(tc: TestCase) {
     let edits = tc.draw(gs::integers::<usize>().max_value(12));
     for _ in 0..edits {
         let (def, c) = setting(&tc, None);
-        let target = tc.draw(gs::integers::<usize>().max_value(2));
-        let drive = drives.get(target).copied();
+        let drive = tc.draw(gs::optional(gs::sampled_from(&drives)));
         let key = spelled(&tc, def.key, false);
         // A key no setting answers to is refused by both, leaving the profile as it was.
         if tc.draw(gs::weighted_booleans(0.1)) {
@@ -339,7 +336,7 @@ fn no_drift_after_applying_a_profile(tc: TestCase) {
             profile.set(drive.map(|d| (d, "drive")), &key, &value).unwrap();
         }
     }
-    let drive = drives[tc.draw(gs::integers::<usize>().max_value(1))];
+    let drive = tc.draw(gs::sampled_from(&drives));
     let dir = tempfile::tempdir().unwrap();
     let loc = DriveSettings(dir.path());
     for f in SettingsFile::ALL {

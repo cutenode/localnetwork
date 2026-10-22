@@ -292,7 +292,7 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
 fn truncated_xml_reads_a_prefix_or_fails_cleanly(tc: TestCase) {
     let (xml, tracks, _) = library_xml(&tc);
     let ends: Vec<usize> = xml.char_indices().map(|(i, _)| i).chain([xml.len()]).collect();
-    let cut = ends[tc.draw(gs::integers::<usize>().max_value(ends.len() - 1))];
+    let cut = tc.draw(gs::sampled_from(&ends));
     let prefix = &xml[..cut];
     tc.note(prefix);
     match loclib_tracklist::parse_as(prefix.as_bytes(), Format::RekordboxXml) {

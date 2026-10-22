@@ -344,8 +344,7 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 500)]
 fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let a = tc.draw(gs::booleans()).then(|| tc.draw(keys()));
-    let b = tc.draw(gs::booleans()).then(|| tc.draw(keys()));
+    let (a, b) = (tc.draw(gs::optional(keys())), tc.draw(gs::optional(keys())));
     let bpm = || {
         tc.draw(hegel::one_of!(
             gs::floats::<f64>().min_value(40.0).max_value(250.0),
@@ -449,9 +448,9 @@ fn cancelled_orderings_stop(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (tracks, energy) = made_up_set(tc.draw(gs::integers::<u32>().max_value(6)));
     let refs: Vec<&Track> = tracks.iter().collect();
-    let confidence: rustc_hash::FxHashMap<u32, f64> = tracks
+    let confidence: rustc_hash::FxHashMap<u32, f64> = tc
+        .draw(gs::subsequences(&tracks))
         .iter()
-        .filter(|_| tc.draw(gs::booleans()))
         .map(|t| (t.id, tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0))))
         .collect();
     let ctx = Ctx::silent();

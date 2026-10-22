@@ -358,7 +358,7 @@ fn overlays_read_back_as_kept_and_refuse_what_isnt_theirs(tc: hegel::TestCase) {
     let drawn = || {
         let columns = tc.draw(gs::binary().max_size(30));
         Overlay {
-            beats: tc.draw(gs::booleans()).then(|| grid(tc.draw(gs::integers::<usize>().max_value(40)), 0)),
+            beats: tc.draw(gs::optional(gs::integers::<usize>().max_value(40))).map(|n| grid(n, 0)),
             phrases: tc.draw(gs::booleans()).then(phrases),
             waveform: tc
                 .draw(gs::booleans())

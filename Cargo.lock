@@ -2580,6 +2580,7 @@ version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f7c373a89d726d42180154319cdf2aaa447180fe02e0588025a40f1165e8147"
 dependencies = [
+ "chrono",
  "hegeltest-c",
  "hegeltest-macros",
  "parking_lot",
@@ -3943,6 +3944,7 @@ dependencies = [
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
  "loclib-mixid",
+ "loclib-model",
  "loclib-plugin",
  "loclib-progress",
  "loclib-waveform",

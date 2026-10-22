@@ -1,7 +1,7 @@
 use super::*;
 use crate::Device;
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 use loclib_model::test_util::{keys, track};
 
 /// What the datasets name a key: `C minor`.
@@ -59,8 +59,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
     let (mut keyed, mut timed, mut audible, mut on_drive, mut broken) = (vec![], vec![], vec![], vec![], vec![]);
     for i in 0..tc.draw(gs::integers::<u32>().min_value(1).max_value(5)) {
         let id = format!("10{i}");
-        let annotated_key = tc.draw(gs::optional(gs::just(()))).map(|_| tc.draw(keys()));
-        if let Some(k) = annotated_key {
+        if let Some(k) = tc.draw(gs::optional(keys())) {
             keyed.push(id.clone());
             match mtg {
                 true => table.push(format!("{id}\t{}\t2", spelled(k))),
@@ -78,7 +77,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
         if tc.draw(gs::booleans()) {
             on_drive.push(id.clone());
             let mut t = track(i, "A", &id, &format!("/Contents/{file}"));
-            t.key = tc.draw(gs::optional(gs::just(()))).map_or(String::new(), |_| tc.draw(keys()).note());
+            t.key = tc.draw(gs::optional(keys().map(Camelot::note))).unwrap_or_default();
             tracks.push(t);
         }
         let has_audio = tc.draw(gs::weighted_booleans(0.3)) && (in_folder || on_drive.contains(&id));

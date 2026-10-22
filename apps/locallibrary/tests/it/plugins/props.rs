@@ -777,7 +777,7 @@ fn settings_read_back_as_last_set(tc: TestCase) {
         Value::Object(now)
     };
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(7)) {
-        let s = &settings[tc.draw(gs::integers::<usize>().max_value(settings.len() - 1))];
+        let s = &tc.draw(gs::sampled_from(&settings[..]));
         let key = s["key"].as_str().unwrap();
         let kind = s["type"].as_str().unwrap();
         match tc.draw(gs::integers::<u8>().max_value(6)) {
@@ -1229,7 +1229,7 @@ fn analyzers_work_out_each_file_once(tc: TestCase) {
         match tc.draw(gs::integers::<u8>().max_value(7)) {
             0..=2 => {
                 let only = tc.draw(gs::optional(gs::sampled_from(names.clone())));
-                let chosen: Vec<usize> = (0..tracks.len()).filter(|_| tc.draw(gs::booleans())).collect();
+                let chosen: Vec<usize> = tc.draw(gs::subsequences((0..tracks.len()).collect::<Vec<_>>()));
                 let mut args: Vec<String> = vec!["analyze".into(), "USB".into()];
                 match (&only, tc.draw(gs::booleans())) {
                     (Some(a), true) => args.extend(["--analyzer".into(), a.clone()]),
@@ -1558,7 +1558,7 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
             .collect()
     };
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
-        let s0 = &settings[tc.draw(gs::integers::<usize>().max_value(settings.len() - 1))];
+        let s0 = &tc.draw(gs::sampled_from(&settings[..]));
         let key = s0["key"].as_str().unwrap();
         let (good, bad) = json_value(&tc, s0);
         let (value, refused) = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -1637,7 +1637,7 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     assert_eq!(written["files"][0]["bytes"], std::fs::metadata(&out).unwrap().len());
 
     // An analysis of some tracks, read back as `track` shows it.
-    let chosen: Vec<u64> = [1, 2].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let chosen: Vec<u64> = tc.draw(gs::subsequences(&[1, 2][..]));
     let mut analyze = json!({ "plugin": id, "analyzer": "size", "drive": drive });
     if !chosen.is_empty() {
         analyze["tracks"] = json!(chosen);

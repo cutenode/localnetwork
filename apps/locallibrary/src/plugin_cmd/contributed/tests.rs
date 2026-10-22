@@ -373,8 +373,8 @@ fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
 
     // What `--params` gives first: a value for some params, given with flags too or not.
     let base: Option<Map<String, Value>> = tc.draw(gs::weighted_booleans(0.3)).then(|| {
-        let some = params.iter().filter(|_| tc.draw(gs::booleans()));
-        some.map(|p| (p.name.clone(), json!({ "from": "json" }))).collect()
+        let some = tc.draw(gs::subsequences(params.iter().map(|p| p.name.clone()).collect::<Vec<_>>()));
+        some.into_iter().map(|name| (name, json!({ "from": "json" }))).collect()
     });
     let mut args = vec!["go".to_string(), "USB".into()];
     let (named, positional): (Vec<&Param>, Vec<&Param>) = params.iter().partition(|p| p.flag.is_some());

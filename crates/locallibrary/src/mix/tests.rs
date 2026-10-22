@@ -269,8 +269,8 @@ fn transitions_say_how_keys_and_tempos_move() {
     assert_eq!(t.iter().map(|t| (t.from, t.to)).collect::<Vec<_>>(), [(0, 1), (1, 2), (2, 3)]);
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 use loclib_model::test_util::keys;
 
 /// The mix's waveform has a column every quarter second for each series, scaled so its
@@ -313,11 +313,10 @@ fn transitions_follow_the_plays(tc: TestCase) {
     let plays: Vec<Play> = (0..n)
         .map(|i| {
             let start = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0));
-            let key = tc.draw(gs::optional(gs::just(()))).map(|_| tc.draw(keys()).code());
             Play {
                 start,
                 end: start + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(600.0)),
-                played_key: key,
+                played_key: tc.draw(gs::optional(keys().map(Camelot::code))),
                 played_bpm: tc.draw(gs::optional(gs::floats::<f64>().min_value(60.0).max_value(200.0))),
                 ..report::tests::play(track(i as u32, "A", "One", "/Contents/one.wav"))
             }

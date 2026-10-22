@@ -493,10 +493,8 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
     // Loops saved on the track (from, to, and their length in beats as rekordbox measured it).
-    let saved: Vec<_> = [(0, 2_000, Some((4, 1))), (0, 6_000, None), (500, 1_500, Some((1, 2)))]
-        .into_iter()
-        .filter(|_| tc.draw(gs::booleans()))
-        .collect();
+    let saved: Vec<_> =
+        tc.draw(gs::subsequences(&[(0, 2_000, Some((4, 1))), (0, 6_000, None), (500, 1_500, Some((1, 2)))][..]));
     let cues = saved.iter().map(|&(from, to, beats)| Cue { loop_beats: beats, ..cue(None, from, Some(to)) }).collect();
     let (mut app, _dir) = playing(TrackAnalysis { beats, cues, ..Default::default() });
     app.outputs = super::super::audio::tests::OUTPUTS;

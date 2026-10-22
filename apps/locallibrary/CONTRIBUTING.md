@@ -226,6 +226,11 @@ A failure prints the shrunk example and a `#[hegel::reproduce_failure("…")]` l
 locally, failing examples are also kept in `.hegel/` in the crate's folder (ignored by git), under
 the test's path (`it::props_pdb::...`), and tried first next time.
 
+Pick from a list with Hegel's own `gs::sampled_from`, `subsequences`, `permutations` and `optional`
+rather than by drawn index: they shrink better, and an index drawn up to a hard-coded number never
+reaches what's added past it. `pnpm exec ast-grep scan` refuses one (CI runs it in
+`repo-checks.yml`).
+
 CI derandomises the runs, so every pull request tries the same inputs. The scheduled workflow's
 `hegel` job runs the Hegel tests over and over for 40 minutes a shard on fresh ones, and caches the
 failing examples it finds for the next week's run.

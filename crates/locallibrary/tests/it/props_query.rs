@@ -368,9 +368,8 @@ fn sort_orders_round_trip(tc: TestCase) {
 fn sorting_is_stable_and_lexicographic(tc: TestCase) {
     let mut lib = tc.draw(library());
     // Exact copies (but for the id) must keep their relative order.
-    let copies: Vec<Track> =
-        lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).filter(|_| tc.draw(gs::booleans())).collect();
-    lib.tracks.extend(copies);
+    let copies: Vec<Track> = lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).collect();
+    lib.tracks.extend(tc.draw(gs::subsequences(copies)));
     let keys = tc.draw(sort_keys());
 
     let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
@@ -547,13 +546,13 @@ fn numeric_terms_compare_as_written(tc: TestCase) {
         ("bitrate", |t| f64::from(t.bitrate)),
         ("bpm", |t| t.bpm),
     ];
-    let (name, read) = fields[tc.draw(gs::integers::<usize>().max_value(fields.len() - 1))];
+    let (name, read) = tc.draw(gs::sampled_from(&fields));
     // Bounds at a track's own value as often as not, where the operators differ.
     let values: Vec<f64> =
         lib.tracks.iter().map(read).filter(|v| v.fract() == 0.0 && *v >= 0.0 && *v <= 2030.0).collect();
     let bound = |tc: &TestCase| match values.is_empty() || tc.draw(gs::booleans()) {
         true => f64::from(tc.draw(gs::integers::<u16>().max_value(2030))),
-        false => values[tc.draw(gs::integers::<usize>().max_value(values.len() - 1))],
+        false => tc.draw(gs::sampled_from(&values)),
     };
     let (x, y) = (bound(&tc), bound(&tc));
     let tolerance = if name == "bpm" { 0.5 } else { 0.0 };
@@ -624,10 +623,7 @@ fn is_and_has_match_what_they_name(tc: TestCase) {
     ];
     let field = tc.draw(gs::sampled_from(vec!["is", "has"]));
     let mine: Vec<&(&str, &str, Holds)> = all.iter().filter(|(f, _, _)| *f == field).collect();
-    let picked: Vec<usize> = (0..mine.len()).filter(|_| tc.draw(gs::booleans())).collect();
-    if picked.is_empty() {
-        return;
-    }
+    let picked: Vec<usize> = tc.draw(gs::subsequences((0..mine.len()).collect::<Vec<_>>()).min_size(1));
     let values: Vec<&str> = picked.iter().map(|i| mine[*i].1).collect();
     let f = Filter::parse(&format!("{field}:{}", values.join("|"))).unwrap();
     let expected: Vec<bool> = lib.tracks.iter().map(|t| picked.iter().any(|i| (mine[*i].2)(t))).collect();
@@ -647,7 +643,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
         .tracks
         .iter()
         .map(|t| {
-            let mine: Vec<String> = paths.iter().filter(|_| tc.draw(gs::booleans())).map(|p| p.to_string()).collect();
+            let mine: Vec<String> = tc.draw(gs::subsequences(&paths)).into_iter().map(str::to_string).collect();
             (locallibrary::paths::file_key(&t.file_path), mine)
         })
         .collect();

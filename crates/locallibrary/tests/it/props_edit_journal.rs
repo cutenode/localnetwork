@@ -64,7 +64,7 @@ fn the_journal_reads_back_in_every_format_it_has_had(tc: TestCase) {
 #[hegel::test_helper]
 fn draw_tag(tc: &TestCase, files: &[String]) -> TagChange {
     let tag = tc.draw(gs::sampled_from(vec!["Genre/Deep", "Genre/Peak", "Situation/Warm"])).to_string();
-    let tracks: Vec<String> = files.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+    let tracks: Vec<String> = tc.draw(gs::subsequences(files));
     match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 | 1 if !tracks.is_empty() => TagChange::Add { tag, tracks },
         _ => TagChange::Add { tag, tracks: files[..1].to_vec() },
@@ -98,7 +98,7 @@ fn a_replay_makes_my_tag_and_playlist_edits_again_under_one_backup(tc: TestCase)
                 tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
             }
             false => {
-                let picked: Vec<String> = files.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+                let picked: Vec<String> = tc.draw(gs::subsequences(&files));
                 common::apply(&root, &[Edit::SetEntries { playlist: "Shows/Set".into(), paths: picked, create: true }]);
             }
         }

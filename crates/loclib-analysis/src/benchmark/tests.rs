@@ -177,7 +177,7 @@ fn key_reports_add_up(tc: hegel::TestCase) {
             analyzer: tc.draw(gs::sampled_from(vec!["a", "b", "c"])).to_string(),
             track: i.to_string(),
             reference: tc.draw(keys()),
-            estimate: tc.draw(gs::booleans()).then(|| tc.draw(keys())),
+            estimate: tc.draw(gs::optional(keys())),
         })
         .collect();
     let reports = score::<KeyOutcome>(rows.clone());

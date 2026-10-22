@@ -68,16 +68,15 @@ fn group(def: &SettingDef) -> &'static str {
 /// Any time from 1970 to 2100, to the nanosecond (records keep milliseconds).
 #[hegel::test_helper]
 fn time(tc: &TestCase) -> DateTime<Utc> {
-    let secs = tc.draw(gs::integers::<i64>().min_value(0).max_value(4_102_444_800));
-    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
-    DateTime::from_timestamp(secs, nanos).unwrap()
+    let last = DateTime::from_timestamp(4_102_444_800, 999_999_999).unwrap();
+    tc.draw(gs::default::<DateTime<Utc>>().min_value(DateTime::UNIX_EPOCH.naive_utc()).max_value(last.naive_utc()))
 }
 
 /// A setting and one of its values.
 #[hegel::test_helper]
 fn setting(tc: &TestCase) -> (&'static SettingDef, &'static str) {
-    let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-    let choice = def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))].id;
+    let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+    let choice = tc.draw(gs::sampled_from(def.choices)).id;
     (def, choice)
 }
 
@@ -339,13 +338,11 @@ fn document(tc: &TestCase) -> ProfileDocument {
         prep: some().then(|| DocPrep { hot_cues: x(), memory_cues: x(), loops: x() }),
         collection: some().then(|| DocCollection { tracks: count(tc), playlists: count(tc) }),
         style: some().then(|| {
-            profile::STYLE_SETTINGS
-                .iter()
-                .filter(|_| some())
+            tc.draw(gs::subsequences(&profile::STYLE_SETTINGS))
+                .into_iter()
                 .map(|k| {
                     let def = settings::find(k).unwrap();
-                    let c = tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1));
-                    (publish::camel(k), def.choices[c].id.to_string())
+                    (publish::camel(k), tc.draw(gs::sampled_from(def.choices)).id.to_string())
                 })
                 .collect()
         }),
@@ -576,10 +573,11 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
     let set = Set {
         id: tc.draw(tid()),
         title,
-        date: NaiveDate::from_num_days_from_ce_opt(
-            tc.draw(gs::integers::<i32>().min_value(730_000).max_value(740_000)),
-        )
-        .unwrap(),
+        date: tc.draw(
+            gs::default::<NaiveDate>()
+                .min_value(NaiveDate::from_num_days_from_ce_opt(730_000).unwrap())
+                .max_value(NaiveDate::from_num_days_from_ce_opt(740_000).unwrap()),
+        ),
         kind,
         venue,
         city: tc.draw(gs::optional(gs::text().max_size(12))),
