@@ -73,10 +73,12 @@ fn a_drive_is_built_from_a_library_source() {
     {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
+    // Not echoed on failure: CodeQL takes a toast written after a plan's apply for something
+    // secret.
     say_yes(&mut app);
     let library = locallibrary::Device::open(&root).unwrap().library().unwrap();
     let titles: Vec<&str> = library.tracks.iter().map(|t| t.title.as_str()).collect();
-    assert_eq!(titles, ["a"], "{}", last_message(&app));
+    assert_eq!(titles, ["a"], "built from the folder");
 }
 
 /// The folder a property test's drives are mounted in, with [`sourcing`]'s plugin, and its
@@ -188,6 +190,7 @@ fn a_drive_is_built_from_a_source_once_confirmed(tc: TestCase) {
         assert_eq!((last_message(&app), titles()), ("nothing written", before));
         return;
     }
+    // Not echoed on failure, as above.
     say_yes(&mut app);
-    assert_eq!(titles(), ["a"], "{}", last_message(&app));
+    assert_eq!(titles(), ["a"], "built from the music folder");
 }

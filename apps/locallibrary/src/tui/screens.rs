@@ -14,7 +14,7 @@ use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 use locallibrary::{Ctx, Device, Store};
 use ratatui::crossterm::event::KeyCode;
 
-use super::app::testing::{demo_drive, key, overlay, set, wait};
+use super::app::testing::{demo_drive, just_now, key, overlay, set, wait};
 use super::app::{App, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
@@ -261,6 +261,8 @@ fn help_and_messages() {
     );
     key(&mut app, KeyCode::Char('x'));
     app.toast("added 2 to the crate", super::app::Level::Info);
+    // (Said just now, however long the screens below take to draw.)
+    app.log.back_mut().unwrap().2 = just_now();
     key(&mut app, KeyCode::Char('!'));
     check(&mut app, "the messages", &["Messages", "added 2 to the crate", "just now"], &[]);
 }

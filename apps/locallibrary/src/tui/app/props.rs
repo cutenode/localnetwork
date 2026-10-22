@@ -367,9 +367,8 @@ fn background_results_land_where_they_belong(tc: TestCase) {
         let l = app.loaded.as_ref().unwrap();
         (l.root().to_path_buf(), l.generation, l.library.tracks.len())
     };
-    // The volumes are polled only when a step asks (the clock would otherwise decide).
-    let later = Instant::now() + Duration::from_secs(3600);
-    app.last_volume_poll = later;
+    // The volumes are polled only when a step asks, and held off again after it, as they start.
+    let later = just_now();
     let (mut failing, mut failures, mut unplugs, mut stale) = (false, 0, 0, false);
     let record = LibraryRecord {
         id: Uuid::nil(),
@@ -757,8 +756,6 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         }
     }
     app.outputs = super::super::audio::tests::OUTPUTS;
-    // (The drive is a folder of files, which a poll of the volumes would take for unplugged.)
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
     app.deck.output = tc.draw(gs::sampled_from(&[None, Some("Phones"), Some("Old Speakers")][..])).map(String::from);
     let root = app.queue.root.clone();
     // The plays broken on purpose.

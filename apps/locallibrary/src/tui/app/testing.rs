@@ -374,6 +374,19 @@ pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }
 
+/// A time that reads as just now however long the test runs after it (a loaded machine can
+/// stall one for seconds between two lines): an hour ahead, its `elapsed()` is zero.
+pub fn just_now() -> Instant {
+    Instant::now() + Duration::from_secs(3600)
+}
+
+/// The confirmation up now, as right as it appeared: it ignores keys however long the test
+/// took since.
+pub fn just_shown(app: &mut App) {
+    let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation") };
+    c.shown = just_now();
+}
+
 /// The confirmation up now, once planned, as the plan's operation and first summary line.
 #[track_caller]
 pub fn confirming(app: &mut App) -> (String, String) {
@@ -389,15 +402,25 @@ pub fn confirming(app: &mut App) -> (String, String) {
 pub fn settle(app: &mut App) {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation: {:?}", app.toast) };
-    c.shown -= Duration::from_secs(1);
+    c.shown = Instant::now() - Duration::from_secs(1);
 }
 
-/// Say yes to the confirmation, and wait for the write and the reads after it.
+/// Say yes to the confirmation, and wait for the write and the reads after it. See [`written`].
 #[track_caller]
-pub fn say_yes(app: &mut App) {
+pub fn say_yes(app: &mut App) -> String {
     settle(app);
     press(app, "y");
+    written(app)
+}
+
+/// Wait for the write under way and the reads after it, answering what the write said as it
+/// finished: the reads can take longer than its message stays on screen.
+#[track_caller]
+pub fn written(app: &mut App) -> String {
+    wait(app, |a| a.job.is_none());
+    let said = last_message(app).to_owned();
     wait(app, |a| a.job.is_none() && a.loading.is_none());
+    said
 }
 
 /// Values made-up tracks' fields take, each with ties: some the same but for case or spacing,
@@ -497,12 +520,6 @@ impl locallibrary::op::AnyPlanned for Plan {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-/// Poll the volumes only when a test asks: a test's drive is a folder of files, which a poll
-/// (once a second, as the background is waited for) takes for an unplugged drive.
-pub fn hold_volume_polls(app: &mut App) {
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
 }
 
 /// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format

@@ -55,8 +55,8 @@ fn takes_a_tag_off_and_offers_it_for_another_track() {
     assert!(choices(&mut app).iter().any(|c| c == "take Genre/Techno off"));
     press(&mut app, "take techno\n");
     assert_eq!(confirming(&mut app).0, "tags");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("My Tags changed on 1 track"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("My Tags changed on 1 track"), "{said}");
     let tags = locallibrary::api::tags_list(&DriveRef { drive: root.display().to_string() }).unwrap();
     let techno = tags.categories.iter().flat_map(|c| &c.tags).find(|t| t.path == "Genre/Techno").unwrap();
     assert!(techno.tracks.is_empty(), "{techno:?}");

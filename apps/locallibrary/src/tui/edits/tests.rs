@@ -664,8 +664,10 @@ fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
     let mut scroll: u16 = 0;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
         let settled = tc.draw(gs::booleans());
-        if let Some(Modal::Confirm(c)) = &mut app.modal {
-            c.shown = if settled { Instant::now() - Duration::from_secs(1) } else { Instant::now() };
+        // (Unsettled, it's up for no time yet however long the draw below takes.)
+        just_shown(&mut app);
+        if settled && let Some(Modal::Confirm(c)) = &mut app.modal {
+            c.shown = Instant::now() - Duration::from_secs(1);
         }
         let code = tc.draw(gs::sampled_from(
             &[

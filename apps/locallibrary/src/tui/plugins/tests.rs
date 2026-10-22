@@ -434,9 +434,9 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
     for needle in ["Write to ", "Echo: make the playlist Plugged", "+ Plugged", "y write", "u takes this back"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    say_yes(&mut app);
+    let said = say_yes(&mut app);
     // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
-    assert!(last_message(&app).contains("u to undo"));
+    assert!(said.contains("u to undo"));
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
@@ -820,8 +820,7 @@ fn an_export_is_planned_confirmed_and_written() {
     for needle in ["Write 1 file?", "2 tracks", "list.m3u  playlist,", "y write"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
 
     // There already: asked about as overwriting, and left be on a no.
@@ -1939,8 +1938,7 @@ fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
         assert_eq!((last_message(&app), was(&out)), ("nothing written", left));
         return;
     }
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     let written = was(&out).unwrap();
     assert!(written.starts_with("#EXTM3U\n"), "{written}");
     for t in &app.loaded.as_ref().unwrap().library.tracks {

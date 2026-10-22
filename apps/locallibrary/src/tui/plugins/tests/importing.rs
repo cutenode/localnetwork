@@ -46,8 +46,7 @@ fn an_import_is_planned_confirmed_and_made() {
     let (operation, summary) = confirming(&mut app);
     assert_eq!(operation, "echo.import.lines");
     assert!(summary.starts_with("import 1 of 1 track(s) found on"), "{summary}");
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 change written, 0 sessions kept · u to undo");
+    assert_eq!(say_yes(&mut app), "Echo: 1 change written, 0 sessions kept · u to undo");
     import(&mut app, &list);
     wait(&mut app, |a| a.job.is_none());
     assert!(last_message(&app).contains("nothing to change"));
@@ -100,8 +99,7 @@ fn a_sets_format_writes_out_the_set_open() {
     press(&mut app, "\n");
     let (operation, _) = confirming(&mut app);
     assert_eq!(operation, "echo.export.sheet");
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     assert!(out.is_file());
 }
 
@@ -218,13 +216,12 @@ fn any_import_is_planned_and_made_as_its_form_says(tc: TestCase) {
         assert_eq!((tags(&drive.0), store().unwrap_or(0)), (0, 0), "declined, nothing's written");
         return;
     }
-    say_yes(&mut app);
+    let said = say_yes(&mut app);
     assert_eq!((tags(&drive.0), store().unwrap_or(0)), (tagged.len(), sessions.len()));
     let kept = match sessions.len() {
         1 => "1 session kept".to_string(),
         n => format!("{n} sessions kept"),
     };
-    let said = last_message(&app);
     assert!(said.starts_with("Echo: "));
     assert!(said.contains(&kept));
     assert_eq!(said.ends_with(" · u to undo"), !tagged.is_empty(), "undone with u when the drive was written");
@@ -276,8 +273,7 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     press(&mut app, "\n");
     let (operation, _) = confirming(&mut app);
     assert_eq!(operation, "echo.export.sheet");
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     let lines: String = open.tracks.iter().map(|t| format!("{} - {}\n", t.artist, t.title)).collect();
     assert_eq!(std::fs::read_to_string(&out).unwrap(), lines, "the set open, not another");
 }
