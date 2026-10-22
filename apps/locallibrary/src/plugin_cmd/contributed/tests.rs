@@ -141,7 +141,8 @@ fn options_take_their_schemas_types() {
             "root": { "type": "string", "x-path": true },
         },
     });
-    let given = |pairs: &[&str]| options(Some(&schema), &pairs.iter().map(|p| p.to_string()).collect::<Vec<_>>());
+    let given =
+        |pairs: &[&str]| options("format", Some(&schema), &pairs.iter().map(|p| p.to_string()).collect::<Vec<_>>());
     let o = given(&["level=2", "loud=yes", "lists=a", "lists=b"]).unwrap();
     assert_eq!(o, json!({ "level": 2, "loud": true, "lists": ["a", "b"] }));
     assert!(Path::new(given(&["root=out"]).unwrap()["root"].as_str().unwrap()).is_absolute());
@@ -541,7 +542,7 @@ fn options_drawn_from_a_schema_are_typed_or_refused(tc: hegel::TestCase) {
         }
         _ => None,
     };
-    let got = options(Some(&schema), &typed);
+    let got = options("format", Some(&schema), &typed);
     match refused {
         Some(message) => assert_eq!(got.unwrap_err().to_string(), message),
         None => assert_eq!(got.unwrap(), Value::Object(expected), "{typed:?}"),

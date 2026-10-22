@@ -1,19 +1,21 @@
 //! `locallibrary export`: playlists, folders, history lists or a whole library as M3U8, CSV or
 //! text, or in a format a plugin adds (the interop plugin's for other DJ software: `--format
-//! traktor|serato|engine`).
+//! traktor|serato|engine`). A plugin's formats for sets and mixes are `sets export`'s and `mix`'s,
+//! written out the same way ([`plugin_export`]).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Args, ValueEnum};
+use locallibrary::Store;
 use locallibrary::api;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::op::Planned;
 use locallibrary::plugin::{ExportFile, PluginExport};
 use locallibrary::progress::Ctx;
-use loclib_plugin::ExportSource;
+use loclib_plugin::{ExportFrom, ExportSource};
 
 use crate::output::{Outcome, Output, bytes, dim, ok, warn};
 
@@ -97,12 +99,17 @@ impl From<PathsArg> for PathStyle {
     }
 }
 
-/// `--format`'s values: the list formats, and those plugins add.
+/// `--format`'s values: the list formats, and those plugins add for a drive's library.
 fn formats() -> PossibleValuesParser {
     let own = FormatArg::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+    PossibleValuesParser::new(own.chain(plugin_formats(ExportFrom::Drive)).collect::<Vec<_>>())
+}
+
+/// The formats plugins add for what `source` is, as a `--format` takes them.
+pub(crate) fn plugin_formats(source: ExportFrom) -> Vec<PossibleValue> {
     let plugins = crate::plugins::checked().into_iter().flat_map(|p| p.manifests());
-    let added = plugins.flat_map(|m| &m.contributes.exporters).map(|e| PossibleValue::new(&e.format).help(&e.title));
-    PossibleValuesParser::new(own.chain(added).collect::<Vec<_>>())
+    let added = plugins.flat_map(|m| &m.contributes.exporters).filter(|e| e.source == source);
+    added.map(|e| PossibleValue::new(&e.format).help(&e.title)).collect()
 }
 
 pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -141,8 +148,7 @@ pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>
     Ok(ExitCode::SUCCESS)
 }
 
-/// A plugin's format: the plugin says which files it would write, overwriting any is asked about
-/// first (unless `--replace`), then it writes them.
+/// A plugin's format, for a drive's library.
 fn run_plugin(
     format: String,
     args: ExportArgs,
@@ -153,36 +159,59 @@ fn run_plugin(
     if args.split || args.paths != PathsArg::Relative {
         bail!("--split and --paths are for locallibrary's own formats");
     }
-    let plugins = crate::plugins::host()?;
-    let (plugin, exporter) = plugins
-        .manifests()
-        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
-        .expect("--format takes the formats there are");
-    let options = crate::plugin_cmd::options(exporter.options.as_ref(), &args.options)?;
     let source = ExportSource {
         drive: args.drive,
         playlists: args.playlist.into_iter().collect(),
         history: args.history.into_iter().collect(),
         ..ExportSource::default()
     };
-    let output = std::path::absolute(&args.output)?;
     let store = crate::diff_cmd::existing_store(store)?;
-    let plan = plugins.export_plan(plugin, &format, source, &output, options, store.as_ref(), ctx)?;
+    let written =
+        Written { output: &args.output, options: &args.options, dry_run: args.dry_run, replace: args.replace };
+    plugin_export(&format, source, written, store.as_ref(), out, ctx)
+}
+
+/// Where a plugin's export goes and how: its `-o`, its `--option`s, `--dry-run` and `--replace`.
+pub(crate) struct Written<'a> {
+    pub output: &'a Path,
+    pub options: &'a [String],
+    pub dry_run: bool,
+    pub replace: bool,
+}
+
+/// A plugin's format (`--format`), for what `source` names: the plugin says which files it would
+/// write, overwriting any is asked about first (unless `--replace`), then it writes them.
+pub(crate) fn plugin_export(
+    format: &str,
+    source: ExportSource,
+    w: Written<'_>,
+    store: Option<&Store>,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let plugins = crate::plugins::host()?;
+    let (plugin, exporter) = plugins
+        .manifests()
+        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
+        .expect("--format takes the formats there are");
+    let options = crate::plugin_cmd::options("format", exporter.options.as_ref(), w.options)?;
+    let output = std::path::absolute(w.output)?;
+    let plan = plugins.export_plan(plugin, format, source, &output, options, store, ctx)?;
     if !out.json {
         render_export(&plan);
     }
     if plan.noop {
         return Ok(out.nothing(&plan, "nothing to write"));
     }
-    let stop = match args.dry_run {
+    let stop = match w.dry_run {
         true => Some(Outcome::DryRun),
-        false if plan.destructive && !args.replace => out.decide(false, "Overwrite them?"),
+        false if plan.destructive && !w.replace => out.decide(false, "Overwrite them?"),
         false => None,
     };
     if let Some(o) = stop {
         return Ok(out.not_applied(&plan, o));
     }
-    let report = plan.apply(store.as_ref(), ctx)?;
+    let report = plan.apply(store, ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
         // Those the plan showed aren't said again.
         for w in report.warnings.iter().filter(|w| !plan.warnings.contains(w)) {

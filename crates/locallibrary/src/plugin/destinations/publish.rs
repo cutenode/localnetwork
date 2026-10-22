@@ -1,0 +1,167 @@
+//! Publishing a set at a plugin's set destination (`set/publish`): planned with a dry run, which
+//! says what would happen and publishes nothing, then applied once the user confirms (publishing
+//! reaches outside this computer, so it's always asked). The plugin answers where the set can be
+//! heard, and the host keeps that as the set's link.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Weak};
+
+use chrono::{DateTime, Utc};
+use loclib_plugin::{DestinationKind, PublishSet, Published, PublishedSet, TracklistEntry, method};
+use schemars::JsonSchema;
+use serde::Serialize;
+
+use super::super::Plugins;
+use super::super::process::Slot;
+use crate::op::{Operation, Planned, Probe, Touched};
+use crate::progress::Ctx;
+use crate::sets::{Set, SetBook};
+use crate::store::Store;
+use crate::{Error, Result};
+
+/// A set a plugin will publish, as its dry run said.
+#[derive(Serialize, JsonSchema)]
+pub struct SetPublish {
+    pub plugin: String,
+    pub destination: String,
+    /// The set, by id.
+    pub set: String,
+    /// Its recording, on this computer, which goes too.
+    pub recording: PathBuf,
+    pub tracks: usize,
+    /// Where it would be, when the dry run said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The link the set has now, which publishing replaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    publish: PublishSet,
+    /// When the set was last changed: a set changed since is planned again.
+    #[serde(skip)]
+    #[schemars(skip)]
+    updated_at: DateTime<Utc>,
+    /// The plugin, while it's hosted: a plan kept doesn't keep it.
+    #[serde(skip)]
+    #[schemars(skip)]
+    slot: Weak<Slot>,
+}
+
+/// What publishing a set did.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SetPublished {
+    pub set: String,
+    /// Where it can be heard, which is the set's link now; none when the plugin didn't say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// The set as it's published: its details and tracklist, never its notes, and tracks the DJ
+/// publishes without naming them as only their place.
+fn published(set: &Set) -> (PublishedSet, Vec<TracklistEntry>) {
+    let details = PublishedSet {
+        id: set.id.clone(),
+        date: set.date.to_string(),
+        title: set.title.clone(),
+        kind: set.kind.clone(),
+        venue: set.venue.clone(),
+        city: set.city.clone(),
+        country: set.country.clone(),
+    };
+    let named = |e: &crate::sets::SetEntry, text: &str| (!e.unnamed).then(|| text.to_string());
+    let tracklist = set
+        .tracks
+        .iter()
+        .map(|e| TracklistEntry {
+            artist: named(e, &e.artist),
+            title: named(e, &e.title),
+            start_seconds: e.start_seconds,
+        })
+        .collect();
+    (details, tracklist)
+}
+
+impl Plugins {
+    /// Plans publishing the set `set` names (see [`SetBook::find`]) with its recording at the
+    /// set destination `spec` names (`<plugin>:<destination>`): the plugin's dry run says what
+    /// would happen, publishing nothing. The plan (operation `<plugin>.publish.<destination>`) is
+    /// stale once the set or its recording changes, and destructive when the set has a link
+    /// already, which publishing replaces.
+    pub fn publish_plan(&self, spec: &str, set: &str, store: &Store, ctx: &Ctx<'_>) -> Result<Planned<SetPublish>> {
+        let (slot, destination) = self.destination(spec, DestinationKind::Set)?;
+        let book = SetBook::load(store)?;
+        let set = book.find(set)?;
+        let recording = set.recording.as_ref().map(|r| r.path.clone()).ok_or_else(|| {
+            Error::invalid(format!("{} has no recording to publish: a set destination publishes one", set.heading()))
+        })?;
+        if !recording.is_file() {
+            return Err(Error::NotFound(format!("{}, the set's recording", recording.display())));
+        }
+        let (details, tracklist) = published(set);
+        let (context, _) = slot.context(loclib_plugin::Context::default(), Some(store))?;
+        let mut publish =
+            PublishSet { destination: destination.clone(), set: details, recording, tracklist, dry_run: true, context };
+        let Published { url, warnings } = slot.call(method::SET_PUBLISH, &publish, Some(store), ctx)?;
+        publish.dry_run = false;
+        let title =
+            &slot.manifest.contributes.destinations.iter().find(|d| d.name == destination).expect("declared").title;
+        let mut summary =
+            vec![format!("publish {} ({} tracks) and its recording at {title}", set.heading(), set.tracks.len())];
+        summary.extend(url.as_ref().map(|u| format!("it would be at {u}")));
+        let replaces = set.link.clone();
+        summary.extend(replaces.as_ref().map(|l| format!("replace its link {l}")));
+        let file = publish.recording.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let folder = publish.recording.parent().unwrap_or(&publish.recording).to_path_buf();
+        let plan = SetPublish {
+            plugin: slot.manifest.id.clone(),
+            destination: destination.clone(),
+            set: set.id.clone(),
+            recording: publish.recording.clone(),
+            tracks: set.tracks.len(),
+            url,
+            replaces,
+            publish,
+            updated_at: set.updated_at,
+            slot: Arc::downgrade(slot),
+        };
+        let destructive = plan.replaces.is_some();
+        Ok(Planned::new(format!("{}.publish.{destination}", plan.plugin), plan, ())
+            .summary(summary)
+            .warnings(warnings)
+            .destructive(destructive)
+            .touches(Touched::path(&folder, false, vec![Probe::Stamp(vec![file])])))
+    }
+}
+
+impl Operation for SetPublish {
+    type Request = ();
+    type Report = SetPublished;
+
+    /// Has the plugin publish the set, then keeps where it says it can be heard as the set's
+    /// link: an https address, or none.
+    fn apply(planned: &Planned<Self>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<SetPublished> {
+        let p = &planned.plan;
+        let store = store.ok_or_else(|| Error::invalid("publishing a set needs the store"))?;
+        let unchanged = SetBook::load(store)?.find(&p.set).is_ok_and(|s| s.updated_at == p.updated_at);
+        if !unchanged {
+            return Err(Error::stale(format!("set {}", p.set), "changed"));
+        }
+        let slot = p.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", p.plugin), "stopped"))?;
+        let Published { url, warnings } = slot.call(method::SET_PUBLISH, &p.publish, Some(store), ctx)?;
+        if let Some(url) = &url {
+            crate::opener::web_address(url).map_err(|_| {
+                slot.misbehaved(format!("it says the set is at {url:?}, which isn't an https:// address"))
+            })?;
+            let _lock = store.lock()?;
+            let mut book = SetBook::load(store)?;
+            let set = book.find_mut(&p.set)?;
+            set.link = Some(url.clone());
+            set.updated_at = Utc::now();
+            book.save(store)?;
+        }
+        Ok(SetPublished { set: p.set.clone(), url, warnings })
+    }
+}

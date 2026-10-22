@@ -46,16 +46,16 @@ fn ready_drives_pass_and_problems_are_named() {
     assert_eq!(r.drives, ["A", "B"]);
     assert_eq!(r.problems, 0, "{r:#?}");
     assert!(r.ok());
-    assert_eq!(level(&r, "B", "same_library"), Level::Ok);
+    assert_eq!(level(&r, "B", "same_library"), Level::Info);
     // B is a copy of what the store holds for A: its history is safe too.
-    assert_eq!(level(&r, "A", "history"), Level::Ok);
-    assert_eq!(level(&r, "B", "history"), Level::Ok);
-    assert_eq!(level(&r, "A", "interrupted"), Level::Ok);
-    assert_eq!(level(&r, "A", "databases"), Level::Ok);
-    assert_eq!(level(&r, "A", "players"), Level::Ok);
+    assert_eq!(level(&r, "A", "history"), Level::Info);
+    assert_eq!(level(&r, "B", "history"), Level::Info);
+    assert_eq!(level(&r, "A", "interrupted"), Level::Info);
+    assert_eq!(level(&r, "A", "databases"), Level::Info);
+    assert_eq!(level(&r, "A", "players"), Level::Info);
     // The placeholder audio is smaller than export.pdb recorded, but doesn't open as audio, so
     // nothing says it was cut short.
-    assert_eq!(level(&r, "A", "files"), Level::Ok);
+    assert_eq!(level(&r, "A", "files"), Level::Info);
     let first = r.items.iter().position(|i| i.drive == "B").unwrap();
     assert!(r.items[..first].iter().all(|i| i.drive == "A"), "grouped by drive");
 
@@ -74,7 +74,7 @@ fn ready_drives_pass_and_problems_are_named() {
     assert_eq!(level(&r, "B", "interrupted"), Level::Problem);
     assert_eq!(level(&r, "A", "history"), Level::Warning);
     // B changed since the pull, but its only history list is in the store.
-    assert_eq!(level(&r, "B", "history"), Level::Ok);
+    assert_eq!(level(&r, "B", "history"), Level::Info);
     assert_eq!(level(&r, "A", "players"), Level::Problem);
     let msg = &r.items.iter().find(|i| i.drive == "B" && i.check == "files").unwrap().message;
     assert!(msg.contains("1 track(s) have no audio file"), "{msg}");
@@ -90,7 +90,7 @@ fn drifting_databases_and_bad_requests() {
     let r = api::check(None, &req(vec![a.display().to_string()]), &Ctx::silent()).unwrap();
     assert_eq!(level(&r, "A", "databases"), Level::Problem);
     // No history lists, so nothing to keep.
-    assert_eq!(level(&r, "A", "history"), Level::Ok);
+    assert_eq!(level(&r, "A", "history"), Level::Info);
 
     let blank = dir.path().join("Blank");
     fs::create_dir(&blank).unwrap();
@@ -199,8 +199,8 @@ fn remembered_players_and_drives_with_one_database() {
     let r = api::check(Some(&store), &req, &Ctx::silent()).unwrap();
     assert_eq!(r.players[0].from, PlayersFrom::Default);
     assert_eq!(r.players[0].models, ["CDJ-2000NXS2"]);
-    assert_eq!(level(&r, "A", "players"), Level::Ok);
-    assert_eq!(level(&r, "A", "formats"), Level::Ok);
+    assert_eq!(level(&r, "A", "players"), Level::Info);
+    assert_eq!(level(&r, "A", "formats"), Level::Info);
 
     // ...and for the drive's own library, which wins.
     let library = store.libraries().unwrap().remove(0);
@@ -294,7 +294,7 @@ fn retagged_audio_isnt_cut_short() {
     export_track(&a, "shrunk.wav", 8_000, 16, 30, size + 4096, &whole);
     let req = CheckRequest { drives: vec![a.display().to_string()], options: CheckOptions::default() };
     let r = api::check(None, &req, &Ctx::silent()).unwrap();
-    assert_eq!(level(&r, "A", "files"), Level::Ok, "{r:#?}");
+    assert_eq!(level(&r, "A", "files"), Level::Info, "{r:#?}");
     let options = DoctorOptions { only: vec![Section::Missing], ..Default::default() };
     let report = api::doctor(&api::DoctorRequest { drive: a.display().to_string(), options }, &Ctx::silent()).unwrap();
     assert_eq!(report.missing.unwrap().len(), 0);

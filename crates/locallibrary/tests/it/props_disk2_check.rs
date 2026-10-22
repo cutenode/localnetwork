@@ -73,7 +73,7 @@ fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
         (0, _) => assert!(loudness.is_empty() && r.loudness.is_empty(), "{loudness:?}"),
         (n, 0) => {
             assert_eq!(loudness.len(), 1);
-            assert_eq!(loudness[0].0, Level::Ok);
+            assert_eq!(loudness[0].0, Level::Info);
             assert!(loudness[0].1.starts_with(&format!("none of the {n} analysed track(s)")), "{loudness:?}");
             assert!(r.loudness.is_empty());
         }
@@ -149,14 +149,14 @@ fn a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase
     let packed = items(&r, "A", "same_library");
     let [(level, message)] = packed.as_slice() else { panic!("{packed:?}") };
     assert!(message.starts_with("B is packed from A (Packed)"), "{message}");
-    assert_eq!(*level == Level::Ok, !moved_on, "{message}");
+    assert_eq!(*level == Level::Info, !moved_on, "{message}");
     if moved_on {
         assert!(message.contains("`locallibrary pack A B`"), "{message}");
     }
 
     let history = items(&r, "A", "history");
     let [(level, message)] = history.as_slice() else { panic!("{history:?}") };
-    assert_eq!(*level, Level::Ok, "{message}");
+    assert_eq!(*level, Level::Info, "{message}");
     let snapshot = message.contains("saved in snapshot");
     assert_eq!(snapshot, !moved_on, "{message}");
     if moved_on {
@@ -164,6 +164,6 @@ fn a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase
     }
     if copied {
         let history = items(&r, "C", "history");
-        assert_eq!(history.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Level::Ok], "{history:?}");
+        assert_eq!(history.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Level::Info], "{history:?}");
     }
 }

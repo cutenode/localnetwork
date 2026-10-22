@@ -23,16 +23,26 @@ pub struct Feature {
 /// Every feature this side knows, in the order `hello` lists them (a family's placed as
 /// `crate::hooks` says).
 pub const FEATURES: &[Feature] = &[
+    hooks::accounts::FEATURE,
+    hooks::analysis::FEATURE,
     hooks::commands::FEATURE,
+    hooks::destinations::FEATURE,
     hooks::events::FEATURE,
     hooks::operations::FEATURE,
+    hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
+    hooks::checks::FEATURE,
     hooks::exporters::FEATURE,
+    hooks::importers::FEATURE,
     hooks::providers::FEATURE,
     hooks::services::FEATURE,
+    hooks::sources::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },
     // A view command's or an operation's question for the user (`View::Choose`, `{"choose": ...}`).
     Feature { name: "choose", methods: &[], sends: &[], contributed: |_| false },
+    // What a view may be besides a list, a table of plain columns, labelled values and text: a
+    // tree, a chart, an image, sections, and a table's typed columns.
+    Feature { name: "views", methods: &[], sends: &[], contributed: |_| false },
 ];

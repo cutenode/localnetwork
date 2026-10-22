@@ -662,6 +662,21 @@ export type Edit =
     tracks: TrackSelector;
     image: ImageSource;
     op: "set_artwork";
+  }
+  /**
+   * Write a beat grid, phrases or a waveform into the analysis files of the track of this
+   * audio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the
+   * track's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the
+   * drive.
+   */
+  | {
+    track: string;
+    /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
+    beats?: Beat[] | null;
+    /** The phrases, named as the track's mood names them. */
+    phrases?: SongStructure | null;
+    waveform?: WaveSource | null;
+    op: "set_analysis";
   };
 
 /**
@@ -764,22 +779,31 @@ export type TagChange = {
  * by its audio file (a device path), like the tracks edited, so a replay on a later export, where
  * ids differ, finds them.
  */
-export type CueChange = {
-  set: SetCue;
-} | {
-  update: UpdateCue;
-} | {
-  delete: CueRef;
-} | {
-  copy: {
-    from: string;
+export type CueChange =
+  | {
+    set: SetCue;
+  }
+  /** Several cues set in turn, each as `set` sets one (what an import adds to a track). */
+  | {
+    set_many: SetCue[];
+  }
+  | {
+    update: UpdateCue;
+  }
+  | {
+    delete: CueRef;
+  }
+  | {
+    copy: {
+      from: string;
+    };
+  }
+  | {
+    carry: {
+      from: string;
+      shift_ms: number;
+    };
   };
-} | {
-  carry: {
-    from: string;
-    shift_ms: number;
-  };
-};
 
 /**
  * Add a cue, or replace the hot cue in its slot (or the memory cue at its position). A replaced
@@ -852,6 +876,61 @@ export type ImageSource =
 
 /** A BLAKE3 hash, as 64 lowercase hex characters. */
 export type Hash = string;
+
+export type Beat = {
+  /** Position in the bar, 1-4. */
+  beat_number: number;
+  bpm: number;
+  time_ms: number;
+};
+
+/** rekordbox's phrase analysis (`PSSI`, in `.EXT`). */
+export type SongStructure = {
+  mood: Mood;
+  phrases: Phrase[];
+};
+
+/** rekordbox's overall classification of a track, which decides how phrases are named. */
+export type Mood = "high" | "mid" | "low";
+
+export type Phrase = {
+  kind: PhraseKind;
+  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
+  start_beat: number;
+  end_beat: number;
+  /** Beat where a fill-in leads into the next phrase. */
+  fill_beat?: number | null;
+};
+
+export type PhraseKind =
+  | ("intro" | "bridge" | "chorus" | "outro")
+  /** Build-ups, in high-mood tracks. */
+  | "up"
+  /** Breakdowns, in high-mood tracks. */
+  | "down"
+  | {
+    verse: number;
+  }
+  | {
+    unknown: number;
+  };
+
+/**
+ * A waveform an analysis edit writes: three bands, each column's lows, mids and highs (0-255),
+ * 150 columns a second ([`Bands`]), from which each of the track's waveform tags is worked out.
+ */
+export type WaveSource =
+  /** The bands packed (three bytes a column), in base64. */
+  | {
+    base64: string;
+  }
+  /**
+   * Staged on the drive (`.locallibrary/waveforms/<hash>.bands`), by its hash: how the journal
+   * records the others.
+   */
+  | {
+    staged: Hash;
+  };
 
 export type ClearEdits = {
   drive: string;
@@ -1278,6 +1357,8 @@ export type DoctorRequest = {
 
 export type DoctorSection =
   | ("duplicates" | "missing" | "orphans" | "unfiled" | "drift" | "large_files" | "compatibility")
+  /** What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`]). */
+  | "checks"
   /**
    * Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
    * naming it): it reads every file's last seconds.
@@ -1925,13 +2006,21 @@ export type ReferenceKind =
   | "history";
 
 /** Where a damaged or missing file can be rewritten from. */
-export type RepairSource = {
-  from: "store";
-} | {
-  name: string;
-  root: string;
-  from: "drive";
-};
+export type RepairSource =
+  | {
+    from: "store";
+  }
+  | {
+    name: string;
+    root: string;
+    from: "drive";
+  }
+  /** The copy of the store at a plugin's destination, from which it's fetched into the store. */
+  | {
+    plugin: string;
+    destination: string;
+    from: "destination";
+  };
 
 export type FsCheckRequest = {
   drive: string;
@@ -2167,6 +2256,52 @@ export type SetPluginSetting = {
   value?: unknown;
 };
 
+export type AccountRef = {
+  plugin: string;
+  /** The account's id, as the plugin's manifest has it. */
+  account: string;
+};
+
+export type FinishSignIn = {
+  /** What `plugins.account.sign_in.begin` answered. */
+  id: string;
+  /** How long to wait for the browser (default 300, an hour at most). */
+  timeout_secs?: number | null;
+};
+
+export type PasteSignIn = {
+  id: string;
+  /** The address the browser ended up on after approving. */
+  url: string;
+};
+
+export type CancelSignIn = {
+  id: string;
+};
+
+/** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
+export type ApplyAnalysis = {
+  plugin: string;
+  analyzer: string;
+  /** The library or drive whose tracks to write to. */
+  drive: string;
+  /** What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`. */
+  parts: AnalysisPart[];
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[] | null;
+  /** Also over what a track's analysis files have: without it, only where they have none. */
+  overwrite?: boolean;
+};
+
+/** A part of a track's analysis an analyzer can work out. */
+export type AnalysisPart =
+  /** The beat grid (a `beats` field). */
+  | "grid"
+  /** The phrases (a `phrases` field). */
+  | "phrases"
+  /** The waveform (a `waveform` field). */
+  | "waveform";
+
 export type RunPluginCommand = {
   plugin: string;
   command: string;
@@ -2183,6 +2318,51 @@ export type PluginContext = {
   playlist?: string | null;
   /** The tracks they chose, by id. */
   tracks?: number[];
+  /** The set they're on, by id (`sets.list`). */
+  set?: string | null;
+};
+
+export type CopyTo = {
+  /** `<plugin>:<destination>`: one of a plugin's store destinations. */
+  destination: string;
+  /** Copy over a copy that has snapshots the store doesn't, or that's another store's. */
+  force?: boolean;
+  /** Say what would be copied, and copy nothing. */
+  dry_run?: boolean;
+};
+
+export type RestoreFrom = {
+  destination: string;
+  /** Libraries to bring back, by name or id. Empty: all of them. */
+  libraries?: string[];
+  /** Say what would be fetched, and fetch nothing. */
+  dry_run?: boolean;
+};
+
+export type VerifyFrom = {
+  /** Whose good copies the files the store and the drives lack are offered from. */
+  destination: string;
+  drive: string;
+  /** Compare with this snapshot (id prefix) [default: the snapshot of the drive's state]. */
+  snapshot?: string | null;
+  /** Other mounted drives that may hold good copies. */
+  against?: string[];
+};
+
+export type RepairFrom = {
+  /** Whose good copies are fetched into the store first. */
+  destination: string;
+  drive: string;
+  /** The problems a [`drive_verify`] found (each is checked again before anything is written). */
+  problems: FileProblem[];
+  against?: string[];
+};
+
+export type PublishSetAt = {
+  /** `<plugin>:<destination>`: one of a plugin's set destinations. */
+  destination: string;
+  /** The set: its id (or the start of it), title or day, or `last`. */
+  set: string;
 };
 
 export type PlanPluginOp = {
@@ -2193,22 +2373,51 @@ export type PlanPluginOp = {
   context: PluginContext;
 };
 
+export type RenderPluginPanel = {
+  plugin: string;
+  /** One of the plugin's panels (`plugins.describe`). */
+  panel: string;
+  /** A library's name, or a drive's mount path, name or id prefix. */
+  drive: string;
+  /** The track, by id. */
+  track: number;
+};
+
 export type PlanPluginExport = {
   plugin: string;
   /** The exporter's format. */
   exporter: string;
-  /** The library or drive to export. */
-  drive: string;
+  /**
+   * The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give
+   * it.
+   */
+  drive?: string;
   /** Only these playlists (and folders), by path; every one when empty. */
   playlists?: string[];
   /** History lists to put in, by name. */
   history?: string[];
+  /** A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it). */
+  set?: string | null;
+  /** A mix's exporter's mix: the id of its report in the store (`mix.reports.list`). */
+  mix?: string | null;
   /**
    * The file, or folder, to write (absolute), on this computer: never on a drive or in the
    * store.
    */
   output: string;
   /** As the exporter's `options` schema says (`plugins.describe`). */
+  options?: unknown;
+};
+
+export type PlanPluginImport = {
+  plugin: string;
+  /** The importer's format. */
+  importer: string;
+  /** The file to read (absolute), on this computer. */
+  file: string;
+  /** The library or drive whose tracks it's about. */
+  drive: string;
+  /** As the importer's `options` schema says (`plugins.describe`). */
   options?: unknown;
 };
 
@@ -2262,6 +2471,30 @@ export type FieldRole =
   | "clipped_runs"
   /** Equal values are the same recording: a string. */
   | "identity";
+
+/** A change to a check's settings. */
+export type SetCheck = {
+  plugin: string;
+  /** The check's name. */
+  check: string;
+  /** Run it, or not; left out, as it is. */
+  on?: boolean | null;
+  /**
+   * For a guard: keep a plan it finds a warning or a problem about from being applied, or not;
+   * left out, as it is.
+   */
+  blocking?: boolean | null;
+  /** Put both back to their defaults first. */
+  reset?: boolean;
+};
+
+export type SetTimeout = {
+  /**
+   * How long a check has to answer, in seconds (0.001 to 3600), before it's
+   * stopped (a warning says so); `null` (or left out) puts it back to its default.
+   */
+  timeout?: number | null;
+};
 
 /** What to find, and for which tracks. */
 export type Provide = {
@@ -2351,6 +2584,36 @@ export type ChooseRole = {
    * out) puts it back to its default.
    */
   analyzer?: string | null;
+};
+
+/** Building a drive from a plugin's library source. */
+export type SourceExport = {
+  plugin: string;
+  /** One of its library sources, by name. */
+  source: string;
+  /** As the source's `options` schema says. */
+  options?: unknown;
+  /**
+   * The folders the plugin may read files in, absolute: granted for this read alone, and only
+   * audio files in them are copied.
+   */
+  grants: string[];
+  /** The drive or folder to write to. */
+  drive: string;
+  /**
+   * Playlists or folders (paths) to export, with the tracks they use. Empty: every track and
+   * playlist, or the selection the target was last exported with.
+   */
+  playlists?: string[];
+  /** Export every track and playlist, whatever the target was exported with last. */
+  all?: boolean;
+  /**
+   * Replace a library the target holds that wasn't exported from the collection, or the
+   * files on a target with no library.
+   */
+  replace?: boolean;
+  /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
+  overwrite_archive?: boolean;
 };
 
 /** What `initialize` answers. */
@@ -2689,6 +2952,11 @@ export type PlanFields = {
   /** Every warning, the plan's own included. */
   warnings: string[];
   /**
+   * The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+   * it: applying it is refused (`blocked`).
+   */
+  blocked?: string | null;
+  /**
    * It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
    * say so.
    */
@@ -2865,13 +3133,6 @@ export type AnalysisView = {
   structure: SongStructure | null;
 };
 
-export type Beat = {
-  /** Position in the bar, 1-4. */
-  beat_number: number;
-  bpm: number;
-  time_ms: number;
-};
-
 export type Cue = {
   /** `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ... */
   hot_cue: number | null;
@@ -2911,7 +3172,12 @@ export type WaveformStyle =
   /** Monochrome blue, older players (`PWAV`, `PWV3`). */
   | "blue"
   /** Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`). */
-  | "rgb";
+  | "rgb"
+  /**
+   * Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what
+   * analyzer plugins give ([`Bands`]).
+   */
+  | "three_band";
 
 /** One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it. */
 export type WaveColumn = {
@@ -2947,36 +3213,26 @@ export type PackedLayer = {
   colors: string;
 };
 
-/** rekordbox's phrase analysis (`PSSI`, in `.EXT`). */
-export type SongStructure = {
-  mood: Mood;
-  phrases: Phrase[];
+/**
+ * Something a front end can offer to resolve an error: call a method, or send the request that
+ * failed again with some parameters added (`method` absent), or again with administrator rights.
+ */
+export type Action = {
+  /** What a button offering it says. */
+  label: string;
+  /**
+   * The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
+   * with `params` added to its own.
+   */
+  method?: string | null;
+  /**
+   * The parameters: the method's, or the ones to add to the request that failed. `null`
+   * means a value the user has to give (a name, a path).
+   */
+  params: { [key: string]: unknown };
+  /** Run it with administrator rights (restart the sidecar elevated first). */
+  elevate?: boolean;
 };
-
-/** rekordbox's overall classification of a track, which decides how phrases are named. */
-export type Mood = "high" | "mid" | "low";
-
-export type Phrase = {
-  kind: PhraseKind;
-  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
-  start_beat: number;
-  end_beat: number;
-  /** Beat where a fill-in leads into the next phrase. */
-  fill_beat: number | null;
-};
-
-export type PhraseKind =
-  | ("intro" | "bridge" | "chorus" | "outro")
-  /** Build-ups, in high-mood tracks. */
-  | "up"
-  /** Breakdowns, in high-mood tracks. */
-  | "down"
-  | {
-    verse: number;
-  }
-  | {
-    unknown: number;
-  };
 
 export type TracksAnalysis = {
   /** In the order asked for. */
@@ -3140,25 +3396,13 @@ export type DiffEntry = {
   position: number;
 };
 
-/**
- * Something a front end can offer to resolve an error: call a method, or send the request that
- * failed again with some parameters added (`method` absent), or again with administrator rights.
- */
-export type Action = {
-  /** What a button offering it says. */
-  label: string;
-  /**
-   * The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
-   * with `params` added to its own.
-   */
-  method?: string | null;
-  /**
-   * The parameters: the method's, or the ones to add to the request that failed. `null`
-   * means a value the user has to give (a name, a path).
-   */
-  params: { [key: string]: unknown };
-  /** Run it with administrator rights (restart the sidecar elevated first). */
-  elevate?: boolean;
+export type PhraseOutput = {
+  kind: PhraseKind;
+  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
+  start_beat: number;
+  end_beat: number;
+  /** Beat where a fill-in leads into the next phrase. */
+  fill_beat: number | null;
 };
 
 /** What putting a backup back would change. */
@@ -3748,6 +3992,7 @@ export type KeepReason =
   | "unreadable";
 
 export type CopyReport = {
+  /** The folder copied to, or `<plugin>:<destination>` for a plugin's destination. */
   path: string;
   /** Snapshots the copy holds now. */
   snapshots: number;
@@ -3841,7 +4086,10 @@ export type EditPlan = {
   free_space: number | null;
   fits: boolean;
   warnings: string[];
-  /** The edits as recorded in the drive's journal. */
+  /**
+   * The edits as the drive's journal records them (tracks named by file), which applying it
+   * records there, unless it was planned with `no_journal`.
+   */
   recorded: EditOutput[];
   /**
    * OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
@@ -4253,6 +4501,21 @@ export type EditOutput =
     tracks: TrackSelector;
     image: ImageSource;
     op: "set_artwork";
+  }
+  /**
+   * Write a beat grid, phrases or a waveform into the analysis files of the track of this
+   * audio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the
+   * track's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the
+   * drive.
+   */
+  | {
+    track: string;
+    /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
+    beats?: Beat[] | null;
+    /** The phrases, named as the track's mood names them. */
+    phrases?: SongStructure | null;
+    waveform?: WaveSource | null;
+    op: "set_analysis";
   };
 
 /** A track none of the players play that packing leaves as it is. */
@@ -4710,6 +4973,8 @@ export type DoctorReport = {
   compatibility: Compatibility | null;
   /** The volume's file system as the OS names it. */
   file_system: string | null;
+  /** What plugins' checks found, each named `<plugin>.<check>`. */
+  checks: CheckItem[] | null;
   warnings: string[];
 };
 
@@ -4960,6 +5225,51 @@ export type Verdict =
   /** Untested layouts players may or may not read. */
   | "unknown";
 
+/**
+ * What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,
+ * `files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`
+ * or `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`.
+ */
+export type CheckItem = {
+  /** The drive it's about. */
+  drive: string;
+  level: Level;
+  /** The check that found it (`files`, a plugin's `<plugin>.<check>`). */
+  check: string;
+  /** What it found, in a line. */
+  message: string;
+  /** The tracks it's about, by id. */
+  tracks?: number[];
+  /** The playlist it's about, by path (`Folder/Name`). */
+  playlist?: string | null;
+  /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
+  paths?: string[];
+  /**
+   * What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
+   * confirmed as any is.
+   */
+  fix?: Fix | null;
+};
+
+/** How much a finding matters, least first. */
+export type Level =
+  /** Worth knowing, nothing to fix (what was checked and found fine, too). */
+  | "info"
+  /** Worth a look: it may be a problem, or a problem for some players. */
+  | "warning"
+  /** Something to fix before it's used. */
+  | "problem";
+
+/**
+ * The plugin operation that fixes a finding, with its params: planned and confirmed as any is
+ * (`plugins.op.plan`, with the drive it was found on).
+ */
+export type Fix = {
+  plugin: string;
+  operation: string;
+  params: unknown;
+};
+
 export type OrphanPlan = {
   drive: string;
   root: string;
@@ -4997,20 +5307,6 @@ export type CheckReport = {
   /** Tracks whose level may be a problem, as the `loudness` items describe them. */
   loudness: DriveLoudness[];
 };
-
-export type CheckItem = {
-  /** The drive it's about. */
-  drive: string;
-  /**
-   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
-   * `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
-   */
-  check: string;
-  level: Level;
-  message: string;
-};
-
-export type Level = "ok" | "warning" | "problem";
 
 export type DrivePlayers = {
   drive: string;
@@ -6248,7 +6544,7 @@ export type Session = {
   path: string;
   /**
    * `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-   * (`beat_link_trigger`).
+   * (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
    */
   source: string;
   /** The mounted drives holding it now. */
@@ -6277,7 +6573,7 @@ export type ImportedSession = {
   /** Like a history list's fingerprint: the same log imported twice is one session. */
   id: string;
   name: string;
-  /** `beat_link_trigger`. */
+  /** `beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`). */
   tool: string;
   /** The file it was imported from. */
   file: string;
@@ -6470,6 +6766,8 @@ export type PlayExtras = {
   phrases: PhraseSpan[];
   /** Its hot cues, in seconds into the track. */
   cues: CueMark[];
+  /** What analyzers worked out for it that a page shows (the HTML report's), in order. */
+  fields?: ShownField[];
 };
 
 export type PhraseSpan = {
@@ -6486,6 +6784,14 @@ export type CueMark = {
   label: string;
   /** `#rrggbb`. */
   color: string | null;
+};
+
+/** An analyzer's field, as a page shows it. */
+export type ShownField = {
+  /** `<plugin>.<field>` (`sound.lufs`). */
+  label: string;
+  /** As its analyzer says it's shown (`-8.2 LUFS`). */
+  value: string;
 };
 
 export type MixExport = {
@@ -7359,8 +7665,10 @@ export type DriveDiff = {
 };
 
 export type CollectionExportPlan = {
-  /** The `master.db` exported. */
+  /** The `master.db` exported (empty for a plugin's library source). */
   collection: string;
+  /** The plugin's library source written instead, `<plugin>:<source>`. */
+  source?: string | null;
   target: string;
   target_root: string;
   /** The playlists chosen; empty for the whole collection. */
@@ -7389,7 +7697,10 @@ export type CollectionExportPlan = {
    * computer.
    */
   syncing: string[];
-  /** Tracks with an analysis file that can't be read: exported without it. */
+  /**
+   * Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,
+   * beat grid or waveform can't be written: exported without it.
+   */
   unreadable: string[];
   /**
    * The target holds a library that wasn't exported from the collection, or files the export
@@ -7444,16 +7755,24 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers, providers and services by name, the
-   * events it listens for, its export formats and its settings' keys.
+   * What it adds: its accounts by id, its commands, destinations, operations, panels,
+   * analyzers, checks, providers, services, library sources and themes by name, the events it
+   * listens for, its export and import formats and its settings' keys.
    */
+  accounts: string[];
   commands: string[];
+  destinations: string[];
   events: string[];
   operations: string[];
+  panels: string[];
   analyzers: string[];
+  checks: string[];
   exporters: string[];
+  importers: string[];
   providers: string[];
   services: string[];
+  sources: string[];
+  themes: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
   running: boolean;
@@ -7476,7 +7795,7 @@ export type Capability = string;
 /**
  * A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
  * (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
- * let it do, and its settings now.
+ * let it do, its settings now, and whether each of its accounts is signed in.
  */
 export type Described = {
   manifest: Manifest;
@@ -7489,6 +7808,11 @@ export type Described = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
+  /**
+   * Each of its accounts, and whether it's signed in (never a token): none signed in when the
+   * keychain can't say (see `secrets_unknown`).
+   */
+  accounts: PluginAccountStatus[];
   running: boolean;
 };
 
@@ -7512,14 +7836,43 @@ export type Manifest = {
 };
 
 export type Contributions = {
+  accounts: Account[];
   commands: Command[];
+  destinations: Destination[];
   events: Listener[];
   operations: Operation[];
+  panels: Panel[];
   analyzers: Analyzer[];
+  checks: Check[];
   exporters: Exporter[];
+  importers: Importer[];
   providers: Provider[];
   services: Service[];
+  sources: LibrarySource[];
+  themes: Theme[];
   settings: Setting[];
+};
+
+/** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
+export type Account = {
+  /** How requests name it (`{account:<id>}`). */
+  id: string;
+  title: string;
+  /** The service's authorization endpoint, where the browser signs in (https). */
+  authorize_url: string;
+  /**
+   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
+   * them (https).
+   */
+  token_url: string;
+  /** What it asks the service for, as the service names them. */
+  scopes?: string[];
+  /** The plugin's client at the service: a public one, without a secret. */
+  client_id: string;
+  /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
+  pkce: boolean;
+  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
+  revoke_url?: string | null;
 };
 
 /** Run with `command/run`. */
@@ -7546,6 +7899,23 @@ export type Mode =
  * playlist, or of a drive. A host's palette has every one.
  */
 export type Where = "track" | "playlist" | "drive";
+
+/**
+ * `[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or
+ * publishes sets at (`set`).
+ */
+export type Destination = {
+  name: string;
+  title: string;
+  kind: DestinationKind;
+};
+
+/** What a destination keeps. */
+export type DestinationKind =
+  /** Copies of the store: `blobs/*` and `manifest/*`. */
+  | "store"
+  /** Sets, published: `set/publish`. */
+  | "set";
 
 /** `[[contributes.events]]`: what the plugin is told of (`event/notify`). */
 export type Listener = {
@@ -7596,6 +7966,17 @@ export type Operation = {
   cli?: string | null;
 };
 
+/**
+ * Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as
+ * the user comes to a track, so it answers quickly, reading only what it needs.
+ */
+export type Panel = {
+  name: string;
+  title: string;
+  /** What it's shown with: a track, unless it says. */
+  where: Where;
+};
+
 /** Run with `track/analyze`; its fields become columns. */
 export type Analyzer = {
   name: string;
@@ -7611,9 +7992,71 @@ export type Analyzer = {
    * that role (see [`Role`]).
    */
   roles?: { [key: string]: string };
+  /**
+   * How hosts show some of its fields, by field (`display.lufs = { unit = "LUFS" }`): in the
+   * player's columns, `track show` and the mix report.
+   */
+  display?: { [key: string]: FieldDisplay };
 };
 
-export type FieldType = "number" | "integer" | "string" | "boolean" | "string[]";
+export type FieldType =
+  | ("number" | "integer" | "string" | "boolean" | "string[]")
+  /** A beat grid (feature `analysis`, see [`crate::Output`]). */
+  | "beats"
+  /** A song structure: the mood and the phrases (feature `analysis`). */
+  | "phrases"
+  /** A waveform in three bands, in a blob (feature `analysis`). */
+  | "waveform";
+
+/**
+ * How hosts show a field's values, each part optional. Without them a number shows to two
+ * places at most (trailing zeros left out), a list joined with commas, a boolean as yes or no.
+ */
+export type FieldDisplay = {
+  /** Said after a value (`LUFS`); a `db` format's is `dB` unless it says. */
+  unit?: string | null;
+  /** A number's decimal places, 0 to 6. */
+  precision?: number | null;
+  format?: FieldFormat | null;
+  /** How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is. */
+  width?: number | null;
+};
+
+/** What a field's values are, for hosts to show them as such. */
+export type FieldFormat =
+  /** A key (a string), as the host shows keys. */
+  | "key"
+  /** Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`). */
+  | "duration"
+  /** Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`). */
+  | "db"
+  /** A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says). */
+  | "percent"
+  /** A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says). */
+  | "meter";
+
+/**
+ * Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`
+ * before a plan is applied: as its `when` says.
+ */
+export type Check = {
+  name: string;
+  title: string;
+  /** It runs unless the user turns it off; otherwise, once they turn it on. */
+  default_on: boolean;
+  /**
+   * When it runs: with the check before a set and doctor (`check`, the default), and before a
+   * plan is applied (`apply`: a guard).
+   */
+  when: When[];
+};
+
+/** When a check runs. */
+export type When =
+  /** With locallibrary's check before a set and doctor (`check/run`). */
+  | "check"
+  /** Before a plan is applied (`plan/check`): a guard. */
+  | "apply";
 
 /** Run with `export/write`. */
 export type Exporter = {
@@ -7628,7 +8071,46 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
+  /** What it writes out [default: a drive's library]. */
+  source?: ExportFrom;
 };
+
+/** What an exporter writes out. */
+export type ExportFrom =
+  /** A drive's library. */
+  | "drive"
+  /** A set the DJ declared (`locallibrary sets`). */
+  | "set"
+  /** A recorded mix's tracklist, as `locallibrary mix` found it. */
+  | "mix";
+
+/**
+ * Run with `import/read` on a file the user names: the host finds what it read on a drive and
+ * plans the edits itself, so it needs no capability to plan one.
+ */
+export type Importer = {
+  format: string;
+  title: string;
+  /**
+   * The file it reads usually ends in this: lowercase letters and digits, without the dot
+   * (`nml`).
+   */
+  extension?: string | null;
+  /** A JSON Schema for its options (an object). */
+  options?: unknown;
+  /** What it reads: what of a track's (and the plays) the host takes from it. */
+  provides: ImportKind[];
+};
+
+/** What an importer reads. */
+export type ImportKind =
+  | "cues"
+  /** A track's key and BPM. */
+  | "fields"
+  /** My Tags. */
+  | "tags"
+  /** What played, as sessions. */
+  | "sessions";
 
 /**
  * Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
@@ -7649,6 +8131,28 @@ export type Provider = {
 export type Service = {
   name: string;
   title: string;
+};
+
+/**
+ * Read with `library/read`, a page at a time, for the host to build a drive from. It's given the
+ * folders the user grants it, which takes `fs:read`.
+ */
+export type LibrarySource = {
+  name: string;
+  title: string;
+  /** A JSON Schema for its options (an object). */
+  options?: unknown;
+};
+
+/**
+ * `[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =
+ * "#28e214"`, `ui = { accent = "#ff8800" }`), each `#rrggbb` (a gradient, `waveform.*`, a list
+ * of two or more). What it leaves out is the default's.
+ */
+export type Theme = {
+  name: string;
+  title: string;
+  tokens: { [key: string]: unknown };
 };
 
 /** A setting the host stores and shows in its settings. */
@@ -7681,6 +8185,23 @@ export type NetLimit = {
   per_second: number;
 };
 
+/** An account of a plugin's, as hosts show it: never a token. */
+export type PluginAccountStatus = {
+  plugin: string;
+  account: string;
+  title: string;
+  signed_in: boolean;
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+};
+
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
@@ -7693,6 +8214,39 @@ export type Settings = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
+};
+
+/** A sign-in waiting for the browser. */
+export type SignIn = {
+  /** Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]. */
+  id: string;
+  plugin: string;
+  account: string;
+  /** Open this in the browser. */
+  url: string;
+  /** Where the browser comes back to. */
+  redirect_uri: string;
+};
+
+/** What signing out did. */
+export type SignedOut = {
+  plugin: string;
+  account: string;
+  title: string;
+  signed_in: boolean;
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /** It was signed in. */
+  was_signed_in: boolean;
+  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
+  revoked: boolean;
 };
 
 /** What a command answers. */
@@ -7708,10 +8262,13 @@ export type View =
     items: ListItem[];
     kind: "list";
   }
-  /** Rows of cells (strings, numbers, booleans or `null`) under column headings. */
+  /**
+   * Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,
+   * or (feature `views`) a name with what its cells are ([`Column`]).
+   */
   | {
     title?: string | null;
-    columns: string[];
+    columns: Column[];
     rows: unknown[][];
     kind: "table";
   }
@@ -7733,12 +8290,77 @@ export type View =
    */
   | (PluginChoice & {
     kind: "choose";
-  });
+  })
+  /** Items with items below them (feature `views`). */
+  | {
+    title?: string | null;
+    items: TreeItem[];
+    kind: "tree";
+  }
+  /** Points, each series a line or bars (feature `views`). */
+  | {
+    title?: string | null;
+    style: ChartStyle;
+    series: Series[];
+    x_label?: string | null;
+    y_label?: string | null;
+    kind: "chart";
+  }
+  /**
+   * A picture (features `views` and `blobs`): a file in the request's scratch folder, which
+   * the host reads (see [`crate::Blob`]).
+   */
+  | {
+    title?: string | null;
+    /** Its file's name in the scratch folder. */
+    blob: string;
+    /** What it shows, in a few words: what a host that can't draw it says instead. */
+    alt: string;
+    /**
+     * The picture as a `data:` URL, filled in by the host once it has read the blob and
+     * found an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin
+     * sends here is replaced.
+     */
+    data?: string | null;
+    kind: "image";
+  }
+  /** Views one after another, each under a title of its own (feature `views`). */
+  | {
+    title?: string | null;
+    items: Section[];
+    kind: "sections";
+  };
 
 export type ListItem = {
   label: string;
   detail?: string | null;
 };
+
+/**
+ * A table's column: its heading alone (text), or (feature `views`) a heading and what its cells
+ * are.
+ */
+export type Column = string | TypedColumn;
+
+/** A column and what its cells are. */
+export type TypedColumn = {
+  name: string;
+  kind: ColumnKind;
+  unit?: string | null;
+};
+
+/** What a column's cells are, for a host to show them as it shows its own. */
+export type ColumnKind =
+  /** As they are. */
+  | "text"
+  /** A track, by id: shown by its artist and title where the host has the drive's library. */
+  | "track"
+  /** Seconds: shown as minutes and seconds (`3:07`). */
+  | "duration"
+  /** A key (`8A`, `Am`): shown in Camelot notation where it's one. */
+  | "key"
+  /** Numbers, with the column's unit after each. */
+  | "number";
 
 export type Pair = {
   label: string;
@@ -7760,6 +8382,90 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+};
+
+export type TreeItem = {
+  label: string;
+  detail?: string | null;
+  children?: TreeItem[];
+};
+
+/** How a chart draws its series. */
+export type ChartStyle = "line" | "bar";
+
+/** A chart's series: its name and its points, `[x, y]`. */
+export type Series = {
+  name: string;
+  points: [number, number][];
+};
+
+export type Section = {
+  title: string;
+  view: View;
+};
+
+export type FetchReport = {
+  /**
+   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
+   * destination (`<plugin>:<destination>`).
+   */
+  peer: string;
+  libraries: FetchedLibrary[];
+  snapshots: number;
+  /** Stored files copied, and the store had already. */
+  files: number;
+  bytes: number;
+  present: number;
+  dry_run: boolean;
+};
+
+export type FetchedLibrary = {
+  /** Its name in this store. */
+  name: string;
+  /** Its name on the other computer, when that was taken here. */
+  was?: string | null;
+  id: string;
+  /** The other computer's latest snapshot. */
+  head: Hash | null;
+  outcome: LibraryOutcome;
+};
+
+export type LibraryOutcome =
+  /** This store didn't have it. */
+  | "added"
+  /** It moved to the other computer's newer latest snapshot. */
+  | "updated"
+  /** This store was as new, or newer. */
+  | "up_to_date"
+  /** Both changed: this store keeps its latest, and has the other's beside it. */
+  | "diverged"
+  /**
+   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
+   * missing from its store): the library is left as it was.
+   */
+  | "unavailable";
+
+/** A set a plugin will publish, as its dry run said. */
+export type SetPublish = {
+  plugin: string;
+  destination: string;
+  /** The set, by id. */
+  set: string;
+  /** Its recording, on this computer, which goes too. */
+  recording: string;
+  tracks: number;
+  /** Where it would be, when the dry run said. */
+  url?: string | null;
+  /** The link the set has now, which publishing replaces. */
+  replaces?: string | null;
+};
+
+/** What publishing a set did. */
+export type SetPublished = {
+  set: string;
+  /** Where it can be heard, which is the set's link now; none when the plugin didn't say. */
+  url?: string | null;
+  warnings?: string[];
 };
 
 /**
@@ -7826,6 +8532,40 @@ export type PluginExportedFile = {
   bytes: number;
 };
 
+/** An import a plugin read, as the host plans it. */
+export type PluginImport = {
+  plugin: string;
+  importer: string;
+  /** The file it read. */
+  file: string;
+  /**
+   * How many of the tracks it read were found on the drive: one track (`found`), several it
+   * could be (`ambiguous`) or none (`missing`); only those found are edited.
+   */
+  tracks: ImportSummary;
+  /** The same, of its sessions' plays: those not found are kept as the log names them. */
+  plays: ImportSummary;
+  /** What's added to the tracks found, planned on the drive. */
+  edits: EditPlan;
+  /** The sessions it keeps in the store, as `sessions.list` will list them. */
+  sessions: ImportedSession[];
+};
+
+export type ImportSummary = {
+  entries: number;
+  found: number;
+  ambiguous: number;
+  missing: number;
+};
+
+/** What an import did. */
+export type PluginImported = {
+  /** The edits' report, when there were any. */
+  edits: EditReport | null;
+  /** The sessions kept, by id. */
+  sessions: string[];
+};
+
 /** What analysing a drive's tracks did. */
 export type Analyzed = {
   /** Tracks the analyzer worked out fields for, now kept. */
@@ -7837,6 +8577,38 @@ export type Analyzed = {
    * failed on them.
    */
   failed: number;
+};
+
+/**
+ * The plugins' checks, whether each runs, and how long one has to answer, as `plugin checks` and
+ * the sidecar's `plugins.checks` show them.
+ */
+export type Checks = {
+  /** In the order the plugins are. */
+  checks: ListedCheck[];
+  /**
+   * How long a check has to answer, in seconds, before it's stopped (a warning says so): the
+   * `checks.timeout` setting.
+   */
+  timeout: number;
+};
+
+/**
+ * Whether a plugin's check runs, and whether a guard keeps a plan it finds something about from
+ * being applied.
+ */
+export type ListedCheck = {
+  plugin: string;
+  name: string;
+  title: string;
+  /**
+   * With the check before a set and doctor (`check`), before a plan is applied (`apply`: a
+   * guard), or both.
+   */
+  when: When[];
+  on: boolean;
+  /** Only a guard's can be on. */
+  blocking: boolean;
 };
 
 /** What the providers found. */
@@ -8261,6 +9033,11 @@ export type Reason =
   | "replay_stopped"
   /** Files didn't read back correctly. */
   | "verify_failed"
+  /**
+   * A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found
+   * something about the plan: deal with what it found, or stop the guard blocking.
+   */
+  | "blocked"
   /** Several libraries could be meant: name one (`fields.libraries`). */
   | "choose_library"
   /** Several drives could be meant: name one (`fields.drives`). */
@@ -8821,22 +9598,62 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
+  /** read method */
+  "plugins.accounts": { params: PluginRef; result: PluginAccountStatus[] };
+  /** immediate method */
+  "plugins.account.sign_in.begin": { params: AccountRef & WriteOptions; result: SignIn };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "plugins.account.sign_in.finish": { params: FinishSignIn & WriteOptions; result: PluginAccountStatus };
+  /** immediate method */
+  "plugins.account.sign_in.paste": { params: PasteSignIn & WriteOptions; result: PluginAccountStatus };
+  /** immediate method */
+  "plugins.account.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
+  /** immediate method */
+  "plugins.account.sign_out": { params: AccountRef & WriteOptions; result: SignedOut };
+  /** plan method; paired with `plugins.apply_analysis.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_analysis.plan": { params: ApplyAnalysis & WriteOptions; result: EditPlan & PlanFields };
+  /** apply method; paired with `plugins.apply_analysis.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_analysis.apply": { params: ApplyPlan | (ApplyAnalysis & WriteOptions); result: EditReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
+  /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.store.copy": { params: CopyTo & WriteOptions; result: CopyReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "plugins.store.restore": { params: RestoreFrom & WriteOptions; result: FetchReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.store.verify": { params: VerifyFrom; result: ScrubReport };
+  /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.store.repair": { params: RepairFrom & WriteOptions; result: RepairReport };
+  /** plan method; paired with `plugins.publish.apply`; long running: sends `progress`, can be cancelled */
+  "plugins.publish.plan": { params: PublishSetAt & WriteOptions; result: SetPublish & PlanFields };
+  /** apply method; paired with `plugins.publish.plan`; long running: sends `progress`, can be cancelled */
+  "plugins.publish.apply": { params: ApplyPlan | (PublishSetAt & WriteOptions); result: SetPublished };
   /** plan method; paired with `plugins.op.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: OpPlanned };
   /** apply method; paired with `plugins.op.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.apply": { params: ApplyPlan | (PlanPluginOp & WriteOptions); result: EditReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.panel": { params: RenderPluginPanel; result: View };
   /** plan method; paired with `plugins.export.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.plan": { params: PlanPluginExport & WriteOptions; result: PluginExport & PlanFields };
   /** apply method; paired with `plugins.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.apply": { params: ApplyPlan | (PlanPluginExport & WriteOptions); result: Exported };
+  /** plan method; paired with `plugins.import.apply`; long running: sends `progress`, can be cancelled */
+  "plugins.import.plan": { params: PlanPluginImport & WriteOptions; result: PluginImport & PlanFields };
+  /** apply method; paired with `plugins.import.plan`; long running: sends `progress`, can be cancelled */
+  "plugins.import.apply": { params: ApplyPlan | (PlanPluginImport & WriteOptions); result: PluginImported };
   /** immediate method; long running: sends `progress`, can be cancelled */
   "plugins.analyze": { params: AnalyzeWithPlugin & WriteOptions; result: Analyzed };
   /** plan method; paired with `plugins.apply_fields.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_fields.plan": { params: ApplyFields & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_fields.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_fields.apply": { params: ApplyPlan | (ApplyFields & WriteOptions); result: EditReport };
+  /** read method */
+  "plugins.checks": { params: NoParams; result: Checks };
+  /** immediate method */
+  "plugins.checks.set": { params: SetCheck & WriteOptions; result: Checks };
+  /** immediate method */
+  "plugins.checks.timeout.set": { params: SetTimeout & WriteOptions; result: Checks };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.provide": { params: Provide; result: Provided };
   /** plan method; paired with `plugins.provide.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -8851,6 +9668,10 @@ export interface Methods {
   "plugins.roles": { params: NoParams; result: RoleChoice[] };
   /** immediate method */
   "plugins.roles.set": { params: ChooseRole & WriteOptions; result: RoleChoice[] };
+  /** plan method; paired with `plugins.source.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.source.plan": { params: SourceExport & WriteOptions; result: CollectionExportPlan & PlanFields };
+  /** apply method; paired with `plugins.source.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.source.apply": { params: ApplyPlan | (SourceExport & WriteOptions); result: CollectionExportReport };
 }
 
 export type MethodName = keyof Methods;

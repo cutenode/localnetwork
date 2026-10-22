@@ -10,7 +10,12 @@
 		"test/**/*.test.ts"
 	],
 	"project": ["*.ts", "src/**/*.{ts,svelte}", "scripts/**/*.mts", "test/**/*.{ts,svelte}"],
-	"ignoreDependencies": ["tailwindcss", "tw-animate-css"],
+	"ignoreDependencies": [
+		"tailwindcss",
+		"tw-animate-css",
+		"@fontsource-variable/instrument-sans",
+		"@fontsource-variable/jetbrains-mono"
+	],
 	"ignoreIssues": {
 		"src/lib/components/ui/**": ["exports", "types"]
 	},

@@ -96,7 +96,7 @@ fn cue_labels_name_loops_by_length() {
 fn memory_cues_take_their_colour_from_the_table() {
     let p = Palette::default();
     let red = Cue { color_id: 2, ..cue(None, 0, None, "") };
-    assert_eq!(p.cue_color(&red), (p.track_color)(TrackColor::Red));
+    assert_eq!(p.cue_color(&red), p.track_color(TrackColor::Red));
     assert_eq!(p.cue_color(&cue(None, 0, None, "")), p.memory_cue);
     let hot = Cue { color: Some([1, 2, 3]), color_id: 2, ..cue(Some(0), 0, None, "") };
     assert_eq!(p.cue_color(&hot), [1, 2, 3], "a hot cue's own colour first");

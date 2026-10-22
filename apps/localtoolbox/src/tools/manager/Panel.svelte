@@ -220,9 +220,9 @@
 
   /** Keyed by the state as a string: 'true', 'false' or 'null'. */
   const MARK_STYLES = {
-    true: 'border-transparent bg-accent text-accent-foreground',
-    false: 'border-transparent text-muted-foreground/60',
-    null: 'border-dashed border-border text-muted-foreground/40',
+    true: 'border-transparent bg-well text-fg',
+    false: 'border-transparent text-fg-subtle',
+    null: 'border-dashed border-line-strong text-fg-subtle/60',
   };
 
   const LINK_HINT = 'click to copy the address. the arrow opens the track in a tab.';
@@ -777,7 +777,7 @@
     icon: Check,
     label: 'mark downloaded',
     hint: MARK_HINT,
-    onClass: 'bg-success text-success-foreground hover:bg-success/85',
+    onClass: 'bg-good text-fg-inverse hover:bg-good/85',
     has: (permalink) => downloaded.has(permalink),
     toggle: (track) => downloaded.toggle(track.permalink),
   };
@@ -1041,7 +1041,7 @@
           {...props}
           size="icon-sm"
           variant={on ? 'default' : 'outline'}
-          class={on ? set.onClass : 'text-muted-foreground'}
+          class={on ? set.onClass : 'text-fg-muted'}
           aria-pressed={on}
           aria-label={set.label}
           onclick={() => set.toggle(track)}
@@ -1069,19 +1069,18 @@
 {#snippet rowDetails(track: ListedEntry)}
   {@const facts = rowFacts(track, { titleCased: titleCasing.value })}
   <dl
-    class="mt-1.5 flex flex-col gap-px border-t border-border/60 pt-1.5 text-[11.5px]"
+    class="mt-1.5 flex flex-col gap-px border-t border-line pt-1.5 text-caption"
     aria-label={`about ${track.title}`}
   >
     {#each facts as fact (fact.id)}
       <div class="flex items-baseline gap-2">
-        <dt class="w-14 shrink-0 text-[10.5px] text-muted-foreground">{fact.label}</dt>
+        <dt class="w-14 shrink-0 font-mono text-[10.5px] text-fg-subtle uppercase">{fact.label}</dt>
         <dd class="flex min-w-0 flex-1 items-baseline gap-1">
           <button
             type="button"
-            class="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left
-                   enabled:cursor-pointer enabled:hover:bg-accent
-                   disabled:text-muted-foreground/70 disabled:italic
-                   focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            class="min-w-0 flex-1 truncate rounded-xs px-1 py-0.5 text-left text-fg-soft
+                   enabled:cursor-pointer enabled:hover:bg-well enabled:hover:text-fg
+                   disabled:text-fg-subtle disabled:italic"
             disabled={!fact.copy}
             aria-label={fact.copy ? `copy the ${fact.label}` : `${fact.label}: ${fact.value}`}
             title={fact.copy ? (fact.id === 'link' ? LINK_HINT : FACT_HINT) : ''}
@@ -1093,7 +1092,7 @@
             <Button
               size="icon-xs"
               variant="ghost"
-              class="shrink-0 text-muted-foreground hover:text-foreground"
+              class="shrink-0 text-fg-muted hover:text-fg"
               aria-label="open the track in a new tab"
               title="opens in a tab — queues nothing, marks nothing."
               onclick={() => openTab(fact.value, { background: background.value })}
@@ -1117,7 +1116,7 @@
           role="img"
           aria-label={mark.label}
           title={mark.hint}
-          class={`flex size-5 items-center justify-center rounded border ${MARK_STYLES[`${mark.state}` as const]}`}
+          class={`flex size-5 items-center justify-center rounded-xs border ${MARK_STYLES[`${mark.state}` as const]}`}
         >
           <!-- Only the heart fills: a heart with something in it is what a
                like looks like everywhere, and the repost arrows at 12px turn
@@ -1130,7 +1129,7 @@
     <Button
       size="xs"
       variant="ghost"
-      class="text-muted-foreground hover:text-destructive"
+      class="text-fg-muted hover:text-critical"
       aria-label={`take ${track.title} off the list`}
       title="off the list. its mark and queue place stay."
       onclick={() => onRemoveRow(track)}
@@ -1153,7 +1152,7 @@
           {...props}
           size="icon-sm"
           variant="ghost"
-          class="text-muted-foreground"
+          class="text-fg-muted"
           aria-expanded={on}
           aria-label={`about ${track.title}`}
           onclick={() => toggleOpen(track.permalink)}
@@ -1172,7 +1171,7 @@
   <Button
     size="icon-sm"
     variant="ghost"
-    class="text-muted-foreground hover:text-foreground"
+    class="text-fg-muted hover:text-fg"
     aria-label={`also — ${downloadLabel(entry)}`}
     title={linkHint(entry)}
     onclick={() => open(entry)}
@@ -1218,7 +1217,7 @@
             {...props}
             size="icon-sm"
             variant={picks.active ? 'default' : 'outline'}
-            class={picks.active ? '' : 'text-muted-foreground'}
+            class={picks.active ? '' : 'text-fg-muted'}
             aria-pressed={picks.active}
             aria-label="select several tracks"
             disabled={tracks.length === 0}
@@ -1234,7 +1233,7 @@
     <Button
       size="sm"
       variant={armed ? 'default' : 'outline'}
-      class={armed ? 'bg-destructive text-white hover:bg-destructive/90' : ''}
+      class={armed ? 'bg-critical text-fg-inverse hover:bg-critical/90' : ''}
       disabled={downloaded.count === 0 && !armed}
       title={UNMARK_HINT}
       onclick={onUnmarkAll}
@@ -1255,13 +1254,13 @@
 
   {#snippet banner()}
     {#if adding && progress}
-      <div class="shrink-0 border-b border-border/70 px-3 py-2">
-        <div class="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div class="shrink-0 border-b border-line px-3 py-2">
+        <div class="mb-1 flex items-center justify-between text-caption text-fg-muted">
           <span>
             checking download details…
             {#if progress.resumed}<span>(already running)</span>{/if}
           </span>
-          <span class="tabular">{progress.done} / {progress.total}</span>
+          <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
         <Progress value={progress.done} max={progress.total || 1} class="h-1" />
       </div>
@@ -1278,6 +1277,7 @@
         queued={queue.count}
         {queuedFresh}
         big={tracks.length === 0}
+        tone={tool.tone}
         {onadd}
       />
 
@@ -1294,7 +1294,7 @@
               {#snippet child({ props })}
                 <div {...props} class="min-w-0 flex-1">
                   <Select.Root type="single" bind:value={sort.value}>
-                    <Select.Trigger class="h-8 w-full text-[12.5px]" aria-label="sort order">
+                    <Select.Trigger class="h-8 w-full text-label" aria-label="sort order">
                       {SORTS.find((s) => s.value === sort.value)?.label}
                     </Select.Trigger>
                     <Select.Content>
@@ -1318,7 +1318,7 @@
                   <Switch id="background" bind:checked={background.value} />
                   <Label
                     for="background"
-                    class="text-[11.5px] font-normal whitespace-nowrap text-muted-foreground"
+                    class="text-caption font-normal whitespace-nowrap text-fg-muted"
                   >
                     background tabs
                   </Label>
@@ -1333,8 +1333,8 @@
           <!-- What is about to be marked, and the markers to put on it. Sticky, so
                working down a long list never leaves the batch's buttons behind. -->
           <div
-            class="sticky -top-3 z-20 -mx-3 flex flex-col gap-2 border-b border-border/50
-                   bg-background/95 px-3 pt-2 pb-2.5 backdrop-blur-sm"
+            class="sticky -top-3 z-20 -mx-3 flex flex-col gap-2 border-b border-line
+                   bg-canvas px-3 pt-2 pb-2.5"
           >
             <div class="flex items-center gap-2">
               <!-- Shows what the selection says and never decides anything itself
@@ -1350,13 +1350,13 @@
                 aria-label="select every track shown"
                 onclick={() => picks.pick(shownOrder, picks.count < shownOrder.length)}
               />
-              <Label for="select-all" class="tabular text-[11.5px] font-semibold">
+              <Label for="select-all" class="tabular text-caption font-semibold">
                 {picks.count === 0 ? 'nothing ticked' : `${count(picks.count, 'track')} ticked`}
               </Label>
               <Button
                 size="xs"
                 variant="ghost"
-                class="ml-auto text-muted-foreground"
+                class="ml-auto text-fg-muted"
                 disabled={picks.count === 0}
                 onclick={() => picks.clear()}
               >
@@ -1379,7 +1379,7 @@
               <Button
                 size="xs"
                 variant="outline"
-                class="text-muted-foreground"
+                class="text-fg-muted"
                 disabled={pageOrder.length === 0}
                 title={pageTickHint}
                 onclick={() => picks.pick(pageOrder, !pageTicked)}
@@ -1387,7 +1387,7 @@
                 <FileMusic />
                 {pageTicked ? 'untick this page' : 'tick this page'}
                 {#if pageOrder.length > 0}
-                  <span class="tabular">({pageOrder.length})</span>
+                  <span class="font-mono">({pageOrder.length})</span>
                 {/if}
               </Button>
             </div>
@@ -1403,7 +1403,7 @@
                         size="xs"
                         variant="outline"
                         class={action.id === 'remove'
-                          ? 'text-muted-foreground hover:text-destructive'
+                          ? 'text-fg-muted hover:text-critical'
                           : ''}
                         disabled={picks.count === 0}
                         onclick={() => onBulk(action)}
@@ -1418,13 +1418,13 @@
               {/each}
             </div>
 
-            <p class="text-[11px] leading-relaxed text-muted-foreground">
+            <p class="text-caption leading-relaxed text-fg-muted">
               shift-click to take in a run. ticks stay after a marker is put on.
             </p>
           </div>
         {/if}
 
-        <p class="text-[11px] leading-relaxed text-muted-foreground">
+        <p class="text-caption text-fg-subtle">
           opening a link queues the track.
         </p>
 
@@ -1433,13 +1433,14 @@
             <section class="flex flex-col gap-1.5">
               {#if section.heading}
                 <!-- Sticky, so a long site keeps saying which site it is. The
-                     negative offsets undo the scrolling body's own padding. -->
+                     negative offsets undo the scrolling body's own padding. A
+                     mono label, as the website heads a group. -->
                 <h2
-                  class="sticky -top-3 z-10 -mx-3 flex items-baseline gap-1.5 border-b border-border/50
-                         bg-background/85 px-3 pt-2 pb-1 text-[12.5px] font-bold backdrop-blur-sm"
+                  class="eyebrow sticky -top-3 z-10 -mx-3 m-0 flex items-baseline gap-1.5 border-b
+                         border-line bg-canvas px-3 pt-2.5 pb-1.5 font-normal text-fg-soft"
                 >
                   {section.heading}
-                  <span class="tabular text-[11px] font-normal text-muted-foreground">
+                  <span class="text-fg-subtle">
                     {#if section.matched === section.total}
                       ({section.total})
                     {:else}
@@ -1449,7 +1450,7 @@
                 </h2>
               {/if}
               {#if section.hint}
-                <p class="text-[11px] leading-relaxed text-muted-foreground">{section.hint}</p>
+                <p class="text-caption text-fg-muted">{section.hint}</p>
               {/if}
               <ul class="flex flex-col gap-1.5">
                 {#each section.rows as row (row.key)}
@@ -1474,7 +1475,7 @@
                              which is not something to tell anybody before
                              SoundCloud has answered. -->
                         <LoaderCircle
-                          class="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                          class="size-3.5 shrink-0 animate-spin text-fg-muted"
                           aria-label="checking download details"
                         />
                       {:else if !row.primary}
@@ -1523,7 +1524,7 @@
        now. A button rather than a sentence, because it is one press away. -->
   {#snippet footer()}
     <div class="flex items-center gap-2">
-      <span class="mr-auto text-[11.5px] text-muted-foreground">saved state</span>
+      <span class="section-title mr-auto">saved state</span>
       <Button
         size="xs"
         variant="outline"

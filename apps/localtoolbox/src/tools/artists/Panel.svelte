@@ -424,21 +424,20 @@
   {@const facts = rowFacts(entry)}
   {@const name = nameOf(entry)}
   <dl
-    class="mt-1.5 flex flex-col gap-px border-t border-border/60 pt-1.5 text-[11.5px]"
+    class="mt-1.5 flex flex-col gap-px border-t border-line pt-1.5 text-caption"
     aria-label={`about ${name}`}
   >
     {#each facts as fact (fact.id)}
       <div class="flex items-baseline gap-2">
-        <dt class="w-16 shrink-0 truncate text-[10.5px] text-muted-foreground" title={fact.label}>
+        <dt class="w-16 shrink-0 truncate font-mono text-[10.5px] text-fg-subtle" title={fact.label}>
           {fact.label}
         </dt>
         <dd class="flex min-w-0 flex-1 items-baseline gap-1">
           <button
             type="button"
-            class="min-w-0 flex-1 rounded px-1 py-0.5 text-left
-                   enabled:cursor-pointer enabled:hover:bg-accent
-                   disabled:text-muted-foreground/70 disabled:italic
-                   focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none
+            class="min-w-0 flex-1 rounded-xs px-1 py-0.5 text-left
+                   enabled:cursor-pointer enabled:hover:bg-raised
+                   disabled:text-fg-subtle disabled:italic
                    {fact.id === 'bio' ? 'line-clamp-4 whitespace-pre-line' : 'truncate'}"
             disabled={!fact.copy}
             aria-label={fact.copy ? `copy the ${fact.label}` : `${fact.label}: ${fact.value}`}
@@ -451,7 +450,7 @@
             <Button
               size="icon-xs"
               variant="ghost"
-              class="shrink-0 text-muted-foreground hover:text-foreground"
+              class="shrink-0 text-fg-muted hover:text-fg"
               aria-label={`open ${fact.label} in a new tab`}
               title="opens in a tab."
               onclick={() => openLink(fact.open)}
@@ -484,7 +483,7 @@
       <Button
         size="xs"
         variant="ghost"
-        class="text-muted-foreground"
+        class="text-fg-muted"
         disabled={lookingUp || !onSc}
         aria-label={`look up ${name} again`}
         title={onSc ? AGAIN_HINT : OPEN_A_TAB}
@@ -496,7 +495,7 @@
       <Button
         size="xs"
         variant="ghost"
-        class="text-muted-foreground hover:text-destructive"
+        class="text-fg-muted hover:text-critical"
         aria-label={`take ${name} off the list`}
         title="off the list. the Manager’s tracks stay."
         onclick={() => onRemoveRow(entry)}
@@ -527,10 +526,10 @@
 
   {#snippet banner()}
     {#if lookingUp && progress}
-      <div class="shrink-0 border-b border-border/70 px-3 py-2">
-        <div class="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div class="shrink-0 border-b border-line px-3 py-2">
+        <div class="mb-1 flex items-center justify-between text-caption text-fg-muted">
           <span>looking up socials…</span>
-          <span class="tabular">{progress.done} / {progress.total}</span>
+          <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
         <Progress value={progress.done} max={progress.total || 1} class="h-1" />
       </div>
@@ -542,6 +541,7 @@
   {:else}
     <div class="flex flex-col gap-2.5">
       <AddBar
+        {tool}
         {offer}
         {adding}
         listed={listArtists.length}
@@ -561,7 +561,7 @@
           <!-- The artists nobody has asked SoundCloud about, and the button
                that asks — or, on a tab that cannot ask, why it is off. -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-[11.5px]"
+            class="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-caption text-fg-soft"
             role="status"
           >
             <span class="min-w-0 flex-1 leading-relaxed">
@@ -594,11 +594,11 @@
         <div class="flex flex-col gap-1.5">
           <div class="relative min-w-0 flex-1">
             <Search
-              class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-muted"
             />
             <Input
               type="search"
-              class="h-8 pr-7 pl-8 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
+              class="h-8 pr-7 pl-8 text-label [&::-webkit-search-cancel-button]:hidden"
               placeholder="search name, place, bio or link"
               autocomplete="off"
               spellcheck="false"
@@ -608,7 +608,7 @@
             {#if query.value}
               <button
                 type="button"
-                class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-fg-muted transition-colors hover:bg-well hover:text-fg"
                 aria-label="clear the search"
                 onclick={() => (query.value = '')}
               >
@@ -617,7 +617,7 @@
             {/if}
           </div>
           {#if countLine}
-            <p class="tabular text-[11.5px] text-muted-foreground">{countLine}</p>
+            <p class="tabular text-caption text-fg-muted">{countLine}</p>
           {/if}
         </div>
 
@@ -627,7 +627,7 @@
               {#snippet child({ props })}
                 <div {...props} class="min-w-0 flex-1">
                   <Select.Root type="single" bind:value={sort.value}>
-                    <Select.Trigger class="h-8 w-full text-[12.5px]" aria-label="sort order">
+                    <Select.Trigger class="h-8 w-full text-label" aria-label="sort order">
                       {SORTS.find((s) => s.value === sort.value)?.label}
                     </Select.Trigger>
                     <Select.Content>
@@ -651,7 +651,7 @@
                   <Switch id="background" bind:checked={background.value} />
                   <Label
                     for="background"
-                    class="text-[11.5px] font-normal whitespace-nowrap text-muted-foreground"
+                    class="text-caption font-normal whitespace-nowrap text-fg-muted"
                   >
                     background tabs
                   </Label>
@@ -670,7 +670,7 @@
             {@const avatar = hasProfile(entry) ? entry.profile.avatarUrl : ''}
             <li
               data-permalink={entry.permalink}
-              class="lift rounded-xl border border-border/70 bg-card px-2 py-1.5 hover:border-border"
+              class="rounded-lg border border-line bg-surface px-2 py-1.5 transition-colors hover:border-line-strong"
             >
               <div class="flex items-center gap-2.5">
                 {#if avatar}
@@ -678,11 +678,11 @@
                     src={avatar}
                     alt=""
                     loading="lazy"
-                    class="size-10 shrink-0 rounded-full bg-muted object-cover ring-1 ring-foreground/8"
+                    class="size-10 shrink-0 rounded-full bg-well object-cover ring-1 ring-line"
                   />
                 {:else}
                   <div
-                    class="grid size-10 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground ring-1 ring-foreground/8"
+                    class="grid size-10 shrink-0 place-items-center rounded-full bg-well text-fg-subtle ring-1 ring-line"
                     title="no picture"
                   >
                     <User class="size-4 opacity-60" />
@@ -690,16 +690,16 @@
                 {/if}
 
                 <div class="min-w-0 flex-1">
-                  <p class="flex items-center gap-1 truncate text-[12.5px] font-semibold" title={name}>
+                  <p class="flex items-center gap-1 truncate text-label font-semibold" title={name}>
                     <span class="truncate">{name}</span>
                     {#if hasProfile(entry) && entry.profile.verified}
-                      <BadgeCheck class="size-3 shrink-0 text-brand" aria-label="verified" />
+                      <BadgeCheck class="size-3 shrink-0 text-link" aria-label="verified" />
                     {/if}
                   </p>
                   <p
-                    class="truncate text-[11.5px] {isUnavailable(entry)
-                      ? 'text-muted-foreground/70 italic'
-                      : 'text-muted-foreground'}"
+                    class="truncate text-caption {isUnavailable(entry)
+                      ? 'text-fg-subtle italic'
+                      : 'text-fg-muted'}"
                     title={profileLine(entry, { checking })}
                   >
                     {profileLine(entry, { checking })}
@@ -709,7 +709,7 @@
                 <div class="flex shrink-0 items-center gap-1">
                   {#if checking}
                     <LoaderCircle
-                      class="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                      class="size-3.5 shrink-0 animate-spin text-fg-muted"
                       aria-label="looking up"
                     />
                   {:else}
@@ -718,7 +718,7 @@
                     {/each}
                     {#if links.length > ROW_BADGES}
                       <span
-                        class="tabular text-[10px] text-muted-foreground"
+                        class="font-mono text-[10px] text-fg-muted"
                         title={`${links.length - ROW_BADGES} more — open the row`}
                       >
                         +{links.length - ROW_BADGES}
@@ -732,7 +732,7 @@
                           {...props}
                           size="icon-sm"
                           variant="ghost"
-                          class="text-muted-foreground"
+                          class="text-fg-muted"
                           aria-expanded={isOpen(entry.permalink)}
                           aria-label={`about ${name}`}
                           onclick={() => toggleOpen(entry.permalink)}

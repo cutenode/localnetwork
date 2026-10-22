@@ -1,4 +1,4 @@
-//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|serve|fetch`.
+//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|restore|serve|fetch`.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -8,6 +8,7 @@ use anyhow::Result;
 use console::style;
 use locallibrary::Store;
 use locallibrary::api;
+use locallibrary::catalog::{FetchReport, LibraryOutcome};
 use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
@@ -125,14 +126,33 @@ fn line(s: &locallibrary::store::SnapshotInfo) -> String {
     )
 }
 
-/// `store copy`: with `--mirror`, what would be removed from the copy is asked about first.
-pub fn copy(store: &Store, mut req: api::StoreCopyRequest, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let dry_run = req.options.dry_run;
-    // With --mirror (or --dry-run), what would be copied and removed is worked out first.
+/// `store copy DIR`: with `--mirror`, what would be removed from the copy is asked about first.
+pub fn copy(store: &Store, req: api::StoreCopyRequest, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    let copy = |options: &api::CopyOptions| {
+        let req = api::StoreCopyRequest { path: req.path.clone(), options: options.clone() };
+        Ok(api::store_copy(store, &req, ctx)?)
+    };
+    copied(req.options, copy, out)
+}
+
+/// `store copy --to PLUGIN:DESTINATION`.
+pub fn copy_to(store: &Store, spec: &str, options: api::CopyOptions, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    let dest = crate::plugins::host()?.store_destination(spec, Some(store))?;
+    copied(options, |options| Ok(locallibrary::offsite::copy_to(store, &dest, options, ctx)?), out)
+}
+
+/// A copy made with `copy`: with `--mirror` (or `--dry-run`), what would be copied and removed is
+/// worked out first, and removing anything asked about.
+fn copied(
+    mut options: api::CopyOptions,
+    copy: impl Fn(&api::CopyOptions) -> Result<api::CopyReport>,
+    out: Output,
+) -> Result<ExitCode> {
+    let dry_run = options.dry_run;
     let mut planned = None;
-    if req.options.mirror || dry_run {
-        req.options.dry_run = true;
-        let plan = api::store_copy(store, &req, ctx)?;
+    if options.mirror || dry_run {
+        options.dry_run = true;
+        let plan = copy(&options)?;
         let removes = plan.removed_snapshots + plan.removed_objects > 0;
         if !out.json && (dry_run || removes) {
             render_copy_plan(&plan, removes);
@@ -143,10 +163,10 @@ pub fn copy(store: &Store, mut req: api::StoreCopyRequest, out: Output, ctx: &Ct
         if removes && let Some(o) = out.decide(false, "Remove them from the copy?") {
             return Ok(out.not_applied(&plan, o));
         }
-        req.options.dry_run = false;
+        options.dry_run = false;
         planned = Some(plan);
     }
-    let r = api::store_copy(store, &req, ctx)?;
+    let r = copy(&options)?;
     let outcome = if r.complete { Outcome::Applied } else { Outcome::Partial };
     Ok(out.applied(&planned, &r, outcome, || {
         output::ok(format!(
@@ -284,10 +304,28 @@ pub fn fetch(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
-    use locallibrary::peers::LibraryOutcome;
     let r = locallibrary::peers::fetch(store, &code.parse()?, opts, ctx)?;
+    Ok(fetched(&r, "the other computer", "on both computers", out))
+}
+
+/// `store restore --from PLUGIN:DESTINATION`.
+pub fn restore(
+    store: &Store,
+    spec: &str,
+    opts: &locallibrary::offsite::RestoreOptions,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let dest = crate::plugins::host()?.store_destination(spec, Some(store))?;
+    let r = locallibrary::offsite::restore(store, &dest, opts, ctx)?;
+    Ok(fetched(&r, "the copy", "here and in the copy", out))
+}
+
+/// What `store fetch` and `store restore` brought in, from `there` (`the other computer`), and
+/// each library that changed `both` places.
+fn fetched(r: &FetchReport, there: &str, both: &str, out: Output) -> ExitCode {
     let outcome = if r.dry_run { Outcome::DryRun } else { Outcome::Applied };
-    Ok(out.report(&r, outcome, |r| {
+    out.report(r, outcome, |r| {
         let verb = if r.dry_run { "would copy" } else { "copied" };
         output::ok(format!(
             "{verb} {} snapshot(s) and {} file(s) ({}) from {}; {} file(s) were here already",
@@ -304,19 +342,19 @@ pub fn fetch(
                     say!("  {name}: new here (called {was:?} there, a name this store uses)")
                 }
                 (LibraryOutcome::Added, None) => say!("  {name}: new here"),
-                (LibraryOutcome::Updated, _) => say!("  {name}: now at the other computer's latest snapshot"),
+                (LibraryOutcome::Updated, _) => say!("  {name}: now at {there}'s latest snapshot"),
                 (LibraryOutcome::UpToDate, _) => say!("  {name}: up to date"),
                 (LibraryOutcome::Unavailable, _) => output::warn(format!(
-                    "{}: the other computer's latest snapshot couldn't be had, so it's left as it was",
+                    "{}: {there}'s latest snapshot couldn't be had, so it's left as it was",
                     l.name
                 )),
                 (LibraryOutcome::Diverged, _) => output::warn(format!(
-                    "{} changed on both computers: it keeps this store's latest; push the other's with \
+                    "{} changed {both}: it keeps this store's latest; push the other's with \
                      `locallibrary library push --snapshot {}`",
                     l.name,
                     l.head.map(|h| h.short()).unwrap_or_default()
                 )),
             }
         }
-    }))
+    })
 }

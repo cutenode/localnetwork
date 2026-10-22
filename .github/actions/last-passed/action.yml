@@ -1,0 +1,40 @@
+name: Last passed commit
+description: >-
+  The commit of this workflow's last successful push run on the branch pushed to, for a changes
+  job's paths-filter `base`. A push diffed against the commit before it drops what a cancelled or
+  failed run never checked whenever the next push doesn't touch the same files; diffed against the
+  last commit that passed, those files count until a run passes. Empty, with a warning, when none
+  of the workflow's last 100 runs is one, which leaves paths-filter on the commit before the push.
+  Needs `actions: read`.
+
+outputs:
+  sha:
+    description: The commit, or empty.
+    value: ${{ steps.last.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: last
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        WORKFLOW_REF: ${{ github.workflow_ref }}
+        BRANCH: ${{ github.ref_name }}
+      run: |
+        # owner/repo/.github/workflows/<file>@<ref> to <file>.
+        workflow=${WORKFLOW_REF%@*}
+        workflow=${workflow##*/}
+        # The list is filtered here rather than with its branch, event and status parameters: those
+        # go through GitHub's search index, which answered 11 of 40 identical queries with no runs
+        # on 2026-10-22, while the unfiltered list, newest first, found the run every time.
+        sha=$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?per_page=100" |
+          jq -r --arg branch "$BRANCH" '[.workflow_runs[]
+            | select(.head_branch == $branch and .event == "push" and .conclusion == "success")]
+            | .[0].head_sha // empty')
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        if [ -z "$sha" ]; then
+          echo "::warning title=No passed run::None of $workflow's last 100 runs passed on a push to $BRANCH, so this push is diffed against the commit before it"
+        fi
+        echo "Changes since ${sha:-the commit before the push}"

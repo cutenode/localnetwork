@@ -386,3 +386,49 @@ fn an_export_kept_doesnt_keep_its_plugin() {
     );
     assert!(!out.exists());
 }
+
+/// Nor does a callback the plugin still has under way: one held while its hook is given up on.
+#[test]
+fn an_export_kept_doesnt_keep_its_plugin_through_a_callback() {
+    let Fixture { _dir, store, plugins, entered, release, .. } = Fixture::echo();
+    let out = store.root().parent().unwrap().join("out.m3u");
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
+    let planned = plugins.export_plan("echo", "m3u", source, &out, Value::Null, Some(&store), &Ctx::silent()).unwrap();
+    let cancel = locallibrary::CancelToken::new();
+    std::thread::scope(|s| {
+        let held = s.spawn(|| {
+            let params = json!({ "call": "track.show", "params": { "drive": "USB", "ids": [1] } });
+            let ctx = Ctx::new(&locallibrary::progress::NoProgress, cancel.clone());
+            plugins.run_command("echo", "echo", params, Context::default(), None, &ctx, &|_| {})
+        });
+        entered.lock().unwrap().recv().unwrap();
+        cancel.cancel();
+        // The plugin is told so at once, though the read goes on.
+        let Ok(CommandOutput::Headless(answer)) = held.join().unwrap() else { panic!("a headless answer") };
+        assert_eq!(answer["error"]["data"]["kind"], "cancelled");
+    });
+    drop(plugins);
+    let e = planned.apply(None, &Ctx::silent()).err().unwrap();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+    assert!(!out.exists());
+    // The read, let go.
+    let _ = release.send(());
+}
+
+/// Nor does its process stopping as idle when the host lets go of it.
+#[test]
+fn an_export_kept_doesnt_keep_its_plugin_as_it_stops() {
+    let f =
+        Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options { idle: Duration::from_secs(1), ..Options::default() });
+    // Its stop takes a while.
+    f.echo_params(json!({ "linger": 3000 })).unwrap();
+    let out = f.store.root().parent().unwrap().join("out.m3u");
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
+    let planned =
+        f.plugins.export_plan("echo", "m3u", source, &out, Value::Null, Some(&f.store), &Ctx::silent()).unwrap();
+    eventually("it's stopped as idle", || !f.plugins.is_running("echo"));
+    drop(f.plugins);
+    let e = planned.apply(None, &Ctx::silent()).err().unwrap();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+    assert!(!out.exists());
+}

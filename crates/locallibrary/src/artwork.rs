@@ -41,6 +41,7 @@ use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Event, Phase};
 use crate::schema::{Failure, Skip};
+use crate::staged::IMAGES;
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -358,20 +359,13 @@ pub enum ImageSource {
     Blob(String),
 }
 
-/// Where the drive keeps the images artwork edits staged, below its state folder.
-const STAGED: &str = "artwork";
-
-fn staged_path(device: &Device, hash: &Hash) -> PathBuf {
-    device.state_dir().join(STAGED).join(format!("{hash}.jpg"))
-}
-
 /// The image an artwork edit sets, as the drive keeps it for the journal: a JPEG of the larger
 /// size players show, named by its hash, with its bytes unless it was given staged (the plan holds
 /// them, so pruning the drive's copy before it's applied can't lose them). The players' two sizes
 /// are made from those bytes, so a replay sets exactly the same artwork.
 pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Option<Vec<u8>>)> {
     let art = match image {
-        ImageSource::Staged(hash) if staged_path(device, hash).is_file() => return Ok((*hash, None)),
+        ImageSource::Staged(hash) if IMAGES.path(device, hash).is_file() => return Ok((*hash, None)),
         ImageSource::Staged(hash) => {
             return Err(Error::NotFound(format!("the staged image {} on {}", hash.short(), device.name())));
         }
@@ -383,31 +377,6 @@ pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Optio
     };
     let bytes = art.jpeg(MEDIUM_SIZE)?;
     Ok((Hash::of(&bytes), Some(bytes)))
-}
-
-/// Keep only the staged images in `keep` (the ones the journal names, see [`stage`]).
-pub(crate) fn prune_staged(device: &Device, keep: &FxHashSet<Hash>) -> Result<()> {
-    let dir = device.state_dir().join(STAGED);
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(()) };
-    for e in entries.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        let named = name.strip_suffix(".jpg").and_then(|h| h.parse::<Hash>().ok());
-        if !named.is_some_and(|h| keep.contains(&h)) {
-            fsutil::remove_if_exists(&e.path())?;
-        }
-    }
-    Ok(())
-}
-
-/// Give `target` the staged images in `images` that `source` has and it lacks.
-pub(crate) fn copy_staged(source: &Device, target: &Device, images: &FxHashSet<Hash>) -> Result<()> {
-    for hash in images {
-        let (from, to) = (staged_path(source, hash), staged_path(target, hash));
-        if from.is_file() && !to.is_file() {
-            fsutil::copy_file(&from, &to, None, Some(*hash), true, &Ctx::silent())?;
-        }
-    }
-    Ok(())
 }
 
 /// The images, in each database, of the tracks of these audio files (device paths): what setting
@@ -456,7 +425,7 @@ pub(crate) fn replay(
     if ids.is_empty() {
         return out.skipped(strict, &described, Error::NotFound("the tracks".into()));
     }
-    let path = staged_path(device, hash);
+    let path = IMAGES.path(device, hash);
     let medium = match images.get(hash).cloned().map_or_else(|| std::fs::read(&path), Ok) {
         Ok(bytes) => bytes,
         Err(_) => {
@@ -809,9 +778,23 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
     Ok(report)
 }
 
-/// Encode any supported image as PNG (handy for UIs that want a lossless preview).
+/// The longest side of a [`to_png`] preview, in pixels.
+pub const PREVIEW_SIZE: u32 = 512;
+
+/// Encode any supported image as PNG (handy for UIs that want a lossless preview), shrunk to
+/// [`PREVIEW_SIZE`] on its longest side if it's bigger. The bytes may come from anywhere (a
+/// plugin's picture), so one wider or taller than 8192 pixels, or needing more than 256 MiB
+/// decoded, is refused without being decoded.
 pub fn to_png(bytes: &[u8]) -> Result<Vec<u8>> {
-    let img = image::load_from_memory(bytes).map_err(|e| Error::Image(e.to_string()))?;
+    let mut limits = image::Limits::default();
+    (limits.max_image_width, limits.max_image_height, limits.max_alloc) = (Some(8192), Some(8192), Some(256 << 20));
+    let mut reader =
+        image::ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|e| Error::Image(e.to_string()))?;
+    reader.limits(limits);
+    let mut img = reader.decode().map_err(|e| Error::Image(e.to_string()))?;
+    if img.width().max(img.height()) > PREVIEW_SIZE {
+        img = img.resize(PREVIEW_SIZE, PREVIEW_SIZE, FilterType::Triangle);
+    }
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, ImageFormat::Png).map_err(|e| Error::Image(e.to_string()))?;
     Ok(out.into_inner())

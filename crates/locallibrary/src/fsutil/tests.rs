@@ -445,3 +445,29 @@ fn a_rename_waits_for_a_look_to_finish() {
     });
     assert_eq!(fs::read(&path).unwrap(), b"new");
 }
+
+/// One thread reads a JSON file while another writes it over and over: every read finds the file
+/// whole, and every write lands. Regression: on Windows a rename over the file while a read held
+/// it open failed ("Access is denied"), as a plugin's settings changed while its service ran.
+#[test]
+fn a_file_read_while_its_rewritten_is_read_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    write_json_atomic(&path, &0u32).unwrap();
+    let writing = std::sync::atomic::AtomicBool::new(true);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut last = 0;
+            while writing.load(std::sync::atomic::Ordering::SeqCst) {
+                let read: u32 = read_json(&path).unwrap();
+                assert!(read >= last, "read {read} after {last}");
+                last = read;
+            }
+        });
+        for n in 1..=50u32 {
+            write_json_atomic(&path, &n).unwrap();
+        }
+        writing.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!(read_json::<u32>(&path).unwrap(), 50);
+}

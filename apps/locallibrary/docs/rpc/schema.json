@@ -4954,6 +4954,180 @@
       }
     },
     {
+      "name": "plugins.accounts",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/PluginRef"
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/PluginAccountStatus"
+        }
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.begin",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccountRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SignIn"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.finish",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FinishSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginAccountStatus"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.paste",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PasteSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginAccountStatus"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.cancel",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CancelSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Cancelled"
+      }
+    },
+    {
+      "name": "plugins.account.sign_out",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccountRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SignedOut"
+      }
+    },
+    {
+      "name": "plugins.apply_analysis.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.apply_analysis.apply",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ApplyAnalysis"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.apply_analysis.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.apply_analysis.plan",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ApplyAnalysis"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
       "name": "plugins.run",
       "aliases": [],
       "kind": "read",
@@ -4964,6 +5138,137 @@
       },
       "result": {
         "$ref": "#/$defs/CommandOutput"
+      }
+    },
+    {
+      "name": "plugins.store.copy",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CopyTo"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CopyReport"
+      }
+    },
+    {
+      "name": "plugins.store.restore",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RestoreFrom"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/FetchReport"
+      }
+    },
+    {
+      "name": "plugins.store.verify",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/VerifyFrom"
+      },
+      "result": {
+        "$ref": "#/$defs/ScrubReport"
+      }
+    },
+    {
+      "name": "plugins.store.repair",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RepairFrom"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/RepairReport"
+      }
+    },
+    {
+      "name": "plugins.publish.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.publish.apply",
+      "operation": "plugins.publish",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PublishSetAt"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetPublish"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.publish.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.publish.plan",
+      "operation": "plugins.publish",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PublishSetAt"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetPublished"
       }
     },
     {
@@ -5015,6 +5320,19 @@
       },
       "result": {
         "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "name": "plugins.panel",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/RenderPluginPanel"
+      },
+      "result": {
+        "$ref": "#/$defs/View"
       }
     },
     {
@@ -5073,6 +5391,64 @@
       },
       "result": {
         "$ref": "#/$defs/Exported"
+      }
+    },
+    {
+      "name": "plugins.import.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.import.apply",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PlanPluginImport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PluginImport"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.import.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.import.plan",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PlanPluginImport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginImported"
       }
     },
     {
@@ -5151,6 +5527,59 @@
       },
       "result": {
         "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "name": "plugins.checks",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetCheck"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.timeout.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetTimeout"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
       }
     },
     {
@@ -5294,6 +5723,64 @@
         "items": {
           "$ref": "#/$defs/RoleChoice"
         }
+      }
+    },
+    {
+      "name": "plugins.source.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.source.apply",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SourceExport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.source.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.source.plan",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/SourceExport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CollectionExportReport"
       }
     }
   ],
@@ -7002,6 +7489,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -7372,6 +7907,22 @@
         {
           "type": "object",
           "properties": {
+            "set_many": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SetCue"
+              }
+            }
+          },
+          "required": [
+            "set_many"
+          ],
+          "additionalProperties": false,
+          "description": "Several cues set in turn, each as `set` sets one (what an import adds to a track)."
+        },
+        {
+          "type": "object",
+          "properties": {
             "update": {
               "$ref": "#/$defs/UpdateCue"
             }
@@ -7636,6 +8187,180 @@
       "type": "string",
       "description": "A BLAKE3 hash, as 64 lowercase hex characters.",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "Beat": {
+      "type": "object",
+      "properties": {
+        "beat_number": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Position in the bar, 1-4."
+        },
+        "bpm": {
+          "type": "number",
+          "format": "double"
+        },
+        "time_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "beat_number",
+        "bpm",
+        "time_ms"
+      ]
+    },
+    "SongStructure": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "$ref": "#/$defs/Mood"
+        },
+        "phrases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Phrase"
+          }
+        }
+      },
+      "required": [
+        "mood",
+        "phrases"
+      ],
+      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
+    },
+    "Mood": {
+      "type": "string",
+      "enum": [
+        "high",
+        "mid",
+        "low"
+      ],
+      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
+    },
+    "Phrase": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
+        },
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
+        }
+      },
+      "required": [
+        "kind",
+        "start_beat",
+        "end_beat"
+      ]
+    },
+    "PhraseKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "intro",
+            "bridge",
+            "chorus",
+            "outro"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "up",
+          "description": "Build-ups, in high-mood tracks."
+        },
+        {
+          "type": "string",
+          "const": "down",
+          "description": "Breakdowns, in high-mood tracks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "verse": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "verse"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unknown": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WaveSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "base64": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base64"
+          ],
+          "additionalProperties": false,
+          "description": "The bands packed (three bytes a column), in base64."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "staged": {
+              "$ref": "#/$defs/Hash"
+            }
+          },
+          "required": [
+            "staged"
+          ],
+          "additionalProperties": false,
+          "description": "Staged on the drive (`.locallibrary/waveforms/<hash>.bands`), by its hash: how the journal\nrecords the others."
+        }
+      ],
+      "description": "A waveform an analysis edit writes: three bands, each column's lows, mids and highs (0-255),\n150 columns a second ([`Bands`]), from which each of the track's waveform tags is worked out."
     },
     "ClearEdits": {
       "type": "object",
@@ -8765,6 +9490,11 @@
             "large_files",
             "compatibility"
           ]
+        },
+        {
+          "type": "string",
+          "const": "checks",
+          "description": "What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`])."
         },
         {
           "type": "string",
@@ -10473,6 +11203,27 @@
             "name",
             "root"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "plugin": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string",
+              "const": "destination"
+            }
+          },
+          "required": [
+            "from",
+            "plugin",
+            "destination"
+          ],
+          "description": "The copy of the store at a plugin's destination, from which it's fetched into the store."
         }
       ],
       "description": "Where a damaged or missing file can be rewritten from."
@@ -11135,6 +11886,138 @@
         "key"
       ]
     },
+    "AccountRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string",
+          "description": "The account's id, as the plugin's manifest has it."
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
+    },
+    "FinishSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "What `plugins.account.sign_in.begin` answered."
+        },
+        "timeout_secs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "How long to wait for the browser (default 300, an hour at most).",
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "PasteSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "The address the browser ended up on after approving."
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ]
+    },
+    "CancelSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "ApplyAnalysis": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "analyzer": {
+          "type": "string"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks to write to."
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisPart"
+          },
+          "description": "What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`."
+        },
+        "tracks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one].",
+          "default": null
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Also over what a track's analysis files have: without it, only where they have none.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "analyzer",
+        "drive",
+        "parts"
+      ],
+      "description": "What to write to a drive's tracks' analysis files, from what one analyzer kept."
+    },
+    "AnalysisPart": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "grid",
+          "description": "The beat grid (a `beats` field)."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "The phrases (a `phrases` field)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "The waveform (a `waveform` field)."
+        }
+      ],
+      "description": "A part of a track's analysis an analyzer can work out."
+    },
     "RunPluginCommand": {
       "type": "object",
       "properties": {
@@ -11185,9 +12068,143 @@
           },
           "description": "The tracks they chose, by id.",
           "default": []
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The set they're on, by id (`sets.list`).",
+          "default": null
         }
       },
       "description": "Where the user is, for a plugin's command or operation."
+    },
+    "CopyTo": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "`<plugin>:<destination>`: one of a plugin's store destinations."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Copy over a copy that has snapshots the store doesn't, or that's another store's.",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be copied, and copy nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
+    "RestoreFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Libraries to bring back, by name or id. Empty: all of them.",
+          "default": []
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be fetched, and fetch nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
+    "VerifyFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "Whose good copies the files the store and the drives lack are offered from."
+        },
+        "drive": {
+          "type": "string"
+        },
+        "snapshot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Compare with this snapshot (id prefix) [default: the snapshot of the drive's state].",
+          "default": null
+        },
+        "against": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Other mounted drives that may hold good copies.",
+          "default": []
+        }
+      },
+      "required": [
+        "destination",
+        "drive"
+      ]
+    },
+    "RepairFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "Whose good copies are fetched into the store first."
+        },
+        "drive": {
+          "type": "string"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileProblem"
+          },
+          "description": "The problems a [`drive_verify`] found (each is checked again before anything is written)."
+        },
+        "against": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "destination",
+        "drive",
+        "problems"
+      ]
+    },
+    "PublishSetAt": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "`<plugin>:<destination>`: one of a plugin's set destinations."
+        },
+        "set": {
+          "type": "string",
+          "description": "The set: its id (or the start of it), title or day, or `last`."
+        }
+      },
+      "required": [
+        "destination",
+        "set"
+      ]
     },
     "PlanPluginOp": {
       "type": "object",
@@ -11212,6 +12229,34 @@
         "context"
       ]
     },
+    "RenderPluginPanel": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "panel": {
+          "type": "string",
+          "description": "One of the plugin's panels (`plugins.describe`)."
+        },
+        "drive": {
+          "type": "string",
+          "description": "A library's name, or a drive's mount path, name or id prefix."
+        },
+        "track": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The track, by id."
+        }
+      },
+      "required": [
+        "plugin",
+        "panel",
+        "drive",
+        "track"
+      ]
+    },
     "PlanPluginExport": {
       "type": "object",
       "properties": {
@@ -11224,7 +12269,8 @@
         },
         "drive": {
           "type": "string",
-          "description": "The library or drive to export."
+          "description": "The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give\nit.",
+          "default": ""
         },
         "playlists": {
           "type": "array",
@@ -11242,6 +12288,22 @@
           "description": "History lists to put in, by name.",
           "default": []
         },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it).",
+          "default": null
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix's exporter's mix: the id of its report in the store (`mix.reports.list`).",
+          "default": null
+        },
         "output": {
           "type": "string",
           "description": "The file, or folder, to write (absolute), on this computer: never on a drive or in the\nstore."
@@ -11254,8 +12316,37 @@
       "required": [
         "plugin",
         "exporter",
-        "drive",
         "output"
+      ]
+    },
+    "PlanPluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string",
+          "description": "The importer's format."
+        },
+        "file": {
+          "type": "string",
+          "description": "The file to read (absolute), on this computer."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks it's about."
+        },
+        "options": {
+          "description": "As the importer's `options` schema says (`plugins.describe`).",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "drive"
       ]
     },
     "AnalyzeWithPlugin": {
@@ -11391,6 +12482,58 @@
         }
       ],
       "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
+    },
+    "SetCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check's name."
+        },
+        "on": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Run it, or not; left out, as it is.",
+          "default": null
+        },
+        "blocking": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "For a guard: keep a plan it finds a warning or a problem about from being applied, or not;\nleft out, as it is.",
+          "default": null
+        },
+        "reset": {
+          "type": "boolean",
+          "description": "Put both back to their defaults first.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "check"
+      ],
+      "description": "A change to a check's settings."
+    },
+    "SetTimeout": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "How long a check has to answer, in seconds (0.001 to 3600), before it's\nstopped (a warning says so); `null` (or left out) puts it back to its default.",
+          "default": null
+        }
+      }
     },
     "Provide": {
       "type": "object",
@@ -11629,6 +12772,63 @@
       "required": [
         "role"
       ]
+    },
+    "SourceExport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "One of its library sources, by name."
+        },
+        "options": {
+          "description": "As the source's `options` schema says.",
+          "default": null
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The folders the plugin may read files in, absolute: granted for this read alone, and only\naudio files in them are copied."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive or folder to write to."
+        },
+        "playlists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playlists or folders (paths) to export, with the tracks they use. Empty: every track and\nplaylist, or the selection the target was last exported with.",
+          "default": []
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Export every track and playlist, whatever the target was exported with last.",
+          "default": false
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace a library the target holds that wasn't exported from the collection, or the\nfiles on a target with no library.",
+          "default": false
+        },
+        "overwrite_archive": {
+          "type": "boolean",
+          "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "source",
+        "grants",
+        "drive"
+      ],
+      "description": "Building a drive from a plugin's library source."
     },
     "Initialized": {
       "type": "object",
@@ -12768,6 +13968,13 @@
           },
           "description": "Every warning, the plan's own included."
         },
+        "blocked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about\nit: applying it is refused (`blocked`)."
+        },
         "destructive": {
           "type": "boolean",
           "description": "It deletes or overwrites something (files, tracks, a library, a disk): a dialog should\nsay so."
@@ -13372,32 +14579,6 @@
       ],
       "description": "[`TrackAnalysis`] with only the waveforms asked for, in the encoding asked for. With the\ndefaults it's the same as [`TrackAnalysis`]."
     },
-    "Beat": {
-      "type": "object",
-      "properties": {
-        "beat_number": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Position in the bar, 1-4."
-        },
-        "bpm": {
-          "type": "number",
-          "format": "double"
-        },
-        "time_ms": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "beat_number",
-        "bpm",
-        "time_ms"
-      ]
-    },
     "Cue": {
       "type": "object",
       "properties": {
@@ -13541,6 +14722,11 @@
           "type": "string",
           "const": "rgb",
           "description": "Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`)."
+        },
+        {
+          "type": "string",
+          "const": "three_band",
+          "description": "Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what\nanalyzer plugins give ([`Bands`])."
         }
       ]
     },
@@ -13652,123 +14838,36 @@
       ],
       "description": "One layer of a [`PackedWaveform`]."
     },
-    "SongStructure": {
+    "Action": {
       "type": "object",
       "properties": {
-        "mood": {
-          "$ref": "#/$defs/Mood"
+        "label": {
+          "type": "string",
+          "description": "What a button offering it says."
         },
-        "phrases": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Phrase"
-          }
-        }
-      },
-      "required": [
-        "mood",
-        "phrases"
-      ],
-      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
-    },
-    "Mood": {
-      "type": "string",
-      "enum": [
-        "high",
-        "mid",
-        "low"
-      ],
-      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
-    },
-    "Phrase": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "$ref": "#/$defs/PhraseKind"
-        },
-        "start_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
-        },
-        "end_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "fill_beat": {
+        "method": {
           "type": [
-            "integer",
+            "string",
             "null"
           ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Beat where a fill-in leads into the next phrase."
+          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
+          "default": {}
+        },
+        "elevate": {
+          "type": "boolean",
+          "description": "Run it with administrator rights (restart the sidecar elevated first)."
         }
       },
       "required": [
-        "kind",
-        "start_beat",
-        "end_beat",
-        "fill_beat"
-      ]
-    },
-    "PhraseKind": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "intro",
-            "bridge",
-            "chorus",
-            "outro"
-          ]
-        },
-        {
-          "type": "string",
-          "const": "up",
-          "description": "Build-ups, in high-mood tracks."
-        },
-        {
-          "type": "string",
-          "const": "down",
-          "description": "Breakdowns, in high-mood tracks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "verse": {
-              "type": "integer",
-              "format": "uint8",
-              "minimum": 0,
-              "maximum": 255
-            }
-          },
-          "required": [
-            "verse"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "unknown": {
-              "type": "integer",
-              "format": "uint16",
-              "minimum": 0,
-              "maximum": 65535
-            }
-          },
-          "required": [
-            "unknown"
-          ],
-          "additionalProperties": false
-        }
-      ]
+        "label",
+        "params"
+      ],
+      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
     },
     "TracksAnalysis": {
       "type": "object",
@@ -14308,36 +15407,42 @@
         "position"
       ]
     },
-    "Action": {
+    "PhraseOutput": {
       "type": "object",
       "properties": {
-        "label": {
-          "type": "string",
-          "description": "What a button offering it says."
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
         },
-        "method": {
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
           "type": [
-            "string",
+            "integer",
             "null"
           ],
-          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
-        },
-        "params": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
-          "default": {}
-        },
-        "elevate": {
-          "type": "boolean",
-          "description": "Run it with administrator rights (restart the sidecar elevated first)."
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
         }
       },
       "required": [
-        "label",
-        "params"
-      ],
-      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
+        "kind",
+        "start_beat",
+        "end_beat",
+        "fill_beat"
+      ]
     },
     "UndoPlan": {
       "type": "object",
@@ -16459,7 +17564,8 @@
       "type": "object",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The folder copied to, or `<plugin>:<destination>` for a plugin's destination."
         },
         "snapshots": {
           "type": "integer",
@@ -16800,7 +17906,7 @@
           "items": {
             "$ref": "#/$defs/EditOutput"
           },
-          "description": "The edits as recorded in the drive's journal."
+          "description": "The edits as the drive's journal records them (tracks named by file), which applying it\nrecords there, unless it was planned with `no_journal`."
         },
         "onelibrary_changes": {
           "type": "boolean",
@@ -18117,6 +19223,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -19830,6 +20984,16 @@
           ],
           "description": "The volume's file system as the OS names it."
         },
+        "checks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/CheckItem"
+          },
+          "description": "What plugins' checks found, each named `<plugin>.<check>`."
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -19851,6 +21015,7 @@
         "analysis",
         "compatibility",
         "file_system",
+        "checks",
         "warnings"
       ]
     },
@@ -20573,6 +21738,106 @@
         }
       ]
     },
+    "CheckItem": {
+      "type": "object",
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive it's about."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check that found it (`files`, a plugin's `<plugin>.<check>`).",
+          "default": ""
+        },
+        "message": {
+          "type": "string",
+          "description": "What it found, in a line."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "The tracks it's about, by id."
+        },
+        "playlist": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The playlist it's about, by path (`Folder/Name`)."
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The files it's about, relative to the drive's root (`Contents/a.mp3`)."
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+        }
+      },
+      "required": [
+        "drive",
+        "level",
+        "check",
+        "message"
+      ],
+      "description": "What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,\n`files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`\nor `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`."
+    },
+    "Level": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "info",
+          "description": "Worth knowing, nothing to fix (what was checked and found fine, too)."
+        },
+        {
+          "type": "string",
+          "const": "warning",
+          "description": "Worth a look: it may be a problem, or a problem for some players."
+        },
+        {
+          "type": "string",
+          "const": "problem",
+          "description": "Something to fix before it's used."
+        }
+      ],
+      "description": "How much a finding matters, least first."
+    },
+    "Fix": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "plugin",
+        "operation",
+        "params"
+      ],
+      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+    },
     "OrphanPlan": {
       "type": "object",
       "properties": {
@@ -20729,39 +21994,6 @@
         "unloadable",
         "audio",
         "loudness"
-      ]
-    },
-    "CheckItem": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive it's about."
-        },
-        "check": {
-          "type": "string",
-          "description": "What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,\n`large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`."
-        },
-        "level": {
-          "$ref": "#/$defs/Level"
-        },
-        "message": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "drive",
-        "check",
-        "level",
-        "message"
-      ]
-    },
-    "Level": {
-      "type": "string",
-      "enum": [
-        "ok",
-        "warning",
-        "problem"
       ]
     },
     "DrivePlayers": {
@@ -24837,7 +26069,7 @@
         },
         "source": {
           "type": "string",
-          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`)."
+          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`)."
         },
         "drives": {
           "type": "array",
@@ -24929,7 +26161,7 @@
         },
         "tool": {
           "type": "string",
-          "description": "`beat_link_trigger`."
+          "description": "`beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`)."
         },
         "file": {
           "type": "string",
@@ -25586,6 +26818,13 @@
             "$ref": "#/$defs/CueMark"
           },
           "description": "Its hot cues, in seconds into the track."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShownField"
+          },
+          "description": "What analyzers worked out for it that a page shows (the HTML report's), in order."
         }
       },
       "required": [
@@ -25642,6 +26881,24 @@
         "label",
         "color"
       ]
+    },
+    "ShownField": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "`<plugin>.<field>` (`sound.lufs`)."
+        },
+        "value": {
+          "type": "string",
+          "description": "As its analyzer says it's shown (`-8.2 LUFS`)."
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "description": "An analyzer's field, as a page shows it."
     },
     "MixExport": {
       "type": "object",
@@ -28784,7 +30041,14 @@
       "properties": {
         "collection": {
           "type": "string",
-          "description": "The `master.db` exported."
+          "description": "The `master.db` exported (empty for a plugin's library source)."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's library source written instead, `<plugin>:<source>`."
         },
         "target": {
           "type": "string"
@@ -28874,7 +30138,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Tracks with an analysis file that can't be read: exported without it."
+          "description": "Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,\nbeat grid or waveform can't be written: exported without it."
         },
         "replaces_library": {
           "type": "boolean",
@@ -29052,12 +30316,24 @@
             "$ref": "#/$defs/Granted"
           }
         },
-        "commands": {
+        "accounts": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers, providers and services by name, the\nevents it listens for, its export formats and its settings' keys."
+          "description": "What it adds: its accounts by id, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "events": {
           "type": "array",
@@ -29071,13 +30347,31 @@
             "type": "string"
           }
         },
+        "panels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "analyzers": {
           "type": "array",
           "items": {
             "type": "string"
           }
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "exporters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "importers": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29090,6 +30384,18 @@
           }
         },
         "services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "themes": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29118,13 +30424,20 @@
         "name",
         "version",
         "capabilities",
+        "accounts",
         "commands",
+        "destinations",
         "events",
         "operations",
+        "panels",
         "analyzers",
+        "checks",
         "exporters",
+        "importers",
         "providers",
         "services",
+        "sources",
+        "themes",
         "settings",
         "running",
         "left_out"
@@ -29169,9 +30482,11 @@
             "tags:plan",
             "cues:plan",
             "artwork:plan",
+            "analysis:plan",
             "events:drives",
             "events:jobs",
-            "events:plans"
+            "events:plans",
+            "fs:read"
           ]
         },
         {
@@ -29212,6 +30527,13 @@
           ],
           "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginAccountStatus"
+          },
+          "description": "Each of its accounts, and whether it's signed in (never a token): none signed in when the\nkeychain can't say (see `secrets_unknown`)."
+        },
         "running": {
           "type": "boolean"
         }
@@ -29221,9 +30543,10 @@
         "capabilities",
         "settings",
         "secrets",
+        "accounts",
         "running"
       ],
-      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, and its settings now."
+      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and whether each of its accounts is signed in."
     },
     "Manifest": {
       "type": "object",
@@ -29254,13 +30577,20 @@
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
+            "accounts": [],
             "commands": [],
+            "destinations": [],
             "events": [],
             "operations": [],
+            "panels": [],
             "analyzers": [],
+            "checks": [],
             "exporters": [],
+            "importers": [],
             "providers": [],
             "services": [],
+            "sources": [],
+            "themes": [],
             "settings": []
           }
         },
@@ -29285,10 +30615,24 @@
     "Contributions": {
       "type": "object",
       "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Account"
+          },
+          "default": []
+        },
         "commands": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Command"
+          },
+          "default": []
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Destination"
           },
           "default": []
         },
@@ -29306,6 +30650,13 @@
           },
           "default": []
         },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Panel"
+          },
+          "default": []
+        },
         "analyzers": {
           "type": "array",
           "items": {
@@ -29313,10 +30664,24 @@
           },
           "default": []
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "default": []
+        },
         "exporters": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Exporter"
+          },
+          "default": []
+        },
+        "importers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Importer"
           },
           "default": []
         },
@@ -29334,6 +30699,20 @@
           },
           "default": []
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LibrarySource"
+          },
+          "default": []
+        },
+        "themes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Theme"
+          },
+          "default": []
+        },
         "settings": {
           "type": "array",
           "items": {
@@ -29343,15 +30722,74 @@
         }
       },
       "required": [
+        "accounts",
         "commands",
+        "destinations",
         "events",
         "operations",
+        "panels",
         "analyzers",
+        "checks",
         "exporters",
+        "importers",
         "providers",
         "services",
+        "sources",
+        "themes",
         "settings"
       ]
+    },
+    "Account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "How requests name it (`{account:<id>}`)."
+        },
+        "title": {
+          "type": "string"
+        },
+        "authorize_url": {
+          "type": "string",
+          "description": "The service's authorization endpoint, where the browser signs in (https)."
+        },
+        "token_url": {
+          "type": "string",
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https)."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What it asks the service for, as the service names them."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "The plugin's client at the service: a public one, without a secret."
+        },
+        "pkce": {
+          "type": "boolean",
+          "description": "Signing in uses PKCE: always, and a manifest saying otherwise is refused.",
+          "default": true
+        },
+        "revoke_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "authorize_url",
+        "token_url",
+        "client_id",
+        "pkce"
+      ],
+      "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
     },
     "Command": {
       "type": "object",
@@ -29416,6 +30854,41 @@
         "drive"
       ],
       "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive. A host's palette has every one."
+    },
+    "Destination": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DestinationKind"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "kind"
+      ],
+      "description": "`[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or\npublishes sets at (`set`)."
+    },
+    "DestinationKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "store",
+          "description": "Copies of the store: `blobs/*` and `manifest/*`."
+        },
+        {
+          "type": "string",
+          "const": "set",
+          "description": "Sets, published: `set/publish`."
+        }
+      ],
+      "description": "What a destination keeps."
     },
     "Listener": {
       "type": "object",
@@ -29515,6 +30988,28 @@
       ],
       "description": "Planned with `op/plan`, applied by the host, which works out from the edits whether it's\ndestructive."
     },
+    "Panel": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/Where",
+          "description": "What it's shown with: a track, unless it says.",
+          "default": "track"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "where"
+      ],
+      "description": "Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as\nthe user comes to a track, so it answers quickly, reading only what it needs."
+    },
     "Analyzer": {
       "type": "object",
       "properties": {
@@ -29540,6 +31035,13 @@
             "type": "string"
           },
           "description": "Which of its fields has each role it answers (`bpm = \"bpm\"`): what the host reads for\nthat role (see [`Role`])."
+        },
+        "display": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldDisplay"
+          },
+          "description": "How hosts show some of its fields, by field (`display.lufs = { unit = \"LUFS\" }`): in the\nplayer's columns, `track show` and the mix report."
         }
       },
       "required": [
@@ -29551,14 +31053,154 @@
       "description": "Run with `track/analyze`; its fields become columns."
     },
     "FieldType": {
-      "type": "string",
-      "enum": [
-        "number",
-        "integer",
-        "string",
-        "boolean",
-        "string[]"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "number",
+            "integer",
+            "string",
+            "boolean",
+            "string[]"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "beats",
+          "description": "A beat grid (feature `analysis`, see [`crate::Output`])."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "A song structure: the mood and the phrases (feature `analysis`)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "A waveform in three bands, in a blob (feature `analysis`)."
+        }
       ]
+    },
+    "FieldDisplay": {
+      "type": "object",
+      "properties": {
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Said after a value (`LUFS`); a `db` format's is `dB` unless it says."
+        },
+        "precision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "A number's decimal places, 0 to 6."
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is."
+        }
+      },
+      "description": "How hosts show a field's values, each part optional. Without them a number shows to two\nplaces at most (trailing zeros left out), a list joined with commas, a boolean as yes or no."
+    },
+    "FieldFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (a string), as the host shows keys."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`)."
+        },
+        {
+          "type": "string",
+          "const": "db",
+          "description": "Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`)."
+        },
+        {
+          "type": "string",
+          "const": "percent",
+          "description": "A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says)."
+        },
+        {
+          "type": "string",
+          "const": "meter",
+          "description": "A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says)."
+        }
+      ],
+      "description": "What a field's values are, for hosts to show them as such."
+    },
+    "Check": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "default_on": {
+          "type": "boolean",
+          "description": "It runs unless the user turns it off; otherwise, once they turn it on.",
+          "default": true
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "When it runs: with the check before a set and doctor (`check`, the default), and before a\nplan is applied (`apply`: a guard).",
+          "default": [
+            "check"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "default_on",
+        "when"
+      ],
+      "description": "Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`\nbefore a plan is applied: as its `when` says."
+    },
+    "When": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "check",
+          "description": "With locallibrary's check before a set and doctor (`check/run`)."
+        },
+        {
+          "type": "string",
+          "const": "apply",
+          "description": "Before a plan is applied (`plan/check`): a guard."
+        }
+      ],
+      "description": "When a check runs."
     },
     "Exporter": {
       "type": "object",
@@ -29583,6 +31225,10 @@
         },
         "options": {
           "description": "A JSON Schema for its options (an object)."
+        },
+        "source": {
+          "$ref": "#/$defs/ExportFrom",
+          "description": "What it writes out [default: a drive's library]."
         }
       },
       "required": [
@@ -29591,6 +31237,86 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "ExportFrom": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "drive",
+          "description": "A drive's library."
+        },
+        {
+          "type": "string",
+          "const": "set",
+          "description": "A set the DJ declared (`locallibrary sets`)."
+        },
+        {
+          "type": "string",
+          "const": "mix",
+          "description": "A recorded mix's tracklist, as `locallibrary mix` found it."
+        }
+      ],
+      "description": "What an exporter writes out."
+    },
+    "Importer": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "extension": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The file it reads usually ends in this: lowercase letters and digits, without the dot\n(`nml`)."
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportKind"
+          },
+          "description": "What it reads: what of a track's (and the plays) the host takes from it."
+        }
+      },
+      "required": [
+        "format",
+        "title",
+        "provides"
+      ],
+      "description": "Run with `import/read` on a file the user names: the host finds what it read on a drive and\nplans the edits itself, so it needs no capability to plan one."
+    },
+    "ImportKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "cues"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "fields",
+          "description": "A track's key and BPM."
+        },
+        {
+          "type": "string",
+          "const": "tags",
+          "description": "My Tags."
+        },
+        {
+          "type": "string",
+          "const": "sessions",
+          "description": "What played, as sessions."
+        }
+      ],
+      "description": "What an importer reads."
     },
     "Provider": {
       "type": "object",
@@ -29627,6 +31353,46 @@
         "title"
       ],
       "description": "Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`\nagent), once the user has turned it on (its plugin's setting `services.<name>`), never by a\ncommand run once."
+    },
+    "LibrarySource": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Read with `library/read`, a page at a time, for the host to build a drive from. It's given the\nfolders the user grants it, which takes `fs:read`."
+    },
+    "Theme": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "tokens"
+      ],
+      "description": "`[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =\n\"#28e214\"`, `ui = { accent = \"#ff8800\" }`), each `#rrggbb` (a gradient, `waveform.*`, a list\nof two or more). What it leaves out is the default's."
     },
     "Setting": {
       "type": "object",
@@ -29697,6 +31463,51 @@
       ],
       "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep."
     },
+    "PluginAccountStatus": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "signed_in": {
+          "type": "boolean"
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        }
+      },
+      "required": [
+        "plugin",
+        "account",
+        "title",
+        "signed_in",
+        "refreshes",
+        "scopes"
+      ],
+      "description": "An account of a plugin's, as hosts show it: never a token."
+    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -29732,6 +31543,92 @@
         "secrets"
       ],
       "description": "A plugin's settings now: each one set, else its default."
+    },
+    "SignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]."
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "Open this in the browser."
+        },
+        "redirect_uri": {
+          "type": "string",
+          "description": "Where the browser comes back to."
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "account",
+        "url",
+        "redirect_uri"
+      ],
+      "description": "A sign-in waiting for the browser."
+    },
+    "SignedOut": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "signed_in": {
+          "type": "boolean"
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "was_signed_in": {
+          "type": "boolean",
+          "description": "It was signed in."
+        },
+        "revoked": {
+          "type": "boolean",
+          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
+        }
+      },
+      "required": [
+        "plugin",
+        "account",
+        "title",
+        "signed_in",
+        "refreshes",
+        "scopes",
+        "was_signed_in",
+        "revoked"
+      ],
+      "description": "What signing out did."
     },
     "CommandOutput": {
       "anyOf": [
@@ -29784,7 +31681,7 @@
             "columns": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/Column"
               }
             },
             "rows": {
@@ -29804,7 +31701,7 @@
             "columns",
             "rows"
           ],
-          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings."
+          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,\nor (feature `views`) a name with what its cells are ([`Column`])."
         },
         {
           "type": "object",
@@ -29868,6 +31765,136 @@
             "kind"
           ],
           "description": "A question for the user (feature `choose`): the host asks it, then runs the command again\nwith what was chosen (see [`Choice`]). It's never drawn."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TreeItem"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "tree"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Items with items below them (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": {
+              "$ref": "#/$defs/ChartStyle"
+            },
+            "series": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Series"
+              }
+            },
+            "x_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "y_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "chart"
+            }
+          },
+          "required": [
+            "kind",
+            "style",
+            "series"
+          ],
+          "description": "Points, each series a line or bars (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "blob": {
+              "type": "string",
+              "description": "Its file's name in the scratch folder."
+            },
+            "alt": {
+              "type": "string",
+              "description": "What it shows, in a few words: what a host that can't draw it says instead."
+            },
+            "data": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin\nsends here is replaced."
+            },
+            "kind": {
+              "type": "string",
+              "const": "image"
+            }
+          },
+          "required": [
+            "kind",
+            "blob",
+            "alt"
+          ],
+          "description": "A picture (features `views` and `blobs`): a file in the request's scratch folder, which\nthe host reads (see [`crate::Blob`])."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Section"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "sections"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Views one after another, each under a title of its own (feature `views`)."
         }
       ]
     },
@@ -29887,6 +31914,70 @@
       "required": [
         "label"
       ]
+    },
+    "Column": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/TypedColumn"
+        }
+      ],
+      "description": "A table's column: its heading alone (text), or (feature `views`) a heading and what its cells\nare."
+    },
+    "TypedColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ColumnKind",
+          "default": "text"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "description": "A column and what its cells are."
+    },
+    "ColumnKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "text",
+          "description": "As they are."
+        },
+        {
+          "type": "string",
+          "const": "track",
+          "description": "A track, by id: shown by its artist and title where the host has the drive's library."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds: shown as minutes and seconds (`3:07`)."
+        },
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (`8A`, `Am`): shown in Camelot notation where it's one."
+        },
+        {
+          "type": "string",
+          "const": "number",
+          "description": "Numbers, with the column's unit after each."
+        }
+      ],
+      "description": "What a column's cells are, for a host to show them as it shows its own."
     },
     "Pair": {
       "type": "object",
@@ -29949,6 +32040,271 @@
         "param",
         "items"
       ]
+    },
+    "TreeItem": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TreeItem"
+          }
+        }
+      },
+      "required": [
+        "label"
+      ]
+    },
+    "ChartStyle": {
+      "type": "string",
+      "enum": [
+        "line",
+        "bar"
+      ],
+      "description": "How a chart draws its series."
+    },
+    "Series": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "format": "double"
+              },
+              {
+                "type": "number",
+                "format": "double"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "required": [
+        "name",
+        "points"
+      ],
+      "description": "A chart's series: its name and its points, `[x, y]`."
+    },
+    "Section": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "view": {
+          "$ref": "#/$defs/View"
+        }
+      },
+      "required": [
+        "title",
+        "view"
+      ]
+    },
+    "FetchReport": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FetchedLibrary"
+          }
+        },
+        "snapshots": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Stored files copied, and the store had already."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "present": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "libraries",
+        "snapshots",
+        "files",
+        "bytes",
+        "present",
+        "dry_run"
+      ]
+    },
+    "FetchedLibrary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Its name in this store."
+        },
+        "was": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its name on the other computer, when that was taken here."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The other computer's latest snapshot."
+        },
+        "outcome": {
+          "$ref": "#/$defs/LibraryOutcome"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "head",
+        "outcome"
+      ]
+    },
+    "LibraryOutcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "added",
+          "description": "This store didn't have it."
+        },
+        {
+          "type": "string",
+          "const": "updated",
+          "description": "It moved to the other computer's newer latest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "up_to_date",
+          "description": "This store was as new, or newer."
+        },
+        {
+          "type": "string",
+          "const": "diverged",
+          "description": "Both changed: this store keeps its latest, and has the other's beside it."
+        },
+        {
+          "type": "string",
+          "const": "unavailable",
+          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
+        }
+      ]
+    },
+    "SetPublish": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "set": {
+          "type": "string",
+          "description": "The set, by id."
+        },
+        "recording": {
+          "type": "string",
+          "description": "Its recording, on this computer, which goes too."
+        },
+        "tracks": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where it would be, when the dry run said."
+        },
+        "replaces": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The link the set has now, which publishing replaces."
+        }
+      },
+      "required": [
+        "plugin",
+        "destination",
+        "set",
+        "recording",
+        "tracks"
+      ],
+      "description": "A set a plugin will publish, as its dry run said."
+    },
+    "SetPublished": {
+      "type": "object",
+      "properties": {
+        "set": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where it can be heard, which is the set's link now; none when the plugin didn't say."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "set"
+      ],
+      "description": "What publishing a set did."
     },
     "OpPlanned": {
       "anyOf": [
@@ -30118,6 +32474,109 @@
       ],
       "description": "A file an export writes."
     },
+    "PluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "description": "The file it read."
+        },
+        "tracks": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "How many of the tracks it read were found on the drive: one track (`found`), several it\ncould be (`ambiguous`) or none (`missing`); only those found are edited."
+        },
+        "plays": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "The same, of its sessions' plays: those not found are kept as the log names them."
+        },
+        "edits": {
+          "$ref": "#/$defs/EditPlan",
+          "description": "What's added to the tracks found, planned on the drive."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedSession"
+          },
+          "description": "The sessions it keeps in the store, as `sessions.list` will list them."
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "tracks",
+        "plays",
+        "edits",
+        "sessions"
+      ],
+      "description": "An import a plugin read, as the host plans it."
+    },
+    "ImportSummary": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "found": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "ambiguous": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "missing": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "found",
+        "ambiguous",
+        "missing"
+      ]
+    },
+    "PluginImported": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EditReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The edits' report, when there were any."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The sessions kept, by id."
+        }
+      },
+      "required": [
+        "edits",
+        "sessions"
+      ],
+      "description": "What an import did."
+    },
     "Analyzed": {
       "type": "object",
       "properties": {
@@ -30146,6 +32605,65 @@
         "failed"
       ],
       "description": "What analysing a drive's tracks did."
+    },
+    "Checks": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedCheck"
+          },
+          "description": "In the order the plugins are."
+        },
+        "timeout": {
+          "type": "number",
+          "format": "double",
+          "description": "How long a check has to answer, in seconds, before it's stopped (a warning says so): the\n`checks.timeout` setting."
+        }
+      },
+      "required": [
+        "checks",
+        "timeout"
+      ],
+      "description": "The plugins' checks, whether each runs, and how long one has to answer, as `plugin checks` and\nthe sidecar's `plugins.checks` show them."
+    },
+    "ListedCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "With the check before a set and doctor (`check`), before a plan is applied (`apply`: a\nguard), or both."
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean",
+          "description": "Only a guard's can be on."
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "title",
+        "when",
+        "on",
+        "blocking"
+      ],
+      "description": "Whether a plugin's check runs, and whether a guard keeps a plan it finds something about from\nbeing applied."
     },
     "Provided": {
       "type": "object",
@@ -31327,6 +33845,11 @@
           "type": "string",
           "const": "verify_failed",
           "description": "Files didn't read back correctly."
+        },
+        {
+          "type": "string",
+          "const": "blocked",
+          "description": "A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found\nsomething about the plan: deal with what it found, or stop the guard blocking."
         },
         {
           "type": "string",

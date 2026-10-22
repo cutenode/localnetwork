@@ -84,11 +84,11 @@
 <li
   data-permalink={permalink}
   class={cn(
-    'lift rounded-xl border px-2 py-1.5',
+    'rounded-lg border px-2 py-1.5 transition-colors',
     isDownloaded
-      ? 'border-success/25 bg-success/8'
-      : 'border-border/70 bg-card hover:border-border',
-    selected && 'border-primary/60 ring-1 ring-primary/30',
+      ? 'border-good/40 bg-good/5'
+      : 'border-line bg-surface hover:border-line-strong',
+    selected && 'border-fg',
     className
   )}
 >
@@ -109,19 +109,18 @@
     {#if onartwork && artworkUrl}
       <button
         type="button"
-        class="relative shrink-0 cursor-pointer rounded-lg outline-none
-               focus-visible:ring-3 focus-visible:ring-ring/50"
+        class="relative shrink-0 cursor-pointer rounded-md"
         aria-label={artworkLabel}
         title={artworkHint || artworkLabel}
         onclick={onartwork}
       >
         <Artwork src={artworkUrl} class="transition hover:brightness-110" />
         {#if artworkState}
-          <span class="absolute inset-0 grid place-items-center rounded-lg bg-background/75">
+          <span class="absolute inset-0 grid place-items-center rounded-md bg-canvas/75">
             {#if artworkState === 'copying'}
               <LoaderCircle class="size-4 animate-spin" />
             {:else}
-              <Check class="size-4 text-success" />
+              <Check class="size-4 text-good" />
             {/if}
           </span>
         {/if}
@@ -131,15 +130,15 @@
     {/if}
 
     <div class="min-w-0 flex-1">
-      <p class="flex items-center gap-1 truncate text-[12.5px] font-semibold" {title}>
+      <p class="flex items-center gap-1 truncate text-label font-semibold" {title}>
         {#if isDownloaded}
-          <Check class="size-3 shrink-0 text-success" aria-label="marked downloaded" />
+          <Check class="size-3 shrink-0 text-good" aria-label="marked downloaded" />
         {/if}
         <span class="truncate">{title}</span>
       </p>
-      <p class="truncate text-[11.5px] text-muted-foreground" title={artist}>{artist}</p>
+      <p class="truncate text-caption text-fg-muted" title={artist}>{artist}</p>
       {#if detail}
-        <p class="text-[11px] break-words text-muted-foreground/90">{detail}</p>
+        <p class="text-caption break-words text-fg-subtle">{detail}</p>
       {/if}
     </div>
 

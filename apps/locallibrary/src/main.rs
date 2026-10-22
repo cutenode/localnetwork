@@ -8,6 +8,7 @@ mod output;
 mod account_cmd;
 mod analysis_cmd;
 mod autostart;
+mod browser;
 mod bug_cmd;
 mod check_cmd;
 mod collection_cmd;
@@ -406,7 +407,8 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     Profile(profile_cmd::ProfileArgs),
     /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
     #[cfg(feature = "account")]
-    Account(account_cmd::AccountArgs),
+    #[command(name = "account")]
+    Atmosphere(account_cmd::AccountArgs),
     /// Report a bug in locallibrary, with this version and system filled in
     #[command(after_help = BUG_HELP)]
     Bug(bug_cmd::BugArgs),
@@ -429,6 +431,8 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     Watch(watch_cmd::WatchArgs),
     /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or in a plugin's format (other DJ software's)
     Export(export_cmd::ExportArgs),
+    /// Read another program's file with a plugin: keys, BPMs, cues and My Tags added to a drive's tracks, plays kept as sessions
+    Import(plugin_cmd::ImportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
         #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
@@ -678,11 +682,16 @@ enum StoreCommand {
     /// Remove old snapshots, keeping each library's latest, labelled ones, drives' last states
     /// and history lists; then free the files nothing uses
     Prune(library_cmd::PruneArgs),
-    /// Copy the store to another folder (a NAS, another disk, a cloud-synced folder), or bring
-    /// a copy up to date: only what's new is copied, and `--store DIR` reads the copy
+    /// Copy the store to another folder (a NAS, another disk, a cloud-synced folder) or a
+    /// plugin's destination, or bring a copy up to date: only what's new is copied, and `--store
+    /// DIR` reads a folder's copy
     Copy {
         /// The folder to copy the store to
-        dir: PathBuf,
+        #[arg(required_unless_present = "to")]
+        dir: Option<PathBuf>,
+        /// Copy it to a plugin's destination instead (`plugin info PLUGIN` lists them)
+        #[arg(long, value_name = "PLUGIN:DESTINATION", conflicts_with_all = ["dir", "mirror", "verify"])]
+        to: Option<String>,
         /// Also remove from the copy what the store no longer has (pruned or collected snapshots,
         /// and files nothing in the store uses)
         #[arg(long)]
@@ -700,6 +709,19 @@ enum StoreCommand {
     },
     /// Where the store has been copied, when, and whether each copy is up to date
     Copies,
+    /// Bring back what a copy of the store at a plugin's destination has that this store lacks
+    /// (after losing a computer, say): nothing this store has is replaced
+    Restore {
+        /// The plugin's destination the copy is at
+        #[arg(long, value_name = "PLUGIN:DESTINATION")]
+        from: String,
+        /// Library to bring back, by its name there (repeatable) [default: all of them]
+        #[arg(long = "library", value_name = "LIBRARY")]
+        libraries: Vec<String>,
+        /// Show what would be brought back without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Let another computer fetch this store's snapshots: prints a code to give it, and serves
     /// until Ctrl-C
     #[cfg(feature = "peers")]
@@ -814,7 +836,7 @@ enum SettingsCommand {
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]
-        browser: account_cmd::BrowserArgs,
+        browser: browser::BrowserArgs,
     },
 }
 
@@ -1170,6 +1192,8 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         });
     }
     api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    // The check before a set, doctor and edit plans run the plugins' checks.
+    locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
@@ -1401,11 +1425,21 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                     return store_cmd::label(&store()?, api::LabelRequest { label, snapshot: None, remove: true }, out);
                 }
                 StoreCommand::Prune(a) => return store_cmd::prune(&store()?, a.options(), out, &ctx),
-                StoreCommand::Copy { dir, mirror, verify, force, dry_run } => {
+                StoreCommand::Copy { dir, to, mirror, verify, force, dry_run } => {
                     let options = api::CopyOptions { mirror, verify, force, dry_run };
-                    return store_cmd::copy(&store()?, api::StoreCopyRequest { path: dir, options }, out, &ctx);
+                    return match (to, dir) {
+                        (Some(to), _) => store_cmd::copy_to(&store()?, &to, options, out, &ctx),
+                        (None, dir) => {
+                            let path = dir.expect("clap requires DIR without --to");
+                            store_cmd::copy(&store()?, api::StoreCopyRequest { path, options }, out, &ctx)
+                        }
+                    };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::Restore { from, libraries, dry_run } => {
+                    let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
+                    return store_cmd::restore(&store()?, &from, &options, out, &ctx);
+                }
                 #[cfg(feature = "peers")]
                 StoreCommand::Serve { local } => {
                     return store_cmd::serve(
@@ -1479,16 +1513,17 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
         Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
         #[cfg(feature = "account")]
-        Command::Account(args) => return account_cmd::run(args, &cli.store, out, &ctx),
+        Command::Atmosphere(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
+        Command::Import(args) => return plugin_cmd::import(args, &cli.store, out, &ctx),
         Command::Diff(args) => return diff_cmd::run(args, &cli.store, out, &ctx),
         Command::Collection(args) => return collection_cmd::run(args, &cli.store, out, &ctx),
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
         Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
-        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out, &ctx),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {

@@ -9,10 +9,16 @@ use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, echo_plugin, path, recording};
 
+mod accounts;
+mod checks;
 mod choose;
+mod destinations;
 mod events;
+mod imports;
+mod panels;
 mod props;
 mod providers;
+mod sources;
 
 /// The echo manifest as these tests register it ([`echo_plugin`]): its `echo` command at
 /// `locallibrary say` taking flags, and its operation at `locallibrary playlist fresh`.
@@ -186,7 +192,9 @@ fn plugins_are_listed_and_their_settings_kept() {
     let list = env.ok(&["plugin"]);
     assert!(list.contains("echo  Echo 0.1.0"), "{list}");
     assert!(list.contains("may read your libraries' tracks and playlists"), "{list}");
-    assert!(list.contains("adds commands echo, titles, steps, wait; operation playlist; analyzer size"), "{list}");
+    let adds =
+        "adds commands echo, titles, steps, wait; destinations folder, nowhere; operation playlist; analyzer size";
+    assert!(list.contains(adds), "{list}");
     let listed = env.json(&["plugin", "list"]);
     assert_eq!(ids(&listed), [&SHIPPED[..], &["echo"]].concat());
     let echo = &listed[SHIPPED.len()];

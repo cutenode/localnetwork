@@ -118,8 +118,7 @@ fn state_path(root: &Path) -> PathBuf {
 }
 
 fn describe(root: PathBuf, library: &LibraryStamp) -> MountedDrive {
-    let identity: Option<Identity> =
-        crate::fsutil::unreplaced(|| crate::fsutil::read_json_opt(&state_path(&root)).ok().flatten());
+    let identity: Option<Identity> = crate::fsutil::read_json_opt(&state_path(&root)).ok().flatten();
     let volume =
         root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.display().to_string());
     MountedDrive {

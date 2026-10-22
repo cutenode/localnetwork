@@ -8,10 +8,9 @@
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
 
+pub(super) use crate::catalog::Catalog;
 use crate::hash::Hash;
-use crate::store::{LibraryRecord, SnapshotLabel};
 use crate::{Error, Result};
 
 pub(super) const ALPN: &[u8] = b"locallibrary/store/1";
@@ -31,23 +30,6 @@ pub(super) enum Request {
     Hello { token: String },
     Snapshot { id: Hash },
     Object { hash: Hash },
-}
-
-/// What a store holds, as the other computer sees it.
-#[derive(Debug, Serialize, Deserialize)]
-pub(super) struct Catalog {
-    pub(super) store: Uuid,
-    pub(super) libraries: Vec<LibraryRecord>,
-    /// Every snapshot of those libraries, with its library and parents.
-    pub(super) snapshots: Vec<CatalogSnapshot>,
-    pub(super) labels: Vec<SnapshotLabel>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct CatalogSnapshot {
-    pub(super) id: Hash,
-    pub(super) library: Uuid,
-    pub(super) parents: Vec<Hash>,
 }
 
 pub(super) fn net(e: impl std::fmt::Display) -> Error {

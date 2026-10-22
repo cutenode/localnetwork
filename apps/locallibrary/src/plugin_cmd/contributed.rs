@@ -195,10 +195,11 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
                     answer => break answer,
                 }
             };
+            let names = view::names_on(context.drive.as_deref());
             match answer {
                 CommandOutput::Headless(v) => out.emit(&v, view::headless),
-                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, view::view),
-                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get())),
+                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, |v| view::view(v, &names)),
+                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get(), &names)),
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -252,9 +253,10 @@ fn params_of(schema: Option<&Value>, m: &ArgMatches) -> Result<Value> {
     Ok(Value::Object(params))
 }
 
-/// An exporter's options from `--option KEY=VALUE`s (one given again adds to a list or a map),
-/// each read as its schema says. A key it doesn't take is refused.
-pub fn options(schema: Option<&Value>, given: &[String]) -> Result<Value> {
+/// An exporter's, an importer's or a library source's (`what`) options from `--option
+/// KEY=VALUE`s (one given again adds to a list or a map), each read as its schema says. A key it
+/// doesn't take is refused.
+pub fn options(what: &str, schema: Option<&Value>, given: &[String]) -> Result<Value> {
     let mut raws: Vec<(&str, Vec<&str>)> = Vec::new();
     for pair in given {
         let (key, raw) =
@@ -271,8 +273,8 @@ pub fn options(schema: Option<&Value>, given: &[String]) -> Result<Value> {
         let property = known.ok_or_else(|| {
             let all: Vec<&str> = properties(schema).map(|(name, _)| name.as_str()).collect();
             usage(match all.is_empty() {
-                true => format!("this format has no options, not even {key:?}"),
-                false => format!("this format has no option {key:?}: its options are {}", all.join(", ")),
+                true => format!("this {what} has no options, not even {key:?}"),
+                false => format!("this {what} has no option {key:?}: its options are {}", all.join(", ")),
             })
         })?;
         options.insert(key.to_string(), params::value(property, &raws, &format!("the {key} option")).map_err(usage)?);

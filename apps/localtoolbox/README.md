@@ -2,8 +2,10 @@
 
 A multi-purpose Chrome extension for DJs, part of [Local Network](../../README.md). Clicking the toolbar icon opens a small
 menu of tools; picking one opens that tool's own panel, which the arrow in
-its header leads back out of. Light and dark follow the browser unless the
-button in the menu's header says otherwise.
+its header leads back out of. It looks like the [website](../web): the same
+dark ink surfaces, white type, Instrument Sans and JetBrains Mono, from the
+shared theme in `packages/tokens/theme.css`. Light and dark follow the
+browser unless the button in the menu's header says otherwise.
 
 The header of every view — the menu and each tool — also carries the
 **session queue**: the tracks picked out while working through a page, held
@@ -99,7 +101,8 @@ new files up when you hit reload on the extension's card.
 ## Structure
 
 All of it is TypeScript. The popup is a [Svelte](https://svelte.dev) app,
-styled with Tailwind CSS and built with Vite into ES modules (`assets/*.mjs` in
+styled with Tailwind CSS on the Local Network theme (`packages/tokens/theme.css`,
+which the website uses too) and built with Vite into ES modules (`assets/*.mjs` in
 `dist/`, which Chrome serves as JavaScript); its components come from
 [shadcn-svelte](https://shadcn-svelte.com), which copies them into the project
 rather than pulling them from a package, so they can be read and changed like
@@ -127,10 +130,11 @@ src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
   popup.html           the page the toolbar icon opens; main.ts mounts App
-  app.css              the design tokens, and the Tailwind/shadcn setup
+  app.css              the shared Local Network theme and fonts, plus what only
+                       the popup needs (its width, `field`, `icon-btn`)
   App.svelte           the shell: the tool menu, and whichever tool is open
   lib/                 what the panels share
-    tools.ts           the registry: one entry per tool (name, icon, colour, and
+    tools.ts           the registry: one entry per tool (name, icon, tone, and
                        how to load its panel and start what that panel waits on)
     types.d.ts         the shapes that cross a module boundary — a track at each
                        hop, the page's messages, what is kept — for both sides
@@ -219,7 +223,7 @@ it. So what it does before it can draw is the whole of how it feels, and it
 is kept to as little as possible.
 
 **Each tool's panel is its own chunk.** The bundle the popup boots from is
-the shell: the menu, the registry's names and colours, the stores, the ghost.
+the shell: the menu, the registry's names and tones, the stores, the ghost.
 The four panels and the component library under them — every one of which is
 bigger than the shell — are fetched when a tool is opened, and at most once
 each however often it is opened and closed. The tool menu has no tooltip on
@@ -238,7 +242,7 @@ extension, read from disk.
 **The route is known synchronously.** Which tool was open lives in
 `chrome.storage.session`, which is a round trip away, and the popup used to
 draw nothing at all until it came back. It is mirrored into `localStorage`
-too, which is not: the colour is painted, the header drawn, the panel's chunk
+too, which is not: the header is drawn, the panel's chunk
 fetched and the page read started on the first turn, before anything has been
 awaited. The mirror cannot know when a browsing session ended, so the session
 is still what settles it — that is what corrects the first opening of a new
@@ -247,8 +251,8 @@ session to the menu.
 **A ghost stands in for the panel** until its chunk has arrived and the
 session has been read (panels restore their own place as they mount, so
 mounting one before the session is back would lose it). The ghost is the
-tool's real header — its name, its icon, its colour, a back arrow that works
-— over a shape where the body will be.
+tool's real header (its name, its icon, its tone, a back arrow that works)
+over a shape where the body will be.
 
 **The page read starts before the panel exists.** Reading a SoundCloud page
 is a round trip to the browser process for the tab and another to the content
@@ -358,7 +362,7 @@ page than the one it was left on.
    `onback`, and wraps its content in `PanelShell`, which draws the header,
    the way back, and the scrolling body.
 2. Register it in `TOOLS` in `src/lib/tools.ts`: id, name, description, a
-   [Lucide](https://lucide.dev) icon, an `oklch()` colour, and a `load` that
+   [Lucide](https://lucide.dev) icon, a `tone`, and a `load` that
    imports the panel — `() => import('../tools/<id>/Panel.svelte')`, which is
    what makes it a chunk of its own. If the panel opens by waiting on
    something slow, give the entry a `warm` that starts it (`warmPage` for a
@@ -378,12 +382,13 @@ to `host_permissions` in `src/manifest.json` — without which every fetch it
 makes is blocked. A test in `test/consistency.test.ts` checks those three
 agree.
 
-The colour is the only thing a panel says about its own look. It is written
-onto `<html>` as `--brand` while the tool is open, and `app.css` derives the
-rest from it — the primary buttons, the focus ring, the wash behind the
-header, the icon tile — so the tools read as rooms in one house. The queue
-sheet declares no colour of its own: it wears whichever one is already
-painted, because it is not a room but something you open where you stand.
+The tone is the only thing a panel says about its own look: a `bg-*` class
+for one of the DJ-data colours in `packages/tokens/colors.json`, which is
+the background of the tool's icon tile (`ToolTile`), the way the website puts
+a DJ's monogram on a track colour. The Local Network theme has no brand
+accent, so the buttons, the focus ring and the headers are the same in every
+tool. The sheets have no tone at all: their tiles are plain, because they are
+not tools but something you open where you stand.
 
 Panels reach the shared state through `$lib`: `downloaded` (the marks, a
 reactive mirror of `downloaded-store.ts`), `queue` (the session queue),

@@ -300,7 +300,7 @@ pub struct Session {
     /// Folders and name.
     pub path: String,
     /// `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-    /// (`beat_link_trigger`).
+    /// (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
     pub source: String,
     /// The mounted drives holding it now.
     pub drives: Vec<String>,
@@ -373,7 +373,7 @@ pub struct ImportedSession {
     /// Like a history list's fingerprint: the same log imported twice is one session.
     pub id: String,
     pub name: String,
-    /// `beat_link_trigger`.
+    /// `beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`).
     pub tool: String,
     /// The file it was imported from.
     pub file: PathBuf,
@@ -461,6 +461,13 @@ impl SetBook {
             }
         }
         Err(Error::NotFound(format!("set {q:?} (`locallibrary sets` lists them)")))
+    }
+
+    /// Keeps `log` (checked as it was read) as a session: the same log imported again replaces
+    /// its session.
+    pub(crate) fn keep(&mut self, log: ImportedSession) {
+        self.imported.retain(|s| s.id != log.id);
+        self.imported.push(log);
     }
 
     /// The sets built from session `id`.

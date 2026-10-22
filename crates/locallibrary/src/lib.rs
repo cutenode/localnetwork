@@ -55,6 +55,7 @@
 //!   everything else works, the profile document included; it just can't be published.
 
 pub mod after_set;
+pub mod analysis_edit;
 pub mod anlz;
 pub mod api;
 pub mod artwork;
@@ -62,6 +63,8 @@ pub mod artwork;
 pub mod atmosphere;
 pub mod audio_cache;
 pub mod backup;
+pub mod callback;
+pub mod catalog;
 pub mod check;
 pub mod clean;
 pub mod collection_export;
@@ -121,6 +124,7 @@ pub mod settings;
 pub mod smart;
 pub mod sound;
 pub mod space;
+mod staged;
 pub mod store;
 pub mod sync;
 pub mod tags;
@@ -230,7 +234,7 @@ pub mod testing {
     }
 }
 
-pub use loclib_model::{harmony, model, tokens};
+pub use loclib_model::{harmony, model, theme, tokens};
 
 /// A mutex's guard, though a thread panicked holding it: what it guards is left whole by every
 /// change made under it.
