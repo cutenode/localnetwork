@@ -110,6 +110,26 @@ export async function loadContentScript(): Promise<ContentScript> {
 
 	globalThis.MutationObserver = TrackedObserver;
 
+	// Timers the script starts (its coalesced marker pass, its delayed save) go
+	// with it too. One left pending would run against the next test's page, or
+	// after the file's environment is gone, where there is no `document` at all.
+	// Each is cleared with the clearTimeout that matches the setTimeout it came
+	// from, which is the fake one under fake timers.
+	const timers: [ReturnType<typeof setTimeout>, typeof clearTimeout][] = [];
+	const outerSetTimeout = globalThis.setTimeout;
+	const outerClearTimeout = globalThis.clearTimeout;
+
+	// SAFETY: it takes setTimeout's arguments and returns the id setTimeout returned; the
+	// type only adds Node's `__promisify__`, which neither the script nor the tests call.
+	const trackedSetTimeout = ((...args: Parameters<typeof setTimeout>) => {
+		const id = outerSetTimeout(...args);
+		timers.push([id, outerClearTimeout]);
+
+		return id;
+	}) as typeof setTimeout;
+
+	globalThis.setTimeout = trackedSetTimeout;
+
 	try {
 		// @ts-expect-error -- a classic script, run for what it does to the page
 		await import('../../content.ts');
@@ -141,6 +161,12 @@ export async function loadContentScript(): Promise<ContentScript> {
 
 			for (const observer of observers) observer.disconnect();
 			globalThis.MutationObserver = RealObserver;
+
+			for (const [id, clear] of timers) clear(id);
+
+			// A test that turned fake timers on after the load has replaced the
+			// wrapper already, and fake timers put the real one back themselves.
+			if (globalThis.setTimeout === trackedSetTimeout) globalThis.setTimeout = outerSetTimeout;
 			unwrapMessage();
 			unwrapChanged();
 
@@ -156,6 +182,8 @@ export async function loadContentScript(): Promise<ContentScript> {
 }
 
 export function disposeContentScripts() {
-	for (const instance of live) instance.dispose();
+	// Newest first: each instance put back the globals it found, so a later one
+	// has to undo its wrappers before an earlier one restores the originals.
+	for (const instance of live.toReversed()) instance.dispose();
 	live = [];
 }
