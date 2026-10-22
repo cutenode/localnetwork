@@ -341,7 +341,7 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
             continue;
         }
         if !copy_snapshots.contains(sid) {
-            let bytes = fs::read(store.snapshot_path(sid)).at(store.snapshot_path(sid))?;
+            let bytes = fsutil::read(&store.snapshot_path(sid)).at(store.snapshot_path(sid))?;
             fsutil::write_atomic(&copy.snapshot_path(sid), &bytes)?;
             report.snapshots_copied += 1;
         }
@@ -350,7 +350,7 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
 
     // The rest of the store's records, then the libraries' latest snapshots.
     for name in METADATA {
-        match fs::read(store.root().join(name)) {
+        match fsutil::read(&store.root().join(name)) {
             Ok(bytes) => fsutil::write_atomic(&dest.join(name), &bytes)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 fsutil::remove_if_exists(&dest.join(name))?;
@@ -474,7 +474,7 @@ fn contents(dest: &Path) -> Result<Hash> {
     for name in ["libraries.json", "labels.json"].iter().chain(METADATA) {
         h.update(b"\0");
         h.update(name.as_bytes());
-        match fs::read(dest.join(name)) {
+        match fsutil::read(&dest.join(name)) {
             Ok(bytes) => {
                 h.update(&(bytes.len() as u64).to_le_bytes());
                 h.update(&bytes);

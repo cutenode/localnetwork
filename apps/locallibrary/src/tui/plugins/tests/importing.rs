@@ -15,8 +15,10 @@ use super::super::super::app::testing::{
 use super::super::super::app::{App, Focus};
 use super::super::super::browse::{Category, NodeId};
 use super::super::super::edits::Modal;
+use super::super::super::mix::typed_path;
 use super::super::importers::READ_FROM;
 use super::entry;
+use crate::plugins::params;
 
 /// The import form open, its file replaced with `file`.
 fn import(app: &mut App, file: &std::path::Path) {
@@ -180,7 +182,10 @@ fn any_import_is_planned_and_made_as_its_form_says(tc: TestCase) {
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     if typed != file.display().to_string() {
-        assert!(last_message(&app).contains(&format!("{typed} isn't a file")));
+        // Named as the form passes it on: made absolute from where the player runs, which on
+        // Windows spells a relative path with backslashes.
+        let passed = params::absolute(&typed_path(&typed).display().to_string()).unwrap();
+        assert_eq!(last_message(&app), format!("{} isn't a file", passed.as_str().unwrap()));
         return;
     }
     if tagged.is_empty() && sessions.is_empty() {
@@ -249,12 +254,13 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
         return;
     };
     app.read_sets();
-    let go = |app: &mut App, id: NodeId| {
+    #[track_caller]
+    fn go(app: &mut App, id: NodeId) {
         wait(app, |a| a.loaded.as_ref().unwrap().tree_position(&id).is_some());
         app.focus = Focus::Playlists;
         app.playlist_state.select(app.loaded.as_ref().unwrap().tree_position(&id));
         key(app, KeyCode::Enter);
-    };
+    }
     go(&mut app, NodeId::Browse);
     go(&mut app, NodeId::Category(Category::Sets));
     go(&mut app, NodeId::Group(Category::Sets, open.id.clone()));

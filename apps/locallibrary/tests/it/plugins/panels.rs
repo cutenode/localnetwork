@@ -1,6 +1,8 @@
 //! Panels, views of every kind, themes and how analyzers' fields are shown, on the command line
 //! and in the sidecar, with the test plugin's panel `said` answering as its `panel` setting says.
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, jpeg, path};
@@ -104,4 +106,44 @@ fn panels_and_themes_are_listed_and_the_sidecar_renders_a_panel() {
     assert_eq!((&rendered["kind"], &rendered["pairs"][1]["value"]), (&json!("kv"), &json!("Demo Track 1")));
     let missing = s.call(3, "plugins.panel", json!({ "plugin": "echo", "panel": "nope", "drive": drive, "track": 1 }));
     assert_eq!(missing["error"]["data"]["kind"], "not_found", "{missing}");
+}
+
+/// For any view the `said` panel answers (of a kind the `views` feature brings, titled or not,
+/// showing something or not), `track` prints it as its section under the track's details as a
+/// command answering it prints it, under the panel's title (and the view's after it), saying so
+/// when it shows nothing, and `--json` has it as answered; a panel that fails says why there.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_panel_prints_as_its_view_does(tc: TestCase) {
+    let env = env();
+    let tree = json!({ "kind": "tree", "items": [{ "label": "Club", "detail": "2 lists", "children": [{ "label": "Warm up" }] }] });
+    let typed = json!({ "kind": "table", "columns": [{ "name": "Track", "kind": "track" }, { "name": "Time", "kind": "duration" }], "rows": [[1, 187], [9, 61]] });
+    let chart = json!({ "kind": "chart", "style": "line", "series": [{ "name": "a", "points": [[0.0, 1.0], [1.0, 2.5]] }, { "name": "b", "points": [[1.0, 3.0]] }] });
+    let empty = json!({ "kind": "tree", "items": [] });
+    let sections = json!({ "kind": "sections", "items": [{ "title": "Shape", "view": tree }, { "title": "None", "view": empty }] });
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        if tc.draw(gs::weighted_booleans(0.2)) {
+            saying(&env, json!({ "fail": "invalid" }));
+            let out = env.ok(&["track", "USB", "--track", "1"]);
+            assert!(
+                out.ends_with("\n! As it says: it failed (the Echo plugin)\n") && out.contains("\nAbout the track\n"),
+                "{out}"
+            );
+            continue;
+        }
+        let mut view = tc.draw(gs::sampled_from(vec![&tree, &typed, &chart, &empty, &sections])).clone();
+        let title = tc.draw(gs::optional(gs::sampled_from(vec!["Shape", "日本"])));
+        if let Some(t) = title {
+            view["title"] = json!(t);
+        }
+        saying(&env, json!({ "view": view }));
+        assert_eq!(env.json(&["track", "USB", "--track", "1"])[0]["panels"][1]["view"], view);
+        let out = env.ok(&["track", "USB", "--track", "1"]);
+        let (_, said) = out.rsplit_once("\nAs it says").unwrap_or_else(|| panic!("{out}"));
+        let params = json!({ "view": view }).to_string();
+        let answered = env.ok(&["echo", "titles", "USB", "--params", &params]);
+        // The command prints the view's title first, and nothing for a view showing nothing.
+        let body = title.map_or(answered.as_str(), |t| answered.strip_prefix(&format!("{t}\n")).unwrap());
+        let body = if view["items"] == json!([]) { "nothing to show\n" } else { body };
+        assert_eq!(said, format!("{}\n{body}", title.map(|t| format!(" · {t}")).unwrap_or_default()), "{view}");
+    }
 }

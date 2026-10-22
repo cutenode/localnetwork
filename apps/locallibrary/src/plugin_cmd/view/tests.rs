@@ -97,3 +97,104 @@ fn a_charts_table_holds_every_point(tc: TestCase) {
     let sections = View::Sections { title: None, items: vec![Section { title: "a".into(), view: v }] };
     assert_eq!(lines(&sections, &none)[1..], shown[..]);
 }
+
+/// A tree of at most `depth` more levels, labelled `i0`, `i1`... in the order drawn, and each
+/// item's label and depth in that order.
+#[hegel::test_helper]
+fn tree_items(tc: &TestCase, depth: usize, drawn: &mut Vec<(String, usize)>, at: usize) -> Vec<TreeItem> {
+    (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|_| {
+            let label = format!("i{}", drawn.len());
+            drawn.push((label.clone(), at));
+            let detail = tc.draw(gs::booleans()).then(|| format!("{label} detail"));
+            let children = if depth == 0 { Vec::new() } else { tree_items(tc, depth - 1, drawn, at + 1) };
+            TreeItem { label, detail, children }
+        })
+        .collect()
+}
+
+/// Any view of the kinds a plugin with `views` can answer is drawn whole: a tree's items in order,
+/// each its depth down; a picture as what it shows; sections each as its title and then what its
+/// view draws on its own; and what shows nothing says so.
+#[hegel::test(test_cases = 200)]
+fn any_view_is_drawn_whole(tc: TestCase) {
+    let mut drawn = Vec::new();
+    let items = tree_items(&tc, tc.draw(gs::integers::<usize>().max_value(3)), &mut drawn, 0);
+    let tree = View::Tree { title: None, items };
+    let items: Vec<Drawn> =
+        drawn.iter().map(|(label, depth)| Drawn::Item { label: label.clone(), detail: None, depth: *depth }).collect();
+    let shown: Vec<Drawn> = lines(&tree, &none)
+        .into_iter()
+        .map(|d| match d {
+            Drawn::Item { label, detail, depth } => {
+                assert!(detail.is_none_or(|d| d == format!("{label} detail")));
+                Drawn::Item { label, detail: None, depth }
+            }
+            other => other,
+        })
+        .collect();
+    match items.is_empty() {
+        true => assert_eq!(shown, [Drawn::Missing]),
+        false => assert_eq!(shown, items),
+    }
+    let alt = tc.draw(gs::text().max_size(8));
+    let image = View::Image { title: None, blob: "a.png".into(), alt: alt.clone(), data: None };
+    assert_eq!(lines(&image, &none), [Drawn::Text(format!("[image: {alt}]"))]);
+    let kinds = [tree, image, View::List { title: None, items: Vec::new() }];
+    let n = tc.draw(gs::integers::<usize>().max_value(4));
+    let items: Vec<Section> =
+        (0..n).map(|i| Section { title: format!("s{i}"), view: tc.draw(gs::sampled_from(kinds.to_vec())) }).collect();
+    let each: Vec<Drawn> = items
+        .iter()
+        .flat_map(|s| std::iter::once(Drawn::Heading(s.title.clone())).chain(lines(&s.view, &none)))
+        .collect();
+    let sections = View::Sections { title: None, items };
+    match n {
+        0 => assert_eq!(lines(&sections, &none), [Drawn::Missing]),
+        _ => assert_eq!(lines(&sections, &none), each),
+    }
+}
+
+/// Any cell shows as its column says: a track by its name (`#id` without one), whole seconds as
+/// minutes (and hours) and seconds, a key in Camelot notation, a number with its column's unit,
+/// and a cell that isn't what its column says as it is.
+#[hegel::test(test_cases = 300)]
+fn any_cell_shows_as_its_column_says(tc: TestCase) {
+    let names = |id: u32| id.is_multiple_of(2).then(|| format!("track {id}"));
+    let unit = tc.draw(gs::optional(gs::sampled_from(vec!["BPM", "dB"])));
+    let typed_as = |kind| Column::Typed(TypedColumn { name: "c".into(), kind, unit: unit.map(String::from) });
+    let (column, v, shown) = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => {
+            let id = tc.draw(gs::integers::<u32>());
+            (typed_as(ColumnKind::Track), json!(id), names(id).unwrap_or_else(|| format!("#{id}")))
+        }
+        1 => {
+            let s = tc.draw(gs::integers::<u64>().max_value(100_000));
+            let shown = match s / 3600 {
+                0 => format!("{}:{:02}", s / 60, s % 60),
+                h => format!("{h}:{:02}:{:02}", s / 60 % 60, s % 60),
+            };
+            (typed_as(ColumnKind::Duration), json!(s), shown)
+        }
+        2 => {
+            let keys = vec![("Am", "8A"), ("C", "8B"), ("Fm", "4A"), ("G", "9B"), ("8A", "8A"), ("12B", "12B")];
+            let (key, code) = tc.draw(gs::sampled_from(keys));
+            (typed_as(ColumnKind::Key), json!(key), code.to_string())
+        }
+        3 => {
+            let n = tc.draw(gs::integers::<i32>());
+            let shown = unit.map_or_else(|| n.to_string(), |u| format!("{n} {u}"));
+            (typed_as(ColumnKind::Number), json!(n), shown)
+        }
+        // Not what its column says, or a column of text.
+        _ => {
+            let kind = tc.draw(gs::sampled_from(vec![ColumnKind::Duration, ColumnKind::Number, ColumnKind::Text]));
+            let text = tc.draw(gs::text().alphabet("abc ").max_size(6));
+            (typed_as(kind), json!(text), text)
+        }
+    };
+    assert_eq!(typed(&column, &v, &names), shown, "{column:?} {v}");
+    let table = View::Table { title: None, columns: vec![column], rows: vec![vec![v]] };
+    let Drawn::Row(row) = &lines(&table, &names)[1] else { panic!("a row") };
+    assert_eq!(row.trim(), crate::output::fit(&shown, MAX_COLUMN).trim());
+}
