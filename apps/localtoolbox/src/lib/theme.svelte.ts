@@ -1,8 +1,8 @@
 // Light or dark, following the browser unless the user says otherwise.
 //
-// The choice is the popup's own (localStorage, no permission), and is applied
-// by putting `dark` on <html> — the class shadcn-svelte's components are
-// written against.
+// The choice is the popup's own (localStorage, no permission). The Local
+// Network theme is dark by default, so light is applied by putting `light` on
+// <html>, which switches its tokens to their light values (packages/tokens/theme.css).
 
 const KEY = 'pref:theme';
 
@@ -70,7 +70,7 @@ class Theme {
 	}
 
 	apply() {
-		document.documentElement.classList.toggle('dark', this.dark);
+		document.documentElement.classList.toggle('light', !this.dark);
 	}
 }
 

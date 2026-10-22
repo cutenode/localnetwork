@@ -49,6 +49,7 @@ jobs:
           filters: |
             run:
               - 'apps/localtoolbox/**'
+              - 'packages/tokens/**'
               - '.oxlintrc.json'
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'

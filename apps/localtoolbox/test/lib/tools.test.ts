@@ -1,6 +1,6 @@
 // src/lib/tools.ts — the registry the menu and the shell read.
 import { describe, it, expect, vi } from 'vitest';
-import { TOOLS, MENU_BRAND, applyBrand, toolById, loadPanel } from '../../src/lib/tools.ts';
+import { TOOLS, toolById, loadPanel } from '../../src/lib/tools.ts';
 import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
 import { flush } from '../helpers/flush.ts';
 import { SOUNDCLOUD_TAB } from '../helpers/panel.ts';
@@ -16,7 +16,7 @@ describe('the registry', () => {
 			expect(tool.name).toBeTruthy();
 			expect(tool.short).toBeTruthy();
 			expect(tool.description).toMatch(/\.$/);
-			expect(tool.brand).toMatch(/^oklch\(/);
+			expect(tool.tone).toMatch(/^bg-[a-z]+-[a-z]+$/);
 			expect(tool.load).toBeTypeOf('function');
 		}
 
@@ -79,15 +79,5 @@ describe('the registry', () => {
 	it('finds a tool by id, and answers for one that is not there', () => {
 		expect(toolById('manager')!.name).toBe('Manager');
 		expect(toolById('nothing-like-it')).toBe(null);
-	});
-});
-
-describe('applyBrand', () => {
-	it('paints the popup in a tool’s colour, and in the menu’s without one', () => {
-		applyBrand(TOOLS[0].brand);
-		expect(document.documentElement.style.getPropertyValue('--brand')).toBe(TOOLS[0].brand);
-
-		applyBrand(undefined);
-		expect(document.documentElement.style.getPropertyValue('--brand')).toBe(MENU_BRAND);
 	});
 });

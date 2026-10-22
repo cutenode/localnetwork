@@ -390,10 +390,10 @@ describe('the theme', () => {
 
 		await click(themeButton('dark'));
 		expect(themeButton('dark')!.getAttribute('aria-pressed')).toBe('true');
-		expect(document.documentElement.classList.contains('dark')).toBe(true);
+		expect(!document.documentElement.classList.contains('light')).toBe(true);
 
 		await click(themeButton('light'));
-		expect(document.documentElement.classList.contains('dark')).toBe(false);
+		expect(!document.documentElement.classList.contains('light')).toBe(false);
 	});
 });
 

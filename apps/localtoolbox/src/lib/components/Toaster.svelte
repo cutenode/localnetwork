@@ -9,9 +9,9 @@
   const ICONS = { ok: Check, bad: CircleAlert, info: Info };
 
   const TONES = {
-    ok: 'text-success',
-    bad: 'text-destructive',
-    info: 'text-muted-foreground',
+    ok: 'text-good',
+    bad: 'text-critical',
+    info: 'text-fg-muted',
   };
 </script>
 
@@ -25,8 +25,7 @@
       in:fly={{ y: 10, duration: 180 }}
       out:scale={{ start: 0.96, duration: 130 }}
       class="pointer-events-auto flex max-w-full items-center gap-2 rounded-full border
-             border-border/70 bg-popover/95 py-1.5 pr-3.5 pl-2.5 text-[12px] font-medium
-             shadow-lg backdrop-blur"
+             border-line-strong bg-raised py-1.5 pr-3.5 pl-2.5 text-caption font-medium"
     >
       <Icon class="size-3.5 shrink-0 {TONES[toast.tone]}" />
       <span class="truncate">{toast.message}</span>

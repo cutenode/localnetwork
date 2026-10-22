@@ -265,10 +265,10 @@
   }
 </script>
 
-<section class="flex flex-col gap-2.5 rounded-xl border border-border/70 bg-card p-2.5">
+<section class="flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-3">
   <div>
-    <h3 class="text-[11.5px] font-semibold">your data</h3>
-    <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+    <h3 class="section-title m-0">your data</h3>
+    <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
       everything the extension has saved, out to one file and back.
     </p>
   </div>
@@ -278,16 +278,16 @@
        word under it, and that is what a screen reader should hear. -->
   <dl class="grid grid-cols-5 gap-1.5">
     {#each HELD as held (held.label)}
-      <div class="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 px-1 py-1.5">
-        <dd class="tabular text-[14px] leading-none font-semibold">{held.of()}</dd>
-        <dt class="text-center text-[10px] leading-tight text-muted-foreground">{held.label}</dt>
+      <div class="flex flex-col items-center gap-1 rounded-md bg-well px-1 py-2">
+        <dd class="m-0 font-mono text-small leading-none font-semibold">{held.of()}</dd>
+        <dt class="text-center text-[10px] leading-tight text-fg-subtle">{held.label}</dt>
       </div>
     {/each}
   </dl>
 
   <div class="flex gap-1.5">
     <Button
-      size="xs"
+      size="sm"
       variant="outline"
       class="flex-1"
       title="writes the lot to a JSON file — the one way to keep the session queue."
@@ -297,7 +297,7 @@
       export
     </Button>
     <Button
-      size="xs"
+      size="sm"
       variant="outline"
       class="flex-1"
       aria-expanded={importing.value}
@@ -309,7 +309,7 @@
   </div>
 
   {#if importing.value}
-    <div class="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/40 p-2">
+    <div class="flex flex-col gap-2 rounded-md border border-line bg-canvas p-2">
       <div class="flex items-center gap-2">
         <!-- The picker itself is never seen: a file input draws whatever the
              platform draws, which is the one control in this popup that would
@@ -325,11 +325,11 @@
           accept="application/json,.json"
           onchange={onFile}
         />
-        <Button size="xs" variant="secondary" onclick={() => picker?.click()}>
+        <Button size="sm" variant="secondary" onclick={() => picker?.click()}>
           <FolderOpen />
           choose a file
         </Button>
-        <span class="text-[11px] text-muted-foreground">or paste it below</span>
+        <span class="text-caption text-fg-subtle">or paste it below</span>
       </div>
 
       <!-- Capped, and scrolling past the cap. The box grows to its content,
@@ -343,12 +343,12 @@
         placeholder="paste an exported state file"
         aria-label="paste an exported state file"
         aria-invalid={reading && !ready ? 'true' : undefined}
-        class="max-h-28 min-h-14 resize-none overflow-y-auto font-mono text-[11px] leading-snug"
+        class="max-h-28 min-h-14 resize-none overflow-y-auto font-mono text-caption leading-snug"
         bind:value={pasted}
       />
 
       {#if reading}
-        <StatusNote tone={ready ? 'ok' : 'bad'} class="px-2.5 py-2 text-[11px]">
+        <StatusNote tone={ready ? 'ok' : 'bad'} class="px-2.5 py-2 text-caption">
           {#if ready}
             {@const day = dayOf(reading.holds!.exportedAt)}
             {day ? `a backup from ${day}` : 'a state file'} — {holdings(reading.holds!)}.
@@ -362,23 +362,23 @@
            as an ordinary row until it is on, and then as the thing it is. -->
       <div
         class="flex items-start gap-2.5 rounded-lg border px-2 py-1.5 transition-colors
-               {replacing ? 'border-destructive/30 bg-destructive/8' : 'border-transparent'}"
+               {replacing ? 'border-critical/40 bg-critical/5' : 'border-transparent'}"
       >
         <Switch id="replace-state" class="mt-0.5 shrink-0" bind:checked={replacing} />
         <div class="min-w-0 flex-1">
           <Label
             for="replace-state"
-            class="text-[12px] font-normal {replacing ? 'text-destructive' : ''}"
+            class="text-label leading-snug font-normal {replacing ? 'text-critical' : ''}"
           >
             replace what’s here instead of adding to it
           </Label>
-          <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{REPLACE_HINT}</p>
+          <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">{REPLACE_HINT}</p>
         </div>
       </div>
 
       <div class="flex items-center gap-1.5">
         <Button
-          size="xs"
+          size="sm"
           variant={replacing ? 'destructive' : 'default'}
           disabled={!ready}
           onclick={onImport}
@@ -391,16 +391,16 @@
             add to what’s here
           {/if}
         </Button>
-        <Button size="xs" variant="ghost" onclick={closeDrawer}>cancel</Button>
+        <Button size="sm" variant="ghost" onclick={closeDrawer}>cancel</Button>
       </div>
     </div>
   {/if}
 
   {#if note}
     <p
-      class="text-[11px] leading-relaxed {note.tone === 'ok'
-        ? 'text-success'
-        : 'text-destructive'}"
+      class="text-caption leading-relaxed {note.tone === 'ok'
+        ? 'text-good'
+        : 'text-critical'}"
     >
       {note.text}
     </p>

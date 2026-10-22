@@ -20,7 +20,7 @@
     alt=""
     loading="lazy"
     class={cn(
-      'shrink-0 rounded-lg bg-muted object-cover ring-1 ring-foreground/8',
+      'shrink-0 rounded-md bg-well object-cover ring-1 ring-line',
       size,
       className
     )}
@@ -28,7 +28,7 @@
 {:else}
   <div
     class={cn(
-      'grid shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground ring-1 ring-foreground/8',
+      'grid shrink-0 place-items-center rounded-md bg-well text-fg-subtle ring-1 ring-line',
       size,
       className
     )}

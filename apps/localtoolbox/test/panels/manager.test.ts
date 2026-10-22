@@ -1849,11 +1849,11 @@ describe('the cover art on a row', () => {
 		expect(clipboard.write).toHaveBeenCalledTimes(1);
 		expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 		// The tick sits over the thumbnail for a moment, then goes.
-		expect(thumb()!.querySelector('.text-success')).not.toBe(null);
+		expect(thumb()!.querySelector('.text-good')).not.toBe(null);
 
 		await vi.advanceTimersByTimeAsync(1500);
 		await settle();
-		expect(thumb()!.querySelector('.text-success')).toBe(null);
+		expect(thumb()!.querySelector('.text-good')).toBe(null);
 	});
 
 	// One click, one fetch: clicking again while the first is still on its way

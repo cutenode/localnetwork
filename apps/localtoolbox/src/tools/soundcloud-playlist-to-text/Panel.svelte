@@ -113,9 +113,9 @@
       <StatusNote tone="bad">{status}</StatusNote>
     {:else}
       <div class="flex items-center gap-2.5">
-        <span class="shrink-0 text-[11.5px] text-muted-foreground">format</span>
+        <span class="section-title shrink-0">format</span>
         <Select.Root type="single" bind:value={format.value}>
-          <Select.Trigger class="h-8 flex-1 text-[12.5px]" aria-label="output format">
+          <Select.Trigger class="h-8 flex-1 text-label" aria-label="output format">
             {chosen.label}
           </Select.Trigger>
           <Select.Content>
@@ -132,7 +132,7 @@
             {#snippet child({ props })}
               <div {...props} class="flex items-center gap-2">
                 <Checkbox id="split-title" bind:checked={splitTitle.value} />
-                <Label for="split-title" class="text-[12px] font-normal">
+                <Label for="split-title" class="text-label font-normal">
                   pull the artist out of “Artist - Title”
                 </Label>
               </div>
@@ -143,27 +143,29 @@
 
         <div class="flex items-center gap-2">
           <Checkbox id="dedupe" bind:checked={dedupe.value} />
-          <Label for="dedupe" class="text-[12px] font-normal">drop duplicates</Label>
+          <Label for="dedupe" class="text-label font-normal">drop duplicates</Label>
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-xl border border-border/70 bg-card">
+      <!-- The website's code block: a mono label bar over the text. The frame,
+           not the text area, shows focus, so it lights up as one box. -->
+      <div
+        class="overflow-hidden rounded-lg border border-line bg-canvas transition-colors focus-within:border-link"
+      >
         <div
-          class="flex items-center justify-between border-b border-border/70 bg-muted/40 px-2.5 py-1.5"
+          class="flex items-center justify-between border-b border-line px-3 py-1.5 font-mono text-caption text-fg-subtle"
         >
-          <span class="tabular text-[11px] text-muted-foreground">
+          <span>
             {tracks.length} line{tracks.length === 1 ? '' : 's'}
             {#if dropped > 0}· {dropped} duplicate{dropped === 1 ? '' : 's'} removed{/if}
           </span>
-          <span class="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            .{chosen.ext}
-          </span>
+          <span>.{chosen.ext}</span>
         </div>
         <textarea
           readonly
           spellcheck="false"
           aria-label="the tracks as text"
-          class="scroll-slim h-56 w-full resize-y bg-transparent p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre outline-none"
+          class="scroll-slim block h-56 w-full resize-y bg-transparent p-3 font-mono text-caption leading-relaxed whitespace-pre text-fg-soft focus-visible:outline-none"
           value={output}
         ></textarea>
       </div>

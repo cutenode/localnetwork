@@ -37,7 +37,7 @@
 </script>
 
 <div
-  class="flex items-center gap-1 rounded-xl border border-border/70 bg-card p-1"
+  class="flex items-center gap-1 rounded-lg border border-line bg-surface p-1"
   role="group"
   aria-label="where the tracks come from"
 >
@@ -47,15 +47,14 @@
     <button
       type="button"
       aria-pressed={on}
-      class="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-medium
-             outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50
-             {on ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+      class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-caption font-medium transition-colors
+             {on ? 'bg-fg text-fg-inverse' : 'text-fg-muted hover:text-fg'}"
       onclick={() => choose(option.value)}
     >
       <Icon class="size-3.5 shrink-0" />
       <span class="truncate">{option.label}</span>
       {#if option.value === QUEUE}
-        <span class="tabular {on ? '' : 'text-muted-foreground'}">({queued})</span>
+        <span class="tabular {on ? '' : 'text-fg-muted'}">({queued})</span>
       {/if}
     </button>
   {/each}
