@@ -38,6 +38,10 @@ jobs:
   features:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # nextest's `ci` profile (.config/nextest.toml), as locallibrary-ci.yml runs it: a test that
+      # hangs fails on its own, rather than holding the job until its timeout.
+      NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -242,6 +246,9 @@ jobs:
       HEGEL_DERANDOMIZE: "false"
       HEGEL_DATABASE: ${{ github.workspace }}/.hegel
       HEGEL_STOP_ON_FIRST_FAILURE: "false"
+      # nextest's `ci` profile, as the features job has it: a pass that hangs fails on its own,
+      # and the shard goes on to the next instead of sitting there until the job's timeout.
+      NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
