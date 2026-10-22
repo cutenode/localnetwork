@@ -61,8 +61,11 @@ Windows each run the same jobs:
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
 | `hegel` | on Linux, the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
 
-Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. The test
-jobs set up what some tests need, the same way on each OS:
+Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
+nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
+past ten minutes fails, and each test shard and the `hegel` job upload a JUnit file with every
+test's time (the `junit-*` artifacts). The test jobs set up what some tests need, the same way on
+each OS:
 
 - the `sqlcipher` CLI, which the tests must find (`LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, see the
   fixtures below): apt on Linux, Homebrew on macOS, the runner's MSYS2 on Windows;

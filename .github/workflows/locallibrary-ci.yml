@@ -24,6 +24,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # nextest's `ci` profile (.config/nextest.toml): a time limit for every test, and a JUnit file
+  # of their times that the test and hegel jobs upload.
+  NEXTEST_PROFILE: ci
 
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
@@ -222,6 +225,14 @@ jobs:
           name: profiles-${{ runner.os }}-${{ matrix.shard }}
           path: target/llvm-cov-target/*.profraw
           retention-days: 1
+      # Every test's time and result (the ci profile in .config/nextest.toml), also when one failed.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ runner.os }}-${{ matrix.shard }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The Hegel property tests alone, under coverage and held to the same thresholds
   # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
@@ -259,6 +270,14 @@ jobs:
           path: target/coverage-hegel.json
           if-no-files-found: ignore
           retention-days: 1
+      # As the test job's.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-hegel
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   coverage:
     needs: [changes, test, hegel]
