@@ -257,12 +257,13 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
         return;
     };
     app.read_sets();
-    let go = |app: &mut App, id: NodeId| {
+    #[track_caller]
+    fn go(app: &mut App, id: NodeId) {
         wait(app, |a| a.loaded.as_ref().unwrap().tree_position(&id).is_some());
         app.focus = Focus::Playlists;
         app.playlist_state.select(app.loaded.as_ref().unwrap().tree_position(&id));
         key(app, KeyCode::Enter);
-    };
+    }
     go(&mut app, NodeId::Browse);
     go(&mut app, NodeId::Category(Category::Sets));
     go(&mut app, NodeId::Group(Category::Sets, open.id.clone()));

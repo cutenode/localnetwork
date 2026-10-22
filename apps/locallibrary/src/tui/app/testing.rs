@@ -346,6 +346,7 @@ pub fn point(app: &mut App, kind: MouseEventKind, text: &str) {
 }
 
 /// Run the app's background work until `done` (failing after a minute).
+#[track_caller]
 pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     let t = Instant::now();
     while !done(app) && t.elapsed() < Duration::from_secs(60) {
@@ -354,6 +355,15 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
             app.handle_msg(msg);
         }
         app.tick();
+    }
+    if !done(app) {
+        // Hegel keeps a failure's panic message to itself when its replays pass, so where it
+        // waited is written out first.
+        let (job, modal) = (app.job.is_some(), app.modal.is_some());
+        eprintln!(
+            "wait at {} gave up after 60 s (job running: {job}, modal open: {modal})",
+            std::panic::Location::caller()
+        );
     }
     assert!(done(app), "timed out; last message: {:?}", last_message(app));
 }
@@ -364,6 +374,7 @@ pub fn last_message(app: &App) -> &str {
 }
 
 /// The confirmation up now, once planned, as the plan's operation and first summary line.
+#[track_caller]
 pub fn confirming(app: &mut App) -> (String, String) {
     wait(app, |a| a.job.is_none());
     match &app.modal {
@@ -373,6 +384,7 @@ pub fn confirming(app: &mut App) -> (String, String) {
 }
 
 /// Wait for the confirmation, and let it take keys (it ignores them right as it appears).
+#[track_caller]
 pub fn settle(app: &mut App) {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation: {:?}", app.toast) };
@@ -380,6 +392,7 @@ pub fn settle(app: &mut App) {
 }
 
 /// Say yes to the confirmation, and wait for the write and the reads after it.
+#[track_caller]
 pub fn say_yes(app: &mut App) {
     settle(app);
     press(app, "y");
