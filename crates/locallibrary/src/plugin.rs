@@ -1,7 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
-//! exporters, importers, providers, services, library sources, themes and settings, and listening
-//! for events. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! checks, exporters, importers, providers, services, library sources, themes and settings, and
+//! listening for events. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -22,6 +22,8 @@
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
 //! [`Plugins::import_plan`]). A library source's tracks are copied to a drive only from the
 //! folders the user grants it, each file checked by the host (see [`Plugins::plan_source_export`]).
+//! What checks find joins the check before a set and doctor, and guards say what they make of an
+//! edit plan before it's confirmed (see [`Plugins::run_checks`], [`Plugins::guard`]).
 //! Plugins are told of what happens as the front ends notice it ([`Plugins::deliver`]), and
 //! services run while a front end that stays open does ([`Plugins::run_services`]); what either
 //! tells the user, the front end shows ([`Options::notices`]), and nothing they suggest is
@@ -32,6 +34,7 @@ mod analyzers;
 mod apply;
 mod blobs;
 mod callbacks;
+mod checks;
 mod commands;
 mod events;
 mod exports;
@@ -66,6 +69,10 @@ pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
+pub(crate) use checks::hosted;
+pub use checks::{
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+};
 pub use commands::CommandOutput;
 pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
 pub use exports::{ExportFile, PluginExport};

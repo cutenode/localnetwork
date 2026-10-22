@@ -49,6 +49,7 @@ pub struct Contributions {
     pub operations: Vec<hooks::operations::Operation>,
     pub panels: Vec<hooks::panels::Panel>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
+    pub checks: Vec<hooks::checks::Check>,
     pub exporters: Vec<hooks::exporters::Exporter>,
     pub importers: Vec<hooks::importers::Importer>,
     pub providers: Vec<hooks::providers::Provider>,
@@ -600,6 +601,7 @@ impl Manifest {
         hooks::operations::validate(self)?;
         hooks::panels::validate(self)?;
         hooks::analyzers::validate(self)?;
+        hooks::checks::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::importers::validate(self)?;
         hooks::providers::validate(self)?;

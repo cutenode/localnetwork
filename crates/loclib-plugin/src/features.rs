@@ -29,6 +29,7 @@ pub const FEATURES: &[Feature] = &[
     hooks::operations::FEATURE,
     hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
+    hooks::checks::FEATURE,
     hooks::exporters::FEATURE,
     hooks::importers::FEATURE,
     hooks::providers::FEATURE,

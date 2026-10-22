@@ -200,6 +200,10 @@ pub enum Act {
     Dismiss(u64),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
+    /// Which plugins' checks run, and how long one has to answer.
+    CheckSettings,
+    /// Plan a fix the last check found (its place in [`super::app::App::fixes`]).
+    Fix(usize),
     /// Draw in a theme, by its key (`<plugin>.<name>`; empty for the default).
     Theme(&'static str),
     /// Export the drive in a plugin's format (the plugin's id, the format).

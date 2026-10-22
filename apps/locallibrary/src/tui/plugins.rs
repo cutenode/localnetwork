@@ -5,12 +5,13 @@
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
 //! either asks first is a list to choose from, after which it runs again with the answer. Each
 //! plugin's settings are a form, kept in the store, with a switch for each of its services. What
-//! the other families of hooks add (cover art and tags from providers, analyzers, exports,
+//! the other families of hooks add (cover art and tags from providers, analyzers, checks, exports,
 //! imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one
 //! plugin from another: it's all drawn from their manifests, through the host the command line
 //! uses (see [`crate::plugins`]).
 
 mod analyzers;
+pub(super) mod checks;
 mod events;
 mod exporters;
 pub(super) mod importers;
@@ -301,9 +302,9 @@ impl App {
         }
     }
 
-    /// The settings of each plugin that has some (or a service), then the providers' when there
-    /// are any, then the themes to draw in when a plugin has one, as the palette lists them,
-    /// wherever it's open.
+    /// The settings of each plugin that has some (or a service), then the providers' and the
+    /// checks' when there are any, then the themes to draw in when a plugin has one, as the palette
+    /// lists them, wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
         let with =
@@ -312,7 +313,8 @@ impl App {
             with.map(|m| (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name)));
         let providers =
             providers::providing(plugins, None).map(|by| (Act::ProviderSettings, Item::new("provider settings…", by)));
-        items.chain(providers).chain(themes::items()).collect()
+        let checks = checks::checking(plugins).map(|by| (Act::CheckSettings, Item::new("check settings…", by)));
+        items.chain(providers).chain(checks).chain(themes::items()).collect()
     }
 
     /// A plugin's settings in a form, each filled in as it's set now (else its default), and a

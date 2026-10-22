@@ -6,6 +6,7 @@
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
 
+pub mod checks;
 pub mod events;
 pub mod params;
 pub mod providers;
@@ -429,14 +430,15 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, panels, analyzers, providers, services, library
-    /// sources and themes by name, the events it listens for, its export and import formats and
-    /// its settings' keys.
+    /// What it adds: its commands, operations, panels, analyzers, checks, providers, services,
+    /// library sources and themes by name, the events it listens for, its export and import formats
+    /// and its settings' keys.
     pub commands: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
     pub panels: Vec<String>,
     pub analyzers: Vec<String>,
+    pub checks: Vec<String>,
     pub exporters: Vec<String>,
     pub importers: Vec<String>,
     pub providers: Vec<String>,
@@ -464,6 +466,7 @@ impl Listed {
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             panels: c.panels.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
+            checks: c.checks.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             importers: c.importers.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),

@@ -193,6 +193,29 @@ worked out with nothing to show. A field left out wasn't worked out.
   only one, else the first. Roles need no feature of their own: a host that doesn't know them
   leaves them out.
 
+### checks
+
+`check/run {check, context}` -> `{"findings": [{level, message, tracks?, playlist?, paths?,
+fix?}]}`: what a check finds on the drive `context.drive` (`Finding`: `level` `info`, `warning` or
+`problem`, the tracks by id, a playlist by path, files relative to the drive), nothing when all is
+well. A `fix` is one of the plugin's operations with its params (`{operation, params}`), which the
+user can run, planned and confirmed as any is. The host names each finding `<plugin>.<check>` and
+adds them to its check before a set and doctor; a problem counts as one of theirs. `plan/check
+{check, operation, edits, context}` -> the same: what a guard says about a plan that edits a
+library before it's applied (its operation, and each edit as `edit.plan` takes them, tracks named
+by file), shown with the plan's warnings. That's an edit plan's edits (`edit`, a plugin's
+operation, `edits.replay`...), a playlist restored (`playlist.restore`, its playlists made again),
+a contact's playlist (`drive.contact`, a `create_playlist`) and a cue edit (`cues`, one `{"op":
+"cues", "tracks": [file], "change": ...}` whose change is `{"set": {...}}`, `{"update": {...}}`
+with the fields `cues.plan` takes, `{"delete": cue}`, `{"copy": {"from": file}}` or `{"carry":
+{"from": file, "shift_ms": n}}`). A plan making no edit isn't asked about. Once the user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
+check that fails or takes longer than the host gives it (10 s unless the user says) is a warning,
+never a failure; of one's findings the host keeps 1,000, and of what one says (its message, its
+playlist) 500 characters, without control characters. A file one names must be on the drive.
+
+- `[[contributes.checks]]`: `name`, `title`, `default_on` (true unless it says: it runs until the
+  user turns it off) and `when`: `check` (the default), `apply` (a guard) or both.
+
 ### commands
 
 `command/run {command, params, context}`: any JSON for a headless command; for a view command a

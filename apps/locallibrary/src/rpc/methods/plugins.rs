@@ -4,6 +4,7 @@
 
 mod analysis;
 mod analyzers;
+mod checks;
 mod commands;
 mod exporters;
 mod importers;
@@ -98,6 +99,7 @@ pub(super) fn register(r: &mut Registry) {
     exporters::register(r);
     importers::register(r);
     analyzers::register(r);
+    checks::register(r);
     providers::register(r);
     roles::register(r);
     sources::register(r);

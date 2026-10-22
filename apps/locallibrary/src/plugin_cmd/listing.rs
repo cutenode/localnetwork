@@ -1,4 +1,5 @@
-//! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`.
+//! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`
+//! (`plugin checks` is [`super::checks`]).
 
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
@@ -42,6 +43,7 @@ pub(super) fn list(all: &[Listed]) {
             (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
+            named("check", &p.checks),
             named("export format", &p.exporters),
             named("import format", &p.importers),
             named("provider", &p.providers),
@@ -61,7 +63,7 @@ pub(super) fn list(all: &[Listed]) {
 }
 
 /// How a plugin's command or operation is run: `locallibrary import`, `locallibrary echo titles`.
-fn invocation(id: &str, name: &str, cli: Option<&str>) -> String {
+pub(super) fn invocation(id: &str, name: &str, cli: Option<&str>) -> String {
     format!("locallibrary {}", cli.map_or_else(|| format!("{id} {name}"), String::from))
 }
 
@@ -108,6 +110,11 @@ pub(super) fn info(d: &Described) {
         (a.name.clone(), format!("{}: {}{roles}", a.title, fields.join(", ")))
     });
     section(&format!("Analyzers (locallibrary analyze --plugin {}):", m.id), analyzers.collect());
+    let checks = c.checks.iter().map(|x| {
+        let when: Vec<&str> = x.when.iter().map(|w| w.name()).collect();
+        (x.name.clone(), format!("{} (when: {})", x.title, when.join(", ")))
+    });
+    section("Checks (locallibrary plugin checks):", checks.collect());
     // Each kind of what they write out, and how it's run.
     let of = [
         (ExportFrom::Drive, "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),

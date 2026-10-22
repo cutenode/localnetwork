@@ -2648,7 +2648,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | super::form::For::Source { .. }
         | super::form::For::ApplyFields { .. }
         | super::form::For::Fetch { .. } => "run",
-        super::form::For::Settings(_) | super::form::For::ProviderSettings => "save",
+        super::form::For::Settings(_) | super::form::For::ProviderSettings | super::form::For::CheckSettings => "save",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
@@ -2882,6 +2882,11 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Confirm(c)) = &mut app.modal else { return };
     let wording = super::edits::wording(&*c.plan, &c.drive);
     let mut lines = Vec::new();
+    // A guard made blocking found something: applying it is refused.
+    let blocked = c
+        .plan
+        .blocked()
+        .map(|check| Line::styled(format!("✗ {check} stops these changes"), fg(theme::current().critical)));
     match c.edit() {
         Some(p) => {
             lines.push(Line::from(vec![
@@ -2902,6 +2907,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
                 lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
             }
+            lines.extend(blocked);
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));
             lines.push(Line::styled(
@@ -2928,6 +2934,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             for w in plan.warnings() {
                 lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
             }
+            lines.extend(blocked);
             if plan.destructive() {
                 lines.push(Line::raw(""));
                 lines.push(Line::styled("This deletes or replaces what's there now.", fg(theme::current().warning)));

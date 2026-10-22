@@ -479,6 +479,8 @@ impl Setup<'_> {
                 output::summary(p.summary(), p.warnings());
             }
         }
+        // A guard made blocking found something: not asked, as it can't be applied.
+        plans.iter().try_for_each(|p| p.unblocked())?;
         if self.asking && !self.out.confirm(question) {
             self.note("left as it is");
             return Ok(false);
@@ -927,7 +929,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let mut plans: Vec<Box<dyn AnyPlanned>> = Vec::new();
         for d in &drives {
             let req = api::SetContact { drive: d.root.display().to_string(), contact: contact.clone(), playlist };
-            plans.extend(plan_for(&mut s, d, "contact details", api::drive_contact_plan(&req))?);
+            plans.extend(plan_for(&mut s, d, "contact details", api::drive_contact_plan(&req, ctx))?);
         }
         s.apply("contact", "Write them?", plans)?;
     }

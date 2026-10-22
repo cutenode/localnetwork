@@ -183,6 +183,18 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         let fields = json!({ "a": "integer", "b": "integer" });
         analyzers.push(json!({ "name": "order", "title": "Order", "version": "1", "fields": fields }));
     }
+    let checks: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut c = json!({ "name": format!("ck{j}"), "title": title(tc) });
+            if tc.draw(gs::booleans()) {
+                c["default_on"] = json!(tc.draw(gs::booleans()));
+            }
+            if tc.draw(gs::booleans()) {
+                c["when"] = json!(tc.draw(gs::sampled_from(&[&["check"][..], &["apply"], &["apply", "check"]][..])));
+            }
+            c
+        })
+        .collect();
     let exporters: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| {
             let mut e = json!({ "format": format!("{id}-x{j}"), "title": title(tc) });
@@ -275,6 +287,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "operations": operations,
             "panels": panels,
             "analyzers": analyzers,
+            "checks": checks,
             "exporters": exporters,
             "importers": importers,
             "providers": providers,
@@ -340,6 +353,7 @@ fn listed_text(listed: &[Value]) -> String {
             ("listens for", "events"),
             ("operation", "operations"),
             ("analyzer", "analyzers"),
+            ("check", "checks"),
             ("export format", "exporters"),
             ("import format", "importers"),
             ("provider", "providers"),
@@ -414,6 +428,14 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Analyzers (locallibrary analyze --plugin {id}):"), analyzers);
+    let checks = list("checks")
+        .iter()
+        .map(|c| {
+            let when: Vec<String> = c["when"].as_array().unwrap().iter().map(str_of).collect();
+            (str_of(&c["name"]), format!("{} (when: {})", str_of(&c["title"]), when.join(", ")))
+        })
+        .collect();
+    section("Checks (locallibrary plugin checks):".into(), checks);
     for (source, title) in [
         ("drive", "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
         ("set", "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
@@ -510,6 +532,7 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("commands", "name"),
             ("operations", "name"),
             ("analyzers", "name"),
+            ("checks", "name"),
             ("exporters", "format"),
             ("importers", "format"),
             ("providers", "name"),
@@ -547,7 +570,7 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let described = unschema(env.json(&["plugin", "info", id]));
         let mut manifest = m.clone();
         // The manifest as it reads back: nothing left out is written.
-        for key in ["commands", "operations", "panels", "analyzers", "exporters"] {
+        for key in ["commands", "operations", "panels", "analyzers", "checks", "exporters"] {
             for x in manifest["contributes"][key].as_array_mut().unwrap() {
                 if key == "panels" && x.get("where").is_none() {
                     x["where"] = json!("track");
@@ -558,6 +581,11 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
                 }
                 if ["commands", "operations"].contains(&key) && x.get("where").is_none() {
                     x["where"] = json!(["drive"]);
+                }
+                for (default, value) in [("default_on", json!(true)), ("when", json!(["check"]))] {
+                    if key == "checks" && x.get(default).is_none() {
+                        x[default] = value;
+                    }
                 }
                 if key == "exporters" && x.get("folder").is_none() {
                     x["folder"] = json!(false);

@@ -1357,6 +1357,8 @@ export type DoctorRequest = {
 
 export type DoctorSection =
   | ("duplicates" | "missing" | "orphans" | "unfiled" | "drift" | "large_files" | "compatibility")
+  /** What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`]). */
+  | "checks"
   /**
    * Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
    * naming it): it reads every file's last seconds.
@@ -2396,6 +2398,30 @@ export type FieldRole =
   /** Equal values are the same recording: a string. */
   | "identity";
 
+/** A change to a check's settings. */
+export type SetCheck = {
+  plugin: string;
+  /** The check's name. */
+  check: string;
+  /** Run it, or not; left out, as it is. */
+  on?: boolean | null;
+  /**
+   * For a guard: keep a plan it finds a warning or a problem about from being applied, or not;
+   * left out, as it is.
+   */
+  blocking?: boolean | null;
+  /** Put both back to their defaults first. */
+  reset?: boolean;
+};
+
+export type SetTimeout = {
+  /**
+   * How long a check has to answer, in seconds (0.001 to 3600), before it's
+   * stopped (a warning says so); `null` (or left out) puts it back to its default.
+   */
+  timeout?: number | null;
+};
+
 /** What to find, and for which tracks. */
 export type Provide = {
   kind: ProviderKind;
@@ -2851,6 +2877,11 @@ export type PlanFields = {
   summary: string[];
   /** Every warning, the plan's own included. */
   warnings: string[];
+  /**
+   * The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+   * it: applying it is refused (`blocked`).
+   */
+  blocked?: string | null;
   /**
    * It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
    * say so.
@@ -3980,7 +4011,10 @@ export type EditPlan = {
   free_space: number | null;
   fits: boolean;
   warnings: string[];
-  /** The edits as recorded in the drive's journal. */
+  /**
+   * The edits as the drive's journal records them (tracks named by file), which applying it
+   * records there, unless it was planned with `no_journal`.
+   */
   recorded: EditOutput[];
   /**
    * OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
@@ -4864,6 +4898,8 @@ export type DoctorReport = {
   compatibility: Compatibility | null;
   /** The volume's file system as the OS names it. */
   file_system: string | null;
+  /** What plugins' checks found, each named `<plugin>.<check>`. */
+  checks: CheckItem[] | null;
   warnings: string[];
 };
 
@@ -5114,6 +5150,51 @@ export type Verdict =
   /** Untested layouts players may or may not read. */
   | "unknown";
 
+/**
+ * What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,
+ * `files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`
+ * or `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`.
+ */
+export type CheckItem = {
+  /** The drive it's about. */
+  drive: string;
+  level: Level;
+  /** The check that found it (`files`, a plugin's `<plugin>.<check>`). */
+  check: string;
+  /** What it found, in a line. */
+  message: string;
+  /** The tracks it's about, by id. */
+  tracks?: number[];
+  /** The playlist it's about, by path (`Folder/Name`). */
+  playlist?: string | null;
+  /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
+  paths?: string[];
+  /**
+   * What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
+   * confirmed as any is.
+   */
+  fix?: Fix | null;
+};
+
+/** How much a finding matters, least first. */
+export type Level =
+  /** Worth knowing, nothing to fix (what was checked and found fine, too). */
+  | "info"
+  /** Worth a look: it may be a problem, or a problem for some players. */
+  | "warning"
+  /** Something to fix before it's used. */
+  | "problem";
+
+/**
+ * The plugin operation that fixes a finding, with its params: planned and confirmed as any is
+ * (`plugins.op.plan`, with the drive it was found on).
+ */
+export type Fix = {
+  plugin: string;
+  operation: string;
+  params: unknown;
+};
+
 export type OrphanPlan = {
   drive: string;
   root: string;
@@ -5151,20 +5232,6 @@ export type CheckReport = {
   /** Tracks whose level may be a problem, as the `loudness` items describe them. */
   loudness: DriveLoudness[];
 };
-
-export type CheckItem = {
-  /** The drive it's about. */
-  drive: string;
-  /**
-   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
-   * `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
-   */
-  check: string;
-  level: Level;
-  message: string;
-};
-
-export type Level = "ok" | "warning" | "problem";
 
 export type DrivePlayers = {
   drive: string;
@@ -7613,15 +7680,16 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, panels, analyzers, providers, services, library
-   * sources and themes by name, the events it listens for, its export and import formats and
-   * its settings' keys.
+   * What it adds: its commands, operations, panels, analyzers, checks, providers, services,
+   * library sources and themes by name, the events it listens for, its export and import formats
+   * and its settings' keys.
    */
   commands: string[];
   events: string[];
   operations: string[];
   panels: string[];
   analyzers: string[];
+  checks: string[];
   exporters: string[];
   importers: string[];
   providers: string[];
@@ -7691,6 +7759,7 @@ export type Contributions = {
   operations: Operation[];
   panels: Panel[];
   analyzers: Analyzer[];
+  checks: Check[];
   exporters: Exporter[];
   importers: Importer[];
   providers: Provider[];
@@ -7842,6 +7911,29 @@ export type FieldFormat =
   | "percent"
   /** A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says). */
   | "meter";
+
+/**
+ * Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`
+ * before a plan is applied: as its `when` says.
+ */
+export type Check = {
+  name: string;
+  title: string;
+  /** It runs unless the user turns it off; otherwise, once they turn it on. */
+  default_on: boolean;
+  /**
+   * When it runs: with the check before a set and doctor (`check`, the default), and before a
+   * plan is applied (`apply`: a guard).
+   */
+  when: When[];
+};
+
+/** When a check runs. */
+export type When =
+  /** With locallibrary's check before a set and doctor (`check/run`). */
+  | "check"
+  /** Before a plan is applied (`plan/check`): a guard. */
+  | "apply";
 
 /** Run with `export/write`. */
 export type Exporter = {
@@ -8248,6 +8340,38 @@ export type Analyzed = {
    * failed on them.
    */
   failed: number;
+};
+
+/**
+ * The plugins' checks, whether each runs, and how long one has to answer, as `plugin checks` and
+ * the sidecar's `plugins.checks` show them.
+ */
+export type Checks = {
+  /** In the order the plugins are. */
+  checks: ListedCheck[];
+  /**
+   * How long a check has to answer, in seconds, before it's stopped (a warning says so): the
+   * `checks.timeout` setting.
+   */
+  timeout: number;
+};
+
+/**
+ * Whether a plugin's check runs, and whether a guard keeps a plan it finds something about from
+ * being applied.
+ */
+export type ListedCheck = {
+  plugin: string;
+  name: string;
+  title: string;
+  /**
+   * With the check before a set and doctor (`check`), before a plan is applied (`apply`: a
+   * guard), or both.
+   */
+  when: When[];
+  on: boolean;
+  /** Only a guard's can be on. */
+  blocking: boolean;
 };
 
 /** What the providers found. */
@@ -8672,6 +8796,11 @@ export type Reason =
   | "replay_stopped"
   /** Files didn't read back correctly. */
   | "verify_failed"
+  /**
+   * A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found
+   * something about the plan: deal with what it found, or stop the guard blocking.
+   */
+  | "blocked"
   /** Several libraries could be meant: name one (`fields.libraries`). */
   | "choose_library"
   /** Several drives could be meant: name one (`fields.drives`). */
@@ -9258,6 +9387,12 @@ export interface Methods {
   "plugins.apply_fields.plan": { params: ApplyFields & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_fields.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_fields.apply": { params: ApplyPlan | (ApplyFields & WriteOptions); result: EditReport };
+  /** read method */
+  "plugins.checks": { params: NoParams; result: Checks };
+  /** immediate method */
+  "plugins.checks.set": { params: SetCheck & WriteOptions; result: Checks };
+  /** immediate method */
+  "plugins.checks.timeout.set": { params: SetTimeout & WriteOptions; result: Checks };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.provide": { params: Provide; result: Provided };
   /** plan method; paired with `plugins.provide.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

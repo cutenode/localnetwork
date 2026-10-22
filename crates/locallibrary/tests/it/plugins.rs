@@ -4,6 +4,7 @@
 mod analysis;
 mod blobs;
 mod callbacks;
+mod checks;
 mod choose;
 mod events;
 mod exports;

@@ -1059,6 +1059,8 @@ fn plugins_own(act: &Act) -> bool {
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
             | Act::ProviderSettings
+            | Act::CheckSettings
+            | Act::Fix(_)
             | Act::Fetch(_)
             | Act::Theme(_)
     )
@@ -1291,6 +1293,19 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
         }
         Act::ProviderSettings => {
             assert_eq!(form_open(app), ("Provider settings".into(), vec!["auto_pick".into()]));
+            press(app, "\u{1b}");
+        }
+        Act::CheckSettings => {
+            let plugins = crate::plugins::host().unwrap();
+            let mut fields: Vec<String> = Vec::new();
+            for (p, c, _) in plugins.checks(None) {
+                fields.push(format!("{p}.{}", c.name));
+                if c.when.contains(&loclib_plugin::When::Apply) {
+                    fields.push(format!("{p}.{}.blocking", c.name));
+                }
+            }
+            fields.push("timeout".into());
+            assert_eq!(form_open(app), ("Check settings".into(), fields));
             press(app, "\u{1b}");
         }
         // A form asking which provider and whether over what tracks have, for the track selected.
@@ -2039,6 +2054,7 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
 }
 
 mod asking;
+mod checks;
 mod events;
 mod importing;
 mod sources;

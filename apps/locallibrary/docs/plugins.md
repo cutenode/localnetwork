@@ -28,8 +28,8 @@ are:
 
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
-the player's menus offer them, the events it listens for, its analyzers' fields, its export
-and import formats, its providers, its services, its library sources and its settings.
+the player's menus offer them, the events it listens for, its analyzers' fields, its checks, its
+export and import formats, its providers, its services, its library sources and its settings.
 
 A plugin whose id, commands or export or import formats clash with locallibrary's, or with another
 plugin's, is left out: every command warns which and why, and the other plugins work. Two plugins
@@ -78,6 +78,24 @@ places, as a key, a duration (`3:07`), decibels, a percentage or a meter, and ho
 is in the player; `track` and the player show them so, and the rest as they are, and a mix's
 HTML report shows those fields of each track it played. What
 locallibrary itself reads from them is their [roles](#roles).
+
+## Checks
+
+A plugin's check looks for something on a drive, and what it finds is in `locallibrary check` and
+`locallibrary doctor` (`--only checks` for theirs alone), named `PLUGIN.CHECK`. A problem it finds
+is a problem (`check` exits 4), a warning a warning; when a fix goes with it, the command line
+that runs it follows (the plugin's operation, planned and asked about as any is). A check that
+fails or takes longer than 10 seconds is a warning saying so, never a failure. A guard is a check
+run before changes to a library are made (edits, cues, a playlist restored, a contact's
+playlist): what it says is among the plan's warnings, and once you make it
+blocking (`locallibrary plugin checks PLUGIN.CHECK --blocking`), a warning or a problem it finds
+stops the changes. `locallibrary plugin checks` lists them, whether each runs and blocks, and how
+long one has; `--on`, `--off`, `--no-blocking`, `--reset` and `--timeout SECS` (an hour at
+most) change that (kept
+in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
+`checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
+in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form
+for which run.
 
 ## Commands and operations
 

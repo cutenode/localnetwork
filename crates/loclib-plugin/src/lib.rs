@@ -23,6 +23,7 @@ pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
 };
+pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
 pub use hooks::exporters::{ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport};
@@ -41,6 +42,8 @@ pub use hooks::themes::Theme;
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;
+/// What a check finds, as [`CheckFinding`]s carry it.
+pub use loclib_model::finding::{Finding, Level};
 pub use manifest::{
     Capability, CliHints, Contributions, Manifest, ManifestError, NetLimit, Selection, Setting, SettingType, Where,
     check_params, is_path,
