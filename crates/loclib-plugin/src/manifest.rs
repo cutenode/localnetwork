@@ -53,6 +53,7 @@ pub struct Contributions {
     pub importers: Vec<hooks::importers::Importer>,
     pub providers: Vec<hooks::providers::Provider>,
     pub services: Vec<hooks::services::Service>,
+    pub sources: Vec<hooks::sources::LibrarySource>,
     pub themes: Vec<hooks::themes::Theme>,
     pub settings: Vec<Setting>,
 }
@@ -239,6 +240,9 @@ pub enum Capability {
     EventsJobs,
     /// Told of plans applied.
     EventsPlans,
+    /// Read files in the folders the user grants it for a read of its library sources: the host
+    /// copies only audio files in them (links resolved), whatever the plugin says.
+    FsRead,
     /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
@@ -247,7 +251,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 20] = [
+    pub const NAMED: [Capability; 21] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -268,6 +272,7 @@ impl Capability {
         Capability::EventsDrives,
         Capability::EventsJobs,
         Capability::EventsPlans,
+        Capability::FsRead,
     ];
 
     /// Its name, unless it's `net:<host>`.
@@ -293,6 +298,7 @@ impl Capability {
             Capability::EventsDrives => "events:drives",
             Capability::EventsJobs => "events:jobs",
             Capability::EventsPlans => "events:plans",
+            Capability::FsRead => "fs:read",
             Capability::Net(_) => return None,
         })
     }
@@ -598,6 +604,7 @@ impl Manifest {
         hooks::importers::validate(self)?;
         hooks::providers::validate(self)?;
         hooks::services::validate(self)?;
+        hooks::sources::validate(self)?;
         hooks::themes::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;

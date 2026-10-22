@@ -20,7 +20,9 @@
 //! first, and given a set or a mix writes its tracklist; its importer answers a JSON file as it is
 //! (in a blob with the `blob` option); it logs each event it's told of and tells the user it heard
 //! it, suggesting echo's `playlist` (or tells them what its payload's `tell` says); and its
-//! services run as their names say (see `plugin::serve_service`).
+//! services run as their names say (see `plugin::serve_service`). Any library source reads the
+//! files in the folders it's granted, and what `.json` files beside them say (see
+//! `plugin::read_library`).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--paused <file>` logs `paused` and
 //! serves only once `<file>` is there, `--wrong-fields` answers fields of the wrong type, and

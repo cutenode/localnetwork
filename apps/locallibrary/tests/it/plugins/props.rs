@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 19] = [
+const CAPABILITIES: [&str; 21] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -48,9 +48,11 @@ const CAPABILITIES: [&str; 19] = [
     "tags:plan",
     "cues:plan",
     "artwork:plan",
+    "analysis:plan",
     "events:drives",
     "events:jobs",
     "events:plans",
+    "fs:read",
 ];
 
 /// Text a person reads in a manifest: a title or a name.
@@ -114,7 +116,8 @@ fn offered(tc: &TestCase, x: &mut Value) {
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
 /// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`, shown
 /// in bytes or not) and `order` (`a`, `b`) it can run; export formats writing a file or a folder;
-/// providers of either kind (granted reading tracks); panels; themes; and settings of every kind.
+/// providers of either kind (granted reading tracks); panels; library sources (granted reading
+/// folders); themes; and settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -217,6 +220,12 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
     if !providers.is_empty() && !capabilities.iter().any(|c| c == "library:read") {
         capabilities.push("library:read".into());
     }
+    let sources: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| json!({ "name": format!("src{j}"), "title": title(tc) }))
+        .collect();
+    if !sources.is_empty() && !capabilities.iter().any(|c| c == "fs:read") {
+        capabilities.push("fs:read".into());
+    }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
     let panels: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
@@ -270,6 +279,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "importers": importers,
             "providers": providers,
             "services": services,
+            "sources": sources,
             "themes": themes,
             "settings": settings,
         },
@@ -335,6 +345,7 @@ fn listed_text(listed: &[Value]) -> String {
             ("provider", "providers"),
             ("panel", "panels"),
             ("service", "services"),
+            ("library source", "sources"),
             ("theme", "themes"),
             ("setting", "settings"),
         ];
@@ -446,6 +457,10 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Services (locallibrary plugin settings {id} services.NAME on):"), services);
+    let sources =
+        list("sources").iter().map(|x| (format!("{id}:{}", str_of(&x["name"])), str_of(&x["title"]))).collect();
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(format!("Library sources ({build}):"), sources);
     let themes = list("themes")
         .iter()
         .map(|t| (str_of(&t["name"]), format!("{}, in the player", str_of(&t["title"]))))
@@ -500,6 +515,7 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("providers", "name"),
             ("panels", "name"),
             ("services", "name"),
+            ("sources", "name"),
             ("themes", "name"),
             ("settings", "key"),
         ] {

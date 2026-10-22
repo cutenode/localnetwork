@@ -2486,6 +2486,36 @@ export type ChooseRole = {
   analyzer?: string | null;
 };
 
+/** Building a drive from a plugin's library source. */
+export type SourceExport = {
+  plugin: string;
+  /** One of its library sources, by name. */
+  source: string;
+  /** As the source's `options` schema says. */
+  options?: unknown;
+  /**
+   * The folders the plugin may read files in, absolute: granted for this read alone, and only
+   * audio files in them are copied.
+   */
+  grants: string[];
+  /** The drive or folder to write to. */
+  drive: string;
+  /**
+   * Playlists or folders (paths) to export, with the tracks they use. Empty: every track and
+   * playlist, or the selection the target was last exported with.
+   */
+  playlists?: string[];
+  /** Export every track and playlist, whatever the target was exported with last. */
+  all?: boolean;
+  /**
+   * Replace a library the target holds that wasn't exported from the collection, or the
+   * files on a target with no library.
+   */
+  replace?: boolean;
+  /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
+  overwrite_archive?: boolean;
+};
+
 /** What `initialize` answers. */
 export type Initialized = {
   /** Changes only when a change would break clients written for the previous one. */
@@ -7493,8 +7523,10 @@ export type DriveDiff = {
 };
 
 export type CollectionExportPlan = {
-  /** The `master.db` exported. */
+  /** The `master.db` exported (empty for a plugin's library source). */
   collection: string;
+  /** The plugin's library source written instead, `<plugin>:<source>`. */
+  source?: string | null;
   target: string;
   target_root: string;
   /** The playlists chosen; empty for the whole collection. */
@@ -7523,7 +7555,10 @@ export type CollectionExportPlan = {
    * computer.
    */
   syncing: string[];
-  /** Tracks with an analysis file that can't be read: exported without it. */
+  /**
+   * Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,
+   * beat grid or waveform can't be written: exported without it.
+   */
   unreadable: string[];
   /**
    * The target holds a library that wasn't exported from the collection, or files the export
@@ -7578,8 +7613,9 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, panels, analyzers, providers, services and themes by
-   * name, the events it listens for, its export and import formats and its settings' keys.
+   * What it adds: its commands, operations, panels, analyzers, providers, services, library
+   * sources and themes by name, the events it listens for, its export and import formats and
+   * its settings' keys.
    */
   commands: string[];
   events: string[];
@@ -7590,6 +7626,7 @@ export type Listed = {
   importers: string[];
   providers: string[];
   services: string[];
+  sources: string[];
   themes: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
@@ -7658,6 +7695,7 @@ export type Contributions = {
   importers: Importer[];
   providers: Provider[];
   services: Service[];
+  sources: LibrarySource[];
   themes: Theme[];
   settings: Setting[];
 };
@@ -7878,6 +7916,17 @@ export type Provider = {
 export type Service = {
   name: string;
   title: string;
+};
+
+/**
+ * Read with `library/read`, a page at a time, for the host to build a drive from. It's given the
+ * folders the user grants it, which takes `fs:read`.
+ */
+export type LibrarySource = {
+  name: string;
+  title: string;
+  /** A JSON Schema for its options (an object). */
+  options?: unknown;
 };
 
 /**
@@ -9223,6 +9272,10 @@ export interface Methods {
   "plugins.roles": { params: NoParams; result: RoleChoice[] };
   /** immediate method */
   "plugins.roles.set": { params: ChooseRole & WriteOptions; result: RoleChoice[] };
+  /** plan method; paired with `plugins.source.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.source.plan": { params: SourceExport & WriteOptions; result: CollectionExportPlan & PlanFields };
+  /** apply method; paired with `plugins.source.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.source.apply": { params: ApplyPlan | (SourceExport & WriteOptions); result: CollectionExportReport };
 }
 
 export type MethodName = keyof Methods;

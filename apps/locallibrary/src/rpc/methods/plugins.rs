@@ -11,6 +11,7 @@ mod operations;
 mod panels;
 mod providers;
 mod roles;
+mod sources;
 
 use loclib_plugin::Context;
 use schemars::JsonSchema;
@@ -99,4 +100,5 @@ pub(super) fn register(r: &mut Registry) {
     analyzers::register(r);
     providers::register(r);
     roles::register(r);
+    sources::register(r);
 }

@@ -121,7 +121,7 @@ assert!(manifest.validate(false).is_err());
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
-  `artwork:plan`, `events:drives`, `events:jobs`, `events:plans`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
+  `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
@@ -309,6 +309,27 @@ after it stops or fails, a few times in a row at most.
 
 - `[[contributes.services]]`: `name` and `title`.
 
+### sources
+
+`library/read {source, options, roots, cursor?, context}` -> `{"tracks": [...], "playlists":
+[{path, tracks}], "blob"?, "next"?}`: a page of a library the plugin reads from somewhere on the
+computer (another program's collection, a folder of tagged files), which the host builds a drive
+from. `roots` are the folders the user granted it for this read (absolute); the host asks for
+pages, passing each one's `next` back as `cursor`, until one has none. A track is `{path, title,
+artist, album, album_artist, genre, label, remixer, composer, comment, isrc, year, rating, key?,
+bpm?, cues?, beats?, waveform?, my_tags?}`: `path` its audio file (absolute), `key` a Camelot code
+or a key as rekordbox names it, `cues` `[{hot_cue?, start_ms, end_ms?, name?, color?}]` (`hot_cue`
+0 for A to 7 for H; `color` as cue edits take one), `beats` a beat grid as an analyzer's `beats`
+field is, `waveform` a blob as its `waveform` field is, `my_tags` `Category/Tag`. A playlist's
+`path` is `Folder/Name`, its `tracks` their `path`s. A page too big for a message is a blob, `{"blob":
+"page.json"}`, holding a page as JSON. The host trusts no path: it copies only a regular audio file
+in one of `roots` (links resolved), not on the drive written to, reading its length and format
+itself and hashing it before copying, and leaves out (with a warning) the tracks that aren't and
+what it can't write of the rest; cues, beat grids and waveforms go into analysis files it makes.
+
+- `[[contributes.sources]]`: `name`, `title` and `options`. It reads files in the folders it's
+  given, so it needs `fs:read`.
+
 ### themes
 
 Data alone: no feature, no method, and the host never runs the plugin for one.
@@ -427,9 +448,9 @@ served.join().expect("the plugin stops");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`examples/echo` is a whole plugin, with one of each kind of contribution but events and services
-(`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs until it's
-cancelled).
+`examples/echo` is a whole plugin, with one of each kind of contribution but events, services and
+a library source (`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs
+until it's cancelled).
 
 ## Licence
 

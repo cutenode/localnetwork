@@ -135,6 +135,7 @@ its drives.
 | `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |
 | `locallibrary collection [info\|tracks\|playlists\|diff <library>]` | rekordbox's own collection on this computer (`master.db`), read only, and what a drive lacks against it, see [rekordbox's collection](other-software.md#rekordboxs-collection) |
 | `locallibrary collection export <drive or folder> [--playlist P]...` | Write the collection to a drive or folder as rekordbox's Export does, Cloud Library Sync tracks included, see [Exporting it without rekordbox](other-software.md#exporting-it-without-rekordbox) |
+| `locallibrary collection export <drive or folder> --from PLUGIN:SOURCE --grant FOLDER...` | Build it from a plugin's library source instead, copying only audio files in the folders granted, see [Library sources](plugins.md#library-sources) |
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |

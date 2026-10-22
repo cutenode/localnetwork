@@ -1,7 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
-//! exporters, importers, providers, services, themes and settings, and listening for events. The
-//! CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! exporters, importers, providers, services, library sources, themes and settings, and listening
+//! for events. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -20,10 +20,12 @@
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
-//! [`Plugins::import_plan`]). Plugins are told of what happens as the front ends notice it
-//! ([`Plugins::deliver`]), and services run while a front end that stays open does
-//! ([`Plugins::run_services`]); what either tells the user, the front end shows
-//! ([`Options::notices`]), and nothing they suggest is planned unless the user chooses to.
+//! [`Plugins::import_plan`]). A library source's tracks are copied to a drive only from the
+//! folders the user grants it, each file checked by the host (see [`Plugins::plan_source_export`]).
+//! Plugins are told of what happens as the front ends notice it ([`Plugins::deliver`]), and
+//! services run while a front end that stays open does ([`Plugins::run_services`]); what either
+//! tells the user, the front end shows ([`Options::notices`]), and nothing they suggest is
+//! planned unless the user chooses to.
 
 mod analysis;
 mod analyzers;
@@ -42,6 +44,7 @@ mod providers;
 mod secrets;
 mod services;
 mod settings;
+mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -72,6 +75,7 @@ pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
 pub(crate) use settings::{host_settings, set_host_setting};
+pub use sources::SourceExport;
 
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;

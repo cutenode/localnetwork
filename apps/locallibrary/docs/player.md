@@ -61,6 +61,11 @@ listening to your library the way the players see it:
   alone is chosen for you, and for each other track you pick one from a list (or none); then the
   changes are confirmed like any edit. "provider settings…" in the palette sets how high (as
   `plugin providers --auto-pick` does).
+- **Library sources**: "build from …" in the palette (or a drive's `e` menu) builds the drive
+  plugged in from a plugin's library source: a form asks which folders it may read files in
+  (`~/Music` to begin with, several split by commas), whether to replace a library the drive
+  holds, and for the source's options; the plan says what it read and left out, and is confirmed
+  like any change.
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
   to its default. A secret is never filled in: typed, it's kept in the system's keychain; left

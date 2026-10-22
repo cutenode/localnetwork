@@ -2645,6 +2645,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         super::form::For::Run(_)
         | super::form::For::Export { .. }
         | super::form::For::Import { .. }
+        | super::form::For::Source { .. }
         | super::form::For::ApplyFields { .. }
         | super::form::For::Fetch { .. } => "run",
         super::form::For::Settings(_) | super::form::For::ProviderSettings => "save",

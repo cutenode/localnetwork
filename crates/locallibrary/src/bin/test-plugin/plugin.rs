@@ -15,8 +15,9 @@ use std::time::Duration;
 
 use loclib_plugin::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Hooks, Host, HostNotify, ImportAnswer, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates,
-    ReadImport, RenderPanel, RpcError, RunCommand, StartService, Suggested, View, WriteExport, params,
+    FieldValue, Hooks, Host, HostNotify, ImportAnswer, LibraryPage, ListItem, OpAnswer, OpPlan, PlanOp,
+    ProvideCandidates, ReadImport, ReadLibrary, RenderPanel, RpcError, RunCommand, SourcePlaylist, SourceTrack,
+    StartService, Suggested, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -70,6 +71,9 @@ impl Test {
         if has("panels") {
             let test = test.clone();
             hooks = hooks.on(move |req: RenderPanel, host: &Host| test.render_panel(req, host));
+        }
+        if has("sources") {
+            hooks = hooks.on(|req: ReadLibrary, _: &Host| read_library(req));
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
@@ -368,6 +372,68 @@ fn serve_service(req: StartService, host: &Host) -> Result<(), RpcError> {
             }
         }
     }
+}
+
+/// Any source: the files in its folders granted (and below), but `.json` files, each a track with
+/// what the `.json` file named after it (`a.wav.json`) gives besides its path, once the files that
+/// file's `blobs` give are in the scratch folder; and the playlists a folder's `playlists.json`
+/// gives (`{"Sets/Friday": ["a.wav"]}`, files by their path in the folder). Its options: `also`,
+/// paths to give as tracks as they are; `per_page`, how many tracks a page has (playlists come
+/// on the last); `as_blob`, each page in a blob; `again`, every page says there's one after it.
+fn read_library(req: ReadLibrary) -> Result<LibraryPage, RpcError> {
+    let io = |e: std::io::Error| RpcError::failed("io", e.to_string());
+    let (mut tracks, mut playlists) = (Vec::new(), Vec::new());
+    for root in &req.roots {
+        let mut files = Vec::new();
+        let mut folders = vec![root.clone()];
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).map_err(io)? {
+                let path = entry.map_err(io)?.path();
+                match path.is_dir() {
+                    true => folders.push(path),
+                    false => files.push(path),
+                }
+            }
+        }
+        files.sort();
+        for file in files.into_iter().filter(|f| f.extension().is_none_or(|e| e != "json")) {
+            let mut told: Value = match std::fs::read_to_string(format!("{}.json", file.display())) {
+                Ok(text) => serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?,
+                Err(_) => json!({}),
+            };
+            write_blobs(&req.context, &told)?;
+            told.as_object_mut().map(|o| o.remove("blobs"));
+            told["path"] = json!(file);
+            tracks.push(params::<SourceTrack>(told)?);
+        }
+        if let Ok(text) = std::fs::read_to_string(root.join("playlists.json")) {
+            let lists: indexmap::IndexMap<String, Vec<String>> =
+                serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?;
+            playlists.extend(
+                lists
+                    .into_iter()
+                    .map(|(path, names)| SourcePlaylist { path, tracks: names.iter().map(|n| root.join(n)).collect() }),
+            );
+        }
+    }
+    let also = req.options["also"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    tracks.extend(also.map(|p| SourceTrack { path: p.into(), ..SourceTrack::default() }));
+    let from: usize = req.cursor.as_deref().map_or(0, |c| c.parse().unwrap_or(0));
+    let per_page = req.options["per_page"].as_u64().map_or(tracks.len().max(1), |n| n as usize);
+    let to = (from + per_page).min(tracks.len());
+    let last = to >= tracks.len() && req.options["again"] != true;
+    let page = LibraryPage {
+        tracks: tracks.drain(from.min(to)..to).collect(),
+        playlists: if last { playlists } else { Vec::new() },
+        blob: None,
+        next: (!last).then(|| to.to_string()),
+    };
+    if req.options["as_blob"] != true {
+        return Ok(page);
+    }
+    let scratch = req.context.scratch.clone().ok_or_else(|| RpcError::failed("invalid", "no scratch folder"))?;
+    std::fs::write(scratch.join("page.json"), serde_json::to_vec(&page).expect("a page is JSON")).map_err(io)?;
+    Ok(LibraryPage { blob: Some("page.json".into()), next: page.next, ..LibraryPage::default() })
 }
 
 /// The question `p["ask"]` asks, while `p` doesn't answer it (has no value of its param), or

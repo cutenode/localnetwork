@@ -47,6 +47,7 @@ pub(super) fn list(all: &[Listed]) {
             named("provider", &p.providers),
             named("panel", &p.panels),
             named("service", &p.services),
+            named("library source", &p.sources),
             named("theme", &p.themes),
             named("setting", &p.settings),
         ]
@@ -139,6 +140,9 @@ pub(super) fn info(d: &Described) {
         (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
     });
     section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
+    let sources = c.sources.iter().map(|x| (format!("{}:{}", m.id, x.name), x.title.clone()));
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(&format!("Library sources ({build}):"), sources.collect());
     let themes = c.themes.iter().map(|t| (t.name.clone(), format!("{}, in the player", t.title)));
     section("Themes:", themes.collect());
     let settings =

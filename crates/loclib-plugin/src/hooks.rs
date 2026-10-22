@@ -20,4 +20,5 @@ pub(crate) mod operations;
 pub(crate) mod panels;
 pub(crate) mod providers;
 pub(crate) mod services;
+pub(crate) mod sources;
 pub(crate) mod themes;

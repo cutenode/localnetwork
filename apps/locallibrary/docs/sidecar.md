@@ -470,6 +470,15 @@ candidate as it was offered, with the images picked, or all of `images`) answers
 [{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set {auto_pick}` (0 to 1, more
 than 1: never; `null`: back to 0.9) sets it.
 
+### Library sources
+
+`plugins.source.plan {plugin, source, options, grants, drive, playlists?, all?, replace?}`
+(`grants`: absolute folders the plugin may read files in, for this build) answers a
+`collection.export.plan`-shaped plan (`<plugin>.source.<source>`, with `source`:
+`<plugin>:<source>`) building the drive or folder `drive` from what the plugin reads: only audio
+files in the folders granted are copied, and what's left out is in its `warnings`. Applied by
+`plugins.source.apply {plan_id}`, answering what `collection.export.apply` does.
+
 ### Roles
 
 `plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,

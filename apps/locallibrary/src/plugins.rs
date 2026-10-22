@@ -411,6 +411,7 @@ fn means(c: &Capability) -> String {
         Capability::EventsDrives => "hear of drives plugged in, unplugged, changed and saved into the store",
         Capability::EventsJobs => "hear of the sidecar's requests finishing",
         Capability::EventsPlans => "hear of changes applied, and what they were",
+        Capability::FsRead => "read audio files in folders you grant it, to build a drive from",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),
@@ -428,8 +429,9 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, panels, analyzers, providers, services and themes by
-    /// name, the events it listens for, its export and import formats and its settings' keys.
+    /// What it adds: its commands, operations, panels, analyzers, providers, services, library
+    /// sources and themes by name, the events it listens for, its export and import formats and
+    /// its settings' keys.
     pub commands: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
@@ -439,6 +441,7 @@ pub struct Listed {
     pub importers: Vec<String>,
     pub providers: Vec<String>,
     pub services: Vec<String>,
+    pub sources: Vec<String>,
     pub themes: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
@@ -465,6 +468,7 @@ impl Listed {
             importers: c.importers.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             services: c.services.iter().map(|x| x.name.clone()).collect(),
+            sources: c.sources.iter().map(|x| x.name.clone()).collect(),
             themes: c.themes.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),

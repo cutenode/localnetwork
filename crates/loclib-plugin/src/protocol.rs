@@ -27,6 +27,7 @@ pub mod method {
     pub use crate::hooks::panels::RENDER_PANEL;
     pub use crate::hooks::providers::PROVIDE;
     pub use crate::hooks::services::SERVICE_START;
+    pub use crate::hooks::sources::READ_LIBRARY;
 
     /// Host to plugin, first: [`super::Hello`] -> [`super::HelloReply`].
     pub const HELLO: &str = "hello";

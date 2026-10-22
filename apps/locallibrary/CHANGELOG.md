@@ -295,6 +295,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   player where the drive has none, and written with `analyze --apply grid,phrases,waveform` (the
   sidecar's `plugins.apply_analysis.plan/apply`), a grid setting the track's BPM; operations plan
   the same edit with `analysis:plan`. Checked against rekordbox's files, not yet on players.
+- **Drives built from a plugin's library source.** `collection export DRIVE --from PLUGIN:SOURCE
+  --grant FOLDER` builds a drive from a library a plugin reads (feature `sources`, capability
+  `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
+  and only audio files players play in them (links resolved) are copied, each read and hashed by
+  locallibrary itself and checked as it's copied; the rest is left out with a warning. Cues, beat
+  grids and waveforms a track brings go into analysis files made for it, read back first. The
+  player has "build from …" in the palette and a drive's menu, the sidecar
+  `plugins.source.plan/apply`. Not yet tried on players.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

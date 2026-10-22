@@ -36,6 +36,7 @@ pub use hooks::providers::{
     Candidate, Candidates, ProvideCandidates, Provider, ProviderKind, TrackMetadata, TrackTags,
 };
 pub use hooks::services::{Service, StartService};
+pub use hooks::sources::{LibraryPage, LibrarySource, ReadLibrary, SourceCue, SourcePlaylist, SourceTrack};
 pub use hooks::themes::Theme;
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.

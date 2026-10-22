@@ -1,5 +1,5 @@
-//! A form for a plugin's params, its settings (or providers'), an export's, or fetching from
-//! providers: a field for each property of a JSON Schema, each typed as the command line takes it
+//! A form for a plugin's params, its settings (or providers'), an export's, a build from a library
+//! source, or fetching from providers: a field for each property of a JSON Schema, each typed as the command line takes it
 //! (see [`crate::plugins::params`]), and checked against the schema before anything runs or is
 //! saved. A switch and a choice of a few values are picked rather than typed.
 
@@ -45,6 +45,9 @@ pub enum For {
     /// What file to import into the drive at `root` with a plugin's importer, and the format's
     /// options.
     Import { plugin: &'static str, format: &'static str, root: std::path::PathBuf },
+    /// The folders a plugin's library source (`source`) may read for building the drive at `root`,
+    /// whether to replace a library there, and the source's options.
+    Source { plugin: &'static str, source: &'static str, root: std::path::PathBuf },
     /// What to write to the tracks of the drive at `root` from what a plugin's analyzer worked
     /// out.
     ApplyFields { plugin: &'static str, analyzer: &'static str, root: std::path::PathBuf },
@@ -200,6 +203,7 @@ impl App {
                             self.plan_export(plugin, format, root, playlists, set, params)
                         }
                         For::Import { plugin, format, root } => self.plan_import(plugin, format, root, params),
+                        For::Source { plugin, source, root } => self.plan_source(plugin, source, root, params),
                         For::ApplyFields { plugin, analyzer, root } => {
                             self.plan_apply_fields(plugin, analyzer, root, params)
                         }

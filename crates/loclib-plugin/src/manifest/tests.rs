@@ -6,7 +6,7 @@ use serde_json::{Map, json};
 use super::*;
 use crate::{
     Analyzer, Command, EventName, ExportFrom, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind,
-    Importer, Listener, Mode, Operation, Panel, Provider, ProviderKind, Role, Service, Theme, code,
+    Importer, LibrarySource, Listener, Mode, Operation, Panel, Provider, ProviderKind, Role, Service, Theme, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -347,6 +347,20 @@ fn a_provider_is_granted_reading_tracks() {
     assert!(provider("", "lyrics").contains("unknown variant `lyrics`"));
 }
 
+/// A library source reads files in the folders the user grants it: it's granted that.
+#[test]
+fn a_source_is_granted_reading_folders() {
+    let source = |grants: &str| {
+        problem(&format!("capabilities = [{grants}]\n[[contributes.sources]]\nname = \"s\"\ntitle = \"S\"\n"))
+    };
+    assert_eq!(source("\"fs:read\""), "");
+    let said = "contributes.sources[0]: reads files in the folders it's granted, which needs the fs:read capability";
+    assert_eq!(source("\"library:read\""), said);
+    assert_eq!(source(""), said);
+    assert_eq!("fs:read".parse::<Capability>().unwrap(), Capability::FsRead);
+    assert_eq!(Capability::FsRead.to_string(), "fs:read");
+}
+
 #[test]
 fn exporters_write_a_file_or_a_folder() {
     let both = "[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nextension = \"x\"\nfolder = true\n";
@@ -441,6 +455,7 @@ fn names_and_titles_arent_empty() {
         ("operations", "name = \"o\""),
         ("analyzers", "name = \"a\"\nversion = \"1\"\nfields = { x = \"number\" }"),
         ("exporters", "format = \"f\"\nfolder = true"),
+        ("sources", "name = \"s\""),
         ("settings", "key = \"s\"\ntype = \"string\""),
     ] {
         let e = problem(&format!("[[contributes.{kind}]]\ntitle = \"\"\n{rest}\n"));
@@ -1180,6 +1195,14 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     if !providers.is_empty() && !capabilities.contains(&Capability::LibraryRead) {
         capabilities.push(Capability::LibraryRead);
     }
+    let sources: Vec<LibrarySource> = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| LibrarySource { name, title: title(tc), options: maybe_schema(tc) })
+        .collect();
+    // Granted reading the folders they're given.
+    if !sources.is_empty() && !capabilities.contains(&Capability::FsRead) {
+        capabilities.push(Capability::FsRead);
+    }
     // Each event once, shared out among a few listeners, and granted.
     let heard = tc.draw(gs::permutations(EventName::ALL.to_vec()));
     let heard = &heard[..tc.draw(gs::integers::<usize>().max_value(heard.len()))];
@@ -1224,6 +1247,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             importers,
             providers,
             services,
+            sources,
             themes: themes.collect(),
             settings,
         },
@@ -1290,7 +1314,7 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 10] = [
+const CONTRIBUTIONS: [&str; 11] = [
     "commands",
     "operations",
     "panels",
@@ -1299,6 +1323,7 @@ const CONTRIBUTIONS: [&str; 10] = [
     "importers",
     "providers",
     "services",
+    "sources",
     "themes",
     "settings",
 ];
@@ -1322,6 +1347,7 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "providers" => c.providers.len(),
         "panels" => c.panels.len(),
         "services" => c.services.len(),
+        "sources" => c.sources.len(),
         "themes" => c.themes.len(),
         _ => c.settings.len(),
     }
@@ -1365,6 +1391,8 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
             "panels" => c.panels.push(Panel { name, title, offered: Where::Track }),
             "services" => c.services.push(Service { name, title }),
+            // Granted fs:read by the caller.
+            "sources" => c.sources.push(LibrarySource { name, title, options: None }),
             "themes" => {
                 let tokens = Map::from_iter([("playhead".into(), Value::from("#ffffff"))]);
                 c.themes.push(Theme { name, title, tokens });
@@ -1391,6 +1419,7 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "panels" => c.panels.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "services" => c.services.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "sources" => c.sources.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "themes" => c.themes.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
@@ -1407,6 +1436,7 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "providers" => c.providers.push(c.providers[i].clone()),
         "panels" => c.panels.push(c.panels[i].clone()),
         "services" => c.services.push(c.services[i].clone()),
+        "sources" => c.sources.push(c.sources[i].clone()),
         "themes" => c.themes.push(c.themes[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
@@ -1418,6 +1448,7 @@ fn schema_of<'a>(c: &'a mut Contributions, kind: &str, i: usize) -> (&'a mut Opt
         "commands" => (&mut c.commands[i].params, format!("contributes.commands[{i}].params")),
         "operations" => (&mut c.operations[i].params, format!("contributes.operations[{i}].params")),
         "importers" => (&mut c.importers[i].options, format!("contributes.importers[{i}].options")),
+        "sources" => (&mut c.sources[i].options, format!("contributes.sources[{i}].options")),
         _ => (&mut c.exporters[i].options, format!("contributes.exporters[{i}].options")),
     }
 }
@@ -1484,6 +1515,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "no events",
         "event twice",
         "event grant",
+        "source grant",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1578,6 +1610,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             if kind == "providers" && !m.capabilities.contains(&Capability::LibraryRead) {
                 m.capabilities.push(Capability::LibraryRead);
             }
+            if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
+                m.capabilities.push(Capability::FsRead);
+            }
             let i = index(&tc, len(c, kind));
             let key = name_key(kind);
             match mistake {
@@ -1598,8 +1633,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             }
         }
         "not an object" | "bad schema" | "param name" | "x-cli" | "positional twice" | "x-path" => {
-            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters", "importers"]));
+            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters", "importers", "sources"]));
             add(c, kind, 1);
+            if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
+                m.capabilities.push(Capability::FsRead);
+            }
             let i = index(&tc, len(c, kind));
             let (slot, at) = schema_of(c, kind, i);
             let mut drawn = params(&tc);
@@ -1910,6 +1948,13 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             add(c, "providers", 1);
             m.capabilities.retain(|g| *g != Capability::LibraryRead);
             ("contributes.providers[0]: is given tracks' tags, which needs the library:read capability".into(), false)
+        }
+        "source grant" => {
+            add(c, "sources", 1);
+            m.capabilities.retain(|g| *g != Capability::FsRead);
+            let said =
+                "contributes.sources[0]: reads files in the folders it's granted, which needs the fs:read capability";
+            (said.into(), false)
         }
         "export grant" => {
             add(c, "exporters", 1);
@@ -2302,6 +2347,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "events:drives",
         "events:jobs",
         "events:plans",
+        "fs:read",
     ];
     let s = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => tc.draw(gs::sampled_from(named.to_vec())).to_string(),

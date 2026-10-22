@@ -3375,6 +3375,7 @@ impl App {
             Act::Theme(key) => self.use_theme(key),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {
                 let target = (self.view == View::Library).then(|| self.target()).flatten();
                 self.fetch_form(kind, self.action_drive(), target.as_ref());

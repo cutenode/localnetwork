@@ -15,6 +15,7 @@ mod props;
 mod providers;
 mod roles;
 mod services;
+mod sources;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
