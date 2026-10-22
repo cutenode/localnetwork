@@ -39,7 +39,7 @@
   import Toaster from '$lib/components/Toaster.svelte';
   import { loadQueueSheet, type Sheet as QueueSheet } from '$lib/queue-sheet.ts';
   import { loadSettingsSheet, type Sheet as SettingsSheet } from '$lib/settings-sheet.ts';
-  import { toolById, loadPanel, applyBrand, type PanelComponent } from '$lib/tools.ts';
+  import { toolById, loadPanel, type PanelComponent } from '$lib/tools.ts';
   import { theme } from '$lib/theme.svelte.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
@@ -67,8 +67,6 @@
   // the popup waits on them: the switches show the defaults until they land,
   // and the page has been reading them for itself since it loaded.
   settings.start();
-
-  $effect(() => applyBrand(tool?.brand));
 
   // --- the open tool's panel -------------------------------------------------
 
@@ -251,7 +249,7 @@
 {/if}
 
 {#if failed}
-  <p role="alert" class="px-3 pb-3 text-[12px] text-destructive">{failed}</p>
+  <p role="alert" class="px-3 pb-3 text-caption text-critical">{failed}</p>
 {/if}
 
 <Toaster />

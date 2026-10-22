@@ -23,6 +23,7 @@
   import ListChecks from '@lucide/svelte/icons/list-checks';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import { Button } from '$lib/components/ui/button/index.ts';
+  import ToolTile from '$lib/components/ToolTile.svelte';
   import { count } from '$lib/soundcloud.ts';
 
   interface Props {
@@ -48,9 +49,11 @@
     big?: boolean;
     /** Called with 'tab' or 'queue'. */
     onadd: (source: 'tab' | 'queue') => void;
+    /** The tool's tone, for the tile on the opening version. */
+    tone?: string;
   }
 
-  let { offer, queued = 0, queuedFresh = 0, adding = false, big = false, onadd }: Props = $props();
+  let { offer, queued = 0, queuedFresh = 0, adding = false, big = false, onadd, tone = '' }: Props = $props();
 
   // What pressing the button would really touch: the tracks it can add, plus
   // the ones it would bring up to date. Not every row of a page is one of
@@ -91,17 +94,15 @@
 </script>
 
 <div
-  class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card {big
-    ? 'px-3.5 py-4'
+  class="flex flex-col gap-2 rounded-lg border border-line bg-surface {big
+    ? 'px-3.5 py-5'
     : 'px-3 py-2.5'}"
 >
   {#if big}
     <div class="flex flex-col items-center gap-1.5 text-center">
-      <div class="brand-tile grid size-9 place-items-center rounded-xl text-white" aria-hidden="true">
-        <Plus class="size-4.5" />
-      </div>
-      <h2 class="text-[13px] font-semibold">nothing on the list yet</h2>
-      <p class="max-w-[19rem] text-[11.5px] leading-relaxed text-muted-foreground">
+      <ToolTile icon={Plus} {tone} size="md" />
+      <h2 class="m-0 mt-1 text-small font-semibold">nothing on the list yet</h2>
+      <p class="m-0 max-w-[19rem] text-caption text-fg-muted">
         open a SoundCloud playlist, likes or track page and add it here. what you add stays.
       </p>
     </div>
@@ -109,11 +110,11 @@
 
   <div class="flex items-center gap-2.5 {big ? 'mt-1 flex-col' : ''}">
     <div class="min-w-0 flex-1 {big ? 'w-full text-center' : ''}">
-      <p class="flex items-center gap-1.5 text-[11.5px] font-semibold {big ? 'justify-center' : ''}">
+      <p class="flex items-center gap-1.5 text-caption font-semibold {big ? 'justify-center' : ''}">
         {#if offer.reading}
-          <LoaderCircle class="size-3 shrink-0 animate-spin text-muted-foreground" />
+          <LoaderCircle class="size-3 shrink-0 animate-spin text-fg-muted" />
         {:else}
-          <FileMusic class="size-3 shrink-0 text-muted-foreground" />
+          <FileMusic class="size-3 shrink-0 text-fg-muted" />
         {/if}
         <span class="truncate" title={offer.name}>
           {offer.reading ? 'looking at this tab…' : offer.name || 'this tab'}
@@ -125,7 +126,7 @@
            somebody can see for themselves is not, so above a list it keeps to
            one line and says the rest on hover. -->
       <p
-        class="text-[11px] leading-relaxed text-muted-foreground {big || offer.reason
+        class="text-caption text-fg-muted {big || offer.reason
           ? ''
           : 'truncate'}"
         title={offer.reason || offer.meta}

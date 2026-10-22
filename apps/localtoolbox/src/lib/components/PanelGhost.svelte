@@ -5,7 +5,7 @@
   A tool's panel is its own chunk now ($lib/tools.ts), and the page it reads
   is a couple of round trips behind that, so there is a moment between picking
   a tool and seeing it. Everything the header shows is known without loading
-  anything — the name, the icon and the colour are in the registry — so the
+  anything (the name, the icon and the tone are in the registry), so the
   only part that has to be guessed at is the body, and this is the guess: rows
   the size of the rows most of these panels list.
 
@@ -16,39 +16,25 @@
 <script lang="ts">
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import QueueButton from './QueueButton.svelte';
+  import ToolTile from './ToolTile.svelte';
   import SettingsButton from './SettingsButton.svelte';
   import type { PanelProps } from '$lib/types';
 
   let { tool, onback }: PanelProps = $props();
 
-  const Icon = $derived(tool.icon);
 </script>
 
 <div class="flex max-h-[580px] min-h-[200px] flex-col" aria-busy="true">
-  <header
-    class="brand-wash flex shrink-0 items-center gap-2.5 border-b border-border/70 px-3 py-2.5"
-  >
-    <button
-      type="button"
-      class="-ml-1 grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground
-             outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3
-             focus-visible:ring-ring/50"
-      aria-label="back to all tools"
-      onclick={onback}
-    >
+  <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
+    <button type="button" class="icon-btn -ml-1" aria-label="back to all tools" onclick={onback}>
       <ArrowLeft class="size-4" />
     </button>
 
-    <div
-      class="brand-tile grid size-8 shrink-0 place-items-center rounded-[10px] text-white"
-      aria-hidden="true"
-    >
-      <Icon class="size-4" />
-    </div>
+    <ToolTile icon={tool.icon} tone={tool.tone} />
 
     <div class="min-w-0 flex-1">
-      <h1 class="truncate text-[13px] leading-tight font-semibold">{tool.name}</h1>
-      <p class="truncate text-[11px] leading-tight text-muted-foreground">opening…</p>
+      <h1 class="m-0 truncate text-label leading-tight font-semibold">{tool.name}</h1>
+      <p class="m-0 truncate text-caption leading-tight text-fg-muted">opening…</p>
     </div>
 
     <!-- Neither the queue nor the settings is the panel's to draw, so both are
@@ -62,8 +48,8 @@
 
   <div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3" aria-hidden="true">
     {#each [0, 1, 2, 3, 4] as row (row)}
-      <div class="ghost flex items-center gap-2.5 rounded-xl border border-border/70 bg-card p-2">
-        <span class="ghost-fill size-9 shrink-0 rounded-[10px]"></span>
+      <div class="ghost flex items-center gap-2.5 rounded-lg border border-line bg-surface p-2">
+        <span class="ghost-fill size-9 shrink-0 rounded-md"></span>
         <span class="flex min-w-0 flex-1 flex-col gap-1.5">
           <span class="ghost-fill h-2.5 rounded-full" style="width: {[72, 58, 66, 50, 62][row]}%"
           ></span>
@@ -96,7 +82,7 @@
 
   .ghost-fill {
     display: block;
-    background: color-mix(in oklch, var(--muted-foreground) 22%, transparent);
+    background: var(--color-well);
   }
 
   @keyframes ghost-breathe {

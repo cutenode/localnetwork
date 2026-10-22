@@ -21,12 +21,14 @@
 -->
 <script lang="ts">
   import Plus from '@lucide/svelte/icons/plus';
+  import ToolTile from '$lib/components/ToolTile.svelte';
   import FileMusic from '@lucide/svelte/icons/file-music';
   import ListChecks from '@lucide/svelte/icons/list-checks';
   import Download from '@lucide/svelte/icons/download';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { count } from '$lib/soundcloud.ts';
+  import type { Tool } from '$lib/types';
 
   interface Offer {
     /** Whether the tab is still being read. */
@@ -44,6 +46,8 @@
   }
 
   interface Props {
+    /** The artists tool, whose tile heads the empty list. */
+    tool: Tool;
     /**
      * What the active tab is offering:
      * `{ reading, name, meta, fresh, here, reason }` — see the panel, which
@@ -65,6 +69,7 @@
   }
 
   let {
+    tool,
     offer,
     listed = 0,
     listedFresh = 0,
@@ -109,17 +114,15 @@
 </script>
 
 <div
-  class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card {big
+  class="flex flex-col gap-2 rounded-lg border border-line bg-surface {big
     ? 'px-3.5 py-4'
     : 'px-3 py-2.5'}"
 >
   {#if big}
     <div class="flex flex-col items-center gap-1.5 text-center">
-      <div class="brand-tile grid size-9 place-items-center rounded-xl text-white" aria-hidden="true">
-        <Plus class="size-4.5" />
-      </div>
-      <h2 class="text-[13px] font-semibold">nobody here yet</h2>
-      <p class="max-w-[19rem] text-[11.5px] leading-relaxed text-muted-foreground">
+      <ToolTile icon={tool.icon} tone={tool.tone} size="md" />
+      <h2 class="m-0 text-small font-semibold">nobody here yet</h2>
+      <p class="max-w-[19rem] text-caption leading-relaxed text-fg-muted">
         open a SoundCloud playlist, likes or track page and add its artists. the Manager’s list
         and the session queue add from anywhere.
       </p>
@@ -128,18 +131,18 @@
 
   <div class="flex flex-col gap-2 {big ? 'mt-1 items-center' : ''}">
     <div class="min-w-0 {big ? 'w-full text-center' : ''}">
-      <p class="flex items-center gap-1.5 text-[11.5px] font-semibold {big ? 'justify-center' : ''}">
+      <p class="flex items-center gap-1.5 text-caption font-semibold {big ? 'justify-center' : ''}">
         {#if offer.reading}
-          <LoaderCircle class="size-3 shrink-0 animate-spin text-muted-foreground" />
+          <LoaderCircle class="size-3 shrink-0 animate-spin text-fg-muted" />
         {:else}
-          <FileMusic class="size-3 shrink-0 text-muted-foreground" />
+          <FileMusic class="size-3 shrink-0 text-fg-muted" />
         {/if}
         <span class="truncate" title={offer.name}>
           {offer.reading ? 'looking at this tab…' : offer.name || 'this tab'}
         </span>
       </p>
       <p
-        class="text-[11px] leading-relaxed text-muted-foreground {big || offer.reason
+        class="text-caption leading-relaxed text-fg-muted {big || offer.reason
           ? ''
           : 'truncate'}"
         title={offer.reason || offer.meta}
