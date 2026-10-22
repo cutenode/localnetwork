@@ -313,6 +313,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   grids and waveforms a track brings go into analysis files made for it, read back first. The
   player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
+- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
+  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
+  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
+  never sees one. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  `store restore --from`, `drive verify --from`), every file it gives back checked against its
+  hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
+  the link it answers kept in the set. The sidecar has both as `plugins.account*`,
+  `plugins.store.*` and `plugins.publish.*`.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

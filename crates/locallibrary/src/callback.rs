@@ -1,6 +1,6 @@
-//! The browser's half of signing in: an HTTP listener on 127.0.0.1 that waits for the
-//! authorization server's redirect, or the redirect URL pasted by hand when the browser runs on
-//! another computer.
+//! The browser's half of signing in (to the Atmosphere account, or a plugin's account): an HTTP
+//! listener on 127.0.0.1 that waits for the authorization server's redirect, or the redirect URL
+//! pasted by hand when the browser runs on another computer.
 //!
 //! Any program on this computer can reach the listener, so only a redirect that carries the
 //! sign-in's `state` ends the wait; anything else is turned away and the wait goes on.
@@ -9,13 +9,15 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 
-use super::LONGEST_LOGIN_WAIT;
 use crate::export::one_line;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
 /// The path the redirect comes back to.
 pub const CALLBACK_PATH: &str = "/callback";
+
+/// The longest the browser is waited for, whatever's asked.
+pub const LONGEST_LOGIN_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// The most of a request read: a browser's request head is a few kilobytes.
 const MAX_REQUEST: u64 = 64 * 1024;

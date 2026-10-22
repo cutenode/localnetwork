@@ -8,6 +8,8 @@
 #[path = "../../../../loclib-plugin/examples/echo/plugin.rs"]
 pub mod echo;
 
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,9 +17,10 @@ use std::time::Duration;
 
 use loclib_plugin::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Findings, Hooks, Host, HostNotify, ImportAnswer, LibraryPage, ListItem, OpAnswer, OpPlan, PlanCheck,
-    PlanOp, ProvideCandidates, ReadImport, ReadLibrary, RenderPanel, RpcError, RunCheck, RunCommand, SourcePlaylist,
-    SourceTrack, StartService, Suggested, View, WriteExport, params,
+    FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host, HostNotify, ImportAnswer, LibraryPage, ListItem,
+    OpAnswer, OpPlan, PlanCheck, PlanOp, ProvideCandidates, PublishSet, PutBlob, PutManifest, ReadImport, ReadLibrary,
+    RenderPanel, RpcError, RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View,
+    WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -67,6 +70,46 @@ impl Test {
         if has("operations") {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("destinations") {
+            // Echo's, each noting what it's asked (`blobs/put <hash>`) as a line of `asked` in
+            // its folder before it answers (its log is read on a thread of the host's own, so a
+            // line there can come after the answer), and publishing as the `answer` setting says
+            // when it has one.
+            let said = |method: &str, what: &str| {
+                let mut asked = OpenOptions::new().create(true).append(true).open("asked").expect("its folder");
+                writeln!(asked, "{method} {what}").expect("its folder");
+            };
+            hooks = hooks
+                .on(move |req: HasBlobs, host: &Host| {
+                    said("blobs/has", &req.hashes.len().to_string());
+                    echo::has_blobs(req, host)
+                })
+                .on(move |req: PutBlob, host: &Host| {
+                    said("blobs/put", &req.hash);
+                    echo::put_blob(req, host)
+                })
+                .on(move |req: GetBlob, host: &Host| {
+                    said("blobs/get", &req.hash);
+                    echo::get_blob(req, host)
+                })
+                .on(move |req: PutManifest, host: &Host| {
+                    said("manifest/put", &req.name);
+                    echo::put_manifest(req, host)
+                })
+                .on(move |req: GetManifest, host: &Host| {
+                    said("manifest/get", &req.name);
+                    echo::get_manifest(req, host)
+                })
+                .on(move |req: PublishSet, host: &Host| {
+                    said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"));
+                    match req.context.settings.get("answer").and_then(Value::as_str) {
+                        Some(answer) => {
+                            serde_json::from_str(answer).map_err(|e| RpcError::failed("invalid", e.to_string()))
+                        }
+                        None => echo::publish_set(req, host),
+                    }
+                });
         }
         if has("checks") {
             hooks = hooks.on(|req: RunCheck, host: &Host| match req.check.as_str() {

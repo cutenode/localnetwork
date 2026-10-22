@@ -128,7 +128,7 @@ enum ProfileCommand {
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]
-        browser: crate::account_cmd::BrowserArgs,
+        browser: crate::browser::BrowserArgs,
     },
     /// Every section: whether the document includes it, and what it reveals
     Sections,

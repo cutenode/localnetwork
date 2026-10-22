@@ -19,7 +19,7 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{Capability, ExportFrom, Manifest, SettingType};
@@ -430,10 +430,12 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, panels, analyzers, checks, providers, services,
-    /// library sources and themes by name, the events it listens for, its export and import formats
-    /// and its settings' keys.
+    /// What it adds: its accounts by id, its commands, destinations, operations, panels,
+    /// analyzers, checks, providers, services, library sources and themes by name, the events it
+    /// listens for, its export and import formats and its settings' keys.
+    pub accounts: Vec<String>,
     pub commands: Vec<String>,
+    pub destinations: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
     pub panels: Vec<String>,
@@ -461,7 +463,9 @@ impl Listed {
             name: m.name.clone(),
             version: m.version.clone(),
             capabilities: Granted::all(m),
+            accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
+            destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             panels: c.panels.iter().map(|x| x.name.clone()).collect(),
@@ -482,7 +486,7 @@ impl Listed {
 
 /// A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
 /// (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
-/// let it do, and its settings now.
+/// let it do, its settings now, and whether each of its accounts is signed in.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Described {
     pub manifest: Manifest,
@@ -490,17 +494,24 @@ pub struct Described {
     pub settings: IndexMap<String, Value>,
     #[serde(flatten)]
     pub secrets: Secrets,
+    /// Each of its accounts, and whether it's signed in (never a token): none signed in when the
+    /// keychain can't say (see `secrets_unknown`).
+    pub accounts: Vec<AccountStatus>,
     pub running: bool,
 }
 
 impl Described {
     pub fn of(plugin: &str, plugins: &Plugins, store: Option<&locallibrary::Store>) -> Result<Described> {
         let manifest = plugins.manifest(plugin)?;
+        let secrets = Secrets::of(plugins, plugin, store)?;
+        // As far as the keychain can say: why it can't is the secrets'.
+        let accounts = plugins.accounts(plugin, store).or_else(|_| plugins.accounts(plugin, None))?;
         Ok(Described {
             manifest: manifest.clone(),
             capabilities: Granted::all(manifest),
             settings: plugins.settings(plugin, store)?,
-            secrets: Secrets::of(plugins, plugin, store)?,
+            secrets,
+            accounts,
             running: plugins.is_running(plugin),
         })
     }

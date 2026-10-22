@@ -44,7 +44,9 @@ pub struct Manifest {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Contributions {
+    pub accounts: Vec<hooks::accounts::Account>,
     pub commands: Vec<hooks::commands::Command>,
+    pub destinations: Vec<hooks::destinations::Destination>,
     pub events: Vec<hooks::events::Listener>,
     pub operations: Vec<hooks::operations::Operation>,
     pub panels: Vec<hooks::panels::Panel>,
@@ -595,8 +597,10 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
+        hooks::accounts::validate(self)?;
         hooks::analysis::validate(self)?;
         hooks::commands::validate(self)?;
+        hooks::destinations::validate(self)?;
         hooks::events::validate(self)?;
         hooks::operations::validate(self)?;
         hooks::panels::validate(self)?;

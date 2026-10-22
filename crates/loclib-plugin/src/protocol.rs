@@ -21,6 +21,7 @@ pub mod method {
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
     pub use crate::hooks::checks::{PLAN_CHECK, RUN_CHECK};
     pub use crate::hooks::commands::RUN_COMMAND;
+    pub use crate::hooks::destinations::{BLOBS_GET, BLOBS_HAS, BLOBS_PUT, MANIFEST_GET, MANIFEST_PUT, SET_PUBLISH};
     pub use crate::hooks::events::{EVENT_NOTIFY, HOST_NOTIFY};
     pub use crate::hooks::exporters::WRITE_EXPORT;
     pub use crate::hooks::importers::READ_IMPORT;
@@ -202,7 +203,9 @@ pub struct Partial {
 /// `net/fetch`: an HTTP request the host makes for the plugin, to a host its `net:<host>`
 /// capabilities grant (https only, redirects checked hop by hop), as `locallibrary/<version>`.
 /// `{secret:<key>}` in a header's value, a query value or `body` stands for the plugin's secret
-/// setting `key`, which the host fills in after the checks: the plugin never sees it.
+/// setting `key`, and `{account:<id>}` as the `Authorization` header's whole value for its account
+/// `id` (feature `accounts`): the host fills them in after the checks (an account as `Bearer` and
+/// its access token), and the plugin never sees either.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetch {
     pub url: String,

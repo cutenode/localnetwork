@@ -1,11 +1,12 @@
-//! `plugin`: the plugins locallibrary has, their settings, which analyzer each field role is read
-//! from, which checks run and when a provider's candidate is chosen for the user; `analyze`,
-//! running their analyzers on a drive's tracks; `art fetch` and `track fetch`, what their
-//! providers find; `import`, what their importers read; their panels under `track show`'s
+//! `plugin`: the plugins locallibrary has, their settings and accounts, which analyzer each field
+//! role is read from, which checks run and when a provider's candidate is chosen for the user;
+//! `analyze`, running their analyzers on a drive's tracks; `art fetch` and `track fetch`, what
+//! their providers find; `import`, what their importers read; their panels under `track show`'s
 //! details; and the commands and operations they add to the command line (`locallibrary <plugin>
 //! <name>`, or the place a manifest gives one, `playlist import`), whose flags come from their
 //! params' JSON Schemas.
 
+mod account;
 mod analyze;
 mod checks;
 mod choose;
@@ -22,6 +23,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use locallibrary::plugin::CheckChange;
+use locallibrary::progress::Ctx;
 
 use crate::output::Output;
 use crate::plugins::{self, Described, Listed};
@@ -68,6 +70,9 @@ enum PluginCommand {
         #[arg(long, requires = "key", conflicts_with_all = ["value", "reset"])]
         secret: bool,
     },
+    /// One of a plugin's accounts on another service: whether it's signed in (the default), signing
+    /// in in the browser, or out
+    Account(account::AccountArgs),
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
     /// check before a set, ordering a set and `analyze --apply`): show them, choose one (ROLE
     /// PLUGIN.ANALYZER), or put one back to its default (ROLE --reset)
@@ -133,7 +138,7 @@ impl PluginArgs {
     }
 }
 
-pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
+pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     match args.command.unwrap_or(PluginCommand::List) {
         PluginCommand::List => {
@@ -148,6 +153,7 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
             let change = listing::Change { value, reset, secret };
             return listing::settings(plugins, plugin, key, change, store_path, out);
         }
+        PluginCommand::Account(args) => return account::account(plugins, args, store_path, out, ctx),
         PluginCommand::Roles { role, analyzer, reset } => {
             return listing::roles(role, analyzer, reset, store_path, out);
         }

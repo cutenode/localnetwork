@@ -10,7 +10,7 @@ use console::style;
 use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{ExportFrom, Setting, SettingType, Where};
+use loclib_plugin::{DestinationKind, ExportFrom, Setting, SettingType, Where};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -39,7 +39,9 @@ pub(super) fn list(all: &[Listed]) {
             say!("  {} {}", dim("may"), g.means);
         }
         let adds: Vec<String> = [
+            named("account", &p.accounts),
             named("command", &p.commands),
+            named("destination", &p.destinations),
             (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
@@ -85,6 +87,11 @@ pub(super) fn info(d: &Described) {
         }
     };
     section("May:", d.capabilities.iter().map(|g| (g.means.clone(), String::new())).collect());
+    let accounts = d.accounts.iter().map(|a| {
+        let signed = if a.signed_in { "signed in" } else { "not signed in" };
+        (a.account.clone(), format!("{}: {signed}", a.title))
+    });
+    section(&format!("Accounts (locallibrary plugin account {} ACCOUNT sign-in):", m.id), accounts.collect());
     // With the menus that offer it.
     let offered = |title: &str, places: &[Where]| {
         let places: Vec<&str> = places.iter().map(|w| w.name()).collect();
@@ -93,6 +100,16 @@ pub(super) fn info(d: &Described) {
     let commands =
         c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Commands:", commands.collect());
+    let destinations = c.destinations.iter().map(|x| {
+        let keeps = match x.kind {
+            DestinationKind::Store => {
+                format!("a copy of the store, for locallibrary store copy --to {}:{}", m.id, x.name)
+            }
+            DestinationKind::Set => format!("sets, for locallibrary sets publish SET --to {}:{}", m.id, x.name),
+        };
+        (x.name.clone(), format!("{}: {keeps}", x.title))
+    });
+    section("Destinations:", destinations.collect());
     let events = c.events.iter().flat_map(|x| &x.on).map(|e| (e.name().to_string(), String::new()));
     section("Listens for:", events.collect());
     let operations =

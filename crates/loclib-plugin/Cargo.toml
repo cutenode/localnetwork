@@ -25,6 +25,7 @@ serde_path_to_error.workspace = true
 thiserror.workspace = true
 # `preserve_order`: an analyzer's fields (columns) keep the order its manifest gives them.
 toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }
+url = "2.5"
 
 [dev-dependencies]
 hegeltest.workspace = true

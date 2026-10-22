@@ -67,6 +67,16 @@ name = "tags"
 title = "The tags as they are"
 kind = "metadata"
 
+[[contributes.destinations]]
+name = "folder"
+title = "A folder of its own"
+kind = "store"
+
+[[contributes.destinations]]
+name = "nowhere"
+title = "Nowhere, saying where"
+kind = "set"
+
 [[contributes.themes]]
 name = "night"
 title = "Night"

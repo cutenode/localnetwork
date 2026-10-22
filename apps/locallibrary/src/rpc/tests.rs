@@ -194,9 +194,10 @@ fn plugins_plans_are_kept_apart() {
     assert_eq!(message, format!("invalid params: plan {} is a store.gc plan, not store.gc", theirs[1]));
     assert!(refused("plugins.op.apply", &theirs[0], "plugins.op").unwrap().starts_with("there's no plan"));
     assert!(plans.take("store.gc.apply", &own, "store.gc").is_ok());
-    // A plugin's operation and export are each applied by their own apply.
+    // A plugin's operation, export, import and set published are each applied by their own apply.
     assert_eq!(applied_as("plugins.op.apply", "echo.playlist"), "plugins.op");
     assert_eq!(applied_as("plugins.export.apply", "echo.export.m3u"), "plugins.export");
+    assert_eq!(applied_as("plugins.publish.apply", "echo.publish.nowhere"), "plugins.publish");
     assert_eq!(applied_as("plugins.import.apply", "echo.import.nml"), "plugins.import");
     assert_eq!(applied_as("store.gc.apply", "store.gc"), "store.gc");
 }
@@ -252,8 +253,9 @@ impl AnyPlanned for Pretend {
 /// The apply a plan of `operation` kept by `method` is for, as the protocol has it: a plan of
 /// the sidecar's own by the apply of its operation, a plugin's export (`<plugin>.export.<format>`)
 /// by `plugins.export`, its import (`<plugin>.import.<format>`) by `plugins.import`, a drive
-/// built from its library source (`<plugin>.source.<source>`) by `plugins.source` and any other
-/// plugin operation by `plugins.op`.
+/// built from its library source (`<plugin>.source.<source>`) by `plugins.source`, a set it
+/// publishes (`<plugin>.publish.<destination>`) by `plugins.publish` and any other plugin
+/// operation by `plugins.op`.
 fn applied_by(method: &str, operation: &str) -> String {
     if !method.starts_with("plugins.") {
         return operation.to_string();
@@ -263,6 +265,7 @@ fn applied_by(method: &str, operation: &str) -> String {
         (3, Some(&"export")) => "plugins.export".into(),
         (3, Some(&"import")) => "plugins.import".into(),
         (3, Some(&"source")) => "plugins.source".into(),
+        (3, Some(&"publish")) => "plugins.publish".into(),
         _ => "plugins.op".into(),
     }
 }
@@ -281,6 +284,7 @@ fn plans_are_kept_and_taken_as_modelled(tc: TestCase) {
         ("plugins.op.plan", "echo.export.m3u"),
         ("plugins.export.plan", "tidy.export.csv"),
         ("plugins.source.plan", "tidy.source.folder"),
+        ("plugins.publish.plan", "echo.publish.nowhere"),
     ];
     let makers = [&[("store.gc.plan", "store.gc"), ("edit.plan", "edit")][..], &theirs[..]];
     let applies = [("store.gc.apply", "store.gc"), ("edit.apply", "edit")];
@@ -288,6 +292,7 @@ fn plans_are_kept_and_taken_as_modelled(tc: TestCase) {
         ("plugins.op.apply", "plugins.op"),
         ("plugins.export.apply", "plugins.export"),
         ("plugins.source.apply", "plugins.source"),
+        ("plugins.publish.apply", "plugins.publish"),
     ];
     let applies = [&applies[..], &their_applies[..]];
     let mut model: [VecDeque<(String, String)>; 2] = Default::default();
@@ -379,13 +384,21 @@ fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
 
 /// Which apply takes a plan, for any operation: the plan's own operation for the sidecar's own
 /// methods, and for plugins' `plugins.export` for an export (`<plugin>.export.<format>`),
-/// `plugins.import` for an import (`<plugin>.import.<format>`) and `plugins.op` for anything else.
+/// `plugins.import` for an import (`<plugin>.import.<format>`), `plugins.publish` for a set
+/// published (`<plugin>.publish.<destination>`) and `plugins.op` for anything else.
 #[hegel::test(test_cases = 100)]
 fn a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
-    let word = || gs::sampled_from(vec!["echo", "export", "import", "m3u", "playlist", "store", "gc", ""]);
+    let word = || gs::sampled_from(vec!["echo", "export", "import", "publish", "m3u", "playlist", "store", "gc", ""]);
     let parts = tc.draw(gs::vecs(word()).min_size(1).max_size(4));
     let operation = parts.join(".");
-    let methods = vec!["store.gc.apply", "plugins.op.apply", "plugins.export.apply", "plugins.import.apply", "edit"];
+    let methods = vec![
+        "store.gc.apply",
+        "plugins.op.apply",
+        "plugins.export.apply",
+        "plugins.import.apply",
+        "plugins.publish.apply",
+        "edit",
+    ];
     let method = tc.draw(gs::sampled_from(methods));
     assert_eq!(applied_as(method, &operation), applied_by(method, &operation), "{method} {operation}");
 }

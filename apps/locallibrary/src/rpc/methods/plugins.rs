@@ -2,10 +2,12 @@
 //! (see loclib-plugin's `hooks`), registered from a module of its own. Their plans are kept apart
 //! from locallibrary's own (see [`super::super::Plans::plugins`]).
 
+mod accounts;
 mod analysis;
 mod analyzers;
 mod checks;
 mod commands;
+mod destinations;
 mod exporters;
 mod importers;
 mod operations;
@@ -23,9 +25,9 @@ use super::Registry;
 use crate::plugins::{Described, Listed, Secrets, Settings, host, left_out};
 
 #[derive(Deserialize, JsonSchema)]
-struct PluginRef {
+pub(super) struct PluginRef {
     /// The plugin's id.
-    plugin: String,
+    pub(super) plugin: String,
 }
 
 /// Where the user is, for a plugin's command or operation.
@@ -92,8 +94,10 @@ pub(super) fn register(r: &mut Registry) {
     .keeps_cache();
     // Each family's, in the order the contract lists them (a family's placed as loclib-plugin's
     // `hooks` says).
+    accounts::register(r);
     analysis::register(r);
     commands::register(r);
+    destinations::register(r);
     operations::register(r);
     panels::register(r);
     exporters::register(r);

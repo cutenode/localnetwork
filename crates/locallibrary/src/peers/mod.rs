@@ -16,12 +16,8 @@
 //!
 //! Fetching copies the snapshots the store lacks and the files they list that it lacks, each
 //! hashed as it arrives and refused unless its BLAKE3 hash is the one asked for, so a fetch
-//! stopped part way keeps what it finished and the next one copies the rest. Manifests are saved
-//! once every file they list is there (and flushed), then libraries are updated: one this store
-//! doesn't have is added with the other store's id (renamed if the name is taken here), and one it
-//! has moves to the other's latest snapshot when that descends from its own. Libraries that
-//! changed on both computers keep their own latest; the other's is saved beside it, for `library
-//! push --snapshot`. Labels come along unless the name is taken.
+//! stopped part way keeps what it finished and the next one copies the rest. Then manifests,
+//! libraries and labels are saved as [`crate::catalog`] says.
 
 mod fetch;
 mod protocol;
@@ -34,9 +30,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::hash::Hash;
 use crate::{Error, Result};
 
+pub use crate::catalog::{FetchReport, FetchedLibrary, LibraryOutcome};
 pub use fetch::fetch;
 pub use serve::serve;
 
@@ -118,48 +114,6 @@ pub struct ServeReport {
     pub peers: usize,
     pub files: usize,
     pub bytes: u64,
-}
-
-#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
-pub struct FetchReport {
-    /// The other computer's key, shortened.
-    pub peer: String,
-    pub libraries: Vec<FetchedLibrary>,
-    pub snapshots: usize,
-    /// Stored files copied, and the store had already.
-    pub files: usize,
-    pub bytes: u64,
-    pub present: usize,
-    pub dry_run: bool,
-}
-
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct FetchedLibrary {
-    /// Its name in this store.
-    pub name: String,
-    /// Its name on the other computer, when that was taken here.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub was: Option<String>,
-    pub id: Uuid,
-    /// The other computer's latest snapshot.
-    pub head: Option<Hash>,
-    pub outcome: LibraryOutcome,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LibraryOutcome {
-    /// This store didn't have it.
-    Added,
-    /// It moved to the other computer's newer latest snapshot.
-    Updated,
-    /// This store was as new, or newer.
-    UpToDate,
-    /// Both changed: this store keeps its latest, and has the other's beside it.
-    Diverged,
-    /// The other computer's latest snapshot couldn't be had (removed there during the fetch, or
-    /// missing from its store): the library is left as it was.
-    Unavailable,
 }
 
 /// An endpoint for this end: on the local network only, or reaching out through n0's relays and

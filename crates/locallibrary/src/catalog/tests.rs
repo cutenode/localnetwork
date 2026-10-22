@@ -1,10 +1,8 @@
 use super::*;
 use crate::model::LibrarySummary;
-use crate::store::Snapshot;
 use chrono::{DateTime, Utc};
 use hegel::TestCase;
 use hegel::generators as gs;
-use protocol::CatalogSnapshot;
 
 /// Where a snapshot of the library is: this store, the other computer's, or both.
 #[derive(Debug, Clone, Copy, PartialEq)]

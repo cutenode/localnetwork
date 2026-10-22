@@ -192,6 +192,10 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
+    /// Sign in to a plugin's account in the browser (the plugin's id, the account's).
+    PluginSignIn(&'static str, &'static str),
+    /// Sign out of a plugin's account (the plugin's id, the account's).
+    PluginSignOut(&'static str, &'static str),
     /// Plan what a plugin suggested, which it no longer keeps: the one waiting to be reviewed
     /// with this mark (see `tui::plugins::events::mark`), so a palette open as others come and go
     /// still plans the one picked.

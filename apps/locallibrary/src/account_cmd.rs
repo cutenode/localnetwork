@@ -14,6 +14,7 @@ use locallibrary::atmosphere;
 use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
+use crate::browser::BrowserArgs;
 use crate::output::{Output, dim, heading, ok, warn};
 
 #[derive(Args)]
@@ -76,33 +77,6 @@ struct LoginArgs {
     publish: bool,
     #[command(flatten)]
     browser: BrowserArgs,
-}
-
-/// How the browser round trip goes.
-#[derive(Args, Clone, Copy)]
-pub struct BrowserArgs {
-    /// Print links instead of opening the browser
-    #[arg(long)]
-    no_browser: bool,
-    /// The browser runs on another computer: paste the address it ends up on after approving
-    #[arg(long)]
-    paste: bool,
-    /// Seconds to wait for the browser (an hour at most)
-    #[arg(long, value_name = "SECS", default_value_t = 300)]
-    timeout: u64,
-}
-
-impl BrowserArgs {
-    /// Whether to open links in the browser here: not with `--no-browser`, nor `--paste`, whose
-    /// browser runs on another computer.
-    pub fn opens(&self) -> bool {
-        !self.no_browser && !self.paste
-    }
-
-    /// How long the browser is waited for: `--timeout`, up to the longest sign-in waits.
-    fn wait(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.timeout).min(atmosphere::LONGEST_LOGIN_WAIT)
-    }
 }
 
 fn root(store: &Option<PathBuf>) -> PathBuf {
@@ -344,6 +318,3 @@ fn render_details(a: &AccountInfo) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

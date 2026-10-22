@@ -1058,6 +1058,8 @@ fn plugins_own(act: &Act) -> bool {
             | Act::Import(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
+            | Act::PluginSignIn(..)
+            | Act::PluginSignOut(..)
             | Act::ProviderSettings
             | Act::CheckSettings
             | Act::Fix(_)
@@ -1294,6 +1296,16 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
         Act::ProviderSettings => {
             assert_eq!(form_open(app), ("Provider settings".into(), vec!["auto_pick".into()]));
             press(app, "\u{1b}");
+        }
+        // Its sign-in page is on this computer, which the player never reaches: refused before
+        // anything opens. Never signed in, so never signed out either.
+        Act::PluginSignIn(..) => {
+            wait(app, |a| a.job.is_none());
+            assert!(last_message(app).starts_with("signing in: "), "signing in failed as it began");
+        }
+        Act::PluginSignOut(..) => {
+            wait(app, |a| a.job.is_none());
+            assert_eq!(last_message(app), "not signed in to Echo Cloud");
         }
         Act::CheckSettings => {
             let plugins = crate::plugins::host().unwrap();
@@ -2053,6 +2065,7 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     assert_eq!(on_drive(&drive.0), before, "taken back: {}", last_message(&app));
 }
 
+mod accounts;
 mod asking;
 mod checks;
 mod events;
