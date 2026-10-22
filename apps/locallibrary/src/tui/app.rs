@@ -989,6 +989,8 @@ pub struct App {
     /// Dialogs from the background (a plan, a task's results) waiting for the one open to close.
     pub(super) waiting: VecDeque<Modal>,
     pub picking: Option<Pick>,
+    /// The fixes plugins' checks gave in the last check, offered in the palette.
+    pub fixes: Vec<super::plugins::checks::Fixing>,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -1179,6 +1181,7 @@ impl App {
             modal: None,
             waiting: VecDeque::new(),
             picking: None,
+            fixes: Vec::new(),
             job: None,
             last_backup: None,
             status: None,
@@ -3369,12 +3372,17 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::PluginSignIn(plugin, account) => self.plugin_sign_in(plugin, account),
+            Act::PluginSignOut(plugin, account) => self.plugin_sign_out(plugin, account),
             Act::Review(mark) => self.review(mark),
             Act::Dismiss(mark) => self.dismiss(mark),
             Act::ProviderSettings => self.provider_settings(),
+            Act::CheckSettings => self.check_settings(),
+            Act::Fix(i) => self.fix(i),
             Act::Theme(key) => self.use_theme(key),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {
                 let target = (self.view == View::Library).then(|| self.target()).flatten();
                 self.fetch_form(kind, self.action_drive(), target.as_ref());

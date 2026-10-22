@@ -23,16 +23,20 @@ pub struct Feature {
 /// Every feature this side knows, in the order `hello` lists them (a family's placed as
 /// `crate::hooks` says).
 pub const FEATURES: &[Feature] = &[
+    hooks::accounts::FEATURE,
     hooks::analysis::FEATURE,
     hooks::commands::FEATURE,
+    hooks::destinations::FEATURE,
     hooks::events::FEATURE,
     hooks::operations::FEATURE,
     hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
+    hooks::checks::FEATURE,
     hooks::exporters::FEATURE,
     hooks::importers::FEATURE,
     hooks::providers::FEATURE,
     hooks::services::FEATURE,
+    hooks::sources::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },

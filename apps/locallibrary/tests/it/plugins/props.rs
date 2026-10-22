@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 19] = [
+const CAPABILITIES: [&str; 21] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -48,9 +48,11 @@ const CAPABILITIES: [&str; 19] = [
     "tags:plan",
     "cues:plan",
     "artwork:plan",
+    "analysis:plan",
     "events:drives",
     "events:jobs",
     "events:plans",
+    "fs:read",
 ];
 
 /// Text a person reads in a manifest: a title or a name.
@@ -114,7 +116,9 @@ fn offered(tc: &TestCase, x: &mut Value) {
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
 /// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`, shown
 /// in bytes or not) and `order` (`a`, `b`) it can run; export formats writing a file or a folder;
-/// providers of either kind (granted reading tracks); panels; themes; and settings of every kind.
+/// providers of either kind (granted reading tracks); accounts (granted a server to talk to) and
+/// destinations of either kind; panels; library sources (granted reading folders); themes; and
+/// settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -180,6 +184,18 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         let fields = json!({ "a": "integer", "b": "integer" });
         analyzers.push(json!({ "name": "order", "title": "Order", "version": "1", "fields": fields }));
     }
+    let checks: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut c = json!({ "name": format!("ck{j}"), "title": title(tc) });
+            if tc.draw(gs::booleans()) {
+                c["default_on"] = json!(tc.draw(gs::booleans()));
+            }
+            if tc.draw(gs::booleans()) {
+                c["when"] = json!(tc.draw(gs::sampled_from(&[&["check"][..], &["apply"], &["apply", "check"]][..])));
+            }
+            c
+        })
+        .collect();
     let exporters: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| {
             let mut e = json!({ "format": format!("{id}-x{j}"), "title": title(tc) });
@@ -216,6 +232,36 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         .collect();
     if !providers.is_empty() && !capabilities.iter().any(|c| c == "library:read") {
         capabilities.push("library:read".into());
+    }
+    let accounts: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut a = json!({
+                "id": format!("ac{j}"),
+                "title": title(tc),
+                "authorize_url": "https://auth.example/authorize",
+                "token_url": "https://auth.example/token",
+                "client_id": format!("{id}-client"),
+            });
+            if tc.draw(gs::booleans()) {
+                a["scopes"] = json!(["read", "write"]);
+            }
+            a
+        })
+        .collect();
+    if !accounts.is_empty() && !capabilities.iter().any(|c| c.starts_with("net:")) {
+        capabilities.push("net:api.example".into());
+    }
+    let destinations: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let kind = tc.draw(gs::sampled_from(&["store", "set"][..]));
+            json!({ "name": format!("ds{j}"), "title": title(tc), "kind": kind })
+        })
+        .collect();
+    let sources: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| json!({ "name": format!("src{j}"), "title": title(tc) }))
+        .collect();
+    if !sources.is_empty() && !capabilities.iter().any(|c| c == "fs:read") {
+        capabilities.push("fs:read".into());
     }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
@@ -261,15 +307,19 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "protocol": "^0.2",
         "capabilities": capabilities,
         "contributes": {
+            "accounts": accounts,
             "commands": commands,
+            "destinations": destinations,
             "events": events,
             "operations": operations,
             "panels": panels,
             "analyzers": analyzers,
+            "checks": checks,
             "exporters": exporters,
             "importers": importers,
             "providers": providers,
             "services": services,
+            "sources": sources,
             "themes": themes,
             "settings": settings,
         },
@@ -326,15 +376,19 @@ fn listed_text(listed: &[Value]) -> String {
             out.push_str(&format!("  may {}\n", c["means"].as_str().unwrap()));
         }
         let kinds = [
+            ("account", "accounts"),
             ("command", "commands"),
+            ("destination", "destinations"),
             ("listens for", "events"),
             ("operation", "operations"),
             ("analyzer", "analyzers"),
+            ("check", "checks"),
             ("export format", "exporters"),
             ("import format", "importers"),
             ("provider", "providers"),
             ("panel", "panels"),
             ("service", "services"),
+            ("library source", "sources"),
             ("theme", "themes"),
             ("setting", "settings"),
         ];
@@ -375,6 +429,12 @@ fn described_text(d: &Value) -> String {
     let list = |key: &str| m["contributes"][key].as_array().cloned().unwrap_or_default();
     let means = d["capabilities"].as_array().unwrap().iter().map(|c| (str_of(&c["means"]), String::new()));
     section("May:".into(), means.collect());
+    // None signed in, in a store of the test's own.
+    let accounts = d["accounts"].as_array().unwrap().iter().map(|a| {
+        let signed = if a["signed_in"] == true { "signed in" } else { "not signed in" };
+        (str_of(&a["account"]), format!("{}: {signed}", str_of(&a["title"])))
+    });
+    section(format!("Accounts (locallibrary plugin account {id} ACCOUNT sign-in):"), accounts.collect());
     let invocation = |x: &Value| match x["cli"].as_str() {
         Some(place) => format!("locallibrary {place}"),
         None => format!("locallibrary {id} {}", str_of(&x["name"])),
@@ -385,6 +445,18 @@ fn described_text(d: &Value) -> String {
         format!("{} (menus: {})", str_of(&x["title"]), menus.join(", "))
     };
     section("Commands:".into(), list("commands").iter().map(|x| (invocation(x), offered(x))).collect());
+    let destinations = list("destinations")
+        .iter()
+        .map(|x| {
+            let name = str_of(&x["name"]);
+            let keeps = match x["kind"].as_str().unwrap() {
+                "store" => format!("a copy of the store, for locallibrary store copy --to {id}:{name}"),
+                _ => format!("sets, for locallibrary sets publish SET --to {id}:{name}"),
+            };
+            (name, format!("{}: {keeps}", str_of(&x["title"])))
+        })
+        .collect();
+    section("Destinations:".into(), destinations);
     let heard = list("events").iter().flat_map(|x| x["on"].as_array().unwrap().clone()).collect::<Vec<_>>();
     section("Listens for:".into(), heard.iter().map(|e| (str_of(e), String::new())).collect());
     let operations = list("operations").iter().map(|x| (invocation(x), offered(x))).collect();
@@ -403,6 +475,14 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Analyzers (locallibrary analyze --plugin {id}):"), analyzers);
+    let checks = list("checks")
+        .iter()
+        .map(|c| {
+            let when: Vec<String> = c["when"].as_array().unwrap().iter().map(str_of).collect();
+            (str_of(&c["name"]), format!("{} (when: {})", str_of(&c["title"]), when.join(", ")))
+        })
+        .collect();
+    section("Checks (locallibrary plugin checks):".into(), checks);
     for (source, title) in [
         ("drive", "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
         ("set", "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
@@ -446,6 +526,10 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Services (locallibrary plugin settings {id} services.NAME on):"), services);
+    let sources =
+        list("sources").iter().map(|x| (format!("{id}:{}", str_of(&x["name"])), str_of(&x["title"]))).collect();
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(format!("Library sources ({build}):"), sources);
     let themes = list("themes")
         .iter()
         .map(|t| (str_of(&t["name"]), format!("{}, in the player", str_of(&t["title"]))))
@@ -492,14 +576,18 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             p["capabilities"].as_array().unwrap().iter().map(|g| &g["capability"]).collect();
         assert_eq!(capabilities, m["capabilities"].as_array().unwrap().iter().collect::<Vec<_>>());
         for (key, field) in [
+            ("accounts", "id"),
             ("commands", "name"),
+            ("destinations", "name"),
             ("operations", "name"),
             ("analyzers", "name"),
+            ("checks", "name"),
             ("exporters", "format"),
             ("importers", "format"),
             ("providers", "name"),
             ("panels", "name"),
             ("services", "name"),
+            ("sources", "name"),
             ("themes", "name"),
             ("settings", "key"),
         ] {
@@ -531,17 +619,25 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let described = unschema(env.json(&["plugin", "info", id]));
         let mut manifest = m.clone();
         // The manifest as it reads back: nothing left out is written.
-        for key in ["commands", "operations", "panels", "analyzers", "exporters"] {
+        for key in ["accounts", "commands", "operations", "panels", "analyzers", "checks", "exporters"] {
             for x in manifest["contributes"][key].as_array_mut().unwrap() {
                 if key == "panels" && x.get("where").is_none() {
                     x["where"] = json!("track");
                 }
                 x.as_object_mut().unwrap().retain(|_, v| !v.is_null());
+                if key == "accounts" {
+                    x["pkce"] = json!(true);
+                }
                 if key == "operations" {
                     x["long_running"] = json!(false);
                 }
                 if ["commands", "operations"].contains(&key) && x.get("where").is_none() {
                     x["where"] = json!(["drive"]);
+                }
+                for (default, value) in [("default_on", json!(true)), ("when", json!(["check"]))] {
+                    if key == "checks" && x.get(default).is_none() {
+                        x[default] = value;
+                    }
                 }
                 if key == "exporters" && x.get("folder").is_none() {
                     x["folder"] = json!(false);
@@ -549,6 +645,13 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             }
         }
         assert_eq!(described["manifest"], manifest);
+        // Each account, none signed in yet.
+        let account = |a: &Value, id: &Value| json!({ "plugin": m["id"], "account": id, "title": a["title"] });
+        let accounts: Vec<Value> =
+            m["contributes"]["accounts"].as_array().unwrap().iter().map(|a| account(a, &a["id"])).collect();
+        let said = described["accounts"].as_array().unwrap();
+        assert_eq!(said.iter().map(|a| account(a, &a["account"])).collect::<Vec<_>>(), accounts);
+        assert!(said.iter().all(|a| a["signed_in"] == false), "{said:?}");
         let defaults: Map<String, Value> = m["contributes"]["settings"]
             .as_array()
             .unwrap()

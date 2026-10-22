@@ -280,6 +280,11 @@ pub struct ContactReport {
     pub playlist: Option<String>,
 }
 
+/// The edit making the contact's playlist `name` (see [`contact_playlist`]).
+pub(crate) fn contact_edit(name: &str) -> crate::edit::Edit {
+    crate::edit::Edit::CreatePlaylist { path: name.into(), folder: false }
+}
+
 /// Put the owner's contact where a finder will see it: a text file in the drive's root and, with
 /// `playlist`, a top-level playlist named after it (the first thing on the player's browse
 /// screen). The playlist is an ordinary edit, recorded so `edits replay` restores it after
@@ -302,7 +307,7 @@ pub fn set_contact(device: &mut Device, contact: &str, playlist: bool, ctx: &Ctx
     }
     let playlist = if playlist && device.has_export() {
         let name = contact_playlist(contact);
-        let edits = [crate::edit::Edit::CreatePlaylist { path: name.clone(), folder: false }];
+        let edits = [contact_edit(&name)];
         let plan = crate::edit::plan(device, &edits, &Default::default(), ctx)?;
         crate::edit::apply(&plan, device, ctx)?;
         Some(name)

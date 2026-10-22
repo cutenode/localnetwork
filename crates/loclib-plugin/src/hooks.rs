@@ -10,9 +10,12 @@
 //! sidecar's contract: there a family's line goes right after the line of the family before it
 //! alphabetically (first, when there's none). Families added side by side then add separate lines.
 
+pub(crate) mod accounts;
 pub(crate) mod analysis;
 pub(crate) mod analyzers;
+pub(crate) mod checks;
 pub(crate) mod commands;
+pub(crate) mod destinations;
 pub(crate) mod events;
 pub(crate) mod exporters;
 pub(crate) mod importers;
@@ -20,4 +23,5 @@ pub(crate) mod operations;
 pub(crate) mod panels;
 pub(crate) mod providers;
 pub(crate) mod services;
+pub(crate) mod sources;
 pub(crate) mod themes;

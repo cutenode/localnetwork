@@ -19,11 +19,17 @@ mod view;
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
+pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
 };
+pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
 pub use hooks::commands::{Command, Mode, RunCommand};
+pub use hooks::destinations::{
+    Destination, DestinationKind, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Kept, Missing, PublishSet,
+    Published, PublishedSet, PutBlob, PutManifest, TracklistEntry,
+};
 pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
 pub use hooks::exporters::{ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{
@@ -36,10 +42,13 @@ pub use hooks::providers::{
     Candidate, Candidates, ProvideCandidates, Provider, ProviderKind, TrackMetadata, TrackTags,
 };
 pub use hooks::services::{Service, StartService};
+pub use hooks::sources::{LibraryPage, LibrarySource, ReadLibrary, SourceCue, SourcePlaylist, SourceTrack};
 pub use hooks::themes::Theme;
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;
+/// What a check finds, as [`CheckFinding`]s carry it.
+pub use loclib_model::finding::{Finding, Level};
 pub use manifest::{
     Capability, CliHints, Contributions, Manifest, ManifestError, NetLimit, Selection, Setting, SettingType, Where,
     check_params, is_path,

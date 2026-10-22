@@ -552,6 +552,29 @@ default = "calm"
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
 }
 
+/// The echo plugin [`echo_plugin`] wrote in `dir` given an account, Echo Cloud (`main`), whose
+/// sign-in page is on this computer, which only tests' plugin hosts reach: signing in fails
+/// before anything is opened. Its secrets are kept in files.
+pub fn echo_account(dir: &Path) {
+    let file = dir.join("echo.toml");
+    let manifest = std::fs::read_to_string(&file).unwrap();
+    // First in the list, whatever a test granted after it.
+    let granted = "capabilities = [";
+    assert!(manifest.contains(granted));
+    let account = r#"
+[[contributes.accounts]]
+id = "main"
+title = "Echo Cloud"
+authorize_url = "http://127.0.0.1:9/authorize"
+token_url = "http://127.0.0.1:9/token"
+client_id = "echo"
+"#;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "#, 1) + account;
+    std::fs::write(&file, manifest).unwrap();
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
+}
+
 /// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
 /// given by its name among those (the echo plugin's exporter reads the drive). Call it before the
 /// app starts.
@@ -576,6 +599,7 @@ pub fn plugins_once_with(change: fn(String) -> String) -> &'static Path {
         echo_plugin(dir.path());
         let file = dir.path().join("echo.toml");
         std::fs::write(&file, change(std::fs::read_to_string(&file).unwrap())).unwrap();
+        echo_account(dir.path());
         mounted(dir.path());
         dir
     })

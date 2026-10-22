@@ -353,9 +353,9 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], commands, events,
-operations, panels, analyzers, exporters, importers, providers, services, themes, settings, running,
-left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why a plugin
-isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
+operations, panels, analyzers, checks, exporters, importers, providers, services, themes, settings,
+running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
+a plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
 `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets, secrets_unknown?,
 running}`, the manifest with the JSON Schemas of each command's and operation's `params` and each
 exporter's and importer's `options`, to draw forms from, and where to offer each command and
@@ -376,6 +376,18 @@ plugin starts when it's first used and stops once it's idle a while, and when th
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
 
+### Accounts
+
+`plugins.accounts {plugin}` answers each of a plugin's accounts, `[{plugin, account, title,
+signed_in, expires?, refreshes, scopes}]` (never a token). `plugins.account.sign_in.begin {plugin,
+account}` answers `{id, plugin, account, url, redirect_uri}`: open `url` in the browser, then
+`plugins.account.sign_in.finish {id, timeout_secs?}` waits for it to come back (300 seconds unless
+it says, an hour at most; `$/cancel` stops it) and answers the account, signed in.
+`plugins.account.sign_in.paste {id, url}` finishes with the address the browser ended up on, when
+it runs on another computer, and `plugins.account.sign_in.cancel {id}` answers `{cancelled}`.
+`plugins.account.sign_out {plugin, account}` answers the account with `{was_signed_in,
+revoked}`.
+
 ### Analysis
 
 `plugins.apply_analysis.plan {plugin, analyzer, drive, parts: ["grid" | "phrases" | "waveform"],
@@ -390,6 +402,22 @@ the waveform a file in its scratch folder) needs `analysis:plan`.
 `plugins.analyze {plugin, analyzer, drive, tracks?}` runs an analyzer on the drive's tracks (those
 it hasn't worked out already), with progress (an `analyze` phase) and `$/cancel`, answering
 `{analyzed, kept, failed}`.
+
+### Checks
+
+What plugins' checks find is in `check`'s `items` and `doctor`'s `checks` (the `checks` section),
+each named `<plugin>.<check>`, and a plugin's problem counts as one; a check that failed or took
+too long is a warning saying so. An item a plugin can fix has `fix: {plugin, operation, params}`:
+plan it with `plugins.op.plan {plugin, operation, params, context: {drive}}`, confirmed as any
+plan is. Guards (checks run before a plan is applied) add what they say to the `warnings` of a
+plan that edits a library (`edit`, a plugin's operation, `cues`, `playlist.restore`, a contact's
+playlist...); one the user made blocking that finds a warning or a problem sets the plan's `blocked`
+(`<plugin>.<check>`), and applying it fails with reason `blocked`. `plugins.checks` answers
+`{checks: [{plugin, name, title, when, on, blocking}], timeout}` (`when`: `check`, `apply`;
+`timeout` in seconds), `plugins.checks.set {plugin, check, on?, blocking?, reset?}` changes one
+(left out: as it is; `reset`: back to its defaults first) and `plugins.checks.timeout.set
+{timeout}` how long a check has (0.001 to 3600; `null`: back to 10), each answering
+`plugins.checks`'s.
 
 ### Commands and operations
 
@@ -410,6 +438,21 @@ one that asks. A tracklist is imported as the tracklist plugin's `import` operat
 playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks in
 turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and `null`
 leaves the entry out.
+
+### Destinations
+
+`destination` is `<plugin>:<destination>`. `plugins.store.copy {destination, force?, dry_run?}`
+copies the store to a store destination, answering `store.copy`'s report (`path` the destination).
+`plugins.store.restore {destination, libraries?, dry_run?}` brings back what it has that the store
+lacks, answering `store.fetch`'s report (`peer` the destination). `plugins.store.verify
+{destination, drive, snapshot?, against?}` answers `drive.verify`'s report, a file that's good
+there and nowhere nearer with `repair: {from: "destination", plugin, destination}`, and
+`plugins.store.repair {destination, drive, problems, against?}` fetches those into the store
+(each checked against its hash) and rewrites them as `drive.repair` does. `plugins.publish.plan
+{destination, set}` answers the plugin's dry run as a plan (`<plugin>.publish.<destination>`:
+`{plugin, destination, set, recording, tracks, url?, replaces?}`, destructive when it replaces the
+set's link), applied by `plugins.publish.apply {plan_id}` (`{set, url?, warnings}`, the set's link
+then `url`): always confirm it, as it reaches outside the computer.
 
 ### Events
 
@@ -469,6 +512,15 @@ candidate as it was offered, with the images picked, or all of `images`) answers
 `replace`), applied by `plugins.provide.apply {plan_id}`. `plugins.providers` answers `{providers:
 [{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set {auto_pick}` (0 to 1, more
 than 1: never; `null`: back to 0.9) sets it.
+
+### Library sources
+
+`plugins.source.plan {plugin, source, options, grants, drive, playlists?, all?, replace?}`
+(`grants`: absolute folders the plugin may read files in, for this build) answers a
+`collection.export.plan`-shaped plan (`<plugin>.source.<source>`, with `source`:
+`<plugin>:<source>`) building the drive or folder `drive` from what the plugin reads: only audio
+files in the folders granted are copied, and what's left out is in its `warnings`. Applied by
+`plugins.source.apply {plan_id}`, answering what `collection.export.apply` does.
 
 ### Roles
 

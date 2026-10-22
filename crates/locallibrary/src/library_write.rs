@@ -20,6 +20,7 @@ use crate::anlz;
 use crate::commit::Swap;
 use crate::device::Device;
 use crate::error::IoContext;
+use crate::hash::Hash;
 use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase};
 use crate::tree::FileTree;
@@ -47,19 +48,22 @@ pub(crate) struct Source {
     /// Copied even when the drive's file looks current (same size and time): what's written into
     /// it changed in a way neither shows.
     pub(crate) force: bool,
+    /// What it holds, for a file copied as it is: the copy is refused when it doesn't (the file
+    /// changed since it was checked).
+    pub(crate) hash: Option<Hash>,
 }
 
 impl Source {
     /// A file copied as it is.
     pub(crate) fn file(path: PathBuf, size: u64, mtime: i64) -> Source {
-        Source { path, size, mtime, audio_path: None, shift_ms: 0, force: false }
+        Source { path, size, mtime, audio_path: None, shift_ms: 0, force: false, hash: None }
     }
 
     /// An analysis file copied with `audio_path` written into it and its times `shift_ms` later:
     /// its size on the drive is worked out from its contents.
     pub(crate) fn analysis(path: PathBuf, mtime: i64, audio_path: &str, shift_ms: i32) -> Result<Source> {
         let size = analysis_bytes(&path, audio_path, shift_ms)?.len() as u64;
-        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false })
+        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false, hash: None })
     }
 }
 
@@ -251,7 +255,7 @@ pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<
             match &src.audio_path {
                 Some(audio) => write_unsynced(&dst, &analysis_bytes(&src.path, audio, src.shift_ms)?)?,
                 None => {
-                    fsutil::copy_file(&src.path, &dst, None, None, false, ctx)?;
+                    fsutil::copy_file(&src.path, &dst, None, src.hash, false, ctx)?;
                 }
             }
             Ok((dst, src.mtime))

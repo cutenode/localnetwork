@@ -7,6 +7,7 @@
 //! manifest declaring such a field.
 
 use loclib_model::analysis::{Beat, SongStructure};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::manifest::invalid;
@@ -22,7 +23,7 @@ pub(crate) const FEATURE: Feature = Feature {
 /// A `waveform` field's value: a file in the request's scratch folder holding three bytes a
 /// column, its lows, mids and highs, 0-255 ([`loclib_model::analysis::Bands`] packed), and how
 /// many columns a second of audio it has.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct WaveformBlob {
     pub blob: String,
     pub columns_per_sec: f64,

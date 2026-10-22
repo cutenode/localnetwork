@@ -368,8 +368,8 @@ export interface Tool {
 	short: string;
 	description: string;
 	icon: LucideIcon;
-	/** Its colour, written onto <html> while its panel is open; the rest is derived from it. */
-	brand: string;
+	/** Its icon tile's background: a `bg-*` class for one of the DJ-data colours. */
+	tone: string;
 	/** Fetches its panel's chunk. */
 	load: () => Promise<{ default: Component<PanelProps> }>;
 	/** Starts the slow thing its panel does first, before the chunk has even landed. */

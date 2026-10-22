@@ -67,7 +67,7 @@ fn edit_of(req: &EditCues) -> Result<(Device, Vec<u32>, CueEdit)> {
     Ok((d, ids, edit))
 }
 
-/// What a cue edit would change on the selected tracks.
+/// What a cue edit would change on the selected tracks, with what plugins' guards make of it.
 pub fn cues_plan(req: &EditCues, ctx: &Ctx<'_>) -> Result<Planned<CuePlan>> {
     let (d, ids, edit) = edit_of(req)?;
     let plan = cue_edit::plan(&d, &ids, &edit, ctx)?;
@@ -86,7 +86,8 @@ pub fn cues_plan(req: &EditCues, ctx: &Ctx<'_>) -> Result<Planned<CuePlan>> {
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Content(files)]))
         .reaching_clones(ctx)?
-        .guard(None)
+        .guard(None)?
+        .guarded(|p| p.recorded.iter().cloned().collect(), ctx)
 }
 
 impl Operation for CuePlan {

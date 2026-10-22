@@ -5,8 +5,9 @@ use serde_json::{Map, json};
 
 use super::*;
 use crate::{
-    Analyzer, Command, EventName, ExportFrom, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind,
-    Importer, Listener, Mode, Operation, Panel, Provider, ProviderKind, Role, Service, Theme, code,
+    Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, Exporter, FieldDisplay,
+    FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation, Panel,
+    Provider, ProviderKind, Role, Service, Theme, When, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -331,6 +332,21 @@ fn field_types_accept_their_values() {
     }
 }
 
+/// A check runs with the check before a set unless it says when, and until it's turned off unless
+/// it says it's off to start with.
+#[test]
+fn a_check_runs_with_the_check_and_is_on_unless_it_says() {
+    let m = Manifest::parse(&format!("{HEAD}[[contributes.checks]]\nname = \"c\"\ntitle = \"C\"\n")).unwrap();
+    assert_eq!(
+        m.contributes.checks,
+        [Check { name: "c".into(), title: "C".into(), default_on: true, when: vec![When::Check] }]
+    );
+    let when = |when: &str| problem(&format!("[[contributes.checks]]\nname = \"c\"\ntitle = \"C\"\nwhen = {when}\n"));
+    assert_eq!(when(r#"["apply", "check"]"#), "");
+    assert_eq!(when("[]"), "contributes.checks[0].when: names no time: check, apply or both");
+    assert!(when(r#"["later"]"#).contains("unknown variant `later`"));
+}
+
 /// A provider is given tracks' tags: it's granted reading them, whatever it finds.
 #[test]
 fn a_provider_is_granted_reading_tracks() {
@@ -345,6 +361,55 @@ fn a_provider_is_granted_reading_tracks() {
     assert_eq!(provider("\"artwork:read\"", "artwork"), said);
     assert_eq!(provider("", "metadata"), said);
     assert!(provider("", "lyrics").contains("unknown variant `lyrics`"));
+}
+
+/// An account's endpoints are read as the HTTP client reads them: https, or http to this computer
+/// itself, never with a user name or password, whatever the address looks like.
+#[test]
+fn an_accounts_endpoints_are_read_as_the_client_reads_them() {
+    let token_url = |url: &str| {
+        problem(&format!(
+            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+             authorize_url = \"https://auth.example/authorize\"\ntoken_url = {url:?}\nclient_id = \"demo\"\n"
+        ))
+    };
+    for url in
+        ["https://auth.example/token", "http://127.0.0.1:8080/token", "http://localhost/token", "http://[::1]:9/t"]
+    {
+        assert_eq!(token_url(url), "", "{url}");
+    }
+    let refused = [
+        "http://localhost@evil.example/token",
+        "http://127.0.0.1@evil.example/token",
+        "http://127.0.0.1.evil.example/token",
+        "http://localhost.evil.example/token",
+        "http://localhost%2eevil.example/token",
+        "http://evil.example\\@localhost/token",
+        "http://[::1].evil.example/token",
+        "http://0x7f.0.0.2/token",
+        "https://someone@auth.example/token",
+        "http://local host/token",
+    ];
+    for url in refused {
+        let said = format!(
+            "contributes.accounts[0].token_url: {url:?} isn't an https:// address without a user name or password"
+        );
+        assert_eq!(token_url(url), said, "{url}");
+    }
+}
+
+/// A library source reads files in the folders the user grants it: it's granted that.
+#[test]
+fn a_source_is_granted_reading_folders() {
+    let source = |grants: &str| {
+        problem(&format!("capabilities = [{grants}]\n[[contributes.sources]]\nname = \"s\"\ntitle = \"S\"\n"))
+    };
+    assert_eq!(source("\"fs:read\""), "");
+    let said = "contributes.sources[0]: reads files in the folders it's granted, which needs the fs:read capability";
+    assert_eq!(source("\"library:read\""), said);
+    assert_eq!(source(""), said);
+    assert_eq!("fs:read".parse::<Capability>().unwrap(), Capability::FsRead);
+    assert_eq!(Capability::FsRead.to_string(), "fs:read");
 }
 
 #[test]
@@ -441,6 +506,7 @@ fn names_and_titles_arent_empty() {
         ("operations", "name = \"o\""),
         ("analyzers", "name = \"a\"\nversion = \"1\"\nfields = { x = \"number\" }"),
         ("exporters", "format = \"f\"\nfolder = true"),
+        ("sources", "name = \"s\""),
         ("settings", "key = \"s\"\ntype = \"string\""),
     ] {
         let e = problem(&format!("[[contributes.{kind}]]\ntitle = \"\"\n{rest}\n"));
@@ -996,6 +1062,42 @@ fn offered(tc: &TestCase) -> Vec<Where> {
     tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive]).min_size(1))
 }
 
+/// An endpoint an account may have: https anywhere, or http on this computer.
+#[hegel::test_helper]
+fn endpoint(tc: &TestCase) -> String {
+    let path = tc.draw(gs::from_regex("(/[a-z0-9_-]{0,8}){0,2}(\\?[a-z]=[a-z0-9]{0,4})?"));
+    match tc.draw(gs::booleans()) {
+        true => {
+            let host = tc.draw(gs::from_regex("[a-z][a-z0-9]{0,7}(\\.[a-z][a-z0-9]{0,7}){0,2}"));
+            let port = tc.draw(gs::optional(gs::integers::<u16>())).map(|p| format!(":{p}")).unwrap_or_default();
+            format!("https://{host}{port}{path}")
+        }
+        false => {
+            let host = tc.draw(gs::sampled_from(vec!["127.0.0.1", "localhost", "[::1]"]));
+            let port = tc.draw(gs::optional(gs::integers::<u16>())).map(|p| format!(":{p}")).unwrap_or_default();
+            format!("http://{host}{port}{path}")
+        }
+    }
+}
+
+/// An account with endpoints it may have, scopes and maybe a revocation endpoint.
+#[hegel::test_helper]
+fn account(tc: &TestCase, id: String) -> Account {
+    Account {
+        id,
+        title: title(tc),
+        authorize_url: endpoint(tc),
+        token_url: endpoint(tc),
+        scopes: tc.draw(gs::vecs(gs::from_regex("[!-~]{1,12}")).max_size(3)),
+        client_id: title(tc),
+        pkce: true,
+        revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
+    }
+}
+
+/// A host granted for an account's requests when no other is: longer than any drawn.
+const ACCOUNT_HOST: &str = "account-host.example";
+
 /// How a field of type `kind` may be shown: any unit, places and width, and a format that fits it.
 #[hegel::test_helper]
 fn display(tc: &TestCase, kind: FieldType) -> FieldDisplay {
@@ -1139,6 +1241,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             }
         }
     }
+    let times = vec![When::Check, When::Apply];
+    let checks = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Check {
+            name,
+            title: title(tc),
+            default_on: tc.draw(gs::booleans()),
+            when: tc.draw(gs::permutations(tc.draw(gs::subsequences(times.clone()).min_size(1)))),
+        })
+        .collect();
     let sources = vec![ExportFrom::Drive, ExportFrom::Set, ExportFrom::Mix];
     let exporters: Vec<Exporter> = drawn_names(tc, 3)
         .into_iter()
@@ -1164,6 +1276,12 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         })
         .collect::<Vec<_>>();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
+    let accounts: Vec<Account> = drawn_names(tc, 2).into_iter().map(|id| account(tc, id)).collect();
+    let destination_kinds = vec![DestinationKind::Store, DestinationKind::Set];
+    let destinations = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Destination { name, title: title(tc), kind: tc.draw(gs::sampled_from(destination_kinds.clone())) })
+        .collect();
     let panels = drawn_names(tc, 3).into_iter().map(|name| Panel { name, title: title(tc), offered: Where::Track });
     let themes = drawn_names(tc, 3).into_iter().map(|name| Theme { name, title: title(tc), tokens: tokens(tc) });
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
@@ -1179,6 +1297,14 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     // Granted reading what they're given.
     if !providers.is_empty() && !capabilities.contains(&Capability::LibraryRead) {
         capabilities.push(Capability::LibraryRead);
+    }
+    let sources: Vec<LibrarySource> = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| LibrarySource { name, title: title(tc), options: maybe_schema(tc) })
+        .collect();
+    // Granted reading the folders they're given.
+    if !sources.is_empty() && !capabilities.contains(&Capability::FsRead) {
+        capabilities.push(Capability::FsRead);
     }
     // Each event once, shared out among a few listeners, and granted.
     let heard = tc.draw(gs::permutations(EventName::ALL.to_vec()));
@@ -1204,6 +1330,10 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             per_second: tc.draw(gs::floats::<f64>().min_value(1.0 / 3600.0).max_value(100.0)),
         })
         .collect();
+    // Granted a server for the accounts' requests.
+    if !accounts.is_empty() && hosts.is_empty() {
+        capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
+    }
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
     let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
@@ -1215,15 +1345,19 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
         contributes: Contributions {
+            accounts,
             commands,
+            destinations,
             events,
             operations,
             panels: panels.collect(),
             analyzers,
+            checks,
             exporters,
             importers,
             providers,
             services,
+            sources,
             themes: themes.collect(),
             settings,
         },
@@ -1290,15 +1424,19 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 10] = [
+const CONTRIBUTIONS: [&str; 14] = [
+    "accounts",
     "commands",
+    "destinations",
     "operations",
     "panels",
     "analyzers",
+    "checks",
     "exporters",
     "importers",
     "providers",
     "services",
+    "sources",
     "themes",
     "settings",
 ];
@@ -1306,6 +1444,7 @@ const CONTRIBUTIONS: [&str; 10] = [
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
     match kind {
+        "accounts" => "id",
         "exporters" | "importers" => "format",
         "settings" => "key",
         _ => "name",
@@ -1314,14 +1453,18 @@ fn name_key(kind: &str) -> &'static str {
 
 fn len(c: &Contributions, kind: &str) -> usize {
     match kind {
+        "accounts" => c.accounts.len(),
         "commands" => c.commands.len(),
+        "destinations" => c.destinations.len(),
         "operations" => c.operations.len(),
         "analyzers" => c.analyzers.len(),
+        "checks" => c.checks.len(),
         "exporters" => c.exporters.len(),
         "importers" => c.importers.len(),
         "providers" => c.providers.len(),
         "panels" => c.panels.len(),
         "services" => c.services.len(),
+        "sources" => c.sources.len(),
         "themes" => c.themes.len(),
         _ => c.settings.len(),
     }
@@ -1333,6 +1476,18 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
         let name = format!("added-{kind}-{}", len(c, kind));
         let title = "Added".to_string();
         match kind {
+            // Granted a net: capability by the caller.
+            "accounts" => c.accounts.push(Account {
+                id: name,
+                title,
+                authorize_url: "https://auth.example/authorize".into(),
+                token_url: "https://auth.example/token".into(),
+                scopes: Vec::new(),
+                client_id: "added".into(),
+                pkce: true,
+                revoke_url: None,
+            }),
+            "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
                 let offered = on_a_drive();
                 c.commands.push(Command { name, title, mode: Mode::Headless, offered, params: None, cli: None });
@@ -1346,6 +1501,7 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
                 let (roles, display) = (IndexMap::new(), IndexMap::new());
                 c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles, display });
             }
+            "checks" => c.checks.push(Check { name, title, default_on: true, when: vec![When::Check] }),
             "exporters" => {
                 let source = ExportFrom::Drive;
                 c.exporters.push(Exporter {
@@ -1365,6 +1521,8 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
             "panels" => c.panels.push(Panel { name, title, offered: Where::Track }),
             "services" => c.services.push(Service { name, title }),
+            // Granted fs:read by the caller.
+            "sources" => c.sources.push(LibrarySource { name, title, options: None }),
             "themes" => {
                 let tokens = Map::from_iter([("playhead".into(), Value::from("#ffffff"))]);
                 c.themes.push(Theme { name, title, tokens });
@@ -1383,14 +1541,18 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
 /// The name (or format, or key) and title of each contribution of `kind`.
 fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut String, &'a mut String)> {
     match kind {
+        "accounts" => c.accounts.iter_mut().map(|x| (&mut x.id, &mut x.title)).collect(),
         "commands" => c.commands.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "destinations" => c.destinations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "checks" => c.checks.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "importers" => c.importers.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "panels" => c.panels.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "services" => c.services.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "sources" => c.sources.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "themes" => c.themes.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
@@ -1399,14 +1561,18 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
 /// Another of contribution `i` of `kind`, named the same, at the end.
 fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
     match kind {
+        "accounts" => c.accounts.push(c.accounts[i].clone()),
         "commands" => c.commands.push(Command { cli: None, ..c.commands[i].clone() }),
+        "destinations" => c.destinations.push(c.destinations[i].clone()),
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
+        "checks" => c.checks.push(c.checks[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
         "importers" => c.importers.push(c.importers[i].clone()),
         "providers" => c.providers.push(c.providers[i].clone()),
         "panels" => c.panels.push(c.panels[i].clone()),
         "services" => c.services.push(c.services[i].clone()),
+        "sources" => c.sources.push(c.sources[i].clone()),
         "themes" => c.themes.push(c.themes[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
@@ -1418,6 +1584,7 @@ fn schema_of<'a>(c: &'a mut Contributions, kind: &str, i: usize) -> (&'a mut Opt
         "commands" => (&mut c.commands[i].params, format!("contributes.commands[{i}].params")),
         "operations" => (&mut c.operations[i].params, format!("contributes.operations[{i}].params")),
         "importers" => (&mut c.importers[i].options, format!("contributes.importers[{i}].options")),
+        "sources" => (&mut c.sources[i].options, format!("contributes.sources[{i}].options")),
         _ => (&mut c.exporters[i].options, format!("contributes.exporters[{i}].options")),
     }
 }
@@ -1467,6 +1634,12 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "account endpoint",
+        "account client",
+        "account scope",
+        "account pkce",
+        "account grant",
+        "check when",
         "export grant",
         "import extension",
         "provides nothing",
@@ -1484,6 +1657,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "no events",
         "event twice",
         "event grant",
+        "source grant",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1578,6 +1752,12 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             if kind == "providers" && !m.capabilities.contains(&Capability::LibraryRead) {
                 m.capabilities.push(Capability::LibraryRead);
             }
+            if kind == "accounts" && !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
+                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
+            }
+            if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
+                m.capabilities.push(Capability::FsRead);
+            }
             let i = index(&tc, len(c, kind));
             let key = name_key(kind);
             match mistake {
@@ -1598,8 +1778,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             }
         }
         "not an object" | "bad schema" | "param name" | "x-cli" | "positional twice" | "x-path" => {
-            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters", "importers"]));
+            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters", "importers", "sources"]));
             add(c, kind, 1);
+            if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
+                m.capabilities.push(Capability::FsRead);
+            }
             let i = index(&tc, len(c, kind));
             let (slot, at) = schema_of(c, kind, i);
             let mut drawn = params(&tc);
@@ -1808,6 +1991,88 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 }
             }
         }
+        "account endpoint" | "account client" | "account scope" | "account pkce" => {
+            add(c, "accounts", 1);
+            if !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
+                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
+            }
+            let i = index(&tc, c.accounts.len());
+            // Not indexed: CodeQL takes `accounts[i]` for an account's secrets, and changing its
+            // scopes for logging them.
+            let x = c.accounts.get_mut(i).expect("one at i");
+            let at = format!("contributes.accounts[{i}]");
+            match mistake {
+                "account endpoint" => {
+                    let odd = tc.draw(gs::sampled_from(vec![
+                        "",
+                        "auth.example/token",
+                        "ftp://auth.example",
+                        "https://",
+                        "https:// auth.example",
+                        "http://auth.example/token",
+                        "http://127.0.0.1.example",
+                        "http://127.0.0.1.evil.example/token",
+                        "http://localhost@evil.example/token",
+                        "http://localhost:80@evil.example/token",
+                        "http://evil.example\\@localhost/token",
+                        "http://localhost%2eevil.example/token",
+                        "http://[::1].evil.example/token",
+                        "https://someone:words@auth.example/token",
+                        "https://auth.example:99999/token",
+                        "javascript:alert(1)",
+                    ]));
+                    // An endpoint it may have, but with a user in it, is read as the client
+                    // would: a user name (and maybe a password), never the host.
+                    let user = tc.draw(gs::from_regex("[a-z0-9]{1,6}(:[a-z0-9]{0,6})?"));
+                    let with_user = endpoint(&tc).replacen("://", &format!("://{user}@"), 1);
+                    let wrong = if tc.draw(gs::booleans()) { with_user } else { odd.to_string() };
+                    let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url"]));
+                    match key {
+                        "authorize_url" => x.authorize_url = wrong.clone(),
+                        "token_url" => x.token_url = wrong.clone(),
+                        _ => x.revoke_url = Some(wrong.clone()),
+                    }
+                    (format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password"), false)
+                }
+                "account client" => {
+                    x.client_id = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    (format!("{at}.client_id: is empty"), false)
+                }
+                "account scope" => {
+                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", " lead"]));
+                    let j = tc.draw(gs::integers::<usize>().max_value(x.scopes.len()));
+                    x.scopes.insert(j, wrong.into());
+                    (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
+                }
+                _ => {
+                    x.pkce = false;
+                    (format!("{at}.pkce: is true: locallibrary signs in with PKCE only"), false)
+                }
+            }
+        }
+        "account grant" => {
+            add(c, "accounts", 1);
+            m.capabilities.retain(|g| !matches!(g, Capability::Net(_)));
+            m.net.clear();
+            ("contributes.accounts[0]: goes into net/fetch requests, which needs a net:<host> capability".into(), false)
+        }
+        "check when" => {
+            add(c, "checks", 1);
+            let i = index(&tc, c.checks.len());
+            let x = &mut c.checks[i];
+            let at = format!("contributes.checks[{i}].when");
+            match tc.draw(gs::booleans()) {
+                true => {
+                    x.when.clear();
+                    (format!("{at}: names no time: check, apply or both"), false)
+                }
+                false => {
+                    let again = x.when[index(&tc, x.when.len())];
+                    x.when.push(again);
+                    (format!("{at}: {} is there twice", again.name()), false)
+                }
+            }
+        }
         "panel place" => {
             add(c, "panels", 1);
             let i = index(&tc, c.panels.len());
@@ -1910,6 +2175,13 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             add(c, "providers", 1);
             m.capabilities.retain(|g| *g != Capability::LibraryRead);
             ("contributes.providers[0]: is given tracks' tags, which needs the library:read capability".into(), false)
+        }
+        "source grant" => {
+            add(c, "sources", 1);
+            m.capabilities.retain(|g| *g != Capability::FsRead);
+            let said =
+                "contributes.sources[0]: reads files in the folders it's granted, which needs the fs:read capability";
+            (said.into(), false)
         }
         "export grant" => {
             add(c, "exporters", 1);
@@ -2016,7 +2288,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
     };
     let problem = problem_with(&m, first_party);
     match prefix {
-        true => assert!(problem.starts_with(&said), "{problem:?} doesn't start with {said:?}"),
+        // Not echoed on failure (hegel shows what it drew): CodeQL takes a count of accounts in
+        // it for an account's secrets.
+        true => assert!(problem.starts_with(&said)),
         false => assert_eq!(problem, said),
     }
 }
@@ -2302,6 +2576,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "events:drives",
         "events:jobs",
         "events:plans",
+        "fs:read",
     ];
     let s = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => tc.draw(gs::sampled_from(named.to_vec())).to_string(),

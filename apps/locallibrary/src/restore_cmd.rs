@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use locallibrary::api::{self, PlaylistRestorePreview, RestoreSource};
 use locallibrary::local_time;
+use locallibrary::op::Planned;
 use locallibrary::progress::Ctx;
 
 use crate::edit_cmd::{render_plan, render_report};
@@ -33,14 +34,14 @@ pub fn playlist(
         render_plan(&preview.plan.plan);
         output::clones(&preview);
     }
-    if let Some(o) = out.decide(dry_run, &format!("Restore {}?", preview.path)) {
+    if let Some(o) = out.decide_on(&preview, dry_run, &format!("Restore {}?", preview.path))? {
         return Ok(out.not_applied(&preview, o));
     }
     let report = preview.apply(store.as_ref(), ctx)?;
     Ok(out.applied(&preview, &report, Outcome::Applied, || render_report(&report, &req.drive)))
 }
 
-fn render(p: &PlaylistRestorePreview) {
+fn render(p: &Planned<PlaylistRestorePreview>) {
     let what = if p.folder { format!("folder {} ({} playlists)", p.path, p.playlists) } else { p.path.clone() };
     let from = match &p.source {
         RestoreSource::Snapshot { snapshot, library } => format!(
@@ -54,8 +55,9 @@ fn render(p: &PlaylistRestorePreview) {
         }
     };
     heading(&format!("Restoring {what} from {from}"));
+    // Its entries left out, and what a plugin's guard says.
+    output::more_warnings(p, &p.plan.plan.warnings);
     if !p.missing.is_empty() {
-        warn(format!("{} entr(ies) left out: their tracks aren't on the drive any more", p.missing.len()));
         for m in p.missing.iter().take(10) {
             say!("    {}", dim(format!("{} #{}: {}", m.playlist, m.position, m.track)));
         }

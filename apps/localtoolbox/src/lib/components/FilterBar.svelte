@@ -46,11 +46,11 @@
   <div class="flex items-center gap-2.5">
     <div class="relative min-w-0 flex-1">
       <Search
-        class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+        class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-muted"
       />
       <Input
         type="search"
-        class="h-8 pr-7 pl-8 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
+        class="h-8 pr-7 pl-8 text-label [&::-webkit-search-cancel-button]:hidden"
         placeholder="search title or artist"
         autocomplete="off"
         spellcheck="false"
@@ -60,7 +60,7 @@
       {#if filter.query}
         <button
           type="button"
-          class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="absolute top-1/2 right-1.5 grid size-5 -translate-y-1/2 place-items-center rounded-md text-fg-muted transition-colors hover:bg-well hover:text-fg"
           aria-label="clear the search"
           onclick={() => (filter.query = '')}
         >
@@ -74,7 +74,7 @@
         {#snippet child({ props })}
           <div {...props} class="flex shrink-0 items-center gap-1.5">
             <Switch {id} bind:checked={filter.hideDownloaded} />
-            <Label for={id} class="text-[11.5px] whitespace-nowrap text-muted-foreground">
+            <Label for={id} class="text-caption font-normal whitespace-nowrap text-fg-muted">
               hide downloaded
             </Label>
           </div>
@@ -85,6 +85,6 @@
   </div>
 
   {#if countLine}
-    <p class="tabular text-[11.5px] text-muted-foreground">{countLine}</p>
+    <p class="tabular text-caption text-fg-muted">{countLine}</p>
   {/if}
 </div>

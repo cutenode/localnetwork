@@ -190,7 +190,8 @@ impl Plugins {
                 // Applied as planned only while the file stays as it was.
                 .touches(Touched::path(file, false, vec![Probe::Content(vec![String::new()])]))
                 .reaching_clones(ctx)?
-                .guard(None)
+                .guard(None)?
+                .guarded(|p| p.edits.recorded.clone(), ctx)
         })
         // Writing to an archive drive anyway can't help: a plugin's plan never does.
         .map_err(Error::without_retries)?;

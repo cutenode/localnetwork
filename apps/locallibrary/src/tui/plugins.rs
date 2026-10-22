@@ -4,18 +4,22 @@
 //! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
 //! either asks first is a list to choose from, after which it runs again with the answer. Each
-//! plugin's settings are a form, kept in the store, with a switch for each of its services. What
-//! the other families of hooks add (cover art and tags from providers, analyzers, exports,
-//! imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one
+//! plugin's settings are a form, kept in the store, with a switch for each of its services, and
+//! its accounts are signed in to and out of beside them. What the other families of hooks add
+//! (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell the
+//! user and suggest) is in a module each. Nothing here tells one
 //! plugin from another: it's all drawn from their manifests, through the host the command line
 //! uses (see [`crate::plugins`]).
 
+mod accounts;
 mod analyzers;
+pub(super) mod checks;
 mod events;
 mod exporters;
 pub(super) mod importers;
 pub(super) mod panels;
 pub(super) mod providers;
+mod sources;
 mod themes;
 
 use std::path::{Path, PathBuf};
@@ -144,7 +148,8 @@ fn named(title: &str) -> String {
 }
 
 /// Who planned `operation` (as a plan is called), if plugins did: the name of the plugin whose
-/// operation (`<plugin>.<name>`) or, with `export`, export (`<plugin>.export.<format>`) it is; or
+/// operation (`<plugin>.<name>`), library source (`<plugin>.source.<source>`) or, with `export`,
+/// export (`<plugin>.export.<format>`) it is; or
 /// `Plugins` for an edit the host plans from what plugins found or worked out (`plugins.provide`,
 /// `plugins.apply_fields`).
 pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
@@ -158,7 +163,10 @@ pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
             (Some(rest), true) => {
                 rest.strip_prefix("export.").is_some_and(|f| c.exporters.iter().any(|e| e.format == f))
             }
-            (Some(name), false) => c.operations.iter().any(|o| o.name == name),
+            (Some(name), false) => {
+                let source = name.strip_prefix("source.").is_some_and(|s| c.sources.iter().any(|x| x.name == s));
+                source || c.operations.iter().any(|o| o.name == name)
+            }
             (None, _) => false,
         }
     });
@@ -262,8 +270,8 @@ impl App {
             );
         }
         let Ok(plugins) = crate::plugins::host() else { return items };
-        // An analyzer reads the tracks' audio files, an exporter the library and an importer's file
-        // is about its tracks: on a drive plugged in, as a command.
+        // An analyzer reads the tracks' audio files, an exporter the library, an importer's file is
+        // about its tracks and a library source writes one: on a drive plugged in, as a command.
         let why = match drive {
             None => Some("open a drive first"),
             Some(false) => Some("only on a plugged-in drive"),
@@ -276,6 +284,7 @@ impl App {
             items.extend(analyzers::items(m, why));
             items.extend(exporters::items(m, why, set));
             items.extend(importers::items(m, why));
+            items.extend(sources::items(m, why));
         }
         items
     }
@@ -295,18 +304,25 @@ impl App {
         }
     }
 
-    /// The settings of each plugin that has some (or a service), then the providers' when there
-    /// are any, then the themes to draw in when a plugin has one, as the palette lists them,
-    /// wherever it's open.
+    /// The settings of each plugin that has some (or a service) and signing in to and out of its
+    /// accounts, then the providers' and the checks' settings when there are any, then the themes
+    /// to draw in when a plugin has one, as the palette lists them, wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
-        let with =
-            plugins.manifests().filter(|m| !m.contributes.settings.is_empty() || !m.contributes.services.is_empty());
-        let items =
-            with.map(|m| (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name)));
+        let mut items = Vec::new();
+        for m in plugins.manifests() {
+            let settings = (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name));
+            let has_settings = !m.contributes.settings.is_empty() || !m.contributes.services.is_empty();
+            items.extend(Some(settings).filter(|_| has_settings));
+            items.extend(accounts::items(m));
+        }
         let providers =
             providers::providing(plugins, None).map(|by| (Act::ProviderSettings, Item::new("provider settings…", by)));
-        items.chain(providers).chain(themes::items()).collect()
+        let checks = checks::checking(plugins).map(|by| (Act::CheckSettings, Item::new("check settings…", by)));
+        items.extend(providers);
+        items.extend(checks);
+        items.extend(themes::items());
+        items
     }
 
     /// A plugin's settings in a form, each filled in as it's set now (else its default), and a

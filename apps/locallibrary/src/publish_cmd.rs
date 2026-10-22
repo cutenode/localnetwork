@@ -20,7 +20,7 @@ use locallibrary::settings;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::account_cmd::BrowserArgs;
+use crate::browser::BrowserArgs;
 use crate::output::{Outcome, Output, dim, heading, ok, warn};
 
 fn root(store: &Option<PathBuf>) -> PathBuf {

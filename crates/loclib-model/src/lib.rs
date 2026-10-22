@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod audio;
+pub mod finding;
 pub mod harmony;
 pub mod model;
 pub mod paths;

@@ -8,6 +8,8 @@
 #[path = "../../../../loclib-plugin/examples/echo/plugin.rs"]
 pub mod echo;
 
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,8 +17,10 @@ use std::time::Duration;
 
 use loclib_plugin::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Hooks, Host, HostNotify, ImportAnswer, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates,
-    ReadImport, RenderPanel, RpcError, RunCommand, StartService, Suggested, View, WriteExport, params,
+    FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host, HostNotify, ImportAnswer, LibraryPage, ListItem,
+    OpAnswer, OpPlan, PlanCheck, PlanOp, ProvideCandidates, PublishSet, PutBlob, PutManifest, ReadImport, ReadLibrary,
+    RenderPanel, RpcError, RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View,
+    WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -67,9 +71,62 @@ impl Test {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
         }
+        if has("destinations") {
+            // Echo's, each noting what it's asked (`blobs/put <hash>`) as a line of `asked` in
+            // its folder before it answers (its log is read on a thread of the host's own, so a
+            // line there can come after the answer), and publishing as the `answer` setting says
+            // when it has one.
+            let said = |method: &str, what: &str| {
+                let mut asked = OpenOptions::new().create(true).append(true).open("asked").expect("its folder");
+                writeln!(asked, "{method} {what}").expect("its folder");
+            };
+            hooks = hooks
+                .on(move |req: HasBlobs, host: &Host| {
+                    said("blobs/has", &req.hashes.len().to_string());
+                    echo::has_blobs(req, host)
+                })
+                .on(move |req: PutBlob, host: &Host| {
+                    said("blobs/put", &req.hash);
+                    echo::put_blob(req, host)
+                })
+                .on(move |req: GetBlob, host: &Host| {
+                    said("blobs/get", &req.hash);
+                    echo::get_blob(req, host)
+                })
+                .on(move |req: PutManifest, host: &Host| {
+                    said("manifest/put", &req.name);
+                    echo::put_manifest(req, host)
+                })
+                .on(move |req: GetManifest, host: &Host| {
+                    said("manifest/get", &req.name);
+                    echo::get_manifest(req, host)
+                })
+                .on(move |req: PublishSet, host: &Host| {
+                    said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"));
+                    match req.context.settings.get("answer").and_then(Value::as_str) {
+                        Some(answer) => {
+                            serde_json::from_str(answer).map_err(|e| RpcError::failed("invalid", e.to_string()))
+                        }
+                        None => echo::publish_set(req, host),
+                    }
+                });
+        }
+        if has("checks") {
+            hooks = hooks.on(|req: RunCheck, host: &Host| match req.check.as_str() {
+                "untitled" => echo::run_check(req, host),
+                _ => checked(&req.context, &[], host),
+            });
+            hooks = hooks.on(|req: PlanCheck, host: &Host| match req.check.as_str() {
+                "edits" => echo::plan_check(req, host),
+                _ => checked(&req.context, &req.edits, host),
+            });
+        }
         if has("panels") {
             let test = test.clone();
             hooks = hooks.on(move |req: RenderPanel, host: &Host| test.render_panel(req, host));
+        }
+        if has("sources") {
+            hooks = hooks.on(|req: ReadLibrary, _: &Host| read_library(req));
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
@@ -368,6 +425,97 @@ fn serve_service(req: StartService, host: &Host) -> Result<(), RpcError> {
             }
         }
     }
+}
+
+/// Any source: the files in its folders granted (and below), but `.json` files, each a track with
+/// what the `.json` file named after it (`a.wav.json`) gives besides its path, once the files that
+/// file's `blobs` give are in the scratch folder; and the playlists a folder's `playlists.json`
+/// gives (`{"Sets/Friday": ["a.wav"]}`, files by their path in the folder). Its options: `also`,
+/// paths to give as tracks as they are; `per_page`, how many tracks a page has (playlists come
+/// on the last); `as_blob`, each page in a blob; `again`, every page says there's one after it.
+fn read_library(req: ReadLibrary) -> Result<LibraryPage, RpcError> {
+    let io = |e: std::io::Error| RpcError::failed("io", e.to_string());
+    let (mut tracks, mut playlists) = (Vec::new(), Vec::new());
+    for root in &req.roots {
+        let mut files = Vec::new();
+        let mut folders = vec![root.clone()];
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).map_err(io)? {
+                let path = entry.map_err(io)?.path();
+                match path.is_dir() {
+                    true => folders.push(path),
+                    false => files.push(path),
+                }
+            }
+        }
+        files.sort();
+        for file in files.into_iter().filter(|f| f.extension().is_none_or(|e| e != "json")) {
+            let mut told: Value = match std::fs::read_to_string(format!("{}.json", file.display())) {
+                Ok(text) => serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?,
+                Err(_) => json!({}),
+            };
+            write_blobs(&req.context, &told)?;
+            told.as_object_mut().map(|o| o.remove("blobs"));
+            told["path"] = json!(file);
+            tracks.push(params::<SourceTrack>(told)?);
+        }
+        if let Ok(text) = std::fs::read_to_string(root.join("playlists.json")) {
+            let lists: indexmap::IndexMap<String, Vec<String>> =
+                serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?;
+            playlists.extend(
+                lists
+                    .into_iter()
+                    .map(|(path, names)| SourcePlaylist { path, tracks: names.iter().map(|n| root.join(n)).collect() }),
+            );
+        }
+    }
+    let also = req.options["also"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    tracks.extend(also.map(|p| SourceTrack { path: p.into(), ..SourceTrack::default() }));
+    let from: usize = req.cursor.as_deref().map_or(0, |c| c.parse().unwrap_or(0));
+    let per_page = req.options["per_page"].as_u64().map_or(tracks.len().max(1), |n| n as usize);
+    let to = (from + per_page).min(tracks.len());
+    let last = to >= tracks.len() && req.options["again"] != true;
+    let page = LibraryPage {
+        tracks: tracks.drain(from.min(to)..to).collect(),
+        playlists: if last { playlists } else { Vec::new() },
+        blob: None,
+        next: (!last).then(|| to.to_string()),
+    };
+    if req.options["as_blob"] != true {
+        return Ok(page);
+    }
+    let scratch = req.context.scratch.clone().ok_or_else(|| RpcError::failed("invalid", "no scratch folder"))?;
+    std::fs::write(scratch.join("page.json"), serde_json::to_vec(&page).expect("a page is JSON")).map_err(io)?;
+    Ok(LibraryPage { blob: Some("page.json".into()), next: page.next, ..LibraryPage::default() })
+}
+
+/// What a check (or a guard) other than echo's answers, as its `findings` setting says (JSON):
+/// failing with the error `fail` is, waiting until it's cancelled with `wait`, never stopping with
+/// `stuck`, else its `findings`; with `about_edits`, only when it's given `edits` (a guard's).
+fn checked(context: &Context, edits: &[Value], host: &Host) -> Result<Findings, RpcError> {
+    let answer: Value =
+        context.settings.get("findings").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
+            serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
+        })?;
+    if let Some(kind) = answer["fail"].as_str() {
+        return Err(RpcError::failed(kind, "it failed"));
+    }
+    if answer["wait"] == true {
+        loop {
+            host.ctx().check()?;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    if answer["stuck"] == true {
+        // Never checks for being cancelled.
+        loop {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    if answer["about_edits"] == true && edits.is_empty() {
+        return Ok(Findings::default());
+    }
+    Ok(Findings { findings: params(answer.get("findings").cloned().unwrap_or(json!([])))? })
 }
 
 /// The question `p["ask"]` asks, while `p` doesn't answer it (has no value of its param), or

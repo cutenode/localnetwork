@@ -194,7 +194,7 @@ pub(crate) fn plugin_export(
         .manifests()
         .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
         .expect("--format takes the formats there are");
-    let options = crate::plugin_cmd::options(exporter.options.as_ref(), w.options)?;
+    let options = crate::plugin_cmd::options("format", exporter.options.as_ref(), w.options)?;
     let output = std::path::absolute(w.output)?;
     let plan = plugins.export_plan(plugin, format, source, &output, options, store, ctx)?;
     if !out.json {

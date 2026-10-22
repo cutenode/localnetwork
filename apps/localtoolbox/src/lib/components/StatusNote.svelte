@@ -26,23 +26,23 @@
   const TONES = {
     info: {
       icon: Info,
-      wrap: 'border-border bg-muted/50 text-foreground',
-      mark: 'text-muted-foreground',
+      wrap: 'border-line bg-surface text-fg-soft',
+      mark: 'text-fg-muted',
     },
     ok: {
       icon: CircleCheck,
-      wrap: 'border-success/25 bg-success/8 text-foreground',
-      mark: 'text-success',
+      wrap: 'border-good/40 bg-good/5 text-fg',
+      mark: 'text-good',
     },
     bad: {
       icon: CircleAlert,
-      wrap: 'border-destructive/25 bg-destructive/8 text-foreground',
-      mark: 'text-destructive',
+      wrap: 'border-critical/40 bg-critical/5 text-fg',
+      mark: 'text-critical',
     },
     busy: {
       icon: LoaderCircle,
-      wrap: 'border-brand/25 bg-brand/8 text-foreground',
-      mark: 'text-brand animate-spin',
+      wrap: 'border-line bg-surface text-fg-soft',
+      mark: 'text-fg-muted animate-spin',
     },
   };
 
@@ -52,7 +52,7 @@
 </script>
 
 <div
-  class={cn('flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[12.5px]', style.wrap, className)}
+  class={cn('flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-label', style.wrap, className)}
   role={tone === 'bad' ? 'alert' : 'status'}
 >
   <Icon class={cn('mt-px size-4 shrink-0', style.mark)} />

@@ -1,9 +1,9 @@
 # Plugins
 
 A plugin adds to locallibrary the kinds of things below (commands, operations that change a
-library, analyzers that work out values for each track, export and import formats...), each in a
-section of its own. It's a program of its own that locallibrary starts when it's first used and
-talks to over its stdin and stdout (the protocol is in
+library, analyzers that work out values for each track, export and import formats, accounts,
+places to copy the store to...), each in a section of its own. It's a program of its own that
+locallibrary starts when it's first used and talks to over its stdin and stdout (the protocol is in
 [loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive: it reads the
 library through locallibrary, within what its capabilities allow, and an operation hands
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
@@ -28,8 +28,8 @@ are:
 
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
-the player's menus offer them, the events it listens for, its analyzers' fields, its export
-and import formats, its providers, its services and its settings.
+the player's menus offer them, the events it listens for, its analyzers' fields, its checks, its
+export and import formats, its providers, its services, its library sources and its settings.
 
 A plugin whose id, commands or export or import formats clash with locallibrary's, or with another
 plugin's, is left out: every command warns which and why, and the other plugins work. Two plugins
@@ -44,6 +44,20 @@ playlist, with a form for what it takes, a param the plugin fills from what's se
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
+
+## Accounts
+
+A plugin may have accounts on other services (a mix host, a cloud drive). `locallibrary plugin
+account PLUGIN ACCOUNT sign-in` opens the service's sign-in page in the browser and waits for it
+to come back to this computer (`--no-browser` prints the link, `--paste` takes the address the
+browser ended up on when it runs on another computer); `status` says whether you're signed in and
+until when, and `sign-out` forgets the tokens and tells the service when it can. In the player,
+"sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the palette, beside the plugin's settings.
+
+The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
+and refreshed a minute before they expire. The plugin never sees them: a request it makes names
+the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
+once it has checked the request, never sending it on to another server a redirect leads to.
 
 ## Analysis
 
@@ -79,6 +93,24 @@ is in the player; `track` and the player show them so, and the rest as they are,
 HTML report shows those fields of each track it played. What
 locallibrary itself reads from them is their [roles](#roles).
 
+## Checks
+
+A plugin's check looks for something on a drive, and what it finds is in `locallibrary check` and
+`locallibrary doctor` (`--only checks` for theirs alone), named `PLUGIN.CHECK`. A problem it finds
+is a problem (`check` exits 4), a warning a warning; when a fix goes with it, the command line
+that runs it follows (the plugin's operation, planned and asked about as any is). A check that
+fails or takes longer than 10 seconds is a warning saying so, never a failure. A guard is a check
+run before changes to a library are made (edits, cues, a playlist restored, a contact's
+playlist): what it says is among the plan's warnings, and once you make it
+blocking (`locallibrary plugin checks PLUGIN.CHECK --blocking`), a warning or a problem it finds
+stops the changes. `locallibrary plugin checks` lists them, whether each runs and blocks, and how
+long one has; `--on`, `--off`, `--no-blocking`, `--reset` and `--timeout SECS` (an hour at
+most) change that (kept
+in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
+`checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
+in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form
+for which run.
+
 ## Commands and operations
 
 They're `locallibrary ID NAME`, or where the plugin puts them (`locallibrary playlist import`, the
@@ -95,6 +127,25 @@ PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the
 where the plugin offers them, and a question one asks is a list to pick from. On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
 its flag gives it otherwise.
+
+## Destinations
+
+A destination is somewhere a plugin keeps things for you.
+
+A store destination keeps a copy of the store, as a copy in a folder does (`store copy DIR`):
+`locallibrary store copy --to PLUGIN:DESTINATION` copies only what it lacks, in the same order
+(stored files, then snapshots once all their files are there, then the libraries last), and
+`--dry-run` says what would go. The account session never goes. `locallibrary store restore
+--from PLUGIN:DESTINATION` brings back what the copy has that the store lacks (`--library L` for
+some, `--dry-run`), after losing this computer say, and `locallibrary drive verify DRIVE --from
+PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer has them. Every
+file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
+locallibrary writes the store.
+
+A set destination publishes a set's recording with its tracklist (tracks marked unnamed stay
+unnamed, notes stay private): `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the
+plugin what would happen first, shows it and always asks before anything goes (`--dry-run` stops
+there), and keeps where the set can be heard as its link.
 
 ## Events
 
@@ -147,6 +198,21 @@ the store as sessions, as Beat Link Trigger's are (`plays`), each play found on 
 as the log names it; the same log imported again replaces its session. In the player, a drive's
 menu and the palette have "import ...", a form asking for the file. An importer plans nothing
 itself and needs no capability to: it only answers what it read.
+
+## Library sources
+
+A library source is a library a plugin reads from somewhere on this computer (another DJ
+program's collection, a folder of tagged files), which locallibrary builds a drive from as it
+writes rekordbox's collection: `locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant
+FOLDER` (`--grant` again for more folders, the source's options as `--option KEY=VALUE`,
+`--dry-run` to see the plan). The plugin is given only the folders you grant it, for that build,
+and locallibrary copies only audio files players play that are in them (their links resolved),
+not on the drive itself: it reads each file's length and format itself, hashes it before copying
+it, and checks the copy. What it leaves out (a file elsewhere, one that isn't audio, a cue in a
+slot taken) is listed as a warning. Cues, beat grids and waveforms a track comes with go into
+analysis files made for it, each read back first. Building again copies only what changed; a
+library on the drive that wasn't built from that source is only replaced with `--replace`. In the
+player, "build from …" in the palette and a drive's menu asks for the folders and options first.
 
 ## Panels
 
@@ -251,13 +317,17 @@ answering is stopped, and started again the next time it's needed.
 A plugin goes online through locallibrary, which fetches only from the servers its `net:`
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
-its manifest says each server allows. A secret setting goes only where such a request names it,
-filled in by locallibrary, never on to another server a redirect leads to, and is left out of the
-plugin's log and of the errors it's told (what a server answers is passed on as it is).
+its manifest says each server allows. A secret setting, or an account's token, goes only where
+such a request names it, filled in by locallibrary, never on to another server a redirect leads
+to, and is left out of the plugin's log and of the errors it's told (what a server answers is
+passed on as it is). A destination is given stored files to read, never the store's folder to
+write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary
-that crashed left.
+that crashed left. A library source names audio files by path, and locallibrary copies a file
+only when it's in a folder you granted for that build, its links resolved (see
+[Library sources](#library-sources)).
 
 A plugin runs as you and isn't sandboxed, so this is what locallibrary does, not a wall your
 system keeps: a plugin could still read any file you can.

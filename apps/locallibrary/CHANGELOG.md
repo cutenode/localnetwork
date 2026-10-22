@@ -235,6 +235,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
   has both, and its palette the auto-pick; the sidecar `plugins.provide`,
   `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
+  drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
+  problem counting as one, with the command line of the plugin's operation that fixes it when
+  there is one; a check that fails or takes longer than 10 seconds is a warning. Guards (`when =
+  ["apply"]`, `plan/check`) say what they make of a plan that edits a library (edits, cues, a
+  playlist restored, a contact's playlist) among its warnings before it's confirmed, and one
+  made blocking stops a plan it finds a warning or a problem about. `plugin
+  checks` turns each on or off, makes guards blocking and sets how long a check has (the sidecar
+  `plugins.checks`, `plugins.checks.set` and `plugins.checks.timeout.set`; the player a "check
+  settings…" form, a check's findings in its results and their fixes in the palette).
   An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
   `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
   has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
@@ -295,6 +305,22 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   player where the drive has none, and written with `analyze --apply grid,phrases,waveform` (the
   sidecar's `plugins.apply_analysis.plan/apply`), a grid setting the track's BPM; operations plan
   the same edit with `analysis:plan`. Checked against rekordbox's files, not yet on players.
+- **Drives built from a plugin's library source.** `collection export DRIVE --from PLUGIN:SOURCE
+  --grant FOLDER` builds a drive from a library a plugin reads (feature `sources`, capability
+  `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
+  and only audio files players play in them (links resolved) are copied, each read and hashed by
+  locallibrary itself and checked as it's copied; the rest is left out with a warning. Cues, beat
+  grids and waveforms a track brings go into analysis files made for it, read back first. The
+  player has "build from …" in the palette and a drive's menu, the sidecar
+  `plugins.source.plan/apply`. Not yet tried on players.
+- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
+  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
+  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
+  never sees one. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  `store restore --from`, `drive verify --from`), every file it gives back checked against its
+  hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
+  the link it answers kept in the set. The sidecar has both as `plugins.account*`,
+  `plugins.store.*` and `plugins.publish.*`.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -597,6 +623,9 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
   a value that isn't seconds since 1970).
+- `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
+  in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
+  and files it's about (`tracks`, `playlist`, `paths`).
 
 ### Fixed
 

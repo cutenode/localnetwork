@@ -2143,11 +2143,16 @@ pub struct EditPlan {
     pub free_space: Option<u64>,
     pub fits: bool,
     pub warnings: Vec<String>,
-    /// The edits as recorded in the drive's journal.
+    /// The edits as the drive's journal records them (tracks named by file), which applying it
+    /// records there, unless it was planned with `no_journal`.
     pub recorded: Vec<Edit>,
     /// OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
     /// leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
     pub onelibrary_changes: bool,
+    /// Applying it records `recorded` in the drive's journal (it wasn't planned with
+    /// `no_journal`).
+    #[serde(skip)]
+    journal: bool,
     /// My Tag, cue and artwork edits to make first (see [`plan`]).
     #[serde(skip)]
     replay: Option<Box<Steps>>,
@@ -2528,8 +2533,9 @@ fn plan_with(
         fits,
         warnings: dedup(warnings),
         // My Tag, cue and artwork edits are recorded first, as they're made.
-        recorded: if opts.no_journal { Vec::new() } else { steps.iter().cloned().chain(recorded).collect() },
+        recorded: steps.iter().cloned().chain(recorded).collect(),
         onelibrary_changes,
+        journal: !opts.no_journal,
         replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone(), images })),
         ops,
         state,
@@ -2750,7 +2756,7 @@ pub(crate) fn apply_with(
     let _lock = crate::commit::lock(device, plan.state)?;
     match &plan.replay {
         Some(steps) => replay(plan, steps, device, ctx),
-        None if !plan.recorded.is_empty() => {
+        None if plan.journal && !plan.recorded.is_empty() => {
             journal::list(device)?; // one this build can add to
             apply_locked(plan, device, true, files, ctx)
         }
@@ -3041,7 +3047,7 @@ fn apply_locked(
     if backup {
         opts = opts.backup("before editing");
     }
-    opts.journal = Some((&plan.recorded, &plan.changes));
+    opts.journal = plan.journal.then_some((&plan.recorded, &plan.changes));
     let done = crate::commit::commit(device, changes, opts, ctx)?;
     for w in &warnings {
         ctx.warn(w.clone());

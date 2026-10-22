@@ -1,9 +1,9 @@
 //! A health report for one drive: duplicate tracks, missing and broken files, files nothing
 //! references any more, tracks in no playlist, drift between the two databases, files FAT32 can't
-//! hold, and how players get on with the drive's file system. On request ([`Section::Audio`]),
-//! also audio files that are cut short or don't decode (see [`crate::probe::check_tracks`]), and
-//! ([`Section::Analysis`]) stored tempos and keys an analysis of the audio disagrees with, and
-//! tracks whose level may be a problem (see [`crate::sound`]).
+//! hold, how players get on with the drive's file system, and what plugins' checks find. On
+//! request ([`Section::Audio`]), also audio files that are cut short or don't decode (see
+//! [`crate::probe::check_tracks`]), and ([`Section::Analysis`]) stored tempos and keys an analysis
+//! of the audio disagrees with, and tracks whose level may be a problem (see [`crate::sound`]).
 //!
 //! The report never writes to the drive (with `hash_audio`, the hash cache is kept on adopted
 //! drives, as every scan does). [`plan_orphans`] / [`apply_orphans`] remove orphaned files: audio
@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::check::{CheckItem, Level};
 use crate::commit::{self, Changes, Options};
 use crate::device::{Device, LibraryDrift, LineageOp};
 use crate::equipment::{Codec, FromPath};
@@ -53,6 +54,8 @@ pub enum Section {
     Drift,
     LargeFiles,
     Compatibility,
+    /// What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`]).
+    Checks,
     /// Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
     /// naming it): it reads every file's last seconds.
     Audio,
@@ -124,6 +127,8 @@ pub struct DoctorReport {
     pub compatibility: Option<Compatibility>,
     /// The volume's file system as the OS names it.
     pub file_system: Option<String>,
+    /// What plugins' checks found, each named `<plugin>.<check>`.
+    pub checks: Option<Vec<CheckItem>>,
     pub warnings: Vec<String>,
 }
 
@@ -136,8 +141,9 @@ pub struct AudioReport {
 
 impl DoctorReport {
     /// Whether it found something to fix: duplicates, missing or orphaned files, drift between
-    /// the databases, files too big for FAT32, or audio files cut short (with
-    /// [`DoctorOptions::audio`]). (Tracks in no playlist are only listed.)
+    /// the databases, files too big for FAT32, audio files cut short (with
+    /// [`DoctorOptions::audio`]), or a problem a plugin's check found. (Tracks in no playlist are
+    /// only listed.)
     pub fn has_problems(&self) -> bool {
         self.duplicates.as_ref().is_some_and(|v| !v.is_empty())
             || self.missing.as_ref().is_some_and(|v| !v.is_empty())
@@ -145,6 +151,7 @@ impl DoctorReport {
             || self.drift.as_ref().is_some_and(|d| !d.is_empty())
             || self.large_files.as_ref().is_some_and(|v| !v.is_empty())
             || self.audio.as_ref().is_some_and(|a| !a.problems.is_empty())
+            || self.checks.iter().flatten().any(|i| i.level == Level::Problem)
     }
 }
 
@@ -440,6 +447,8 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         .wants(Section::Analysis)
         .then(|| crate::api::registry().map(|store| crate::sound::report(&store, device, library)).unwrap_or_default());
     let volume = opts.wants(Section::Compatibility).then(|| volume_of(device.root())).flatten();
+    let plugins = crate::plugin::hosted().filter(|_| opts.wants(Section::Checks));
+    let checks = plugins.map(|p| p.run_checks(device, crate::api::registry().as_ref(), ctx)).transpose()?;
     Ok(DoctorReport {
         drive: device.name(),
         root: device.root().to_path_buf(),
@@ -454,6 +463,7 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         analysis,
         file_system: volume.as_ref().and_then(|(_, v)| v.filesystem_name.clone()),
         compatibility: volume.as_ref().map(|(disk, _)| players::assess_disk(disk)),
+        checks,
         warnings,
     })
 }

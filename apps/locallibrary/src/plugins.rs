@@ -6,6 +6,7 @@
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
 
+pub mod checks;
 pub mod events;
 pub mod params;
 pub mod providers;
@@ -18,7 +19,7 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{Capability, ExportFrom, Manifest, SettingType};
@@ -411,6 +412,7 @@ fn means(c: &Capability) -> String {
         Capability::EventsDrives => "hear of drives plugged in, unplugged, changed and saved into the store",
         Capability::EventsJobs => "hear of the sidecar's requests finishing",
         Capability::EventsPlans => "hear of changes applied, and what they were",
+        Capability::FsRead => "read audio files in folders you grant it, to build a drive from",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),
@@ -428,17 +430,22 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, panels, analyzers, providers, services and themes by
-    /// name, the events it listens for, its export and import formats and its settings' keys.
+    /// What it adds: its accounts by id, its commands, destinations, operations, panels,
+    /// analyzers, checks, providers, services, library sources and themes by name, the events it
+    /// listens for, its export and import formats and its settings' keys.
+    pub accounts: Vec<String>,
     pub commands: Vec<String>,
+    pub destinations: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
     pub panels: Vec<String>,
     pub analyzers: Vec<String>,
+    pub checks: Vec<String>,
     pub exporters: Vec<String>,
     pub importers: Vec<String>,
     pub providers: Vec<String>,
     pub services: Vec<String>,
+    pub sources: Vec<String>,
     pub themes: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
@@ -456,15 +463,19 @@ impl Listed {
             name: m.name.clone(),
             version: m.version.clone(),
             capabilities: Granted::all(m),
+            accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
+            destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             panels: c.panels.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
+            checks: c.checks.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             importers: c.importers.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             services: c.services.iter().map(|x| x.name.clone()).collect(),
+            sources: c.sources.iter().map(|x| x.name.clone()).collect(),
             themes: c.themes.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
@@ -475,7 +486,7 @@ impl Listed {
 
 /// A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
 /// (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
-/// let it do, and its settings now.
+/// let it do, its settings now, and whether each of its accounts is signed in.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Described {
     pub manifest: Manifest,
@@ -483,17 +494,24 @@ pub struct Described {
     pub settings: IndexMap<String, Value>,
     #[serde(flatten)]
     pub secrets: Secrets,
+    /// Each of its accounts, and whether it's signed in (never a token): none signed in when the
+    /// keychain can't say (see `secrets_unknown`).
+    pub accounts: Vec<AccountStatus>,
     pub running: bool,
 }
 
 impl Described {
     pub fn of(plugin: &str, plugins: &Plugins, store: Option<&locallibrary::Store>) -> Result<Described> {
         let manifest = plugins.manifest(plugin)?;
+        let secrets = Secrets::of(plugins, plugin, store)?;
+        // As far as the keychain can say: why it can't is the secrets'.
+        let accounts = plugins.accounts(plugin, store).or_else(|_| plugins.accounts(plugin, None))?;
         Ok(Described {
             manifest: manifest.clone(),
             capabilities: Granted::all(manifest),
             settings: plugins.settings(plugin, store)?,
-            secrets: Secrets::of(plugins, plugin, store)?,
+            secrets,
+            accounts,
             running: plugins.is_running(plugin),
         })
     }

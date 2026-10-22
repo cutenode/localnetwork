@@ -51,6 +51,12 @@ listening to your library the way the players see it:
   filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
+- **Checks**: a drive's check (in its `e` menu) shows what plugins' checks found too, and a fix
+  one gives is in the palette until the next check ("fix on DRIVE: …"), planned and confirmed
+  like any plugin's operation. What a guard says about changes is among the warnings when they're
+  confirmed, and a blocking one that found something stops them. "check settings…" in the palette
+  says which checks run, which guards stop changes, and how long a check has (as `plugin checks`
+  does).
 - **Imports**: "import …" in the palette (or a drive's `e` menu) reads a file with a plugin's
   importer (a form asks for the file and the format's options), then shows what it adds to the
   drive's tracks and the sessions it keeps, with how many tracks it couldn't find, confirmed like
@@ -61,6 +67,11 @@ listening to your library the way the players see it:
   alone is chosen for you, and for each other track you pick one from a list (or none); then the
   changes are confirmed like any edit. "provider settings…" in the palette sets how high (as
   `plugin providers --auto-pick` does).
+- **Library sources**: "build from …" in the palette (or a drive's `e` menu) builds the drive
+  plugged in from a plugin's library source: a form asks which folders it may read files in
+  (`~/Music` to begin with, several split by commas), whether to replace a library the drive
+  holds, and for the source's options; the plan says what it read and left out, and is confirmed
+  like any change.
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
   to its default. A secret is never filled in: typed, it's kept in the system's keychain; left

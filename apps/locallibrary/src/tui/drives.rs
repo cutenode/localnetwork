@@ -65,7 +65,7 @@ pub enum Tone {
 }
 
 /// The lines of a check's report: how it went, then each drive's items, problems and warnings
-/// first, then the tracks the players won't load.
+/// first (a plugin's naming its fix), then the tracks the players won't load.
 pub fn check_lines(r: &CheckReport) -> Vec<(Tone, String)> {
     let mut out = Vec::new();
     let verdict = match (r.problems, r.warnings) {
@@ -91,11 +91,14 @@ pub fn check_lines(r: &CheckReport) -> Vec<(Tone, String)> {
         items.sort_by_key(|i| std::cmp::Reverse(i.level));
         for i in items {
             let tone = match i.level {
-                CheckLevel::Ok => Tone::Ok,
+                CheckLevel::Info => Tone::Ok,
                 CheckLevel::Warning => Tone::Warning,
                 CheckLevel::Problem => Tone::Problem,
             };
             out.push((tone, i.message.clone()));
+            if i.fix.is_some() {
+                out.push((Tone::Faint, "    fix it from the commands (:)".into()));
+            }
         }
         for u in r.unloadable.iter().filter(|u| &u.drive == drive) {
             out.push((Tone::Text, format!("{} won't load on the {}:", u.message, u.player)));
@@ -328,6 +331,7 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, Some(root)),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, Some(root)),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, Some(root)),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, Some(root)),
             act => self.perform(act, None),
         }
     }
@@ -400,12 +404,14 @@ impl App {
             let req = CheckRequest { drives: specs, options: CheckOptions::default() };
             let report = api::check(store.as_ref(), &req, ctx)?;
             let lines = check_lines(&report);
+            let fixes = super::plugins::checks::fixes(&drives, &report);
             let title = if report.drives.len() == 1 {
                 format!("Check · {}", report.drives[0])
             } else {
                 format!("Check · {}", report.drives.join(", "))
             };
             Ok(Box::new(move |app: &mut App| {
+                app.fixes = fixes;
                 app.modal = Some(Modal::Report(Report { title, lines, scroll: 0 }));
             }))
         });

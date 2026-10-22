@@ -105,6 +105,7 @@ mod props_core2_tidy;
 mod props_core2_tree;
 mod props_cues;
 mod props_cues_more;
+mod props_destinations;
 mod props_device;
 mod props_diff;
 mod props_disk2_check;

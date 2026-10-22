@@ -832,7 +832,7 @@ fn build() -> Registry {
     // With `repair`, the drive is unmounted and damaged files may be truncated or removed.
     r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.store_opt().as_ref(), &req)?)).long().destructive();
     r.read("drive.space", |c, req| Ok(api::drive_space(c.existing()?.as_ref(), &req, c.ctx)?)).long();
-    r.plan("drive.contact.plan", |_, req| Ok(api::drive_contact_plan(&req)?));
+    r.plan("drive.contact.plan", |c, req| Ok(api::drive_contact_plan(&req, c.ctx)?));
     r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?))
         .alias("drive.contact");
     r.read("player.show", |_, req| Ok(api::player_show(&req)?)).quick();

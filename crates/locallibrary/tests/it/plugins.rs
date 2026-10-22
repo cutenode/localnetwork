@@ -1,10 +1,13 @@
 //! The plugin host, running the test plugin (`src/bin/test-plugin`: loclib-plugin's echo
 //! example, and what these tests need besides) as a child process, on a fixture drive.
 
+mod accounts;
 mod analysis;
 mod blobs;
 mod callbacks;
+mod checks;
 mod choose;
+mod destinations;
 mod events;
 mod exports;
 mod hooks;
@@ -15,6 +18,7 @@ mod props;
 mod providers;
 mod roles;
 mod services;
+mod sources;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

@@ -22,6 +22,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import ToolTile from './ToolTile.svelte';
   import QueueButton from './QueueButton.svelte';
   import SettingsButton from './SettingsButton.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
@@ -51,8 +52,6 @@
     footer,
     children,
   }: Props = $props();
-
-  const Icon = $derived(tool.icon);
 
   // --- where the list was ----------------------------------------------------
 
@@ -129,9 +128,7 @@
   <!-- Renders no element of its own: the header, the body and the footer are
        still the flex column's own children. -->
   <Tooltip.Provider delayDuration={350}>
-    <header
-      class="brand-wash flex shrink-0 items-center gap-2.5 border-b border-border/70 px-3 py-2.5"
-    >
+    <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
@@ -139,7 +136,7 @@
               {...props}
               variant="ghost"
               size="icon-sm"
-              class="-ml-1 shrink-0 text-muted-foreground"
+              class="-ml-1 shrink-0"
               aria-label="back to all tools"
               onclick={onback}
             >
@@ -150,22 +147,17 @@
         <Tooltip.Content>all tools</Tooltip.Content>
       </Tooltip.Root>
 
-      <div
-        class="brand-tile grid size-8 shrink-0 place-items-center rounded-[10px] text-white"
-        aria-hidden="true"
-      >
-        <Icon class="size-4" />
-      </div>
+      <ToolTile icon={tool.icon} tone={tool.tone} />
 
       <div class="min-w-0 flex-1">
         <!-- The name is what gives way when the header runs out of room, and
              it truncates rather than wrapping — so it says the whole of
              itself on hover, as the line under it does. -->
-        <h1 class="truncate text-[13px] leading-tight font-semibold" title={tool.name}>
+        <h1 class="m-0 truncate text-label leading-tight font-semibold" title={tool.name}>
           {tool.name}
         </h1>
         {#if meta}
-          <p class="tabular truncate text-[11px] leading-tight text-muted-foreground" title={meta}>
+          <p class="tabular m-0 truncate text-caption leading-tight text-fg-muted" title={meta}>
             {meta}
           </p>
         {/if}
@@ -185,7 +177,7 @@
     </div>
 
     {#if footer}
-      <div class="shrink-0 border-t border-border/70 bg-card/40 px-3 py-2.5">
+      <div class="shrink-0 border-t border-line bg-surface px-3 py-2.5">
         {@render footer()}
       </div>
     {/if}

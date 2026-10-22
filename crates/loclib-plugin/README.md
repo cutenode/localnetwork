@@ -14,8 +14,9 @@ versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatib
 caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
 family of hooks is an optional feature named after it (`FEATURES`, see [Hooks](#hooks)), and so
 are the SDK's own, which every plugin written with it has: `blobs` (scratch folders and partial
-results), `net` (fetching through the host), `choose` (asking the user first) and `views` (trees,
-charts, images, sections and typed table columns, see [views](#views)).
+results), `net` (fetching through the host), `choose` (asking the user first), `accounts` (naming
+an account in a request, see [accounts](#accounts)) and `views` (trees, charts, images, sections
+and typed table columns, see [views](#views)).
 
 1. The host's first message is `hello`
    (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
@@ -59,7 +60,9 @@ charts, images, sections and typed table columns, see [views](#views)).
    plugin's secret setting `key`, filled in once the request is checked, left out of the
    plugin's log and the errors it's told, and never sent on to another server a redirect leads
    to: the headers it was filled into (and `Authorization`, `Cookie`) are dropped there, and a
-   body with it isn't sent on. An answer is given as text up to 8 MiB, or written to
+   body with it isn't sent on. `{account:<id>}` as the `Authorization` header's whole value is the
+   same for one of its accounts' access tokens (see [accounts](#accounts)), and refused anywhere
+   else in a request. An answer is given as text up to 8 MiB, or written to
    `into_blob` (a new file in the request's scratch folder, absolute) as far as the folder has
    room; `body_blob` sends such a file. Errors have kind `denied` (not a host it may reach),
    `invalid`, `too_big`, `external` (it couldn't be reached) or `cancelled`. Nothing fetched is
@@ -121,7 +124,7 @@ assert!(manifest.validate(false).is_err());
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
-  `artwork:plan`, `events:drives`, `events:jobs`, `events:plans`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
+  `artwork:plan`, `analysis:plan`, `events:drives`, `events:jobs`, `events:plans`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
@@ -155,6 +158,22 @@ must be JSON Schemas for an object that compile.
 
 Each family of hooks is a feature of its own, with the methods the host calls for it and what a
 manifest contributes for it. A plugin has a family's feature once it implements one of its hooks.
+
+### accounts
+
+The host signs the user in to a plugin's accounts in the browser (OAuth 2's authorization code
+flow with PKCE, the browser coming back to `127.0.0.1`), keeps the tokens in the system's keychain
+and refreshes them a minute before they expire. The plugin never sees a token: a `net/fetch`
+request whose `Authorization` header is `{account:<id>}` is sent with `Bearer` and the access
+token, once it's checked, and never on to another server a redirect leads to. A request for an
+account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
+methods: it's the SDK's own.
+
+- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url`, `scopes`, `client_id`
+  (a public client, without a secret), `pkce = true` (the default; nothing else is taken) and
+  `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. Each endpoint
+  is an https address without a user name or password. A plugin with an account needs a `net:`
+  capability, for the requests its token goes into.
 
 ### analysis
 
@@ -193,6 +212,29 @@ worked out with nothing to show. A field left out wasn't worked out.
   only one, else the first. Roles need no feature of their own: a host that doesn't know them
   leaves them out.
 
+### checks
+
+`check/run {check, context}` -> `{"findings": [{level, message, tracks?, playlist?, paths?,
+fix?}]}`: what a check finds on the drive `context.drive` (`Finding`: `level` `info`, `warning` or
+`problem`, the tracks by id, a playlist by path, files relative to the drive), nothing when all is
+well. A `fix` is one of the plugin's operations with its params (`{operation, params}`), which the
+user can run, planned and confirmed as any is. The host names each finding `<plugin>.<check>` and
+adds them to its check before a set and doctor; a problem counts as one of theirs. `plan/check
+{check, operation, edits, context}` -> the same: what a guard says about a plan that edits a
+library before it's applied (its operation, and each edit as `edit.plan` takes them, tracks named
+by file), shown with the plan's warnings. That's an edit plan's edits (`edit`, a plugin's
+operation, `edits.replay`...), a playlist restored (`playlist.restore`, its playlists made again),
+a contact's playlist (`drive.contact`, a `create_playlist`) and a cue edit (`cues`, one `{"op":
+"cues", "tracks": [file], "change": ...}` whose change is `{"set": {...}}`, `{"update": {...}}`
+with the fields `cues.plan` takes, `{"delete": cue}`, `{"copy": {"from": file}}` or `{"carry":
+{"from": file, "shift_ms": n}}`). A plan making no edit isn't asked about. Once the user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
+check that fails or takes longer than the host gives it (10 s unless the user says) is a warning,
+never a failure; of one's findings the host keeps 1,000, and of what one says (its message, its
+playlist) 500 characters, without control characters. A file one names must be on the drive.
+
+- `[[contributes.checks]]`: `name`, `title`, `default_on` (true unless it says: it runs until the
+  user turns it off) and `when`: `check` (the default), `apply` (a guard) or both.
+
 ### commands
 
 `command/run {command, params, context}`: any JSON for a headless command; for a view command a
@@ -203,6 +245,32 @@ has them all, first.
 
 - `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
   (a JSON Schema for an object) and `cli`.
+
+### destinations
+
+A store destination keeps copies of locallibrary's store, which the host alone decides the
+content of: stored files by their BLAKE3 hash (in hex) and the store's records by name
+(`store.json`, `snapshots/<id>.json`, `snapshots.json`, `labels.json`, `libraries.json` last...).
+
+- `blobs/has {destination, hashes}` (a thousand at most) -> `{missing}`: those it doesn't have.
+- `blobs/put {destination, hash, path}` -> `{}`: keep the stored file at `path` (absolute; read
+  it, never change it).
+- `blobs/get {destination, hash}` -> `{blob}`: the file, in the request's scratch folder. One it
+  doesn't have fails with kind `not_found`. The host hashes it and refuses one that isn't `hash`.
+- `manifest/put {destination, name, blob}` -> `{}`: keep the record `name`, replacing any, its
+  content the file `blob` names in the scratch folder.
+- `manifest/get {destination, name}` -> `{blob?}`: the record, in the scratch folder; no `blob`
+  when it has none.
+
+A set destination publishes a set: `set/publish {destination, set: {id, date, title?, kind?,
+venue?, city?, country?}, recording, tracklist: [{artist?, title?, start_seconds?}], dry_run}` ->
+`{url?, warnings}`. `recording` is the set's audio file (absolute, to read), a track the DJ
+publishes unnamed has no artist or title, and the DJ's notes never go. The host always asks for a
+dry run first (which publishes nothing and may say where the set would be), shows it to the user
+and asks, then publishes and keeps `url` (https) as the set's link.
+
+- `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
+  only for a destination of its kind.
 
 ### events
 
@@ -309,6 +377,27 @@ after it stops or fails, a few times in a row at most.
 
 - `[[contributes.services]]`: `name` and `title`.
 
+### sources
+
+`library/read {source, options, roots, cursor?, context}` -> `{"tracks": [...], "playlists":
+[{path, tracks}], "blob"?, "next"?}`: a page of a library the plugin reads from somewhere on the
+computer (another program's collection, a folder of tagged files), which the host builds a drive
+from. `roots` are the folders the user granted it for this read (absolute); the host asks for
+pages, passing each one's `next` back as `cursor`, until one has none. A track is `{path, title,
+artist, album, album_artist, genre, label, remixer, composer, comment, isrc, year, rating, key?,
+bpm?, cues?, beats?, waveform?, my_tags?}`: `path` its audio file (absolute), `key` a Camelot code
+or a key as rekordbox names it, `cues` `[{hot_cue?, start_ms, end_ms?, name?, color?}]` (`hot_cue`
+0 for A to 7 for H; `color` as cue edits take one), `beats` a beat grid as an analyzer's `beats`
+field is, `waveform` a blob as its `waveform` field is, `my_tags` `Category/Tag`. A playlist's
+`path` is `Folder/Name`, its `tracks` their `path`s. A page too big for a message is a blob, `{"blob":
+"page.json"}`, holding a page as JSON. The host trusts no path: it copies only a regular audio file
+in one of `roots` (links resolved), not on the drive written to, reading its length and format
+itself and hashing it before copying, and leaves out (with a warning) the tracks that aren't and
+what it can't write of the rest; cues, beat grids and waveforms go into analysis files it makes.
+
+- `[[contributes.sources]]`: `name`, `title` and `options`. It reads files in the folders it's
+  given, so it needs `fs:read`.
+
 ### themes
 
 Data alone: no feature, no method, and the host never runs the plugin for one.
@@ -412,7 +501,7 @@ let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
 let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["analysis", "commands", "blobs", "net", "choose", "views"]));
+assert_eq!(reply["features"], json!(["accounts", "analysis", "commands", "blobs", "net", "choose", "views"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };
@@ -427,9 +516,9 @@ served.join().expect("the plugin stops");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`examples/echo` is a whole plugin, with one of each kind of contribution but events and services
-(`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs until it's
-cancelled).
+`examples/echo` is a whole plugin, with one of each kind of contribution but events, services and
+a library source (`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs
+until it's cancelled).
 
 ## Licence
 

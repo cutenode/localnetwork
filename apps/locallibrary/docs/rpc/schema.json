@@ -4954,6 +4954,122 @@
       }
     },
     {
+      "name": "plugins.accounts",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/PluginRef"
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/PluginAccountStatus"
+        }
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.begin",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccountRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SignIn"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.finish",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FinishSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginAccountStatus"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.paste",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PasteSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginAccountStatus"
+      }
+    },
+    {
+      "name": "plugins.account.sign_in.cancel",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CancelSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Cancelled"
+      }
+    },
+    {
+      "name": "plugins.account.sign_out",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccountRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SignedOut"
+      }
+    },
+    {
       "name": "plugins.apply_analysis.plan",
       "aliases": [],
       "kind": "plan",
@@ -5022,6 +5138,137 @@
       },
       "result": {
         "$ref": "#/$defs/CommandOutput"
+      }
+    },
+    {
+      "name": "plugins.store.copy",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CopyTo"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CopyReport"
+      }
+    },
+    {
+      "name": "plugins.store.restore",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RestoreFrom"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/FetchReport"
+      }
+    },
+    {
+      "name": "plugins.store.verify",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/VerifyFrom"
+      },
+      "result": {
+        "$ref": "#/$defs/ScrubReport"
+      }
+    },
+    {
+      "name": "plugins.store.repair",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RepairFrom"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/RepairReport"
+      }
+    },
+    {
+      "name": "plugins.publish.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.publish.apply",
+      "operation": "plugins.publish",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PublishSetAt"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetPublish"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.publish.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.publish.plan",
+      "operation": "plugins.publish",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PublishSetAt"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetPublished"
       }
     },
     {
@@ -5283,6 +5530,59 @@
       }
     },
     {
+      "name": "plugins.checks",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetCheck"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.timeout.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetTimeout"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
       "name": "plugins.provide",
       "aliases": [],
       "kind": "read",
@@ -5423,6 +5723,64 @@
         "items": {
           "$ref": "#/$defs/RoleChoice"
         }
+      }
+    },
+    {
+      "name": "plugins.source.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.source.apply",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SourceExport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.source.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.source.plan",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/SourceExport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CollectionExportReport"
       }
     }
   ],
@@ -9135,6 +9493,11 @@
         },
         {
           "type": "string",
+          "const": "checks",
+          "description": "What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`])."
+        },
+        {
+          "type": "string",
           "const": "audio",
           "description": "Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`\nnaming it): it reads every file's last seconds."
         },
@@ -10840,6 +11203,27 @@
             "name",
             "root"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "plugin": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string",
+              "const": "destination"
+            }
+          },
+          "required": [
+            "from",
+            "plugin",
+            "destination"
+          ],
+          "description": "The copy of the store at a plugin's destination, from which it's fetched into the store."
         }
       ],
       "description": "Where a damaged or missing file can be rewritten from."
@@ -11502,6 +11886,71 @@
         "key"
       ]
     },
+    "AccountRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string",
+          "description": "The account's id, as the plugin's manifest has it."
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
+    },
+    "FinishSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "What `plugins.account.sign_in.begin` answered."
+        },
+        "timeout_secs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "How long to wait for the browser (default 300, an hour at most).",
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "PasteSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "The address the browser ended up on after approving."
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ]
+    },
+    "CancelSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
     "ApplyAnalysis": {
       "type": "object",
       "properties": {
@@ -11630,6 +12079,132 @@
         }
       },
       "description": "Where the user is, for a plugin's command or operation."
+    },
+    "CopyTo": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "`<plugin>:<destination>`: one of a plugin's store destinations."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Copy over a copy that has snapshots the store doesn't, or that's another store's.",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be copied, and copy nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
+    "RestoreFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Libraries to bring back, by name or id. Empty: all of them.",
+          "default": []
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be fetched, and fetch nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
+    "VerifyFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "Whose good copies the files the store and the drives lack are offered from."
+        },
+        "drive": {
+          "type": "string"
+        },
+        "snapshot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Compare with this snapshot (id prefix) [default: the snapshot of the drive's state].",
+          "default": null
+        },
+        "against": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Other mounted drives that may hold good copies.",
+          "default": []
+        }
+      },
+      "required": [
+        "destination",
+        "drive"
+      ]
+    },
+    "RepairFrom": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "Whose good copies are fetched into the store first."
+        },
+        "drive": {
+          "type": "string"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileProblem"
+          },
+          "description": "The problems a [`drive_verify`] found (each is checked again before anything is written)."
+        },
+        "against": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "destination",
+        "drive",
+        "problems"
+      ]
+    },
+    "PublishSetAt": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "description": "`<plugin>:<destination>`: one of a plugin's set destinations."
+        },
+        "set": {
+          "type": "string",
+          "description": "The set: its id (or the start of it), title or day, or `last`."
+        }
+      },
+      "required": [
+        "destination",
+        "set"
+      ]
     },
     "PlanPluginOp": {
       "type": "object",
@@ -11908,6 +12483,58 @@
       ],
       "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
     },
+    "SetCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check's name."
+        },
+        "on": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Run it, or not; left out, as it is.",
+          "default": null
+        },
+        "blocking": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "For a guard: keep a plan it finds a warning or a problem about from being applied, or not;\nleft out, as it is.",
+          "default": null
+        },
+        "reset": {
+          "type": "boolean",
+          "description": "Put both back to their defaults first.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "check"
+      ],
+      "description": "A change to a check's settings."
+    },
+    "SetTimeout": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "How long a check has to answer, in seconds (0.001 to 3600), before it's\nstopped (a warning says so); `null` (or left out) puts it back to its default.",
+          "default": null
+        }
+      }
+    },
     "Provide": {
       "type": "object",
       "properties": {
@@ -12145,6 +12772,63 @@
       "required": [
         "role"
       ]
+    },
+    "SourceExport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "One of its library sources, by name."
+        },
+        "options": {
+          "description": "As the source's `options` schema says.",
+          "default": null
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The folders the plugin may read files in, absolute: granted for this read alone, and only\naudio files in them are copied."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive or folder to write to."
+        },
+        "playlists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playlists or folders (paths) to export, with the tracks they use. Empty: every track and\nplaylist, or the selection the target was last exported with.",
+          "default": []
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Export every track and playlist, whatever the target was exported with last.",
+          "default": false
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace a library the target holds that wasn't exported from the collection, or the\nfiles on a target with no library.",
+          "default": false
+        },
+        "overwrite_archive": {
+          "type": "boolean",
+          "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "source",
+        "grants",
+        "drive"
+      ],
+      "description": "Building a drive from a plugin's library source."
     },
     "Initialized": {
       "type": "object",
@@ -13283,6 +13967,13 @@
             "type": "string"
           },
           "description": "Every warning, the plan's own included."
+        },
+        "blocked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about\nit: applying it is refused (`blocked`)."
         },
         "destructive": {
           "type": "boolean",
@@ -16873,7 +17564,8 @@
       "type": "object",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The folder copied to, or `<plugin>:<destination>` for a plugin's destination."
         },
         "snapshots": {
           "type": "integer",
@@ -17214,7 +17906,7 @@
           "items": {
             "$ref": "#/$defs/EditOutput"
           },
-          "description": "The edits as recorded in the drive's journal."
+          "description": "The edits as the drive's journal records them (tracks named by file), which applying it\nrecords there, unless it was planned with `no_journal`."
         },
         "onelibrary_changes": {
           "type": "boolean",
@@ -20292,6 +20984,16 @@
           ],
           "description": "The volume's file system as the OS names it."
         },
+        "checks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/CheckItem"
+          },
+          "description": "What plugins' checks found, each named `<plugin>.<check>`."
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -20313,6 +21015,7 @@
         "analysis",
         "compatibility",
         "file_system",
+        "checks",
         "warnings"
       ]
     },
@@ -21035,6 +21738,106 @@
         }
       ]
     },
+    "CheckItem": {
+      "type": "object",
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive it's about."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check that found it (`files`, a plugin's `<plugin>.<check>`).",
+          "default": ""
+        },
+        "message": {
+          "type": "string",
+          "description": "What it found, in a line."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "The tracks it's about, by id."
+        },
+        "playlist": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The playlist it's about, by path (`Folder/Name`)."
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The files it's about, relative to the drive's root (`Contents/a.mp3`)."
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+        }
+      },
+      "required": [
+        "drive",
+        "level",
+        "check",
+        "message"
+      ],
+      "description": "What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,\n`files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`\nor `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`."
+    },
+    "Level": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "info",
+          "description": "Worth knowing, nothing to fix (what was checked and found fine, too)."
+        },
+        {
+          "type": "string",
+          "const": "warning",
+          "description": "Worth a look: it may be a problem, or a problem for some players."
+        },
+        {
+          "type": "string",
+          "const": "problem",
+          "description": "Something to fix before it's used."
+        }
+      ],
+      "description": "How much a finding matters, least first."
+    },
+    "Fix": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "plugin",
+        "operation",
+        "params"
+      ],
+      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+    },
     "OrphanPlan": {
       "type": "object",
       "properties": {
@@ -21191,39 +21994,6 @@
         "unloadable",
         "audio",
         "loudness"
-      ]
-    },
-    "CheckItem": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive it's about."
-        },
-        "check": {
-          "type": "string",
-          "description": "What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,\n`large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`."
-        },
-        "level": {
-          "$ref": "#/$defs/Level"
-        },
-        "message": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "drive",
-        "check",
-        "level",
-        "message"
-      ]
-    },
-    "Level": {
-      "type": "string",
-      "enum": [
-        "ok",
-        "warning",
-        "problem"
       ]
     },
     "DrivePlayers": {
@@ -29271,7 +30041,14 @@
       "properties": {
         "collection": {
           "type": "string",
-          "description": "The `master.db` exported."
+          "description": "The `master.db` exported (empty for a plugin's library source)."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's library source written instead, `<plugin>:<source>`."
         },
         "target": {
           "type": "string"
@@ -29361,7 +30138,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Tracks with an analysis file that can't be read: exported without it."
+          "description": "Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,\nbeat grid or waveform can't be written: exported without it."
         },
         "replaces_library": {
           "type": "boolean",
@@ -29539,12 +30316,24 @@
             "$ref": "#/$defs/Granted"
           }
         },
-        "commands": {
+        "accounts": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, panels, analyzers, providers, services and themes by\nname, the events it listens for, its export and import formats and its settings' keys."
+          "description": "What it adds: its accounts by id, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "events": {
           "type": "array",
@@ -29570,6 +30359,12 @@
             "type": "string"
           }
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "exporters": {
           "type": "array",
           "items": {
@@ -29589,6 +30384,12 @@
           }
         },
         "services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29623,15 +30424,19 @@
         "name",
         "version",
         "capabilities",
+        "accounts",
         "commands",
+        "destinations",
         "events",
         "operations",
         "panels",
         "analyzers",
+        "checks",
         "exporters",
         "importers",
         "providers",
         "services",
+        "sources",
         "themes",
         "settings",
         "running",
@@ -29680,7 +30485,8 @@
             "analysis:plan",
             "events:drives",
             "events:jobs",
-            "events:plans"
+            "events:plans",
+            "fs:read"
           ]
         },
         {
@@ -29721,6 +30527,13 @@
           ],
           "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginAccountStatus"
+          },
+          "description": "Each of its accounts, and whether it's signed in (never a token): none signed in when the\nkeychain can't say (see `secrets_unknown`)."
+        },
         "running": {
           "type": "boolean"
         }
@@ -29730,9 +30543,10 @@
         "capabilities",
         "settings",
         "secrets",
+        "accounts",
         "running"
       ],
-      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, and its settings now."
+      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and whether each of its accounts is signed in."
     },
     "Manifest": {
       "type": "object",
@@ -29763,15 +30577,19 @@
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
+            "accounts": [],
             "commands": [],
+            "destinations": [],
             "events": [],
             "operations": [],
             "panels": [],
             "analyzers": [],
+            "checks": [],
             "exporters": [],
             "importers": [],
             "providers": [],
             "services": [],
+            "sources": [],
             "themes": [],
             "settings": []
           }
@@ -29797,10 +30615,24 @@
     "Contributions": {
       "type": "object",
       "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Account"
+          },
+          "default": []
+        },
         "commands": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Command"
+          },
+          "default": []
+        },
+        "destinations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Destination"
           },
           "default": []
         },
@@ -29832,6 +30664,13 @@
           },
           "default": []
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "default": []
+        },
         "exporters": {
           "type": "array",
           "items": {
@@ -29860,6 +30699,13 @@
           },
           "default": []
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LibrarySource"
+          },
+          "default": []
+        },
         "themes": {
           "type": "array",
           "items": {
@@ -29876,18 +30722,74 @@
         }
       },
       "required": [
+        "accounts",
         "commands",
+        "destinations",
         "events",
         "operations",
         "panels",
         "analyzers",
+        "checks",
         "exporters",
         "importers",
         "providers",
         "services",
+        "sources",
         "themes",
         "settings"
       ]
+    },
+    "Account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "How requests name it (`{account:<id>}`)."
+        },
+        "title": {
+          "type": "string"
+        },
+        "authorize_url": {
+          "type": "string",
+          "description": "The service's authorization endpoint, where the browser signs in (https)."
+        },
+        "token_url": {
+          "type": "string",
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https)."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What it asks the service for, as the service names them."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "The plugin's client at the service: a public one, without a secret."
+        },
+        "pkce": {
+          "type": "boolean",
+          "description": "Signing in uses PKCE: always, and a manifest saying otherwise is refused.",
+          "default": true
+        },
+        "revoke_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "authorize_url",
+        "token_url",
+        "client_id",
+        "pkce"
+      ],
+      "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
     },
     "Command": {
       "type": "object",
@@ -29952,6 +30854,41 @@
         "drive"
       ],
       "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive. A host's palette has every one."
+    },
+    "Destination": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DestinationKind"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "kind"
+      ],
+      "description": "`[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or\npublishes sets at (`set`)."
+    },
+    "DestinationKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "store",
+          "description": "Copies of the store: `blobs/*` and `manifest/*`."
+        },
+        {
+          "type": "string",
+          "const": "set",
+          "description": "Sets, published: `set/publish`."
+        }
+      ],
+      "description": "What a destination keeps."
     },
     "Listener": {
       "type": "object",
@@ -30217,6 +31154,54 @@
       ],
       "description": "What a field's values are, for hosts to show them as such."
     },
+    "Check": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "default_on": {
+          "type": "boolean",
+          "description": "It runs unless the user turns it off; otherwise, once they turn it on.",
+          "default": true
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "When it runs: with the check before a set and doctor (`check`, the default), and before a\nplan is applied (`apply`: a guard).",
+          "default": [
+            "check"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "default_on",
+        "when"
+      ],
+      "description": "Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`\nbefore a plan is applied: as its `when` says."
+    },
+    "When": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "check",
+          "description": "With locallibrary's check before a set and doctor (`check/run`)."
+        },
+        {
+          "type": "string",
+          "const": "apply",
+          "description": "Before a plan is applied (`plan/check`): a guard."
+        }
+      ],
+      "description": "When a check runs."
+    },
     "Exporter": {
       "type": "object",
       "properties": {
@@ -30369,6 +31354,25 @@
       ],
       "description": "Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`\nagent), once the user has turned it on (its plugin's setting `services.<name>`), never by a\ncommand run once."
     },
+    "LibrarySource": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Read with `library/read`, a page at a time, for the host to build a drive from. It's given the\nfolders the user grants it, which takes `fs:read`."
+    },
     "Theme": {
       "type": "object",
       "properties": {
@@ -30459,6 +31463,51 @@
       ],
       "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep."
     },
+    "PluginAccountStatus": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "signed_in": {
+          "type": "boolean"
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        }
+      },
+      "required": [
+        "plugin",
+        "account",
+        "title",
+        "signed_in",
+        "refreshes",
+        "scopes"
+      ],
+      "description": "An account of a plugin's, as hosts show it: never a token."
+    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -30494,6 +31543,92 @@
         "secrets"
       ],
       "description": "A plugin's settings now: each one set, else its default."
+    },
+    "SignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]."
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "description": "Open this in the browser."
+        },
+        "redirect_uri": {
+          "type": "string",
+          "description": "Where the browser comes back to."
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "account",
+        "url",
+        "redirect_uri"
+      ],
+      "description": "A sign-in waiting for the browser."
+    },
+    "SignedOut": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "signed_in": {
+          "type": "boolean"
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "was_signed_in": {
+          "type": "boolean",
+          "description": "It was signed in."
+        },
+        "revoked": {
+          "type": "boolean",
+          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
+        }
+      },
+      "required": [
+        "plugin",
+        "account",
+        "title",
+        "signed_in",
+        "refreshes",
+        "scopes",
+        "was_signed_in",
+        "revoked"
+      ],
+      "description": "What signing out did."
     },
     "CommandOutput": {
       "anyOf": [
@@ -30983,6 +32118,194 @@
         "view"
       ]
     },
+    "FetchReport": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FetchedLibrary"
+          }
+        },
+        "snapshots": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Stored files copied, and the store had already."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "present": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "libraries",
+        "snapshots",
+        "files",
+        "bytes",
+        "present",
+        "dry_run"
+      ]
+    },
+    "FetchedLibrary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Its name in this store."
+        },
+        "was": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its name on the other computer, when that was taken here."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The other computer's latest snapshot."
+        },
+        "outcome": {
+          "$ref": "#/$defs/LibraryOutcome"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "head",
+        "outcome"
+      ]
+    },
+    "LibraryOutcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "added",
+          "description": "This store didn't have it."
+        },
+        {
+          "type": "string",
+          "const": "updated",
+          "description": "It moved to the other computer's newer latest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "up_to_date",
+          "description": "This store was as new, or newer."
+        },
+        {
+          "type": "string",
+          "const": "diverged",
+          "description": "Both changed: this store keeps its latest, and has the other's beside it."
+        },
+        {
+          "type": "string",
+          "const": "unavailable",
+          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
+        }
+      ]
+    },
+    "SetPublish": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "set": {
+          "type": "string",
+          "description": "The set, by id."
+        },
+        "recording": {
+          "type": "string",
+          "description": "Its recording, on this computer, which goes too."
+        },
+        "tracks": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where it would be, when the dry run said."
+        },
+        "replaces": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The link the set has now, which publishing replaces."
+        }
+      },
+      "required": [
+        "plugin",
+        "destination",
+        "set",
+        "recording",
+        "tracks"
+      ],
+      "description": "A set a plugin will publish, as its dry run said."
+    },
+    "SetPublished": {
+      "type": "object",
+      "properties": {
+        "set": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where it can be heard, which is the set's link now; none when the plugin didn't say."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "set"
+      ],
+      "description": "What publishing a set did."
+    },
     "OpPlanned": {
       "anyOf": [
         {
@@ -31282,6 +32605,65 @@
         "failed"
       ],
       "description": "What analysing a drive's tracks did."
+    },
+    "Checks": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedCheck"
+          },
+          "description": "In the order the plugins are."
+        },
+        "timeout": {
+          "type": "number",
+          "format": "double",
+          "description": "How long a check has to answer, in seconds, before it's stopped (a warning says so): the\n`checks.timeout` setting."
+        }
+      },
+      "required": [
+        "checks",
+        "timeout"
+      ],
+      "description": "The plugins' checks, whether each runs, and how long one has to answer, as `plugin checks` and\nthe sidecar's `plugins.checks` show them."
+    },
+    "ListedCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "With the check before a set and doctor (`check`), before a plan is applied (`apply`: a\nguard), or both."
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean",
+          "description": "Only a guard's can be on."
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "title",
+        "when",
+        "on",
+        "blocking"
+      ],
+      "description": "Whether a plugin's check runs, and whether a guard keeps a plan it finds something about from\nbeing applied."
     },
     "Provided": {
       "type": "object",
@@ -32463,6 +33845,11 @@
           "type": "string",
           "const": "verify_failed",
           "description": "Files didn't read back correctly."
+        },
+        {
+          "type": "string",
+          "const": "blocked",
+          "description": "A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found\nsomething about the plan: deal with what it found, or stop the guard blocking."
         },
         {
           "type": "string",

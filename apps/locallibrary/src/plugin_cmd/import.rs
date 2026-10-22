@@ -62,7 +62,7 @@ pub fn import(args: ImportArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             }
         }
     };
-    let options = super::options(importer.options.as_ref(), &args.options)?;
+    let options = super::options("format", importer.options.as_ref(), &args.options)?;
     let drive = crate::jobs_cmd::drive_or_default(args.drive, store_path, "import")?;
     // Sessions are kept in the store, made for them if there's none yet.
     let store = match importer.provides.contains(&ImportKind::Sessions) {
@@ -76,7 +76,7 @@ pub fn import(args: ImportArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
     if plan.noop {
         return Ok(out.nothing(&plan, "nothing to import"));
     }
-    if let Some(o) = out.decide(args.dry_run, "Import it?") {
+    if let Some(o) = out.decide_on(&plan, args.dry_run, "Import it?")? {
         return Ok(out.not_applied(&plan, o));
     }
     let report = plan.apply(store.as_ref(), ctx)?;
