@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_util::keys;
 
 fn k(s: &str) -> String {
     Camelot::parse(s).map(|c| c.code()).unwrap_or_default()
@@ -55,12 +56,6 @@ fn harmonic_neighbours() {
     assert_eq!(a.relation_with_boost(Camelot::parse("10A").unwrap()), None);
 }
 
-fn any_key(tc: &hegel::TestCase) -> Camelot {
-    use hegel::generators as gs;
-    let (number, major) = tc.draw(gs::tuples!(gs::integers::<u8>().min_value(1).max_value(12), gs::booleans()));
-    Camelot { number, major }
-}
-
 #[test]
 fn relative_and_parallel_keys() {
     let am = Camelot::parse("Am").unwrap();
@@ -76,7 +71,7 @@ fn relative_and_parallel_keys() {
 /// parallel one the tonic, and neither keeps the mode.
 #[hegel::test(test_cases = 100)]
 fn relative_and_parallel_are_involutions(tc: hegel::TestCase) {
-    let k = any_key(&tc);
+    let k = tc.draw(keys());
     assert_eq!(k.relative().relative(), k);
     assert_eq!(k.parallel().parallel(), k);
     assert_eq!(k.relative().number, k.number);
@@ -101,7 +96,7 @@ fn keys_serialise_as_codes() {
 #[hegel::test(test_cases = 300)]
 fn unsure_keys_cost_less(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let (a, b) = (any_key(&tc), any_key(&tc));
+    let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     let sure = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
     let less_sure = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(sure));
     let certain = mix_cost(Some(a), 124.0, Some(b), 124.0, 1.0);
@@ -302,7 +297,7 @@ fn typed(tc: &hegel::TestCase, s: &str) -> String {
 #[hegel::test(test_cases = 500)]
 fn keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let k = any_key(&tc);
+    let k = tc.draw(keys());
     let open = format!("{}{}", (k.number + 4) % 12 + 1, if k.major { 'd' } else { 'm' });
     assert_eq!(Camelot::parse(&typed(&tc, &open)), Some(k), "{open}");
 
@@ -324,7 +319,7 @@ fn keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 300)]
 fn keys_serialise_as_their_code(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let k = any_key(&tc);
+    let k = tc.draw(keys());
     assert_eq!(serde_json::to_value(k).unwrap(), k.code());
     for text in [k.code(), k.note(), k.code().to_lowercase()] {
         assert_eq!(serde_json::from_value::<Camelot>(text.into()).unwrap(), k);
@@ -337,7 +332,7 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
     }
     assert_eq!(key_order(&text), Camelot::parse(&text).map_or(u8::MAX, Camelot::order));
     // Wheel order sorts by number, minor before major, all below where unparseable text sorts.
-    let other = any_key(&tc);
+    let other = tc.draw(keys());
     assert_eq!(k.order().cmp(&other.order()), (k.number, k.major).cmp(&(other.number, other.major)));
     assert_eq!(key_order(&k.note()), k.order());
     assert!(k.order() < 24);
@@ -349,8 +344,8 @@ fn keys_serialise_as_their_code(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 500)]
 fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let a = tc.draw(gs::booleans()).then(|| any_key(&tc));
-    let b = tc.draw(gs::booleans()).then(|| any_key(&tc));
+    let a = tc.draw(gs::booleans()).then(|| tc.draw(keys()));
+    let b = tc.draw(gs::booleans()).then(|| tc.draw(keys()));
     let bpm = || {
         tc.draw(hegel::one_of!(
             gs::floats::<f64>().min_value(40.0).max_value(250.0),
@@ -369,7 +364,7 @@ fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
     };
     // Each relation reads differently.
     if let (Some(a), Some(b)) = (a, b) {
-        let c = any_key(&tc);
+        let c = tc.draw(keys());
         if let (Some(x), Some(y)) = (a.relation_with_boost(b), a.relation_with_boost(c)) {
             assert_eq!(x == y, x.describe() == y.describe());
         }

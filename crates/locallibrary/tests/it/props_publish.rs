@@ -20,7 +20,6 @@ use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::repo::{self, Fetched};
 use locallibrary::atmosphere::{self, AccountInfo, Client, Storage};
 use locallibrary::error::Reason;
-use locallibrary::harmony::Camelot;
 use locallibrary::profile::{
     self, ArcShape, Basis, Count, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets,
     DocShare, DocTempo, DocTrack, Precision, PrefsUpdate, ProfileDocument, Section,
@@ -30,6 +29,7 @@ use locallibrary::publish;
 use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::settings::{self, Category, SCHEMA, SettingDef};
 use locallibrary::store::Store;
+use loclib_model::test_util::keys;
 use serde_json::{Map, Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
@@ -287,10 +287,7 @@ fn document(tc: &TestCase) -> ProfileDocument {
         let names: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(12)).max_size(10));
         names.into_iter().map(|name| DocShare { name, share: x() }).collect::<Vec<_>>()
     };
-    let key = || {
-        let n = tc.draw(gs::integers::<u8>().min_value(1).max_value(12));
-        Camelot { number: n, major: tc.draw(gs::booleans()) }.code()
-    };
+    let key = || tc.draw(keys()).code();
     let opt = |v: f64| some().then_some(v);
     ProfileDocument {
         version: profile::DOCUMENT_VERSION,
