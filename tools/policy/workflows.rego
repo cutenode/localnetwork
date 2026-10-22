@@ -106,9 +106,13 @@ deny contains msg if {
 
 deny contains msg if {
 	some path, wf in gated
-	not wf.concurrency
+	not cancels_superseded(wf)
 	msg := sprintf("%s: add a concurrency group that cancels superseded runs", [path])
 }
+
+# On every event: on main too, the next run's changes job covers what a cancelled run didn't check
+# (see the rule below).
+cancels_superseded(wf) if wf.concurrency["cancel-in-progress"] == true
 
 # A push diffed against the commit before it drops what a cancelled or failed run never checked
 # whenever the next push touches other files, so it's diffed against the last commit the workflow

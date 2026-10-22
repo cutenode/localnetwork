@@ -12,7 +12,7 @@ changes_steps(filter) := [base_step, {"uses": "dorny/paths-filter@abc", "with": 
 # A gated workflow whose changes job filters on `filter`.
 workflow(on, name, filter) := {
 	"true": on,
-	"concurrency": {"group": name},
+	"concurrency": {"group": name, "cancel-in-progress": true},
 	"jobs": {
 		"changes": {"steps": changes_steps(filter)},
 		"passed": {"name": name, "if": "always()", "needs": ["changes"], "steps": [passed_step]},
@@ -57,7 +57,7 @@ repo := [
 	}},
 	{"path": ".github/workflows/site-ci.yml", "contents": {
 		"true": {"pull_request": null, "push": {"branches": ["main"]}},
-		"concurrency": {"group": "ci"},
+		"concurrency": {"group": "ci", "cancel-in-progress": true},
 		"jobs": {
 			"changes": {"steps": changes_steps("run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n")},
 			"verify": {"needs": "changes"},

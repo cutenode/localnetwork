@@ -67,7 +67,7 @@ Every workflow the ruleset requires has the same three parts. Copy `localtoolbox
 2. the jobs that do the work, each with `needs: changes` and skipped when nothing matched;
 3. a `passed` job named "`<tool>` CI passed", with `if: always()`, that fails if any job failed or was cancelled.
 
-Jobs that only report stay out of the `passed` job's needs, so they never block a merge: the coverage `report` jobs that comment on the pull request, and locallibrary-ci's `semver`.
+Jobs that only report stay out of the `passed` job's needs, so they never block a merge: the coverage `report` jobs that comment on the pull request, and locallibrary-ci's `semver`. Each workflow's concurrency group cancels the run a new push supersedes, on `main` too.
 
 The "Protect Main" ruleset requires the `passed` jobs, which report either way, so a path-filtered workflow never blocks a pull request that doesn't touch it. The ruleset is `.github/rulesets/protect-main.json`: an admin applies it with `tools/ruleset.sh apply`, and the Repo checks workflow fails on `main` while GitHub's copy differs. It requires Web CI passed, locallibrary CI passed, localtoolbox CI passed, Mix report passed, npm advisories passed, Workflow lint passed, Repo checks passed and atstore CI passed, and code scanning, which is CodeQL's default setup for Actions, JavaScript and TypeScript, and Rust.
 

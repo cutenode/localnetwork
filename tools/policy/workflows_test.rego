@@ -75,6 +75,11 @@ test_no_concurrency if {
 	".github/workflows/site-ci.yml: add a concurrency group that cancels superseded runs" in workflows.deny with input as with_ci(broken)
 }
 
+test_main_runs_not_cancelled if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/concurrency/cancel-in-progress", "value": "${{ github.event_name == 'pull_request' }}"}])
+	".github/workflows/site-ci.yml: add a concurrency group that cancels superseded runs" in workflows.deny with input as with_ci(broken)
+}
+
 base_msg := ".github/workflows/site-ci.yml: job \"changes\"'s paths-filter needs `base` from an earlier ./.github/actions/last-passed step"
 
 test_push_diffed_against_commit_before if {
