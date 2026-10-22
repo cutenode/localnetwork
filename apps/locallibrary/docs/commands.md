@@ -138,6 +138,7 @@ its drives.
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
+| `locallibrary import FILE [<library>] [--format FORMAT] [--option KEY=VALUE]... [--dry-run]` | Read another program's file with a plugin's importer: keys, BPMs, cues and My Tags added to the tracks it finds where they have none, plays kept as sessions, see [Plugins](plugins.md#import-formats) |
 | `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]... [--apply key,bpm [--overwrite] [--min-confidence N] [--dry-run]]` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`); `--apply` then writes the analyzer's keys and BPMs to the tracks as an edit, see [Plugins](plugins.md) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |
 
@@ -172,9 +173,11 @@ its drives.
 | `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
 | `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it |
 | `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, a spreadsheet, or a playlist file |
+| `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |
 | `locallibrary sets publish <SET>` | Publish a set on your Atmosphere account (alpha), see [Publishing](account.md#publishing) |
 | `locallibrary mix <recording>... [--drive LIB] [--html PATH] [--export PATH] [--open]` | Which of a drive's tracks a recorded set plays, when, at what speed and in what key, as a tracklist and an interactive report, see [Mixes](sets.md#mixes) |
+| `locallibrary mix <recording> --format FORMAT --export PATH [--option KEY=VALUE]...` | A mix's tracklist in a format a plugin adds for mixes (its report kept in the store), see [Plugins](plugins.md#export-formats) |
 | `locallibrary profile [<library>...]` | What your sets, collection and settings say about how you play, and what a public profile would show, see [DJ profile](sets.md#dj-profile) |
 | `locallibrary players [show\|set\|clear\|models]` | The player models `check` uses when none are given, and what each model reads, see [Before a set](sets.md#before-a-set) |
 

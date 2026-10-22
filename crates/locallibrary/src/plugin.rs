@@ -1,7 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
-//! exporters, providers, services, themes and settings, and listening for events. The CLI, the
-//! TUI and the RPC sidecar host them through [`Plugins`].
+//! exporters, importers, providers, services, themes and settings, and listening for events. The
+//! CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -18,11 +18,11 @@
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]). Plugins are told of
-//! what happens as the front ends notice it ([`Plugins::deliver`]), and services run while a
-//! front end that stays open does ([`Plugins::run_services`]); what either tells the user, the
-//! front end shows ([`Options::notices`]), and nothing they suggest is planned unless the user
-//! chooses to.
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]), as it does of what
+//! importers read (see [`Plugins::import_plan`]). Plugins are told of what happens as the front
+//! ends notice it ([`Plugins::deliver`]), and services run while a front end that stays open does
+//! ([`Plugins::run_services`]); what either tells the user, the front end shows
+//! ([`Options::notices`]), and nothing they suggest is planned unless the user chooses to.
 
 mod analyzers;
 mod apply;
@@ -31,6 +31,7 @@ mod callbacks;
 mod commands;
 mod events;
 mod exports;
+mod imports;
 mod net;
 mod operations;
 mod panels;
@@ -62,6 +63,7 @@ pub use callbacks::Reads;
 pub use commands::CommandOutput;
 pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
 pub use exports::{ExportFile, PluginExport};
+pub use imports::{PluginImport, PluginImported};
 pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,

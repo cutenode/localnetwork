@@ -5,6 +5,7 @@
 mod analyzers;
 mod commands;
 mod exporters;
+mod importers;
 mod operations;
 mod panels;
 mod providers;
@@ -36,11 +37,14 @@ struct PluginContext {
     /// The tracks they chose, by id.
     #[serde(default)]
     tracks: Vec<u32>,
+    /// The set they're on, by id (`sets.list`).
+    #[serde(default)]
+    set: Option<String>,
 }
 
 impl From<PluginContext> for Context {
     fn from(c: PluginContext) -> Context {
-        Context { drive: c.drive, playlist: c.playlist, tracks: c.tracks, ..Context::default() }
+        Context { drive: c.drive, playlist: c.playlist, tracks: c.tracks, set: c.set, ..Context::default() }
     }
 }
 
@@ -89,6 +93,7 @@ pub(super) fn register(r: &mut Registry) {
     operations::register(r);
     panels::register(r);
     exporters::register(r);
+    importers::register(r);
     analyzers::register(r);
     providers::register(r);
     roles::register(r);

@@ -22,7 +22,8 @@ use crate::progress::{Ctx, NoProgress};
 /// How the host reads for plugins: the app's read methods, by the sidecar's names
 /// (`tracks.query`), with its params and results.
 pub trait Reads: Send + Sync {
-    /// Runs the read method `method` with `params`, as the RPC sidecar does.
+    /// Runs the read method `method` with `params`, as the RPC sidecar does: on a thread whose
+    /// store ([`api::store_root`]) is the one the host started the plugin in, when it had one.
     fn read(&self, method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcFailure>;
 
     /// The root of the drive a plugin names: one known here (by identity, adopted name or
@@ -117,6 +118,8 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "sets.list" => (SetsRead, false, &[("venue", Plain), ("kind", Plain), ("since", Plain), ("until", Plain)]),
         "sets.get" => (SetsRead, false, &[("set", Plain), ("venue", Plain)]),
         "sessions.list" => (SetsRead, false, &[("drive", Drive), ("unassigned", Plain)]),
+        // A recorded set's tracklist, for a mix exporter.
+        "mix.reports.get" => (SetsRead, false, &[("id", Plain)]),
         "account.status" => (AccountStatus, false, &[]),
         "collection.info" => (CollectionRead, false, &[]),
         "collection.diff" => (CollectionRead, false, &[("drive", Drive), ("playlist", Plain)]),
@@ -176,6 +179,10 @@ pub(crate) fn answer(
         }
         let (plugin, live, peer) = (plugin.clone(), live.clone(), peer.clone());
         std::thread::spawn(move || {
+            // The app reads (and finds drives) in the store of the host that started the plugin,
+            // whichever store the process would default to.
+            let store = live.store.as_ref().map(|s| s.root().to_path_buf());
+            crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = store);
             let reads = &*plugin.host.reads;
             let run = || match req.method.as_str() {
                 method::NET_FETCH if live.sends(method::NET_FETCH) => plugin.fetch(&live, req.params, &req.cancel),
@@ -242,14 +249,15 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 
 /// A read's answer as a plugin gets it, saying nothing of where things are on this computer:
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
-/// copy's, a set's recording, rekordbox's collection), and with any other path under one of
-/// `roots` said from there (see [`known_roots`]), as errors' are.
+/// copy's, a set's or a mix's recording and its cover, rekordbox's collection), and with any other
+/// path under one of `roots` said from there (see [`known_roots`]), as errors' are.
 pub(crate) fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],
         "store.info" => &[(Some("copy_of"), "path"), (Some("copy_of"), "from")],
         "sets.list" | "sets.get" => &[(Some("recording"), "path")],
+        "mix.reports.get" => &[(Some("mix"), "path"), (Some("mix"), "cover"), (None, "audio")],
         "collection.info" => &[(None, "path")],
         _ => &[],
     };

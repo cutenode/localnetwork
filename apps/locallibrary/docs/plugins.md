@@ -1,12 +1,13 @@
 # Plugins
 
 A plugin adds to locallibrary the kinds of things below (commands, operations that change a
-library, analyzers that work out values for each track, export formats...), each in a section of
-its own. It's a program of its own that locallibrary starts when it's first used and talks to over
-its stdin and stdout (the protocol is in [loclib-plugin](../../../crates/loclib-plugin)). A plugin
-never writes to a drive: it reads the library through locallibrary, within what its capabilities
-allow, and an operation hands locallibrary the edits it would make, which you're shown and asked
-about as any edit is, backed up and journaled.
+library, analyzers that work out values for each track, export and import formats...), each in a
+section of its own. It's a program of its own that locallibrary starts when it's first used and
+talks to over its stdin and stdout (the protocol is in
+[loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive: it reads the
+library through locallibrary, within what its capabilities allow, and an operation hands
+locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
+and journaled.
 
 For now only plugins built into locallibrary run. There's no way to install another yet. Those
 are:
@@ -28,16 +29,16 @@ are:
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
 the player's menus offer them, the events it listens for, its analyzers' fields, its export
-formats, its providers, its services and its settings.
+and import formats, its providers, its services and its settings.
 
-A plugin whose id, commands or export formats clash with locallibrary's, or with another plugin's,
-is left out: every command warns which and why, and the other plugins work. Two plugins clashing
-with each other are both left out.
+A plugin whose id, commands or export or import formats clash with locallibrary's, or with another
+plugin's, is left out: every command warns which and why, and the other plugins work. Two plugins
+clashing with each other are both left out.
 
 ## Where they show up
 
 On the command line, what a plugin adds runs as commands of its own or of locallibrary's
-(`analyze`, `export --format`, `art fetch`). In the player (`locallibrary tui`) it's in the
+(`analyze`, `export --format`, `import`, `art fetch`). In the player (`locallibrary tui`) it's in the
 palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
 playlist, with a form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
@@ -104,6 +105,29 @@ They're `locallibrary export LIBRARY --format FORMAT -o PATH`, with the plugin's
 format can't hold), and overwriting a file is asked about first unless `--replace`. In the player
 they're in the palette and a drive's menu: an export shows what it would write and asks before
 writing it.
+
+A format may write out a set or a recorded mix instead (`plugin info` says which): `locallibrary
+sets export SET --format FORMAT -o PATH [--drive LIBRARY]`, and `locallibrary mix RECORDING
+--format FORMAT --export PATH` (one recording, its report kept in the store for the plugin to
+read), with `--option`, `--dry-run` and `--replace` as above. In the player, a set's formats are
+in the palette while the set is open (Browse › Sets).
+
+## Import formats
+
+An importer reads another program's file (a collection, a play log) for what it says about tracks:
+their keys and BPMs, cues, My Tags, and the plays it logged. `locallibrary import FILE [LIBRARY]
+--format FORMAT` (the format a plugin reads files ending in the file's extension with, unless
+`--format` says; `--option KEY=VALUE` for its options) finds those tracks on the drive the way
+`playlist import` finds a tracklist's, by file, ISRC, then artist and title, and says how many it
+couldn't (not on the drive, or could be several). It only adds to what they have: a key and a BPM
+where a track has none (a key written as rekordbox names it, a BPM to hundredths), a cue in a hot
+cue slot (or at a place) a track has none in (one a cue edit can't set, say a colour or a loop it
+doesn't take, is left out, saying why), and the My Tags a track lacks. It's one edit, shown
+and asked about as any is (`--dry-run`), and `undo` takes it back. The plays it logged are kept in
+the store as sessions, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
+as the log names it; the same log imported again replaces its session. In the player, a drive's
+menu and the palette have "import ...", a form asking for the file. An importer plans nothing
+itself and needs no capability to: it only answers what it read.
 
 ## Panels
 
@@ -198,10 +222,10 @@ protocol, so a newer locallibrary adds kinds of hooks without breaking older plu
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
 call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
 bounded size, and what it gets back, errors too, doesn't say where things are on this computer:
-a drive is said by its name, where the store's copies, a set's recording and rekordbox's
-collection are is left out, and any other path is said from its drive, the store (`<store>`) or
-your home folder (`~`). An exporter alone is told where the drive it exports is, as the files it
-writes name the audio there. None is started from a process running as an administrator or
+a drive is said by its name, where the store's copies, a set's or a mix's recording and
+rekordbox's collection are is left out, and any other path is said from its drive, the store
+(`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
+the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
 answering is stopped, and started again the next time it's needed.
 

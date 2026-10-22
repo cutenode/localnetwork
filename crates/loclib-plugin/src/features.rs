@@ -29,6 +29,7 @@ pub const FEATURES: &[Feature] = &[
     hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
     hooks::exporters::FEATURE,
+    hooks::importers::FEATURE,
     hooks::providers::FEATURE,
     hooks::services::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.

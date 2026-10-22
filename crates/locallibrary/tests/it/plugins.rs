@@ -5,7 +5,9 @@ mod blobs;
 mod callbacks;
 mod choose;
 mod events;
+mod exports;
 mod hooks;
+mod imports;
 mod net;
 mod panels;
 mod props;
@@ -125,6 +127,11 @@ impl Reads for TestReads {
                 json!({ "recording": { "path": "/rec.wav", "report": "r" }, "entries": [{ "path": "/Contents/a" }] }),
             ),
             "collection.info" => Ok(json!({ "path": "/Pioneer/master.db", "bytes": 1 })),
+            "mix.reports.get" => Ok(json!({
+                "mix": { "path": "/rec.wav", "cover": { "kind": "file", "path": "/rec.jpg" }, "title": "Friday" },
+                "audio": "/rec.wav",
+                "plays": [{ "track": { "artist": "A", "title": "B", "file_path": "/Contents/a.mp3" } }],
+            })),
             "fleet.status" => {
                 let usb = self.volumes.join("USB");
                 Ok(json!({

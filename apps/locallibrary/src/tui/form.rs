@@ -33,9 +33,18 @@ pub enum For {
     Settings(&'static str),
     /// The settings of every provider.
     ProviderSettings,
-    /// Where to export the drive at `root` (its `playlists` only, when some are named) in a
-    /// plugin's format, and the format's options.
-    Export { plugin: &'static str, format: &'static str, root: std::path::PathBuf, playlists: Vec<String> },
+    /// Where to export the drive at `root` (its `playlists` only, when some are named), or the
+    /// `set`, in a plugin's format, and the format's options.
+    Export {
+        plugin: &'static str,
+        format: &'static str,
+        root: std::path::PathBuf,
+        playlists: Vec<String>,
+        set: Option<String>,
+    },
+    /// What file to import into the drive at `root` with a plugin's importer, and the format's
+    /// options.
+    Import { plugin: &'static str, format: &'static str, root: std::path::PathBuf },
     /// What to write to the tracks of the drive at `root` from what a plugin's analyzer worked
     /// out.
     ApplyFields { plugin: &'static str, analyzer: &'static str, root: std::path::PathBuf },
@@ -187,9 +196,10 @@ impl App {
                         For::Run(run) => self.run_plugin(run, params),
                         For::Settings(plugin) => self.save_settings(plugin, params),
                         For::ProviderSettings => self.save_provider_settings(params),
-                        For::Export { plugin, format, root, playlists } => {
-                            self.plan_export(plugin, format, root, playlists, params)
+                        For::Export { plugin, format, root, playlists, set } => {
+                            self.plan_export(plugin, format, root, playlists, set, params)
                         }
+                        For::Import { plugin, format, root } => self.plan_import(plugin, format, root, params),
                         For::ApplyFields { plugin, analyzer, root } => {
                             self.plan_apply_fields(plugin, analyzer, root, params)
                         }

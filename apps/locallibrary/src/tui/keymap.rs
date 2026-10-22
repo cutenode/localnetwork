@@ -204,6 +204,8 @@ pub enum Act {
     Theme(&'static str),
     /// Export the drive in a plugin's format (the plugin's id, the format).
     Export(&'static str, &'static str),
+    /// Import a file into the drive with a plugin's importer (the plugin's id, the format).
+    Import(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks selected.
     Fetch(loclib_plugin::ProviderKind),
 }

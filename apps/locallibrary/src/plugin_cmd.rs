@@ -1,7 +1,7 @@
 //! `plugin`: the plugins locallibrary has, their settings, which analyzer each field role is read
 //! from and when a provider's candidate is chosen for the user; `analyze`, running their
-//! analyzers on a drive's tracks; `art fetch` and `track fetch`, what their providers find; their
-//! panels under `track show`'s details; and
+//! analyzers on a drive's tracks; `art fetch` and `track fetch`, what their providers find;
+//! `import`, what their importers read; their panels under `track show`'s details; and
 //! the commands and operations they add to the command line (`locallibrary <plugin> <name>`, or
 //! the place a manifest gives one, `playlist import`), whose flags come from their params' JSON
 //! Schemas.
@@ -10,6 +10,7 @@ mod analyze;
 mod choose;
 mod contributed;
 mod fetch;
+mod import;
 mod listing;
 mod panels;
 pub(crate) mod view;
@@ -26,6 +27,7 @@ use crate::plugins::{self, Described, Listed};
 pub use analyze::{AnalyzeArgs, analyze, fields, show_fields};
 pub use contributed::{Contributed, add_to, options, run_contributed, take};
 pub use fetch::{FetchArgs, fetch};
+pub use import::{ImportArgs, import};
 pub use panels::{panels, show_panels};
 
 #[derive(Args)]
@@ -39,8 +41,8 @@ enum PluginCommand {
     /// The plugins locallibrary has: what each may do, and what it adds (the default)
     #[command(visible_alias = "ls")]
     List,
-    /// One plugin in full: what it may do, its commands, operations, analyzers, export formats
-    /// and settings
+    /// One plugin in full: what it may do, its commands, operations, analyzers, export and import
+    /// formats and settings
     Info {
         /// The plugin's id
         plugin: String,

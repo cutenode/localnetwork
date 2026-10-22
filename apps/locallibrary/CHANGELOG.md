@@ -257,6 +257,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   by (and an analyzer's keys and BPMs are written to the tracks from there), plugins' settings are a
   form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks
   --sort` and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`).
+  Importers read another program's file (`import FILE [LIBRARY] --format FORMAT`): locallibrary
+  finds its tracks on the drive as it finds a tracklist's, says how many it couldn't, and adds what
+  they lack (a key and a BPM where a track has none, cues in slots it has none in, My Tags) as one
+  edit, confirmed and undone as any is, and keeps the plays the file logged as sessions (the
+  player's drive menu has it, the sidecar `plugins.import.plan/apply`). An exporter may write out
+  a set or a mix instead of a drive's library: `sets export --format` and `mix --format FORMAT
+  --export PATH` take those formats, the player offers a set's while the set is open, and the
+  sidecar's `plugins.export.plan` takes `set` and `mix`.
   A view is a list, a table (its columns tracks, durations, keys or numbers with a unit, or plain),
   labelled values, text, a tree, a chart, a picture or sections of those, each drawn in the
   player and as plain text on the command line. Panels show what a plugin has to say about a

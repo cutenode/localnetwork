@@ -5,14 +5,15 @@
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
 //! either asks first is a list to choose from, after which it runs again with the answer. Each
 //! plugin's settings are a form, kept in the store, with a switch for each of its services. What
-//! the other families of hooks add (cover art and tags from providers, analyzers, exports, what
-//! plugins tell the user and suggest) is in a module each. Nothing here tells one
+//! the other families of hooks add (cover art and tags from providers, analyzers, exports,
+//! imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one
 //! plugin from another: it's all drawn from their manifests, through the host the command line
 //! uses (see [`crate::plugins`]).
 
 mod analyzers;
 mod events;
 mod exporters;
+pub(super) mod importers;
 pub(super) mod panels;
 pub(super) mod providers;
 mod themes;
@@ -243,9 +244,9 @@ impl App {
         root.map(|root| !self.extra_roots.iter().any(|r| r == root))
     }
 
-    /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers and
-    /// export formats, as the palette and the drive menu list them for the drive at `root`: by
-    /// title, with the plugin's name beside each.
+    /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers,
+    /// export and import formats, as the palette and the drive menu list them for the drive at
+    /// `root`: by title, with the plugin's name beside each.
     pub(super) fn plugin_items(&self, root: Option<&Path>, places: &[Where]) -> Vec<(Act, Item)> {
         let drive = self.pluggable(root);
         let all = offered(drive, places).into_iter();
@@ -261,8 +262,8 @@ impl App {
             );
         }
         let Ok(plugins) = crate::plugins::host() else { return items };
-        // An analyzer reads the tracks' audio files and an exporter the library: on a drive plugged
-        // in, as a command.
+        // An analyzer reads the tracks' audio files, an exporter the library and an importer's file
+        // is about its tracks: on a drive plugged in, as a command.
         let why = match drive {
             None => Some("open a drive first"),
             Some(false) => Some("only on a plugged-in drive"),
@@ -270,9 +271,11 @@ impl App {
         };
         // Each family's, in the order the palette lists them (a family's placed as loclib-plugin's
         // `hooks` says).
+        let set = self.open_set().is_some();
         for m in plugins.manifests() {
             items.extend(analyzers::items(m, why));
-            items.extend(exporters::items(m, why));
+            items.extend(exporters::items(m, why, set));
+            items.extend(importers::items(m, why));
         }
         items
     }
@@ -364,12 +367,12 @@ impl App {
     }
 
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a
-    /// folder) the actions menu works on.
+    /// folder) the actions menu works on, and the set open.
     fn context(&self, t: &Target) -> Context {
         let l = self.loaded.as_ref().filter(|l| l.root() == t.root);
         let ids = l.map(|l| t.tracks.iter().filter_map(|p| l.index_of(p)).map(|i| l.library.tracks[i].id).collect());
         let playlist = t.node.clone().filter(|(_, folder)| !folder).map(|(path, _)| path);
-        Context { playlist, tracks: ids.unwrap_or_default(), ..Context::default() }
+        Context { playlist, tracks: ids.unwrap_or_default(), set: self.open_set(), ..Context::default() }
     }
 
     /// A plugin's command or operation from the palette: on the drive actions work on, with what's
