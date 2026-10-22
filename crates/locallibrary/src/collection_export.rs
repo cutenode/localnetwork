@@ -549,11 +549,11 @@ impl Layout {
 
     /// A folder no other track's analysis files have, for those of the track at `device_path`.
     fn analysis_dir(&self, device_path: &str) -> String {
-        let mut salt = 0;
-        let mut dir = merge::analysis_dir(device_path, salt);
+        let mut attempt = 0;
+        let mut dir = merge::analysis_dir(device_path, attempt);
         while self.taken.contains(&format!("{dir}/anlz0000.dat").to_lowercase()) {
-            salt += 1;
-            dir = merge::analysis_dir(device_path, salt);
+            attempt += 1;
+            dir = merge::analysis_dir(device_path, attempt);
         }
         dir
     }
