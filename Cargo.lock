@@ -4109,6 +4109,7 @@ dependencies = [
 name = "loclib-model"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "hegeltest",
  "indexmap",
  "loclib-progress",
