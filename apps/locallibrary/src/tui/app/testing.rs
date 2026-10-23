@@ -18,7 +18,7 @@ use super::super::audio::Audio;
 use super::super::audio::tests::wav;
 use super::super::edits::{Job, Modal};
 use super::super::ui::screen;
-use super::{App, NowPlaying, View};
+use super::{App, Msg, NowPlaying, View};
 
 // Copying a folder with its files' modification times, as the library's and the CLI's tests do.
 #[path = "../../../../../crates/locallibrary/tests/support/files.rs"]
@@ -367,6 +367,20 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
         );
     }
     assert!(done(app), "timed out; last message: {:?}", last_message(app));
+}
+
+/// Handle the app's background messages until the store's sets are read. Opening a drive starts
+/// a read of the sets in the store the app has then: a test that points the app at another store
+/// waits for that read first, or it can land after the other store's and leave no sets.
+pub fn read_sets(app: &mut App) {
+    loop {
+        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
+        let sets = matches!(msg, Msg::Sets(..));
+        app.handle_msg(msg);
+        if sets {
+            return;
+        }
+    }
 }
 
 /// The message the footer shows now ("" for none).
