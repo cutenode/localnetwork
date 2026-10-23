@@ -3,29 +3,40 @@
 
 use super::*;
 
-/// `--then PLUGIN.OPERATION KEY=VALUE...` runs the operation in the refresh's plan, its params read
-/// as its schema says, each `--then` in the order given. One that can't be planned fails the plan,
-/// and what isn't KEY=VALUE after it is a usage error.
+/// `--then 'PLUGIN.OPERATION KEY=VALUE...'` runs the operation in the refresh's plan, its words
+/// split as a shell would and its params read as its schema says, each `--then` in the order given,
+/// the drive named before or after them. One that can't be planned fails the plan, and one that
+/// isn't an operation and its params is a usage error naming it.
 #[test]
 fn refresh_then_runs_a_plugins_operation() {
     let env = env();
-    let then =
-        |more: &[&'static str]| [&["refresh", "USB", "--then", "echo.playlist", "name=Fresh"][..], more].concat();
-    let plan = env.ok(&then(&["--dry-run"]));
+    let plan = env.ok(&["refresh", "USB", "--then", "echo.playlist name=Fresh", "--dry-run"]);
     assert!(plan.contains("Run the plugins' operations\n   • make the playlist Fresh\n"), "{plan}");
-    let applied = env.json(&[&["--yes"][..], &then(&["--then", "echo.playlist", "name=Later"])].concat());
+    let applied = env.json(&[
+        "--yes",
+        "refresh",
+        "--then",
+        "echo.playlist name=Fresh",
+        "--then",
+        "echo.playlist name='Late Night'",
+        "USB",
+    ]);
     assert_eq!(applied["outcome"], "applied", "{applied}");
     let steps = applied["report"]["steps"].as_array().unwrap();
     let ran = steps.iter().find(|s| s["step"] == "operations").unwrap();
     assert_eq!(ran["reports"].as_array().unwrap().len(), 2, "{ran}");
     let listed = env.ok(&["playlist", "ls", "USB"]);
-    assert!(listed.contains("Fresh") && listed.contains("Later"), "{listed}");
+    assert!(listed.contains("Fresh") && listed.contains("Late Night"), "{listed}");
 
     assert!(env.fails(1, &["refresh", "USB", "--then", "nope.playlist"]).contains("not found: plugin \"nope\""));
-    let e = env.fails(2, &["refresh", "--then", "echo.playlist", "name=x", "USB"]);
-    assert!(e.contains("then its params as KEY=VALUE, not \"USB\" (name the drive before it)"), "{e}");
-    let e = env.fails(2, &["refresh", "USB", "--then", "echo.playlist", "colour=red"]);
+    let e = env.fails(2, &["refresh", "USB", "--then", "echo.playlist colour=red"]);
     assert!(e.contains("this echo.playlist operation has no option \"colour\""), "{e}");
+    for bad in ["", "  ", "playlist name=x"] {
+        let e = env.fails(2, &["refresh", "USB", "--then", bad]);
+        assert!(e.contains(&format!("--then takes 'PLUGIN.OPERATION KEY=VALUE...', not {bad:?}")), "{e}");
+    }
+    let e = env.fails(2, &["refresh", "USB", "--then", "echo.playlist name='Late"]);
+    assert!(e.contains(r#"--then "echo.playlist name='Late" has a quote it doesn't close"#), "{e}");
 }
 
 /// The sidecar's `refresh.plan` takes `operations`; one that can't be planned is refused, the

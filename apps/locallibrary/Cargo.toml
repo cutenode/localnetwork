@@ -87,6 +87,9 @@ locallibrary-plugin-interop = { version = "0.1.0", path = "../../plugins/interop
 os_info = { version = "3.15.0", default-features = false }
 percent-encoding.workspace = true
 base64.workspace = true
+# Splits each `refresh --then` into words the way a shell does (the hints' tests check their
+# quoting with it too).
+shlex = "2.0.1"
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
@@ -112,8 +115,6 @@ walkdir.workspace = true
 filetime.workspace = true
 jacquard-oauth.workspace = true
 tokio.workspace = true
-# Splits hints into words the way a shell does, to check their quoting.
-shlex = "2.0.1"
 
 [lints]
 workspace = true

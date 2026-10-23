@@ -286,9 +286,10 @@ pub struct RefreshArgs {
     /// Then copy the drive onto the other mounted drives of its library, when it's the newest
     #[arg(long)]
     pub sync: bool,
-    /// Also run a plugin's operation on the drive before it's saved, its params as KEY=VALUE
-    /// (repeatable: they run in the order given; name the drive before it)
-    #[arg(long, value_names = ["PLUGIN.OPERATION", "KEY=VALUE"], num_args = 1..)]
+    /// Also run a plugin's operation on the drive before it's saved: one quoted value, the
+    /// operation then its params as KEY=VALUE, quoted as in a shell when one holds a space
+    /// (repeatable: they run in the order given)
+    #[arg(long, value_name = "'PLUGIN.OPERATION KEY=VALUE...'")]
     pub then: Vec<String>,
     /// Show the plan without changing anything
     #[arg(long)]
@@ -315,23 +316,21 @@ pub fn refresh(args: RefreshArgs, store_path: &Option<PathBuf>, out: Output, ctx
     run_job(plan, &store, Shown { heading: &heading, nothing, dry_run: args.dry_run, verbose: false }, out, ctx)
 }
 
-/// The plugins' operations `--then PLUGIN.OPERATION KEY=VALUE...` gives (each `--then`, or each
-/// PLUGIN.OPERATION, starts one), each param read as its operation's schema says. One the plugins
-/// don't have goes as it is, for the plan to refuse.
+/// The plugins' operations the `--then`s give, each split into words as a shell would:
+/// PLUGIN.OPERATION, then its params as KEY=VALUE, read as its operation's schema says. One the
+/// plugins don't have goes as it is, for the plan to refuse.
 fn operation_steps(given: &[String]) -> Result<Vec<api::OperationStep>> {
-    let mut steps: Vec<(&String, Vec<String>)> = Vec::new();
-    for v in given {
-        match (v.contains('='), steps.last_mut()) {
-            (true, Some((_, pairs))) => pairs.push(v.clone()),
-            (false, _) if v.contains('.') => steps.push((v, Vec::new())),
-            _ => {
-                return Err(usage(format!(
-                    "--then takes PLUGIN.OPERATION, then its params as KEY=VALUE, not {v:?} (name the drive before it)"
-                )));
+    given
+        .iter()
+        .map(|v| {
+            let words = shlex::split(v)
+                .ok_or_else(|| usage(format!("--then {v:?} has a quote it doesn't close (or ends in a backslash)")))?;
+            match words.split_first() {
+                Some((operation, pairs)) if operation.contains('.') => operation_step(operation, pairs),
+                _ => Err(usage(format!("--then takes 'PLUGIN.OPERATION KEY=VALUE...', not {v:?}"))),
             }
-        }
-    }
-    steps.into_iter().map(|(operation, pairs)| operation_step(operation, &pairs)).collect()
+        })
+        .collect()
 }
 
 /// `operation` with `pairs` (KEY=VALUE) for its params.

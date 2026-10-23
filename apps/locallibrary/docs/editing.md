@@ -13,7 +13,7 @@ locallibrary refresh                          # the drive exported over your edi
 locallibrary refresh --dry-run                # the plan only
 locallibrary refresh --sync                   # then copy it onto the library's other drives plugged in
 locallibrary refresh REKORDBOX --skip clean,settings
-locallibrary refresh REKORDBOX --then tracklist.import file=friday.m3u into=Friday
+locallibrary refresh REKORDBOX --then 'tracklist.import file=friday.m3u into=Friday'
 ```
 
 rekordbox's Export replaces a drive's databases, and with them what you did since the last one:
@@ -39,12 +39,14 @@ another drive is mounted there by then). The first step that fails stops the res
 stays done, and the exit status is 5 (1 when nothing was done). `--skip STEP` (repeatable, or
 comma-separated) leaves steps out.
 
-`--then PLUGIN.OPERATION KEY=VALUE...` (repeatable) adds a plugin's
+`--then 'PLUGIN.OPERATION KEY=VALUE...'` (repeatable) adds a plugin's
 [operation](plugins.md#commands-and-operations) to the refresh, its params as `KEY=VALUE`
 (`locallibrary PLUGIN OPERATION --help` lists them; a param filled from what's selected is the
-drive refreshed, if that's what it takes). Name the drive before `--then`. Each is planned with the
-rest, so one whose plugin or operation is missing, whose params don't fit, or that would ask you
-something first stops the plan before anything is written.
+drive refreshed, if that's what it takes). Each `--then` is one quoted value, split into words as a
+shell would, so a param with a space is quoted inside it:
+`--then "tracklist.import file='/Volumes/My Drive/friday.m3u'"`. Each is planned with the rest, so
+one whose plugin or operation is missing, whose params don't fit, or that would ask you something
+first stops the plan before anything is written.
 
 `status` flags a drive rekordbox exported over recorded edits ("rekordbox exported over 3 recorded
 edit(s): run `locallibrary refresh "REKORDBOX"`"): rekordbox exported to it after its last recorded
