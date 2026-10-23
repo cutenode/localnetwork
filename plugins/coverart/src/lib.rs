@@ -2,13 +2,14 @@
 //! artwork provider and a metadata one). Each album is looked up once on MusicBrainz (see
 //! `musicbrainz`), as either provider asks. For artwork, the front cover of each release group it
 //! could be is downloaded from the Cover Art Archive (see `covers`), a candidate for each of the
-//! album's tracks. For metadata, each release group's album title, year and label are a candidate
-//! for each of its tracks, with its genre when it's surely the album, and the title, artist and
-//! ISRC of the recording an ISRC found for the track with that ISRC. locallibrary offers them,
-//! makes the edits chosen, and journals them. The host makes its requests (`net/fetch`), a second
-//! apart for MusicBrainz as the manifest asks, and the covers go to it as files in the request's
-//! scratch folder, which it removes once it has read them: nothing downloaded is kept, as it's
-//! cheap to fetch again.
+//! album's tracks. For metadata, each release group's album title and year, and its label when it
+//! was found by name, are a candidate for each of its tracks, with its genre (and the year it
+//! first came out) when it's surely the album, and the title and artist of the recording an ISRC
+//! found for the track with that ISRC. A track without an album, looked up by its title, gets only
+//! a single's. locallibrary offers them, makes the edits chosen, and journals them. The host makes
+//! its requests (`net/fetch`), a second apart for MusicBrainz as the manifest asks, and the covers
+//! go to it as files in the request's scratch folder, which it removes once it has read them:
+//! nothing downloaded is kept, as it's cheap to fetch again.
 
 mod covers;
 mod musicbrainz;
@@ -24,7 +25,7 @@ use loclib_plugin::{
 };
 use loclib_progress::{Event, Phase};
 
-use musicbrainz::{Found, Group, ReleaseGroup};
+use musicbrainz::{Found, Group, Lookup, ReleaseGroup};
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
@@ -58,8 +59,15 @@ pub(crate) struct Album {
     pub(crate) name: String,
     /// The first of its tracks' ISRCs.
     pub(crate) isrc: Option<String>,
-    /// Its tracks' ids, each with its ISRC.
-    tracks: Vec<(u32, Option<String>)>,
+    tracks: Vec<Track>,
+}
+
+/// A track of an [`Album`].
+struct Track {
+    id: u32,
+    isrc: Option<String>,
+    /// It has no album: it was looked up by its title, as a single.
+    single: bool,
 }
 
 impl fmt::Display for Album {
@@ -86,10 +94,10 @@ fn provide(req: ProvideCandidates, host: &Host) -> Result<Candidates, RpcError> 
     let albums = albums(&req.tracks, &mut warnings);
     let ctx = host.ctx();
     ctx.phase_start(Phase::Scan, albums.len() as u64, 0);
-    // Each release group's cover, by its id: its file, or why there's none; and its genre, or
+    // Each release group's cover, by its id: its file, or why there's none; and its lookup, or
     // the status MusicBrainz refused it with.
     let mut covers: Fetched<Result<String, String>> = IndexMap::new();
-    let mut genres: Fetched<Result<Option<String>, u16>> = IndexMap::new();
+    let mut lookups: Fetched<Result<Lookup, u16>> = IndexMap::new();
     let mut candidates = Vec::new();
     // Each album's requests notice the hook being cancelled.
     for album in &albums {
@@ -113,7 +121,7 @@ fn provide(req: ProvideCandidates, host: &Host) -> Result<Candidates, RpcError> 
         let groups: Vec<Group> = groups.into_iter().take(MAX_GROUPS).collect();
         candidates.extend(match scratch {
             Some(scratch) => artwork(host, scratch, album, groups, score, &mut covers, &mut warnings)?,
-            None => metadata(host, album, groups, score, &mut genres, &mut warnings)?,
+            None => metadata(host, album, groups, score, &mut lookups, &mut warnings)?,
         });
     }
     ctx.phase_end(Phase::Scan);
@@ -137,8 +145,8 @@ fn artwork(
     for Group { group, .. } in groups {
         let label = label(&group);
         match once(covers, &group.id, || covers::front(host, scratch, &group.id))? {
-            Ok(blob) => found.extend(album.tracks.iter().map(|&(track, _)| Candidate {
-                track,
+            Ok(blob) => found.extend(album.tracks.iter().map(|t| Candidate {
+                track: t.id,
                 score,
                 source: SOURCE.into(),
                 label: label.clone(),
@@ -152,42 +160,53 @@ fn artwork(
     Ok(found)
 }
 
-/// The candidates for `album`'s tracks of `groups`' tags. The genre is asked for (once for each
-/// release group, kept in `genres`) only when one release group alone was found: another's may
-/// not be the album's. Why it can't be had is a warning.
+/// The candidates for `album`'s tracks of `groups`' tags. A release group is looked up for its
+/// genre and the year it first came out (once for each, kept in `lookups`) only when it alone was
+/// found: another's may not be the album's. Why it can't be had, and a track without an album that
+/// no single was found for, are warnings.
 fn metadata(
     host: &Host,
     album: &Album,
     groups: Vec<Group>,
     score: f64,
-    genres: &mut Fetched<Result<Option<String>, u16>>,
+    lookups: &mut Fetched<Result<Lookup, u16>>,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<Candidate>, RpcError> {
-    let genre = match groups.as_slice() {
-        [one] => once(genres, &one.group.id, || musicbrainz::genre(host, &one.group.id))?.unwrap_or_else(|status| {
-            warnings.push(format!("{album}: no genre, as MusicBrainz answered {status}"));
-            None
-        }),
+    // A track without an album was looked up by its title: only a single of that name is its
+    // record, as an album of that name is its title track's.
+    let fits = |t: &Track, g: &Group| !t.single || g.group.primary_type.as_deref() == Some("Single");
+    let lookup = match groups.as_slice() {
+        [one] if album.tracks.iter().any(|t| fits(t, one)) => {
+            let looked_up = once(lookups, &one.group.id, || musicbrainz::look_up(host, &one.group.id))?;
+            looked_up
+                .map_err(|status| warnings.push(format!("{album}: no genre, as MusicBrainz answered {status}")))
+                .ok()
+        }
         _ => None,
     };
+    for t in album.tracks.iter().filter(|t| !groups.iter().any(|g| fits(t, g))) {
+        warnings.push(format!("{album}: track #{} has no album, and MusicBrainz has no single of that name", t.id));
+    }
     let mut found = Vec::new();
     for g in &groups {
         let label = label(&g.group);
-        for (track, isrc) in &album.tracks {
+        for t in album.tracks.iter().filter(|t| fits(t, g)) {
             // The recording an ISRC found is the track with that ISRC alone: the album's other
             // tracks are other recordings.
-            let recording = g.recording.as_ref().filter(|_| *isrc == album.isrc);
+            let recording = g.recording.as_ref().filter(|_| t.isrc == album.isrc);
             let tags = TrackMetadata {
                 title: recording.map(|(title, _)| title.clone()),
                 artist: recording.map(|(_, artist)| artist.clone()),
                 album: Some(g.album.clone()),
-                year: g.year,
-                genre: genre.clone(),
+                // Its lookup's when it alone was found, else the earliest on the search's page.
+                year: lookup.as_ref().and_then(|l| l.year).or(g.year),
+                genre: lookup.as_ref().and_then(|l| l.genre.clone()),
                 label: g.label.clone(),
-                isrc: recording.and(isrc.clone()),
+                // An ISRC isn't offered: only a track with it found its recording.
+                isrc: None,
             };
             found.push(Candidate {
-                track: *track,
+                track: t.id,
                 score,
                 source: TAGS_SOURCE.into(),
                 label: label.clone(),
@@ -241,7 +260,7 @@ fn albums(tracks: &[TrackTags], warnings: &mut Vec<String>) -> Vec<Album> {
         });
         let isrc = isrc(&t.isrc);
         album.isrc = album.isrc.take().or_else(|| isrc.clone());
-        album.tracks.push((t.id, isrc));
+        album.tracks.push(Track { id: t.id, isrc, single: t.album.trim().is_empty() });
     }
     albums.into_values().collect()
 }

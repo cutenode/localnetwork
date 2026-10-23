@@ -25,8 +25,8 @@ name = "covers"
 title = "Cover Art Archive"
 kind = "artwork"
 
-# Each album's title, year, label and genre, found on MusicBrainz, and the title, artist and ISRC
-# of a track found by its ISRC (`locallibrary track fetch`).
+# Each album's title, year and genre found on MusicBrainz, its label when it's found by name, and
+# the title and artist of a track found by its ISRC (`locallibrary track fetch`).
 [[contributes.providers]]
 name = "tags"
 title = "MusicBrainz"

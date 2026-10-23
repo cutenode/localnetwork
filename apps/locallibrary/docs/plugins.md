@@ -245,12 +245,14 @@ all, and images coming to 512 MiB; past that it leaves the rest out and says so.
 
 The coverart plugin has one of each, and looks each album up on MusicBrainz once for either: by
 a track's ISRC first, else by the album's name and artist. `coverart.covers` offers the front cover
-of each release group it could be. `coverart.tags` offers each one's album title, year (its
-earliest release's) and label, and its top genre when it's the only release group named so (a
-second lookup). A track whose ISRC found it also gets that recording's title, artist and ISRC;
-the album's other tracks get the album's details alone, since a release's credit isn't each
-track's artist. One release group
-found by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
+of each release group it could be. `coverart.tags` offers each one's album title and year, and
+its label only when it was found by name (MusicBrainz's ISRC search doesn't name labels). When
+it's the only release group named so, a second lookup adds its top genre and the year it first
+came out; otherwise the year is the earliest of its releases the search listed. A track whose
+ISRC found it also gets that recording's title and artist; the album's other tracks get the
+album's details alone. A track without an album is looked up by its title, and gets details only
+from a single of that name, never from an album it's the title track of. One release group found
+by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 ## Roles
 

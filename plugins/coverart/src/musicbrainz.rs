@@ -2,8 +2,9 @@
 //! has one (a recording search, which names the releases it's on), else by a release search for
 //! the album's name and artist. Only releases named as the album is count; their release groups
 //! are what the album could be, one alone being surely it. The Cover Art Archive has their covers;
-//! the releases say the album's year and label, the recording an ISRC names its title and artist,
-//! and a release group looked up on its own its genres.
+//! the releases say the album's year and (a release search's only) its label, the recording an
+//! ISRC names its title and artist, and a release group looked up on its own its genres and the
+//! date it first came out.
 
 use loclib_model::model::normalize;
 use loclib_plugin::{Fetch, Host, RpcError};
@@ -86,9 +87,11 @@ pub(crate) struct Group {
     pub(crate) group: ReleaseGroup,
     /// The first release's title: the album as MusicBrainz spells it.
     pub(crate) album: String,
-    /// The year the earliest release came out: a reissue's isn't the album's.
+    /// The year the earliest of them came out (a reissue's isn't the album's), of those on the
+    /// search's page: an earlier one can be past it.
     pub(crate) year: Option<u16>,
-    /// The first record label a release names.
+    /// The first record label a release names: none when found by an ISRC, as a recording
+    /// search's releases name none.
     pub(crate) label: Option<String>,
     /// The recording the album's ISRC names, when it was found by one: its title and artist.
     pub(crate) recording: Option<(String, String)>,
@@ -138,7 +141,10 @@ pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcErro
 
 /// What a release group's lookup answers with its genres, as far as this plugin reads it.
 #[derive(Deserialize)]
-struct Genres {
+struct Looked {
+    /// `2017-09-01`, `2017`, or empty when MusicBrainz doesn't know.
+    #[serde(default, rename = "first-release-date")]
+    first_release_date: String,
     #[serde(default)]
     genres: Vec<Genre>,
 }
@@ -150,13 +156,30 @@ struct Genre {
     count: u32,
 }
 
-/// Release group `id`'s genre, the one most voted for (of equals, the first: MusicBrainz lists
-/// them by name), or the status MusicBrainz refused it with. Fails as a search does.
-pub(crate) fn genre(host: &Host, id: &str) -> Result<Result<Option<String>, u16>, RpcError> {
+/// What a release group's lookup says of it.
+#[derive(Clone)]
+pub(crate) struct Lookup {
+    /// The one most voted for (of equals, the first: MusicBrainz lists them by name).
+    pub(crate) genre: Option<String>,
+    /// The year it first came out, of all its releases.
+    pub(crate) year: Option<u16>,
+}
+
+/// Release group `id`'s genre and first year, or the status MusicBrainz refused it with. Fails as
+/// a search does.
+pub(crate) fn look_up(host: &Host, id: &str) -> Result<Result<Lookup, u16>, RpcError> {
     let path = format!("release-group/{id}?inc=genres&fmt=json");
-    let genres = get::<Genres>(host, &path, &format!("release group {id}"), "release group")?;
-    // `max_by_key` gives the last of equals: reversed, that's the first.
-    Ok(genres.map(|g| g.genres.into_iter().rev().max_by_key(|g| g.count).map(|g| g.name)))
+    let looked = get::<Looked>(host, &path, &format!("release group {id}"), "release group")?;
+    Ok(looked.map(|l| Lookup {
+        // `max_by_key` gives the last of equals: reversed, that's the first.
+        genre: l.genres.into_iter().rev().max_by_key(|g| g.count).map(|g| g.name),
+        year: year(&l.first_release_date),
+    }))
+}
+
+/// The year of a MusicBrainz date (`2018-03-09`, `2018-03`, `2018`): its first 4 digits.
+fn year(date: &str) -> Option<u16> {
+    date.get(..4)?.parse().ok()
 }
 
 /// How many times a request is sent while MusicBrainz answers 503, which it does when too many
@@ -211,7 +234,7 @@ fn named(releases: impl Iterator<Item = (Release, Option<(String, String)>)>, na
         if !is_mbid {
             continue;
         }
-        let year = release.date.get(..4).and_then(|y| y.parse().ok());
+        let year = year(&release.date);
         let label = release.label_info.into_iter().filter_map(|l| l.label).map(|l| l.name).find(|l| l != NO_LABEL);
         match groups.iter_mut().find(|g| g.group.id == group.id) {
             Some(had) => {
