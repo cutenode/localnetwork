@@ -478,8 +478,8 @@ fn read_library(req: ReadLibrary) -> Result<LibraryPage, RpcError> {
     let page = LibraryPage {
         tracks: tracks.drain(from.min(to)..to).collect(),
         playlists: if last { playlists } else { Vec::new() },
-        blob: None,
         next: (!last).then(|| to.to_string()),
+        ..LibraryPage::default()
     };
     if req.options["as_blob"] != true {
         return Ok(page);

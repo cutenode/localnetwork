@@ -1,11 +1,12 @@
 //! Plugins' library sources (`library/read`, the `sources` feature): a library a plugin reads
 //! from somewhere on this computer, written to a drive as rekordbox's collection is (see
 //! [`crate::collection_export`]). The plugin is given the folders the user grants it for the read
-//! (`fs:read`) and answers pages of tracks and playlists until one has no `next`. None of its
-//! paths is taken on its word: a track's audio file must be, its links resolved, a file in one
-//! of those folders (not on the drive written to) that players play, which the host opens to read
-//! its format and length itself; it's hashed before it's copied, and the copy checked against
-//! that. A track that isn't is left out with a warning, and so is a playlist's entry for one. Cues,
+//! (`fs:read`) and answers pages of tracks and playlists, and what it couldn't read (warnings the
+//! plan says), until one has no `next`. None of its paths is taken on its word: a track's audio
+//! file must be, its links resolved, a file in one of those folders (not on the drive written to)
+//! that players play, which the host opens to read its format and length itself; it's hashed
+//! before it's copied, and the copy checked against that. A track that isn't is left out with a
+//! warning, and so is a playlist's entry for one. Cues,
 //! beat grids and waveforms a track brings go into analysis files made for it, each read back
 //! first; what can't be is left out with a warning.
 
@@ -112,17 +113,18 @@ impl Plugins {
                     d.name()
                 )));
             }
-            let mut answered = Vec::new();
-            let mut playlists = Vec::new();
+            let (mut answered, mut playlists, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
             let mut cursors = FxHashSet::default();
             loop {
                 ctx.check()?;
-                let page = slot.call_with(method::READ_LIBRARY, &read, store, ctx, &|_| {}, |page, scratch, _| {
-                    slot.page(page, scratch)
-                })?;
-                answered.extend(page.0);
-                playlists.extend(page.1);
-                read.cursor = match page.2 {
+                let (tracks, page) =
+                    slot.call_with(method::READ_LIBRARY, &read, store, ctx, &|_| {}, |page, scratch, _| {
+                        slot.page(page, scratch)
+                    })?;
+                answered.extend(tracks);
+                playlists.extend(page.playlists);
+                warnings.extend(page.warnings.into_iter().map(|w| format!("{}: {w}", declared.title)));
+                read.cursor = match page.next {
                     None => break,
                     Some(next) if !cursors.insert(next.clone()) => {
                         return Err(slot.misbehaved(format!("it answered the page after {next:?} twice")));
@@ -132,6 +134,7 @@ impl Plugins {
             }
             let (collected, left_out) = collect(&source, answered, playlists, &roots, &drive, ctx)?;
             let mut plan = collection_export::plan_from(&collected, d, &req.export, ctx)?;
+            plan.warnings.extend(warnings);
             plan.warnings.extend(left_out.warnings());
             Ok(plan)
         })?;
@@ -142,13 +145,9 @@ impl Plugins {
 }
 
 impl super::process::Slot {
-    /// A page as a source answered it: its tracks (with their waveforms) and playlists, those its
-    /// blob holds after them, and its `next`.
-    fn page(
-        &self,
-        mut page: LibraryPage,
-        scratch: &Scratch,
-    ) -> Result<(Vec<Answered>, Vec<SourcePlaylist>, Option<String>)> {
+    /// A page as a source answered it, with what its blob holds after it: its tracks (with their
+    /// waveforms), and the rest of it (playlists, warnings and `next`).
+    fn page(&self, mut page: LibraryPage, scratch: &Scratch) -> Result<(Vec<Answered>, LibraryPage)> {
         if let Some(name) = page.blob.take() {
             let mut text = String::new();
             let read = scratch.blob(&name).and_then(|mut f| f.read_to_string(&mut text).map_err(|e| e.to_string()));
@@ -157,9 +156,9 @@ impl super::process::Slot {
                 .map_err(|e| self.misbehaved(format!("its page's blob isn't a page: {e}")))?;
             page.tracks.extend(more.tracks);
             page.playlists.extend(more.playlists);
+            page.warnings.extend(more.warnings);
         }
-        let answered = page
-            .tracks
+        let answered = std::mem::take(&mut page.tracks)
             .into_iter()
             .map(|track| {
                 let bands = track.waveform.as_ref().map(|w| {
@@ -177,7 +176,7 @@ impl super::process::Slot {
                 Answered { track, bands }
             })
             .collect();
-        Ok((answered, page.playlists, page.next))
+        Ok((answered, page))
     }
 }
 
