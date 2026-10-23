@@ -43,6 +43,17 @@ fn the_plugins_locallibrary_ships_are_accepted() {
     assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; FIRST_PARTY.len()]);
 }
 
+/// The manifests locallibrary links in are valid, their JSON Schemas included: a release build
+/// doesn't check them as it starts (see `PluginSpec::first_party`), so this does, whatever the
+/// build.
+#[test]
+fn the_manifests_locallibrary_ships_are_valid() {
+    for (manifest, _) in FIRST_PARTY {
+        let m = Manifest::parse(manifest).unwrap();
+        m.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", m.id));
+    }
+}
+
 /// Only the plugins that clash are left out, whatever order they come in: one clashing with
 /// locallibrary (by a flag, after its command's place) clashes with no other plugin.
 #[test]
