@@ -71,3 +71,11 @@ type = "string"
 enum = ["relative", "drive"]
 default = "relative"
 description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
+
+# Reads a file the user names, for the host to find its tracks on a drive and plan the edits:
+# no capability.
+[[contributes.importers]]
+format = "traktor"
+title = "Traktor Pro: keys, BPMs and cues from a collection.nml"
+extension = "nml"
+provides = ["fields", "cues"]

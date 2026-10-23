@@ -8,6 +8,9 @@
 //! Tracks point at their audio where it will be when the other software reads the files: the
 //! drive's mount point, or another folder holding a copy of the drive's `Contents/`
 //! (`location_root`).
+//!
+//! It reads Traktor's `collection.nml` too (`traktor_read`): an importer, for the keys, tempos and
+//! cues it has for a drive's tracks.
 
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -22,6 +25,7 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod traktor_read;
 mod write;
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
@@ -30,7 +34,8 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(write_export), input, output);
+    let hooks = Hooks::new().on(write_export).on(traktor_read::read_import);
+    loclib_plugin::serve(MANIFEST, hooks, input, output);
 }
 
 /// An exporter's options (`export --option`, `plugins.export.plan`'s `options`): each exporter

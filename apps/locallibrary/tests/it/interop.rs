@@ -281,3 +281,30 @@ fn analysis_and_what_only_onelibrary_has_are_read() {
     let listed = nml.split("NAME=\"Booth\"").nth(1).unwrap();
     assert!(listed[..listed.find("</NODE>").unwrap()].contains("Demo Track 1.mp3"), "{nml}");
 }
+
+/// A Traktor collection made from a drive imports back onto it, by the importer for `.nml` files:
+/// every track found, nothing to add; a hot cue Traktor has on a pad the track has free is planned
+/// and written, and one past H is left out, saying so.
+#[test]
+fn a_traktor_collection_imports_back() {
+    let env = Env::new();
+    let main = env.drive("Main");
+    let (d, out) = (path(&main), env.outside("traktor"));
+    env.ok(&["--yes", "export", d, "--format", "traktor", "-o", path(&out)]);
+    let collection = out.join("collection.nml");
+    let nml = std::fs::read_to_string(&collection).unwrap();
+    let dry = ["import", path(&collection), d, "--dry-run"];
+    let planned = env.json(&dry);
+    assert_eq!(planned["plan"]["tracks"]["found"], planned["plan"]["tracks"]["entries"], "{planned}");
+    assert_eq!(planned["outcome"], "nothing_to_do", "what came from the drive is there: {planned}");
+
+    let pads = r#"<CUE_V2 NAME="Top" TYPE="0" START="1000" LEN="0" HOTCUE="7"/><CUE_V2 NAME="Far" TYPE="0" START="2000" LEN="0" HOTCUE="9"/>"#;
+    std::fs::write(&collection, nml.replacen("</ENTRY>", &format!("{pads}</ENTRY>"), 1)).unwrap();
+    let planned = env.json(&dry);
+    let changes = planned["plan"]["edits"]["changes"].as_array().unwrap();
+    assert_eq!(changes.len(), 1, "{planned}");
+    let warnings = planned["plan"]["warnings"].as_array().unwrap();
+    assert!(warnings.iter().any(|w| w.as_str().unwrap().ends_with("1 hot cue(s) past H left out")), "{planned}");
+    env.ok(&["--yes", "import", path(&collection), d]);
+    assert_eq!(env.json(&dry)["plan"]["edits"]["changes"], json!([]), "what it planned is there");
+}

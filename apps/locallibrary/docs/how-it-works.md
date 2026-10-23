@@ -42,7 +42,8 @@ plugins/coverart/           the coverart plugin: front covers for tracks without
                             each album looked up on MusicBrainz and its cover fetched from the Cover Art
                             Archive, as `set_artwork` edits
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
-                            library with loclib-interop into a folder on this computer
+                            library with loclib-interop into a folder on this computer, and an importer
+                            reading Traktor's collection.nml back
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with

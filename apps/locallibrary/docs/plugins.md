@@ -19,7 +19,9 @@ are:
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
   several.
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
-  --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
+  --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)), and
+  Traktor's collection read back: the keys, BPMs and cues it has for a drive's tracks
+  (`locallibrary import collection.nml LIBRARY`, see [From Traktor](other-software.md#from-traktor)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
   it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.

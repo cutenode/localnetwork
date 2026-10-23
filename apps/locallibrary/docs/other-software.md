@@ -122,3 +122,20 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
   artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+
+### From Traktor
+
+```bash
+locallibrary import "$HOME/Documents/Native Instruments/Traktor 4.0.0/collection.nml" Home --dry-run
+```
+
+Traktor keeps its collection in `collection.nml`, in `Documents/Native Instruments/Traktor
+<version>/`. The interop plugin reads it with its `traktor` importer, the one for `.nml` files:
+`import` finds Traktor's tracks on the drive by their file, then artist, title and length, and
+adds what they lack (see [Import formats](plugins.md#import-formats)): a key and a BPM, and cues
+in hot cue slots (or at places) a track has none in. Hot cues stay on their pads, memory cues,
+fade-in, fade-out and load markers become memory cues, and loops keep their length in beats, all
+in the colours Traktor shows them in (cues blue, fade markers orange, load markers yellow, loops
+green). Traktor's beat grid isn't imported, a grid marker on a pad being a hot cue there; hot
+cues past H and loops that aren't a whole number of beats (or 1/2 to 1/32 of one) at the track's
+tempo are left out, saying so.

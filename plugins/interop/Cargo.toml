@@ -1,6 +1,6 @@
 [package]
 name = "locallibrary-plugin-interop"
-description = "locallibrary's exports for other DJ software, as a plugin: Traktor's collection.nml, Serato crates (and cue tags in copies of the audio) and a new Engine DJ library"
+description = "locallibrary's exports for other DJ software, as a plugin: Traktor's collection.nml, Serato crates (and cue tags in copies of the audio) and a new Engine DJ library; and Traktor's collection.nml read back"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

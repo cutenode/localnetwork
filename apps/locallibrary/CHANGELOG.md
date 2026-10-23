@@ -289,7 +289,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
     entry is when it could be several.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
-    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
+    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
+    and Traktor's `collection.nml` read back, `import` adding the keys, BPMs and cues it has for
+    a drive's tracks.
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
@@ -409,7 +411,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
     `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
-    format, so a build for NML alone needs no SQLite.
+    format, so a build for NML alone needs no SQLite; and reading a `collection.nml` back (tracks,
+    markers, playlists, and a beat grid laid out from its grid markers).
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes, a theme's (`Palette::of`).
