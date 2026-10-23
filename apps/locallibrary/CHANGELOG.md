@@ -531,11 +531,13 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
-- `playlist import` is the tracklist plugin's now. Every entry that could be several tracks is
-  asked about at once, so the list and the drive's library are read once to ask and once to plan
-  (in a terminal; otherwise it stops, exit status 2, saying how to answer each): `--choose 3=812`
-  answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves
-  it out. `--json` gives the plan alone. Over RPC, `import.plan` and `import.apply` are gone: plan
+- `playlist import` is the tracklist plugin's now. The entries that could be several tracks are
+  asked about 64 at a time (all at once for most lists), so the list and the drive's library are
+  read once a round rather than once an entry (in a terminal; otherwise it stops, exit status 2,
+  saying how to answer that round's): `--choose 3=812` answers for entry 3, numbered from 1 as
+  the warnings number them, and `--choose 3=null` leaves it out. A track chosen that isn't on the
+  drive (removed since it was asked about) is warned of and left out. `--json` gives the plan
+  alone. Over RPC, `import.plan` and `import.apply` are gone: plan
   with `plugins.op.plan {plugin: "tracklist", operation: "import", params: {file, into, ...},
   context: {drive}}`, which may answer `{"choose": ...}` first, and apply with `plugins.op.apply`.
 - `export --format traktor|serato|engine` is the interop plugin's now. Its options are
