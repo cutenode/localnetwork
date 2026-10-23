@@ -149,6 +149,8 @@ fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
     let mut env = Env::new();
     env.plugins(&[&(listening(&["drive.pulled"]) + SUGGESTS)]);
     let main = env.pulled("Main");
+    // What the `suggests` service suggests its actions on.
+    env.demo("USB");
     play(&main, "HISTORY 002", &[]);
     env.ok(&["--yes", "plugin", "settings", "echo", "services.beat", "on"]);
     env.ok(&["--yes", "plugin", "settings", "echo", "services.suggests", "on"]);

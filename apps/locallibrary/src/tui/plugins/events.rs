@@ -64,10 +64,19 @@ impl App {
         std::thread::spawn(move || change_kept(&tx, &store_root, change));
     }
 
-    /// Offers what plugins suggested before (in the player or the `watch` agent) and runs the
-    /// services the user turned on, in the background.
+    /// Offers what plugins suggested before (in the player or the `watch` agent), saying how many
+    /// it can't (another version's), and runs the services the user turned on, in the background.
     pub(in crate::tui) fn start_plugins(&self) {
-        self.change_kept(|root| Store::open(root).map_or_else(|_| Ok(Vec::new()), |s| suggested(&s)));
+        let tx = self.sender();
+        self.change_kept(move |root| {
+            let Ok(store) = Store::open(root) else { return Ok(Vec::new()) };
+            let kept = suggested(&store)?;
+            if kept.unread > 0 {
+                let unread = crate::output::plural(kept.unread, "suggestion");
+                let _ = tx.send(Msg::Note(format!("{unread} from another version can't be offered here"), Level::Info));
+            }
+            Ok(kept.notices)
+        });
         let store_root = self.store_root.clone();
         std::thread::spawn(move || {
             if let Ok(plugins) = crate::plugins::host() {

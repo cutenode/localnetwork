@@ -40,7 +40,7 @@ fn waiting(app: &App) -> Vec<&str> {
 /// The messages of the suggestions kept in the store at `root`.
 fn kept(root: &Path) -> Vec<String> {
     let store = locallibrary::Store::open(root).unwrap();
-    suggested(&store).unwrap().into_iter().map(|n| n.message).collect()
+    suggested(&store).unwrap().notices.into_iter().map(|n| n.message).collect()
 }
 
 /// What a plugin says is a message; what it suggests waits in the palette, newest first, and

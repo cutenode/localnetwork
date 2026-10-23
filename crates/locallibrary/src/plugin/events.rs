@@ -11,6 +11,7 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use loclib_plugin::{EventName, EventNotify, HostAction, HostNotify, Suggested, Suggestion, method};
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -230,12 +231,53 @@ impl Plugin {
         for s in notice.operation.iter_mut().chain(notice.action.iter_mut()) {
             self.net.scrub_value(&mut s.params);
         }
-        let suggests = notice.suggestion(&self.manifest).unwrap_or_else(|refused| {
+        let suggests = notice.suggestion(&self.manifest).and_then(|s| match s {
+            Some(Suggestion::Action(a)) => self.on_known_drive(live, a).map(|a| Some(Suggestion::Action(a))),
+            s => Ok(s),
+        });
+        let suggests = suggests.unwrap_or_else(|refused| {
             self.host.log(id, &refused);
             None
         });
         (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, suggests });
     }
+
+    /// `action` on the drive it names as this computer knows it, by id (else by name), so a front
+    /// end never takes it for a folder; its tracks those the drive has, each once (the others left
+    /// out, and logged). Why not, when the drive isn't one known here, or has none of its tracks.
+    /// Found as its reads find drives: in the store the plugin was started in.
+    fn on_known_drive(&self, live: &Live, mut action: HostAction) -> std::result::Result<HostAction, String> {
+        let (Some(drive), tracks) = action.scope_mut() else { return Ok(action) };
+        let store = live.store.as_ref().map(|s| s.root().to_path_buf());
+        crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = store);
+        let device = self.host.reads.drive(drive).and_then(|root| crate::Device::open(&root));
+        let device =
+            device.map_err(|e| format!("it suggests an action on {drive:?}, which isn't a drive known here: {e}"))?;
+        let name = device.name();
+        *drive = device.id().map_or_else(|| name.clone(), |id| id.to_string());
+        if let Some(tracks) = tracks.filter(|t| !t.is_empty()) {
+            let library = device.library().map_err(|e| format!("it suggests an action on {name}: {e}"))?;
+            let (on, missing) = tracks_on(&library, tracks);
+            if on.is_empty() {
+                return Err(format!("it suggests an action on tracks {name} doesn't have"));
+            }
+            if missing > 0 {
+                self.host
+                    .log(&self.manifest.id, &format!("{missing} of the tracks it suggests aren't on {name}: left out"));
+            }
+            *tracks = on;
+        }
+        Ok(action)
+    }
+}
+
+/// Which of `tracks` (by id) `library` has, each once and in their order, and how many others
+/// there are.
+pub fn tracks_on(library: &crate::Library, tracks: &[u32]) -> (Vec<u32>, usize) {
+    let has: FxHashSet<u32> = library.tracks.iter().map(|t| t.id).collect();
+    let mut seen = FxHashSet::default();
+    let (on, missing): (Vec<u32>, Vec<u32>) = tracks.iter().filter(|t| seen.insert(**t)).partition(|t| has.contains(t));
+    (on, missing.len())
 }
 
 /// Sends the plugin its events as they come, until none has come for [`IDLE`] or the host has
@@ -274,26 +316,60 @@ fn suggested_file(store: &Store) -> std::path::PathBuf {
     store.root().join("plugins").join("suggested.json")
 }
 
-/// The suggestions kept for the player to offer, oldest first: none when none are kept, and an
-/// error when the file they're kept in can't be read (it's left as it is).
-pub fn suggested(store: &Store) -> Result<Vec<PluginNotice>> {
-    let _keeping = lock(&KEEPING);
-    Ok(fsutil::read_json_opt(&suggested_file(store))?.unwrap_or_default())
+/// The suggestions kept for the player.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Suggestions {
+    /// Those this version can offer, oldest first.
+    pub notices: Vec<PluginNotice>,
+    /// How many it can't: another version's (a newer one suggesting what this one doesn't know).
+    /// They're left as they are.
+    pub unread: usize,
 }
 
-/// `change`s the suggestions kept, and answers them as they're kept now. The read and the write
-/// happen under a lock of their own (`suggested.lock` beside them, waited for), so the player and
-/// the `watch` agent keeping and forgetting them at once don't drop each other's changes. (Read
-/// alone, they needn't wait: they're written whole, in place at once.)
+/// The suggestions kept in `file`, as this version reads them, and those it can't.
+fn read_kept(file: &std::path::Path) -> Result<(Vec<PluginNotice>, Vec<Value>)> {
+    let all: Vec<Value> = fsutil::read_json_opt(file)?.unwrap_or_default();
+    // One whose suggestion doesn't read would read without it (it's flattened in): that's not one
+    // this version can offer.
+    let read = |v: &Value| {
+        let notice: PluginNotice = serde_json::from_value(v.clone()).ok()?;
+        let suggests = v.get("operation").is_some() || v.get("action").is_some();
+        (notice.suggests.is_some() == suggests).then_some(notice)
+    };
+    let (mut notices, mut unread) = (Vec::new(), Vec::new());
+    for v in all {
+        match read(&v) {
+            Some(notice) => notices.push(notice),
+            None => unread.push(v),
+        }
+    }
+    Ok((notices, unread))
+}
+
+/// The suggestions kept for the player to offer: none when none are kept, and an error when the
+/// file they're kept in can't be read (it's left as it is).
+pub fn suggested(store: &Store) -> Result<Suggestions> {
+    let _keeping = lock(&KEEPING);
+    let (notices, unread) = read_kept(&suggested_file(store))?;
+    Ok(Suggestions { notices, unread: unread.len() })
+}
+
+/// `change`s the suggestions kept, and answers them as they're kept now; those this version can't
+/// read are kept as they are, first. The read and the write happen under a lock of their own
+/// (`suggested.lock` beside them, waited for), so the player and the `watch` agent keeping and
+/// forgetting them at once don't drop each other's changes. (Read alone, they needn't wait:
+/// they're written whole, in place at once.)
 fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Result<Vec<PluginNotice>> {
     let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
     let dir = file.parent().expect("in a folder");
     std::fs::create_dir_all(dir).at(dir)?;
     let _changing = fsutil::FileLock::wait(&dir.join("suggested.lock"))?;
-    let mut kept = fsutil::read_json_opt(&file)?.unwrap_or_default();
+    let (mut kept, unread) = read_kept(&file)?;
     change(&mut kept);
-    fsutil::write_json_atomic(&file, &kept)?;
+    let all: Vec<Value> =
+        unread.into_iter().chain(kept.iter().map(|n| serde_json::to_value(n).expect("JSON"))).collect();
+    fsutil::write_json_atomic(&file, &all)?;
     Ok(kept)
 }
 
