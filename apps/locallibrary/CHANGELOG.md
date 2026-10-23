@@ -348,7 +348,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   needed: demo samples out, recorded edits made again, rule-based playlists filled, the name and
   colour players show (which `drive player` now remembers on the drive) and My Settings; then it
   saves the drive in the store and, with `--sync`, copies it onto its library's other mounted
-  drives. `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
+  drives. `--then PLUGIN.OPERATION KEY=VALUE...` runs plugins' operations in the same plan, before
+  the drive is saved (`operations` over RPC). `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
 - **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
   first), copies the newest library onto the others, checks them against your player models and

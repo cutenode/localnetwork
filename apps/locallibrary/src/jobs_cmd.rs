@@ -279,13 +279,17 @@ pub struct RefreshArgs {
     /// the only mounted rekordbox drive, else the one rekordbox exported over recorded edits on,
     /// else the newest drive of the one library plugged in]
     pub drive: Option<String>,
-    /// Leave a step out: clean, replay, smart, player, settings, pull or sync (repeatable or
-    /// comma-separated)
+    /// Leave a step out: clean, replay, smart, player, settings, operations, pull or sync
+    /// (repeatable or comma-separated)
     #[arg(long, value_name = "STEP", value_delimiter = ',', value_parser = parse_step)]
     pub skip: Vec<StepKind>,
     /// Then copy the drive onto the other mounted drives of its library, when it's the newest
     #[arg(long)]
     pub sync: bool,
+    /// Also run a plugin's operation on the drive before it's saved, its params as KEY=VALUE
+    /// (repeatable: they run in the order given; name the drive before it)
+    #[arg(long, value_names = ["PLUGIN.OPERATION", "KEY=VALUE"], num_args = 1..)]
+    pub then: Vec<String>,
     /// Show the plan without changing anything
     #[arg(long)]
     pub dry_run: bool,
@@ -294,20 +298,53 @@ pub struct RefreshArgs {
 pub const REFRESH_HELP: &str = "Steps, each only when needed: remove rekordbox's demo samples (clean), make the \
 recorded edits again (edits replay: playlists, tracks, My Tags, cues), fill the rule-based playlists (smart \
 apply), put back the name and colour players show (as `drive player` last set them), write My Settings \
-(settings apply), save the drive in the store (pull), and with --sync copy it onto the other mounted drives \
-of its library. One plan lists them all and asks once; the first step that fails stops it (exit status 5 \
-when some steps were done).";
+(settings apply), run the plugins' operations --then asks for (operations), save the drive in the store \
+(pull), and with --sync copy it onto the other mounted drives of its library. One plan lists them all and \
+asks once; the first step that fails stops it (exit status 5 when some steps were done).";
 
 /// `locallibrary refresh [DRIVE]`: rekordbox just exported to this drive.
 pub fn refresh(args: RefreshArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let drive = drive_or(args.drive, store_path, api::refresh_drive)?;
     let store = crate::open_store(store_path)?;
-    let req = api::RefreshRequest { drive: Some(drive), skip: args.skip, sync: args.sync };
+    let operations = operation_steps(&args.then)?;
+    let req = api::RefreshRequest { drive: Some(drive), skip: args.skip, sync: args.sync, operations };
     let plan = api::refresh_plan(&store, &req, ctx)?;
     let target = plan.targets.first().map(|t| format!("{} ({})", t.name, t.root.display())).unwrap_or_default();
     let heading = format!("Refresh {target} after rekordbox's export");
     let nothing = "nothing to do: the drive has everything rekordbox's export left out";
     run_job(plan, &store, Shown { heading: &heading, nothing, dry_run: args.dry_run, verbose: false }, out, ctx)
+}
+
+/// The plugins' operations `--then PLUGIN.OPERATION KEY=VALUE...` gives (each `--then`, or each
+/// PLUGIN.OPERATION, starts one), each param read as its operation's schema says. One the plugins
+/// don't have goes as it is, for the plan to refuse.
+fn operation_steps(given: &[String]) -> Result<Vec<api::OperationStep>> {
+    let mut steps: Vec<(&String, Vec<String>)> = Vec::new();
+    for v in given {
+        match (v.contains('='), steps.last_mut()) {
+            (true, Some((_, pairs))) => pairs.push(v.clone()),
+            (false, _) if v.contains('.') => steps.push((v, Vec::new())),
+            _ => {
+                return Err(usage(format!(
+                    "--then takes PLUGIN.OPERATION, then its params as KEY=VALUE, not {v:?} (name the drive before it)"
+                )));
+            }
+        }
+    }
+    steps.into_iter().map(|(operation, pairs)| operation_step(operation, &pairs)).collect()
+}
+
+/// `operation` with `pairs` (KEY=VALUE) for its params.
+fn operation_step(operation: &str, pairs: &[String]) -> Result<api::OperationStep> {
+    let declared = operation.split_once('.').and_then(|(plugin, name)| {
+        let manifest = crate::plugins::host().ok()?.manifest(plugin).ok()?;
+        manifest.contributes.operations.iter().find(|o| o.name == name)
+    });
+    let params = match declared {
+        Some(op) => crate::plugin_cmd::options(&format!("{operation} operation"), op.params.as_ref(), pairs)?,
+        None => Value::Null,
+    };
+    Ok(api::OperationStep { operation: operation.into(), params })
 }
 
 // ---------------------------------------------------------------------------------------------
