@@ -265,8 +265,10 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
         }
         for e in &m.contributes.exporters {
             let what = format!("the {id} plugin's export format {:?}", e.format);
-            let ours = &formats.iter().find(|(of, _)| *of == e.source).expect("every kind has its formats").1;
-            claim(&mut exports, ours, &e.format, format!("the {id} plugin's"), what)?;
+            // Taken on each command line it's given on.
+            let ours: FxHashMap<String, String> =
+                formats.iter().filter(|(of, _)| e.takes(*of)).flat_map(|(_, names)| names.clone()).collect();
+            claim(&mut exports, &ours, &e.format, format!("the {id} plugin's"), what)?;
         }
         for format in m.contributes.importers.iter().map(|i| i.format.as_str()) {
             let what = format!("the {id} plugin's import format {format:?}");

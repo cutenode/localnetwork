@@ -394,28 +394,11 @@ fn paths(e: &Exported) -> Vec<PathBuf> {
 fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
-    let sources: Vec<(&str, ExportFrom)> =
-        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.source)).collect();
-    assert_eq!(
-        sources,
-        [
-            ("traktor", ExportFrom::Drive),
-            ("serato", ExportFrom::Drive),
-            ("engine", ExportFrom::Drive),
-            ("traktor-set", ExportFrom::Set),
-            ("serato-set", ExportFrom::Set),
-            ("engine-set", ExportFrom::Set),
-            ("traktor-mix", ExportFrom::Mix),
-            ("serato-mix", ExportFrom::Mix),
-            ("engine-mix", ExportFrom::Mix),
-        ]
-    );
-    assert!(manifest.contributes.exporters.iter().all(|e| e.folder));
-    // A set's or a mix's exporter takes the options its drive's exporter does.
-    for e in &manifest.contributes.exporters[3..] {
-        let drives = manifest.contributes.exporters.iter().find(|d| e.format.starts_with(&format!("{}-", d.format)));
-        assert_eq!(e.options, drives.unwrap().options, "{}", e.format);
-    }
+    // Each writes out a drive's library, a set or a mix.
+    let all = [ExportFrom::Drive, ExportFrom::Set, ExportFrom::Mix];
+    let formats: Vec<(&str, bool, &[ExportFrom])> =
+        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder, e.sources())).collect();
+    assert_eq!(formats, [("traktor", true, &all[..]), ("serato", true, &all[..]), ("engine", true, &all[..])]);
     // Where the drive is mounted comes with the export: no drive:info.
     let capabilities = [Capability::LibraryRead, Capability::AnalysisRead, Capability::SetsRead];
     assert_eq!(manifest.capabilities, capabilities);

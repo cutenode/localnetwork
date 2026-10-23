@@ -249,7 +249,7 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     SetBook { sets: sets.clone(), ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
     app.list_marks = tc.draw(gs::subsequences(vec!["Warmup".to_string()]));
     let Some(open) = tc.draw(gs::optional(gs::sampled_from(sets.clone()))) else {
-        app.plugin_export("echo", "sheet", Some(drive.0.clone()));
+        app.plugin_export("echo", "sheet", loclib_plugin::ExportFrom::Set, Some(drive.0.clone()));
         assert_eq!((app.modal.is_none(), last_message(&app)), (true, "open a set first"));
         return;
     };

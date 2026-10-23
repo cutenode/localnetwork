@@ -31,7 +31,7 @@ pub use hooks::destinations::{
     Published, PublishedSet, PutBlob, PutManifest, TracklistEntry,
 };
 pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
-pub use hooks::exporters::{ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport};
+pub use hooks::exporters::{ExportFrom, ExportSource, ExportSources, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{
     ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, ImportedPlay, ImportedTrack, Importer, ReadImport,
     TrackMatch,

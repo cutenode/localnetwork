@@ -1,6 +1,6 @@
-//! A set's or a mix's exporters (`traktor-set`, `serato-mix`...): what the DJ played, as one
-//! playlist for other DJ software. The files point at the audio on the drive the user names, so
-//! the drive's library is read as a drive's export reads it, then narrowed to that playlist.
+//! A set or a mix for other DJ software: what the DJ played, as one playlist. The files point at
+//! the audio on the drive the user names, so the drive's library is read as a drive's export
+//! reads it, then narrowed to that playlist.
 
 use loclib_model::{Library, Playlist, paths};
 use loclib_plugin::{ExportSource, Host, RpcError};
@@ -72,7 +72,7 @@ pub(crate) fn read(source: &ExportSource, host: &Host) -> Result<Option<Played>,
         _ if source.drive.is_empty() => {
             let what = if source.set.is_some() { "set" } else { "mix" };
             return Err(crate::invalid(format!(
-                "a {what}'s export points at its tracks' audio on a drive: say which drive (--drive DRIVE)"
+                "a {what}'s export points at its tracks' audio: name the drive they're on"
             )));
         }
         (Some(set), _) => {
@@ -84,6 +84,8 @@ pub(crate) fn read(source: &ExportSource, host: &Host) -> Result<Option<Played>,
         (None, Some(mix)) => {
             let mix: Mix = host.call("mix.reports.get", &json!({ "id": mix }))?;
             let name = named([mix.mix.date, Some(mix.mix.title)]);
+            // Neither a day nor a title: a playlist still needs a name to show.
+            let name = if name.is_empty() { "Mix".into() } else { name };
             Played { what: "mix", name, tracks: mix.plays.into_iter().map(|p| p.track).collect() }
         }
     };

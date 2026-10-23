@@ -1,10 +1,9 @@
-//! The interop plugin locallibrary ships, end to end: `export --format traktor|serato|engine`
-//! and `sets export --format traktor-set` through the plugin host on real drives, and the
-//! sidecar's `plugins.export.*`. What the files
-//! hold is loclib-interop's to test (its tests/props), and what the plugin makes of the host's
-//! answers is plugins/interop's; here is what only the real host and the command line show: the
-//! reads (a drive's own analysis, the tracks only OneLibrary has), the options, asking before
-//! overwriting, and the exit statuses.
+//! The interop plugin locallibrary ships, end to end: `export --format traktor|serato|engine` and
+//! `sets export --format traktor` through the plugin host on real drives, and the sidecar's
+//! `plugins.export.*`. What the files hold is loclib-interop's to test (its tests/props), and what
+//! the plugin makes of the host's answers is plugins/interop's; here is what only the real host
+//! and the command line show: the reads (a drive's own analysis, the tracks only OneLibrary has),
+//! the options, asking before overwriting, and the exit statuses.
 
 use std::path::Path;
 
@@ -293,9 +292,9 @@ fn a_set_goes_to_traktor_as_a_playlist() {
     env.ok(&["sets", "new", "--title", "Friday", "--date", "2026-10-03", "--venue", "Warehouse"]);
     env.ok(&["sets", "edit", "Friday", "--insert", "1:Floorplan - Never Grow Old", "--insert", "1:Deluxe Cynic"]);
     let out = env.outside("set for traktor");
-    let export = ["sets", "export", "Friday", "--format", "traktor-set", "-o", path(&out)];
+    let export = ["sets", "export", "Friday", "--format", "traktor", "-o", path(&out)];
     let refused = env.fails(1, &export);
-    assert!(refused.contains("a set's export points at its tracks' audio on a drive: say which drive"), "{refused}");
+    assert!(refused.contains("a set's export points at its tracks' audio: name the drive they're on"), "{refused}");
     assert!(!out.exists());
 
     let said = env.ok(&[&export[..], &["--drive", path(&club)]].concat());

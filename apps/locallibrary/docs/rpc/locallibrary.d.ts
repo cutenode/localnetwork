@@ -8071,9 +8071,15 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
-  /** What it writes out [default: a drive's library]. */
-  source?: ExportFrom;
+  /**
+   * What it writes out [default: a drive's library]: one source (`"set"`), or a list of them
+   * (`["drive", "set", "mix"]`) for an exporter that writes each out the same way.
+   */
+  source?: ExportSources;
 };
+
+/** What an exporter writes out, as its manifest says it: one source, or a list. */
+export type ExportSources = ExportFrom | ExportFrom[];
 
 /** What an exporter writes out. */
 export type ExportFrom =

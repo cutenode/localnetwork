@@ -5,8 +5,8 @@
 //! and the audio, for Serato's copies, from the drive itself (where the host says it's mounted,
 //! the export's `source.root`), which it never writes to.
 //!
-//! A set's or a mix's exporter (`traktor-set`, `serato-mix`...) writes the same files with one
-//! playlist instead: the tracks played, in order, from the drive the user names (`set_export`).
+//! Given a set or a mix instead of a drive's lists, each writes the same files with one playlist:
+//! the tracks played, in order, from the drive the user names (`set_export`).
 //!
 //! Tracks point at their audio where it will be when the other software reads the files: the
 //! drive's mount point, or another folder holding a copy of the drive's `Contents/`
@@ -58,9 +58,7 @@ struct Options {
 /// Works out the export in memory, as loclib-interop does, and with `dry_run` answers the
 /// files it would write; otherwise writes them, below `output`.
 fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-    // A set's or a mix's exporter is named for the software and what it writes out (`traktor-set`).
-    let software = req.exporter.split_once('-').map_or(req.exporter.as_str(), |(software, _)| software);
-    let software: Software = params(Value::from(software))?;
+    let software: Software = params(Value::from(req.exporter))?;
     let options: Options = params::<Option<Options>>(req.options)?.unwrap_or_default();
     if !req.source.history.is_empty() {
         return Err(invalid(format!("{} doesn't take history lists", software.name())));

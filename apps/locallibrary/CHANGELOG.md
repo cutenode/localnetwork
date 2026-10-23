@@ -272,9 +272,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   they lack (a key and a BPM where a track has none, cues in slots it has none in, My Tags) as one
   edit, confirmed and undone as any is, and keeps the plays the file logged as sessions (the
   player's drive menu has it, the sidecar `plugins.import.plan/apply`). An exporter may write out
-  a set or a mix instead of a drive's library: `sets export --format` and `mix --format FORMAT
-  --export PATH` take those formats, the player offers a set's while the set is open, and the
-  sidecar's `plugins.export.plan` takes `set` and `mix`.
+  a set or a mix instead of a drive's library, or any of them with one format (its `source` a
+  list): `sets export --format` and `mix --format FORMAT --export PATH` take those formats, the
+  player offers a set's while the set is open, and the sidecar's `plugins.export.plan` takes `set`
+  and `mix`.
   A view is a list, a table (its columns tracks, durations, keys or numbers with a unit, or plain),
   labelled values, text, a tree, a chart, a picture or sections of those, each drawn in the
   player and as plain text on the command line. Panels show what a plugin has to say about a
@@ -291,7 +292,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
     and a set or a recorded mix as one playlist of the tracks played, in order, from a drive
-    (`sets export SET --format traktor-set --drive DRIVE`, `mix --format serato-mix`).
+    (`sets export SET --format traktor --drive DRIVE -o DIR`, `mix RECORDING --drive DRIVE
+    --format serato --export DIR`).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an

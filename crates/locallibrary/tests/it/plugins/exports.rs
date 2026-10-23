@@ -1,5 +1,5 @@
-//! Exporters of sets and mixes: the request names what the exporter's `source` says, found by
-//! the host, and the plugin reads it.
+//! Exporters of sets and mixes: the request names one of what the exporter's `source` lists,
+//! found by the host, and the plugin reads it.
 
 use locallibrary::Device;
 use locallibrary::mix::report;
@@ -8,13 +8,14 @@ use locallibrary::sets::{Set, SetBook, SetEntry};
 use super::*;
 
 /// The echo manifest granting `sets:read`, with a set exporter (`sheet`) and a mix exporter
-/// (`mixsheet`), each writing a tracklist.
+/// (`mixsheet`), each writing a tracklist, and one writing out any of the three (`anysheet`).
 fn tracklists() -> String {
     granting(&["sets:read"]).replace(
         "[[contributes.providers]]",
         "[[contributes.exporters]]\nformat = \"sheet\"\ntitle = \"Set sheet\"\nextension = \"txt\"\nsource = \"set\"\n\n\
          [[contributes.exporters]]\nformat = \"mixsheet\"\ntitle = \"Mix sheet\"\nextension = \"txt\"\n\
-         source = \"mix\"\n\n[[contributes.providers]]",
+         source = \"mix\"\n\n[[contributes.exporters]]\nformat = \"anysheet\"\ntitle = \"Any sheet\"\n\
+         extension = \"txt\"\nsource = [\"drive\", \"set\", \"mix\"]\n\n[[contributes.providers]]",
     )
 }
 
@@ -84,7 +85,13 @@ fn an_export_names_what_its_exporter_writes_out() {
     assert_eq!(e("sheet", lists), "Set sheet writes out a set, not a drive's playlists");
     let both = ExportSource { set: set(), mix: Some("m".into()), ..ExportSource::default() };
     assert_eq!(e("sheet", both.clone()), "Set sheet writes out a set, not a mix");
-    assert_eq!(e("mixsheet", both), "Mix sheet writes out a mix, not a set");
+    assert_eq!(e("mixsheet", both.clone()), "Mix sheet writes out a mix, not a set");
+    // One writing out any of the three is told which by what the request names, one of them.
+    let any = "Any sheet writes out a drive's library, a set or a mix: say which";
+    assert_eq!(e("anysheet", ExportSource::default()), any);
+    assert_eq!(e("anysheet", both), "name a set or a mix to write out, not both");
+    let lists = ExportSource { mix: Some("m".into()), playlists: vec!["Sets".into()], ..ExportSource::default() };
+    assert_eq!(e("anysheet", lists), "Any sheet writes out a drive, a set or a mix, not a drive's playlists");
     let none = f.export("sheet", ExportSource { set: set(), ..ExportSource::default() }).err().unwrap();
     assert_eq!(none.code(), "not_found", "{none}");
     let none =
@@ -98,7 +105,7 @@ fn an_export_names_what_its_exporter_writes_out() {
 
 /// For any source an export names (a drive or none, a set by its title, `last` or its id or one
 /// that isn't there, a mix kept or not, playlists), with the store or without: an exporter plans
-/// only what its manifest's `source` says it writes out, named, and found; anything else is
+/// only one of what its manifest's `source` lists, named, and found; anything else is
 /// refused, saying what's wrong first. A set's and a mix's are written out as the plugin read
 /// them.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
@@ -110,7 +117,7 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
     SetBook { sets: vec![friday], ..SetBook::default() }.save(&f.store).unwrap();
     let tracks = common::library(&f.drive).tracks;
     let mix = report::save(&f.store, &crate::sets::report(&[(&tracks[0], 0.0, 0.9)], None)).unwrap();
-    let exporter = tc.draw(gs::sampled_from(vec!["m3u", "sheet", "mixsheet"]));
+    let exporter = tc.draw(gs::sampled_from(vec!["m3u", "sheet", "mixsheet", "anysheet"]));
     let source = ExportSource {
         drive: tc.draw(gs::sampled_from(vec!["", "USB"])).into(),
         set: tc.draw(gs::optional(gs::sampled_from(vec!["Friday", "last", "3m2friday2222", "nope"]))).map(String::from),
@@ -122,22 +129,38 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
     let output = f._dir.path().join("out").join(format!("{exporter}.txt"));
     let planned = f.plugins.export_plan("echo", exporter, source.clone(), &output, Value::Null, store, &Ctx::silent());
 
-    let (title, writes) = match exporter {
-        "m3u" => ("M3U playlist", "drive"),
-        "sheet" => ("Set sheet", "set"),
-        _ => ("Mix sheet", "mix"),
+    let (title, takes): (&str, &[&str]) = match exporter {
+        "m3u" => ("M3U playlist", &["drive"]),
+        "sheet" => ("Set sheet", &["set"]),
+        "mixsheet" => ("Mix sheet", &["mix"]),
+        _ => ("Any sheet", &["drive", "set", "mix"]),
     };
     let (set, mixed) = (source.set.is_some(), source.mix.is_some());
-    let not = |what: &str| Some(format!("{title} writes out a {writes}, not {what}"));
-    let refused = match exporter {
-        "m3u" if source.drive.is_empty() => Some(format!("{title} writes out a drive's library: say which")),
-        "m3u" if set => not("a set"),
-        "m3u" if mixed => not("a mix"),
-        "m3u" => None,
+    // What the request names: a set, else a mix, else a drive's library.
+    let from = if set {
+        "set"
+    } else if mixed {
+        "mix"
+    } else {
+        "drive"
+    };
+    let either = |parts: Vec<String>| match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => unreachable!(),
+    };
+    let writes = either(takes.iter().map(|t| format!("a {t}")).collect());
+    let library = |t: &&str| if *t == "drive" { "a drive's library".to_string() } else { format!("a {t}") };
+    let named = Some(format!("{title} writes out {}: say which", either(takes.iter().map(library).collect())));
+    let not = |what: &str| Some(format!("{title} writes out {writes}, not {what}"));
+    let refused = match () {
+        _ if !takes.contains(&from) && from == "drive" => named,
+        _ if !takes.contains(&from) => not(&format!("a {from}")),
+        _ if from == "drive" && source.drive.is_empty() => named,
+        _ if from == "drive" => None,
         _ if !source.playlists.is_empty() => not("a drive's playlists"),
-        "sheet" if mixed => not("a mix"),
-        "mixsheet" if set => not("a set"),
-        _ if !set && !mixed => Some(format!("{title} writes out a {writes}: say which")),
+        _ if set && mixed && !takes.contains(&"mix") => not("a mix"),
+        _ if set && mixed => Some("name a set or a mix to write out, not both".into()),
         _ if store.is_none() => Some("sets and mixes are kept in the store, and there's none".into()),
         _ => None,
     };
@@ -153,17 +176,17 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
     let planned = planned.unwrap();
     let id = Device::open(&f.drive).unwrap().id().unwrap().to_string();
     let drive = format!("drive: {}", if source.drive.is_empty() { "" } else { &id });
-    match exporter {
-        "sheet" => assert_eq!(planned.notes, [drive, "set: 3m2friday2222".into()], "by its id"),
-        "mixsheet" => assert_eq!(planned.notes, [drive, format!("mix: {mix}")]),
+    match from {
+        "set" => assert_eq!(planned.notes, [drive, "set: 3m2friday2222".into()], "by its id"),
+        "mix" => assert_eq!(planned.notes, [drive, format!("mix: {mix}")]),
         _ => {}
     }
     planned.apply(store, &Ctx::silent()).unwrap();
     let written = std::fs::read_to_string(&planned.output).unwrap();
     // As the test's reads answer: `sets.get` a set of no tracks, `mix.reports.get` a mix of one.
-    match exporter {
-        "sheet" => assert_eq!(written, ""),
-        "mixsheet" => assert_eq!(written, "A - B\n"),
+    match from {
+        "set" => assert_eq!(written, ""),
+        "mix" => assert_eq!(written, "A - B\n"),
         _ => assert!(written.starts_with("#EXTM3U"), "{written}"),
     }
 }

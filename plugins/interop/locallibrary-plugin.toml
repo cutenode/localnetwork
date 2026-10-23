@@ -3,14 +3,17 @@ name = "Other DJ software"
 version = "0.1.0"
 protocol = "^0.2"
 # library:read for the library exports read (`combined`), analysis:read for beat grids and cues,
-# sets:read for the set or the mix a set's or a mix's exporter writes out as a playlist. The files
-# name the audio by its full path: where the drive is mounted comes with the export.
+# sets:read for a set or a mix written out as a playlist. The files name the audio by its full
+# path: where the drive is mounted comes with the export.
 capabilities = ["library:read", "analysis:read", "sets:read"]
 
 [[contributes.exporters]]
 format = "traktor"
 title = "Traktor Pro: collection.nml with tracks, beat grids, cues and playlists"
 folder = true
+# Each writes out a drive's library, or a set or a mix as one playlist of the tracks played
+# from the drive, with the same options.
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"
@@ -31,6 +34,7 @@ description = "Leave out beat grids and cues"
 format = "serato"
 title = "Serato DJ: a crate per playlist"
 folder = true
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"
@@ -56,147 +60,7 @@ description = "Copy the audio into the output folder and write cue points into t
 format = "engine"
 title = "Engine DJ: a new Engine Library with tracks and playlists"
 folder = true
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Engine DJ reads the library, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.paths]
-type = "string"
-enum = ["relative", "drive"]
-default = "relative"
-description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
-
-# A set's and a mix's exporters: the tracks played, in order, as one playlist, from the drive the
-# user names. Export formats share one namespace across sources, hence `-set` and `-mix`.
-
-[[contributes.exporters]]
-format = "traktor-set"
-title = "Traktor Pro: a set as a playlist in a collection.nml, with beat grids and cues"
-folder = true
-source = "set"
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Traktor reads the files, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.skip_analysis]
-type = "boolean"
-default = false
-description = "Leave out beat grids and cues"
-
-[[contributes.exporters]]
-format = "serato-set"
-title = "Serato DJ: a set as a crate"
-folder = true
-source = "set"
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Serato reads the crates, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.skip_analysis]
-type = "boolean"
-default = false
-description = "With write_tags: leave out cue points"
-
-[contributes.exporters.options.properties.write_tags]
-type = "boolean"
-default = false
-description = "Copy the audio into the output folder and write cue points into the copies' tags; the crates list the copies"
-
-[[contributes.exporters]]
-format = "engine-set"
-title = "Engine DJ: a set as a playlist in a new Engine Library"
-folder = true
-source = "set"
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Engine DJ reads the library, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.paths]
-type = "string"
-enum = ["relative", "drive"]
-default = "relative"
-description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
-
-[[contributes.exporters]]
-format = "traktor-mix"
-title = "Traktor Pro: a mix's tracklist as a playlist in a collection.nml, with beat grids and cues"
-folder = true
-source = "mix"
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Traktor reads the files, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.skip_analysis]
-type = "boolean"
-default = false
-description = "Leave out beat grids and cues"
-
-[[contributes.exporters]]
-format = "serato-mix"
-title = "Serato DJ: a mix's tracklist as a crate"
-folder = true
-source = "mix"
-
-[contributes.exporters.options]
-type = "object"
-additionalProperties = false
-
-[contributes.exporters.options.properties.location_root]
-type = "string"
-minLength = 1
-x-path = true
-description = "Where the drive's Contents/ will be when Serato reads the crates, absolute (default: the drive's mount point)"
-
-[contributes.exporters.options.properties.skip_analysis]
-type = "boolean"
-default = false
-description = "With write_tags: leave out cue points"
-
-[contributes.exporters.options.properties.write_tags]
-type = "boolean"
-default = false
-description = "Copy the audio into the output folder and write cue points into the copies' tags; the crates list the copies"
-
-[[contributes.exporters]]
-format = "engine-mix"
-title = "Engine DJ: a mix's tracklist as a playlist in a new Engine Library"
-folder = true
-source = "mix"
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"

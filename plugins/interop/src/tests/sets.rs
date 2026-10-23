@@ -1,5 +1,5 @@
-//! A set's and a mix's exporters, as `locallibrary sets export SET --format traktor-set --drive
-//! DRIVE` and `locallibrary mix RECORDING --format serato-mix --export DIR` run them: the drive's
+//! A set's and a mix's exports, as `locallibrary sets export SET --format traktor --drive DRIVE`
+//! and `locallibrary mix RECORDING --drive DRIVE --format serato --export DIR` run them: the drive's
 //! library narrowed to one playlist of the tracks played on it, in order, written as the drive's
 //! exports write a library.
 
@@ -81,8 +81,8 @@ fn a_set_is_a_playlist_of_its_tracks_on_the_drive() {
     let session = start(&drive);
     let output = drive.dir.path().join("for traktor");
     let source = json!({ "drive": "USB", "set": "1a2b" });
-    let planned = session.export_of("traktor-set", source.clone(), &output, json!({}), true).unwrap();
-    let done = session.export_of("traktor-set", source, &output, json!({}), false).unwrap();
+    let planned = session.export_of("traktor", source.clone(), &output, json!({}), true).unwrap();
+    let done = session.export_of("traktor", source, &output, json!({}), false).unwrap();
     assert_eq!(done, planned);
     assert_eq!(session.calls("sets.get"), [json!({ "set": "1a2b" }), json!({ "set": "1a2b" })]);
     let analysis = session.calls("tracks.analysis");
@@ -117,16 +117,31 @@ fn a_mix_is_a_playlist_of_its_plays_on_the_drive() {
     let name = "2026-10-04 Live at the Warehouse";
     let want = played(&drive, name, &[DEMO_1, FLAC, DEMO_1]);
     let left_out = || vec!["4. Gone isn't on the drive: left out".to_string()];
-    for (format, software) in [("serato-mix", Software::Serato), ("engine-mix", Software::Engine)] {
+    for (format, software) in [("serato", Software::Serato), ("engine", Software::Engine)] {
         let output = drive.dir.path().join(format);
         let done = session.export_of(format, source.clone(), &output, json!({}), false).unwrap();
         let asked = Asked { software, root: drive.root.clone(), skip: false, tags: false, on_drive: false };
         is_built(&want, &asked, &drive, &output, &done, left_out());
         assert_eq!(done.counts["playlists"], 1);
     }
-    let crate_file = drive.dir.path().join(format!("serato-mix/_Serato_/Subcrates/{name}.crate"));
+    let crate_file = drive.dir.path().join(format!("serato/_Serato_/Subcrates/{name}.crate"));
     assert!(crate_file.is_file());
     assert_eq!(session.calls("mix.reports.get"), [json!({ "id": "live" }), json!({ "id": "live" })]);
+    session.stop();
+}
+
+/// A mix with neither a day nor a title still gets a playlist with a name.
+#[test]
+fn a_mix_without_a_name_is_called_mix() {
+    let mut answer = mix(&[on_drive(DEMO_1)]);
+    answer["mix"] = json!({ "title": "", "kind": "audio" });
+    let drive = kept(drive(), "live", answer);
+    let session = start(&drive);
+    let output = drive.dir.path().join("out");
+    let source = json!({ "drive": "USB", "mix": "live" });
+    session.export_of("traktor", source, &output, json!({}), false).unwrap();
+    let nml = std::fs::read_to_string(output.join("collection.nml")).unwrap();
+    assert!(nml.contains("<NODE TYPE=\"PLAYLIST\" NAME=\"Mix\">"), "{nml}");
     session.stop();
 }
 
@@ -139,19 +154,19 @@ fn a_set_needs_its_tracks_on_a_drive() {
     let session = start(&drive);
     let output = drive.dir.path().join("out");
     for (format, source, what) in [
-        ("traktor-set", json!({ "drive": "", "set": "1a2b" }), "set"),
-        ("engine-mix", json!({ "drive": "", "mix": "live" }), "mix"),
+        ("traktor", json!({ "drive": "", "set": "1a2b" }), "set"),
+        ("engine", json!({ "drive": "", "mix": "live" }), "mix"),
     ] {
         let e = session.export_of(format, source, &output, json!({}), true).unwrap_err();
         assert_eq!((e.code, e.kind()), (code::INVALID_PARAMS, Some("invalid")));
-        let said = format!("a {what}'s export points at its tracks' audio on a drive: say which drive (--drive DRIVE)");
+        let said = format!("a {what}'s export points at its tracks' audio: name the drive they're on");
         assert_eq!(e.message, said);
     }
     assert!(session.calls.lock().unwrap().is_empty(), "nothing is read");
     for (format, source, said) in [
-        ("serato-set", json!({ "drive": "USB", "set": "1a2b" }), "none of the set's tracks are on the drive"),
-        ("traktor-mix", json!({ "drive": "USB", "mix": "live" }), "none of the mix's tracks are on the drive"),
-        ("traktor-set", json!({ "drive": "USB", "set": "nope" }), "not found: \"nope\""),
+        ("serato", json!({ "drive": "USB", "set": "1a2b" }), "none of the set's tracks are on the drive"),
+        ("traktor", json!({ "drive": "USB", "mix": "live" }), "none of the mix's tracks are on the drive"),
+        ("traktor", json!({ "drive": "USB", "set": "nope" }), "not found: \"nope\""),
     ] {
         let e = session.export_of(format, source, &output, json!({}), true).unwrap_err();
         assert_eq!((e.kind(), e.message.as_str()), (Some("not_found"), said));
@@ -171,7 +186,7 @@ fn any_set_or_mix_exports_the_tracks_played_on_the_drive(tc: TestCase) {
     let mix_of = tc.draw(gs::booleans());
     let software = tc.draw(gs::sampled_from(vec![Software::Traktor, Software::Serato, Software::Engine]));
     let what = if mix_of { "mix" } else { "set" };
-    let format = format!("{}-{what}", serde_json::to_value(software).unwrap().as_str().unwrap());
+    let format = serde_json::to_value(software).unwrap().as_str().unwrap().to_string();
     let choices = vec![Some(DEMO_1), Some(DEMO_2), Some(FLAC), Some(ONLY_PLUS), None, None];
     let picks = tc.draw(gs::vecs(gs::sampled_from(choices)).max_size(8));
     let heard: Vec<Heard> = picks
@@ -219,7 +234,7 @@ fn any_set_or_mix_exports_the_tracks_played_on_the_drive(tc: TestCase) {
         let e = planned.unwrap_err();
         let said = match named {
             false => {
-                format!("a {what}'s export points at its tracks' audio on a drive: say which drive (--drive DRIVE)")
+                format!("a {what}'s export points at its tracks' audio: name the drive they're on")
             }
             true => format!("none of the {what}'s tracks are on the drive"),
         };

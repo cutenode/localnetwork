@@ -279,10 +279,12 @@ impl App {
         };
         // Each family's, in the order the palette lists them (a family's placed as loclib-plugin's
         // `hooks` says).
-        let set = self.open_set().is_some();
+        // A set's formats run on the set open: the palette names them anyway, saying so, and a
+        // drive's menu doesn't.
+        let (set, sets) = (self.open_set().is_some(), places.contains(&Where::Track));
         for m in plugins.manifests() {
             items.extend(analyzers::items(m, why));
-            items.extend(exporters::items(m, why, set));
+            items.extend(exporters::items(m, why, set, sets));
             items.extend(importers::items(m, why));
             items.extend(sources::items(m, why));
         }
