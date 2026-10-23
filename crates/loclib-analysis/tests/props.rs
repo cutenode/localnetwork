@@ -46,33 +46,6 @@ fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
     assert!((0.0..=1.0).contains(&e.bpm_confidence) && (0.0..=1.0).contains(&e.key_confidence), "{e:?}");
 }
 
-/// A click track at any tempo DJs play, after any silence, has a grid in its own time: beats in
-/// order between the silence and the end, counted in fours from 1, each at the tempo heard, and,
-/// when the grid is stable, a beat at that tempo apart.
-#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-fn grids_fall_after_the_silence(tc: TestCase) {
-    let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
-    let lead = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3.0));
-    let signal: Vec<f64> =
-        std::iter::repeat_n(0.0, (44_100.0 * lead) as usize).chain(clicks(44_100, bpm, 6.0)).collect();
-    let dir = tempfile::tempdir().unwrap();
-    let path = write(dir.path(), 44_100, &signal);
-    let want = Want { estimate: true, loudness: false, waveform: false };
-    let e = analyze(&path, want, &Ctx::silent()).unwrap().estimate.unwrap();
-    assert!((0.0..=1.0).contains(&e.grid_stability), "{e:?}");
-    let end = signal.len() as f64 / 44.1;
-    for (i, b) in e.beats.iter().enumerate() {
-        assert_eq!((usize::from(b.beat_number), b.bpm), (i % 4 + 1, f64::from(e.bpm)), "{e:?}");
-        // Onsets are framed 46 ms at a time.
-        assert!((lead * 1000.0 - 100.0..=end).contains(&f64::from(b.time_ms)), "{lead} s of silence: {e:?}");
-    }
-    assert!(e.beats.windows(2).all(|w| w[0].time_ms < w[1].time_ms), "{e:?}");
-    let apart = 60_000.0 / f64::from(e.bpm);
-    if e.grid_stability >= 0.95 {
-        assert!(e.beats.windows(2).all(|w| (f64::from(w[1].time_ms - w[0].time_ms) - apart).abs() <= 1.0), "{e:?}");
-    }
-}
-
 /// A 1 kHz sine at any level, rate and length measures that level: its integrated loudness in
 /// LUFS and its peak in dBFS are its level in dB, it has no loudness range and doesn't clip.
 /// Only what's asked for is measured, and the length is the file's either way.

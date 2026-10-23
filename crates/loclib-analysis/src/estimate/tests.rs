@@ -11,9 +11,9 @@ fn keys_map_by_tonic_and_mode() {
 /// blip too short for a tempo has one, with no tempo.
 #[test]
 fn silence_has_no_estimate() {
-    assert_eq!(estimate(vec![]), None);
-    assert_eq!(estimate(vec![0.0; 44_100]), None);
-    assert_eq!(estimate(vec![0.0, 0.5, -0.5]).map(|e| (e.bpm, e.key)), Some((0.0, None)));
+    assert_eq!(estimate(&[]), None);
+    assert_eq!(estimate(&[0.0; 44_100]), None);
+    assert_eq!(estimate(&[0.0, 0.5, -0.5]).map(|e| (e.bpm, e.key)), Some((0.0, None)));
 }
 
 /// Every key stratum-dsp names is the Camelot key on that tonic and in that mode, and a minor
@@ -39,6 +39,6 @@ fn tied_keys_are_none() {
             [220.0f32, 261.63, 329.63].iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum::<f32>() / 10.0
         })
         .collect();
-    let e = estimate(a_minor).unwrap();
+    let e = estimate(&a_minor).unwrap();
     assert_eq!((e.key, e.key_confidence), (None, 0.0), "{e:?}");
 }

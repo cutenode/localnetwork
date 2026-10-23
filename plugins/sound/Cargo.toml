@@ -1,6 +1,6 @@
 [package]
 name = "locallibrary-plugin-sound"
-description = "locallibrary's sound analysis plugin: tempo, key, loudness, beat grid and waveform from a track's audio"
+description = "locallibrary's sound analysis plugin: tempo, key, loudness and waveform from a track's audio"
 publish = false
 version.workspace = true
 edition.workspace = true

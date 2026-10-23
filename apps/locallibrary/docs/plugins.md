@@ -15,9 +15,8 @@ are:
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
   check before a set and ordering a set read tempos, keys and levels from (see [Roles](#roles)).
-  It also works out a three-band waveform, and a beat grid where the beats it tracks fall evenly
-  (on released tracks they seldom do), which the player draws for a track whose drive has none
-  (see [Analysis](#analysis)).
+  It also works out a three-band waveform, which the player draws for a track whose drive has
+  none (see [Analysis](#analysis)).
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
   several.

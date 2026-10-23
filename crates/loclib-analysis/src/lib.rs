@@ -29,7 +29,7 @@ pub const VERSION: u32 = 5;
 /// What [`analyze`] measures. One decode feeds them all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Want {
-    /// Tempo, key and beat grid.
+    /// Tempo and key.
     pub estimate: bool,
     pub loudness: bool,
     pub waveform: bool,
@@ -90,7 +90,7 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
     Ok(Analysis {
         version: VERSION,
         duration_secs: format.duration_secs,
-        estimate: want.estimate.then(|| estimate::estimate(mono)).flatten(),
+        estimate: want.estimate.then(|| estimate::estimate(&mono)).flatten(),
         loudness: meter.map(loudness::Meter::finish).transpose().map_err(|e| Error::analyzer(path, e))?,
         waveform: levels.map(waveform::Levels::finish),
     })

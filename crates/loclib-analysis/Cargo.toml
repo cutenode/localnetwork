@@ -1,6 +1,6 @@
 [package]
 name = "loclib-analysis"
-description = "A second opinion on DJ tracks' tempo and key, loudness and clipping, beat grids and three-band waveforms, and benchmark scoring against annotated datasets"
+description = "A second opinion on DJ tracks' tempo and key, loudness and clipping, three-band waveforms, and benchmark scoring against annotated datasets"
 readme = "README.md"
 keywords = ["dj", "bpm", "key-detection", "loudness", "audio"]
 categories = ["multimedia::audio"]

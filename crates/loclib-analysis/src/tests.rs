@@ -55,40 +55,6 @@ fn a_kick_track_is_estimated() {
     assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
 }
 
-/// `lead` seconds of silence, then a 2 kHz click on every beat at `bpm` for `secs`.
-fn clicks_after(lead: f64, bpm: f64, secs: f64) -> Vec<f64> {
-    let rate = f64::from(RATE);
-    let beat = 60.0 / bpm;
-    let clicks = (0..(rate * secs) as usize).map(|i| {
-        let since = (i as f64 / rate) % beat;
-        0.8 * (-since * 60.0).exp() * (2.0 * PI * 2_000.0 * since).sin()
-    });
-    std::iter::repeat_n(0.0, (rate * lead) as usize).chain(clicks).collect()
-}
-
-/// stratum-dsp tracks beats after trimming a track's leading silence: the grid is put back where
-/// the clicks are, the same beats as without the silence, as late as it lasts. Beats count in
-/// fours, each at the tempo heard.
-#[test]
-fn a_grid_starts_where_the_beats_do() {
-    let dir = tempfile::tempdir().unwrap();
-    let grid = |lead: f64| {
-        let path = write(&dir, &format!("{lead}.wav"), RATE, &clicks_after(lead, 120.0, 8.0));
-        let want = Want { estimate: true, loudness: false, waveform: false };
-        analyze(&path, want, &Ctx::silent()).unwrap().estimate.unwrap()
-    };
-    let (straight, late) = (grid(0.0), grid(0.7));
-    for e in [&straight, &late] {
-        assert!(e.grid_stability >= 0.95 && e.beats.len() > 4, "{e:?}");
-        assert!(e.beats.iter().enumerate().all(|(i, b)| usize::from(b.beat_number) == i % 4 + 1), "{e:?}");
-        assert!(e.beats.iter().all(|b| b.bpm == f64::from(e.bpm)), "{e:?}");
-    }
-    for b in &late.beats {
-        let on_a_beat = straight.beats.iter().any(|s| (i64::from(b.time_ms) - 700 - i64::from(s.time_ms)).abs() <= 5);
-        assert!(on_a_beat, "{b:?} after 700 ms of silence, of {late:?}, without it {straight:?}");
-    }
-}
-
 /// A low tone, then a high one: the lows are drawn where the low tone is and the highs where
 /// the high one is, a column every 23 ms.
 #[test]

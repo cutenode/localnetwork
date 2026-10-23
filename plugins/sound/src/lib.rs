@@ -1,9 +1,8 @@
 //! locallibrary's sound analysis plugin, `sound`: one analyzer, `tempo-key-loudness`, measuring a
-//! track's tempo, key, loudness, beat grid and three-band waveform from its audio with
-//! loclib-analysis, for the host to keep and show as track-list columns (`sound.bpm`), to read
-//! by role (doctor's `--analyze`, the check before a set, ordering a set), and to draw (the grid
-//! and waveform) where a drive has none. It reads nothing but the audio file it's handed, so it
-//! asks for no capabilities.
+//! track's tempo, key, loudness and three-band waveform from its audio with loclib-analysis, for
+//! the host to keep and show as track-list columns (`sound.bpm`), to read by role (doctor's
+//! `--analyze`, the check before a set, ordering a set), and to draw (the waveform) where a drive
+//! has none. It reads nothing but the audio file it's handed, so it asks for no capabilities.
 
 use std::io::{Read, Write};
 
@@ -12,14 +11,6 @@ use loclib_plugin::{Analysis, AnalyzeTrack, FieldValue, Hooks, Host, RpcError};
 
 /// `locallibrary-plugin.toml`.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
-
-/// The least stable grid kept (loclib-analysis's `grid_stability`, `1 / (1 + cv)` of the time
-/// between beats). stratum-dsp only warns under 0.5, but what it scores above that can still be
-/// no grid: on steady synthetic kicks, grids of 0.58 to 0.75 repeat beats and break off partway,
-/// and 14 released dance tracks all scored 0.22 to 0.53, their beats' spacing varying by more
-/// than half a beat. The steady kicks and clicks it tracks evenly score 1. At 0.95, the time
-/// between beats varies by about 5% at most.
-const MIN_GRID_STABILITY: f32 = 0.95;
 
 /// The waveform's file, in the request's scratch folder.
 const WAVEFORM_BLOB: &str = "waveform.bands";
@@ -48,12 +39,6 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
         (
             "clipped_runs",
             loudness.map_or(FieldValue::Null, |l| FieldValue::Integer(l.clipped_runs.try_into().unwrap_or(i64::MAX))),
-        ),
-        (
-            "grid",
-            tempo
-                .filter(|e| e.grid_stability >= MIN_GRID_STABILITY)
-                .map_or(FieldValue::Null, |e| FieldValue::beats(&e.beats)),
         ),
     ];
     let drawn = analysis.waveform.as_ref().filter(|w| w.columns.iter().any(|c| *c != [0; 3]));

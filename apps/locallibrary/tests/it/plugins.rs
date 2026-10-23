@@ -402,8 +402,8 @@ fn tracks_are_filtered_and_sorted_by_what_analyzers_worked_out() {
 }
 
 /// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
-/// audio, once, and `track` shows every column it declares as `sound.FIELD` (its grid and
-/// waveform aren't columns).
+/// audio, once, and `track` shows every column it declares as `sound.FIELD` (its waveform isn't
+/// one).
 #[test]
 fn the_sound_plugin_measures_tracks() {
     let env = Env::new();

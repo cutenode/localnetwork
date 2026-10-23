@@ -6,7 +6,7 @@ both against annotated datasets. It was split out of
 the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio files.
 
 - `analyze` decodes a track once (through symphonia, like loclib-mixid: MP3, AAC and ALAC in
-  `.m4a`, FLAC, WAV, AIFF) and measures what you ask for: tempo, key and a beat grid from
+  `.m4a`, FLAC, WAV, AIFF) and measures what you ask for: tempo and key from
   [stratum-dsp](https://github.com/HLLMR/stratum-dsp); loudness from
   [ebur128](https://github.com/sdroege/ebur128): integrated loudness, loudness range, sample and
   true peak, and runs of clipped samples; and a waveform in three bands (lows, mids and highs, a
@@ -64,13 +64,6 @@ assert_eq!(library.more_plausible(87.0, 174.0), Some(Plausible::Estimate));
   above) in one channel. A loud master that peaks at 0 dBFS without flattening doesn't count.
 - The analyzer can't be cancelled once it starts on a decoded track.
 - Silent audio has no estimate. A blip too short for a tempo gets one with a tempo of 0.
-- The beat grid is stratum-dsp's, put back in the track's time (it tracks beats after trimming
-  leading silence), with bars counted in fours from its first beat. Its `grid_stability` says
-  how evenly the beats fall. Steady synthetic clicks score 1, beats spaced exactly by the
-  estimated tempo, though the grid can stop before the clicks do; 14 released dance tracks
-  scored 0.22 to 0.53, with beats missing and repeated. Check it before using the grid, and know
-  that a stable grid spaced by a tempo off by a fraction of a BPM drifts from the music as the
-  track goes on.
 - Each band of the waveform is scaled against its own loudest columns, so it shows where a band
   is loud in the track, not how the bands compare.
 - Where the best keys tie (confidence 0) there's no key. stratum-dsp scales major and minor keys'

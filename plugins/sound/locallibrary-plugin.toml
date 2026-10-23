@@ -23,9 +23,6 @@ key_confidence = "number"
 integrated_lufs = "number"
 true_peak_dbtp = "number"
 clipped_runs = "integer"
-# The beats stratum-dsp tracked, counted in fours: null without a tempo, or where they fall
-# unevenly (a grid stability under 0.95).
-grid = "beats"
 # Lows, mids and highs, a column every 23 ms.
 waveform = "waveform"
 

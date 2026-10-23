@@ -46,7 +46,7 @@ plugins/interop/            the interop plugin: exporters for Traktor, Serato an
                             library with loclib-interop into a folder on this computer
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
-                            and its beat grid and three-band waveform
+                            and its three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
