@@ -1,0 +1,30 @@
+{
+ "id": "6f34e134-49d5-4e56-b3e0-4fe6b9900380",
+ "title": "Bicep",
+ "disambiguation": "",
+ "first-release-date": "2017-09-01",
+ "primary-type": "Album",
+ "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+ "secondary-types": [],
+ "secondary-type-ids": [],
+ "genres": [
+  {
+   "name": "electronic",
+   "count": 3,
+   "disambiguation": "",
+   "id": "89255676-1f14-4dd8-bbad-fca839d6aff4"
+  },
+  {
+   "name": "house",
+   "count": 1,
+   "disambiguation": "",
+   "id": "a2782cb6-1cd0-477c-a61d-b3f8b42dacad"
+  },
+  {
+   "name": "techno",
+   "count": 3,
+   "disambiguation": "",
+   "id": "41fe3e7f-9b3e-4a7e-9b8a-5c7f2bb6f3a0"
+  }
+ ]
+}

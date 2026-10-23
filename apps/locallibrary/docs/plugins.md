@@ -21,8 +21,9 @@ are:
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
-  fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
-  it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
+  fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
+  [Providers](#providers)). It's the only one that goes online, and only when you run it, through
+  locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
 
 ## What you have
 
@@ -240,6 +241,15 @@ in the actions menu ask the providers about the tracks selected. A provider neve
 library itself, and needs no capability to: it's given the tracks' tags (`library:read`) and
 answers what it found. Of what one answers, locallibrary keeps 25 candidates a track and 50,000 in
 all, and images coming to 512 MiB; past that it leaves the rest out and says so.
+
+The coverart plugin has one of each, and looks each album up on MusicBrainz once for either: by
+a track's ISRC first, else by the album's name and artist. `coverart.covers` offers the front cover
+of each release group it could be. `coverart.tags` offers each one's album title, year (its
+earliest release's) and label, and its top genre when it's the only release group named so (a
+second lookup). A track whose ISRC found it also gets that recording's title, artist and ISRC;
+the album's other tracks get the album's details alone, since a release's credit isn't each
+track's artist. One release group
+found by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 ## Roles
 

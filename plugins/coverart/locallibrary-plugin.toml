@@ -2,8 +2,8 @@ id = "coverart"
 name = "Cover art"
 version = "0.1.0"
 protocol = "^0.2"
-# It's given the tracks to find covers for (their tags, which takes library:read) and answers the
-# covers it finds, which locallibrary offers and sets itself. The Cover Art Archive's images are
+# It's given the tracks to find covers and tags for (their tags, which takes library:read) and
+# answers what it finds, which locallibrary offers and sets itself. The Cover Art Archive's images are
 # served by archive.org, which redirects them to its own servers (`ia800100.us.archive.org`...):
 # the host follows those redirects only to the servers named here.
 capabilities = [
@@ -24,6 +24,13 @@ per_second = 1
 name = "covers"
 title = "Cover Art Archive"
 kind = "artwork"
+
+# Each album's title, year, label and genre, found on MusicBrainz, and the title, artist and ISRC
+# of a track found by its ISRC (`locallibrary track fetch`).
+[[contributes.providers]]
+name = "tags"
+title = "MusicBrainz"
+kind = "metadata"
 
 # MusicBrainz asks every program to say how to reach whoever runs it: the host sends this in the
 # User-Agent of the plugin's requests.

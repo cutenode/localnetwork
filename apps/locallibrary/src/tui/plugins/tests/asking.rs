@@ -166,9 +166,13 @@ fn fetch_details(app: &mut App, root: &Path) {
     for needle in ["Fetch track details", "from", "replace", "Only from this provider", "‹ none ›"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    // The second provider (after none and echo's own), and over what they have.
+    // The third provider (after none, coverart's, which would go online, and echo's own), and
+    // over what they have.
     key(app, KeyCode::Right);
     key(app, KeyCode::Right);
+    key(app, KeyCode::Right);
+    let s = screen(app, 120, 40);
+    assert!(s.contains("echo.found"), "not echo's found:\n{s}");
     key(app, KeyCode::Tab);
     press(app, " \n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Fetching track details"));

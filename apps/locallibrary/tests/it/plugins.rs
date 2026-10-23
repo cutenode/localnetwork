@@ -425,8 +425,8 @@ fn the_sound_plugin_measures_tracks() {
 }
 
 /// The coverart plugin locallibrary ships says which servers it talks to and that it finds cover
-/// art for `art fetch`, planning none itself; tracks the drive doesn't have are refused before
-/// anything goes online.
+/// art for `art fetch` and track details for `track fetch`, planning none itself; tracks the drive
+/// doesn't have are refused before anything goes online.
 #[test]
 fn the_coverart_plugin_finds_nothing_without_going_online() {
     let env = Env::new();
@@ -436,12 +436,15 @@ fn the_coverart_plugin_finds_nothing_without_going_online() {
         "Cover art (coverart) 0.1.0",
         "talk to musicbrainz.org",
         "covers  Cover Art Archive: cover art, for locallibrary art fetch",
+        "tags    MusicBrainz: track details, for locallibrary track fetch",
     ] {
         assert!(info.contains(line), "{line}: {info}");
     }
     assert!(!info.contains("plan cover art changes"), "{info}");
-    let missing = env.fails(1, &["art", "fetch", "USB", "--from", "coverart", "--track", "99", "--dry-run"]);
-    assert!(missing.contains("error: not found: track #99"), "{missing}");
+    for args in [["art", "fetch", "USB", "--from", "coverart"], ["track", "fetch", "USB", "--from", "coverart.tags"]] {
+        let missing = env.fails(1, &[&args[..], &["--track", "99", "--dry-run"]].concat());
+        assert!(missing.contains("error: not found: track #99"), "{missing}");
+    }
     assert!(
         env.fails(2, &["analyze", "USB", "--plugin", "coverart"])
             .contains("error: the coverart plugin has no analyzer\n")

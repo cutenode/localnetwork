@@ -19,10 +19,13 @@ use tempfile::TempDir;
 use super::*;
 
 /// MusicBrainz's answers, as it gave them (trimmed to what a search result has): a release
-/// search for Bicep's album "Bicep", and a recording search for the ISRC of Young Fathers' "In My
-/// View", which is on its single, the album "Cocoa Sugar" and two compilations.
+/// search for Bicep's album "Bicep" (on Ninja Tune), and a recording search for the ISRC of Young
+/// Fathers' "In My View", which is on its single, the album "Cocoa Sugar" and two compilations.
+/// Then the genres of Bicep's release group, as a lookup with `inc=genres` answers: electronic and
+/// techno have the most votes.
 const RELEASES: &str = include_str!("../fixtures/release-search.json");
 const RECORDINGS: &str = include_str!("../fixtures/recording-search.json");
+const GENRES: &str = include_str!("../fixtures/release-group-genres.json");
 /// The release groups of those.
 const BICEP: &str = "6f34e134-49d5-4e56-b3e0-4fe6b9900380";
 const COCOA_SUGAR: &str = "95aea47d-79b6-483a-8abe-fccfdfa23eae";
@@ -111,14 +114,21 @@ fn no_releases() -> Reply {
     ok(r#"{"created":"2026-10-13T20:42:22.360Z","count":0,"offset":0,"releases":[]}"#)
 }
 
-/// MusicBrainz, which has Bicep's "Bicep" (searched by name) and "In My View" (by its ISRC), and
-/// the Cover Art Archive, which has a cover for each release group.
+/// Where the plugin looks a release group's genres up.
+fn genres_of(group: &str) -> String {
+    format!("{SEARCH}release-group/{group}")
+}
+
+/// MusicBrainz, which has Bicep's "Bicep" (searched by name, with genres) and "In My View" (by
+/// its ISRC), and the Cover Art Archive, which has a cover for each release group.
 fn services_as_they_are(req: &Req) -> Reply {
     match req.path.strip_prefix(SEARCH) {
         Some("release/") if req.query.starts_with(r#"release:"Bicep""#) => ok(RELEASES),
         Some("release/") => no_releases(),
         Some("recording/") if req.query == format!("isrc:{ISRC}") => ok(RECORDINGS),
         Some("recording/") => ok(r#"{"created":"2026-10-13T20:42:23.943Z","count":0,"offset":0,"recordings":[]}"#),
+        _ if req.path == genres_of(BICEP) => ok(GENRES),
+        Some(group) if group.starts_with("release-group/") => ok(r#"{"title":"x","genres":[]}"#),
         _ if req.path.starts_with(COVERS) && req.path.ends_with("/front-500") => ok(jpeg(500, 400, false)),
         _ => status(404),
     }
@@ -174,20 +184,29 @@ fn start(route: impl Fn(&Req) -> Reply + Send + 'static) -> Session {
 }
 
 impl Session {
-    /// Asks for covers for `tracks`, with a scratch folder of its own unless `context` gives one
-    /// (or, `null`, none).
-    fn send(&self, tracks: &[TrackTags], mut context: Value) -> loclib_plugin::Pending {
+    /// Asks for covers (or tags, as `kind` says) for `tracks`, with a scratch folder of its own
+    /// unless `context` gives one (or, `null`, none).
+    fn send(&self, kind: ProviderKind, tracks: &[TrackTags], mut context: Value) -> loclib_plugin::Pending {
         if context.get("scratch").is_none() {
             let scratch = TempDir::new().unwrap();
             context["scratch"] = json!(scratch.path());
             self.scratches.lock().unwrap().push(scratch);
         }
-        let req = json!({ "provider": "covers", "kind": "artwork", "tracks": tracks, "context": context });
+        let provider = match kind {
+            ProviderKind::Artwork => "covers",
+            ProviderKind::Metadata => "tags",
+        };
+        let req = json!({ "provider": provider, "kind": kind, "tracks": tracks, "context": context });
         self.host.send_request(method::PROVIDE, &req).unwrap()
     }
 
     fn provide_with(&self, tracks: &[TrackTags], context: Value) -> Result<Candidates, RpcError> {
-        self.send(tracks, context).wait()
+        self.send(ProviderKind::Artwork, tracks, context).wait()
+    }
+
+    /// Asks for tags for `tracks`.
+    fn tags(&self, tracks: &[TrackTags], context: Value) -> Result<Candidates, RpcError> {
+        self.send(ProviderKind::Metadata, tracks, context).wait()
     }
 
     fn provide(&self, tracks: &[TrackTags]) -> Result<Candidates, RpcError> {
@@ -268,10 +287,11 @@ fn kind(e: &RpcError) -> (&str, &str) {
     (e.kind().unwrap_or_default(), e.message.as_str())
 }
 
-/// It reads the tracks it's given and provides artwork, says which servers it talks to and asks
-/// the host to keep to MusicBrainz's limit. It plans nothing: the host sets what's chosen.
+/// It reads the tracks it's given and provides artwork and metadata, says which servers it talks
+/// to and asks the host to keep to MusicBrainz's limit. It plans nothing: the host sets what's
+/// chosen.
 #[test]
-fn the_manifest_is_a_first_party_artwork_provider() {
+fn the_manifest_is_a_first_party_artwork_and_metadata_provider() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();
@@ -280,8 +300,9 @@ fn the_manifest_is_a_first_party_artwork_provider() {
         ["library:read", "net:musicbrainz.org", "net:coverartarchive.org", "net:archive.org", "net:*.archive.org"]
     );
     assert_eq!(manifest.net, [NetLimit { host: "musicbrainz.org".into(), per_second: 1.0 }]);
-    let provider = Provider { name: "covers".into(), title: SOURCE.into(), kind: ProviderKind::Artwork };
-    assert_eq!(manifest.contributes.providers, [provider]);
+    let covers = Provider { name: "covers".into(), title: SOURCE.into(), kind: ProviderKind::Artwork };
+    let tags = Provider { name: "tags".into(), title: TAGS_SOURCE.into(), kind: ProviderKind::Metadata };
+    assert_eq!(manifest.contributes.providers, [covers, tags]);
     assert!(manifest.contributes.operations.is_empty() && manifest.contributes.commands.is_empty());
 
     // Served as a real one is: it says it's this manifest, providing, sending fetches and
@@ -522,7 +543,7 @@ fn cancelling_while_a_fetch_is_under_way_stops_it() {
             false => services_as_they_are(req),
         };
         let session = start(route);
-        let pending = session.send(&[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
+        let pending = session.send(ProviderKind::Artwork, &[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
         let asked = if held == SEARCH { 1 } else { 2 };
         for _ in 0..asked {
             session.heard.recv().unwrap();
@@ -657,6 +678,150 @@ fn an_isrc_search_refused_leaves_the_album_out() {
     assert_eq!(queries, [format!("isrc:{ISRC}"), format!("isrc:{ISRC}"), format!("isrc:{ISRC}")]);
 }
 
+/// A tags candidate found: its track, score, label and tags.
+type Tagged = (u32, f64, String, TrackMetadata);
+
+/// Each candidate's track, score, label and tags, checking it's tags from MusicBrainz.
+fn tagged(c: &Candidates) -> Vec<Tagged> {
+    let each = c.candidates.iter().map(|c| {
+        assert_eq!((c.source.as_str(), &c.artwork), (TAGS_SOURCE, &None), "{c:?}");
+        (c.track, c.score, c.label.clone(), c.metadata.clone().expect("tags"))
+    });
+    each.collect()
+}
+
+/// Tags of an album: its title, year and label.
+fn album_tags(album: &str, year: u16, label: Option<&str>) -> TrackMetadata {
+    TrackMetadata {
+        album: Some(album.into()),
+        year: Some(year),
+        label: label.map(Into::into),
+        ..TrackMetadata::default()
+    }
+}
+
+/// Asked for tags, each album is looked up once, as for covers, and its release's title, year and
+/// label offered for each of its tracks with its release group's top genre (the first of equals),
+/// and the recording's title, artist and ISRC for the track whose ISRC found it. No cover is
+/// downloaded, and no scratch folder is needed.
+#[test]
+fn albums_get_their_tags_one_search_each() {
+    let tracks = [
+        tags(1, "Bicep", "Bicep", "Glue"),
+        TrackTags { isrc: "GB-CFB-17-00586".into(), ..tags(3, "Young Fathers", "Cocoa Sugar", "untitled") },
+        tags(4, "Young Fathers", "Cocoa Sugar", "Lord"),
+        tags(5, "BICEP", " bicep", "Opal"),
+    ];
+    let session = start(services_as_they_are);
+    let candidates = session.tags(&tracks, json!({ "drive": "USB", "scratch": null })).unwrap();
+    assert_eq!(candidates.warnings, Vec::<String>::new());
+    let bicep = TrackMetadata { genre: Some("electronic".into()), ..album_tags("Bicep", 2017, Some("Ninja Tune")) };
+    let cocoa = album_tags("Cocoa Sugar", 2018, None);
+    let in_my_view = TrackMetadata {
+        title: Some("In My View".into()),
+        artist: Some("Young Fathers".into()),
+        isrc: Some(ISRC.into()),
+        ..cocoa.clone()
+    };
+    let (by_name, by_isrc) = ("Bicep, album".to_string(), "Cocoa Sugar, album".to_string());
+    assert_eq!(
+        tagged(&candidates),
+        [
+            (1, BY_NAME, by_name.clone(), bicep.clone()),
+            (5, BY_NAME, by_name, bicep),
+            (3, BY_ISRC, by_isrc.clone(), in_my_view),
+            (4, BY_ISRC, by_isrc, cocoa),
+        ]
+    );
+    assert_eq!(
+        session.searches(),
+        [
+            ("/ws/2/release/".into(), r#"release:"Bicep" AND artist:"Bicep""#.into()),
+            (format!("/ws/2/release-group/{BICEP}"), String::new()),
+            ("/ws/2/recording/".into(), format!("isrc:{ISRC}")),
+            (format!("/ws/2/release-group/{COCOA_SUGAR}"), String::new()),
+        ]
+    );
+    assert_eq!(session.got()[1].url, format!("{}?inc=genres&fmt=json", genres_of(BICEP)));
+    assert_eq!(session.covers(), Vec::<String>::new());
+    assert_eq!(session.stop(), Vec::new(), "it reads nothing");
+}
+
+/// A recording's artist is its credit's names joined as the credit joins them. Its title and
+/// ISRC are only the track's whose ISRC found it; a genre MusicBrainz won't give is a warning.
+#[test]
+fn a_recordings_credit_is_for_its_track_alone() {
+    let route = |req: &Req| match req.path.strip_prefix(SEARCH) {
+        Some("recording/") => {
+            let mut found: Value = serde_json::from_str(RECORDINGS).unwrap();
+            found["recordings"][0]["artist-credit"] =
+                json!([{ "name": "Young Fathers", "joinphrase": " & " }, { "name": "Mitchell", "artist": {} }]);
+            ok(found.to_string())
+        }
+        Some(group) if group.starts_with("release-group/") => status(404),
+        _ => services_as_they_are(req),
+    };
+    let tracks = [
+        TrackTags { isrc: ISRC.into(), ..tags(1, "Young Fathers", "Cocoa Sugar", "In My View") },
+        TrackTags { isrc: "GBCFB1700587".into(), ..tags(2, "Young Fathers", "Cocoa Sugar", "Lord") },
+    ];
+    let session = start(route);
+    let candidates = session.tags(&tracks, json!({})).unwrap();
+    let cocoa = album_tags("Cocoa Sugar", 2018, None);
+    let in_my_view = TrackMetadata {
+        title: Some("In My View".into()),
+        artist: Some("Young Fathers & Mitchell".into()),
+        isrc: Some(ISRC.into()),
+        ..cocoa.clone()
+    };
+    let label = "Cocoa Sugar, album".to_string();
+    assert_eq!(tagged(&candidates), [(1, BY_ISRC, label.clone(), in_my_view), (2, BY_ISRC, label, cocoa)]);
+    assert_eq!(candidates.warnings, ["Young Fathers - Cocoa Sugar: no genre, as MusicBrainz answered 404"]);
+    assert_eq!(std::fs::read_dir(session.scratch()).unwrap().count(), 0, "nothing downloaded");
+}
+
+/// An album that could be several release groups gets each one's tags, from the earliest of its
+/// releases' years and the first label one names (`[no label]` is none), with no genre: none is
+/// surely the album's. Two albums that are one release group have its genre asked for once.
+#[test]
+fn several_release_groups_each_give_tags_without_a_genre() {
+    let single = "f0000000-0000-4000-8000-000000000001";
+    let route = move |req: &Req| match req.query.as_str() {
+        r#"release:"Bicep" AND artist:"Bicep""# => {
+            let mut found: Value = serde_json::from_str(RELEASES).unwrap();
+            found["releases"][1]["release-group"] = json!({ "id": single, "title": "Bicep", "primary-type": "Single" });
+            found["releases"][1]["label-info"] =
+                json!([{ "label": { "name": "[no label]" } }, { "catalog-number": "X" }]);
+            found["releases"][2]["title"] = json!("Bicep");
+            found["releases"][2]["release-group"] = found["releases"][0]["release-group"].clone();
+            found["releases"][2]["date"] = json!("2016");
+            found["releases"][2]["label-info"] = json!([{ "label": { "name": "Feel My Bicep" } }]);
+            ok(found.to_string())
+        }
+        _ => services_as_they_are(req),
+    };
+    let tracks = [tags(1, "Bicep", "Bicep", "Glue"), tags(2, "", "Isles", "Atlas")];
+    let session = start(route);
+    let candidates = session.tags(&tracks, json!({})).unwrap();
+    assert_eq!(
+        tagged(&candidates),
+        [
+            (1, ONE_OF_SEVERAL, "Bicep, album".into(), album_tags("Bicep", 2016, Some("Ninja Tune"))),
+            (1, ONE_OF_SEVERAL, "Bicep, single".into(), album_tags("Bicep", 2017, None)),
+        ]
+    );
+    assert_eq!(candidates.warnings, ["Isles: not on MusicBrainz"]);
+    assert!(session.searches().iter().all(|(path, _)| !path.contains("release-group")), "{:?}", session.searches());
+
+    // "Bicep" by Bicep, and by no one: one release group, its genre asked for once.
+    let session = start(services_as_they_are);
+    let candidates = session.tags(&[tags(1, "Bicep", "Bicep", "Glue"), tags(2, "", "Bicep", "Atlas")], json!({}));
+    let genres: Vec<Option<String>> = tagged(&candidates.unwrap()).into_iter().map(|t| t.3.genre).collect();
+    assert_eq!(genres, [Some("electronic".to_string()), Some("electronic".to_string())]);
+    let looked_up = session.got().into_iter().filter(|g| g.path == genres_of(BICEP)).count();
+    assert_eq!(looked_up, 1);
+}
+
 // Properties: drawn tracks against drawn services, the candidates foreseen from what was drawn.
 
 /// The release groups drawn searches find, by index: shaped as MusicBrainz's ids are, so their
@@ -669,20 +834,25 @@ const GROUPS: [&str; 3] = [
 /// How many albums drawn tracks are of: `Album 0`, `Album 1`...
 const ALBUMS: usize = 3;
 
-/// The ISRC of album `k`'s tracks.
+/// The ISRC of album `k`'s tracks, and of another of its tracks, which MusicBrainz has on the
+/// same releases.
 fn isrc_of(k: usize) -> String {
     format!("GBAAA260000{k}")
 }
 
+fn other_isrc_of(k: usize) -> String {
+    format!("GBAAA260001{k}")
+}
+
 /// A drawn track and what it's known to be: of which album (`k`, by its name in some letter case
 /// and spacing, as its album or as the title of a single), by which artist (spellings of one are
-/// one), and whether its ISRC tag is one.
+/// one), and its ISRC, when its tag is one.
 #[derive(Debug, Clone)]
 struct Drawn {
     tags: TrackTags,
     album: Option<usize>,
     artist: usize,
-    isrc: bool,
+    isrc: Option<String>,
 }
 
 #[hegel::test_helper]
@@ -708,12 +878,13 @@ fn drawn_track(tc: &TestCase, id: u32) -> Drawn {
     }
     let k = album.unwrap_or_default();
     let isrcs = vec![
-        (String::new(), false),
-        (isrc_of(k), true),
-        (format!("gb-aaa-26-0000{k}"), true),
-        (format!("GB AAA 26 0000{k}"), true),
-        (format!("GBAAA26000{k}"), false),
-        ("none".to_string(), false),
+        (String::new(), None),
+        (isrc_of(k), Some(isrc_of(k))),
+        (format!("gb-aaa-26-0000{k}"), Some(isrc_of(k))),
+        (format!("GB AAA 26 0000{k}"), Some(isrc_of(k))),
+        (other_isrc_of(k), Some(other_isrc_of(k))),
+        (format!("GBAAA26000{k}"), None),
+        ("none".to_string(), None),
     ];
     let (isrc_tag, isrc) = tc.draw(gs::sampled_from(isrcs));
     let tags = TrackTags {
@@ -725,7 +896,7 @@ fn drawn_track(tc: &TestCase, id: u32) -> Drawn {
     Drawn { tags, album, artist, isrc }
 }
 
-/// How MusicBrainz answers a search: `503` (busy) `busy` times, then `answer`.
+/// How MusicBrainz answers a request: `503` (busy) `busy` times, then `answer`.
 #[derive(Debug, Clone)]
 struct Search {
     busy: usize,
@@ -734,10 +905,11 @@ struct Search {
 
 #[derive(Debug, Clone)]
 enum Answer {
-    /// Releases named as the album is, of these release groups (by index; a release group can be
-    /// on several), beside some that aren't (named otherwise, not of a release group, or of one
-    /// whose id isn't MusicBrainz's).
-    Groups(Vec<usize>),
+    /// A search's releases named as the album is, beside some that aren't (named otherwise, not
+    /// of a release group, or of one whose id isn't MusicBrainz's).
+    Releases(Vec<Rel>),
+    /// A release group's genres: each one's name and votes.
+    Genres(Vec<(&'static str, u32)>),
     Status(u16),
     /// A page that isn't a search result.
     Garbage,
@@ -745,21 +917,56 @@ enum Answer {
     Fails(&'static str),
 }
 
+/// A release named as the album is: of release group `group` (by index; a release group can be
+/// on several), out on `date`, naming these labels (none: a catalog number alone).
+#[derive(Debug, Clone)]
+struct Rel {
+    group: usize,
+    date: Option<&'static str>,
+    labels: Vec<Option<&'static str>>,
+}
+
 #[hegel::test_helper]
-fn drawn_search(tc: &TestCase) -> Search {
-    let busy = tc.draw(gs::sampled_from(vec![0usize, 0, 0, 1, 2, 3]));
+fn drawn_release(tc: &TestCase, group: usize) -> Rel {
+    let date = tc.draw(gs::sampled_from(vec![None, Some("2017"), Some("2018-03"), Some("2016-09-01")]));
+    let label = || gs::sampled_from(vec![Some("Ninja Tune"), Some("XL"), Some("[no label]"), None]);
+    let labels = (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| tc.draw(label())).collect();
+    Rel { group, date, labels }
+}
+
+/// A search's releases: mostly the album, on its own (named once, or on two releases), so its
+/// cover or genre is asked for.
+#[hegel::test_helper]
+fn drawn_releases(tc: &TestCase) -> Answer {
     let group = || gs::integers::<usize>().max_value(GROUPS.len() - 1);
-    // Mostly the album, on its own (named once, or on two releases), so its cover is asked for.
-    let answer = match tc
-        .draw(gs::sampled_from(vec!["one", "one", "one", "one", "none", "several", "refused", "garbage", "fails"]))
-    {
-        "one" => Answer::Groups(vec![tc.draw(group()); tc.draw(gs::integers::<usize>().min_value(1).max_value(2))]),
-        "none" => Answer::Groups(Vec::new()),
-        "several" => Answer::Groups(tc.draw(gs::vecs(group()).min_size(2).max_size(3))),
-        "refused" => Answer::Status(tc.draw(gs::sampled_from(vec![404u16, 429, 500]))),
-        "garbage" => Answer::Garbage,
-        _ => Answer::Fails(tc.draw(gs::sampled_from(FAILURES.to_vec()))),
+    let groups = match tc.draw(gs::sampled_from(vec!["one", "one", "one", "one", "none", "several"])) {
+        "one" => vec![tc.draw(group()); tc.draw(gs::integers::<usize>().min_value(1).max_value(2))],
+        "none" => Vec::new(),
+        _ => tc.draw(gs::vecs(group()).min_size(2).max_size(3)),
     };
+    Answer::Releases(groups.into_iter().map(|g| drawn_release(tc, g)).collect())
+}
+
+#[hegel::test_helper]
+fn drawn_genres(tc: &TestCase) -> Answer {
+    let genre = || gs::sampled_from(vec!["electronic", "house", "techno"]);
+    let votes = || gs::integers::<u32>().min_value(1).max_value(3);
+    Answer::Genres(
+        (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| (tc.draw(genre()), tc.draw(votes()))).collect(),
+    )
+}
+
+/// A request MusicBrainz answers with what `found` draws, or refuses, garbles or doesn't answer.
+#[hegel::test_helper]
+fn drawn_search(tc: &TestCase, found: fn(&TestCase) -> Answer) -> Search {
+    let busy = tc.draw(gs::sampled_from(vec![0usize, 0, 0, 1, 2, 3]));
+    let answer =
+        match tc.draw(gs::sampled_from(vec!["found", "found", "found", "found", "refused", "garbage", "fails"])) {
+            "found" => found(tc),
+            "refused" => Answer::Status(tc.draw(gs::sampled_from(vec![404u16, 429, 500]))),
+            "garbage" => Answer::Garbage,
+            _ => Answer::Fails(tc.draw(gs::sampled_from(FAILURES.to_vec()))),
+        };
     Search { busy, answer }
 }
 
@@ -809,20 +1016,31 @@ fn drawn_cover(tc: &TestCase) -> Cover {
     }
 }
 
-/// The services drawn: each album's release and recording searches, and each release group's
-/// cover.
+/// The services drawn: each album's release and recording searches and its recording's artist
+/// credit (each artist's name and what joins it to the next), and each release group's genres
+/// and cover.
 #[derive(Debug, Clone)]
 struct Answers {
     releases: Vec<Search>,
     recordings: Vec<Search>,
+    credits: Vec<Vec<(&'static str, &'static str)>>,
+    genres: Vec<Search>,
     covers: Vec<Cover>,
 }
 
 #[hegel::test_helper]
 fn drawn_answers(tc: &TestCase) -> Answers {
+    let artist = || gs::sampled_from(vec!["Young Fathers", "Bicep", "Romy"]);
+    let join = || gs::sampled_from(vec!["", " & ", " feat. "]);
+    let credit = || {
+        let artists = tc.draw(gs::integers::<usize>().max_value(2));
+        (0..artists).map(|_| (tc.draw(artist()), tc.draw(join()))).collect()
+    };
     Answers {
-        releases: (0..ALBUMS).map(|_| drawn_search(tc)).collect(),
-        recordings: (0..ALBUMS).map(|_| drawn_search(tc)).collect(),
+        releases: (0..ALBUMS).map(|_| drawn_search(tc, drawn_releases)).collect(),
+        recordings: (0..ALBUMS).map(|_| drawn_search(tc, drawn_releases)).collect(),
+        credits: (0..ALBUMS).map(|_| credit()).collect(),
+        genres: (0..GROUPS.len()).map(|_| drawn_search(tc, drawn_genres)).collect(),
         covers: (0..GROUPS.len()).map(|_| drawn_cover(tc)).collect(),
     }
 }
@@ -832,24 +1050,50 @@ fn spelled_by_musicbrainz(k: usize) -> String {
     format!("album  {k}")
 }
 
-/// A search's answer as MusicBrainz gives it: a release search's, or a recording search's naming
-/// the releases each recording is on.
-fn search_result(k: usize, groups: &[usize], recording: bool) -> String {
+/// The title of the recording album `k`'s ISRCs name.
+fn recording_of(k: usize) -> String {
+    format!("Song {k}")
+}
+
+/// A search's answer as MusicBrainz gives it: a release search's (its releases naming their
+/// labels), or a recording search's naming the releases each recording is on, with its artist
+/// `credit`.
+fn search_result(k: usize, rels: &[Rel], credit: Option<&[(&str, &str)]>) -> String {
     let named = spelled_by_musicbrainz(k);
     let group = |g: usize| {
         let kind = (g.is_multiple_of(2)).then_some("Album");
         json!({ "id": GROUPS[g], "title": format!("Group {g}"), "primary-type": kind })
     };
-    let mut releases: Vec<Value> =
-        groups.iter().map(|&g| json!({ "title": named, "release-group": group(g) })).collect();
+    let release = |r: &Rel| {
+        let mut release = json!({ "title": named, "release-group": group(r.group) });
+        if let Some(date) = r.date {
+            release["date"] = json!(date);
+        }
+        if credit.is_none() {
+            let info = |l: &Option<&str>| match l {
+                Some(name) => {
+                    json!({ "catalog-number": "CAT 1", "label": { "id": "b0000000-0000-4000-8000-000000000000", "name": name } })
+                }
+                None => json!({ "catalog-number": "CAT 1" }),
+            };
+            release["label-info"] = r.labels.iter().map(info).collect();
+        }
+        release
+    };
+    let mut releases: Vec<Value> = rels.iter().map(release).collect();
     releases.extend([
-        json!({ "title": "Something else", "release-group": group(0) }),
+        json!({ "title": "Something else", "release-group": group(0), "date": "1999" }),
         json!({ "title": named }),
         json!({ "title": named, "release-group": { "id": "../../x", "title": "x" } }),
     ]);
-    match recording {
-        true => json!({ "recordings": [{ "releases": releases }, {}] }).to_string(),
-        false => json!({ "releases": releases }).to_string(),
+    match credit {
+        Some(credit) => {
+            let credit: Vec<Value> =
+                credit.iter().map(|(name, join)| json!({ "name": name, "joinphrase": join })).collect();
+            let recording = json!({ "title": recording_of(k), "artist-credit": credit, "releases": releases });
+            json!({ "recordings": [recording, { "title": "Other" }] }).to_string()
+        }
+        None => json!({ "releases": releases }).to_string(),
     }
 }
 
@@ -868,14 +1112,20 @@ fn picture(width: u32, height: u32, png: bool) -> Vec<u8> {
 fn answering(answers: Answers) -> impl Fn(&Req) -> Reply + Send + 'static {
     let asked: Mutex<Vec<String>> = Mutex::default();
     move |req: &Req| {
-        // Which album: the last digit of the name searched for, or of the ISRC.
+        // Which album: the last digit of the name searched for, or of the ISRC; or which release
+        // group, by its id.
         let album = |of: &str| of.chars().last().and_then(|c| c.to_digit(10)).unwrap() as usize;
+        let group = |id: &str| GROUPS.iter().position(|known| *known == id).unwrap();
         let search = match req.path.strip_prefix(SEARCH) {
-            Some("release/") => Some((&answers.releases, false, album(req.query.split('"').nth(1).unwrap()))),
-            Some("recording/") => Some((&answers.recordings, true, album(&req.query))),
-            _ => None,
+            Some("release/") => Some((&answers.releases, None, album(req.query.split('"').nth(1).unwrap()))),
+            Some("recording/") => {
+                let k = album(&req.query);
+                Some((&answers.recordings, Some(answers.credits[k].as_slice()), k))
+            }
+            Some(lookup) => Some((&answers.genres, None, group(lookup.strip_prefix("release-group/").unwrap()))),
+            None => None,
         };
-        if let Some((searches, recording, k)) = search {
+        if let Some((searches, credit, k)) = search {
             let search = &searches[k];
             let times = {
                 let mut asked = asked.lock().unwrap();
@@ -886,14 +1136,19 @@ fn answering(answers: Answers) -> impl Fn(&Req) -> Reply + Send + 'static {
                 return status(503);
             }
             return match &search.answer {
-                Answer::Groups(groups) => ok(search_result(k, groups, recording)),
+                Answer::Releases(rels) => ok(search_result(k, rels, credit)),
+                Answer::Genres(genres) => {
+                    let genres: Vec<Value> =
+                        genres.iter().map(|(name, count)| json!({ "name": name, "count": count })).collect();
+                    ok(json!({ "id": GROUPS[k], "title": format!("Group {k}"), "genres": genres }).to_string())
+                }
                 Answer::Status(code) => status(*code),
                 Answer::Garbage => ok("<html>maintenance</html>"),
                 Answer::Fails(kind) => fails(kind),
             };
         }
         let id = req.path.strip_prefix(COVERS).and_then(|p| p.strip_suffix("/front-500")).unwrap();
-        match answers.covers[GROUPS.iter().position(|known| *known == id).unwrap()] {
+        match answers.covers[group(id)] {
             Cover::Image { width, height, png, .. } => ok(picture(width, height, png)),
             Cover::Status(code) => status(code),
             Cover::Garbage => ok("<html>not an image</html>"),
@@ -902,7 +1157,7 @@ fn answering(answers: Answers) -> impl Fn(&Req) -> Reply + Send + 'static {
     }
 }
 
-/// The label of release group `g`'s cover, as drawn searches name it.
+/// The label of release group `g`'s candidates, as drawn searches name it.
 fn label_of(g: usize) -> String {
     let kind = if g.is_multiple_of(2) { "album" } else { "release" };
     format!("Group {g}, {kind}")
@@ -911,22 +1166,26 @@ fn label_of(g: usize) -> String {
 /// An error the hook fails with: its kind, and how its message starts.
 type Refusal = (&'static str, String);
 
-/// What asking about tracks should come to: the candidates (each one's track, score, label and
-/// file) and warnings, or the error it fails with, with the fetches it asks for (each one's URL
-/// but its query, and its `query` param), in order.
+/// The candidates foreseen (each cover's track, score, label and file, and each tags' track,
+/// score, label and tags) and the warnings.
+type Foreseen = (Vec<Seen>, Vec<Tagged>, Vec<String>);
+
+/// What asking about tracks should come to: the candidates and warnings, or the error it fails
+/// with, with the fetches it asks for (each one's URL but its query, and its `query` param), in
+/// order.
 struct Outcome {
-    found: Result<(Vec<Seen>, Vec<String>), Refusal>,
+    found: Result<Foreseen, Refusal>,
     fetches: Vec<(String, String)>,
 }
 
 /// An album as the plugin looks it up: shown as its first track tags it, searched by its first
-/// ISRC.
+/// ISRC, with each track's ISRC.
 struct Looked {
     k: usize,
     artist: String,
     name: String,
-    isrc: bool,
-    tracks: Vec<u32>,
+    isrc: Option<String>,
+    tracks: Vec<(u32, Option<String>)>,
 }
 
 impl Looked {
@@ -938,8 +1197,38 @@ impl Looked {
     }
 }
 
-/// What asking about `drawn`'s tracks comes to, on the services `answers` stands for.
-fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
+/// What MusicBrainz answers a request as `search` has it: what it found, or the status it was
+/// refused with (after trying again while it's busy); or the error the hook fails with, `what`
+/// it should have answered saying.
+fn ask<'a>(
+    fetches: &mut Vec<(String, String)>,
+    path: String,
+    query: String,
+    search: &'a Search,
+    what: &str,
+) -> Result<Result<&'a Answer, u16>, Refusal> {
+    for tries in 1..=3 {
+        fetches.push((path.clone(), query.clone()));
+        let times = fetches.iter().filter(|a| a.0 == path && a.1 == query).count();
+        if times <= search.busy {
+            match tries < 3 {
+                true => continue,
+                false => return Ok(Err(503)),
+            }
+        }
+        return match &search.answer {
+            Answer::Status(code) => Ok(Err(*code)),
+            Answer::Garbage => Err(("external", format!("MusicBrainz answered what isn't a {what}: "))),
+            Answer::Fails(kind) => Err((*kind, format!("couldn't reach MusicBrainz: no answer ({kind})"))),
+            found => Ok(Ok(found)),
+        };
+    }
+    unreachable!()
+}
+
+/// What asking the provider of `kind` about `drawn`'s tracks comes to, on the services `answers`
+/// stands for.
+fn foresee(answers: &Answers, drawn: &[Drawn], kind: ProviderKind) -> Outcome {
     let mut warned = Vec::new();
     let mut albums: Vec<((usize, usize), Looked)> = Vec::new();
     for d in drawn {
@@ -954,59 +1243,35 @@ fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
                 let tagged =
                     |tags: [&str; 2]| tags.into_iter().map(str::trim).find(|s| !s.is_empty()).unwrap_or("").to_string();
                 let (artist, name) = (tagged([&t.album_artist, &t.artist]), tagged([&t.album, &t.title]));
-                albums.push(((d.artist, k), Looked { k, artist, name, isrc: false, tracks: Vec::new() }));
+                albums.push(((d.artist, k), Looked { k, artist, name, isrc: None, tracks: Vec::new() }));
                 albums.len() - 1
             }
         };
         let album = &mut albums[at].1;
-        album.isrc |= d.isrc;
-        album.tracks.push(t.id);
+        album.isrc = album.isrc.take().or(d.isrc.clone());
+        album.tracks.push((t.id, d.isrc.clone()));
     }
 
     let mut fetches: Vec<(String, String)> = Vec::new();
-    // Each cover downloaded, by release group: whether there's one, or why not.
+    // Each cover downloaded, by release group: whether there's one, or why not; and each genre
+    // looked up: the genre, or the status it was refused with.
     let mut got: Vec<(usize, Result<(), String>)> = Vec::new();
-    let mut found: Vec<Seen> = Vec::new();
-    // A search's release groups (deduplicated), or the status it was refused with; or the error
-    // the hook fails with.
-    let search = |fetches: &mut Vec<(String, String)>, entity: &str, search: &Search, query: String| {
-        let path = format!("{SEARCH}{entity}/");
-        for tries in 1..=3 {
-            fetches.push((path.clone(), query.clone()));
-            let times = fetches.iter().filter(|a| a.0 == path && a.1 == query).count();
-            if times <= search.busy {
-                match tries < 3 {
-                    true => continue,
-                    false => return Ok(Err(503)),
-                }
-            }
-            return match &search.answer {
-                Answer::Groups(groups) => {
-                    let mut found: Vec<usize> = Vec::new();
-                    for &g in groups {
-                        if !found.contains(&g) {
-                            found.push(g);
-                        }
-                    }
-                    Ok(Ok(found))
-                }
-                Answer::Status(code) => Ok(Err(*code)),
-                Answer::Garbage => Err(("external", "MusicBrainz answered what isn't a search result: ".to_string())),
-                Answer::Fails(kind) => Err((*kind, format!("couldn't reach MusicBrainz: no answer ({kind})"))),
-            };
-        }
-        unreachable!()
+    let mut genres: Vec<(usize, Result<Option<String>, u16>)> = Vec::new();
+    let (mut found, mut tagged): (Vec<Seen>, Vec<Tagged>) = Default::default();
+    let releases = |answer: &Answer| match answer {
+        Answer::Releases(rels) => rels.clone(),
+        other => panic!("a search answers releases, not {other:?}"),
     };
     let mut fail = None;
     'albums: for (_, album) in &albums {
         let shown = album.shown();
-        let (mut found_groups, mut by_isrc) = (Ok(Vec::new()), false);
-        if album.isrc {
-            match search(&mut fetches, "recording", &answers.recordings[album.k], format!("isrc:{}", isrc_of(album.k)))
-            {
+        let (mut rels, mut by_isrc) = (Ok(Vec::new()), false);
+        if let Some(isrc) = &album.isrc {
+            let path = format!("{SEARCH}recording/");
+            match ask(&mut fetches, path, format!("isrc:{isrc}"), &answers.recordings[album.k], "search result") {
                 Ok(answer) => {
-                    by_isrc = answer.as_ref().is_ok_and(|g| !g.is_empty());
-                    found_groups = answer;
+                    rels = answer.map(releases);
+                    by_isrc = rels.as_ref().is_ok_and(|r| !r.is_empty());
                 }
                 Err(e) => {
                     fail = Some(e);
@@ -1014,36 +1279,97 @@ fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
                 }
             }
         }
-        if found_groups.as_ref().is_ok_and(Vec::is_empty) {
+        if rels.as_ref().is_ok_and(Vec::is_empty) {
             let mut query = format!("release:\"{}\"", album.name);
             if !album.artist.is_empty() {
                 query = format!("{query} AND artist:\"{}\"", album.artist);
             }
-            match search(&mut fetches, "release", &answers.releases[album.k], query) {
-                Ok(answer) => found_groups = answer,
+            match ask(&mut fetches, format!("{SEARCH}release/"), query, &answers.releases[album.k], "search result") {
+                Ok(answer) => rels = answer.map(releases),
                 Err(e) => {
                     fail = Some(e);
                     break;
                 }
             }
         }
-        let groups = match found_groups {
+        let rels = match rels {
             Err(code) => {
                 warned.push(format!("{shown}: left out, as MusicBrainz answered {code}"));
                 continue;
             }
-            Ok(groups) if groups.is_empty() => {
+            Ok(rels) if rels.is_empty() => {
                 warned.push(format!("{shown}: not on MusicBrainz"));
                 continue;
             }
-            Ok(groups) => groups,
+            Ok(rels) => rels,
         };
+        // Each release group once, in order, with the earliest year of its releases and the first
+        // label they name (only a release search's name any).
+        let mut groups: Vec<(usize, Option<u16>, Option<&str>)> = Vec::new();
+        for r in &rels {
+            let year = r.date.map(|d| d[..4].parse().unwrap());
+            let label = r.labels.iter().flatten().copied().find(|l| *l != "[no label]").filter(|_| !by_isrc);
+            match groups.iter_mut().find(|(g, ..)| *g == r.group) {
+                Some((_, had_year, had_label)) => {
+                    *had_year = [*had_year, year].into_iter().flatten().min();
+                    *had_label = had_label.or(label);
+                }
+                None => groups.push((r.group, year, label)),
+            }
+        }
         let score = match (groups.len(), by_isrc) {
             (1, true) => BY_ISRC,
             (1, false) => BY_NAME,
             _ => ONE_OF_SEVERAL,
         };
-        for &g in groups.iter().take(MAX_GROUPS) {
+        if kind == ProviderKind::Metadata {
+            let genre = match groups.as_slice() {
+                [(g, ..)] => {
+                    if !genres.iter().any(|(had, _)| had == g) {
+                        let path = format!("{SEARCH}release-group/{}", GROUPS[*g]);
+                        match ask(&mut fetches, path, String::new(), &answers.genres[*g], "release group") {
+                            Ok(Ok(Answer::Genres(voted))) => {
+                                let most = voted.iter().map(|(_, votes)| *votes).max();
+                                let top = voted.iter().find(|(_, votes)| Some(*votes) == most);
+                                genres.push((*g, Ok(top.map(|(name, _)| name.to_string()))));
+                            }
+                            Ok(Ok(other)) => panic!("a lookup answers genres, not {other:?}"),
+                            Ok(Err(code)) => genres.push((*g, Err(code))),
+                            Err(e) => {
+                                fail = Some(e);
+                                break 'albums;
+                            }
+                        }
+                    }
+                    match &genres.iter().find(|(had, _)| had == g).unwrap().1 {
+                        Ok(genre) => genre.clone(),
+                        Err(code) => {
+                            warned.push(format!("{shown}: no genre, as MusicBrainz answered {code}"));
+                            None
+                        }
+                    }
+                }
+                _ => None,
+            };
+            let artist: String = answers.credits[album.k].iter().flat_map(|(name, join)| [*name, *join]).collect();
+            for &(g, year, label) in &groups {
+                for (t, isrc) in &album.tracks {
+                    let recording = by_isrc && *isrc == album.isrc;
+                    let tags = TrackMetadata {
+                        title: recording.then(|| recording_of(album.k)),
+                        artist: recording.then(|| artist.clone()),
+                        album: Some(spelled_by_musicbrainz(album.k)),
+                        year,
+                        genre: genre.clone(),
+                        label: label.map(Into::into),
+                        isrc: isrc.clone().filter(|_| recording),
+                    };
+                    tagged.push((*t, score, label_of(g), tags));
+                }
+            }
+            continue;
+        }
+        for &(g, ..) in &groups {
             if !got.iter().any(|(had, _)| *had == g) {
                 fetches.push((format!("{COVERS}{}/front-500", GROUPS[g]), String::new()));
                 let cover = match answers.covers[g] {
@@ -1065,7 +1391,7 @@ fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
                 got.push((g, cover));
             }
             match &got.iter().find(|(had, _)| *had == g).unwrap().1 {
-                Ok(()) => found.extend(album.tracks.iter().map(|&t| (t, score, label_of(g), cover(GROUPS[g])))),
+                Ok(()) => found.extend(album.tracks.iter().map(|&(t, _)| (t, score, label_of(g), cover(GROUPS[g])))),
                 Err(why) if groups.len() > 1 => warned.push(format!("{shown}, {}: {why}", label_of(g))),
                 Err(why) => warned.push(format!("{shown}: {why}")),
             }
@@ -1073,22 +1399,26 @@ fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
     }
     match fail {
         Some(e) => Outcome { found: Err(e), fetches },
-        None => Outcome { found: Ok((found, warned)), fetches },
+        None => Outcome { found: Ok((found, tagged, warned)), fetches },
     }
 }
 
 /// For any tracks asked about (in albums or singles, by artists spelled several ways, with ISRCs
-/// or not), and however MusicBrainz and the Cover Art Archive answer (found, not found, several,
-/// busy, refusing, garbage, out of reach; covers missing, broken, tiny, or not to be had, or that
-/// can't be written), the candidates are what their answers make them: each album looked up once
-/// (by ISRC first), each release group's cover downloaded once, a file in the scratch folder
-/// offered for each of the album's tracks (surely when it's the only one, more so by an ISRC), and
-/// a warning for each album with none. Without a scratch folder, nothing is looked up.
+/// or not), of either provider, and however MusicBrainz and the Cover Art Archive answer (found,
+/// not found, several, busy, refusing, garbage, out of reach; covers missing, broken, tiny, or not
+/// to be had, or that can't be written; genres or none, or not to be had), the candidates are what
+/// their answers make them: each album looked up once (by ISRC first), surely when it's the only
+/// release group, more so by an ISRC. For covers, each release group's cover downloaded once, a
+/// file in the scratch folder offered for each of the album's tracks, and a warning for each
+/// album with none; without a scratch folder, nothing is looked up. For tags, each release group's
+/// album, year and label, its genre looked up once when it's the only one, and the recording's
+/// title, artist and ISRC for the tracks with the ISRC that found it, with no file written.
 #[hegel::test(test_cases = 60)]
-fn any_tracks_get_the_covers_the_services_answer(tc: TestCase) {
+fn any_tracks_get_what_the_services_answer(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
     let answers = drawn_answers(&tc);
+    let kind = tc.draw(gs::sampled_from(vec![ProviderKind::Artwork, ProviderKind::Metadata]));
     // The scratch folder the host makes (rarely none), with a folder in the way of the covers
     // that can't be written.
     let given = tc.draw(gs::weighted_booleans(0.95));
@@ -1105,18 +1435,34 @@ fn any_tracks_get_the_covers_the_services_answer(tc: TestCase) {
 
     let session = start(answering(answers.clone()));
     let tracks: Vec<TrackTags> = drawn.iter().map(|d| d.tags.clone()).collect();
-    let provided = session.provide_with(&tracks, context);
-    let foreseen = match given {
-        true => foresee(&answers, &drawn),
-        false => {
+    let provided = session.send(kind, &tracks, context).wait();
+    let foreseen = match (given, kind) {
+        (false, ProviderKind::Artwork) => {
             let refused =
                 "invalid params: the host gives the plugin no scratch folder for the covers (the blobs feature)";
             Outcome { found: Err(("invalid_params", refused.into())), fetches: Vec::new() }
         }
+        _ => foresee(&answers, &drawn, kind),
     };
-    match (&provided, &foreseen.found) {
-        (Ok(candidates), Ok((seen, warned))) => {
-            assert_eq!(&found(candidates, scratch.path()), seen);
+    came_to(session, &provided, &foreseen, kind, scratch.path());
+}
+
+/// Checks that asking the provider of `kind` came to what was `foreseen`: the candidates (covers
+/// in `scratch`, or tags, with none there) and warnings, or the error, and the fetches asked for,
+/// with nothing read.
+fn came_to(
+    session: Session,
+    provided: &Result<Candidates, RpcError>,
+    foreseen: &Outcome,
+    kind: ProviderKind,
+    scratch: &Path,
+) {
+    match (provided, &foreseen.found) {
+        (Ok(candidates), Ok((seen, foreseen_tags, warned))) => {
+            match kind {
+                ProviderKind::Artwork => assert_eq!(&found(candidates, scratch), seen),
+                ProviderKind::Metadata => assert_eq!(&tagged(candidates), foreseen_tags),
+            }
             assert_eq!(&candidates.warnings, warned);
         }
         (Err(e), Err((kind, start))) => {
@@ -1125,20 +1471,55 @@ fn any_tracks_get_the_covers_the_services_answer(tc: TestCase) {
         }
         (provided, foreseen) => panic!("provided {provided:?}, not {foreseen:?}"),
     }
+    if kind == ProviderKind::Metadata {
+        let files = std::fs::read_dir(scratch).unwrap().filter(|f| f.as_ref().unwrap().path().is_file());
+        assert_eq!(files.count(), 0, "it downloads no cover for tags");
+    }
     let fetches: Vec<(String, String)> = session.got().into_iter().map(|g| (g.path, g.query)).collect();
     assert_eq!(fetches, foreseen.fetches);
     assert_eq!(session.stop(), Vec::new(), "it reads nothing");
 }
 
-/// Cancelled while a fetch is under way, whichever it is (a search or a cover's download) and
-/// whatever it was looking up, the hook stops with `cancelled`, asking for nothing more.
+/// However many albums are one release group (one name, by different artists), however
+/// MusicBrainz answers its genre, the genre is asked for once (tried again while MusicBrainz is
+/// busy): each album gets it, or a warning.
+#[hegel::test(test_cases = 20)]
+fn albums_of_one_release_group_have_its_genre_asked_for_once(tc: TestCase) {
+    let artists = ["Bicep", "Young Fathers", "", "Romy"];
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(artists.len()));
+    let drawn: Vec<Drawn> = (0..n)
+        .map(|i| Drawn {
+            tags: tags(i as u32 + 1, artists[i], "Album 0", "Song"),
+            album: Some(0),
+            artist: i,
+            isrc: None,
+        })
+        .collect();
+    let g = tc.draw(gs::integers::<usize>().max_value(GROUPS.len() - 1));
+    let mut answers = drawn_answers(&tc);
+    answers.releases[0] = Search { busy: 0, answer: Answer::Releases(vec![drawn_release(&tc, g)]) };
+    let foreseen = foresee(&answers, &drawn, ProviderKind::Metadata);
+    let looked_up = foreseen.fetches.iter().filter(|(path, _)| *path == genres_of(GROUPS[g])).count();
+    assert_eq!(looked_up, (answers.genres[g].busy + 1).min(3), "foreseen once");
+
+    let session = start(answering(answers));
+    let tracks: Vec<TrackTags> = drawn.into_iter().map(|d| d.tags).collect();
+    let provided = session.send(ProviderKind::Metadata, &tracks, json!({})).wait();
+    let scratch = session.scratch();
+    came_to(session, &provided, &foreseen, ProviderKind::Metadata, &scratch);
+}
+
+/// Cancelled while a fetch is under way, whichever it is (a search, a genre's lookup or a cover's
+/// download) and whatever it was looking up, the hook stops with `cancelled`, asking for nothing
+/// more.
 #[hegel::test(test_cases = 10)]
 fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
     let answers = drawn_answers(&tc);
+    let kind = tc.draw(gs::sampled_from(vec![ProviderKind::Artwork, ProviderKind::Metadata]));
     // The fetches up to one that fails the hook, which are the same whatever the covers' folder.
-    let foreseen = foresee(&answers, &drawn);
+    let foreseen = foresee(&answers, &drawn, kind);
     tc.assume(!foreseen.fetches.is_empty());
     let held = tc.draw(gs::integers::<usize>().max_value(foreseen.fetches.len() - 1));
 
@@ -1149,7 +1530,7 @@ fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
     };
     let session = start(route);
     let tracks: Vec<TrackTags> = drawn.into_iter().map(|d| d.tags).collect();
-    let pending = session.send(&tracks, json!({}));
+    let pending = session.send(kind, &tracks, json!({}));
     for _ in 0..=held {
         session.heard.recv().unwrap();
     }
@@ -1161,8 +1542,8 @@ fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
 }
 
 /// Served as a real plugin is, a request with nothing to look up asks for no fetch: one that
-/// doesn't read, or asks another provider (or kind), is refused; tracks with nothing to look up
-/// by come back without a candidate, a warning each.
+/// doesn't read, or asks another provider (or another kind of one), is refused; tracks with
+/// nothing to look up by come back without a candidate, a warning each, whichever provider asks.
 #[hegel::test(test_cases = 15)]
 fn served_for_real_it_looks_up_nothing_it_neednt(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(5));
@@ -1171,16 +1552,19 @@ fn served_for_real_it_looks_up_nothing_it_neednt(tc: TestCase) {
     let nameless: Vec<String> = (1..=n).map(|id| format!("track #{id} has no album or title to look up")).collect();
     let (shape, said) = tc.draw(gs::sampled_from(vec![
         ("fine", None),
-        ("provider", Some("invalid params: the manifest declares no provider \"tags\"")),
+        ("provider", Some("invalid params: the manifest declares no provider \"lyrics\"")),
         ("kind", Some("invalid params: covers provides no metadata")),
+        ("tags kind", Some("invalid params: tags provides no artwork")),
         ("tracks", None),
     ]));
     let scratch = TempDir::new().unwrap();
     let context = json!({ "scratch": scratch.path() });
-    let mut req = json!({ "provider": "covers", "kind": "artwork", "tracks": tracks, "context": context });
+    let (provider, of) = tc.draw(gs::sampled_from(vec![("covers", "artwork"), ("tags", "metadata")]));
+    let mut req = json!({ "provider": provider, "kind": of, "tracks": tracks, "context": context });
     match shape {
-        "provider" => req["provider"] = json!("tags"),
-        "kind" => req["kind"] = json!("metadata"),
+        "provider" => req["provider"] = json!("lyrics"),
+        "kind" => req = json!({ "provider": "covers", "kind": "metadata", "tracks": tracks }),
+        "tags kind" => req = json!({ "provider": "tags", "kind": "artwork", "tracks": tracks }),
         "tracks" => req["tracks"] = json!("1"),
         _ => {}
     }

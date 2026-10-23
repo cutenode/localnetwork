@@ -293,7 +293,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
-    album that could be several release groups offered as each of them. It's the only one that
+    album that could be several release groups offered as each of them, and from the same
+    MusicBrainz lookups track details for `track fetch`: the album's title, year, label and
+    genre, and a track's title, artist and ISRC when its ISRC found it. It's the only one that
     goes online, and only when it's run.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
