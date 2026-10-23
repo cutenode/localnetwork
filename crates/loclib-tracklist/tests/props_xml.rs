@@ -495,10 +495,10 @@ const MARK_NUMBERS: &[(&str, &[&str])] = &[
     ("Blue", &["0", "255"]),
 ];
 
-/// The number at the start of the warning about `what`, or 0 with none.
+/// How many the warnings about `what` count, together (out of range, and not supported).
 fn counted(warnings: &[String], what: &str) -> usize {
-    let line = warnings.iter().find(|w| w.contains(what));
-    line.map_or(0, |w| w.split(' ').next().unwrap().parse().unwrap())
+    let lines = warnings.iter().filter(|w| w.contains(what));
+    lines.map(|w| w.split(' ').next().unwrap().parse::<usize>().unwrap()).sum()
 }
 
 /// Whatever numbers the file holds, reading it finishes with bounded output: each tempo, cue and

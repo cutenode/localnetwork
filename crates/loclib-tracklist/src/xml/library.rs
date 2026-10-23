@@ -76,21 +76,55 @@ pub struct Mark {
     pub rgb: Option<[u8; 3]>,
 }
 
-/// How many values of each kind were left out as out of range.
+/// Why a `TEMPO` or a `POSITION_MARK` is left out.
+#[derive(Debug, PartialEq)]
+pub(super) enum Left {
+    OutOfRange,
+    /// A value rekordbox writes that isn't taken: a fade or load mark, a meter past 4 beats.
+    Unsupported,
+}
+
+/// How many values of each kind were left out, and why.
 #[derive(Default)]
 pub(super) struct Skipped {
     pub bpms: usize,
     pub tempos: usize,
+    pub meters: usize,
     pub marks: usize,
+    pub mark_kinds: usize,
     pub nested: usize,
 }
 
 impl Skipped {
+    /// Counts a TEMPO left out, by why.
+    pub fn tempo(&mut self, why: Left) {
+        *match why {
+            Left::OutOfRange => &mut self.tempos,
+            Left::Unsupported => &mut self.meters,
+        } += 1;
+    }
+
+    /// Counts a POSITION_MARK left out, by why.
+    pub fn mark(&mut self, why: Left) {
+        *match why {
+            Left::OutOfRange => &mut self.marks,
+            Left::Unsupported => &mut self.mark_kinds,
+        } += 1;
+    }
+
     pub fn warnings(&self) -> Vec<String> {
         let said = [
             (self.bpms, "track tempo(s) (AverageBpm) left out: not 0.01-655.35".to_string()),
             (self.tempos, "beat grid tempo(s) (TEMPO) left out: a time, tempo or beat out of range".into()),
+            (
+                self.meters,
+                "beat grid tempo(s) (TEMPO) left out: only 1-4 beats to the bar (Metro) are supported".into(),
+            ),
             (self.marks, "cue(s) (POSITION_MARK) left out: a type, time or hot cue out of range".into()),
+            (
+                self.mark_kinds,
+                "cue(s) (POSITION_MARK) left out: fade-in, fade-out and load marks (Type 1-3) aren't supported".into(),
+            ),
             (self.nested, format!("element(s) nested more than {MAX_DEPTH} deep left out, with what's in them")),
         ];
         said.into_iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect()
@@ -123,46 +157,54 @@ pub(super) fn track(tag: &Tag<'_>, entry: Entry, skipped: &mut Skipped) -> XmlTr
     }
 }
 
-/// A `TEMPO`, or none when a value is missing or out of range.
-pub(super) fn tempo(tag: &Tag<'_>) -> Option<Tempo> {
+/// A `TEMPO`, or why it's left out.
+pub(super) fn tempo(tag: &Tag<'_>) -> Result<Tempo, Left> {
     let number = |name| tag.attr(name).and_then(|v| v.trim().parse::<f64>().ok());
     // To the microsecond, so a time written to the millisecond is exactly that.
-    let start_ms = number("Inizio").map(|s| (s * 1e6).round() / 1e3).filter(|s| s.abs() <= MAX_MS)?;
-    let bpm = number("Bpm").filter(|b| BPM.contains(b))?;
-    let beats_per_bar = match tag.attr("Metro") {
+    let start_ms = number("Inizio").map(|s| (s * 1e6).round() / 1e3).filter(|s| s.abs() <= MAX_MS);
+    let start_ms = start_ms.ok_or(Left::OutOfRange)?;
+    let bpm = number("Bpm").filter(|b| BPM.contains(b)).ok_or(Left::OutOfRange)?;
+    let beats_per_bar = match tag.attr("Metro").map(|m| m.split('/').next().unwrap_or_default().trim().parse::<u32>()) {
         None => 4,
-        Some(m) => m.split('/').next()?.trim().parse::<u8>().ok().filter(|n| (1..=4).contains(n))?,
+        Some(Ok(n @ 1..=4)) => n as u8,
+        Some(Ok(5..)) => return Err(Left::Unsupported),
+        Some(_) => return Err(Left::OutOfRange),
     };
     let beat = match tag.attr("Battito") {
         None => 1,
-        Some(b) => b.trim().parse::<u8>().ok().filter(|b| (1..=beats_per_bar).contains(b))?,
+        Some(b) => b.trim().parse::<u8>().ok().filter(|b| (1..=beats_per_bar).contains(b)).ok_or(Left::OutOfRange)?,
     };
-    Some(Tempo { start_ms, bpm, beats_per_bar, beat })
+    Ok(Tempo { start_ms, bpm, beats_per_bar, beat })
 }
 
 /// A `POSITION_MARK`: a cue (`Type` 0) or a loop (4) at `Start` (to `End`) seconds, a hot cue
-/// (`Num` 0-7) or a memory cue (-1). None when a value is missing or out of range.
-pub(super) fn mark(tag: &Tag<'_>) -> Option<Mark> {
+/// (`Num` 0-7) or a memory cue (-1); or why it's left out.
+pub(super) fn mark(tag: &Tag<'_>) -> Result<Mark, Left> {
     let ms = |name| {
         let secs = tag.attr(name)?.trim().parse::<f64>().ok()?;
         let ms = secs * 1000.0;
         (0.0..=MAX_MS).contains(&ms).then(|| ms.round() as u32)
     };
-    let start_ms = ms("Start")?;
-    let end_ms = match tag.attr("Type").map(str::trim) {
-        Some("0") => None,
-        Some("4") => Some(ms("End").filter(|&end| end > start_ms)?),
-        _ => return None,
+    let is_loop = match tag.attr("Type").map(str::trim) {
+        Some("0") => false,
+        Some("4") => true,
+        Some("1" | "2" | "3") => return Err(Left::Unsupported),
+        _ => return Err(Left::OutOfRange),
     };
-    let hot_cue = match tag.attr("Num").map(str::trim)?.parse::<i8>().ok()? {
-        -1 => None,
-        n @ 0..=7 => Some(n as u8),
-        _ => return None,
+    let start_ms = ms("Start").ok_or(Left::OutOfRange)?;
+    let end_ms = match is_loop {
+        false => None,
+        true => Some(ms("End").filter(|&end| end > start_ms).ok_or(Left::OutOfRange)?),
+    };
+    let hot_cue = match tag.attr("Num").and_then(|n| n.trim().parse::<i8>().ok()) {
+        Some(-1) => None,
+        Some(n @ 0..=7) => Some(n as u8),
+        _ => return Err(Left::OutOfRange),
     };
     let channel = |name| tag.attr(name).and_then(|v| v.trim().parse::<u8>().ok());
     let rgb = (|| Some([channel("Red")?, channel("Green")?, channel("Blue")?]))();
     let name = tag.attr("Name").unwrap_or_default().to_string();
-    Some(Mark { hot_cue, start_ms, end_ms, name, rgb })
+    Ok(Mark { hot_cue, start_ms, end_ms, name, rgb })
 }
 
 impl XmlTrack {

@@ -250,13 +250,13 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
                 collection.push(library::track(&tag, e, &mut skipped));
             }
             // The track they're in is the last one read.
-            ("TEMPO", Some("TRACK")) if in_collection => match (collection.last_mut(), library::tempo(&tag)) {
-                (Some(t), Some(tempo)) => t.tempos.push(tempo),
-                _ => skipped.tempos += 1,
+            ("TEMPO", Some("TRACK")) if in_collection => match library::tempo(&tag) {
+                Ok(tempo) => collection.last_mut().expect("the TRACK it's in").tempos.push(tempo),
+                Err(why) => skipped.tempo(why),
             },
-            ("POSITION_MARK", Some("TRACK")) if in_collection => match (collection.last_mut(), library::mark(&tag)) {
-                (Some(t), Some(mark)) => t.marks.push(mark),
-                _ => skipped.marks += 1,
+            ("POSITION_MARK", Some("TRACK")) if in_collection => match library::mark(&tag) {
+                Ok(mark) => collection.last_mut().expect("the TRACK it's in").marks.push(mark),
+                Err(why) => skipped.mark(why),
             },
             ("NODE", _) if stack.contains(&"PLAYLISTS") => {
                 nodes.push(XmlNode {

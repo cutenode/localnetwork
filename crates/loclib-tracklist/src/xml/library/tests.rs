@@ -54,12 +54,17 @@ fn values_out_of_range_are_left_out_and_counted() {
         r#"<TEMPO Inizio="inf" Bpm="128"/>
            <TEMPO Inizio="0" Bpm="700"/>
            <TEMPO Inizio="0" Bpm="128" Metro="7/8"/>
+           <TEMPO Inizio="0" Bpm="128" Metro="5/4"/>
+           <TEMPO Inizio="0" Bpm="128" Metro="0/4"/>
            <TEMPO Inizio="0" Bpm="128" Battito="5"/>
            <TEMPO Inizio="-1.5" Bpm="128"/>
            <POSITION_MARK Type="0" Start="-1" Num="-1"/>
            <POSITION_MARK Type="0" Start="1" Num="8"/>
            <POSITION_MARK Type="4" Start="2" End="2" Num="-1"/>
            <POSITION_MARK Type="1" Start="2" Num="-1"/>
+           <POSITION_MARK Type="2" Start="2" Num="-1"/>
+           <POSITION_MARK Type="3" Start="nope" Num="-1"/>
+           <POSITION_MARK Type="9" Start="2" Num="-1"/>
            <POSITION_MARK Type="0" Start="1e12" Num="-1"/>
            <POSITION_MARK Type="0" Start="1" Num="1"/>
 "#,
@@ -68,12 +73,16 @@ fn values_out_of_range_are_left_out_and_counted() {
     let t = &read.tracks[0];
     assert_eq!((t.bpm, t.tempos.len(), t.marks.len()), (None, 1, 1));
     assert_eq!(t.tempos[0].start_ms, -1500.0, "a grid may start before the audio");
+    // Fades, load points and other meters are values rekordbox writes, which aren't taken: not
+    // supported, rather than out of range.
     assert_eq!(
         read.warnings,
         [
             "1 track tempo(s) (AverageBpm) left out: not 0.01-655.35",
             "4 beat grid tempo(s) (TEMPO) left out: a time, tempo or beat out of range",
+            "2 beat grid tempo(s) (TEMPO) left out: only 1-4 beats to the bar (Metro) are supported",
             "5 cue(s) (POSITION_MARK) left out: a type, time or hot cue out of range",
+            "3 cue(s) (POSITION_MARK) left out: fade-in, fade-out and load marks (Type 1-3) aren't supported",
         ]
     );
     let unanalysed = read_xml_library(one_track(r#"AverageBpm="0.00""#, "").as_bytes()).unwrap();

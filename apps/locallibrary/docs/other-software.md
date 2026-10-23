@@ -87,7 +87,9 @@ other library tools and `locallibrary xml`. The tracklist plugin reads one two w
 
 The file can say anything, so values out of range (a time past a day, a tempo outside 0.01-655.35
 BPM, a hot cue past H, folders nested more than about 60 deep) are left out and counted in the
-plan's warnings, and a beat grid stops at 262,144 beats. Track colours and `Grouping` aren't read.
+plan's warnings, and a beat grid stops at 262,144 beats. Fade-in, fade-out and load marks and
+meters past 4 beats to the bar aren't supported, and are counted the same way. Track colours and
+`Grouping` aren't read.
 
 ## Other DJ software
 

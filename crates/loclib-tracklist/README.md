@@ -78,8 +78,9 @@ The file can say anything, so every value that sizes something is checked: a tem
 tempo that's missing a value or out of range (times past a day, tempos outside 0.01-655.35 BPM,
 hot cues past H, a loop that doesn't end after it starts) is left out and counted in the
 `warnings`, a grid stops at `MAX_BEATS`, and elements nested more than 64 deep are left out
-with what's in them. Track colours, `Grouping`, `Kind` and the file's sizes, bit rates and play
-counts aren't read.
+with what's in them. Fade-in, fade-out and load marks (`Type` 1-3) and meters past 4 beats to the
+bar aren't supported: they're left out and counted apart. Track colours, `Grouping`, `Kind` and
+the file's sizes, bit rates and play counts aren't read.
 
 ```rust
 let xml = r#"<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1">
