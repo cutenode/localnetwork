@@ -451,6 +451,30 @@ fn the_coverart_plugin_finds_nothing_without_going_online() {
     );
 }
 
+/// A track whose artwork is gone has `check` and `doctor` name `art fetch` beside `art auto`: the
+/// coverart plugin finds covers online.
+#[test]
+fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
+    let env = Env::new();
+    let usb = env.demo("USB");
+    std::fs::write(env.outside("cover.jpg"), crate::support::jpeg(64)).unwrap();
+    env.ok(&["--yes", "art", "set", "USB", path(&env.outside("cover.jpg")), "--track", "1"]);
+    std::fs::remove_dir_all(usb.join("PIONEER/Artwork")).unwrap();
+
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+    let files = v["items"].as_array().unwrap().iter().find(|i| i["check"] == "files" && i["level"] == "warning");
+    let message = files.and_then(|i| i["message"].as_str()).unwrap_or_else(|| panic!("{v}"));
+    let said = "; `locallibrary art auto \"USB\"` fills in art their files embed, and `locallibrary art fetch \"USB\"` finds covers online";
+    assert!(message.starts_with("1 track(s) have no artwork image: ") && message.ends_with(said), "{message}");
+    let doctor = env.run(&["doctor", "USB", "--only", "missing"]);
+    for hint in
+        ["`locallibrary art auto \"USB\"` fills in artwork", "`locallibrary art fetch \"USB\"` finds covers online"]
+    {
+        assert!(doctor.out.contains(hint) || doctor.err.contains(hint), "{hint}: {}{}", doctor.out, doctor.err);
+    }
+}
+
 /// A plugin whose id is a namespace of the sidecar's methods is left out, saying why, and the
 /// sidecar lists it with why; every other plugin works.
 #[test]

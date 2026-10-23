@@ -414,7 +414,8 @@ plugin's: MusicBrainz and the Cover Art Archive) for tracks without artwork (`--
 asks you which cover when an album could be several; it's an edit like `art set` (see
 [Providers](plugins.md#providers)). `track fetch` asks the same plugin, from the same MusicBrainz
 lookups, for the details tracks lack: the album's title, year, label and genre, and a track's own
-title, artist and ISRC when its ISRC found it.
+title, artist and ISRC when its ISRC found it. `check` and `doctor` name `art fetch` beside `art
+auto` for tracks without artwork while a plugin finds cover art.
 
 ## Clean
 

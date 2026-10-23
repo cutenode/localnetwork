@@ -468,7 +468,8 @@ their old names.
 - Messages say what to run: a sync that can't tell which drive is newer names `sync --from` with
   the drives, a drive left mid-operation names the command that finishes it, `doctor` points
   duplicates to `track dedupe`, unfiled tracks to `playlist unfiled` and missing artwork to `art
-  auto`, and a freshly formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
+  auto` (`check` and `doctor` to `art fetch` too, while a plugin finds cover art), and a freshly
+  formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
   it takes, `--json` mentions `--yes` only on commands that write, and the commands people run
   most have examples in their `--help`.
 - Output can be piped: what a command reports (lists, plans, the problems a check finds) goes to

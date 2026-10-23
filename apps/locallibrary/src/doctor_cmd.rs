@@ -275,6 +275,9 @@ fn missing(list: &[BrokenTrack], drive: &str) {
             "  ",
             format!("`locallibrary art auto {drive:?}` fills in artwork from the files' tags or cover.jpg"),
         );
+        if plugins::host().is_ok_and(|p| !p.providers(Some(loclib_plugin::ProviderKind::Artwork)).is_empty()) {
+            crate::output::hint_at("  ", format!("`locallibrary art fetch {drive:?}` finds covers online"));
+        }
     }
 }
 
