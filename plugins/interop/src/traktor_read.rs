@@ -19,8 +19,13 @@ use serde::{Deserialize, Serialize};
 /// (16 MiB), for the rest of the message around it.
 const MESSAGE: usize = 8 << 20;
 
-/// How many of a collection's tracks a page of `library/read` holds.
+/// How many of a collection's tracks a page of `library/read` holds at most.
 const PAGE: usize = 1000;
+
+/// How many beats and cues a page holds before it ends, after the track that brings it there:
+/// grids of long tracks at fast tempos would otherwise make a page of a thousand tracks hundreds
+/// of millions of beats. A track's own grid is at most a day's beats (see `Entry::beats`).
+const PAGE_MARKS: usize = 100_000;
 
 /// The source's options.
 #[derive(Deserialize)]
@@ -44,19 +49,26 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
     let entries = &collection.entries;
     // A cursor that isn't a number is past the end, refused below.
     let from = req.cursor.as_deref().map_or(Ok(0), str::parse).unwrap_or(usize::MAX);
-    let to = from.saturating_add(PAGE).min(entries.len());
-    let page = entries.get(from..to).ok_or_else(|| {
+    let rest = entries.get(from..).ok_or_else(|| {
         let cursor = req.cursor.unwrap_or_default();
         crate::invalid(format!("{cursor:?} isn't a page of {}", file.display()))
     })?;
     let startup = traktor::startup_disk();
-    let tracks = page.iter().map(|e| {
+    let (mut tracks, mut marks) = (Vec::new(), 0);
+    for e in rest.iter().take(PAGE) {
+        // The page ends after the track that brings its beats and cues to `PAGE_MARKS`.
+        if marks >= PAGE_MARKS {
+            break;
+        }
         let path = e.location.path(&startup);
-        match req.roots.iter().any(|root| crate::resolved(&path).starts_with(root)) {
+        let track = match req.roots.iter().any(|root| crate::resolved(&path).starts_with(root)) {
             true => source_track(e, path),
             false => SourceTrack { path, ..SourceTrack::default() },
-        }
-    });
+        };
+        marks += track.beats.len() + track.cues.len();
+        tracks.push(track);
+    }
+    let to = from + tracks.len();
     let last = to == entries.len();
     let mut playlists = Vec::new();
     if last {
@@ -68,7 +80,7 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
             tracks: list.keys.iter().filter_map(|key| paths.get(key).cloned()).collect(),
         }));
     }
-    let page = LibraryPage { tracks: tracks.collect(), playlists, blob: None, next: (!last).then(|| to.to_string()) };
+    let page = LibraryPage { tracks, playlists, blob: None, next: (!last).then(|| to.to_string()) };
     Ok(match spilled(&page, &req.context, "page.json")? {
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,

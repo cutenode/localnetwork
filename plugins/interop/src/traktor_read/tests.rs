@@ -609,3 +609,50 @@ fn a_collection_reads_as_its_library(tc: TestCase) {
     assert_eq!(read, lists);
     s.stop();
 }
+
+/// Tracks of any length with grids at any tempo (a day at the fastest a grid holds too) come a
+/// page at a time, each page holding fewer than 100,000 beats and cues before its last track,
+/// and no track more than a day's beats at 655.35 BPM; every track comes once, in order.
+#[hegel::test(test_cases = 10)]
+fn pages_hold_a_bounded_grid(tc: TestCase) {
+    let s = start();
+    let music = s.granted("music");
+    let scratch = s.granted("scratch");
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(10));
+    let tracks: Vec<Track> = (1..=n)
+        .map(|id| Track {
+            duration_secs: tc.draw(gs::sampled_from(vec![0, 600, 7200, 86_400])),
+            bpm: tc.draw(gs::sampled_from(vec![120.0, 655.35])),
+            ..track(id, "", &format!("T{id}"), &format!("/music/{id}.mp3"))
+        })
+        .collect();
+    let library = Library { tracks, ..Library::default() };
+    let bpms: FxHashMap<u32, f64> = library.tracks.iter().map(|t| (t.id, t.bpm)).collect();
+    let file =
+        s.built(&library, &|t: &Track| TrackAnalysis { beats: grid(bpms[&t.id], 0, 1), ..TrackAnalysis::default() });
+    let mut titles = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let page = s
+            .read_library(&file, std::slice::from_ref(&music), cursor.as_deref(), json!({ "scratch": scratch }))
+            .unwrap();
+        let page = match page.blob {
+            Some(blob) => LibraryPage {
+                next: page.next,
+                ..serde_json::from_slice(&std::fs::read(scratch.join(blob)).unwrap()).unwrap()
+            },
+            None => page,
+        };
+        let marks: Vec<usize> = page.tracks.iter().map(|t| t.beats.len() + t.cues.len()).collect();
+        let (_, before_last) = marks.split_last().expect("a track a page");
+        assert!(before_last.iter().sum::<usize>() < 100_000, "{marks:?}");
+        assert!(marks.iter().all(|m| *m <= 943_705), "{marks:?}");
+        titles.extend(page.tracks.into_iter().map(|t| t.title));
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(titles, library.tracks.iter().map(|t| t.title.clone()).collect::<Vec<_>>());
+    s.stop();
+}
