@@ -3,7 +3,8 @@ use super::*;
 /// A collection in the shape Traktor Pro 3 and 4 write one: a track on the startup disk with a
 /// grid marker on a pad (holding its own tempo), a hot cue, a looping hot cue and a coloured load
 /// marker, a track on a Windows drive, a stream with no file, a marker of a type nobody
-/// documents, and playlists in a folder beside a smart playlist.
+/// documents, and playlists in a folder beside a smart playlist, one listing a track as a stem
+/// (as Traktor 4 lists a stem file) and a track the collection hasn't.
 const NML: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <NML VERSION="19"><HEAD COMPANY="www.native-instruments.com" PROGRAM="Traktor"></HEAD>
 <MUSICFOLDERS></MUSICFOLDERS>
@@ -28,7 +29,7 @@ const NML: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <PLAYLISTS><NODE TYPE="FOLDER" NAME="$ROOT"><SUBNODES COUNT="3">
 <NODE TYPE="PLAYLIST" NAME="Preparation"><PLAYLIST ENTRIES="0" TYPE="LIST" UUID="1f0e"></PLAYLIST></NODE>
 <NODE TYPE="FOLDER" NAME="Gigs"><SUBNODES COUNT="2">
-<NODE TYPE="PLAYLIST" NAME="Friday"><PLAYLIST ENTRIES="2" TYPE="LIST" UUID="2a9b"><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="E:/:Music/:b.wav"></PRIMARYKEY></ENTRY><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="Macintosh HD/:Users/:dj/:Music/:Bicep/:Glue.mp3"></PRIMARYKEY></ENTRY><ENTRY><PRIMARYKEY TYPE="STEM" KEY="x"></PRIMARYKEY></ENTRY></PLAYLIST></NODE>
+<NODE TYPE="PLAYLIST" NAME="Friday"><PLAYLIST ENTRIES="2" TYPE="LIST" UUID="2a9b"><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="E:/:Music/:b.wav"></PRIMARYKEY></ENTRY><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="Macintosh HD/:Users/:dj/:Music/:Bicep/:Glue.mp3"></PRIMARYKEY></ENTRY><ENTRY><PRIMARYKEY TYPE="STEM" KEY="E:/:Music/:b.wav"></PRIMARYKEY></ENTRY><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="E:/:Music/:gone.wav"></PRIMARYKEY></ENTRY></PLAYLIST></NODE>
 <NODE TYPE="SMARTLIST" NAME="Recent"><SMARTLIST UUID="3c7d"><SEARCH_EXPRESSION VERSION="1" QUERY="$IMPORTDATE &gt; 2024/1/1"></SEARCH_EXPRESSION></SMARTLIST></NODE>
 </SUBNODES></NODE>
 </SUBNODES></NODE></PLAYLISTS>
@@ -74,7 +75,10 @@ fn a_collection_traktor_wrote_is_read() {
         c.lists,
         [
             list(&["Preparation"], &[]),
-            list(&["Gigs", "Friday"], &["E:/:Music/:b.wav", "Macintosh HD/:Users/:dj/:Music/:Bicep/:Glue.mp3"]),
+            list(
+                &["Gigs", "Friday"],
+                &["E:/:Music/:b.wav", "Macintosh HD/:Users/:dj/:Music/:Bicep/:Glue.mp3", "E:/:Music/:b.wav"]
+            ),
         ]
     );
     assert_eq!(
@@ -83,17 +87,19 @@ fn a_collection_traktor_wrote_is_read() {
             "1 entr(ies) without a file left out",
             "1 marker(s) of a type Traktor doesn't document left out",
             "1 smart playlist(s), whose rules aren't read, left out",
+            "1 playlist entr(ies) naming no track in the collection left out",
         ]
     );
 }
 
-/// A playlist tree without Traktor's `$ROOT` keeps its outermost folder, and a playlist's own
-/// node closed at once is an empty playlist.
+/// A playlist tree without Traktor's `$ROOT` keeps its outermost folder, a playlist named
+/// `$ROOT` keeps its name, and a playlist's own node closed at once is an empty playlist.
 #[test]
 fn playlists_without_a_root_folder() {
-    let nml = r#"<NML><PLAYLISTS><NODE TYPE="FOLDER" NAME="Top"><SUBNODES><NODE TYPE="PLAYLIST" NAME="A"/></SUBNODES></NODE></PLAYLISTS></NML>"#;
+    let nml = r#"<NML><PLAYLISTS><NODE TYPE="FOLDER" NAME="Top"><SUBNODES><NODE TYPE="PLAYLIST" NAME="A"/></SUBNODES></NODE><NODE TYPE="PLAYLIST" NAME="$ROOT"/></PLAYLISTS></NML>"#;
     let c = read(nml.as_bytes()).unwrap();
-    assert_eq!(c.lists, [List { path: vec!["Top".into(), "A".into()], keys: Vec::new() }]);
+    let list = |path: &[&str]| List { path: path.iter().map(|p| p.to_string()).collect(), keys: Vec::new() };
+    assert_eq!(c.lists, [list(&["Top", "A"]), list(&["$ROOT"])]);
     assert!(c.entries.is_empty() && c.warnings.is_empty());
 }
 

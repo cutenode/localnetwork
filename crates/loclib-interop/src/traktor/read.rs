@@ -8,8 +8,9 @@
 //!   colours markers by type (cues blue, fade markers orange, load markers yellow, loops green,
 //!   grid markers white); a `COLOR` attribute is read too, when it's `#rrggbb`. A grid marker may
 //!   hold a `GRID` with its own `BPM`. An unnamed marker is called `n.n.`.
-//! * the outermost playlist node is `$ROOT`; smart playlists are `NODE TYPE="SMARTLIST"`, which
-//!   hold rules rather than tracks.
+//! * the outermost playlist node is the folder `$ROOT`; smart playlists are
+//!   `NODE TYPE="SMARTLIST"`, which hold rules rather than tracks. Traktor 4 lists a stem file's
+//!   track in a playlist as `PRIMARYKEY TYPE="STEM"` (its other tracks are `TRACK`).
 
 use std::ops::RangeInclusive;
 
@@ -17,6 +18,7 @@ use loclib_model::analysis::Beat;
 use loclib_model::harmony::Camelot;
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
+use rustc_hash::FxHashSet;
 
 use super::{Location, key_of};
 use crate::{Error, Result};
@@ -152,7 +154,7 @@ impl MarkerKind {
 pub struct List {
     /// The folders above it, then its name.
     pub path: Vec<String>,
-    /// Its tracks in order, by [`Location::key`].
+    /// Its tracks in order, by [`Location::key`]: each one of the collection's entries.
     pub keys: Vec<String>,
 }
 
@@ -242,6 +244,8 @@ struct State {
     marker: Option<Marker>,
     /// The names of the playlist nodes open.
     nodes: Vec<String>,
+    /// Whether they're in Traktor's `$ROOT` folder, whose name isn't part of a playlist's path.
+    in_root: bool,
     /// The playlist being read.
     list: Option<List>,
     out: Collection,
@@ -273,17 +277,23 @@ impl State {
                 if self.nodes.len() == DEPTH {
                     return Err(format!("its playlists are in folders more than {DEPTH} deep"));
                 }
-                self.nodes.push(a.text("NAME"));
-                match a.text("TYPE").as_str() {
+                let (kind, name) = (a.text("TYPE"), a.text("NAME"));
+                if self.nodes.is_empty() {
+                    self.in_root = kind == "FOLDER" && name == "$ROOT";
+                }
+                self.nodes.push(name);
+                match kind.as_str() {
                     "PLAYLIST" => {
-                        let root = usize::from(self.nodes.first().is_some_and(|n| n == "$ROOT"));
-                        self.list = Some(List { path: self.nodes[root..].to_vec(), keys: Vec::new() });
+                        let path = self.nodes[usize::from(self.in_root)..].to_vec();
+                        self.list = Some(List { path, keys: Vec::new() });
                     }
                     "SMARTLIST" => self.smart += 1,
                     _ => {}
                 }
             }
-            (Some("ENTRY"), "PRIMARYKEY") if a.text("TYPE") == "TRACK" => {
+            // Any type: Traktor 4 lists a stem file's track as `STEM`. Keys naming no entry go
+            // once the collection's read.
+            (Some("ENTRY"), "PRIMARYKEY") => {
                 if let Some(list) = self.list.as_mut() {
                     list.keys.push(a.text("KEY"));
                 }
@@ -368,11 +378,19 @@ impl State {
     }
 
     fn finish(mut self) -> Collection {
+        let keys: FxHashSet<String> = self.out.entries.iter().map(|e| e.location.key()).collect();
+        let mut unknown_keys = 0;
+        for list in &mut self.out.lists {
+            let listed = list.keys.len();
+            list.keys.retain(|k| keys.contains(k));
+            unknown_keys += listed - list.keys.len();
+        }
         for (n, what) in [
             (self.without_file, "entr(ies) without a file"),
             (self.unknown_markers, "marker(s) of a type Traktor doesn't document"),
             (self.unreachable_markers, "marker(s) further from the start than a track reaches"),
             (self.smart, "smart playlist(s), whose rules aren't read,"),
+            (unknown_keys, "playlist entr(ies) naming no track in the collection"),
         ] {
             if n > 0 {
                 self.out.warnings.push(format!("{n} {what} left out"));

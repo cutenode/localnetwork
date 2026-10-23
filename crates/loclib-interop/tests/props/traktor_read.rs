@@ -298,7 +298,8 @@ fn assert_bounded(e: &Entry) {
 }
 
 /// Text that's anything from a collection to junk reads as a collection or is refused as not
-/// being one, never anything else; what reads has a file for every track.
+/// being one, never anything else; what reads has a file for every track, and playlists list
+/// only the collection's tracks (by key, whatever type their entries are).
 #[hegel::test(test_cases = 300)]
 fn anything_reads_or_is_refused(tc: TestCase) {
     let pieces = vec![
@@ -325,6 +326,7 @@ fn anything_reads_or_is_refused(tc: TestCase) {
         "</PLAYLIST>",
         "<ENTRY>",
         "<PRIMARYKEY TYPE=\"TRACK\" KEY=\"k\"/>",
+        "<PRIMARYKEY TYPE=\"STEM\" KEY=\"C:/:y.wav\"/>",
         "<plist>",
         "&amp;",
         "&bogus;",
@@ -343,7 +345,11 @@ fn anything_reads_or_is_refused(tc: TestCase) {
         false => inside,
     };
     match traktor::read(text.as_bytes()) {
-        Ok(c) => assert!(c.entries.iter().all(|e| !e.location.file.is_empty()), "{c:?}"),
+        Ok(c) => {
+            assert!(c.entries.iter().all(|e| !e.location.file.is_empty()), "{c:?}");
+            let keys: Vec<String> = c.entries.iter().map(|e| e.location.key()).collect();
+            assert!(c.lists.iter().flat_map(|l| &l.keys).all(|k| keys.contains(k)), "{c:?}");
+        }
         Err(Error::Invalid(why)) => assert!(why.starts_with("not a Traktor collection: "), "{why}"),
         Err(e) => panic!("{e}"),
     }
