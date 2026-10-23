@@ -32,7 +32,7 @@ crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (
                             clipping (ebur128), half/double tempo checks, and scoring analyzers against
                             the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
-                            tags, an Engine DJ library (engine.sql)
+                            tags, an Engine DJ library (engine.sql), rekordbox XML
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
                             spectrum, scope and cover art, in the colours of a palette the caller passes
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
@@ -41,8 +41,8 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
 plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
                             each album looked up on MusicBrainz and its cover fetched from the Cover Art
                             Archive, as `set_artwork` edits
-plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
-                            library with loclib-interop into a folder on this computer
+plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
+                            writing a drive's library with loclib-interop on this computer
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
@@ -119,7 +119,6 @@ crates/locallibrary/src/    the library, built on the crates above
   pdb.rs       reading export.pdb into the library model, through rekordbox-pdb
   paths.rs     which files on a drive locallibrary manages (the path keys are loclib-model's)
   onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
-  xml.rs       rekordbox XML export
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
                writer, fake-capacity probe

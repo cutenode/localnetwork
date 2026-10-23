@@ -71,3 +71,23 @@ type = "string"
 enum = ["relative", "drive"]
 default = "relative"
 description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
+
+[[contributes.exporters]]
+format = "rekordbox"
+title = "rekordbox: rekordbox XML with tracks, beat grids, cues and playlists, to import"
+extension = "xml"
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when rekordbox imports the file, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "Leave out beat grids and cues"

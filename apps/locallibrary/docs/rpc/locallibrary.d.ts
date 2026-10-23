@@ -1271,17 +1271,6 @@ export type UnembedRequest = {
   backup?: string | null;
 };
 
-export type ExportXml = {
-  drive: string;
-  output: string;
-  location_root?: string | null;
-  skip_analysis?: boolean;
-  /** Only these playlists and folders, and their tracks. */
-  only?: string[];
-  /** Replace a file already at `output` (refused otherwise). */
-  replace?: boolean;
-};
-
 export type ExportPlaylist = {
   drive: string;
   /**
@@ -4927,13 +4916,6 @@ export type UnembedReport = {
   restored: string[];
   /** Files changed since (or gone), left as they are. */
   skipped: Skip[];
-};
-
-export type XmlReport = {
-  tracks: number;
-  playlists: number;
-  tracks_with_beatgrid: number;
-  cues: number;
 };
 
 export type ExportReport = {
@@ -9356,8 +9338,6 @@ export interface Methods {
   "art.unembed.apply": { params: ApplyPlan | (UnembedRequest & WriteOptions); result: UnembedReport };
   /** apply method; paired with `art.unembed.plan`; can delete or overwrite something; an older name for `art.unembed.apply` */
   "art.unembed": { params: ApplyPlan | (UnembedRequest & WriteOptions); result: UnembedReport };
-  /** immediate method; long running: sends `progress`, can be cancelled */
-  "xml.export": { params: ExportXml & WriteOptions; result: XmlReport };
   /** immediate method; long running: sends `progress`, can be cancelled */
   export: { params: ExportPlaylist & WriteOptions; result: ExportReport };
   /** read method */

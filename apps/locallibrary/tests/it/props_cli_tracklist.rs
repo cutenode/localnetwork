@@ -10,8 +10,6 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::Library;
 use locallibrary::device::Device;
 use locallibrary::import::{self, Status};
-use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use serde_json::{Value, json};
 
 use crate::support::{Env, path};
@@ -114,9 +112,8 @@ fn an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
     let lib = library(&root);
     let list = lib.playlists.iter().find(|p| !p.is_folder && !p.track_ids.is_empty()).expect("a playlist");
     let name = lib.playlist_path(list.id);
-    let (text, _) = xml::export(&Device::open(&root).unwrap(), &XmlOptions::default(), &Ctx::silent()).unwrap();
     let file = env.outside("collection.xml");
-    std::fs::write(&file, text).unwrap();
+    env.ok(&["xml", d, "-o", path(&file)]);
     let into = if onto_itself { name.clone() } else { "Imported".to_string() };
     // A choice of another track for an entry the list has.
     let chosen = choice.filter(|i| *i < list.track_ids.len()).map(|i| {

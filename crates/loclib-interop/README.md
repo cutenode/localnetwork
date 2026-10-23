@@ -1,7 +1,7 @@
 # loclib-interop
 
 Writes a DJ library for other DJ software: Traktor's `collection.nml`, Serato's crates (and its
-cue tag in copies of the audio), and a new Engine DJ library. It was split out of
+cue tag in copies of the audio), a new Engine DJ library, and rekordbox XML. It was split out of
 [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), whose interop plugin
 (`plugins/interop`) uses it to export rekordbox USB drives.
 
@@ -25,6 +25,10 @@ your output folder, and their bytes) and notes on what the format left out.
   and playlists (a folder becomes a playlist holding playlists, and a playlist holds a track
   once). Beat grids, cues, loops and waveforms aren't written: Engine analyses the tracks when it
   first reads them. Nor are artwork and colours.
+- `rekordbox`: a `DJ_PLAYLISTS` XML file, for rekordbox's Imported Library (Preferences >
+  Advanced > rekordbox xml), which turns a USB drive back into a computer library. Carries every
+  track's details, beat grid (a `TEMPO` per tempo change), hot cues with their colours, memory
+  cues, loops, and playlists and folders. Leaves out My Tags, artwork and waveforms.
 - `encode`: the XML escaping the formats are written with.
 
 ```rust
@@ -65,7 +69,7 @@ assert!(String::from_utf8_lossy(nml).contains(r#"FILE="Glue.mp3" VOLUME="USB""#)
 
 ## Features
 
-- `traktor`, `serato`, `engine` (all default): one per format. `engine` brings SQLite (built in,
+- `traktor`, `serato`, `engine`, `rekordbox` (all default): one per format. `engine` brings SQLite (built in,
   through rusqlite) and `serato` brings lofty for the tags, so a build for NML alone needs
   neither.
 - `schemars`: JSON Schema (`schemars::JsonSchema`) for `Software`.
@@ -77,7 +81,7 @@ assert!(String::from_utf8_lossy(nml).contains(r#"FILE="Glue.mp3" VOLUME="USB""#)
   copy from; `serato::write_markers` tags a copy you made. The Engine database is built in a
   temporary file and handed back as bytes.
 - Check the audio is where the files say, or that a file is already at a path you'd write.
-- Read Traktor, Serato or Engine libraries back.
+- Read Traktor, Serato, Engine or rekordbox XML libraries back.
 
 ## Licence
 

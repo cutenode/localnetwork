@@ -883,9 +883,10 @@ fn makes_a_smart_playlist_from_the_search() {
     assert!(app.modal.is_none() && last_message(&app).starts_with("nothing to change"), "{}", last_message(&app));
 }
 
-/// The list shown and rekordbox XML, written where asked (never onto the drive).
+/// The list shown, written where asked (never onto the drive), replacing a file there only once
+/// that's asked about.
 #[test]
-fn exports_the_list_shown_and_rekordbox_xml() {
+fn exports_the_list_shown() {
     let (dir, root) = demo_drive();
     let device = Device::open_export(&root).unwrap();
     let lib = device.library().unwrap();
@@ -904,29 +905,24 @@ fn exports_the_list_shown_and_rekordbox_xml() {
     let csv = std::fs::read_to_string(out.join("all.csv")).unwrap();
     assert!(csv.contains("Demo Track 1"), "{csv}");
 
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
-    assert!(last_message(&app).contains("2 tracks"), "{}", last_message(&app));
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
-
     // A file that's there is replaced only once that's asked about.
-    std::fs::write(out.join("demo.xml"), "mine").unwrap();
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    std::fs::write(out.join("all.csv"), "mine").unwrap();
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if q.contains("Replace it?")));
     press(&mut app, "n");
-    assert_eq!(std::fs::read_to_string(out.join("demo.xml")).unwrap(), "mine");
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    assert_eq!(std::fs::read_to_string(out.join("all.csv")).unwrap(), "mine");
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     press(&mut app, "y");
     wait(&mut app, |a| a.job.is_none());
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
+    assert!(std::fs::read_to_string(out.join("all.csv")).unwrap().contains("Demo Track 1"));
 
     // Not onto the drive itself.
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &root.join("x.xml"));
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &root.join("x.m3u8"));
     assert!(last_message(&app).starts_with("not onto the drive"));
-    assert!(!root.join("x.xml").exists());
+    assert!(!root.join("x.m3u8").exists());
 }
 
 /// The set shown last run, on starting: said to be reading until the sets are in. Read again

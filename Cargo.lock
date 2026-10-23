@@ -4079,6 +4079,7 @@ dependencies = [
  "loclib-model",
  "loclib-progress",
  "lofty",
+ "percent-encoding",
  "quick-xml 0.42.0",
  "rusqlite",
  "rustc-hash",

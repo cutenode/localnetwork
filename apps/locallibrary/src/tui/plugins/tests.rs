@@ -851,7 +851,8 @@ fn an_export_onto_the_drive_is_refused() {
 }
 
 /// A format's options are fields of the export's form, after where to write it, which a folder
-/// format names after the drive and the format.
+/// format names after the drive and the format, and a file format after the drive, with its
+/// extension.
 #[test]
 fn an_exports_form_has_the_formats_options() {
     let (dir, root) = demo_drive();
@@ -864,10 +865,15 @@ fn an_exports_form_has_the_formats_options() {
     let name = app.drive_label(&root);
     assert_eq!(f.fields[0].text, format!("~/Music/{name} for traktor"));
     assert!(f.fields[0].required && f.fields[2].is_switch());
+    press(&mut app, "\u{1b}");
+    press(&mut app, ":export for rekordbox\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    let names: Vec<&str> = f.fields.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, ["write_to", "location_root", "skip_analysis"]);
+    assert_eq!(f.fields[0].text, format!("~/Music/{name}.xml"));
 }
 
-/// Playlists marked in the tree are what's exported, as with rekordbox XML: the plugin gets
-/// exactly those.
+/// Playlists marked in the tree are what's exported: the plugin gets exactly those.
 #[test]
 fn an_export_takes_the_marked_playlists() {
     let (dir, root) = demo_drive();

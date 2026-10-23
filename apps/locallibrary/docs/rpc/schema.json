@@ -2586,26 +2586,6 @@
       }
     },
     {
-      "name": "xml.export",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": true,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/ExportXml"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/XmlReport"
-      }
-    },
-    {
       "name": "export",
       "aliases": [],
       "kind": "immediate",
@@ -9278,45 +9258,6 @@
           "default": null
         }
       }
-    },
-    "ExportXml": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string"
-        },
-        "output": {
-          "type": "string"
-        },
-        "location_root": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "skip_analysis": {
-          "type": "boolean",
-          "default": false
-        },
-        "only": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Only these playlists and folders, and their tracks.",
-          "default": []
-        },
-        "replace": {
-          "type": "boolean",
-          "description": "Replace a file already at `output` (refused otherwise).",
-          "default": false
-        }
-      },
-      "required": [
-        "drive",
-        "output"
-      ]
     },
     "ExportPlaylist": {
       "type": "object",
@@ -20799,37 +20740,6 @@
         "skipped"
       ],
       "description": "What taking embedded art back out did."
-    },
-    "XmlReport": {
-      "type": "object",
-      "properties": {
-        "tracks": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "playlists": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "tracks_with_beatgrid": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "cues": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "tracks",
-        "playlists",
-        "tracks_with_beatgrid",
-        "cues"
-      ]
     },
     "ExportReport": {
       "type": "object",

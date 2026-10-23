@@ -1,5 +1,5 @@
 //! Regression tests for bugs found in review.
-use crate::common;
+use crate::common::{self, XmlOptions};
 
 use indexmap::IndexMap;
 
@@ -12,7 +12,6 @@ use locallibrary::merge::{self, MergeOptions};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, PushOptions, SyncOptions};
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Error, anlz, backup, export, paths, pdb};
 use rekordbox_pdb::{Database, NewTrack, PdbEditor, TableType};
 
@@ -204,7 +203,7 @@ fn a_playlist_tree_repeating_a_folder_id_is_walked_once() {
     // Every walk over the tree ends: the XML, the library other software's exports are made from
     // (the interop plugin reads it, `drive.library` with `combined`), a folder's playlist files
     // and the sidecar's tree.
-    let (xml, _) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (xml, _) = common::rekordbox_xml(&d, &XmlOptions::default()).unwrap();
     assert_eq!(xml.matches("Name=\"F\"").count(), 1);
     let combined = LibraryRef { drive: root.display().to_string(), combined: true };
     let read = api::drive_library_cached(

@@ -1,6 +1,6 @@
-//! The interop plugin: a drive's library for other DJ software, written by loclib-interop into a
-//! folder on this computer: Traktor's `collection.nml`, Serato's crates (with cue points in tags of
-//! copies of the audio on request) and a new Engine DJ library. It reads the library exports are
+//! The interop plugin: a drive's library for other DJ software, written by loclib-interop on this
+//! computer: Traktor's `collection.nml`, Serato's crates (with cue points in tags of copies of the
+//! audio on request) and a new Engine DJ library, each into a folder, and a rekordbox XML file. It reads the library exports are
 //! made from (locallibrary's `combined` one) and the tracks' beat grids and cues through the host,
 //! and the audio, for Serato's copies, from the drive itself (where the host says it's mounted,
 //! the export's `source.root`), which it never writes to.
@@ -12,7 +12,7 @@
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
-use loclib_interop::{Error, Export, Software, Source, engine, serato, traktor};
+use loclib_interop::{Error, Export, Software, Source, engine, rekordbox, serato, traktor};
 use loclib_model::analysis::TrackAnalysis;
 use loclib_model::paths::{self, PathStyle};
 use loclib_model::{Library, Track};
@@ -74,7 +74,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
         library.subset(&req.source.playlists).map_err(|query| invalid(format!("not found: playlist {query:?}")))?;
     // Engine keeps no analysis, and Serato's crates alone none either.
     let carried = match software {
-        Software::Traktor => true,
+        Software::Traktor | Software::Rekordbox => true,
         Software::Serato => options.write_tags,
         _ => false,
     };
@@ -108,14 +108,20 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
             let copies = serato::Copies { root: output.clone(), audio: &audio };
             serato::build(&source, &req.output, options.write_tags.then_some(&copies), &ctx)
         }
+        Software::Rekordbox => rekordbox::build(&source, &req.output, &ctx),
         _ => engine::build(&source, &output, options.paths, &ctx),
     }
     .map_err(|e| failure(e, &ctx))?;
     if !req.dry_run {
         write::write(&export, &output, &ctx)?;
     }
+    // Said below `output` as it was given; rekordbox's file is `output` itself, which joining an
+    // empty rest would end in a separator.
     let files = export.files.iter().map(|f| ExportedFile {
-        path: f.path.strip_prefix(&output).map_or_else(|_| f.path.clone(), |rest| req.output.join(rest)),
+        path: match f.path.strip_prefix(&output) {
+            Ok(rest) if !rest.as_os_str().is_empty() => req.output.join(rest),
+            _ => f.path.clone(),
+        },
         what: f.what.clone(),
         bytes: f.bytes,
     });

@@ -683,30 +683,9 @@ impl App {
         }));
     }
 
-    /// Write rekordbox XML of the drive (just the marked playlists and their tracks, when any are
-    /// marked), to take it back into rekordbox: asks where first.
-    pub(super) fn export_xml(&mut self) {
-        let Some(l) = &self.loaded else {
-            self.toast("open a drive first", Level::Info);
-            return;
-        };
-        let only = self.list_marks.clone();
-        let label = match only.len() {
-            0 => "rekordbox XML of the drive to".to_string(),
-            n => format!("rekordbox XML of the {n} marked playlist{} to", s(n)),
-        };
-        let name = l.device.name();
-        self.modal = Some(Modal::Prompt(Prompt {
-            label,
-            text: format!("~/Music/{name}.xml"),
-            purpose: PromptFor::ExportXml { only },
-            root: l.root().to_path_buf(),
-        }));
-    }
-
     /// Write the file asked for, in the background; one that's there already is replaced only
     /// once that's asked about, as `--replace` does on the command line.
-    pub(super) fn write_export(&mut self, root: PathBuf, to: &str, what: Export) {
+    pub(super) fn write_export(&mut self, root: PathBuf, to: &str, list: ExportOf) {
         let output = super::mix::typed_path(to);
         if output.as_os_str().is_empty() {
             self.toast("say where: a file name", Level::Info);
@@ -718,36 +697,22 @@ impl App {
         }
         if output.exists() {
             let q = format!("{} is there already. Replace it?", output.display());
-            self.modal = Some(Modal::Ask(q, Box::new(move |app: &mut App| app.export_to(root, output, what, true))));
+            self.modal = Some(Modal::Ask(q, Box::new(move |app: &mut App| app.export_to(root, output, list, true))));
             return;
         }
-        self.export_to(root, output, what, false);
+        self.export_to(root, output, list, false);
     }
 
-    fn export_to(&mut self, root: PathBuf, output: PathBuf, what: Export, replace: bool) {
-        let drive = root.display().to_string();
+    fn export_to(&mut self, root: PathBuf, output: PathBuf, list: ExportOf, replace: bool) {
         let shown = output.display().to_string();
         let store_root = self.store_root.clone();
         self.task("Exporting".into(), move |ctx| {
             if let Some(dir) = output.parent() {
                 std::fs::create_dir_all(dir).map_err(|source| Error::Io { path: dir.to_path_buf(), source })?;
             }
-            let msg = match what {
-                Export::List(list) => {
-                    let store = Store::open(&store_root).ok();
-                    let n = write_list(store.as_ref(), &root, list, output, replace, ctx)?;
-                    format!("wrote {shown}: {n} track{}", s(n))
-                }
-                Export::Xml(only) => {
-                    let req =
-                        api::ExportXml { drive, output, location_root: None, skip_analysis: false, only, replace };
-                    let r = api::export_xml(&req, ctx)?;
-                    format!(
-                        "wrote {shown}: {} tracks, {} playlists (rekordbox: File › Import › rekordbox xml)",
-                        r.tracks, r.playlists
-                    )
-                }
-            };
+            let store = Store::open(&store_root).ok();
+            let n = write_list(store.as_ref(), &root, list, output, replace, ctx)?;
+            let msg = format!("wrote {shown}: {n} track{}", s(n));
             Ok(Box::new(move |app: &mut App| app.toast(msg, Level::Info)))
         });
     }
@@ -799,13 +764,6 @@ pub enum ExportOf {
     History(String),
     /// A set: its name, and its tracks on the drive in the order played.
     Set(String, Vec<Track>),
-}
-
-/// A file to write.
-pub enum Export {
-    List(ExportOf),
-    /// rekordbox XML, of these playlists only (all when empty).
-    Xml(Vec<String>),
 }
 
 /// A role as the player says it.

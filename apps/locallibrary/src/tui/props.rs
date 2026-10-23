@@ -42,7 +42,7 @@ const KEYS: &[&str] = &[
 /// Words a walk types: commands for the palette, names for prompts, searches and filters.
 #[rustfmt::skip]
 const WORDS: &[&str] = &[
-    "Friday", "loop", "sort", "rating", "colour", "playlist", "undo", "pull", "check", "export", "xml", "smart",
+    "Friday", "loop", "sort", "rating", "colour", "playlist", "undo", "pull", "check", "export", "smart",
     "Sets/New", "Genre/Deep House", "bpm:120-130", "rating:>=3", "artist:floor", "key:8A", "tag:Genre/House", "-x",
     "playlist:Nope", "(", "zzz", "日本 😹", "Demo", "loopmasters",
 ];
@@ -130,12 +130,9 @@ fn click_allowed(app: &App, kind: MouseEventKind, (column, row): (u16, u16)) -> 
 /// An export about to be written goes into the test's folder, not `~/Music`.
 fn keep_exports_in(app: &mut App, dir: &Path) {
     if let Some(Modal::Prompt(p)) = &mut app.modal
-        && matches!(p.purpose, PromptFor::ExportList { .. } | PromptFor::ExportXml { .. })
+        && matches!(p.purpose, PromptFor::ExportList { .. })
     {
-        let ext = match p.purpose {
-            PromptFor::ExportXml { .. } => "xml",
-            _ => ["m3u8", "csv", "txt"][p.text.len() % 3],
-        };
+        let ext = ["m3u8", "csv", "txt"][p.text.len() % 3];
         p.text = dir.join(format!("exported.{ext}")).display().to_string();
     }
 }
@@ -1143,8 +1140,7 @@ fn edits_write_what_they_say(tc: TestCase) {
 }
 
 /// Exporting the list shown (every track, or a playlist) writes a file of that list's tracks in
-/// its order, in the format its name asks for, and rekordbox XML of the whole drive; writing over
-/// a file that's there asks first.
+/// its order, in the format its name asks for; writing over a file that's there asks first.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn exports_hold_the_list_shown(tc: TestCase) {
     use super::browse::NodeId;
@@ -1176,11 +1172,10 @@ fn exports_hold_the_list_shown(tc: TestCase) {
         }
         false => tracks.iter().collect(),
     };
-    let xml = tc.draw(gs::booleans());
-    let ext = if xml { "xml" } else { tc.draw(gs::sampled_from(&["m3u8", "csv", "txt"][..])) };
+    let ext = tc.draw(gs::sampled_from(&["m3u8", "csv", "txt"][..]));
     let out = _dir.path().join(format!("out/list.{ext}"));
     for again in [false, true] {
-        let name = if xml { "rekordbox xml" } else { "export the list" };
+        let name = "export the list";
         command(&mut app, name);
         let Some(Modal::Prompt(p)) = &mut app.modal else { panic!("no prompt for {name}") };
         assert!(p.text.starts_with("~/Music/"), "{:?}", p.text);
@@ -1193,11 +1188,6 @@ fn exports_hold_the_list_shown(tc: TestCase) {
         wait(&mut app, |a| a.job.is_none());
         let text = std::fs::read_to_string(&out)
             .unwrap_or_else(|e| panic!("{e}: {}", super::app::testing::last_message(&app)));
-        if xml {
-            assert!(text.contains("<DJ_PLAYLISTS"), "{text}");
-            assert_eq!(text.matches("<TRACK TrackID=").count(), tracks.len(), "every track's in the collection");
-            continue;
-        }
         // Each track of the list, once, in its order: by its file (a text file names it).
         let named = |t: &locallibrary::Track| match ext {
             "txt" => t.title.clone(),
