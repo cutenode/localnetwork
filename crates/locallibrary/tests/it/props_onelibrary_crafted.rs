@@ -429,7 +429,7 @@ fn ids_players_cant_number_are_refused(tc: TestCase) {
             banks,
         ),
     ];
-    let (sql, negative_is_none, read) = cases[tc.draw(gs::integers::<usize>().max_value(cases.len() - 1))];
+    let (sql, negative_is_none, read) = tc.draw(gs::sampled_from(&cases));
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     one.connection().execute_batch(&sql.replace("{id}", &id.to_string())).unwrap();
     let refused = id > 0 || !negative_is_none;

@@ -352,9 +352,9 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
-each plugin's `{id, name, version, capabilities: [{capability, means}], commands, events,
-operations, panels, analyzers, checks, exporters, importers, providers, services, themes, settings,
-running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
+each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, commands,
+destinations, events, operations, panels, analyzers, checks, exporters, importers, providers,
+services, sources, themes, settings, running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
 a plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
 `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets, secrets_unknown?,
 running}`, the manifest with the JSON Schemas of each command's and operation's `params` and each

@@ -25,41 +25,9 @@ use super::{App, Msg, NowPlaying, View};
 mod files;
 pub use files::{Template, copy_dir};
 
+/// A track at `/Contents/<id>.mp3` with no BPM (0): the player's tests set the tempos they show.
 pub fn track(id: u32, artist: &str, title: &str) -> Track {
-    Track {
-        id,
-        title: title.into(),
-        artist: artist.into(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 300,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1000,
-        file_path: format!("/Contents/{id}.mp3"),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
+    Track { bpm: 0.0, ..loclib_model::test_util::track(id, artist, title, &format!("/Contents/{id}.mp3")) }
 }
 
 /// Four tracks (two of them the same recording), a folder with a playlist, and a history list.
@@ -388,6 +356,19 @@ pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }
 
+/// A time that reads as just now however long the test runs after it (a loaded machine can
+/// stall one for seconds between two lines): an hour ahead, its `elapsed()` is zero.
+pub fn just_now() -> Instant {
+    Instant::now() + Duration::from_secs(3600)
+}
+
+/// The confirmation up now, as right as it appeared: it ignores keys however long the test
+/// took since.
+pub fn just_shown(app: &mut App) {
+    let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation") };
+    c.shown = just_now();
+}
+
 /// The confirmation up now, once planned, as the plan's operation and first summary line.
 #[track_caller]
 pub fn confirming(app: &mut App) -> (String, String) {
@@ -403,15 +384,25 @@ pub fn confirming(app: &mut App) -> (String, String) {
 pub fn settle(app: &mut App) {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation: {:?}", app.toast) };
-    c.shown -= Duration::from_secs(1);
+    c.shown = Instant::now() - Duration::from_secs(1);
 }
 
-/// Say yes to the confirmation, and wait for the write and the reads after it.
+/// Say yes to the confirmation, and wait for the write and the reads after it. See [`written`].
 #[track_caller]
-pub fn say_yes(app: &mut App) {
+pub fn say_yes(app: &mut App) -> String {
     settle(app);
     press(app, "y");
+    written(app)
+}
+
+/// Wait for the write under way and the reads after it, answering what the write said as it
+/// finished: the reads can take longer than its message stays on screen.
+#[track_caller]
+pub fn written(app: &mut App) -> String {
+    wait(app, |a| a.job.is_none());
+    let said = last_message(app).to_owned();
     wait(app, |a| a.job.is_none() && a.loading.is_none());
+    said
 }
 
 /// Values made-up tracks' fields take, each with ties: some the same but for case or spacing,
@@ -433,23 +424,32 @@ pub fn any_tracks(tc: &hegel::TestCase, max: usize) -> Vec<Track> {
     let n = tc.draw(gs::integers::<u32>().max_value(max as u32));
     (1..=n)
         .map(|id| {
-            let mut t = track(id, tc.draw(gs::sampled_from(ARTISTS)), tc.draw(gs::sampled_from(TITLES)));
-            t.album = tc.draw(gs::sampled_from(ALBUMS)).into();
-            t.genre = tc.draw(gs::sampled_from(GENRES)).into();
-            t.label = tc.draw(gs::sampled_from(LABELS)).into();
-            t.key = tc.draw(gs::sampled_from(KEYS)).into();
-            t.bpm = tc.draw(gs::sampled_from(BPMS));
-            t.date_added = tc.draw(gs::sampled_from(ADDED)).into();
-            t.rating = tc.draw(gs::integers::<u8>().max_value(6));
-            t.color = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..])));
-            t.year = tc.draw(gs::sampled_from(&[0u16, 1997, 2014][..]));
-            t.play_count = tc.draw(gs::integers::<u16>().max_value(3));
-            t.bitrate = tc.draw(gs::sampled_from(&[0u32, 256, 320, 1411][..]));
-            t.duration_secs = tc.draw(gs::sampled_from(&[300u32, 420][..]));
-            t.comment = tc.draw(gs::sampled_from(&["", "Peak", "warm-up"][..])).into();
-            t
+            tc.draw(
+                loclib_model::test_util::tracks_like(track(id, "", ""))
+                    .artist(strings_from(ARTISTS))
+                    .title(strings_from(TITLES))
+                    .album(strings_from(ALBUMS))
+                    .genre(strings_from(GENRES))
+                    .label(strings_from(LABELS))
+                    .key(strings_from(KEYS))
+                    .bpm(gs::sampled_from(BPMS))
+                    .date_added(strings_from(ADDED))
+                    .rating(gs::integers::<u8>().max_value(6))
+                    .color(gs::optional(gs::sampled_from(&super::super::browse::COLOURS[..])))
+                    .year(gs::sampled_from(&[0u16, 1997, 2014][..]))
+                    .play_count(gs::integers::<u16>().max_value(3))
+                    .bitrate(gs::sampled_from(&[0u32, 256, 320, 1411][..]))
+                    .duration_secs(gs::sampled_from(&[300u32, 420][..]))
+                    .comment(strings_from(&["", "Peak", "warm-up"])),
+            )
         })
         .collect()
+}
+
+/// Any of `values`, as a `String` field of [`loclib_model::test_util::tracks_like`]'s.
+pub fn strings_from(values: &'static [&'static str]) -> impl hegel::generators::PrintableGenerator<String> {
+    use hegel::generators::{self as gs, Generator};
+    gs::sampled_from(values).map(String::from)
 }
 
 /// Every column the library sorts by.
@@ -511,12 +511,6 @@ impl locallibrary::op::AnyPlanned for Plan {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-
-/// Poll the volumes only when a test asks: a test's drive is a folder of files, which a poll
-/// (once a second, as the background is waited for) takes for an unplugged drive.
-pub fn hold_volume_polls(app: &mut App) {
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
 }
 
 /// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format

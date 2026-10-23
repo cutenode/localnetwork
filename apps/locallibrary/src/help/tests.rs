@@ -126,9 +126,8 @@ fn typo(tc: &hegel::TestCase, word: &str) -> String {
 #[hegel::test(test_cases = 200)]
 fn suggestions_for_a_subcommand_are_real_subcommands(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let groups = groups();
-    let (group, names) = &groups[tc.draw(gs::integers::<usize>().max_value(groups.len() - 1))];
-    let name = &names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))];
+    let (group, names) = &tc.draw(gs::sampled_from(groups()));
+    let name = &tc.draw(gs::sampled_from(&names[..]));
     assert_eq!(similar_subcommand(group, name).as_ref(), Some(name), "{group} {name}");
     let slipped = tc.draw(gs::booleans());
     let word = match slipped {
@@ -165,7 +164,7 @@ fn suggestions_for_a_command_are_visible_or_moved(tc: hegel::TestCase) {
     let cmd = COMMAND.get_or_init(command);
     let mut names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
     names.extend(MOVED.iter().map(|(old, _)| old.to_string()));
-    let name = &names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))];
+    let name = &tc.draw(gs::sampled_from(&names[..]));
     let word = typo(&tc, name);
     // A slip that spells a command (swapping two letters that are the same) isn't one.
     if cmd.find_subcommand(&word).is_some() {

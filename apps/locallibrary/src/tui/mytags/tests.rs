@@ -55,8 +55,8 @@ fn takes_a_tag_off_and_offers_it_for_another_track() {
     assert!(choices(&mut app).iter().any(|c| c == "take Genre/Techno off"));
     press(&mut app, "take techno\n");
     assert_eq!(confirming(&mut app).0, "tags");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("My Tags changed on 1 track"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("My Tags changed on 1 track"), "{said}");
     let tags = locallibrary::api::tags_list(&DriveRef { drive: root.display().to_string() }).unwrap();
     let techno = tags.categories.iter().flat_map(|c| &c.tags).find(|t| t.path == "Genre/Techno").unwrap();
     assert!(techno.tracks.is_empty(), "{techno:?}");
@@ -242,7 +242,7 @@ fn a_tag_is_offered_off_just_when_every_chosen_track_has_it(tc: hegel::TestCase)
     // Which tracks hold each tag, by index.
     let mut holding: Vec<BTreeSet<usize>> = Vec::new();
     for tag in TAGS {
-        let on: BTreeSet<usize> = (0..n).filter(|_| tc.draw(gs::booleans())).collect();
+        let on: BTreeSet<usize> = tc.draw(gs::subsequences((0..n).collect::<Vec<_>>())).into_iter().collect();
         if !on.is_empty() {
             let edit = locallibrary::tags::Edit::Add {
                 tag: tag.into(),
@@ -255,7 +255,7 @@ fn a_tag_is_offered_off_just_when_every_chosen_track_has_it(tc: hegel::TestCase)
     }
     let mut app = app_on(&root);
     // Marked tracks, or (none marked) the selected one.
-    let marked: BTreeSet<usize> = (0..n).filter(|_| tc.draw(gs::booleans())).collect();
+    let marked: BTreeSet<usize> = tc.draw(gs::subsequences((0..n).collect::<Vec<_>>())).into_iter().collect();
     let chosen: BTreeSet<usize> = if marked.is_empty() {
         let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
         app.track_state.select(app.visible.iter().position(|&v| v == i));

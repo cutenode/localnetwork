@@ -1395,9 +1395,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03bb0e1cc970d482d121d9a1744999169b69a07470b3d644a7894e53fcaf4574"
+checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
 dependencies = [
  "cmov",
 ]
@@ -2580,6 +2580,7 @@ version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f7c373a89d726d42180154319cdf2aaa447180fe02e0588025a40f1165e8147"
 dependencies = [
+ "chrono",
  "hegeltest-c",
  "hegeltest-macros",
  "parking_lot",
@@ -3943,6 +3944,7 @@ dependencies = [
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
  "loclib-mixid",
+ "loclib-model",
  "loclib-plugin",
  "loclib-progress",
  "loclib-waveform",

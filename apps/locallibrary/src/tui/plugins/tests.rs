@@ -434,9 +434,9 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
     for needle in ["Write to ", "Echo: make the playlist Plugged", "+ Plugged", "y write", "u takes this back"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    say_yes(&mut app);
+    let said = say_yes(&mut app);
     // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
-    assert!(last_message(&app).contains("u to undo"));
+    assert!(said.contains("u to undo"));
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
@@ -820,8 +820,7 @@ fn an_export_is_planned_confirmed_and_written() {
     for needle in ["Write 1 file?", "2 tracks", "list.m3u  playlist,", "y write"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
 
     // There already: asked about as overwriting, and left be on a no.
@@ -1348,11 +1347,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
 /// The kinds of step `0..n` in an order drawn for the case.
 #[hegel::test_helper]
 fn turns(tc: &TestCase, n: usize) -> Vec<usize> {
-    let mut kinds: Vec<usize> = (0..n).collect();
-    for i in (1..n).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    kinds
+    tc.draw(gs::permutations((0..n).collect::<Vec<_>>()))
 }
 
 /// The form open now.
@@ -1891,7 +1886,7 @@ fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     }
     // (The test plugin takes any names: it only says which it got.)
     let lists = ["Sets/Friday", "Warmup", "日本 😹"];
-    app.list_marks = lists.iter().filter(|_| tc.draw(gs::booleans())).map(|l| l.to_string()).collect();
+    app.list_marks = tc.draw(gs::subsequences(&lists[..])).iter().map(|l| l.to_string()).collect();
     if tc.draw(gs::booleans()) {
         press(&mut app, ":export for echo\n");
     } else {
@@ -1939,8 +1934,7 @@ fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
         assert_eq!((last_message(&app), was(&out)), ("nothing written", left));
         return;
     }
-    say_yes(&mut app);
-    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert_eq!(say_yes(&mut app), "Echo: 1 file written");
     let written = was(&out).unwrap();
     assert!(written.starts_with("#EXTM3U\n"), "{written}");
     for t in &app.loaded.as_ref().unwrap().library.tracks {
@@ -2040,10 +2034,7 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     let mut app = app_on(&drive.0);
     let before = on_drive(&drive.0);
     let names = ["Given", "日本 😹", "Warmup", "Late night"];
-    let mut made: Vec<&str> = names.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    if made.is_empty() {
-        made.push(names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))]);
-    }
+    let made = tc.draw(gs::subsequences(&names[..]).min_size(1));
     let edits: Vec<Value> = made.iter().map(|p| json!({ "op": "create_playlist", "path": p })).collect();
     let manifest = crate::plugins::host().unwrap().manifest("echo").unwrap();
     let hook = Cli::Operation(&manifest.contributes.operations[0]);

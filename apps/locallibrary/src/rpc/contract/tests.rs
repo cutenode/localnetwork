@@ -44,10 +44,10 @@ fn one_method_comes_with_only_what_it_uses() {
 fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let all = contract()["methods"].as_array().unwrap();
-    let m = &all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    let m = &tc.draw(gs::sampled_from(&all[..]));
     let names: Vec<&str> =
         std::iter::once(&m["name"]).chain(m["aliases"].as_array().unwrap()).filter_map(Value::as_str).collect();
-    let name = names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))];
+    let name = tc.draw(gs::sampled_from(&names[..]));
     let one = describe(Some(name)).unwrap();
     assert_eq!(one["methods"], json!([m]), "{name}");
     assert_eq!(one["version"], env!("CARGO_PKG_VERSION"));

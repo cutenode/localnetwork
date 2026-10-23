@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HeroHeadline from '#lib/components/HeroHeadline.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import ProjectCard from '#lib/components/ProjectCard.svelte';
 	import { pluralize } from '#lib/format.ts';
@@ -33,7 +34,8 @@
 
 <section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
-		<SectionHeader id="hero-title" level={1} size="display" align="center" title="The home for local DJs and the nights they play." lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private." />
+		{#snippet headline()}<HeroHeadline />{/snippet}
+		<SectionHeader id="hero-title" level={1} size="display" align="center" title={headline} lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private." />
 		<form action="/projects" method="GET" role="search" aria-label="Find DJs" class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
 			<div>
 				<label for="hero-q" class="label">Sound or name</label>

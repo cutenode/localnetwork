@@ -68,7 +68,8 @@ expect() {
 }
 
 expect /healthz '"happyView":"ok"'
-expect / 'The home for local DJs'
+# The headline's first pair, which the server renders; its words are in headline.json.
+expect / "$(node --print "const { verbs, nouns } = require('./src/lib/headline.json'); \`\${verbs[0]} your \${nouns[0]}.\`")"
 expect /projects/halflight 'Halflight'
 # The tools' guides come from apps/<tool>/, which only the image's build context brings in.
 expect /tools/locallibrary/docs/install 'Installing locallibrary'

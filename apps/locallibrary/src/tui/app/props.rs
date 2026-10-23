@@ -19,11 +19,7 @@ fn key_of(code: KeyCode, ctrl: bool) -> KeyEvent {
 /// once in every `n` steps, however its draws lean.
 #[hegel::test_helper]
 fn turns(tc: &TestCase, n: u8) -> Vec<u8> {
-    let mut kinds: Vec<u8> = (0..n).collect();
-    for i in (1..kinds.len()).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    kinds
+    tc.draw(gs::permutations((0..n).collect::<Vec<_>>()))
 }
 
 /// The test library's playlists and history over made-up tracks, shown on a drive.
@@ -367,9 +363,8 @@ fn background_results_land_where_they_belong(tc: TestCase) {
         let l = app.loaded.as_ref().unwrap();
         (l.root().to_path_buf(), l.generation, l.library.tracks.len())
     };
-    // The volumes are polled only when a step asks (the clock would otherwise decide).
-    let later = Instant::now() + Duration::from_secs(3600);
-    app.last_volume_poll = later;
+    // The volumes are polled only when a step asks, and held off again after it, as they start.
+    let later = just_now();
     let (mut failing, mut failures, mut unplugs, mut stale) = (false, 0, 0, false);
     let record = LibraryRecord {
         id: Uuid::nil(),
@@ -757,8 +752,6 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         }
     }
     app.outputs = super::super::audio::tests::OUTPUTS;
-    // (The drive is a folder of files, which a poll of the volumes would take for unplugged.)
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
     app.deck.output = tc.draw(gs::sampled_from(&[None, Some("Phones"), Some("Old Speakers")][..])).map(String::from);
     let root = app.queue.root.clone();
     // The plays broken on purpose.
@@ -1327,8 +1320,9 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     lib.tracks = any_tracks(&tc, 8);
     let (mut app, _dir) = app_with(lib);
     let l = app.loaded.as_mut().unwrap();
-    let tags: FxHashMap<String, Vec<String>> = (l.library.tracks.iter())
-        .filter(|_| tc.draw(gs::booleans()))
+    let tags: FxHashMap<String, Vec<String>> = tc
+        .draw(gs::subsequences(&l.library.tracks[..]))
+        .iter()
         .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
         .collect();
     l.my_tags = MyTags::Reading;
@@ -1683,7 +1677,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             0 => {
                 let tabs = a.tabs.clone();
-                let (v, r) = tabs[tc.draw(gs::integers::<usize>().max_value(tabs.len() - 1))];
+                let (v, r) = tc.draw(gs::sampled_from(&tabs[..]));
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.view, v, "the tab clicked");
                 // (The Drives and Snapshots views read what they show from the store, here none.)
@@ -1691,7 +1685,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             1 => {
                 let cols = a.columns.clone();
-                let (field, r) = cols[tc.draw(gs::integers::<usize>().max_value(cols.len() - 1))];
+                let (field, r) = tc.draw(gs::sampled_from(&cols[..]));
                 let before = app.sort;
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.sort, browse::click(before, field));
@@ -2279,7 +2273,7 @@ fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
     let declared = FIELD_KINDS.iter().map(|(n, t)| (n.to_string(), *t)).collect();
     app.loaded.as_mut().unwrap().fields = Fields::Read(Arc::new(TrackValues { declared, tracks }));
     let order: Vec<FieldName> =
-        (0..FIELD_KINDS.len()).filter(|_| tc.draw(gs::booleans())).map(|k| FieldName::new(FIELD_KINDS[k].0)).collect();
+        tc.draw(gs::subsequences(&FIELD_KINDS[..])).into_iter().map(|(n, _)| FieldName::new(n)).collect();
     let mut order = order;
     let n = order.len();
     order.rotate_left(tc.draw(gs::integers::<usize>().max_value(n)).min(n));

@@ -664,8 +664,10 @@ fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
     let mut scroll: u16 = 0;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
         let settled = tc.draw(gs::booleans());
-        if let Some(Modal::Confirm(c)) = &mut app.modal {
-            c.shown = if settled { Instant::now() - Duration::from_secs(1) } else { Instant::now() };
+        // (Unsettled, it's up for no time yet however long the draw below takes.)
+        just_shown(&mut app);
+        if settled && let Some(Modal::Confirm(c)) = &mut app.modal {
+            c.shown = Instant::now() - Duration::from_secs(1);
         }
         let code = tc.draw(gs::sampled_from(
             &[
@@ -939,10 +941,7 @@ fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
-    let mut turns: Vec<u8> = (0..12).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..12).collect::<Vec<_>>()));
     let planned = |app: &App| app.job.as_ref().is_some_and(|j| j.label == "Planning");
     for step in 0..tc.draw(gs::integers::<usize>().min_value(12).max_value(24)) {
         wait(&mut app, |a| a.job.is_none());

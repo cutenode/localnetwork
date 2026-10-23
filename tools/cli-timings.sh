@@ -5,14 +5,18 @@
 #
 #   tools/cli-timings.sh NEW [OLD]
 #
-# Prints hyperfine's Markdown tables, or appends them to $GITHUB_STEP_SUMMARY in CI. The weekly
-# `cli-timings` job in .github/workflows/locallibrary-scheduled.yml runs it on main against main a
+# Prints hyperfine's Markdown tables, or appends them to $GITHUB_STEP_SUMMARY in CI. With
+# CLI_TIMINGS_BMF set to a path, it also writes each command's fastest run on the new binary there
+# in Bencher's metric format (latency in nanoseconds), which the weekly `cli-timings` job in
+# .github/workflows/locallibrary-scheduled.yml sends to Bencher after timing main against main a
 # week earlier.
 set -euo pipefail
 
 new=$(realpath "$1")
 old=${2:+$(realpath "$2")}
 root=$(cd "$(dirname "$0")/.." && pwd)
+bmf=${CLI_TIMINGS_BMF:-}
+[[ -z $bmf || $bmf = /* ]] || bmf=$PWD/$bmf
 
 # A fastest run this much slower fails, unless it's within `floor` seconds. Each binary's runs
 # come one after the other, so anything else the machine does lands on one more than the other:
@@ -75,5 +79,9 @@ for entry in "${commands[@]}"; do
     echo "::error::locallibrary $args got slower: its fastest run took $verdict"
     failed=1
   fi
+  jq --arg name "$name" '.results[] | select((.name // .command) == "new")
+    | {("cli/" + $name): {latency: {value: ((.summary.time_wall_clock.min // .min) * 1e9 | round)}}}' \
+    "$name.json" >>bmf.json
 done
+[ -z "$bmf" ] || jq -s add bmf.json >"$bmf"
 exit "$failed"

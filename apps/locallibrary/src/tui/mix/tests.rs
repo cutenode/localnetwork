@@ -1022,10 +1022,7 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     let plays: Vec<(f64, f64)> = app.mix.report().unwrap().plays.iter().map(|p| (p.start, p.end)).collect();
     let mut zoom = 1;
     // Each kind of step in turn, in an order drawn for the case.
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(7).max_value(21)) {
         let loaded = set_loaded(&app);
         let pos = at(&app);
@@ -1158,7 +1155,8 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     press(&mut app, key);
     let (start, end) = if report { ("writing ", ".html…") } else { ("saving ", ".mix.json…") };
     assert!(last_message(&app).starts_with(start) && last_message(&app).ends_with(end), "{}", last_message(&app));
-    wait(&mut app, |a| !last_message(a).starts_with(start));
+    // (Not the line going once it's been read: a slow write can outlast it.)
+    wait(&mut app, |a| !last_message(a).starts_with(start) && !last_message(a).is_empty());
     let said = last_message(&app);
     match (matched, drive.is_dir()) {
         (true, _) if in_way > 0 => {
@@ -1308,10 +1306,7 @@ fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
         o.audio = audio.then(|| set.clone());
     }
     app.mix.set_recent(&[set.clone(), other.clone()]);
-    let mut turns: Vec<u8> = (0..9).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..9).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(9).max_value(18)) {
         screen(&mut app, 160, 48);
         app.mix.input = None;
@@ -1435,7 +1430,6 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     std::fs::create_dir_all(&drive).unwrap();
     let mut app = App::with_library(&drive, library());
     app.view = View::Mixes;
-    hold_volume_polls(&mut app);
     let own = wav_at(&dir.path().join("own.wav"));
     app.mix.set_recent(std::slice::from_ref(&own));
     screen(&mut app, 120, 30);
@@ -1444,10 +1438,7 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     for i in 0..n {
         assert!(s.contains(&format!("REC00{i}.wav")) && s.contains("0:00 · DNA"), "{s}");
     }
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for turn in turns {
         app.view = View::Mixes;
         match turn {

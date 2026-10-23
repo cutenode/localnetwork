@@ -232,7 +232,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
     // (label, counts items, position, message), as the bar should have them.
     let mut model: Option<(&str, bool, u64, String)> = None;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
-        let phase = phases[tc.draw(gs::integers::<usize>().max_value(phases.len() - 1))];
+        let phase = tc.draw(gs::sampled_from(&phases[..]));
         let event = match tc.draw(gs::integers::<u8>().max_value(4)) {
             0 => {
                 let items = tc.draw(gs::integers::<u64>().max_value(4));
@@ -288,7 +288,7 @@ fn every_outcome_exits_as_the_help_says(tc: hegel::TestCase) {
         (Outcome::Problems, "problems", 4),
         (Outcome::Partial, "partial", 5),
     ];
-    let (o, name, status) = all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    let (o, name, status) = tc.draw(gs::sampled_from(&all[..]));
     assert_eq!((o.name(), o.code()), (name, status));
     assert_eq!(o.exit(), ExitCode::from(status));
     let applied = tc.draw(gs::booleans());

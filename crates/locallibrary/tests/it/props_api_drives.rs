@@ -202,11 +202,9 @@ impl Registry {
         let ids: Vec<Uuid> = self.slots.iter().map(|s| s.id).chain(self.registry.keys().copied()).collect();
         let mounted: Vec<PathBuf> = self.mounted().map(|(_, s)| s.root.clone()).collect();
         match tc.draw(gs::integers::<u8>().max_value(4)) {
-            0 | 1 if !mounted.is_empty() => {
-                path(&mounted[tc.draw(gs::integers::<usize>().max_value(mounted.len() - 1))])
-            }
+            0 | 1 if !mounted.is_empty() => path(&tc.draw(gs::sampled_from(&mounted))),
             2 if !ids.is_empty() => {
-                let id = ids[tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))].to_string();
+                let id = tc.draw(gs::sampled_from(&ids)).to_string();
                 if tc.draw(gs::booleans()) { id } else { id[..8].to_uppercase() }
             }
             _ => tc.draw(gs::sampled_from(NAMES)).to_string(),
@@ -217,7 +215,7 @@ impl Registry {
     #[hegel::test_helper]
     fn mounted_slot(&self, tc: &TestCase) -> Option<usize> {
         let mounted: Vec<usize> = self.mounted().map(|(i, _)| i).collect();
-        (!mounted.is_empty()).then(|| mounted[tc.draw(gs::integers::<usize>().max_value(mounted.len() - 1))])
+        (!mounted.is_empty()).then(|| tc.draw(gs::sampled_from(mounted)))
     }
 
     /// `result` is the record `means` says, with what the model has for it; or the refusal it
@@ -476,7 +474,7 @@ impl Registry {
         tc.assume(i.is_some());
         let i = i.unwrap();
         let force = tc.draw(gs::booleans());
-        let name = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(NAMES)).to_string());
+        let name = tc.draw(gs::optional(gs::sampled_from(NAMES))).map(str::to_string);
         let with_store = tc.draw(gs::booleans());
         let store = with_store.then_some(&self.store);
         let by_name = api::Reidentify { drive: self.slots[i].name.clone(), name: None, force: true };
@@ -537,7 +535,7 @@ impl Registry {
         let known = match ids.is_empty() || tc.draw(gs::weighted_booleans(0.3)) {
             true => self.spec(&tc),
             false => {
-                let id = ids[tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))];
+                let id = tc.draw(gs::sampled_from(&ids));
                 match tc.draw(gs::booleans()) {
                     true => self.registry[&id].name.clone(),
                     false => id.to_string()[..8].to_string(),

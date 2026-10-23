@@ -110,7 +110,7 @@ fn reordering_a_playlist_keeps_its_tracks_in_the_asked_order(tc: TestCase) {
         .filter_map(|k| fs::read(root.join(k)).ok().map(|b| (k, b)))
         .collect();
 
-    let (field, read) = KEYS[tc.draw(gs::integers::<usize>().max_value(KEYS.len() - 1))];
+    let (field, read) = tc.draw(gs::sampled_from(KEYS));
     let descending = tc.draw(gs::booleans());
     let by = format!("{}{field}", if descending { "-" } else { "" });
     let in_order = |list: &[String]| {

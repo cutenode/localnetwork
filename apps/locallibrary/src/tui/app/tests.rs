@@ -442,8 +442,9 @@ fn a_filter_naming_no_playlist_says_so() {
     assert!(e.contains("playlist \"fridayx\""), "{e}");
 }
 
-/// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again.
-fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) {
+/// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again:
+/// what the write said.
+fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) -> String {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &app.modal else { panic!("no confirmation: {:?}", app.toast.as_ref().map(|t| &t.0)) };
     check(c.edit().expect("an edit plan"));
@@ -451,18 +452,18 @@ fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) {
         println!("{}", super::super::ui::screen(app, 100, 30));
     }
     let generation = app.loaded.as_ref().unwrap().generation;
+    just_shown(app);
     press(app, "y");
     assert!(matches!(app.modal, Some(Modal::Confirm(_))), "keys right as it appears are ignored");
-    if let Some(Modal::Confirm(c)) = &mut app.modal {
-        c.shown -= Duration::from_secs(1);
-    }
+    settle(app);
     press(app, "\n");
     assert!(app.job.is_none(), "enter doesn't write");
     press(app, "y");
     assert!(app.job.as_ref().is_some_and(|j| j.writing));
-    wait(app, |a| a.job.is_none() && a.loaded.as_ref().is_some_and(|l| l.generation != generation));
-    let msg = app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
-    assert!(msg.contains("written to export.pdb"), "{msg}");
+    let said = written(app);
+    assert_ne!(app.loaded.as_ref().unwrap().generation, generation, "read again");
+    assert!(said.contains("written to export.pdb"), "{said}");
+    said
 }
 
 #[test]
@@ -526,7 +527,9 @@ fn edits_a_real_drive_and_keeps_the_view() {
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     match &app.modal {
-        Some(Modal::Confirm(_)) => confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].path, "Sets/Warmup")),
+        Some(Modal::Confirm(_)) => {
+            confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].path, "Sets/Warmup"));
+        }
         _ => assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("nothing to change"))),
     }
 
@@ -557,9 +560,9 @@ fn u_undoes_the_last_change() {
     let rating = |app: &App| app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].rating);
     let before = rating(&app);
     press(&mut app, "e4");
-    confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
+    let said = confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
     assert_eq!(rating(&app), Some(4));
-    assert!(app.toast.as_ref().is_some_and(|t| t.0.ends_with("u to undo")), "{:?}", app.toast);
+    assert!(said.ends_with("u to undo"), "{said}");
 
     press(&mut app, "u");
     wait(&mut app, |a| a.job.is_none());
@@ -572,9 +575,10 @@ fn u_undoes_the_last_change() {
     assert!(screen.contains("put back the backup (before") && screen.contains("1 track as they were"), "{screen}");
     let generation = app.loaded.as_ref().unwrap().generation;
     press(&mut app, "y");
-    wait(&mut app, |a| a.job.is_none() && a.loaded.as_ref().is_some_and(|l| l.generation != generation));
+    let said = written(&mut app);
+    assert_ne!(app.loaded.as_ref().unwrap().generation, generation, "read again");
     assert_eq!(rating(&app), before);
-    assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("undone on")), "{:?}", app.toast);
+    assert!(said.starts_with("undone on"), "{said}");
 
     // In the Drives view, u is for the selected drive; nothing left to undo says so.
     app.drives = vec![Device::open(&root).unwrap().info()];
@@ -611,8 +615,8 @@ fn the_drives_view_pulls_checks_and_ejects() {
     assert_eq!(op, "pull");
     assert!(summary.contains("starting the library"), "{summary}");
     assert!(!dir.path().join("store").exists(), "planning made no store");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("saved DEMO in the store"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("saved DEMO in the store"), "{said}");
     let store = Store::open(dir.path().join("store")).unwrap();
     assert_eq!(store.libraries().unwrap().len(), 1);
     // The status the Drives view reads (made here: tests read no other drives).
@@ -678,8 +682,8 @@ fn packs_the_crate_onto_another_drive() {
     let (op, summary) = confirming(&mut app);
     assert_eq!(op, "pack");
     assert!(summary.contains("Sets/Friday") && summary.contains("SET"), "{summary}");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("packed onto SET"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("packed onto SET"), "{said}");
     let packed = Device::open_export(&target).unwrap().library().unwrap();
     assert!(packed.find_playlist("Sets/Friday").is_some_and(|p| p.track_ids.len() == 2));
     assert_eq!(packed.tracks.len(), 2);
@@ -818,8 +822,8 @@ fn gives_tracks_a_my_tag_and_shows_them() {
     press(&mut app, "Deep\n");
     let (op, _) = confirming(&mut app);
     assert_eq!(op, "tags");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("My Tags changed on 1 track"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("My Tags changed on 1 track"), "{said}");
     wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().my_tags, MyTags::Read(_)));
     let s = super::super::ui::screen(&mut app, 140, 30);
     assert!(s.contains("My Tags") && s.contains("Deep"), "{s}");
@@ -1730,6 +1734,7 @@ fn a_plan_waits_for_the_dialog_open() {
     press(&mut app, "\u{1b}");
     app.tick();
     assert!(matches!(app.modal, Some(Modal::Confirm(_))), "then the plan");
+    just_shown(&mut app);
     press(&mut app, "y");
     assert!(matches!(app.modal, Some(Modal::Confirm(_))) && app.job.is_none(), "keys right as it appears are ignored");
 
@@ -1865,8 +1870,8 @@ fn u_after_packing_undoes_on_the_drive_packed_onto() {
     say_yes(&mut app);
     let (op, _) = confirming(&mut app);
     assert_eq!(op, "pack");
-    say_yes(&mut app);
-    assert!(last_message(&app).ends_with("u to undo"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.ends_with("u to undo"), "{said}");
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
@@ -2706,9 +2711,10 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     app.deck.output = Some("Phones".into());
     app.search_all = true;
     // Not saved until it's been a couple of seconds since the last look.
+    app.last_save_check = just_now();
     app.tick();
     assert_eq!(state::load(&store), Saved::default());
-    app.last_save_check -= Duration::from_secs(3);
+    app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
     let saved = state::load(&store);
     assert_eq!(saved.vis.as_deref(), Some("scope"));
@@ -2912,9 +2918,12 @@ fn crossing_a_cue_flashes_its_colour() {
     assert!(app.flash.is_none());
     (&mut out).take(1600).for_each(drop);
     app.tick();
+    // (Just crossed, however long the test took since.)
+    let Some(flash) = &mut app.flash else { panic!("no flash") };
+    flash.1 = just_now();
     assert_eq!(app.flash().map(|(c, _)| c), Some([1, 2, 3]));
     // It fades: gone a second later.
-    app.flash.as_mut().unwrap().1 -= Duration::from_secs(1);
+    app.flash.as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
     assert!(app.flash().is_none());
 }
 
@@ -2996,7 +3005,7 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     }
     // Plugins' columns, shown from the palette.
     let shown = ["sound.bpm", "sound.key"].map(locallibrary::query::FieldName::new);
-    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(2))].to_vec();
+    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(shown.len()))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
     let read = state::load(&app.store_root);
@@ -3027,9 +3036,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let cues: Vec<locallibrary::anlz::Cue> = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|_| {
             let start = tc.draw(gs::integers::<u32>().max_value(310_000));
-            let end =
-                tc.draw(gs::booleans()).then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(20_000)));
-            cue(tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(7))), start, end)
+            let end = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(20_000))).map(|d| start + d);
+            cue(tc.draw(gs::optional(gs::integers::<u8>().max_value(7))), start, end)
         })
         .collect();
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Down, PhraseKind::Chorus, PhraseKind::Outro];
@@ -3042,7 +3050,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
                 true => start_beat + tc.draw(gs::integers::<u16>().min_value(1).max_value(40)),
                 false => tc.draw(gs::integers::<u16>().max_value(start_beat)),
             };
-            Phrase { kind: kinds[tc.draw(gs::integers::<usize>().max_value(4))], start_beat, end_beat, fill_beat: None }
+            Phrase { kind: tc.draw(gs::sampled_from(&kinds[..])), start_beat, end_beat, fill_beat: None }
         })
         .collect();
     let analysis = TrackAnalysis {

@@ -4,6 +4,7 @@
 use hegel::generators::{self as gs, PrintableGenerator};
 use hegel::{Generator, TestCase};
 use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
+use loclib_model::test_util::{self, tracks_like};
 use loclib_model::{Library, Playlist, Track, TrackColor};
 use rustc_hash::FxHashMap;
 
@@ -64,7 +65,7 @@ fn unset_or<T: Default + Clone + Send + Sync + std::fmt::Debug + 'static>(
 
 /// A date as rekordbox stores it: `2026-09-30` (any numbers, maybe with a time after it), or
 /// something else.
-#[hegel::test_helper]
+#[hegel::composite]
 fn date(tc: &TestCase) -> String {
     if tc.draw(gs::booleans()) {
         return tc.draw(gs::sampled_from(vec!["", "soon", "2024", "2024/03/01", "30-09-2026"])).to_string();
@@ -88,40 +89,36 @@ pub fn ymd(s: &str) -> Option<(i32, u32, u32)> {
 
 /// A track with id `id` whose audio is somewhere below `Contents/`: a few folders and names, so
 /// some tracks share a file, sometimes in another case.
-#[hegel::test_helper]
-pub fn track(tc: &TestCase, id: u32) -> Track {
-    let dir = tc.draw(gs::sampled_from(vec!["Artist", "artist", "A/B", "Ünïcödé", "x & y", "Prince:Live"]));
-    let name = tc.draw(hegel::one_of!(
+fn track(id: u32) -> impl PrintableGenerator<Track> {
+    let dir = gs::sampled_from(vec!["Artist", "artist", "A/B", "Ünïcödé", "x & y", "Prince:Live"]);
+    let name = hegel::one_of!(
         gs::sampled_from(vec!["One".to_string(), "one".to_string(), "Two".to_string()]),
         gs::text().alphabet("ab .&'é%").min_size(1).max_size(6),
-    ));
-    let ext = tc.draw(gs::sampled_from(vec!["mp3", "MP3", "wav", "aiff", "aif", "flac", "m4a"]));
-    Track {
-        id,
-        title: tc.draw(text()),
-        artist: tc.draw(text()),
-        album: tc.draw(text()),
-        genre: tc.draw(text()),
-        label: tc.draw(text()),
-        comment: tc.draw(text()),
-        mix_name: tc.draw(text()),
-        remixer: tc.draw(text()),
-        composer: tc.draw(text()),
-        key: tc.draw(gs::sampled_from(KEYS.iter().map(|k| k.0.to_string()).collect::<Vec<_>>())),
-        bpm: tc.draw(hegel::one_of!(gs::just(0.0), gs::floats::<f64>().min_value(40.0).max_value(220.0))),
-        duration_secs: tc.draw(unset_or(gs::integers::<u32>().max_value(20_000))),
-        year: tc.draw(unset_or(gs::integers::<u16>().max_value(2100))),
-        track_number: tc.draw(unset_or(gs::integers::<u32>().max_value(30))),
-        rating: tc.draw(gs::integers::<u8>().max_value(9)),
-        color: tc.draw(gs::optional(gs::sampled_from(COLOURS.to_vec()))),
-        play_count: tc.draw(gs::integers::<u16>()),
-        bitrate: tc.draw(unset_or(gs::integers::<u32>().max_value(3000))),
-        file_size: tc.draw(unset_or(gs::integers::<u64>().max_value(1 << 34))),
-        file_path: format!("/Contents/{dir}/{name}.{ext}"),
-        date_added: date(tc),
-        release_date: date(tc),
-        ..Default::default()
-    }
+    );
+    let ext = gs::sampled_from(vec!["mp3", "MP3", "wav", "aiff", "aif", "flac", "m4a"]);
+    tracks_like(Track { id, ..Default::default() })
+        .title(text())
+        .artist(text())
+        .album(text())
+        .genre(text())
+        .label(text())
+        .key(gs::sampled_from(KEYS.iter().map(|k| k.0.to_string()).collect::<Vec<_>>()))
+        .remixer(text())
+        .composer(text())
+        .comment(text())
+        .mix_name(text())
+        .bpm(hegel::one_of!(gs::just(0.0), gs::floats::<f64>().min_value(40.0).max_value(220.0)))
+        .duration_secs(unset_or(gs::integers::<u32>().max_value(20_000)))
+        .year(unset_or(gs::integers::<u16>().max_value(2100)))
+        .track_number(unset_or(gs::integers::<u32>().max_value(30)))
+        .rating(gs::integers::<u8>().max_value(9))
+        .color(gs::optional(gs::sampled_from(COLOURS.to_vec())))
+        .play_count(gs::integers::<u16>())
+        .bitrate(unset_or(gs::integers::<u32>().max_value(3000)))
+        .file_size(unset_or(gs::integers::<u64>().max_value(1 << 34)))
+        .file_path(hegel::tuples!(dir, name, ext).map(|(dir, name, ext)| format!("/Contents/{dir}/{name}.{ext}")))
+        .date_added(date())
+        .release_date(date())
 }
 
 /// A playlist tree over `tracks`: folders hold what comes after them, names repeat, playlists
@@ -158,11 +155,10 @@ pub fn playlists(tc: &TestCase, tracks: &[Track]) -> Vec<Playlist> {
 
 /// A library of up to `max_tracks` tracks (ids 1 up) and a playlist tree over them.
 #[hegel::test_helper]
-pub fn library(tc: &TestCase, max_tracks: usize) -> Library {
-    let n = tc.draw(gs::integers::<usize>().max_value(max_tracks));
-    let mut tracks: Vec<Track> = (1..=n as u32).map(|id| track(tc, id)).collect();
+pub fn library(tc: &TestCase, max_tracks: u32) -> Library {
+    let Library { mut tracks, .. } = tc.draw(test_util::libraries(0, max_tracks, track));
     // Rows sharing a file, as is or in another case.
-    for i in 1..n {
+    for i in 1..tracks.len() {
         if let Some((j, upper)) =
             tc.draw(gs::optional(hegel::tuples!(gs::integers::<usize>().max_value(i - 1), gs::booleans())))
         {
