@@ -56,6 +56,24 @@ pub struct SourceExport {
 /// The most examples a warning about what was left out gives.
 const EXAMPLES: usize = 3;
 
+/// The most beats and cues one read of a library source holds, across its pages, since every
+/// page is kept until the drive is written: 50,000 ten-minute tracks at 128 BPM have 64 million
+/// beats, more than a large library, and at 16 bytes a beat they take 1 GiB.
+const MAX_ITEMS: usize = 1 << 26;
+
+/// `items` (the beats and cues read so far) with those of `page`, or an error once they come to
+/// more than `limit`: a source can say anything, and a small file can ask for billions of beats.
+fn counted(items: usize, page: &[Answered], limit: usize, source: &str) -> Result<usize> {
+    let more: usize = page.iter().map(|a| a.track.beats.len() + a.track.cues.len()).sum();
+    let items = items.saturating_add(more);
+    if items > limit {
+        return Err(Error::invalid(format!(
+            "{source} read more than {limit} beats and cues, more than any library has: stopped"
+        )));
+    }
+    Ok(items)
+}
+
 /// What was left out of what a source read, by why: how many, and the first few.
 #[derive(Default)]
 struct LeftOut(IndexMap<&'static str, (usize, Vec<String>)>);
@@ -114,13 +132,14 @@ impl Plugins {
                 )));
             }
             let (mut answered, mut playlists, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
-            let mut cursors = FxHashSet::default();
+            let (mut cursors, mut items) = (FxHashSet::default(), 0);
             loop {
                 ctx.check()?;
                 let (tracks, page) =
                     slot.call_with(method::READ_LIBRARY, &read, store, ctx, &|_| {}, |page, scratch, _| {
                         slot.page(page, scratch)
                     })?;
+                items = counted(items, &tracks, MAX_ITEMS, &source)?;
                 answered.extend(tracks);
                 playlists.extend(page.playlists);
                 warnings.extend(page.warnings.into_iter().map(|w| format!("{}: {w}", declared.title)));
@@ -415,3 +434,6 @@ fn add(library: &mut Library, parent: Option<u32>, name: &str, is_folder: bool) 
     library.playlists.push(p);
     id
 }
+
+#[cfg(test)]
+mod tests;

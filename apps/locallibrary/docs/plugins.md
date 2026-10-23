@@ -212,8 +212,9 @@ not on the drive itself: it reads each file's length and format itself, hashes i
 it, and checks the copy. What it leaves out (a file elsewhere, one that isn't audio, a cue in a
 slot taken) is listed as a warning, and so is what the plugin says it couldn't read. Cues, beat
 grids and waveforms a track comes with go into analysis files made for it, each read back first.
-Building again copies only what changed; a
-library on the drive that wasn't built from that source is only replaced with `--replace`. In the
+A read that comes to more than 64 million beats and cues across its pages (50,000 ten-minute
+tracks at 128 BPM have that many) is stopped, saying so. Building again copies only what changed;
+a library on the drive that wasn't built from that source is only replaced with `--replace`. In the
 player, "build from …" in the palette and a drive's menu asks for the folders and options first.
 
 ## Panels

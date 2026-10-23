@@ -314,9 +314,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
   and only audio files players play in them (links resolved) are copied, each read and hashed by
   locallibrary itself and checked as it's copied; the rest is left out with a warning, as is what
-  the plugin says it couldn't read. Cues, beat grids and waveforms a track brings go into analysis
-  files made for it, read back first. The player has "build from …" in the palette and a drive's
-  menu, the sidecar
+  the plugin says it couldn't read, and a read past 64 million beats and cues is stopped. Cues,
+  beat grids and waveforms a track brings go into analysis files made for it, read back first.
+  The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
 - **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
   locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
