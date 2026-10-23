@@ -102,7 +102,8 @@ A track's artists go out one by one (split as the profile counts them) when its 
 several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
 rekordbox keeps none, so they're read from the files on the mounted drives when a set is made or
 edited (as MusicBrainz Picard tags files), else from what a plugin's analyzer worked out for the
-`recording`, `release` and `artists` [roles](plugins.md#roles). Before publishing, `sets
+`recording`, `release` and `artists` [roles](plugins.md#roles): the musicbrainz plugin's unless
+you choose another, which looks a track up on MusicBrainz by its ISRC. Before publishing, `sets
 publish` runs that analyzer on the tracks it will name that have no IDs yet, and keeps what it
 finds in the set, so later publishes don't ask again. Tracks whose drive isn't plugged in are
 skipped, and it says how many. An analyzer failing is a warning, and the set publishes without

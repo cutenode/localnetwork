@@ -22,10 +22,24 @@ are:
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch` (see [Providers](#providers)).
+- **musicbrainz**: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
+  (`musicbrainz.recording`, `musicbrainz.release`, `musicbrainz.artists`, with the ISRC as
+  `musicbrainz.isrc` and the names the artists' go with as `musicbrainz.credits`). The recording
+  is the ISRC's only one when it's as long as the track (or, with no length to go by, titled the
+  same), or the only one of several with the track's title and length: an extended mix or an edit
+  can carry the original's ISRC. The release is the earliest of that recording's named as the
+  track's album (one of its editions), and the artists one for each name the track credits, when
+  every name is a different one of the recording's. It's what `sets publish` reads a set's
+  MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
+  is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
+  none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
 
-coverart is the only one that goes online, and only when you run it, through locallibrary (see
-[Safety](#safety)), a request a second to MusicBrainz as it asks. `analyze` alone leaves out the
-analyzers that go online, and says so.
+coverart and musicbrainz are the only ones that go online, and only for these, through
+locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between them, as it asks:
+`art fetch`; `sets publish` when it's about to publish (signed in, with `--yes` or a terminal to
+ask in), for the tracks it names without IDs, unless `--no-lookup` (or `plugin roles recording
+--none`, for good); and `analyze --plugin musicbrainz`. `analyze` alone leaves out the analyzers
+that go online, and says so.
 
 ## What you have
 
@@ -254,7 +268,7 @@ artist its credit names, in order, split as a published set splits them (at comm
 "feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
 (`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
 `analyze --apply` and the MusicBrainz IDs a set is published with read those from one analyzer
-each, the sound plugin's unless another does too: `locallibrary
+each, the sound plugin's and the musicbrainz plugin's unless another does too: `locallibrary
 plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
 `plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
 `plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as

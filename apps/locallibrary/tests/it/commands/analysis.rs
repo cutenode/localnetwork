@@ -142,7 +142,7 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     let env = Env::new();
     let out = env.ok(&["plugin", "roles"]);
     assert!(line(&out, "loudness").contains("sound.tempo-key-loudness  default"), "{out}");
-    assert!(line(&out, "identity").contains("no analyzer works it out"), "{out}");
+    assert!(line(&out, "identity").contains("musicbrainz.ids  default"), "{out}");
     let v = env.json(&["plugin", "roles", "key"]);
     let sound = "sound.tempo-key-loudness";
     assert_eq!(v, json!([{ "role": "key", "chosen": sound, "set": false, "off": false, "offered": [sound] }]));
@@ -161,7 +161,7 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     let v = env.json(&["plugin", "roles", "recording"]);
     assert_eq!((&v[0]["chosen"], &v[0]["off"]), (&Value::Null, &json!(true)), "{v}");
     let out = env.ok(&["--yes", "plugin", "roles", "recording", "--reset"]);
-    assert!(line(&out, "recording  ").contains("no analyzer works it out"), "{out}");
+    assert!(line(&out, "recording  ").contains("musicbrainz.ids  default"), "{out}");
 }
 
 /// `analyze` alone leaves out the analyzers of plugins that go online, and says how to run them:
@@ -179,7 +179,7 @@ fn analyze_alone_stays_on_this_computer() {
     let root = analysed(&env, true);
     let r = env.run(&["analyze", path(&root)]);
     assert_eq!(r.code, 0, "{}", r.err);
-    let said = "left out what goes online (echo): name it to run it, as in --plugin echo";
+    let said = "left out what goes online (musicbrainz, echo): name it to run it, as in --plugin musicbrainz";
     assert!(r.err.contains(said), "{}", r.err);
     assert!(r.out.contains("(sound)") && !r.out.contains("(echo)"), "{}", r.out);
     let out = env.ok(&["analyze", path(&root), "--plugin", "echo"]);

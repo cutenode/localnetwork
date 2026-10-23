@@ -251,7 +251,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   settings…" form, a check's findings in its results and their fixes in the palette).
   An analyzer's fields may have roles (a track's key, tempo, loudness, MusicBrainz IDs...), which
   doctor, `check`, `playlist order` and `sets publish` read from the analyzer `plugin roles`
-  chooses (the sound plugin's unless another has them), and `analyze
+  chooses (the sound plugin's and the musicbrainz plugin's unless another has them), and `analyze
   --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
   `plugins.apply_fields.plan/apply`; `plugin roles ROLE --none` reads one from no analyzer. Plain
   `analyze` leaves out the analyzers of plugins that go online. Plugins limiting one server take
@@ -300,8 +300,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
-    album that could be several release groups offered as each of them. It's the only one that
-    goes online, and only when it's run.
+    album that could be several release groups offered as each of them.
+  - `musicbrainz`: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
+    for `sets publish` to publish: the recording only when it's the track's (its length, or
+    without one its title; of several, both), the earliest release named as the album, and the
+    artists when each name the track credits is one of the recording's, answered with the ISRC
+    and credits they're for (the `isrc` and `credits` roles). It and `coverart` are the only ones
+    that go online, a request a second to MusicBrainz between them, and only for `art fetch`, `analyze --plugin musicbrainz` (plain `analyze` leaves it out) and a
+    `sets publish` about to publish (signed in and confirmed), unless `--no-lookup` or `plugin
+    roles recording --none`.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable

@@ -135,6 +135,7 @@ fn sets_publish_looks_up_musicbrainz_ids_first() {
                roles = { recording = \"recording\", release = \"release\", artists = \"artists\", \
                isrc = \"isrc\", credits = \"credits\" }\n";
     env.plugins(&[&(crate::support::echo_plugin() + ids)]);
+    // Over the musicbrainz plugin's, which would go online.
     for role in ["recording", "release", "artists", "isrc", "credits"] {
         env.ok(&["--yes", "plugin", "roles", role, "echo.heard"]);
     }

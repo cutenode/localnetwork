@@ -3941,6 +3941,7 @@ dependencies = [
  "locallibrary",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-interop",
+ "locallibrary-plugin-musicbrainz",
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
  "loclib-mixid",
@@ -4000,6 +4001,24 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-musicbrainz"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "httpdate",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "loclib-tracklist",
+ "quick-xml 0.42.0",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

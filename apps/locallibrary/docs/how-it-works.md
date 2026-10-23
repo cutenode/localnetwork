@@ -43,6 +43,8 @@ plugins/coverart/           the coverart plugin: front covers for tracks without
                             Archive, as `set_artwork` edits
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
                             library with loclib-interop into a folder on this computer
+plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
+                            and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
@@ -145,11 +147,10 @@ crates/locallibrary/src/    the library, built on the crates above
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
                             and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
-                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
-                            plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
-                            rodio, drawing with loclib-waveform, the `tui` and `playback` features;
-                            account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
-                            out)
+                            interop, coverart and musicbrainz plugins linked in, each run as `locallibrary plugin
+                            serve <id>`; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
+                            account_off.rs and the `playback`-less audio.rs stand in for what a build leaves out)
 apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
 ```
 

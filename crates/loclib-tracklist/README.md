@@ -10,7 +10,8 @@ playlist text or XML, a set list pasted from a web page) and finds their tracks 
 duration, file path, ISRC, and the line each came from). `match_entries`, or a `Matcher` built
 once for many lists, gives each entry a `Status`: found (and how), ambiguous (with the candidates,
 best first) or missing. `Report` wraps the results with their counts. Entries and results
-serialise with serde.
+serialise with serde. `fold` is how titles and names are compared (but for case, accents,
+punctuation and spacing), and `DURATION_SLACK` how far apart two lengths may be.
 
 ```rust
 use loclib_model::{Library, Track};
