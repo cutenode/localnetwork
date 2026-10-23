@@ -54,9 +54,10 @@ fn in_reach(ms: f64) -> bool {
     (-REACH_MS..=REACH_MS).contains(&ms)
 }
 
-/// Whole milliseconds, held to `u32`'s range first so the cast loses only the fraction.
-fn whole_ms(ms: f64) -> u32 {
-    ms.round().clamp(0.0, REACH_MS) as u32
+/// `x` rounded to a whole number held to `u32`'s range (a count, or milliseconds), so the cast
+/// loses only the fraction.
+fn whole_u32(x: f64) -> u32 {
+    x.round().clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
 /// What [`read`] found in a collection.
@@ -193,12 +194,12 @@ impl Entry {
             // (past the first marker, the marker itself), to the last before `until`.
             let first = (-m.start_ms / step).ceil();
             let first = if i == 0 { first } else { first.max(0.0) };
-            let count = whole_ms(((until - m.start_ms) / step - first).ceil());
+            let count = whole_u32(((until - m.start_ms) / step - first).ceil());
             let phase = first.rem_euclid(4.0);
             let numbers = (1..=4u16).cycle().skip_while(|n| f64::from(n - 1) < phase);
             let times = (0..count).map(|j| m.start_ms + (first + f64::from(j)) * step).take_while(|at| *at < until);
             for (at, beat_number) in times.zip(numbers) {
-                let time_ms = whole_ms(at);
+                let time_ms = whole_u32(at);
                 // Two markers closer than a millisecond: the later one's beat goes.
                 if beats.last().is_none_or(|b| b.time_ms < time_ms) {
                     beats.push(Beat { beat_number, bpm, time_ms });
