@@ -230,7 +230,8 @@ A provider finds cover art or details (tags) for tracks, online usually: `locall
 album, year, genre, label, ISRC). They ask every provider of that kind about a library's tracks
 (`--track`, `--playlist`, `--filter`... for some), only those without artwork, or missing a tag,
 unless `--replace`; `--from PLUGIN` (or `PLUGIN.PROVIDER`) asks only that one. What they find for
-each track is listed best first, with how sure each provider is. One alone scoring `plugin
+each track is listed best first, with how sure each provider is, leaving out tags that would
+change nothing (what the track has, or a tag it has without `--replace`). One alone scoring `plugin
 providers`' auto-pick or more (0.9 unless `plugin providers --auto-pick 0.8`, or "provider
 settings…" in the player's palette, says otherwise, kept in the store as `providers.auto_pick`) is
 chosen for you; you pick the others, in a terminal, or with `--choose TRACK=N` (`--choose

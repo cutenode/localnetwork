@@ -93,8 +93,9 @@ pub struct CheckChange {
 static HOSTED: OnceLock<fn() -> Option<&'static Plugins>> = OnceLock::new();
 
 /// Has the check before a set and doctor run the checks of the plugins `host` answers, and plans
-/// that edit a library their guards (see [`Plugins::run_checks`], [`Plugins::guard`]): set once, by the app.
-/// Until it is, they run none.
+/// that edit a library their guards (see [`Plugins::run_checks`], [`Plugins::guard`]); the check
+/// before a set also names `art fetch` for tracks without artwork when one of them finds cover
+/// art. Set once, by the app. Until it is, they run none, and `art fetch` isn't named.
 pub fn set_hosted(host: fn() -> Option<&'static Plugins>) {
     let _ = HOSTED.set(host);
 }

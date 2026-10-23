@@ -230,11 +230,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   tracklist's entry is): picked from a list in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
-  the kind is asked, what they find is offered best first (each image held and sent once, and
-  what's kept bounded), one alone scoring `plugin providers --auto-pick` (0.9) or more chosen for
-  you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
-  has both, and its palette the auto-pick; the sidecar `plugins.provide`,
-  `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  the kind is asked, what they find is offered best first (tags only when they'd change a track,
+  each image held and sent once, and what's kept bounded), one alone scoring `plugin providers
+  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed
+  as any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
+  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
   Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
   drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
   problem counting as one, with the command line of the plugin's operation that fixes it when
