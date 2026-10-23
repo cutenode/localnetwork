@@ -8,7 +8,7 @@ name = "tempo-key-loudness"
 title = "Tempo, key and loudness"
 # The host keeps the fields by the analyzer's version: loclib-analysis's VERSION, so tracks
 # measured the old way are measured again once it changes.
-version = "4"
+version = "5"
 
 # As doctor's `--analyze` reports them. A field with nothing to show is null: no tempo or key for
 # silence, no tempo for a blip too short for one, no key where the best keys tie, no loudness or

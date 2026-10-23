@@ -44,13 +44,66 @@ fn kick_track(bpm: f64, secs: f64) -> Vec<f64> {
 fn a_kick_track_is_estimated() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "kick.wav", RATE, &kick_track(128.0, 20.0));
-    let analysis = analyze(&path, Want { estimate: true, loudness: false }, &Ctx::silent()).unwrap();
+    let analysis = analyze(&path, Want { estimate: true, loudness: false, waveform: false }, &Ctx::silent()).unwrap();
     assert_eq!(analysis.version, VERSION);
     assert!((analysis.duration_secs - 20.0).abs() < 0.01, "{}", analysis.duration_secs);
     assert_eq!(analysis.loudness, None);
     let e = analysis.estimate.clone().unwrap();
     assert_eq!(TempoRelation::between(e.bpm.into(), 128.0), Some(TempoRelation::Agrees), "{e:?}");
     assert_eq!((e.key, e.key_confidence), (None, 0.0), "{e:?}");
+    let json = serde_json::to_string(&analysis).unwrap();
+    assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
+}
+
+/// `lead` seconds of silence, then a 2 kHz click on every beat at `bpm` for `secs`.
+fn clicks_after(lead: f64, bpm: f64, secs: f64) -> Vec<f64> {
+    let rate = f64::from(RATE);
+    let beat = 60.0 / bpm;
+    let clicks = (0..(rate * secs) as usize).map(|i| {
+        let since = (i as f64 / rate) % beat;
+        0.8 * (-since * 60.0).exp() * (2.0 * PI * 2_000.0 * since).sin()
+    });
+    std::iter::repeat_n(0.0, (rate * lead) as usize).chain(clicks).collect()
+}
+
+/// stratum-dsp tracks beats after trimming a track's leading silence: the grid is put back where
+/// the clicks are, the same beats as without the silence, as late as it lasts. Beats count in
+/// fours, each at the tempo heard.
+#[test]
+fn a_grid_starts_where_the_beats_do() {
+    let dir = tempfile::tempdir().unwrap();
+    let grid = |lead: f64| {
+        let path = write(&dir, &format!("{lead}.wav"), RATE, &clicks_after(lead, 120.0, 8.0));
+        let want = Want { estimate: true, loudness: false, waveform: false };
+        analyze(&path, want, &Ctx::silent()).unwrap().estimate.unwrap()
+    };
+    let (straight, late) = (grid(0.0), grid(0.7));
+    for e in [&straight, &late] {
+        assert!(e.grid_stability >= 0.95 && e.beats.len() > 4, "{e:?}");
+        assert!(e.beats.iter().enumerate().all(|(i, b)| usize::from(b.beat_number) == i % 4 + 1), "{e:?}");
+        assert!(e.beats.iter().all(|b| b.bpm == f64::from(e.bpm)), "{e:?}");
+    }
+    for b in &late.beats {
+        let on_a_beat = straight.beats.iter().any(|s| (i64::from(b.time_ms) - 700 - i64::from(s.time_ms)).abs() <= 5);
+        assert!(on_a_beat, "{b:?} after 700 ms of silence, of {late:?}, without it {straight:?}");
+    }
+}
+
+/// A low tone, then a high one: the lows are drawn where the low tone is and the highs where
+/// the high one is, a column every 23 ms.
+#[test]
+fn a_waveform_draws_each_band() {
+    let dir = tempfile::tempdir().unwrap();
+    let tones = [sine(44_100, 2.0, 100.0, 0.5, 0.0), sine(44_100, 2.0, 5_000.0, 0.5, 0.0)].concat();
+    let path = write(&dir, "tones.wav", 44_100, &tones);
+    let want = Want { estimate: false, loudness: false, waveform: true };
+    let analysis = analyze(&path, want, &Ctx::silent()).unwrap();
+    let w = analysis.waveform.clone().unwrap();
+    assert!((w.columns.len() as f64 - 4.0 * COLUMNS_PER_SEC).abs() <= 2.0, "{} columns", w.columns.len());
+    let second = COLUMNS_PER_SEC as usize;
+    assert!(w.columns[..second].iter().all(|[low, _, high]| low > high), "{:?}", &w.columns[..second]);
+    let last = &w.columns[w.columns.len() - second..];
+    assert!(last.iter().all(|[low, _, high]| high > low), "{last:?}");
     let json = serde_json::to_string(&analysis).unwrap();
     assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
 }
@@ -72,7 +125,7 @@ fn a_blip_keeps_its_loudness() {
 fn a_sine_measures_its_level() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "sine.wav", 48_000, &sine(48_000, 10.0, 1_000.0, 0.1, 0.0));
-    let analysis = analyze(&path, Want { estimate: false, loudness: true }, &Ctx::silent()).unwrap();
+    let analysis = analyze(&path, Want { estimate: false, loudness: true, waveform: false }, &Ctx::silent()).unwrap();
     assert_eq!(analysis.estimate, None);
     let l = analysis.loudness.unwrap();
     assert!((l.integrated_lufs.unwrap() + 20.0).abs() < 0.1, "{l:?}");
@@ -88,7 +141,10 @@ fn a_sine_measures_its_level() {
 fn true_peak_finds_peaks_between_samples() {
     let dir = tempfile::tempdir().unwrap();
     let path = write(&dir, "quarter.wav", 44_100, &sine(44_100, 5.0, 44_100.0 / 4.0, 0.5, PI / 4.0));
-    let l = analyze(&path, Want { estimate: false, loudness: true }, &Ctx::silent()).unwrap().loudness.unwrap();
+    let l = analyze(&path, Want { estimate: false, loudness: true, waveform: false }, &Ctx::silent())
+        .unwrap()
+        .loudness
+        .unwrap();
     assert!((l.true_peak_dbtp() - l.sample_peak_dbfs() - 3.01).abs() < 0.3, "{l:?}");
     assert!((l.true_peak_dbtp() + 6.02).abs() < 0.3, "{l:?}");
 }
