@@ -123,7 +123,8 @@ fn several(params: &[&str]) -> Choice {
 }
 
 /// Questions asked together come first then the rest in turn, at most as many as a round may
-/// ask; each is checked as one alone would be, about a param of its own, asking none of its own.
+/// ask; each is checked as one alone would be, about a param of its own, asking none of its own,
+/// and named by its place when it's wrong.
 #[test]
 fn questions_asked_together_are_each_checked() {
     let schema = json!({ "type": "object", "patternProperties": { "^[0-9]+$": { "type": "integer" } } });
@@ -143,17 +144,17 @@ fn questions_asked_together_are_each_checked() {
         more: vec![asking("2", false, vec![json!(1)]), asking("1", false, vec![json!(1)])],
         ..several(&["1"])
     };
-    assert_eq!(twice.check(schema).unwrap_err(), "\"Which one?\" asks for \"1\" again");
+    assert_eq!(twice.check(schema).unwrap_err(), "question 3 of 3: \"Which one?\" asks for \"1\" again");
     let mut nested = several(&["1", "2"]);
     nested.more[0].more.push(asking("3", false, vec![json!(1)]));
-    assert_eq!(nested.check(schema).unwrap_err(), "\"Which one?\" asks more questions of its own");
+    assert_eq!(nested.check(schema).unwrap_err(), "question 2 of 2: \"Which one?\" asks more questions of its own");
     let mut unfit = several(&["1", "2"]);
     unfit.more[0].items[0].value = json!("x");
     let unfit = unfit.check(schema).unwrap_err();
-    assert_eq!(unfit, "\"Which one?\"'s item 0 isn't a value of a param \"2\" the hook takes");
+    assert_eq!(unfit, "question 2 of 2: \"Which one?\"'s item 0 isn't a value of a param \"2\" the hook takes");
     let mut empty = several(&["1", "2"]);
     empty.more[0].items.clear();
-    assert_eq!(empty.check(None).unwrap_err(), "\"Which one?\" has nothing to choose from");
+    assert_eq!(empty.check(None).unwrap_err(), "question 2 of 2: \"Which one?\" has nothing to choose from");
 }
 
 /// Each question's answer goes in its own param; one without an answer leaves its param be.

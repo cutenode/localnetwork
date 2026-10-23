@@ -297,12 +297,12 @@ kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
 ready. A command or an operation may answer a question for you (`Choice`) instead, or several
-at once (`Choice::together`), and is run again with your answers as its params. A view (a command's, a panel's) is any of
-loclib-plugin's kinds, each with a plain text form for a host that can't draw it, and a theme
-is a table of colours in the manifest. `Hooks::on_event` handles events, a service is a hook
-that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks
-is an optional feature of the
-protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
+at once (`Choice::together`), and is run again with your answers as its params. A view (a
+command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
+that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
+handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
+you something. Each family of hooks is an optional feature of the protocol, so a newer
+locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety
 

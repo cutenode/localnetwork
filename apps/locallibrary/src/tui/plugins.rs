@@ -1,16 +1,15 @@
 //! Plugins in the player: their commands and operations in the palette, and in the menus their
 //! manifests say (`where`: the actions menu, `e`, for the tracks selected or a playlist, and the
 //! drive menu), a form for their params (see [`super::form`]), and each run in the background as
-//! any task is (esc stops one). A command's answer shows in a panel;
-//! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
-//! either asks first is a list to choose from (several, one after another), after which it runs
-//! again with the answers. Each
-//! plugin's settings are a form, kept in the store, with a switch for each of its services, and
-//! its accounts are signed in to and out of beside them. What the other families of hooks add
-//! (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell the
-//! user and suggest) is in a module each. Nothing here tells one
-//! plugin from another: it's all drawn from their manifests, through the host the command line
-//! uses (see [`crate::plugins`]).
+//! any task is (esc stops one). A command's answer shows in a panel; an operation's plan is
+//! confirmed and applied as any edit is, and undone with `u`. A question either asks first is a
+//! list to choose from (several, one after another), after which it runs again with the answers.
+//! Each plugin's settings are a form, kept in the store, with a switch for each of its services,
+//! and its accounts are signed in to and out of beside them. What the other families of hooks
+//! add (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell
+//! the user and suggest) is in a module each. Nothing here tells one plugin from another: it's
+//! all drawn from their manifests, through the host the command line uses (see
+//! [`crate::plugins`]).
 
 mod accounts;
 mod analyzers;

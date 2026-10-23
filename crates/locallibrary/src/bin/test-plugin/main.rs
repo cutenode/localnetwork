@@ -8,8 +8,9 @@
 //! it fetched into a blob) or sends its rows in parts (`partial`, `partial_items`) when its
 //! params say so; its operation answers the `edits` (and `inputs`) it's given; both ask the
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
-//! command then answering each of its questions' params as text, with spaces between; both first write the `blobs` (by name, their
-//! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
+//! command then answering each of its questions' params as text, with spaces between; both
+//! first write the `blobs` (by name, their bytes), `hard_links` and (on Unix) `links` they're
+//! given to the scratch folder; a provider
 //! other than echo's answers as its `answer` setting says (see `Test::provide`), a panel other
 //! than echo's as its `panel` setting does (see `Test::render_panel`), and a check or a guard as
 //! its `findings` setting does (see `checked`); a command given a `view` answers it as it is (once

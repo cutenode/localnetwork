@@ -45,7 +45,8 @@ impl Choice {
 
     /// `questions` asked in one round, the first with the rest as its `more`: at most
     /// [`Choice::MAX_QUESTIONS`] of them, those past it left for the round after. `None` for
-    /// none.
+    /// none. Leave out those about a param the hook was given: a caller may answer only some (a
+    /// `--choose`, an RPC caller), and the host refuses a question about a param it gave.
     pub fn together(questions: impl IntoIterator<Item = Choice>) -> Option<Choice> {
         let mut questions = questions.into_iter().take(Self::MAX_QUESTIONS);
         let first = questions.next()?;
@@ -60,19 +61,17 @@ impl Choice {
     /// Whether a host can ask it for a hook whose params `schema` describes: at most
     /// [`Choice::MAX_QUESTIONS`] questions, each about a param of its own, saying what it asks,
     /// and with items, each labelled and a value of a param the hook takes (with `multi`, an item
-    /// of its list). Says what's wrong otherwise.
+    /// of its list). Says what's wrong otherwise, and with several, which question by its place.
     pub fn check(&self, schema: Option<&Value>) -> Result<(), String> {
         let asked = self.more.len() + 1;
         if asked > Self::MAX_QUESTIONS {
             return Err(format!("it asks {asked} questions at once, more than {}", Self::MAX_QUESTIONS));
         }
-        if let Some(q) = self.more.iter().find(|q| !q.more.is_empty()) {
-            return Err(format!("{:?} asks more questions of its own", q.title));
-        }
-        let mut params = FxHashSet::default();
-        if let Some(q) = self.questions().find(|q| !params.insert(&q.param)) {
-            return Err(format!("{:?} asks for {:?} again", q.title, q.param));
-        }
+        // Titles may repeat (`Which track?` for each entry), so its place says which.
+        let at = |i: usize, why: String| match asked {
+            1 => why,
+            _ => format!("question {} of {asked}: {why}", i + 1),
+        };
         // The param alone, as the hook's schema takes it (by name or by a pattern), whatever else
         // it requires.
         let alone = |schema: &Value| {
@@ -83,7 +82,17 @@ impl Choice {
             jsonschema::validator_for(&alone).map_err(|e| e.to_string())
         };
         let fits = schema.map(alone).transpose()?;
-        self.questions().try_for_each(|q| q.check_one(fits.as_ref()))
+        let mut params = FxHashSet::default();
+        self.questions().enumerate().try_for_each(|(i, q)| {
+            let checked = if i > 0 && !q.more.is_empty() {
+                Err(format!("{:?} asks more questions of its own", q.title))
+            } else if !params.insert(&q.param) {
+                Err(format!("{:?} asks for {:?} again", q.title, q.param))
+            } else {
+                q.check_one(fits.as_ref())
+            };
+            checked.map_err(|why| at(i, why))
+        })
     }
 
     /// Whether this question alone can be asked, its param's values `fits` (see [`Choice::check`]).

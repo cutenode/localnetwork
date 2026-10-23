@@ -39,14 +39,16 @@ and typed table columns, see [views](#views)).
      "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
      `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
-     one the hook takes but doesn't require (the host checks params first), and each item's
-     value one it takes: a question that isn't is refused. `more` (a list of questions of the
-     same shape, without a `more` of their own) asks those too in the same round, and the host
-     runs the hook again once with every one's param set. Each is checked as the first is, no
-     two ask about the same param, and a round asks at most 64 (`Choice::MAX_QUESTIONS`): every
-     entry of a long set's tracklist, while the user doesn't sit through more before the hook
-     hears their answers. A host older than `more` asks the first question alone and runs the
-     hook again with that, so a hook asks again about what it still needs.
+     one the hook takes but doesn't require (the host checks params first), not one it was
+     given (it would be asked forever), and each item's value one it takes: a question that
+     isn't is refused. `more` (a list of questions of the same shape, without a `more` of their
+     own) asks those too in the same round, and the host runs the hook again once with every
+     one's param set. Each is checked as the first is, no two ask about the same param, and a
+     round asks at most 64 (`Choice::MAX_QUESTIONS`): every entry of a long set's tracklist,
+     while the user doesn't sit through more before the hook hears their answers. A caller may
+     answer only some of them (`--choose`, an RPC caller, a host older than `more`, which asks
+     the first alone), so a hook asks again only about the params it still lacks: one asking
+     about a param it was given is refused.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one

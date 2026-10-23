@@ -68,7 +68,7 @@ pub fn fetch(
             Some(v) if c.items.iter().any(|i| i.value == v) => o.chosen(&v),
             Some(v) => return Err(usage(format!("{v} isn't an answer: {}", choose::unanswered(&[&c])))),
             None if o.picked.is_some() => o.pick(),
-            None if choose::interactive(out) => o.chosen(&choose::ask(&c, out)?.concat()[0]),
+            None if choose::interactive(out) => o.chosen(&choose::ask(&c, out)?[0][0]),
             None => {
                 unanswered.push(c);
                 continue;

@@ -122,7 +122,7 @@ fn questions_asked_together_are_answered_in_one_run() {
     let twice = Choice { more: vec![choice("other", vec![json!(1)])], ..choice("other", vec![json!(1)]) };
     assert_eq!(
         refused(twice),
-        "the Echo plugin failed: its question won't do: \"Which one?\" asks for \"other\" again"
+        "the Echo plugin failed: its question won't do: question 2 of 2: \"Which one?\" asks for \"other\" again"
     );
     let many: Vec<String> = (0..=Choice::MAX_QUESTIONS).map(|n| format!("p{n}")).collect();
     let mut many = together(&many.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
@@ -135,7 +135,7 @@ fn questions_asked_together_are_answered_in_one_run() {
     let e = failure(f.plan_asking(json!({ "ask": unfit })).unwrap_err());
     assert_eq!(
         e,
-        "the Echo plugin failed: its question won't do: \"Which one?\"'s item 0 isn't a value of a param \"name\" the hook takes"
+        "the Echo plugin failed: its question won't do: question 2 of 2: \"Which one?\"'s item 0 isn't a value of a param \"name\" the hook takes"
     );
     // The echo manifest as it is requires the playlist's name.
     let required = Fixture::echo();
