@@ -288,8 +288,10 @@ A plugin with `events` (or `services`) may send the host `host/notify {message, 
 (cut to one line of 500 characters), and something to suggest, its `params` an object of at most
 64 KiB as JSON (`MAX_SUGGESTED_PARAMS`), which the host starts (and the user confirms) only if the
 user chooses to. That's one of its own operations, or one of the host's own flows (`HostAction`,
-`HostNotify::action` sends one) on its own contributions, its drive by id or name, as the host
-starts it when the user does:
+`HostNotify::action` sends one) on its own contributions, as the host starts it when the user
+does. Its drive is named by id or name (never a path): the host finds it among those it knows
+and names it by id (else name) as it passes it on, refusing one it doesn't know, and keeps the
+tracks the drive has, each once, refusing one with none. The actions:
 
 - `art.fetch` and `track.fetch` `{drive, tracks?, provider?}`: what its providers of that kind
   (`artwork` or `metadata`; only `provider` when it says) find for the tracks (every one unless it

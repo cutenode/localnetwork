@@ -463,9 +463,11 @@ subscribed (it polls drives for them when a plugin listens). What a plugin tells
 action?: {name, params}}` (subscribe to `plugin`), with one of `operation` and `action` at most:
 show `message`, and offer to review what it suggests. An `operation` is one of the plugin's own:
 plan it with `plugins.op.plan {plugin, operation: name, params}`. An `action` is one of
-locallibrary's own flows on the plugin's own contributions (`HostAction`), its drive by id or
-name: start it as the user would, filled in, and let them change it before it goes on as it does
-when they start it.
+locallibrary's own flows on the plugin's own contributions (`HostAction`). Its `drive` is one the
+sidecar found among the drives and libraries it knows (never a path or a folder; a plugin naming
+one it doesn't know has its suggestion left out), named by its id, else its name, and its
+`tracks` are those that drive had, each once. Start it as the user would, filled in, and let them
+change it before it goes on as it does when they start it.
 
 - `art.fetch` and `track.fetch` `{drive, tracks?, provider?}`: `plugins.provide {kind: "artwork" |
   "metadata", drive, tracks: {ids: tracks}, from}`, `from` being `<plugin>.<provider>`, or
