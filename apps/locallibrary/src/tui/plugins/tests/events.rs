@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
+use locallibrary::Store;
 use locallibrary::plugin::{MAX_SUGGESTED, PluginNotice, suggested};
+use locallibrary::sets::{Set, SetBook};
 use loclib_plugin::{AnalyzeAction, ExportAction, FetchAction, HostAction, ProviderKind, Suggested, Suggestion};
 use serde_json::json;
 
@@ -212,8 +214,13 @@ fn a_suggested_action_opens_the_players_own_flow() {
     let lists = "\n[[contributes.exporters]]\nformat = \"echo-set\"\ntitle = \"Set list\"\nextension = \"txt\"\nsource = \"set\"\n\n[[contributes.exporters]]\nformat = \"echo-mix\"\ntitle = \"Mix list\"\nextension = \"txt\"\nsource = \"mix\"\n";
     std::fs::write(&file, manifest + lists).unwrap();
     let mut app = app_on(&root);
+    let friday = Set { id: "3m2friday2222".into(), title: Some("Friday".into()), ..Set::default() };
+    SetBook { sets: vec![friday], ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
     let drive = app.plugin_drive(&root).unwrap();
-    let fetch = FetchAction { drive: drive.clone(), tracks: vec![1], provider: None };
+    let name = app.drive_label(&root);
+    let first = app.loaded.as_ref().unwrap().library.tracks[0].id;
+    let fetch = FetchAction { drive: drive.clone(), tracks: vec![first], provider: None };
+    let every = FetchAction { tracks: Vec::new(), ..fetch.clone() };
     let loud = serde_json::Map::from_iter([("loud".to_string(), json!(true)), ("write_to".to_string(), json!("/tmp"))]);
     let export = ExportAction {
         format: "echo-m3u".into(),
@@ -222,33 +229,46 @@ fn a_suggested_action_opens_the_players_own_flow() {
         ..ExportAction::default()
     };
     let set = ExportAction { format: "echo-set".into(), set: Some("last".into()), ..ExportAction::default() };
+    let away = "../../Library/LaunchAgents/x";
+    let no_set = ExportAction { set: Some(away.into()), ..set.clone() };
     let mix = ExportAction { format: "echo-mix".into(), mix: Some("1".into()), ..ExportAction::default() };
     let analyze = AnalyzeAction { analyzer: "size".into(), drive: drive.clone(), tracks: Vec::new() };
     let elsewhere = AnalyzeAction { drive: "ELSEWHERE".into(), ..analyze.clone() };
+    let some = AnalyzeAction { tracks: vec![first, first, 999_999], ..analyze.clone() };
+    let none = AnalyzeAction { tracks: vec![999_999], ..analyze.clone() };
     tell(
         &mut app,
         vec![
             suggests_action("fetch the tags", HostAction::TrackFetch(fetch)),
+            suggests_action("fetch them all", HostAction::TrackFetch(every)),
             suggests_action("export it", HostAction::Export(export)),
             suggests_action("export the set", HostAction::Export(set)),
+            suggests_action("export no set", HostAction::Export(no_set)),
             suggests_action("export the mix", HostAction::Export(mix)),
             suggests_action("analyze it", HostAction::Analyze(analyze)),
             suggests_action("analyze elsewhere", HostAction::Analyze(elsewhere)),
+            suggests_action("analyze some", HostAction::Analyze(some)),
+            suggests_action("analyze none", HostAction::Analyze(none)),
         ],
     );
-    wait(&mut app, |a| a.suggested.len() == 6);
+    wait(&mut app, |a| a.suggested.len() == 10);
 
     press(&mut app, ":review: fetch the tags\n");
     let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
     let fields: Vec<(&str, &str)> = f.fields.iter().map(|x| (x.name.as_str(), x.text.as_str())).collect();
-    assert_eq!((f.title.as_str(), &fields[..]), ("Fetch track details", &[("from", "echo"), ("replace", "false")][..]));
-    assert!(matches!(&f.then, For::Fetch { kind: ProviderKind::Metadata, tracks, .. } if tracks == &[1]));
+    let title = format!("Fetch track details: 1 track on {name}");
+    assert_eq!((f.title.as_str(), &fields[..]), (title.as_str(), &[("from", "echo"), ("replace", "false")][..]));
+    assert!(matches!(&f.then, For::Fetch { kind: ProviderKind::Metadata, tracks, .. } if tracks == &[first]));
     press(&mut app, "\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Fetching track details"));
     wait(&mut app, |a| a.job.is_none());
+    press(&mut app, ":review: fetch them all\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    assert_eq!(f.title, format!("Fetch track details: every track on {name}"));
+    assert!(screen(&mut app, 120, 40).contains("every track on"));
+    press(&mut app, "\u{1b}");
 
     press(&mut app, ":review: export it\n");
-    let name = app.drive_label(&root);
     let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form") };
     let fields: Vec<(&str, &str)> = f.fields.iter().map(|x| (x.name.as_str(), x.text.as_str())).collect();
     let to = format!("~/Music/{name}.m3u");
@@ -262,8 +282,11 @@ fn a_suggested_action_opens_the_players_own_flow() {
 
     press(&mut app, ":review: export the set\n");
     let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
-    assert!(matches!(&f.then, For::Export { format: "echo-set", set: Some(set), .. } if set == "last"));
+    assert!(matches!(&f.then, For::Export { format: "echo-set", set: Some(set), .. } if set == "3m2friday2222"));
+    assert_eq!(f.fields[0].text, "~/Music/1970-01-01 Friday.txt", "named from the set found");
     press(&mut app, "\u{1b}");
+    press(&mut app, ":review: export no set\n");
+    assert!(app.modal.is_none() && last_message(&app).contains(away), "{}", last_message(&app));
     press(&mut app, ":review: export the mix\n");
     assert_eq!((app.modal.is_none(), last_message(&app)), (true, "the player doesn't export mixes"));
 
@@ -277,7 +300,37 @@ fn a_suggested_action_opens_the_players_own_flow() {
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Analyzing"));
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "file size: 2 tracks analyzed, 0 already");
+
+    // Each track once, and only those the drive has; none of them, nothing to ask.
+    press(&mut app, ":review: analyze some\n");
+    assert_eq!(last_message(&app), format!("left out 1 track {name} doesn't have"));
+    let Some(Modal::Ask(question, _)) = &app.modal else { panic!("not asked: {}", last_message(&app)) };
+    assert_eq!(question, &format!("Analyze 1 track on {name} with file size?"));
+    press(&mut app, "n");
+    press(&mut app, ":review: analyze none\n");
+    assert_eq!(
+        (app.modal.is_none(), last_message(&app)),
+        (true, format!("none of the tracks it suggests are on {name}").as_str())
+    );
     assert!(app.suggested.is_empty(), "each reviewed is no longer offered");
+}
+
+/// A suggestion on a drive named as two drives listed are (without an id) is refused as
+/// ambiguous, never taken for the first.
+#[test]
+fn a_suggestion_on_a_name_two_drives_share_is_refused() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    let mut twin = locallibrary::Device::open(&root).unwrap().info();
+    (twin.id, twin.name) = (None, Some("TWIN".into()));
+    let other = std::path::PathBuf::from("/Volumes/TWIN 1");
+    app.drives = vec![twin.clone(), locallibrary::DeviceInfo { root: other, ..twin }];
+    let analyze = AnalyzeAction { analyzer: "size".into(), drive: "TWIN".into(), tracks: Vec::new() };
+    tell(&mut app, vec![suggests_action("analyze the twin", HostAction::Analyze(analyze))]);
+    wait(&mut app, |a| a.suggested.len() == 1);
+    press(&mut app, ":review: analyze the twin\n");
+    assert_eq!((app.modal.is_none(), last_message(&app)), (true, "more than one drive is named TWIN"));
 }
 
 /// For any of echo's actions a plugin suggests, wherever the user is, reviewing it starts
@@ -292,7 +345,18 @@ fn reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCase) {
         Some(named) => named,
         None => "ELSEWHERE".to_string(),
     };
-    let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(3)).unique(true).max_size(2));
+    let tracks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(4)).max_size(4));
+    // Those the drive has, each once, as they're planned.
+    let has: Vec<u32> = plugged.as_ref().map_or_else(Vec::new, |d| {
+        let library = locallibrary::Device::open(&d.0).unwrap().library().unwrap();
+        library.tracks.iter().map(|t| t.id).collect()
+    });
+    let mut on: Vec<u32> = Vec::new();
+    for t in tracks.iter().filter(|t| has.contains(t)) {
+        if !on.contains(t) {
+            on.push(*t);
+        }
+    }
     let provider = tc.draw(gs::optional(gs::sampled_from(vec!["tags".to_string()])));
     let action = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => HostAction::TrackFetch(FetchAction { drive: drive.clone(), tracks: tracks.clone(), provider }),
@@ -312,25 +376,24 @@ fn reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCase) {
     assert!(app.job.is_none(), "nothing runs by itself");
     match (&app.modal, &action) {
         (Some(Modal::Form(f)), HostAction::TrackFetch(a)) => {
-            assert!(matches!(&f.then, For::Fetch { tracks, .. } if *tracks == a.tracks));
+            assert!(matches!(&f.then, For::Fetch { tracks, .. } if *tracks == on), "{on:?}");
             let from = a.provider.as_ref().map_or("echo".to_string(), |p| format!("echo.{p}"));
             assert_eq!(f.fields[0].text, from);
         }
         (Some(Modal::Form(f)), HostAction::Export(_)) => {
             assert!(matches!(f.then, For::Export { format: "echo-m3u", .. }))
         }
-        (Some(Modal::Ask(q, _)), HostAction::Analyze(a)) => {
-            let what = if a.tracks.is_empty() {
-                "every track".to_string()
-            } else {
-                crate::output::plural(a.tracks.len(), "track")
-            };
+        (Some(Modal::Ask(q, _)), HostAction::Analyze(_)) => {
+            let what =
+                if tracks.is_empty() { "every track".to_string() } else { crate::output::plural(on.len(), "track") };
             assert!(q.starts_with(&format!("Analyze {what} on ")), "{q}");
         }
         (None, _) => {
             let said = last_message(&app);
             let why = ["ELSEWHERE isn't plugged in", "open a drive first", "only on a plugged-in drive"];
-            assert!(why.contains(&said), "{said}");
+            let none =
+                !tracks.is_empty() && on.is_empty() && said.starts_with("none of the tracks it suggests are on ");
+            assert!(why.contains(&said) || none, "{said}");
         }
         (_, action) => panic!("{action:?} opened something else"),
     }

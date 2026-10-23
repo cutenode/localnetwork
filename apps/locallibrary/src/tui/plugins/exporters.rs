@@ -5,12 +5,13 @@
 use std::path::PathBuf;
 
 use locallibrary::Store;
+use locallibrary::sets::SetBook;
 use loclib_plugin::{ExportAction, ExportFrom, ExportSource, Manifest};
 use serde_json::{Map, Value, json};
 
 use crate::plugins::params::properties;
 use crate::tui::app::{App, Level, View as Screen};
-use crate::tui::browse::{Category, NodeId};
+use crate::tui::browse::{Category, NodeId, set_label};
 use crate::tui::edits::Modal;
 use crate::tui::form::{For, Form};
 use crate::tui::keymap::Act;
@@ -87,15 +88,24 @@ impl App {
         if e.source == ExportFrom::Mix {
             return self.toast("the player doesn't export mixes", Level::Info);
         }
-        let set = suggested.map_or_else(|| self.open_set(), |s| s.set.clone()).filter(|_| e.source == ExportFrom::Set);
-        if e.source == ExportFrom::Set && set.is_none() {
-            return self.toast("open a set first", Level::Info);
-        }
-        let label = |key: &String| {
-            let group = self.loaded.as_ref().and_then(|l| l.grouped(Category::Sets, key).map(|g| g.label.clone()));
-            group.unwrap_or_else(|| key.clone())
+        // The set: the one open, or the one suggested as the store has it, so where it goes is
+        // named from the set found, never from what a plugin said.
+        let (set, name) = match (e.source, suggested) {
+            (ExportFrom::Set, None) => {
+                let Some(key) = self.open_set() else { return self.toast("open a set first", Level::Info) };
+                let group = self.loaded.as_ref().and_then(|l| l.grouped(Category::Sets, &key).map(|g| g.label.clone()));
+                (Some(key.clone()), group.unwrap_or(key))
+            }
+            (ExportFrom::Set, Some(s)) => {
+                let query = s.set.as_deref().unwrap_or_default();
+                let found = Store::open(&self.store_root).and_then(|store| SetBook::load(&store));
+                match found.and_then(|book| book.find(query).map(|set| (Some(set.id.clone()), set_label(set)))) {
+                    Ok(found) => found,
+                    Err(e) => return self.toast(e.to_string(), Level::Info),
+                }
+            }
+            _ => (None, self.drive_label(&root)),
         };
-        let name = set.as_ref().map_or_else(|| self.drive_label(&root), label);
         let (to, what) = match &e.extension {
             Some(ext) => (format!("~/Music/{name}.{ext}"), "The file to write, on this computer"),
             None => (format!("~/Music/{name} for {format}"), "The folder to write into, on this computer"),

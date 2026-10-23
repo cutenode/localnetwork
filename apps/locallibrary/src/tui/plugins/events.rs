@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use locallibrary::plugin::{Cli, Notices, PluginNotice, forget_suggested, keep_suggested, suggested};
+use locallibrary::plugin::{Cli, Notices, PluginNotice, forget_suggested, keep_suggested, suggested, tracks_on};
 use locallibrary::{Result, Store};
 use loclib_plugin::{Context, HostAction, Manifest, Suggested, Suggestion};
 
@@ -136,44 +136,61 @@ impl App {
     }
 
     /// Opens the player's own flow for one of the host's actions, on `m`'s contributions and the
-    /// drive it names (the drive actions work on, for a set's export naming none): fetching from
-    /// its providers and exporting in its format open their forms filled in, and analyzing asks
-    /// first.
-    fn review_action(&mut self, m: &'static Manifest, action: HostAction) {
-        let drive = match &action {
-            HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(&f.drive),
-            HostAction::Export(e) => e.drive.as_ref(),
-            HostAction::Analyze(a) => Some(&a.drive),
-        };
-        let root = match drive {
-            Some(d) => match self.named_drive(d) {
-                Some(root) => Some(root),
-                None => return self.toast(format!("{d} isn't plugged in"), Level::Info),
-            },
+    /// drive it names, plugged in (the drive actions work on, for a set's export naming none), and
+    /// the tracks it names that the drive has, each once: fetching from its providers and
+    /// exporting in its format open their forms filled in, saying what they're for, and analyzing
+    /// asks first.
+    fn review_action(&mut self, m: &'static Manifest, mut action: HostAction) {
+        let root = match action.drive().map(|d| self.named_drive(d)) {
+            Some(Ok(root)) => Some(root),
+            Some(Err(why)) => return self.toast(why, Level::Info),
             None => self.action_drive(),
+        };
+        let Some(root) = self.plugged(root) else { return };
+        let label = self.drive_label(&root);
+        if let (_, Some(tracks)) = action.scope_mut()
+            && !tracks.is_empty()
+        {
+            let counted = match self.loaded.as_ref().filter(|l| l.root() == root) {
+                Some(l) => Ok(tracks_on(&l.library, tracks)),
+                None => locallibrary::Device::open(&root).and_then(|d| d.library()).map(|l| tracks_on(&l, tracks)),
+            };
+            match counted {
+                Err(e) => return self.toast(e.to_string(), Level::Error),
+                Ok((on, _)) if on.is_empty() => {
+                    return self.toast(format!("none of the tracks it suggests are on {label}"), Level::Info);
+                }
+                Ok((on, missing)) => {
+                    if missing > 0 {
+                        let left = crate::output::plural(missing, "track");
+                        self.toast(format!("left out {left} {label} doesn't have"), Level::Info);
+                    }
+                    *tracks = on;
+                }
+            }
+        }
+        let scope = |tracks: &[u32]| match tracks.len() {
+            0 => format!("every track on {label}"),
+            n => format!("{} on {label}", crate::output::plural(n, "track")),
         };
         match action {
             HostAction::Export(e) => {
                 let Some(x) = m.contributes.exporters.iter().find(|x| x.format == e.format) else { return };
-                self.export_form(&m.id, &x.format, root, Some(&e));
+                self.export_form(&m.id, &x.format, Some(root), Some(&e));
             }
             HostAction::Analyze(a) => {
                 let Some(x) = m.contributes.analyzers.iter().find(|x| x.name == a.analyzer) else { return };
-                let Some(root) = self.plugged(root) else { return };
-                let tracks = match a.tracks.len() {
-                    0 => "every track".to_string(),
-                    n => crate::output::plural(n, "track"),
-                };
-                let question = format!("Analyze {tracks} on {} with {}?", self.drive_label(&root), named(&x.title));
+                let question = format!("Analyze {} with {}?", scope(&a.tracks), named(&x.title));
                 let tracks = (!a.tracks.is_empty()).then_some(a.tracks);
                 let (plugin, analyzer) = (m.id.as_str(), x.name.as_str());
                 let yes = move |app: &mut App| app.analyze(plugin, analyzer, Some(root), tracks);
                 self.modal = Some(Modal::Ask(question, Box::new(yes)));
             }
             fetch => {
-                let (Some((kind, f)), Some(root)) = (fetch.fetch(), self.plugged(root)) else { return };
+                let Some((kind, f)) = fetch.fetch() else { return };
                 let from = f.provider.as_ref().map_or_else(|| m.id.clone(), |p| format!("{}.{p}", m.id));
-                self.fetch_form_from(kind, root, f.tracks.clone(), Some(from));
+                let title = format!("Fetch {}: {}", kind.found(), scope(&f.tracks));
+                self.fetch_form_from(kind, title, root, f.tracks.clone(), Some(from));
             }
         }
     }

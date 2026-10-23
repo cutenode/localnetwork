@@ -103,14 +103,15 @@ impl App {
         if tracks.is_empty() {
             return self.toast("no track selected", Level::Info);
         }
-        self.fetch_form_from(kind, root, tracks, None);
+        self.fetch_form_from(kind, format!("Fetch {}", kind.found()), root, tracks, None);
     }
 
-    /// [`App::fetch_form`] for `tracks` (every one, when none), only from `from` to start with
-    /// when it says (`<plugin>` or `<plugin>.<provider>`, as a plugin's suggestion has it).
+    /// [`App::fetch_form`] for `tracks` (every one, when none), titled `title`, only from `from` to
+    /// start with when it says (`<plugin>` or `<plugin>.<provider>`, as a plugin's suggestion has it).
     pub(super) fn fetch_form_from(
         &mut self,
         kind: ProviderKind,
+        title: String,
         root: PathBuf,
         tracks: Vec<u32>,
         from: Option<String>,
@@ -126,7 +127,6 @@ impl App {
                 "replace": { "type": "boolean", "description": "Also over what tracks have" }
             }
         });
-        let title = format!("Fetch {}", kind.found());
         let filled = Map::from_iter(from.map(|f| ("from".to_string(), Value::from(f))));
         let form = Form::with(title, Some(schema), &filled, For::Fetch { kind, root, tracks });
         self.modal = Some(Modal::Form(form));
