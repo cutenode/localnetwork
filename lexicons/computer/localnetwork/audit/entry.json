@@ -30,6 +30,8 @@
 							"request.changesRequested",
 							"role.grant",
 							"role.revoke",
+							"verification.grant",
+							"verification.revoke",
 							"booking.create",
 							"booking.message",
 							"booking.status",
