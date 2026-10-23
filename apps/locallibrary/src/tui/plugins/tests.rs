@@ -11,6 +11,7 @@ use super::super::palette::Picker;
 use super::super::ui::screen;
 use super::exporters::WRITE_TO;
 use super::importers::READ_FROM;
+use super::sources::READ_FROM as GRANTS;
 use super::*;
 
 /// The list open now.
@@ -1055,6 +1056,7 @@ fn plugins_own(act: &Act) -> bool {
             | Act::ApplyFields(..)
             | Act::Export(..)
             | Act::Import(..)
+            | Act::Source(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
             | Act::PluginSignIn(..)
@@ -1149,6 +1151,7 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
                     | Act::ApplyFields(..)
                     | Act::Export(..)
                     | Act::Import(..)
+                    | Act::Source(..)
                     | Act::Fetch(_)
             );
             assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
@@ -1284,6 +1287,14 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             let i = m.contributes.importers.iter().find(|i| i.format == f).unwrap();
             let (title, fields) = form_open(app);
             assert_eq!((title, fields[0].as_str()), (i.title.clone(), READ_FROM));
+            press(app, "\u{1b}");
+        }
+        // A form asking for the folders it may read first.
+        Act::Source(p, s) => {
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let s = m.contributes.sources.iter().find(|x| x.name == s).unwrap();
+            let (title, fields) = form_open(app);
+            assert_eq!((title, fields[0].as_str()), (s.title.clone(), GRANTS));
             press(app, "\u{1b}");
         }
         Act::PluginSettings(p) => {

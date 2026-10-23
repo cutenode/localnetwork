@@ -388,8 +388,9 @@ fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let formats: Vec<(&str, bool)> =
         manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder)).collect();
     assert_eq!(formats, [("traktor", true), ("serato", true), ("engine", true)]);
-    // Where the drive is mounted comes with the export: no drive:info.
-    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead];
+    // Where the drive is mounted comes with the export: no drive:info. The Traktor source reads
+    // the folders it's granted.
+    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead, Capability::FsRead];
     assert_eq!(manifest.capabilities, capabilities);
 }
 

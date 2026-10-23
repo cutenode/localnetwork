@@ -4,7 +4,8 @@ version = "0.1.0"
 protocol = "^0.2"
 # library:read for the library exports read (`combined`), analysis:read for beat grids and cues.
 # The files name the audio by its full path: where the drive is mounted comes with the export.
-capabilities = ["library:read", "analysis:read"]
+# fs:read for the Traktor source, whose tracks are audio files in the folders the user grants.
+capabilities = ["library:read", "analysis:read", "fs:read"]
 
 [[contributes.exporters]]
 format = "traktor"
@@ -71,3 +72,26 @@ type = "string"
 enum = ["relative", "drive"]
 default = "relative"
 description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
+
+# Reads a file the user names, for the host to find its tracks on a drive and plan the edits:
+# no capability.
+[[contributes.importers]]
+format = "traktor"
+title = "Traktor Pro: keys, BPMs and cues from a collection.nml"
+extension = "nml"
+provides = ["fields", "cues"]
+
+[[contributes.sources]]
+name = "traktor"
+title = "Traktor Pro: a collection.nml's tracks, cues, beat grids and playlists"
+
+[contributes.sources.options]
+type = "object"
+additionalProperties = false
+required = ["collection"]
+
+[contributes.sources.options.properties.collection]
+type = "string"
+minLength = 1
+x-path = true
+description = "Traktor's collection.nml (in Documents/Native Instruments/Traktor <version>/)"

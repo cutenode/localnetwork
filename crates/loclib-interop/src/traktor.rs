@@ -1,5 +1,7 @@
 //! Traktor Pro's collection file, `collection.nml`, which Traktor imports with "Import another
-//! Collection" (right-click Track Collection in the browser tree), merging it into its own.
+//! Collection" (right-click Track Collection in the browser tree), merging it into its own:
+//! written with [`build`], and read with [`read`] (Traktor keeps its own in
+//! `~/Documents/Native Instruments/Traktor <version>/collection.nml`).
 //!
 //! NML is XML (`<NML VERSION="19">`, as Traktor Pro 3 and 4 write it); Native Instruments
 //! doesn't document it, so this follows what Traktor writes and what converters that read it
@@ -21,7 +23,7 @@
 //!   `TYPE="PLAYLIST"` with a `PLAYLIST` of `ENTRY`/`PRIMARYKEY`s.
 
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use chrono::{Datelike, Timelike};
 
@@ -46,18 +48,40 @@ fn startup_volume(volumes: &Path) -> Option<String> {
         .map(|e| e.file_name().to_string_lossy().into_owned())
 }
 
+/// This computer's startup disk, by the name [`Location::path`] takes: this Mac's, or the name
+/// [`build`] gives it when this computer doesn't say (it isn't a Mac).
+pub fn startup_disk() -> String {
+    startup_volume(Path::new("/Volumes")).unwrap_or_else(|| STARTUP_VOLUME.into())
+}
+
 /// Where a file is, the way `LOCATION` says it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Location {
-    volume: String,
-    dir: String,
-    file: String,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Location {
+    /// A Mac volume's name, or a Windows drive letter with its colon (`E:`).
+    pub volume: String,
+    /// Every folder as `/:name`, then a final `/:`.
+    pub dir: String,
+    pub file: String,
 }
 
 impl Location {
     /// `VOLUME` + `DIR` + `FILE`: what playlists name the track by.
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         format!("{}{}{}", self.volume, self.dir, self.file)
+    }
+
+    /// The file on this computer, as [`location`] places one the other way: below its drive
+    /// letter, below `/` on the startup disk (the volume named `startup`, see [`startup_disk`]),
+    /// else below `/Volumes`.
+    pub fn path(&self, startup: &str) -> PathBuf {
+        let mut path = match self.volume.as_bytes() {
+            [letter, b':'] if letter.is_ascii_alphabetic() => PathBuf::from(format!("{}{MAIN_SEPARATOR}", self.volume)),
+            _ if self.volume == startup => PathBuf::from("/"),
+            _ => Path::new("/Volumes").join(&self.volume),
+        };
+        path.extend(self.dir.split("/:").filter(|p| !p.is_empty()));
+        path.push(&self.file);
+        path
     }
 }
 
@@ -89,6 +113,11 @@ fn date(s: &str) -> Option<String> {
 fn key_value(key: &str) -> Option<u8> {
     let c = Camelot::parse(key)?;
     Some(c.pitch() as u8 + if c.major { 0 } else { 12 })
+}
+
+/// A `MUSICAL_KEY VALUE` as a key: [`key_value`] the other way.
+fn key_of(value: u8) -> Option<Camelot> {
+    (value < 24).then(|| Camelot::from_pitch(u32::from(value % 12), value < 12))
 }
 
 fn colour(c: TrackColor) -> u8 {
@@ -363,6 +392,9 @@ fn node(x: &mut String, lib: &Library, p: &Playlist, keys: &rustc_hash::FxHashMa
     }
     x.push_str("</PLAYLIST></NODE>\n");
 }
+
+mod read;
+pub use read::{Collection, Entry, List, Marker, MarkerKind, read};
 
 #[cfg(test)]
 mod tests;

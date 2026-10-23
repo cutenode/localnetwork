@@ -122,3 +122,34 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
   artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+
+### From Traktor
+
+```bash
+nml="$HOME/Documents/Native Instruments/Traktor 4.0.0/collection.nml"
+locallibrary import "$nml" Home --dry-run                       # keys, BPMs and cues for Home's tracks
+locallibrary collection export /Volumes/STICK --from interop:traktor --grant ~/Music \
+  --option collection="$nml" --dry-run                          # a drive built from the collection
+```
+
+Traktor keeps its collection in `collection.nml`, in `Documents/Native Instruments/Traktor
+<version>/`. The interop plugin reads it two ways. Its `traktor` importer, the one for `.nml`
+files, adds to a drive you have: `import` finds Traktor's tracks on the drive by their file, then
+artist, title and length, and adds what they lack (see [Import formats](plugins.md#import-formats)):
+a key and a BPM, and cues in hot cue slots (or at places) a track has none in. Its `traktor`
+library source builds a drive from the collection, as rekordbox's collection is (see [Library
+sources](plugins.md#library-sources)): every track whose audio is in a folder you grant, with its
+title, artist, album, genre, label, remixer, comment, year, rating, key, BPM, cues and beat grid,
+and the playlists in their folders. A track elsewhere (on a volume that isn't mounted, say) is
+left out, saying so. On a Mac, Traktor names audio by its volume: the startup disk's name is `/`,
+any other volume's is below `/Volumes`; on Windows it's the drive letter.
+
+Either way hot cues stay on their pads, memory cues, fade-in, fade-out and load markers become
+memory cues, and loops keep their length (in beats for `import`), all in the colours Traktor
+shows them in (cues blue, fade markers orange, load markers yellow, loops green). A grid marker
+on a pad is a hot cue there too. The source lays Traktor's beat grid out from its grid markers to
+the end of each track (a track over a day long gets none); `import` leaves the grid alone. Hot
+cues past H are left out, saying so, and `import` leaves out loops that aren't a whole number of
+beats (or 1/2 to 1/32 of one) at the track's tempo the same way. Smart playlists aren't built:
+what's in one is a search Traktor runs. A folder or playlist whose name has a `/` is built as
+folders, since a playlist's path is its names with `/` between them (the plugin's log names each).

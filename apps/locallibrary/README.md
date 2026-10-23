@@ -181,7 +181,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   and lossless copies (AIFF, WAV, FLAC) that keep cue points in time
 - [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo, key and beats, loudness
   and clipping, and scoring analyzers against annotated datasets
-- [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
+- [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ,
+  and reading Traktor's back
 - [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
   spectrum and cover art
 - [loclib-plugin](../../crates/loclib-plugin): the plugin protocol (JSON-RPC over stdio), the
