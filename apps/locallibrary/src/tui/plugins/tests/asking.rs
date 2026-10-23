@@ -320,7 +320,7 @@ fn any_auto_pick_typed_is_kept_or_refused(tc: TestCase) {
 #[hegel::test_helper]
 fn chosen(tc: &TestCase, n: usize, multi: bool) -> Vec<usize> {
     match multi {
-        true => (0..n).filter(|_| tc.draw(gs::booleans())).collect(),
+        true => tc.draw(gs::subsequences((0..n).collect::<Vec<_>>())),
         false => vec![tc.draw(gs::integers::<usize>().max_value(n - 1))],
     }
 }

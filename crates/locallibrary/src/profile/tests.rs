@@ -775,10 +775,10 @@ fn a_document_is_dated_to_the_millisecond(tc: TestCase) {
         analysis: false,
         genre_aliases: IndexMap::new(),
     };
-    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
-    let at = DateTime::from_timestamp(1_760_000_000, nanos).unwrap();
+    let second = |nanos| DateTime::from_timestamp(1_760_000_000, nanos).unwrap().naive_utc();
+    let at = tc.draw(gs::default::<DateTime<Utc>>().min_value(second(0)).max_value(second(999_999_999)));
     let doc = document::document(&compute(&builder(&o), Basis::Sessions, 0, at), &ProfilePrefs::default());
     let json = serde_json::to_value(&doc).unwrap();
     let millis = at.timestamp_subsec_millis();
-    assert_eq!(json["generatedAt"], format!("2025-10-09T08:53:20.{millis:03}Z"), "{nanos}");
+    assert_eq!(json["generatedAt"], format!("2025-10-09T08:53:20.{millis:03}Z"), "{at:?}");
 }

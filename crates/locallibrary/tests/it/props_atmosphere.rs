@@ -63,7 +63,7 @@ struct Granted {
 
 #[hegel::test_helper]
 fn granted(tc: &TestCase) -> Granted {
-    let c = COLLECTIONS[tc.draw(gs::integers::<usize>().max_value(COLLECTIONS.len() - 1))];
+    let c = tc.draw(gs::sampled_from(&COLLECTIONS));
     let kind = tc.draw(gs::integers::<u8>().max_value(12));
     let (scope, grants) = match kind {
         0 => ("atproto".to_string(), Some(Some((None, false, false)))),
@@ -386,8 +386,8 @@ fn a_split_session_keeps_its_secrets_apart_and_joins_back(tc: TestCase) {
 
 #[hegel::test_helper]
 fn date(tc: &TestCase) -> DateTime<Utc> {
-    let secs = tc.draw(gs::integers::<i64>().min_value(0).max_value(5_000_000_000));
-    DateTime::from_timestamp(secs, tc.draw(gs::integers::<u32>().max_value(999_999_999))).unwrap()
+    let last = DateTime::from_timestamp(5_000_000_000, 999_999_999).unwrap();
+    tc.draw(gs::default::<DateTime<Utc>>().min_value(DateTime::UNIX_EPOCH.naive_utc()).max_value(last.naive_utc()))
 }
 
 #[hegel::test_helper]

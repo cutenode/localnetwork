@@ -21,8 +21,7 @@ fn a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
     let root = common::demo_drive(dir.path(), "Main");
     let mut d = Device::open_export(&root).unwrap();
     let files: Vec<String> = d.library().unwrap().tracks.iter().map(|t| t.file_path.clone()).collect();
-    let tracks: Vec<String> = files.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
-    let tracks = if tracks.is_empty() { vec![files[0].clone()] } else { tracks };
+    let tracks: Vec<String> = tc.draw(gs::subsequences(&files).min_size(1));
     let tag = format!(
         "{}/{}",
         tc.draw(gs::sampled_from(vec!["Genre", "Situation"])),

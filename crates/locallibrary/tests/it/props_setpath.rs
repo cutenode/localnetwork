@@ -32,7 +32,7 @@ fn a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
         common::add_onelibrary(&root);
     }
     let pristine = fs::read(root.join(paths::EXPORT_PDB)).unwrap();
-    let t = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+    let t = tc.draw(gs::sampled_from(&lib.tracks));
     // Where it goes: a copy of its file elsewhere, another track's file, or nothing at all.
     let target = tc.draw(gs::sampled_from(vec!["moved", "renamed", "other track", "missing", "analysis"]));
     let other = lib.tracks.iter().find(|o| o.id != t.id && o.file_path != t.file_path).unwrap();

@@ -283,7 +283,7 @@ fn sets_agree_with_a_model_and_print_what_their_json_says(tc: TestCase) {
             assert!(printed.starts_with("no sets yet"), "{printed}");
             continue;
         }
-        let s = &now[tc.draw(gs::integers::<usize>().max_value(now.len() - 1))];
+        let s = &tc.draw(gs::sampled_from(&now[..]));
         let short = s["id"].as_str().unwrap()[..8].to_string();
         let mut shown = fx.json(&["sets", "show", &short]);
         shown.as_object_mut().unwrap().remove("schema");

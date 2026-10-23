@@ -488,7 +488,8 @@ impl Editing {
 /// Any sequence of edits leaves a database that holds what was asked for, and nothing else.
 #[hegel::test(test_cases = 100)]
 fn edits_match_a_model(tc: TestCase) {
-    let (name, bytes) = fixtures().swap_remove(tc.draw(gs::integers::<usize>().max_value(2)));
+    let mut all = fixtures();
+    let (name, bytes) = all.swap_remove(tc.draw(gs::integers::<usize>().max_value(all.len() - 1)));
     tc.note(&format!("starting from the {name} fixture"));
     let model = Model::of(&Database::from_bytes(bytes.clone()).unwrap());
     let editing = Editing { editor: PdbEditor::from_bytes(bytes), model };
@@ -538,7 +539,8 @@ fn add_track_is_all_or_nothing() {
 /// to edge values, bytes changed anywhere, the file cut short.
 #[hegel::test_helper]
 fn damaged(tc: &TestCase) -> Vec<u8> {
-    let (name, bytes) = fixtures().swap_remove(tc.draw(gs::integers::<usize>().max_value(2)));
+    let mut all = fixtures();
+    let (name, bytes) = all.swap_remove(tc.draw(gs::integers::<usize>().max_value(all.len() - 1)));
     tc.note(&format!("damaging the {name} fixture, with folders F/G holding playlist P"));
     let mut editor = PdbEditor::from_bytes(bytes);
     let f = editor.create_playlist("F", 0, true).unwrap();

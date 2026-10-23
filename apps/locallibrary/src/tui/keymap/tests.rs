@@ -136,9 +136,9 @@ fn each_views_help_starts_with_its_own_keys() {
 fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
-    app.view = View::ALL[tc.draw(gs::integers::<usize>().max_value(4))];
-    app.focus = [Focus::Drives, Focus::Playlists, Focus::Tracks, Focus::Details, Focus::Crate]
-        [tc.draw(gs::integers::<usize>().max_value(4))];
+    app.view = tc.draw(gs::sampled_from(&View::ALL[..]));
+    app.focus =
+        tc.draw(gs::sampled_from(&[Focus::Drives, Focus::Playlists, Focus::Tracks, Focus::Details, Focus::Crate][..]));
     app.fullscreen = tc.draw(gs::booleans());
     app.deck.pads = tc.draw(gs::booleans());
     let width = tc.draw(gs::integers::<usize>().max_value(200));
@@ -193,7 +193,7 @@ fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 100)]
 fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let b = KEYMAP[tc.draw(gs::integers::<usize>().max_value(KEYMAP.len() - 1))];
+    let b = tc.draw(gs::sampled_from(KEYMAP));
     let rebuilt = key(b.scope, b.keys, b.shown, b.act, b.name, b.help, b.group);
     let rebuilt = match b.hint {
         Some((label, prio)) => rebuilt.hint(label, prio),
