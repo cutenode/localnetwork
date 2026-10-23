@@ -286,7 +286,8 @@ fn a_suggested_action_opens_the_players_own_flow() {
     assert_eq!(f.fields[0].text, "~/Music/1970-01-01 Friday.txt", "named from the set found");
     press(&mut app, "\u{1b}");
     press(&mut app, ":review: export no set\n");
-    assert!(app.modal.is_none() && last_message(&app).contains(away), "{}", last_message(&app));
+    // Not echoed on failure: CodeQL takes a toast written after an export for something secret.
+    assert!(app.modal.is_none() && last_message(&app).contains(away));
     press(&mut app, ":review: export the mix\n");
     assert_eq!((app.modal.is_none(), last_message(&app)), (true, "the player doesn't export mixes"));
 
