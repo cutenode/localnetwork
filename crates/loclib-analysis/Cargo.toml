@@ -25,6 +25,7 @@ thiserror.workspace = true
 [dev-dependencies]
 hegeltest.workspace = true
 loclib-mixid = { workspace = true, features = ["test-util"] }
+loclib-model = { workspace = true, features = ["test-util"] }
 serde_json.workspace = true
 tempfile.workspace = true
 

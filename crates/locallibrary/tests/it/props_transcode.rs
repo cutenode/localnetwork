@@ -249,8 +249,7 @@ fn copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
     assert_eq!(again.transcodes.iter().map(|t| made_at(&t.to)).collect::<Vec<_>>(), times, "kept, not written");
     club = Device::open(dir.path().join("Club")).unwrap();
     // A better master at the same path, or another container: made again.
-    let which = tc.draw(gs::integers::<usize>().max_value(wavs.transcodes.len() - 1));
-    let replaced = tc.draw(gs::booleans()).then(|| wavs.transcodes[which].from.clone());
+    let replaced = tc.draw(gs::optional(gs::sampled_from(&wavs.transcodes))).map(|t| t.from);
     let i =
         replaced.as_ref().map(|from| MASTERS.iter().enumerate().position(|(i, _)| master_path(i) == *from).unwrap());
     if let Some(i) = i {

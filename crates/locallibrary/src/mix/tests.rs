@@ -269,13 +269,9 @@ fn transitions_say_how_keys_and_tempos_move() {
     assert_eq!(t.iter().map(|t| (t.from, t.to)).collect::<Vec<_>>(), [(0, 1), (1, 2), (2, 3)]);
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
-
-#[hegel::test_helper]
-fn camelot(tc: &TestCase) -> Camelot {
-    Camelot { number: tc.draw(gs::integers::<u8>().min_value(1).max_value(12)), major: tc.draw(gs::booleans()) }
-}
+use hegel::{Generator, TestCase};
+use loclib_model::test_util::keys;
 
 /// The mix's waveform has a column every quarter second for each series, scaled so its
 /// loudest column is full height; louder is never drawn lower, and the same mix at another
@@ -317,11 +313,10 @@ fn transitions_follow_the_plays(tc: TestCase) {
     let plays: Vec<Play> = (0..n)
         .map(|i| {
             let start = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0));
-            let key = tc.draw(gs::optional(gs::just(()))).map(|_| camelot(&tc).code());
             Play {
                 start,
                 end: start + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(600.0)),
-                played_key: key,
+                played_key: tc.draw(gs::optional(keys().map(Camelot::code))),
                 played_bpm: tc.draw(gs::optional(gs::floats::<f64>().min_value(60.0).max_value(200.0))),
                 ..report::tests::play(track(i as u32, "A", "One", "/Contents/one.wav"))
             }
@@ -359,7 +354,7 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
     let tracks: Vec<Track> = (0..n)
         .map(|i| {
             let mut t = track(i as u32 + 1, "A", &format!("Track {i}"), &format!("/Contents/{i}.wav"));
-            t.key = if tc.draw(gs::weighted_booleans(0.8)) { camelot(&tc).note() } else { String::new() };
+            t.key = if tc.draw(gs::weighted_booleans(0.8)) { tc.draw(keys()).note() } else { String::new() };
             t.bpm = tc.draw(hegel::one_of!(gs::just(0.0), gs::floats::<f64>().min_value(60.0).max_value(180.0)));
             t
         })
@@ -512,7 +507,7 @@ fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
         let path = format!("/Contents/{i}.wav");
         std::fs::write(root.join(&path[1..]), pcm(x)).unwrap();
         let mut t = track(i as u32 + 1, "A", &format!("Track {i}"), &path);
-        t.key = camelot(&tc).code();
+        t.key = tc.draw(keys()).code();
         tracks.push(t);
     }
     // A file the decoder can't read, and a recorded set too long to be a track: neither is

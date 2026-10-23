@@ -111,7 +111,7 @@ fn a_push_takes_the_library_it_can(tc: TestCase) {
     }
     let head = |name: &str| store.find_library(name).unwrap().unwrap().head;
     // A drive pulled into a library pushes that one's newest.
-    let linked = tc.draw(gs::integers::<usize>().max_value(1));
+    let linked = tc.draw(gs::integers::<usize>().max_value(drives.len() - 1));
     let own = resolve(&Device::open_export(&drives[linked]).unwrap(), None).unwrap();
     assert_eq!(Some(own.id), head(&names[linked]));
     for named in [None, Some("Library 0"), Some("library 1"), Some("Nope")] {

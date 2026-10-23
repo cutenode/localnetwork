@@ -961,7 +961,7 @@ fn the_selection_is_always_in_the_window(tc: hegel::TestCase) {
     // No rows often: the drives list and the profile's sections have none under 4 rows.
     let page = tc.draw(hegel::one_of!(gs::just(0), gs::integers::<usize>().max_value(40)));
     let offset = tc.draw(gs::integers::<usize>().max_value(120));
-    let sel = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(len.saturating_sub(1))));
+    let sel = tc.draw(gs::optional(gs::integers::<usize>().max_value(len.saturating_sub(1))));
     let top = scroll_window(offset, sel, page, len);
     assert!(top <= len.saturating_sub(page), "{top} leaves rows of {len} empty below a page of {page}");
     if let Some(s) = sel.filter(|_| len > 0) {
@@ -1196,7 +1196,7 @@ fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
 
     let (dir, root, path) = edited_drive();
     let names = |tc: &hegel::TestCase| -> Vec<String> {
-        LISTS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect()
+        tc.draw(gs::subsequences(LISTS)).iter().map(|s| s.to_string()).collect()
     };
     let track = |id| TrackRef { id, name: format!("Track {id}"), file_path: String::new() };
     let warnings: Vec<String> =
@@ -1871,7 +1871,7 @@ fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
     let mut tags = rustc_hash::FxHashMap::default();
     let mut want = Vec::new();
     for t in &tracks {
-        let mine: Vec<String> = names.iter().filter(|_| tc.draw(gs::booleans())).map(|n| n.to_string()).collect();
+        let mine: Vec<String> = tc.draw(gs::subsequences(&names[..])).iter().map(|n| n.to_string()).collect();
         want.push(mine.iter().map(|n| n.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>());
         tags.insert(locallibrary::paths::file_key(&t.file_path), mine);
     }

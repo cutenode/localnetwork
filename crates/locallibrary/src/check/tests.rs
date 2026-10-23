@@ -63,40 +63,7 @@ fn no_models_and_one_database() {
 }
 
 fn row(path: &str, bitrate: u32, rate: u32, depth: u16) -> Track {
-    Track {
-        id: 1,
-        title: path.into(),
-        artist: String::new(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 0,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate,
-        sample_rate: rate,
-        sample_depth: depth,
-        file_size: 0,
-        file_path: path.into(),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
+    Track { bitrate, sample_rate: rate, sample_depth: depth, ..loclib_model::test_util::track(1, "", path, path) }
 }
 
 #[test]
@@ -244,10 +211,7 @@ fn every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
         Some(FsKind::Other),
     ];
     let volume = match tc.draw(gs::booleans()) {
-        true => Some((
-            schemes[tc.draw(gs::integers::<usize>().max_value(schemes.len() - 1))],
-            systems[tc.draw(gs::integers::<usize>().max_value(systems.len() - 1))],
-        )),
+        true => Some((tc.draw(gs::sampled_from(&schemes)), tc.draw(gs::sampled_from(&systems)))),
         false => None,
     };
     let (has_pdb, has_plus) = match tc.draw(gs::integers::<u8>().max_value(2)) {

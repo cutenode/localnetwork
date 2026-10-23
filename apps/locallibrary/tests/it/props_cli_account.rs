@@ -376,7 +376,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
             fx.ok(&["--yes", "settings", "set", v]);
         }
         let refusals = [None, None, None, Some(Writes::RefuseScope), Some(Writes::RefuseRecord)];
-        let refusal = refusals[tc.draw(gs::integers::<usize>().max_value(refusals.len() - 1))].clone();
+        let refusal = tc.draw(gs::sampled_from(&refusals[..]));
         pds.set_writes(refusal.clone().unwrap_or(Writes::Accept));
         let planned = fx.run(&[&["--json"][..], words, &["--dry-run"]].concat());
         let printed = fx.run(&[words, &["--dry-run"][..]].concat());

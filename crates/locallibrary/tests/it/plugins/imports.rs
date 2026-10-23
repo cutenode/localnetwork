@@ -210,7 +210,7 @@ fn a_cue_the_edit_cant_set_is_left_out(tc: hegel::TestCase) {
         (json!({ "hot_cue": "D", "start_ms": end - 1000, "loop_beats": 512 }), "is past the end"),
         (json!({ "start_ms": 4000, "name": "x".repeat(0x10001) }), "65536 bytes"),
     ];
-    let wrong: Vec<_> = wrong.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let wrong: Vec<_> = tc.draw(gs::subsequences(&wrong));
     let good = [json!({ "hot_cue": "A", "start_ms": 1000 }), json!({ "start_ms": 5000, "name": "kept" })];
     let mut cues: Vec<Value> = wrong.iter().map(|(c, _)| c.clone()).chain(good).collect();
     let first = tc.draw(gs::integers::<usize>().max_value(cues.len() - 1));
@@ -419,7 +419,7 @@ fn a_files_sessions_are_kept_as_its_logs_say(tc: hegel::TestCase) {
     for i in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
         // Now and then one before it again, under another name.
         if i > 0 && tc.draw(gs::weighted_booleans(0.25)) {
-            let mut again = logs[tc.draw(gs::integers::<usize>().max_value(i - 1))].clone();
+            let mut again = tc.draw(gs::sampled_from(&logs));
             again["name"] = json!(format!("Again {i}"));
             logs.push(again);
             continue;

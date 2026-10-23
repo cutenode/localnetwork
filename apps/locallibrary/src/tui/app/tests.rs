@@ -3017,7 +3017,7 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     }
     // Plugins' columns, shown from the palette.
     let shown = ["sound.bpm", "sound.key"].map(locallibrary::query::FieldName::new);
-    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(2))].to_vec();
+    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(shown.len()))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
     let read = state::load(&app.store_root);
@@ -3048,9 +3048,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let cues: Vec<locallibrary::anlz::Cue> = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|_| {
             let start = tc.draw(gs::integers::<u32>().max_value(310_000));
-            let end =
-                tc.draw(gs::booleans()).then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(20_000)));
-            cue(tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(7))), start, end)
+            let end = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(20_000))).map(|d| start + d);
+            cue(tc.draw(gs::optional(gs::integers::<u8>().max_value(7))), start, end)
         })
         .collect();
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Down, PhraseKind::Chorus, PhraseKind::Outro];
@@ -3063,7 +3062,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
                 true => start_beat + tc.draw(gs::integers::<u16>().min_value(1).max_value(40)),
                 false => tc.draw(gs::integers::<u16>().max_value(start_beat)),
             };
-            Phrase { kind: kinds[tc.draw(gs::integers::<usize>().max_value(4))], start_beat, end_beat, fill_beat: None }
+            Phrase { kind: tc.draw(gs::sampled_from(&kinds[..])), start_beat, end_beat, fill_beat: None }
         })
         .collect();
     let analysis = TrackAnalysis {

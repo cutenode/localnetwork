@@ -11,6 +11,7 @@ allowBuilds:
   core-js: false
   esbuild: true
   lefthook: true
+  '@ast-grep/cli': true
 # Atproto Spaces alpha: pin every @atproto package to the same alpha build.
 overrides:
   '@atproto/api': 0.0.0-spaces-alpha-20261001173819

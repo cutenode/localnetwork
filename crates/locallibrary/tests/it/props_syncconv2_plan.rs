@@ -237,9 +237,9 @@ fn a_plan_copies_and_deletes_what_the_rules_say_with(tc: &TestCase, variant: u8)
     std::fs::create_dir_all(&b).unwrap();
     let unhashed_ok = variant == 0;
     let mut src: Vec<FileEntry> =
-        POOL.iter().filter(|_| tc.draw(gs::booleans())).map(|k| draw_entry(tc, k, unhashed_ok)).collect();
+        tc.draw(gs::subsequences(POOL)).into_iter().map(|k| draw_entry(tc, k, unhashed_ok)).collect();
     let mut dst: Vec<FileEntry> = Vec::new();
-    for k in POOL.iter().filter(|_| tc.draw(gs::booleans())) {
+    for k in tc.draw(gs::subsequences(POOL)) {
         // A target lists one spelling of a file.
         if !dst.iter().any(|e| fold(&e.path) == fold(k)) {
             dst.push(draw_entry(tc, k, unhashed_ok));
