@@ -596,7 +596,7 @@ impl Copies {
             .filter(|k| paths::classify(k) == Some(FileClass::Analysis))
             .collect();
         tc.assume(!files.is_empty());
-        let key = &files[tc.draw(gs::integers::<usize>().max_value(files.len() - 1))];
+        let key = &tc.draw(gs::sampled_from(&files));
         self.counter += 1;
         let mut bytes = fs::read(paths::to_fs(&self.drives[0], key)).unwrap();
         bytes.extend(format!("reanalysed {}", self.counter).bytes());
@@ -615,7 +615,7 @@ impl Copies {
             true => self.outside.iter().cloned().collect(),
             false => USER_FILES.iter().map(|k| k.to_string()).collect(),
         };
-        let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))].clone();
+        let key = tc.draw(gs::sampled_from(&keys));
         tc.assume(!self.references(d, &key));
         let mut bytes = b"the DJ's own ".to_vec();
         bytes.extend(tc.draw(gs::vecs(gs::integers::<u8>()).max_size(32)));
@@ -629,7 +629,7 @@ impl Copies {
         let d = tc.draw(gs::integers::<usize>().max_value(self.drives.len() - 1));
         let keys: Vec<String> = self.user[d].keys().cloned().collect();
         tc.assume(!keys.is_empty());
-        let key = &keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+        let key = &tc.draw(gs::sampled_from(&keys));
         fs::remove_file(paths::to_fs(&self.drives[d], key)).unwrap();
         self.user[d].shift_remove(key);
     }
@@ -953,7 +953,7 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
     fs::create_dir_all(&scratch).unwrap();
     let store = Store::open_or_init(root.join("store")).unwrap();
     let mut user = Files::new();
-    for key in USER_FILES.iter().filter(|_| tc.draw(gs::booleans())) {
+    for key in tc.draw(gs::subsequences(USER_FILES)) {
         let bytes = format!("the DJ's own {key}").into_bytes();
         write(&paths::to_fs(&club, key), &bytes);
         user.insert(key.to_string(), bytes);
@@ -994,11 +994,12 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
             sets = plays::drive_history(&d).unwrap().lists.iter().map(recorded).chain(sets).collect();
             tc.note(&format!("a set: {name}"));
         }
-        let mut selection: Vec<String> =
-            SELECTIONS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect();
-        if selection.is_empty() && packed.is_none() {
-            selection.push(SELECTIONS[0].to_string());
-        }
+        // The first pack names at least one playlist.
+        let selection: Vec<String> = tc
+            .draw(gs::subsequences(SELECTIONS).min_size(usize::from(packed.is_none())))
+            .into_iter()
+            .map(str::to_string)
+            .collect();
         let opts = PackOptions {
             playlists: selection.clone(),
             history: tc.draw(gs::booleans()),
@@ -1149,10 +1150,10 @@ fn run_merge(tc: TestCase, outside: bool) {
         }
     }
     let mut user = Files::new();
-    for key in candidates.iter().filter(|_| tc.draw(gs::booleans())) {
+    for key in tc.draw(gs::subsequences(&candidates)) {
         let bytes = format!("the DJ's own {key}").into_bytes();
-        write(&paths::to_fs(&main, key), &bytes);
-        user.insert(key.clone(), bytes);
+        write(&paths::to_fs(&main, &key), &bytes);
+        user.insert(key, bytes);
     }
     let stop = match draw_stop(&tc, false) {
         Stop::Cancel(k) => Stop::Cancel(k),

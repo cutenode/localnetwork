@@ -351,8 +351,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Dependencies and upstream
 
-- [ ] symphonia 0.6.1 is out and fixes the AIFF SSND bug `loclib-transcode` works around
-      (`transcode.rs:99`). stratum-dsp 1.0.0 still needs symphonia 0.5, so moving means building
+- [ ] symphonia 0.6.1 is out and fixes the AIFF SSND bug `loclib-mixid` works around
+      (`aiff_frames` in `decode_native`, `audio.rs`). stratum-dsp 1.0.0 still needs symphonia 0.5, so moving means building
       two symphonias until it follows.
 - [ ] flacenc's STREAMINFO min-block fix (PR #255) is merged but unreleased (0.5.1): pin the git
       rev, keep the workaround, or ask for a release on #242.

@@ -37,7 +37,7 @@ fn volume(tc: &TestCase, i: usize) -> Volume {
     Volume {
         id: format!("disk4s{}", i + 1),
         size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
-        filesystem: maybe(tc, || kinds[tc.draw(gs::integers::<usize>().max_value(kinds.len() - 1))]),
+        filesystem: maybe(tc, || tc.draw(gs::sampled_from(&kinds[..]))),
         filesystem_name: maybe(tc, || name(tc)),
         label: maybe(tc, || name(tc)),
         mount: maybe(tc, || PathBuf::from(format!("/Volumes/{}", name(tc)))),
@@ -63,7 +63,7 @@ fn disk(tc: &TestCase, size: u64) -> Disk {
         system: false,
         virtual_disk: false,
         read_only: false,
-        scheme: maybe(tc, || schemes[tc.draw(gs::integers::<usize>().max_value(3))]),
+        scheme: maybe(tc, || tc.draw(gs::sampled_from(&schemes[..]))),
         volumes,
     }
 }
@@ -72,7 +72,7 @@ fn disk(tc: &TestCase, size: u64) -> Disk {
 fn compatibility_drawn(tc: &TestCase) -> Compatibility {
     let verdicts = [Verdict::AllPlayers, Verdict::SomePlayers, Verdict::Unknown, Verdict::NoPlayers];
     Compatibility {
-        verdict: verdicts[tc.draw(gs::integers::<usize>().max_value(3))],
+        verdict: tc.draw(gs::sampled_from(&verdicts[..])),
         summary: name(tc),
         unsupported: tc.draw(gs::subsequences(vec!["CDJ-900".to_string(), "XDJ-700".to_string()])),
         notes: tc.draw(gs::subsequences(vec!["needs rekordbox 6.6.2".to_string()])),
@@ -139,7 +139,7 @@ fn format_plans_and_reports_show_every_part(tc: TestCase) {
     let size = tc.draw(gs::integers::<u64>().min_value(1 << 29).max_value(1 << 42));
     let d = disk(&tc, size);
     let filesystems = [Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus];
-    let filesystem = filesystems[tc.draw(gs::integers::<usize>().max_value(2))];
+    let filesystem = tc.draw(gs::sampled_from(&filesystems[..]));
     let options = FormatOptions { filesystem: Some(filesystem), ..FormatOptions::default() };
     let progress = locallibrary::progress::NoProgress;
     let planned = format::plan(d.clone(), &options, None, &[], &Ctx::new(&progress, Default::default()));
@@ -158,7 +158,7 @@ fn format_plans_and_reports_show_every_part(tc: TestCase) {
     assert!(!plan.confirmation().is_empty());
     for e in &mut plan.erases {
         e.drive_name = maybe(&tc, || name(&tc));
-        e.role = maybe(&tc, || Role::ALL[tc.draw(gs::integers::<usize>().max_value(3))]);
+        e.role = maybe(&tc, || tc.draw(gs::sampled_from(&Role::ALL[..])));
         e.retired = tc.draw(gs::booleans());
         e.tracks = maybe(&tc, || tc.draw(gs::integers::<usize>().max_value(5000)));
         e.in_store = maybe(&tc, || tc.draw(gs::booleans()));

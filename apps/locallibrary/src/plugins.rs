@@ -101,6 +101,8 @@ pub fn left_out() -> &'static [(Manifest, String)] {
 }
 
 fn load() -> Result<Loaded> {
+    // Only the test plugins are added to it, and a release has none.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut found: Vec<(String, Serves)> =
         FIRST_PARTY.iter().map(|&(m, serve)| (m.into(), Serves::Linked(serve))).collect();
     #[cfg(debug_assertions)]

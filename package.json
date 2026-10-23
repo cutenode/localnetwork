@@ -17,6 +17,7 @@
 		"atstore": "pnpm -C packages/atstore assets"
 	},
 	"devDependencies": {
+		"@ast-grep/cli": "^0.51.0",
 		"@oxlint/plugins": "1.86.0",
 		"lefthook": "^2.1.16",
 		"oxfmt": "^0.71.0",

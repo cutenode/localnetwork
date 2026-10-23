@@ -92,7 +92,7 @@ fn tidying_a_stale_plan_removes_only_what_is_still_clutter(tc: TestCase) {
             }
         }
     }
-    let forged: Vec<&str> = FORGED.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+    let forged: Vec<&str> = tc.draw(gs::subsequences(FORGED));
     for f in &forged {
         plan.items.push(TidyItem { path: f.to_string(), kind: TidyKind::DsStore, is_dir: false, files: 1, bytes: 1 });
     }

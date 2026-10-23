@@ -122,12 +122,12 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     for step in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => {
-                let r = reasons[tc.draw(gs::integers::<usize>().max_value(reasons.len() - 1))];
+                let r = tc.draw(gs::sampled_from(&reasons));
                 e = e.because(r);
                 reason = Some(r);
             }
             1 => {
-                let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+                let key = tc.draw(gs::sampled_from(&keys));
                 e = e.with(key, step);
                 fields.insert(key.into(), step.into());
             }

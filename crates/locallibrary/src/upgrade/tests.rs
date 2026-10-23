@@ -5,46 +5,9 @@ use std::fs;
 use hegel::generators as gs;
 use loclib_mixid::matcher::Alignment;
 use loclib_mixid::test_util::{resample, synth, wav_of};
+use loclib_model::test_util::track;
 
 use crate::equipment::MODELS;
-
-/// A row of the drive's database for `path`, an MP3 at 44.1 kHz.
-fn row(path: &str, analyze_path: &str) -> Track {
-    Track {
-        id: 1,
-        title: "Song".into(),
-        artist: "Someone".into(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 20,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44_100,
-        sample_depth: 0,
-        file_size: 0,
-        file_path: path.into(),
-        analyze_path: analyze_path.into(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
-}
 
 /// `secs` of test signal `seed` at `rate` after `delay_ms` of silence, as a stereo WAV of `bits`.
 fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: u32) -> Vec<u8> {
@@ -179,7 +142,7 @@ fn an_upgrade_or_the_first_reason_it_isnt_one(tc: hegel::TestCase) {
     let taken = FxHashSet::default();
     let ctx = Ctx::silent();
     for reason in 0..10 {
-        let mut t = row(mp3, "");
+        let mut t = track(1, "Someone", "Song", mp3);
         let (mut file, mut rows, mut coarse_al, mut players): (&Path, usize, Alignment, &[&Model]) =
             (&lossless, 1, precise(coarse), &[]);
         match reason {

@@ -43,10 +43,7 @@ fn cues(root: &Path, lib: &Library) -> Vec<Vec<CueInfo>> {
 /// A recorded cue edit on drawn tracks (some gone from the drive), from a drawn source.
 #[hegel::test_helper]
 fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
-    let mut tracks: Vec<String> = files.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
-    if tracks.is_empty() {
-        tracks.push(files[0].clone());
-    }
+    let tracks: Vec<String> = tc.draw(gs::subsequences(files).min_size(1));
     let hot = HotCue(tc.draw(gs::integers::<u8>().max_value(3)));
     let from = || tc.draw(gs::sampled_from(files.to_vec()));
     let set = |hot_cue| SetCue {

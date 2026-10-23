@@ -39,6 +39,7 @@ schemars = ["dep:schemars"]
 
 [dev-dependencies]
 hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
 quick-xml = "0.42"
 tempfile.workspace = true
 

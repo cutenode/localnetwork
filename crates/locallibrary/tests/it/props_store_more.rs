@@ -71,7 +71,7 @@ fn a_librarys_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
     assert!(store.add_label(&stranger, "Gig").is_err_and(|e| e.to_string().contains("snapshot")));
     store.add_label(&all[0].id, "Gig").unwrap();
     // An older snapshot pruned: asked for by its id, it's said to have been pruned.
-    let older = all[tc.draw(gs::integers::<usize>().min_value(1).max_value(pulls - 1))].id;
+    let older = tc.draw(gs::sampled_from(&all[1..])).id;
     store.forget_snapshots(&[older]).unwrap();
     let err = store.resolve_snapshot(&older.to_hex()[..8]).unwrap_err();
     assert!(err.to_string().contains("was pruned on"), "{err}");
@@ -83,7 +83,7 @@ fn a_librarys_history_reads_alike_however_much_is_asked_for(tc: TestCase) {
         store.root().join("snapshots").join(format!("{}b", paths::TEMP_PREFIX)),
         store.root().join("objects/tmp/staged"),
     ];
-    let left: Vec<_> = leftovers.iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let left: Vec<_> = tc.draw(gs::subsequences(&leftovers));
     for p in &left {
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, b"half written").unwrap();

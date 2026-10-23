@@ -12,8 +12,8 @@ use locallibrary::settings::{self, DriveSettings, FlatSettings, SCHEMA, Settings
 fn settings_in_a_plain_folder_are_a_drives(tc: TestCase) {
     let mut desired = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
-        let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-        let choice = &def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))];
+        let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+        let choice = tc.draw(gs::sampled_from(def.choices));
         desired.insert(def.key.to_string(), choice.id.to_string());
     }
     let dir = tempfile::tempdir().unwrap();
@@ -32,7 +32,7 @@ fn settings_in_a_plain_folder_are_a_drives(tc: TestCase) {
         assert_eq!(read.values[key.as_str()], settings::SettingValue::Known(id.clone()), "{key}");
     }
 
-    let damaged = SettingsFile::ALL[tc.draw(gs::integers::<usize>().max_value(SettingsFile::ALL.len() - 1))];
+    let damaged = tc.draw(gs::sampled_from(&SettingsFile::ALL));
     fs::write(flat.settings_path(damaged), b"not a settings file").unwrap();
     let read = settings::read_all(&flat);
     assert_eq!(read.problems.len(), 1, "{:?}", read.problems);

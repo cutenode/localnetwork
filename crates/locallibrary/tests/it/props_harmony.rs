@@ -5,58 +5,21 @@ use hegel::{Generator, TestCase};
 use locallibrary::Track;
 use locallibrary::harmony::{self, Camelot, Relation};
 use locallibrary::progress::Ctx;
+use loclib_model::test_util::{self, keys};
 use rustc_hash::FxHashMap;
 
 fn all_keys() -> Vec<Camelot> {
     (1..=12).flat_map(|number| [false, true].map(|major| Camelot { number, major })).collect()
 }
 
-fn key(tc: &TestCase) -> Camelot {
-    let (number, major) = tc.draw(gs::tuples!(gs::integers::<u8>().min_value(1).max_value(12), gs::booleans()));
-    Camelot { number, major }
-}
-
 fn track(id: u32, key: &str, bpm: f64) -> Track {
-    Track {
-        id,
-        title: format!("T{id}"),
-        artist: "A".into(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: key.into(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm,
-        duration_secs: 300,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: format!("/Contents/{id}.mp3"),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
+    Track { key: key.into(), bpm, ..test_util::track(id, "A", &format!("T{id}"), &format!("/Contents/{id}.mp3")) }
 }
 
 /// Every key reads back from its Camelot code, its Open Key-free note name, and in lower case.
 #[hegel::test(test_cases = 200)]
 fn keys_round_trip_through_every_notation(tc: TestCase) {
-    let c = key(&tc);
+    let c = tc.draw(keys());
     assert_eq!(Camelot::parse(&c.code()), Some(c));
     assert_eq!(Camelot::parse(&c.note()), Some(c), "{}", c.note());
     assert_eq!(Camelot::parse(&format!("  {}  ", c.code().to_lowercase())), Some(c));
@@ -88,7 +51,7 @@ fn order_is_a_bijection() {
 /// boosts only ever adds relations.
 #[hegel::test(test_cases = 500)]
 fn relation_is_symmetric(tc: TestCase) {
-    let (a, b) = (key(&tc), key(&tc));
+    let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     assert_eq!(a.relation(b), b.relation(a));
     assert_eq!(a.relation(a), Some(Relation::Same));
     if let Some(r) = a.relation(b) {

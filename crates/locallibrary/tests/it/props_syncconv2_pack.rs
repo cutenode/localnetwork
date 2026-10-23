@@ -77,8 +77,7 @@ fn a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
     {
         // A track of the set grows past the drive's free space (a sparse file: it takes no room).
         let lib = common::library(&root);
-        let big =
-            paths::to_fs(&root, &paths::key(&lib.tracks[tc.draw(gs::integers::<usize>().max_value(n - 1))].file_path));
+        let big = paths::to_fs(&root, &paths::key(&tc.draw(gs::sampled_from(&lib.tracks[..n])).file_path));
         let free = locallibrary::fsutil::available_space(&root).unwrap();
         locallibrary::testing::sparse(&big, 2 * free + (1 << 30)).unwrap();
         let fresh = Device::open(common::blank(dir.path(), "Fresh")).unwrap();

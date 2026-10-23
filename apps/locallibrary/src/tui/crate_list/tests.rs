@@ -48,7 +48,7 @@ fn reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
     let mut list = Crate::default();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {
         let root = if tc.draw(gs::booleans()) { a } else { b };
-        let t = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+        let t = tc.draw(gs::sampled_from(&lib.tracks[..]));
         list.add(root, "D", [t]);
     }
     // The drive read again: some tracks gone, the others rated.

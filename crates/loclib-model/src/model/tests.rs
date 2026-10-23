@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_util::track;
+use crate::test_util::{TrackGenerator, track};
 
 #[test]
 fn diff_detects_adds_removes_changes() {
@@ -231,49 +231,37 @@ fn untangled_trees_have_each_id_once_no_loops_and_bounded_depth() {
     assert_eq!(looped.playlist_names(1).len(), MAX_DEPTH);
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 
-/// A track with every field drawn: short text, any numbers, a tempo in hundredths of a beat
-/// per minute (as rekordbox stores it).
-#[hegel::test_helper]
-fn any_track(tc: &TestCase, id: u32) -> Track {
-    let text = || tc.draw(gs::text().max_size(6));
-    Track {
-        id,
-        title: text(),
-        artist: text(),
-        album: text(),
-        album_artist: text(),
-        genre: text(),
-        label: text(),
-        key: text(),
-        remixer: text(),
-        original_artist: text(),
-        composer: text(),
-        comment: text(),
-        mix_name: text(),
-        isrc: text(),
-        bpm: f64::from(tc.draw(gs::integers::<u32>().max_value(30_000))) / 100.0,
-        duration_secs: tc.draw(gs::integers()),
-        year: tc.draw(gs::integers()),
-        track_number: tc.draw(gs::integers()),
-        disc_number: tc.draw(gs::integers()),
-        rating: tc.draw(gs::integers::<u8>().max_value(5)),
-        color: TrackColor::from_id(tc.draw(gs::integers::<u8>().max_value(9))),
-        play_count: tc.draw(gs::integers()),
-        bitrate: tc.draw(gs::integers()),
-        sample_rate: tc.draw(gs::integers()),
-        sample_depth: tc.draw(gs::integers()),
+/// A track with every field drawn: short text, a tempo in hundredths of a beat per minute (as
+/// rekordbox stores it), a 0-5 star rating, and any other numbers, colour and artwork id.
+fn any_track(id: u32) -> TrackGenerator<'static> {
+    let text = || gs::text().max_size(6);
+    TrackGenerator::new()
+        .id(gs::just(id))
+        .title(text())
+        .artist(text())
+        .album(text())
+        .album_artist(text())
+        .genre(text())
+        .label(text())
+        .key(text())
+        .remixer(text())
+        .original_artist(text())
+        .composer(text())
+        .comment(text())
+        .mix_name(text())
+        .isrc(text())
+        .bpm(gs::integers::<u32>().max_value(30_000).map(|b| f64::from(b) / 100.0))
+        .rating(gs::integers::<u8>().max_value(5))
         // Up to 4 GiB, so a library's total stays far from u64's limit.
-        file_size: u64::from(tc.draw(gs::integers::<u32>())),
-        file_path: text(),
-        analyze_path: text(),
-        date_added: text(),
-        release_date: text(),
-        artwork_id: tc.draw(gs::optional(gs::integers())),
-        artwork_path: tc.draw(gs::optional(gs::text().max_size(6))),
-    }
+        .file_size(gs::integers::<u32>().map(u64::from))
+        .file_path(text())
+        .analyze_path(text())
+        .date_added(text())
+        .release_date(text())
+        .artwork_path(gs::optional(text()))
 }
 
 /// Up to `n` playlist rows with ids and folders from a small range, so ids repeat, folders
@@ -322,7 +310,7 @@ fn ancestors(rows: &[Playlist], p: &Playlist) -> (usize, bool) {
 #[hegel::test(test_cases = 100)]
 fn libraries_round_trip_through_json(tc: TestCase) {
     let count = tc.draw(gs::integers::<u32>().max_value(3));
-    let tracks: Vec<Track> = (0..count).map(|id| any_track(&tc, id)).collect();
+    let tracks: Vec<Track> = (0..count).map(|id| tc.draw(any_track(id))).collect();
     let lib = Library {
         tracks,
         playlists: rows(&tc, 4),
@@ -704,9 +692,7 @@ fn lookups_and_summaries_agree_with_the_library(tc: TestCase) {
     let tracks: Vec<Track> = (0..count)
         .map(|_| {
             let id = tc.draw(gs::integers::<u32>().max_value(5));
-            let mut t = any_track(&tc, id);
-            t.artist = tc.draw(gs::sampled_from(vec!["A", "B", "a", ""])).into();
-            t
+            tc.draw(any_track(id).artist(gs::sampled_from(vec!["A", "B", "a", ""]).map(String::from)))
         })
         .collect();
     let lib = Library { tracks, playlists: rows(&tc, 5), ..Default::default() };
