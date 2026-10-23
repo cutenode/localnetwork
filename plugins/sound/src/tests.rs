@@ -374,10 +374,30 @@ fn waveforms_follow_the_audio(tc: TestCase) {
     let lead = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3.0));
     let dir = tempfile::tempdir().unwrap();
     let bands = waveform_of(&clicks(dir.path(), bpm, lead, 6.0));
-    let columns = bands.len() / 3;
-    assert!((columns as f64 - (lead + 6.0) * COLUMNS_PER_SEC).abs() <= 2.0, "{columns} columns");
-    let silent = ((lead - 0.1).max(0.0) * COLUMNS_PER_SEC) as usize;
-    assert!(bands[..silent * 3].iter().all(|&b| b == 0), "{lead} s of silence");
+    // A column every 1024 samples, the last however few.
+    let (silence, samples) = ((lead * 44_100.0) as usize, (6.0 * 44_100.0) as usize);
+    assert_eq!(bands.len(), (silence + samples).div_ceil(1024) * 3);
+    assert!(bands[..silence / 1024 * 3].iter().all(|&b| b == 0), "{lead} s of silence");
+    // Each click (4 kHz) is drawn in the column it starts in, in the highs far over the mids.
+    let beat = 60.0 / bpm * 44_100.0;
+    for at in (0..).map(|k| (k as f64 * beat).ceil() as usize).take_while(|at| *at < samples) {
+        let drawn = |at: usize| {
+            let c = (silence + at) / 1024 * 3;
+            bands.get(c..c + 3).is_some_and(|c| c[2] > 0 && c[2] > 2 * c[1])
+        };
+        // (Or from the next sample, rounding aside.)
+        assert!(drawn(at) || drawn(at + 1), "the click {at} samples in");
+    }
+}
+
+/// The host takes no more than a day's waveform: a longer one is left out.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(columns = 3_720_937usize)]
+#[hegel::explicit_test_case(columns = 3_720_938usize)]
+fn waveforms_are_kept_for_up_to_a_day(tc: TestCase) {
+    let columns = tc.draw(gs::integers::<usize>().max_value(10_000_000));
+    // A day at 44.1 kHz, 1024 samples a column.
+    assert_eq!(within_a_day(columns), columns as u64 * 1024 <= 86_400 * 44_100, "{columns}");
 }
 
 /// The waveform goes in the request's scratch folder: without one (a host without `blobs`) it's

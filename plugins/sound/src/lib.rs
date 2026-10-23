@@ -15,6 +15,14 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// The waveform's file, in the request's scratch folder.
 const WAVEFORM_BLOB: &str = "waveform.bands";
 
+/// The most audio a waveform the host takes covers: a day.
+const MOST_WAVEFORM_SECS: f64 = 24.0 * 3600.0;
+
+/// Whether the host takes a waveform of `columns` columns.
+fn within_a_day(columns: usize) -> bool {
+    columns as f64 / COLUMNS_PER_SEC <= MOST_WAVEFORM_SECS
+}
+
 /// `tempo-key-loudness`.
 fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
     // Everything doctor measures, from one decode. Cancelling stops the decode; the tempo and
@@ -44,15 +52,15 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
     let drawn = analysis.waveform.as_ref().filter(|w| w.columns.iter().any(|c| *c != [0; 3]));
     match (drawn, &req.context.scratch) {
         (None, _) => fields.push(("waveform", FieldValue::Null)),
-        (Some(w), Some(scratch)) => {
+        (Some(w), Some(scratch)) if within_a_day(w.columns.len()) => {
             let path = scratch.join(WAVEFORM_BLOB);
             std::fs::write(&path, w.columns.as_flattened())
                 .map_err(|e| RpcError::failed("io", format!("{}: {e}", path.display())))?;
             fields.push(("waveform", FieldValue::waveform(WAVEFORM_BLOB, COLUMNS_PER_SEC)));
         }
-        // A host without scratch folders (feature `blobs`) has nowhere to take it from: it's
-        // left out, as not worked out.
-        (Some(_), None) => {}
+        // A host without scratch folders (feature `blobs`) has nowhere to take it from, and none
+        // takes more than a day's: it's left out, as not worked out, and the rest still counts.
+        _ => {}
     }
     Ok(Analysis { fields: fields.into_iter().map(|(name, v)| (name.into(), v)).collect() })
 }
