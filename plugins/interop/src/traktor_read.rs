@@ -3,6 +3,8 @@
 //! `traktor` source).
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::UNIX_EPOCH;
 
 use loclib_interop::Error;
 use loclib_interop::traktor::{self, Collection, Entry, Marker, MarkerKind};
@@ -40,19 +42,28 @@ struct SourceOptions {
 /// path alone, for the host to leave out and say so, without what it holds.
 pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage, RpcError> {
     let SourceOptions { collection: file } = params(req.options)?;
-    let collection = collection(&file, &host.ctx())?;
+    let (stamp, collection) = cached(&file, &host.ctx())?;
     // A page has no warnings; what reading the collection left out goes in the log, once.
     if req.cursor.is_none() {
         let warnings = collection.warnings.iter().chain(&collection.playlist_warnings);
         warnings.for_each(|w| eprintln!("{}: {w}", file.display()));
     }
     let entries = &collection.entries;
-    // A cursor that isn't a number is past the end, refused below.
-    let from = req.cursor.as_deref().map_or(Ok(0), str::parse).unwrap_or(usize::MAX);
-    let rest = entries.get(from..).ok_or_else(|| {
-        let cursor = req.cursor.unwrap_or_default();
+    // A cursor is the index of the page's first track and the file's stamp when the first page
+    // was read: a save between pages would shift the tracks under it.
+    let (from, read_at) = match req.cursor.as_deref() {
+        None => (Some(0), stamp.as_str()),
+        Some(cursor) => cursor.split_once(' ').map_or((None, ""), |(i, s)| (i.parse().ok(), s)),
+    };
+    if from.is_some() && read_at != stamp {
+        let changed = format!("{} changed since its first page was read: read it again", file.display());
+        return Err(RpcError::failed("conflict", changed));
+    }
+    let rest = from.and_then(|from| entries.get(from..)).ok_or_else(|| {
+        let cursor = req.cursor.as_deref().unwrap_or_default();
         crate::invalid(format!("{cursor:?} isn't a page of {}", file.display()))
     })?;
+    let from = entries.len() - rest.len();
     let startup = traktor::startup_disk();
     let (mut tracks, mut marks) = (Vec::new(), 0);
     for e in rest.iter().take(PAGE) {
@@ -80,7 +91,7 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
             tracks: list.keys.iter().filter_map(|key| paths.get(key).cloned()).collect(),
         }));
     }
-    let page = LibraryPage { tracks, playlists, blob: None, next: (!last).then(|| to.to_string()) };
+    let page = LibraryPage { tracks, playlists, blob: None, next: (!last).then(|| format!("{to} {stamp}")) };
     Ok(match spilled(&page, &req.context, "page.json")? {
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,
@@ -136,6 +147,28 @@ pub(crate) fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, 
         Some(blob) => Blob { blob }.into(),
         None => read.into(),
     })
+}
+
+/// The collection the source read last, by its file and the file's stamp.
+static CACHED: Mutex<Option<(PathBuf, String, Arc<Collection>)>> = Mutex::new(None);
+
+/// The collection in `file` and the file's stamp (its size and when it changed), read once while
+/// it stays as it is: a source reads it a page at a time, and a big one takes a while to read.
+fn cached(file: &Path, ctx: &Ctx<'_>) -> Result<(String, Arc<Collection>), RpcError> {
+    let meta =
+        std::fs::metadata(file).map_err(|source| crate::failure(Error::Io { path: file.into(), source }, ctx))?;
+    let changed = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).unwrap_or_default();
+    let stamp = format!("{}:{}", meta.len(), changed.as_nanos());
+    let mut cached = CACHED.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((path, at, collection)) = cached.as_ref()
+        && path == file
+        && *at == stamp
+    {
+        return Ok((stamp, collection.clone()));
+    }
+    let collection = Arc::new(collection(file, ctx)?);
+    *cached = Some((file.into(), stamp.clone(), collection.clone()));
+    Ok((stamp, collection))
 }
 
 /// The collection in `file`.

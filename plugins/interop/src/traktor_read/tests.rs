@@ -449,15 +449,31 @@ fn a_collection_is_read_in_pages() {
     let list = r#"<NODE TYPE="PLAYLIST" NAME="Last"><PLAYLIST><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="USB/:1000.mp3"/></ENTRY></PLAYLIST></NODE><NODE TYPE="SMARTLIST" NAME="Recent"/>"#;
     let file = s.file(&format!("<NML><COLLECTION>{entries}</COLLECTION><PLAYLISTS>{list}</PLAYLISTS></NML>"));
     let first = s.read_library(&file, &[], None, json!({})).unwrap();
-    assert_eq!((first.tracks.len(), first.playlists.len(), first.next.as_deref()), (1000, 0, Some("1000")));
-    let last = s.read_library(&file, &[], Some("1000"), json!({})).unwrap();
-    assert_eq!((last.tracks.len(), last.next), (1, None));
+    assert_eq!((first.tracks.len(), first.playlists.len()), (1000, 0));
+    let next = first.next.unwrap();
+    let (index, stamp) = next.split_once(' ').unwrap();
+    let meta = std::fs::metadata(&file).unwrap();
+    assert_eq!((index, stamp.split(':').next()), ("1000", Some(meta.len().to_string().as_str())));
+    let last = s.read_library(&file, &[], Some(&next), json!({})).unwrap();
+    assert_eq!((last.tracks.len(), last.next.as_deref()), (1, None));
     assert_eq!(last.playlists[0].tracks, [last.tracks[0].path.clone()]);
-    for cursor in ["1002", "x"] {
-        let e = s.read_library(&file, &[], Some(cursor), json!({})).unwrap_err();
+    for cursor in [format!("1002 {stamp}"), "x".into(), "y z".into()] {
+        let e = s.read_library(&file, &[], Some(&cursor), json!({})).unwrap_err();
         assert_eq!(e.kind(), Some("invalid"), "{e:?}");
         assert_eq!(e.message, format!("{cursor:?} isn't a page of {}", file.display()));
     }
+    // What's read stays read while the file stays as it is (its size and when it changed): here
+    // as it was, though its bytes aren't.
+    let nml = std::fs::read(&file).unwrap();
+    std::fs::write(&file, vec![b' '; nml.len()]).unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(meta.modified().unwrap()).unwrap();
+    assert_eq!(s.read_library(&file, &[], Some(&next), json!({})).unwrap(), last);
+    // Saved between pages, it's read again from the start.
+    std::fs::write(&file, [nml.as_slice(), b"\n"].concat()).unwrap();
+    let e = s.read_library(&file, &[], Some(&next), json!({})).unwrap_err();
+    assert_eq!(e.kind(), Some("conflict"), "{e:?}");
+    assert_eq!(e.message, format!("{} changed since its first page was read: read it again", file.display()));
+    assert_eq!(s.read_library(&file, &[], None, json!({})).unwrap().tracks.len(), 1000);
     let read = json!({ "source": "traktor", "options": {}, "roots": [] });
     let e = s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &read).unwrap_err();
     assert_eq!(e.kind(), Some("invalid_params"), "{e:?}");
