@@ -227,7 +227,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   locallibrary reads itself, in a folder for each request that `store gc` removes if a crash
   left it. A view command's
   rows show as they come. A command or an operation may ask you something first (which track a
-  tracklist's entry is): picked from a list in a terminal and in the player, or answered with
+  tracklist's entry is), or several things in one round (a `Choice`'s `more`, up to 64): picked
+  from a list each in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
   the kind is asked, what they find is offered best first (each image held and sent once, and
@@ -530,8 +531,9 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
-- `playlist import` is the tracklist plugin's now. An entry that could be several tracks is asked
-  about (in a terminal; otherwise it stops, exit status 2, saying how to answer): `--choose 3=812`
+- `playlist import` is the tracklist plugin's now. Every entry that could be several tracks is
+  asked about at once, so the list and the drive's library are read once to ask and once to plan
+  (in a terminal; otherwise it stops, exit status 2, saying how to answer each): `--choose 3=812`
   answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves
   it out. `--json` gives the plan alone. Over RPC, `import.plan` and `import.apply` are gone: plan
   with `plugins.op.plan {plugin: "tracklist", operation: "import", params: {file, into, ...},

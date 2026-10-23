@@ -40,7 +40,13 @@ and typed table columns, see [views](#views)).
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
      `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
      one the hook takes but doesn't require (the host checks params first), and each item's
-     value one it takes: a question that isn't is refused.
+     value one it takes: a question that isn't is refused. `more` (a list of questions of the
+     same shape, without a `more` of their own) asks those too in the same round, and the host
+     runs the hook again once with every one's param set. Each is checked as the first is, no
+     two ask about the same param, and a round asks at most 64 (`Choice::MAX_QUESTIONS`): every
+     entry of a long set's tracklist, while the user doesn't sit through more before the hook
+     hears their answers. A host older than `more` asks the first question alone and runs the
+     hook again with that, so a hook asks again about what it still needs.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -455,7 +461,8 @@ re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fe
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an
 operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
-command).
+command). `Choice::together(questions)` asks several in one round, the first with the rest as
+its `more`, leaving any past `Choice::MAX_QUESTIONS` for the round after.
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a family of its own in this crate (`src/hooks/`): its request types implementing `Hook`
