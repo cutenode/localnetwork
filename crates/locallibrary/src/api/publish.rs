@@ -13,23 +13,29 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use indexmap::IndexMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::ProfileRequest;
 use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
+use crate::device::Device;
 use crate::error::{Action, Reason};
+use crate::fields::roles::{self, Role};
 use crate::mix::report;
+use crate::model::{Track, artist_credits, isrc};
 use crate::op::{Operation, Planned, Probe, Touched};
+use crate::plugin::Analyzed;
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
 use crate::publish;
 pub use crate::publish::{PublishPlan, Published, PublishedSettings, SettingsImportPlan};
-use crate::sets::{SETS_FILE, SetBook};
+use crate::sets::{MusicBrainzIds, SETS_FILE, Set, SetBook, SetEntry, build};
 use crate::settings::SettingsProfile;
 use crate::store::Store;
-use crate::{Error, Result};
+use crate::{Error, Result, paths};
 
 /// Where a planned record goes: the store whose account publishes it, and, for a set that takes
 /// over the key `plays publish` gave its history list, the set's id to change to that key.
@@ -282,6 +288,35 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
     }
 }
 
+/// The set `req` publishes, refused as publishing it is (a position to hide it hasn't, more tracks
+/// than a record holds), and the positions (from 1) of its tracks that go out unnamed, by why:
+/// marked unnamed, hidden as asked, hidden by the profile.
+fn to_publish<'b>(store: &Store, book: &'b SetBook, req: &SetPublishRequest) -> Result<(&'b Set, [Vec<usize>; 3])> {
+    let set = book.find(&req.set)?;
+    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
+        return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
+    }
+    if set.tracks.len() > publish::SET_TRACK_LIMIT {
+        return Err(Error::invalid(format!(
+            "the set has {} tracks, more than a set record holds ({}): drop some first (`sets edit --drop`)",
+            set.tracks.len(),
+            publish::SET_TRACK_LIMIT
+        )));
+    }
+    let prefs = ProfilePrefs::load(store)?;
+    let mut unnamed: [Vec<usize>; 3] = Default::default();
+    for (n, e) in (1..).zip(&set.tracks) {
+        if e.unnamed {
+            unnamed[0].push(n);
+        } else if req.hide.contains(&n) {
+            unnamed[1].push(n);
+        } else if !prefs.may_name(&e.name(), &e.artist) {
+            unnamed[2].push(n);
+        }
+    }
+    Ok((set, unnamed))
+}
+
 /// A set as its record: where and when it was played, who with, and its tracks in order
 /// (unidentified where the set, the request or the profile says not to name them), keyed by the
 /// set's id. Planned signed out, it can only be looked at.
@@ -295,29 +330,7 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<PlannedPublish> {
     let store = Store::open(store_root)?;
     let book = SetBook::load(&store)?;
-    let set = book.find(&req.set)?;
-    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
-        return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
-    }
-    if set.tracks.len() > publish::SET_TRACK_LIMIT {
-        return Err(Error::invalid(format!(
-            "the set has {} tracks, more than a set record holds ({}): drop some first (`sets edit --drop`)",
-            set.tracks.len(),
-            publish::SET_TRACK_LIMIT
-        )));
-    }
-    let prefs = ProfilePrefs::load(&store)?;
-    let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
-    for (i, e) in set.tracks.iter().enumerate() {
-        let n = i + 1;
-        if e.unnamed {
-            marked.push(n);
-        } else if req.hide.contains(&n) {
-            asked.push(n);
-        } else if !prefs.may_name(&e.name(), &e.artist) {
-            profile.push(n);
-        }
-    }
+    let (set, [marked, asked, profile]) = to_publish(&store, &book, req)?;
     let mut notes: Vec<String> = [
         unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
         unnamed_note(&asked, "hidden as asked"),
@@ -381,6 +394,123 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
 pub fn set_publish_apply(store_root: &Path, req: &SetPublishRequest) -> Result<Published> {
     let plan = set_publish_plan(store_root, req)?;
     publish_to(plan.request(), &plan)
+}
+
+/// What looking up the MusicBrainz IDs of a set's tracks did (`sets.lookup`), counting the tracks
+/// the record names without IDs by file, once however often the set plays them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct SetLookup {
+    /// Tracks the analyzers ran on (or had worked out already): those on a plugged-in drive that
+    /// lists them.
+    pub asked: usize,
+    /// Of those, tracks that got MusicBrainz IDs, now kept in the set.
+    pub found: usize,
+    /// Of those, tracks an analyzer failed on. Each failure was a warning.
+    pub failed: usize,
+    /// Tracks whose files are on no plugged-in drive: not looked up.
+    pub unmounted: usize,
+}
+
+/// Look up the MusicBrainz IDs of the tracks of a set that publishing it as `req` names and that
+/// have none, once it's one publishing takes: `analyze` runs the analyzers chosen for
+/// [`crate::sets::MusicBrainzIds::ROLES`] on a plugged-in drive's tracks (by id) holding their
+/// files, over what they kept (`true`) for the tracks whose values were worked out from what the
+/// library said of them before, and what they work out is read into the set from that drive (as
+/// [`build::read_musicbrainz`] reads it), so every later publish has it. Nothing is looked up
+/// without an analyzer for the `recording` role. An analyzer failing is a warning: the set
+/// publishes all the same, without those IDs.
+pub fn set_lookup(
+    store_root: &Path,
+    req: &SetPublishRequest,
+    analyze: impl Fn(&Device, &[u32], bool) -> Result<Analyzed>,
+    ctx: &Ctx<'_>,
+) -> Result<SetLookup> {
+    let store = Store::open(store_root)?;
+    let book = SetBook::load(&store)?;
+    let (set, unnamed) = to_publish(&store, &book, req)?;
+    let mut out = SetLookup::default();
+    if roles::chosen(Some(&store), Role::Recording).is_none() {
+        return Ok(out);
+    }
+    let unnamed: FxHashSet<usize> = unnamed.into_iter().flatten().collect();
+    // The first track of each file the record names without IDs.
+    let mut wanted: IndexMap<String, &SetEntry> = IndexMap::new();
+    for (_, e) in (1..).zip(&set.tracks).filter(|(n, e)| !unnamed.contains(n) && e.musicbrainz.is_empty()) {
+        if let Some(key) = e.file_key() {
+            wanted.entry(key).or_insert(e);
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(out);
+    }
+    let drives = super::mounted_exports();
+    let libraries: Vec<Option<FxHashMap<String, Track>>> = drives
+        .iter()
+        .map(|d| match d.library() {
+            Ok(l) => Some(l.tracks.into_iter().map(|t| (paths::file_key(&t.file_path), t)).collect()),
+            Err(e) => {
+                ctx.warn(format!("couldn't read {}'s library to look up MusicBrainz IDs: {e}", d.name()));
+                None
+            }
+        })
+        .collect();
+    let read = roles::reader(&store, &MusicBrainzIds::ROLES);
+    // By drive: the tracks to work out, those to work out again, and their files.
+    let mut on: Vec<(Vec<u32>, Vec<u32>, FxHashSet<String>)> = vec![Default::default(); drives.len()];
+    for (key, e) in &wanted {
+        let audio = |i: usize, file: &str| drives[i].checked_path(&paths::key(file)).ok().filter(|p| p.is_file());
+        let listed = (0..drives.len())
+            .find_map(|i| Some((i, libraries[i].as_ref()?.get(key).filter(|t| audio(i, &t.file_path).is_some())?)));
+        let Some((i, t)) = listed else {
+            // On a drive whose library couldn't be read (warned), it isn't missing.
+            out.unmounted +=
+                usize::from(!(0..drives.len()).any(|i| audio(i, e.file.as_deref().unwrap_or_default()).is_some()));
+            continue;
+        };
+        let stale = read.as_ref().zip(audio(i, &t.file_path)).is_some_and(|(r, a)| MusicBrainzIds::stale(&r(&a), e));
+        // Worked out again only if that can tell: when the library says now what the set does.
+        let again = stale && isrc(&t.isrc) == isrc(&e.isrc) && artist_credits(&t.artist) == artist_credits(&e.artist);
+        let (fresh, redo, files) = &mut on[i];
+        if again { redo } else { fresh }.push(t.id);
+        files.insert(key.clone());
+    }
+    for (d, (fresh, redo, _)) in drives.iter().zip(&on) {
+        let mut failed: FxHashSet<u32> = FxHashSet::default();
+        for (ids, again) in [(fresh, false), (redo, true)].into_iter().filter(|(ids, _)| !ids.is_empty()) {
+            match analyze(d, ids, again) {
+                Ok(a) => failed.extend(a.failures.iter().map(|f| f.track.id)),
+                Err(Error::Cancelled) => return Err(Error::Cancelled),
+                Err(e) => {
+                    ctx.warn(format!("couldn't look up MusicBrainz IDs on {}: {e}", d.name()));
+                    failed.extend(ids.iter().copied());
+                }
+            }
+        }
+        out.asked += fresh.len() + redo.len();
+        out.failed += failed.len();
+    }
+    if out.asked == 0 {
+        return Ok(out);
+    }
+    // Read again: analysing takes a while. Each track is read from the drive it was analysed on.
+    let mut book = SetBook::load(&store)?;
+    let tracks = &mut book.find_mut(&set.id)?.tracks;
+    let had: Vec<bool> = tracks.iter().map(|e| !e.musicbrainz.is_empty()).collect();
+    for (d, (_, _, files)) in drives.iter().zip(&on).filter(|(_, (_, _, files))| !files.is_empty()) {
+        let analysed = |e: &&mut SetEntry| e.file_key().is_some_and(|k| files.contains(&k));
+        build::read_musicbrainz(&store, tracks.iter_mut().filter(analysed), std::slice::from_ref(d));
+    }
+    let found: FxHashSet<String> = tracks
+        .iter()
+        .zip(had)
+        .filter(|(e, had)| !had && !e.musicbrainz.is_empty())
+        .filter_map(|(e, _)| e.file_key())
+        .collect();
+    out.found = found.len();
+    if out.found > 0 {
+        book.save(&store)?;
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

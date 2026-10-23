@@ -29,8 +29,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::fields::FieldValue;
+use crate::fields::roles::{Role, RoleValues};
 use crate::local_time;
-use crate::model::Track;
+use crate::model::{Track, artist_credits, isrc};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -170,8 +172,8 @@ pub struct SetEntry {
     /// Seconds from the start of the set (from a recording or a timed log).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_seconds: Option<u32>,
-    /// MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made
-    /// or edited.
+    /// MusicBrainz IDs from the audio file's tags, else from what the analyzers chosen for their
+    /// roles worked out for it, read from a mounted drive when the set is made, edited or published.
     #[serde(default, skip_serializing_if = "MusicBrainzIds::is_empty")]
     pub musicbrainz: MusicBrainzIds,
     /// Published without naming it: only its place in the set.
@@ -184,7 +186,8 @@ pub struct SetEntry {
 }
 
 /// MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
-/// recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.
+/// recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist. An
+/// analyzer answers them as the roles `recording`, `release` and `artists`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct MusicBrainzIds {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -197,8 +200,69 @@ pub struct MusicBrainzIds {
 }
 
 impl MusicBrainzIds {
+    /// The roles of the analyzers' fields these are read from: the IDs, and what they were
+    /// worked out from.
+    pub const ROLES: [Role; 5] = [Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
+
     pub fn is_empty(&self) -> bool {
         *self == MusicBrainzIds::default()
+    }
+
+    /// These, with what they lack from `other`: the recording and the release each, the artists
+    /// all together (they pair with the credit's names only as a whole).
+    pub fn or(self, other: MusicBrainzIds) -> MusicBrainzIds {
+        MusicBrainzIds {
+            recording: self.recording.or(other.recording),
+            release: self.release.or(other.release),
+            artists: if self.artists.is_empty() { other.artists } else { self.artists },
+        }
+    }
+
+    /// Whether `values` (an analyzer's for [`Self::ROLES`]) were worked out for `e` as the set has
+    /// it, as far as the analyzer says (its `isrc` and `credits`): for `e`'s ISRC, and then for
+    /// its artist's credits too. An analyzer's values are kept by audio file, and a library can
+    /// retag a track without changing the file.
+    fn worked_out_for(values: &RoleValues, e: &SetEntry) -> (bool, bool) {
+        let isrc = match values.get(&Role::Isrc) {
+            None => true,
+            Some(FieldValue::Null) => isrc(&e.isrc).is_none(),
+            Some(FieldValue::String(s)) => isrc(s).is_some_and(|s| Some(s) == isrc(&e.isrc)),
+            Some(_) => false,
+        };
+        let credits = match values.get(&Role::Credits) {
+            None => true,
+            Some(FieldValue::Strings(names)) => *names == artist_credits(&e.artist),
+            Some(_) => false,
+        };
+        (isrc, isrc && credits)
+    }
+
+    /// Whether `values` (an analyzer's for [`Self::ROLES`]) say something [`Self::from_roles`]
+    /// leaves out as being about another ISRC or credit than `e`'s: worth working out again.
+    pub fn stale(values: &RoleValues, e: &SetEntry) -> bool {
+        !values.is_empty() && Self::worked_out_for(values, e) != (true, true)
+    }
+
+    /// The IDs `values` (an analyzer's for [`Self::ROLES`]) give `e`, once they're for its ISRC:
+    /// the recording and the release each when it's a UUID, and the artists only when every one
+    /// is, they're for its credit, and there's one for each name [`artist_credits`] splits its
+    /// artist into, since they're paired with those names in that order. Anything else is left
+    /// out.
+    pub fn from_roles(values: &RoleValues, e: &SetEntry) -> MusicBrainzIds {
+        let (ids, credited) = Self::worked_out_for(values, e);
+        if !ids {
+            return MusicBrainzIds::default();
+        }
+        let id = |role| match values.get(&role) {
+            Some(FieldValue::String(s)) => Uuid::parse_str(s.trim()).ok(),
+            _ => None,
+        };
+        let artists: Option<Vec<Uuid>> = match values.get(&Role::Artists) {
+            Some(FieldValue::Strings(ids)) if credited => ids.iter().map(|s| Uuid::parse_str(s.trim()).ok()).collect(),
+            _ => None,
+        };
+        let artists = artists.filter(|ids| ids.len() == artist_credits(&e.artist).len()).unwrap_or_default();
+        MusicBrainzIds { recording: id(Role::Recording), release: id(Role::Release), artists }
     }
 
     /// The IDs the tags of the audio file at `path` hold: none when it has none, or can't be read.

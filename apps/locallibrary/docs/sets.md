@@ -147,7 +147,8 @@ the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
 `.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
-a `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
+a `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks,
+looking up its tracks' MusicBrainz IDs first when a plugin works them out (`--no-lookup` doesn't).
 
 ## Mixes
 

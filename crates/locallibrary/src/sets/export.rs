@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use super::{Set, SetEntry};
 use crate::export::{Locator, csv_line, numbered, one_line};
 use crate::mix::export::UNNAMED;
+use crate::model::artist_credits;
 use crate::model::{Library, Track, normalize};
-use crate::profile::artist_credits;
 use crate::{Error, Result};
 
 /// How a set is written out.

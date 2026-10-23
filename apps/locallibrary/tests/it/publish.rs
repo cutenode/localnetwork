@@ -118,6 +118,83 @@ fn sets_publish_from_the_command_line() {
     assert!(out.contains("this set already published, unchanged"), "{out}");
 }
 
+/// `sets publish` first runs the analyzer chosen for the MusicBrainz roles on the tracks it names
+/// that have no IDs, keeps what it finds in the set and publishes it as bare UUIDs: a track it
+/// fails on is a warning, tracks whose drive isn't plugged in are said once, and `--no-lookup`,
+/// `--dry-run` and an unconfirmed `--json` run nothing. The sidecar's `sets.lookup` counts the
+/// same, asking only about the tracks still without IDs.
+#[cfg(debug_assertions)]
+#[test]
+fn sets_publish_looks_up_musicbrainz_ids_first() {
+    const RECORDING: &str = "8dfae998-efd4-4ebe-a482-1523ff687362";
+    let pds = MockPds::start();
+    let mut env = Env::new();
+    let ids = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+               fields = { recording = \"string\", release = \"string\", artists = \"string[]\", \
+               isrc = \"string\", credits = \"string[]\" }\n\
+               roles = { recording = \"recording\", release = \"release\", artists = \"artists\", \
+               isrc = \"isrc\", credits = \"credits\" }\n";
+    env.plugins(&[&(crate::support::echo_plugin() + ids)]);
+    for role in ["recording", "release", "artists", "isrc", "credits"] {
+        env.ok(&["--yes", "plugin", "roles", role, "echo.heard"]);
+    }
+    let root = env.demo("USB");
+    let tracks = locallibrary::Device::open(&root).unwrap().library().unwrap().tracks;
+    env.ok(&["sets", "new", "--title", "Friday", "--date", "2026-10-03"]);
+    let insert = |t: &locallibrary::Track| format!("1:{}", t.file_path);
+    let (first, second) = (insert(&tracks[1]), insert(&tracks[0]));
+    env.ok(&["sets", "edit", "Friday", "--drive", path(&root), "--insert", &first, "--insert", &second]);
+    let store = locallibrary::Store::open(&env.store).unwrap();
+    let mut book = locallibrary::sets::SetBook::load(&store).unwrap();
+    let gone = locallibrary::sets::SetEntry::added("Gone - Away");
+    book.sets[0].tracks.push(locallibrary::sets::SetEntry { file: Some("/Contents/gone.mp3".into()), ..gone });
+    book.save(&store).unwrap();
+    let id = env.json(&["sets", "show", "Friday"])["id"].as_str().unwrap().to_string();
+    // What the test plugin's `heard` answers: what's in the audio file (and failing, without JSON).
+    let credits = locallibrary::model::artist_credits(&tracks[0].artist);
+    let artists: Vec<String> = (0..credits.len()).map(|i| format!("e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a{i}")).collect();
+    let audio = |t: &locallibrary::Track| locallibrary::paths::to_fs(&root, &locallibrary::paths::key(&t.file_path));
+    let isrc = locallibrary::model::isrc(&tracks[0].isrc);
+    let heard = json!({
+        "recording": RECORDING.to_uppercase(), "release": null, "artists": artists, "isrc": isrc, "credits": credits,
+    });
+    std::fs::write(audio(&tracks[0]), heard.to_string()).unwrap();
+    std::fs::write(audio(&tracks[1]), "not json").unwrap();
+    let published = || pds.record(DID, "computer.localnetwork.dj.set", &id).unwrap().0["tracks"][1].clone();
+
+    // Nothing is looked up for a set that can't be published: signed out, only shown, or not
+    // confirmed (no terminal to ask in, or --json without --yes).
+    let r = env.run(&["--yes", "sets", "publish", "Friday"]);
+    assert!(r.code != 0 && r.err.contains("account login <handle> --publish"), "{}", r.err);
+    sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
+    let out = env.ok(&["sets", "publish", "Friday", "--dry-run"]);
+    assert!(!out.contains("MusicBrainz"), "{out}");
+    env.exits(3, &["sets", "publish", "Friday"]);
+    env.exits(3, &["--json", "sets", "publish", "Friday"]);
+    env.ok(&["--yes", "sets", "publish", "Friday", "--no-lookup"]);
+    assert!(published().get("recordingMbId").is_none(), "{}", published());
+    assert!(!env.store.join("cache/fields/echo").exists(), "nothing analysed");
+
+    let r = env.run(&["--yes", "sets", "publish", "Friday"]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!(r.out.contains("found MusicBrainz IDs for 1 track\n"), "{}", r.out);
+    assert!(r.out.contains("plug in the drive to look up MusicBrainz IDs for 1 track\n"), "{}", r.out);
+    assert!(r.err.contains(&tracks[1].file_path), "the track it failed on: {}", r.err);
+    let track = published();
+    assert_eq!((&track["recordingMbId"], track.get("releaseMbId")), (&json!(RECORDING), None), "{track}");
+    let paired: Vec<Value> =
+        track["artists"].as_array().into_iter().flatten().map(|a| a["artistMbId"].clone()).collect();
+    assert_eq!(paired, artists.iter().map(|a| json!(a)).collect::<Vec<_>>());
+    assert_eq!(env.json(&["sets", "show", "Friday"])["tracks"][1]["musicbrainz"]["recording"], RECORDING);
+    // With --json, what the lookup did is among the plan's notes.
+    let v = env.json(&["--yes", "sets", "publish", "Friday"]);
+    assert_eq!(v["plan"]["notes"], json!(["plug in the drive to look up MusicBrainz IDs for 1 track"]), "{v}");
+
+    let mut rpc = Rpc::start(env.command());
+    let looked = rpc.call(1, "sets.lookup", json!({ "set": "Friday" }));
+    assert_eq!(looked["result"], json!({ "asked": 1, "found": 0, "failed": 1, "unmounted": 1 }), "{looked}");
+}
+
 #[test]
 fn an_unchanged_record_needs_no_permission_to_leave_as_it_is() {
     let pds = MockPds::start();
@@ -153,6 +230,7 @@ fn rpc_publish_methods() {
         "settings.import_published.apply",
         "profile.publish.plan",
         "profile.publish.apply",
+        "sets.lookup",
         "sets.publish.plan",
         "sets.publish.apply",
     ] {

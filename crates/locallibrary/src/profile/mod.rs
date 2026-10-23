@@ -36,7 +36,7 @@ use crate::device::Device;
 use crate::doctor::Databases;
 use crate::harmony::{Camelot, Relation, tempo_gap};
 use crate::hash::Hash;
-use crate::model::{BpmRange, Library, Track, normalize};
+use crate::model::{BpmRange, Library, Track, artist_credits, normalize};
 use crate::paths;
 use crate::plays::{self, HistoryList};
 use crate::progress::{Ctx, Event, Phase};
@@ -1575,43 +1575,6 @@ pub fn genres(raw: &str, aliases: &IndexMap<String, String>) -> Vec<String> {
             .unwrap_or_else(|| title_case(&part));
         if !out.iter().any(|g| normalize(g) == normalize(&name)) {
             out.push(name);
-        }
-    }
-    out
-}
-
-/// `s` split wherever one of the (ASCII) separators appears, ignoring case.
-fn split_ci<'s>(s: &'s str, seps: &[&str]) -> Vec<&'s str> {
-    let mut out = Vec::new();
-    let (mut start, mut i) = (0, 0);
-    while i < s.len() {
-        match seps.iter().find(|sep| s.get(i..i + sep.len()).is_some_and(|w| w.eq_ignore_ascii_case(sep))) {
-            Some(sep) => {
-                out.push(&s[start..i]);
-                i += sep.len();
-                start = i;
-            }
-            None => {
-                i += 1;
-                while !s.is_char_boundary(i) {
-                    i += 1;
-                }
-            }
-        }
-    }
-    out.push(&s[start..]);
-    out
-}
-
-/// The artists a credit names, for counting: split at commas, semicolons and featuring credits
-/// ("A, B feat. C" is A, B and C). `&` and `x` don't split: "Chase & Status" is one act.
-pub fn artist_credits(artist: &str) -> Vec<String> {
-    let seps = [",", ";", " feat. ", " feat ", " ft. ", " ft ", " featuring ", "(feat. ", "(ft. "];
-    let mut out: Vec<String> = Vec::new();
-    for part in split_ci(artist, &seps) {
-        let name = part.trim_matches(|c: char| c.is_whitespace() || c == '(' || c == ')');
-        if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
-            out.push(name.to_string());
         }
     }
     out

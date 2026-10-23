@@ -460,6 +460,63 @@ pub fn normalize(s: &str) -> String {
     lower.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// `s` split wherever one of the (ASCII) separators appears, ignoring case.
+fn split_ci<'s>(s: &'s str, seps: &[&str]) -> Vec<&'s str> {
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < s.len() {
+        match seps.iter().find(|sep| s.get(i..i + sep.len()).is_some_and(|w| w.eq_ignore_ascii_case(sep))) {
+            Some(sep) => {
+                out.push(&s[start..i]);
+                i += sep.len();
+                start = i;
+            }
+            None => {
+                i += 1;
+                while !s.is_char_boundary(i) {
+                    i += 1;
+                }
+            }
+        }
+    }
+    out.push(&s[start..]);
+    out
+}
+
+/// The artists a credit names, for counting: split at commas, semicolons and featuring credits
+/// ("A, B feat. C" is A, B and C). `&` and `x` don't split: "Chase & Status" is one act. A set
+/// record's artists are these, in this order, and an analyzer's `artists` role answers an ID
+/// for each.
+pub fn artist_credits(artist: &str) -> Vec<String> {
+    let seps = [",", ";", " feat. ", " feat ", " ft. ", " ft ", " featuring ", "(feat. ", "(ft. "];
+    let mut out: Vec<String> = Vec::new();
+    for part in split_ci(artist, &seps) {
+        let name = part.trim_matches(|c: char| c.is_whitespace() || c == '(' || c == ')');
+        if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// Whether `s` is an ISRC as it's written plain (`GBDUW0000059`): a country code, a registrant
+/// code of letters or digits, a year and a number.
+pub fn is_isrc(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 12
+        && b[..2].iter().all(u8::is_ascii_uppercase)
+        && b[2..5].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && b[5..].iter().all(u8::is_ascii_digit)
+}
+
+/// `tag` as an ISRC: trimmed, without its hyphens and in capitals, when that's one
+/// ([`is_isrc`]; `gb-cfb-17-00586` is `GBCFB1700586`). What a published set's track says, and
+/// what MusicBrainz is asked about.
+pub fn isrc(tag: &str) -> Option<String> {
+    let isrc = tag.trim().replace('-', "").to_ascii_uppercase();
+    is_isrc(&isrc).then_some(isrc)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Diffing
 // ---------------------------------------------------------------------------------------------

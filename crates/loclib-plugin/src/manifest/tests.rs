@@ -745,6 +745,15 @@ fn analyzers_give_fields_roles_of_their_type() {
     assert_eq!(e, "contributes.analyzers[0].roles.bpm: tempo isn't a number, which the role is");
     let e = problem(&analyzer("camelot = \"number\"", "key = \"camelot\""));
     assert_eq!(e, "contributes.analyzers[0].roles.key: camelot isn't a string, which the role is");
+    let e = problem(&analyzer("mbids = \"string\"", "artists = \"mbids\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.artists: mbids isn't a string[], which the role is");
+    let e = problem(&analyzer("names = \"string\"", "credits = \"names\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.credits: names isn't a string[], which the role is");
+    let ids = analyzer(
+        "song = \"string\", album = \"string\", mbids = \"string[]\", code = \"string\", names = \"string[]\"",
+        "recording = \"song\", release = \"album\", artists = \"mbids\", isrc = \"code\", credits = \"names\"",
+    );
+    Manifest::parse(&format!("{HEAD}{ids}")).unwrap().validate(true).unwrap();
     let e = problem(&analyzer("tempo = \"number\"", "bpm = \"speed\""));
     assert_eq!(e, "contributes.analyzers[0].roles.bpm: \"speed\" isn't its field");
     let e = problem(&analyzer("tempo = \"number\"", "tempo = \"tempo\""));

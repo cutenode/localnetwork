@@ -21,8 +21,11 @@ are:
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
-  fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
-  it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
+  fetch` (see [Providers](#providers)).
+
+coverart is the only one that goes online, and only when you run it, through locallibrary (see
+[Safety](#safety)), a request a second to MusicBrainz as it asks. `analyze` alone leaves out the
+analyzers that go online, and says so.
 
 ## What you have
 
@@ -244,13 +247,25 @@ all, and images coming to 512 MiB; past that it leaves the rest out and says so.
 ## Roles
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
-tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, or what tells one
-recording from another. Doctor's analysis, the check before a set, ordering a set (`playlist
-order`) and `analyze --apply` read those from one analyzer each, the sound plugin's unless
-another does too: `locallibrary plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER`
-chooses another that has it, and `plugin roles key --reset` puts it back (kept in the store's
-`plugins/settings.json` as `analysis.roles.key`). `doctor --analyze` runs those analyzers first
-on the tracks they haven't worked out; the check and ordering a set read what they kept.
+tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, what tells one
+recording from another, or its MusicBrainz IDs: the recording's (`recording`) and the release's
+(`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
+artist its credit names, in order, split as a published set splits them (at commas, semicolons and
+"feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
+(`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
+`analyze --apply` and the MusicBrainz IDs a set is published with read those from one analyzer
+each, the sound plugin's unless another does too: `locallibrary
+plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
+`plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
+`plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
+`analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
+worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
+[Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
+recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
+is a UUID and there's one for each name. What an analyzer keeps goes with the audio file, which a
+library can retag without changing, so a track takes the IDs only when they were looked up by its
+ISRC, and the artists' only for its credit, as far as the analyzer says (`isrc`, `credits`);
+`sets publish` looks those tracks up again.
 
 `locallibrary analyze LIBRARY --apply key,bpm` writes what the analyzer heard to the tracks, as an
 edit you're shown and asked about (only where a track has none unless `--overwrite`;

@@ -73,9 +73,10 @@ fn describes_one_analyzer_and_asks_for_nothing() {
     let expected =
         ["bpm", "bpm_confidence", "clipped_runs", "integrated_lufs", "key", "key_confidence", "true_peak_dbtp"];
     assert_eq!(columns, expected);
-    // Every role but identity: doctor reads them all.
+    // Every role of a track's sound: doctor reads them all.
     let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
-    assert!(Role::ALL.iter().all(|r| roles.contains(r) != (*r == Role::Identity)), "{roles:?}");
+    let not_heard = [Role::Identity, Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
+    assert!(Role::ALL.iter().all(|r| roles.contains(r) != not_heard.contains(r)), "{roles:?}");
     let s = start();
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);

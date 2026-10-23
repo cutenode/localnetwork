@@ -128,9 +128,13 @@ enum SetsCommand {
         #[cfg(feature = "account")]
         #[arg(long, value_name = "POSITIONS", value_parser = positions, conflicts_with = "to")]
         hide: Vec<Positions>,
-        /// Show what would be published without publishing
+        /// Show what would be published without publishing (or looking anything up)
         #[arg(long)]
         dry_run: bool,
+        /// Don't look up MusicBrainz IDs for the tracks that have none
+        #[cfg(feature = "account")]
+        #[arg(long, conflicts_with = "to")]
+        no_lookup: bool,
         #[cfg(feature = "account")]
         #[command(flatten)]
         browser: crate::browser::BrowserArgs,
@@ -500,6 +504,8 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             #[cfg(feature = "account")]
             hide,
             #[cfg(feature = "account")]
+            no_lookup,
+            #[cfg(feature = "account")]
             browser,
         } => {
             if let Some(spec) = to {
@@ -508,7 +514,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             #[cfg(feature = "account")]
             {
                 let req = api::SetPublishRequest { set, hide: all(hide) };
-                return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+                return crate::publish_cmd::set_publish(store_path, &req, dry_run, !no_lookup, browser, out, ctx);
             }
             #[cfg(not(feature = "account"))]
             unreachable!("clap requires --to without the Atmosphere account");
