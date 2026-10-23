@@ -151,4 +151,5 @@ on a pad is a hot cue there too. The source lays Traktor's beat grid out from it
 the end of each track (a track over a day long gets none); `import` leaves the grid alone. Hot
 cues past H are left out, saying so, and `import` leaves out loops that aren't a whole number of
 beats (or 1/2 to 1/32 of one) at the track's tempo the same way. Smart playlists aren't built:
-what's in one is a search Traktor runs.
+what's in one is a search Traktor runs. A folder or playlist whose name has a `/` is built as
+folders, since a playlist's path is its names with `/` between them (the plugin's log names each).

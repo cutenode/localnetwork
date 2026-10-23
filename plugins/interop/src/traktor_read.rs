@@ -38,7 +38,8 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
     let collection = collection(&file, &host.ctx())?;
     // A page has no warnings; what reading the collection left out goes in the log, once.
     if req.cursor.is_none() {
-        collection.warnings.iter().for_each(|w| eprintln!("{}: {w}", file.display()));
+        let warnings = collection.warnings.iter().chain(&collection.playlist_warnings);
+        warnings.for_each(|w| eprintln!("{}: {w}", file.display()));
     }
     let entries = &collection.entries;
     // A cursor that isn't a number is past the end, refused below.

@@ -62,8 +62,11 @@ pub struct Collection {
     pub entries: Vec<Entry>,
     /// Its playlists, in the file's order, depth first. Folders are the paths above them.
     pub lists: Vec<List>,
-    /// What it left out, a line each.
+    /// What it left out of its tracks and their markers, a line each.
     pub warnings: Vec<String>,
+    /// What's amiss with its playlists, a line each: what was left out, and names with a `/`,
+    /// which a path (`Folder/Name`) reads as folders.
+    pub playlist_warnings: Vec<String>,
 }
 
 /// A track (`COLLECTION`'s `ENTRY`): each field empty when the file doesn't say.
@@ -281,6 +284,11 @@ impl State {
                 if self.nodes.is_empty() {
                     self.in_root = kind == "FOLDER" && name == "$ROOT";
                 }
+                if name.contains('/') && matches!(kind.as_str(), "FOLDER" | "PLAYLIST") {
+                    let kind = kind.to_lowercase();
+                    let why = format!("the {kind} {name:?} has a / in its name, which a path reads as a folder");
+                    self.out.playlist_warnings.push(why);
+                }
                 self.nodes.push(name);
                 match kind.as_str() {
                     "PLAYLIST" => {
@@ -389,19 +397,22 @@ impl State {
             list.keys.retain(|k| keys.contains(k));
             unknown_keys += listed - list.keys.len();
         }
-        for (n, what) in [
+        self.out.warnings.extend(left_out(&[
             (self.without_file, "entr(ies) without a file"),
             (self.unknown_markers, "marker(s) of a type Traktor doesn't document"),
             (self.unreachable_markers, "marker(s) further from the start than a track reaches"),
+        ]));
+        self.out.playlist_warnings.extend(left_out(&[
             (self.smart, "smart playlist(s), whose rules aren't read,"),
             (unknown_keys, "playlist entr(ies) naming no track in the collection"),
-        ] {
-            if n > 0 {
-                self.out.warnings.push(format!("{n} {what} left out"));
-            }
-        }
+        ]));
         self.out
     }
+}
+
+/// A warning for each count of what was left out that isn't 0.
+fn left_out<'a>(counts: &'a [(usize, &str)]) -> impl Iterator<Item = String> + 'a {
+    counts.iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what} left out"))
 }
 
 /// An element's attributes, their values as XML reads them.

@@ -100,7 +100,7 @@ impl Session {
 
 /// A collection as Traktor writes one: a track with a key, a tempo, a grid marker and cues of
 /// every kind (some the formats can't take), one with a key as text alone, and one with nothing to
-/// import.
+/// import, and a smart playlist (which has nothing to do with an import).
 const NML: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <NML VERSION="19"><HEAD COMPANY="www.native-instruments.com" PROGRAM="Traktor"></HEAD>
 <COLLECTION ENTRIES="3">
@@ -121,7 +121,7 @@ const NML: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <CUE_V2 NAME="n.n." TYPE="5" START="0" LEN="500" HOTCUE="-1"></CUE_V2></ENTRY>
 <ENTRY TITLE="Nothing"><LOCATION DIR="/:" FILE="c.mp3" VOLUME="USB"></LOCATION></ENTRY>
 </COLLECTION>
-<PLAYLISTS></PLAYLISTS></NML>
+<PLAYLISTS><NODE TYPE="SMARTLIST" NAME="Recent"/></PLAYLISTS></NML>
 "##;
 
 fn cue(

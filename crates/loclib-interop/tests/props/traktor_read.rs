@@ -36,6 +36,9 @@ fn a_collection_reads_back(tc: TestCase) {
     let Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is written out") };
     let read = traktor::read(nml).unwrap();
     assert_eq!(read.warnings, Vec::<String>::new());
+    // A name with a / is said once, a folder's or a playlist's.
+    let slashed = lib.playlists.iter().filter(|p| common::xml_text(&p.name).contains('/')).count();
+    assert_eq!(read.playlist_warnings.len(), slashed, "{:?}", read.playlist_warnings);
     let startup = read.entries.first().map_or(String::new(), |e| e.location.volume.clone());
     let written = common::first_per_file(&lib, |t| {
         let (v, dir, file) = location(&src, t, volume);

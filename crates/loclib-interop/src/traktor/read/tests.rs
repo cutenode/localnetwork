@@ -83,9 +83,11 @@ fn a_collection_traktor_wrote_is_read() {
     );
     assert_eq!(
         c.warnings,
+        ["1 entr(ies) without a file left out", "1 marker(s) of a type Traktor doesn't document left out"]
+    );
+    assert_eq!(
+        c.playlist_warnings,
         [
-            "1 entr(ies) without a file left out",
-            "1 marker(s) of a type Traktor doesn't document left out",
             "1 smart playlist(s), whose rules aren't read, left out",
             "1 playlist entr(ies) naming no track in the collection left out",
         ]
@@ -93,14 +95,22 @@ fn a_collection_traktor_wrote_is_read() {
 }
 
 /// A playlist tree without Traktor's `$ROOT` keeps its outermost folder, a playlist named
-/// `$ROOT` keeps its name, and a playlist's own node closed at once is an empty playlist.
+/// `$ROOT` keeps its name, and a playlist's own node closed at once is an empty playlist. A
+/// folder's or playlist's name with a `/` is read as it is, saying a path reads it as folders.
 #[test]
 fn playlists_without_a_root_folder() {
-    let nml = r#"<NML><PLAYLISTS><NODE TYPE="FOLDER" NAME="Top"><SUBNODES><NODE TYPE="PLAYLIST" NAME="A"/></SUBNODES></NODE><NODE TYPE="PLAYLIST" NAME="$ROOT"/></PLAYLISTS></NML>"#;
+    let nml = r#"<NML><PLAYLISTS><NODE TYPE="FOLDER" NAME="Top/Rock"><SUBNODES><NODE TYPE="PLAYLIST" NAME="AC/DC"/></SUBNODES></NODE><NODE TYPE="PLAYLIST" NAME="$ROOT"/></PLAYLISTS></NML>"#;
     let c = read(nml.as_bytes()).unwrap();
     let list = |path: &[&str]| List { path: path.iter().map(|p| p.to_string()).collect(), keys: Vec::new() };
-    assert_eq!(c.lists, [list(&["Top", "A"]), list(&["$ROOT"])]);
+    assert_eq!(c.lists, [list(&["Top/Rock", "AC/DC"]), list(&["$ROOT"])]);
     assert!(c.entries.is_empty() && c.warnings.is_empty());
+    assert_eq!(
+        c.playlist_warnings,
+        [
+            "the folder \"Top/Rock\" has a / in its name, which a path reads as a folder",
+            "the playlist \"AC/DC\" has a / in its name, which a path reads as a folder",
+        ]
+    );
 }
 
 #[test]
