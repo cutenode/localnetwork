@@ -63,6 +63,12 @@ does it.
 - `Format::RekordboxXml`: `parse` returns the `COLLECTION`'s tracks, and `xml_playlist` the
   entries of the playlist at a folder path (`Sets/2026/Warmup`). A playlist's tracks the
   collection lacks stay as entries, so they come out missing.
+- `Format::Text`: one "Artist - Title" (or "Title by Artist") per line. Numbering, bullets and
+  cue timestamps are dropped, a duration at the end is kept, and blank lines, comments and
+  headings like "Tracklist:" are skipped.
+
+`text_of` (the decoding) and `read_table` (the lenient CSV reader) are public too, for other
+table-shaped files.
 
 ## rekordbox XML as a library
 
@@ -81,9 +87,10 @@ The file can say anything, so every value that sizes something is checked: a tem
 tempo that's missing a value or out of range (times past a day, tempos outside 0.01-655.35 BPM,
 hot cues past H, a loop that doesn't end after it starts) is left out and counted in the
 `warnings`, a grid stops at `MAX_BEATS`, elements nested more than 64 deep are left out with
-what's in them, and playlists are left out once their folder paths come to `MAX_PATH_BYTES`. Fade-in, fade-out and load marks (`Type` 1-3) and meters past 4 beats to the
-bar aren't supported: they're left out and counted apart. Track colours, `Grouping`, `Kind` and
-the file's sizes, bit rates and play counts aren't read.
+what's in them, and playlists are left out once their folder paths come to `MAX_PATH_BYTES`.
+Fade-in, fade-out and load marks (`Type` 1-3) and meters past 4 beats to the bar aren't
+supported: they're left out and counted apart. Track colours, `Grouping`, `Kind` and the file's
+sizes, bit rates and play counts aren't read.
 
 ```rust
 let xml = r#"<DJ_PLAYLISTS Version="1.0.0"><COLLECTION Entries="1">
@@ -103,12 +110,6 @@ let (beats, _) = glue.beats();
 assert_eq!(beats.iter().map(|b| (b.time_ms, b.beat_number)).collect::<Vec<_>>(), [(0, 1), (500, 2), (1000, 3), (1500, 4)]);
 assert_eq!(library.warnings, ["1 cue(s) (POSITION_MARK) left out: a type, time or hot cue out of range"]);
 ```
-- `Format::Text`: one "Artist - Title" (or "Title by Artist") per line. Numbering, bullets and
-  cue timestamps are dropped, a duration at the end is kept, and blank lines, comments and
-  headings like "Tracklist:" are skipped.
-
-`text_of` (the decoding) and `read_table` (the lenient CSV reader) are public too, for other
-table-shaped files.
 
 ## How matching decides
 
