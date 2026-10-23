@@ -133,3 +133,52 @@ fn peaks_dont_depend_on_how_samples_arrive(tc: TestCase) {
     assert_eq!(levels.len(), whole.1.len());
     assert!(levels.iter().all(|l| l.peak <= loudest && l.bands.iter().all(|b| *b >= 0.0)));
 }
+
+/// Frames pool into columns, each the loudest of its frames, and each series is scaled on its
+/// own: its loudest column is full height whatever the others', bands on a curve that lifts
+/// quiet ones.
+#[test]
+fn columns_pool_frames_and_scale_each_series() {
+    let frame = |peak, bands| FrameLevels { peak, bands };
+    let levels =
+        [frame(0.1, [0.2, 0.0, 1.0]), frame(0.5, [0.4, 0.0, 1.0]), frame(0.25, [0.1, 0.0, 1.0]), frame(0.2, [0.0; 3])];
+    let two_frames_a_column = columns(&levels, FRAMES_PER_SEC / 2.0);
+    let expected = LevelColumns { peak: vec![255, 128], bands: [vec![255, 84], vec![0, 0], vec![255, 255]] };
+    assert_eq!(two_frames_a_column, expected);
+    assert_eq!(columns(&levels, FRAMES_PER_SEC).peak, [51, 255, 128, 102], "a column a frame");
+    assert_eq!(columns(&[], FRAMES_PER_SEC), LevelColumns::default());
+}
+
+/// Any frames at any rate up to a column a frame: as many columns as the frames last, each
+/// series' loudest full height (or none, for silence), louder never drawn lower, and the same
+/// frames at another level drawn the same, give or take rounding.
+#[hegel::test(test_cases = 200)]
+fn columns_scale_each_series_to_its_loudest(tc: TestCase) {
+    let level = || hegel::one_of!(gs::just(0.0f32), gs::floats::<f32>().min_value(1e-3).max_value(1.0));
+    let frames: Vec<(f32, [f32; 3])> =
+        tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
+    let levels: Vec<FrameLevels> = frames.iter().map(|&(peak, bands)| FrameLevels { peak, bands }).collect();
+    let per_sec = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(FRAMES_PER_SEC));
+    let pooled = columns(&levels, per_sec);
+    let n = levels.len() as f64 * per_sec / FRAMES_PER_SEC;
+    let series = |c: &LevelColumns| [c.peak.clone(), c.bands[0].clone(), c.bands[1].clone(), c.bands[2].clone()];
+    let of = |l: &FrameLevels| [l.peak, l.bands[0], l.bands[1], l.bands[2]];
+    for (s, drawn) in series(&pooled).iter().enumerate() {
+        assert!((drawn.len() as f64 - n).abs() < 1.0 + 1e-9, "{} columns for {n}", drawn.len());
+        let loudest = levels.iter().map(|l| of(l)[s]).fold(0.0f32, f32::max);
+        assert_eq!(drawn.iter().copied().max().unwrap_or(0), if loudest > 0.0 { 255 } else { 0 }, "series {s}");
+    }
+    for (s, drawn) in series(&columns(&levels, FRAMES_PER_SEC)).iter().enumerate() {
+        assert_eq!(drawn.len(), levels.len(), "a column a frame");
+        let frames: Vec<(f32, u8)> = levels.iter().map(|l| of(l)[s]).zip(drawn.iter().copied()).collect();
+        for (a, b) in frames.iter().flat_map(|a| frames.iter().map(move |b| (a, b))) {
+            assert!(a.0 > b.0 || a.1 <= b.1, "series {s}: {a:?} drawn above {b:?}");
+        }
+    }
+    let k = tc.draw(gs::floats::<f32>().min_value(0.01).max_value(100.0));
+    let scaled: Vec<FrameLevels> =
+        levels.iter().map(|l| FrameLevels { peak: l.peak * k, bands: l.bands.map(|b| b * k) }).collect();
+    for (a, b) in series(&pooled).iter().zip(series(&columns(&scaled, per_sec))) {
+        assert!(a.iter().zip(&b).all(|(x, y)| x.abs_diff(*y) <= 1), "{a:?} at {k}x is {b:?}");
+    }
+}

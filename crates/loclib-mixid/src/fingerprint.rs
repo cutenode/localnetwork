@@ -55,13 +55,46 @@ pub struct Density {
 pub const LIBRARY: Density = Density { per_sec: 20.0, max_per_frame: 5 };
 pub const QUERY: Density = Density { per_sec: 40.0, max_per_frame: 8 };
 
-/// Coarse loudness of one frame, for drawing the mix's waveform.
+/// Coarse loudness of one frame, for drawing a recording's waveform ([`columns`]).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FrameLevels {
     /// Peak absolute sample value.
     pub peak: f32,
     /// RMS magnitude below 200 Hz, 200 Hz-2 kHz and above 2 kHz.
     pub bands: [f32; 3],
+}
+
+/// Frames' levels as columns to draw, 0-255.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LevelColumns {
+    pub peak: Vec<u8>,
+    /// Below 200 Hz, 200 Hz-2 kHz, above 2 kHz.
+    pub bands: [Vec<u8>; 3],
+}
+
+/// `levels` as `per_sec` columns a second of audio, at most [`FRAMES_PER_SEC`] (a column a
+/// frame): each column the loudest of the frames it covers, each series scaled by a high
+/// percentile of its own, so one spike doesn't flatten the rest.
+pub fn columns(levels: &[FrameLevels], per_sec: f64) -> LevelColumns {
+    let per = FRAMES_PER_SEC / per_sec;
+    let n = (levels.len() as f64 / per).ceil() as usize;
+    let mut peak = vec![0f32; n];
+    let mut bands = vec![[0f32; 3]; n];
+    for (i, l) in levels.iter().enumerate() {
+        let c = ((i as f64 / per) as usize).min(n.saturating_sub(1));
+        peak[c] = peak[c].max(l.peak);
+        for (acc, v) in bands[c].iter_mut().zip(l.bands) {
+            *acc = acc.max(v);
+        }
+    }
+    let scale = |v: &[f32], gamma: f32| -> Vec<u8> {
+        let mut sorted: Vec<f32> = v.to_vec();
+        sorted.sort_by(f32::total_cmp);
+        let top = sorted.get(sorted.len() * 995 / 1000).copied().unwrap_or(0.0).max(1e-9);
+        v.iter().map(|x| ((x / top).min(1.0).powf(gamma) * 255.0).round() as u8).collect()
+    };
+    let band = |b: usize| bands.iter().map(|c| c[b]).collect::<Vec<f32>>();
+    LevelColumns { peak: scale(&peak, 1.0), bands: [0, 1, 2].map(|b| scale(&band(b), 0.8)) }
 }
 
 /// Streaming analyser: push samples at [`RATE`], then [`Analyzer::finish`] for the peaks.
