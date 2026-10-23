@@ -143,10 +143,50 @@ fn grid_markers_lay_down_beats() {
     let close = entry(Some(120.0), Some(1.2), vec![grid(0.0, None), grid(1000.3, None)]);
     assert_eq!(close.beats().unwrap(), [beat(1, 120.0, 0), beat(2, 120.0, 500), beat(3, 120.0, 1000)]);
     assert_eq!(entry(Some(120.0), Some(1.0), Vec::new()).beats(), Ok(Vec::new()));
-    assert_eq!(entry(Some(120.0), None, vec![grid(0.0, None)]).beats(), Err("the track's length isn't known"));
+    let unknown = "the track's length isn't known, or is over a day";
+    assert_eq!(entry(Some(120.0), None, vec![grid(0.0, None)]).beats(), Err(unknown));
+    assert_eq!(entry(Some(120.0), Some(86_400.5), vec![grid(0.0, None)]).beats(), Err(unknown));
     let too_fast = entry(Some(700.0), Some(1.0), vec![grid(0.0, None)]);
-    assert_eq!(too_fast.beats(), Err("its tempo isn't more than 0 and at most 655.35 BPM"));
+    assert_eq!(too_fast.beats(), Err("its tempo isn't known, or isn't 0.01 to 655.35 BPM"));
     assert!(entry(None, Some(1.0), vec![grid(0.0, None)]).beats().is_err(), "no tempo");
+    for far in [-1e300, 4_294_967_296.0, f64::NAN] {
+        let out_of_reach = entry(Some(120.0), Some(1.0), vec![grid(far, None)]);
+        assert_eq!(out_of_reach.beats(), Err("a grid marker is further from the start than a track reaches"));
+    }
+    // A day at the fastest tempo, and from a marker as far before the start as a track reaches.
+    let longest = entry(Some(655.35), Some(86_400.0), vec![grid(-4_294_967_295.0, None)]);
+    let beats = longest.beats().unwrap();
+    assert_eq!((beats.len(), beats.last().map(|b| b.time_ms < 86_400_000)), (943_704, Some(true)));
+}
+
+/// Numbers out of what a track or a grid holds are left out as they're read: a tempo, a length,
+/// a marker (counted in a warning).
+#[test]
+fn numbers_out_of_reach_are_left_out() {
+    let nml = r#"<NML><COLLECTION><ENTRY><LOCATION FILE="x.mp3"/><INFO PLAYTIME_FLOAT="5e6" PLAYTIME="inf"/><TEMPO BPM="0.001"/>
+        <CUE_V2 TYPE="4" START="-1e300"/><CUE_V2 TYPE="5" START="0" LEN="1e10"/><CUE_V2 TYPE="0" START="NaN" LEN="-4"><GRID BPM="900"/></CUE_V2>
+        </ENTRY></COLLECTION></NML>"#;
+    let c = read(nml.as_bytes()).unwrap();
+    let e = &c.entries[0];
+    assert_eq!((e.bpm, e.duration_secs), (None, None));
+    assert_eq!(
+        e.markers,
+        [marker(MarkerKind::Cue, "", 0.0, 0.0, None)],
+        "a NaN start isn't a number; the GRID's tempo is too fast"
+    );
+    assert_eq!(c.warnings, ["2 marker(s) further from the start than a track reaches left out"]);
+}
+
+/// Playlists in folders past 128 deep are refused: each one's path would be as long as the file
+/// is deep.
+#[test]
+fn playlists_too_deep_are_refused() {
+    let depth = |n: usize| {
+        format!("<NML><PLAYLISTS>{}{}</PLAYLISTS></NML>", "<NODE TYPE=\"FOLDER\">".repeat(n), "</NODE>".repeat(n))
+    };
+    assert!(read(depth(128).as_bytes()).is_ok());
+    let refused = read(depth(129).as_bytes()).unwrap_err().to_string();
+    assert_eq!(refused, "not a Traktor collection: its playlists are in folders more than 128 deep");
 }
 
 #[test]

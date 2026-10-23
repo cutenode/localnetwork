@@ -4,7 +4,7 @@
 use std::path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path, PathBuf};
 
 use hegel::TestCase;
-use hegel::generators as gs;
+use hegel::generators::{self as gs, PrintableGenerator};
 use loclib_interop::traktor::{self, Entry, List, Marker, MarkerKind};
 use loclib_interop::{Content, Error, Source};
 use loclib_model::analysis::Beat;
@@ -15,6 +15,12 @@ use rustc_hash::FxHashMap;
 
 use crate::common::{self, KEYS};
 use crate::traktor::{calendar_day, location, root};
+
+/// The tempos a beat grid holds, which are all the reader takes.
+const TEMPOS: std::ops::RangeInclusive<f64> = 0.01..=655.35;
+
+/// How far from the start of a track a marker can be, in milliseconds either way.
+const REACH_MS: f64 = 4_294_967_295.0;
 
 /// Every file's entry reads back in library order, at its location (a path on this computer
 /// again), with its tags, key, tempo, length, rating and year, its grid marker and cues; every
@@ -189,14 +195,15 @@ fn grid_markers_lay_down_the_grid(tc: TestCase) {
     let mut grid: Vec<&Marker> = e.markers.iter().collect();
     grid.sort_by(|a, b| a.start_ms.total_cmp(&b.start_ms));
     let end = e.duration_secs.filter(|s| *s > 0.0).map(|s| s * 1000.0);
-    let tempos: Vec<Option<f64>> = grid.iter().map(|m| m.bpm.or(e.bpm).filter(|b| *b > 0.0 && *b <= 655.35)).collect();
+    let tempos: Vec<Option<f64>> = grid.iter().map(|m| m.bpm.or(e.bpm).filter(|b| TEMPOS.contains(b))).collect();
     let got = e.beats();
     let Some(end) = end.filter(|_| !grid.is_empty()) else {
-        assert_eq!(got, if grid.is_empty() { Ok(Vec::new()) } else { Err("the track's length isn't known") });
+        let unknown = Err("the track's length isn't known, or is over a day");
+        assert_eq!(got, if grid.is_empty() { Ok(Vec::new()) } else { unknown });
         return;
     };
     if tempos.contains(&None) {
-        assert_eq!(got, Err("its tempo isn't more than 0 and at most 655.35 BPM"));
+        assert_eq!(got, Err("its tempo isn't known, or isn't 0.01 to 655.35 BPM"));
         return;
     }
     let mut want: Vec<Beat> = Vec::new();
@@ -220,6 +227,76 @@ fn grid_markers_lay_down_the_grid(tc: TestCase) {
         }
     }
     assert_eq!(got, Ok(want));
+}
+
+/// Any number at all: huge, tiny, negative, not finite, or at the edges of what's read.
+fn wild() -> impl PrintableGenerator<f64> {
+    hegel::one_of!(
+        gs::floats::<f64>(),
+        gs::sampled_from(vec![
+            -1e300,
+            1e300,
+            -REACH_MS - 1.0,
+            -REACH_MS,
+            REACH_MS,
+            -0.0,
+            0.009,
+            0.01,
+            655.35,
+            655.36,
+            86_400.0,
+            86_400.001,
+            f64::NAN,
+            f64::INFINITY,
+        ]),
+    )
+}
+
+/// Numbers from anywhere for a track's length and tempo and its markers' places, lengths and
+/// tempos: what's read of them is in a track's reach and a grid's tempos (a marker out of reach
+/// left out, and counted), and a grid laid down from what's read, or from an entry holding the
+/// numbers as they are, has at most a beat a step of the fastest tempo through the track, and one
+/// more for each marker.
+#[hegel::test(test_cases = 300)]
+fn wild_numbers_stay_in_reach(tc: TestCase) {
+    let [length, bpm, grid_start, grid_bpm, start, len] = [(); 6].map(|_| tc.draw(wild()));
+    let nml = format!(
+        "<NML><COLLECTION><ENTRY><LOCATION FILE=\"x.mp3\"/><INFO PLAYTIME_FLOAT=\"{length}\"/><TEMPO BPM=\"{bpm}\"/>\
+         <CUE_V2 TYPE=\"4\" START=\"{grid_start}\"><GRID BPM=\"{grid_bpm}\"/></CUE_V2>\
+         <CUE_V2 TYPE=\"5\" START=\"{start}\" LEN=\"{len}\"/></ENTRY></COLLECTION></NML>"
+    );
+    let c = traktor::read(nml.as_bytes()).unwrap();
+    let e = &c.entries[0];
+    let tempo = |b: &Option<f64>| b.is_none_or(|b| TEMPOS.contains(&b));
+    assert!(e.duration_secs.is_none_or(|s| s > 0.0 && s * 1000.0 <= REACH_MS), "{e:?}");
+    assert!(tempo(&e.bpm) && e.markers.iter().all(|m| tempo(&m.bpm)), "{e:?}");
+    assert!(e.markers.iter().all(|m| m.start_ms.abs() <= REACH_MS && (0.0..=REACH_MS).contains(&m.len_ms)), "{e:?}");
+    let left_out = 2 - e.markers.len();
+    let warned =
+        (left_out > 0).then(|| format!("{left_out} marker(s) further from the start than a track reaches left out"));
+    assert_eq!(c.warnings, Vec::from_iter(warned));
+    assert_bounded(e);
+    let grid = |start_ms, bpm| Marker {
+        kind: MarkerKind::Grid,
+        name: String::new(),
+        start_ms,
+        len_ms: 0.0,
+        hot_cue: None,
+        color: None,
+        bpm,
+    };
+    let markers = vec![grid(grid_start, Some(grid_bpm)), grid(start, None)];
+    assert_bounded(&Entry { duration_secs: Some(length), bpm: Some(bpm), markers, ..Entry::default() });
+}
+
+/// The grid `e` lays down, if it does, has at most a beat a step of its fastest tempo through the
+/// track, and one more for each grid marker.
+fn assert_bounded(e: &Entry) {
+    let Ok(beats) = e.beats() else { return };
+    let fastest = e.markers.iter().filter_map(|m| m.bpm).chain(e.bpm).fold(0.0, f64::max);
+    let markers = e.markers.iter().filter(|m| m.kind == MarkerKind::Grid).count();
+    let most = e.duration_secs.unwrap_or(0.0) * 1000.0 * fastest / 60_000.0 + markers as f64;
+    assert!(beats.len() as f64 <= most, "{} beats, at most {most}: {e:?}", beats.len());
 }
 
 /// Text that's anything from a collection to junk reads as a collection or is refused as not

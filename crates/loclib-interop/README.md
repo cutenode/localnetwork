@@ -21,7 +21,9 @@ your output folder, and their bytes) and notes on what the format left out.
   makes it a path on this computer), title, artist, album, genre, label, comment, remixer, key,
   tempo, length, rating and release year, its markers (cues, fade and load markers, grid markers
   and loops, with their pads, names and lengths), and the playlists with the folders above them.
-  `Entry::beats` lays a track's grid markers out as a beat grid. Smart playlists are left out.
+  `Entry::beats` lays a track's grid markers out as a beat grid, for a track up to a day long.
+  Smart playlists, tempos past 655.35 BPM and markers further from the start than a track reaches
+  (`u32::MAX` milliseconds) are left out.
 - `serato`: a `.crate` file per playlist and folder in `_Serato_/Subcrates` (a folder becomes a
   crate holding its crates). Crates only list tracks: Serato reads each file's own tags and
   analyses it again, so beat grids aren't carried. With `serato::Copies`, the audio is copied for
