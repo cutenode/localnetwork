@@ -74,7 +74,8 @@ assert!(String::from_utf8_lossy(nml).contains(r#"FILE="Glue.mp3" VOLUME="USB""#)
 // Read back, as a collection Traktor wrote would be.
 let collection = traktor::read(nml).unwrap();
 let glue = &collection.entries[0];
-assert_eq!(glue.location.path(None), Path::new("/Volumes/USB/Contents/Bicep/Glue.mp3"));
+let audio = glue.location.path(&traktor::startup_disk());
+assert_eq!(audio, Path::new("/Volumes/USB/Contents/Bicep/Glue.mp3"));
 assert_eq!((glue.key.map(|k| k.code()), glue.bpm), (Some("8A".to_string()), Some(130.0)));
 assert_eq!(collection.lists[0].path, ["Warmup"]);
 ```

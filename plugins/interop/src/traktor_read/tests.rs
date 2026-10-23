@@ -1,13 +1,15 @@
-//! The Traktor importer served over pipes, as `locallibrary import` runs it, on collections in the
-//! shape Traktor writes them.
+//! The Traktor importer and source served over pipes, as `locallibrary import` and `collection
+//! export --from interop:traktor` run them, on collections in the shape Traktor writes them.
 
 use std::io::pipe;
-use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
 
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
+use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
+use loclib_model::test_util::track;
+use loclib_model::{Library, Playlist, Track};
 use loclib_plugin::{Incoming, PROTOCOL_VERSION, Peer, method};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -53,6 +55,40 @@ impl Session {
             ImportAnswer::Read(read) => read,
             blob => panic!("in a message: {blob:?}"),
         }
+    }
+
+    /// `library/read` of `file`'s page after `cursor`, granted `roots`, with `context`.
+    fn read_library(
+        &self,
+        file: &Path,
+        roots: &[PathBuf],
+        cursor: Option<&str>,
+        context: Value,
+    ) -> Result<LibraryPage, RpcError> {
+        let read = json!({
+            "source": "traktor",
+            "options": { "collection": file },
+            "roots": roots,
+            "cursor": cursor,
+            "context": context,
+        });
+        self.host.request(method::READ_LIBRARY, &read)
+    }
+
+    /// `library`'s collection as loclib-interop writes it, its audio below the session's folder,
+    /// with `analysis`.
+    fn built(&self, library: &Library, analysis: &dyn Fn(&Track) -> TrackAnalysis) -> PathBuf {
+        let src = loclib_interop::Source { library, root: self.dir.path().into(), analysis: Some(analysis) };
+        let export = traktor::build(&src, Path::new("out"), &Ctx::silent()).unwrap();
+        let loclib_interop::Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is bytes") };
+        self.file(std::str::from_utf8(nml).unwrap())
+    }
+
+    /// A folder of the session's, made, as the host grants it: its links resolved.
+    fn granted(&self, name: &str) -> PathBuf {
+        let dir = self.dir.path().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dunce::canonicalize(dir).unwrap()
     }
 
     fn stop(self) {
@@ -310,5 +346,266 @@ fn markers_are_imported_as_cues(tc: TestCase) {
         (warned("past H"), warned("loop(s)")),
         ((past_h > 0).then_some(past_h), (unsized_loops > 0).then_some(unsized_loops))
     );
+    s.stop();
+}
+
+fn list(id: u32, parent_id: Option<u32>, name: &str, track_ids: Vec<u32>, is_folder: bool) -> Playlist {
+    Playlist { id, parent_id, name: name.into(), is_folder, sort_order: id, track_ids }
+}
+
+/// A grid at `bpm` from `from_ms`, a beat a step, `n` beats.
+fn grid(bpm: f64, from_ms: u32, n: u16) -> Vec<Beat> {
+    let step = 60_000.0 / bpm;
+    (0..n)
+        .map(|i| Beat { beat_number: i % 4 + 1, bpm, time_ms: from_ms + (f64::from(i) * step).round() as u32 })
+        .collect()
+}
+
+/// The collection's tracks, each by its audio file, with their tags, key, tempo, cues and the
+/// grid its grid marker lays down to the end of the track; one in a folder not granted by its path
+/// alone; its playlists by their folders, listing tracks by path, on the last page.
+#[test]
+fn a_collection_is_a_library_source() {
+    let s = start();
+    let music = s.granted("music");
+    let a = Track {
+        key: "Am".into(),
+        genre: "House".into(),
+        duration_secs: 4,
+        rating: 3,
+        year: 2019,
+        ..track(1, "Art", "A", "/music/a.mp3")
+    };
+    let b = Track { duration_secs: 0, ..track(2, "", "B", "/music/sub/b.mp3") };
+    let c = track(3, "", "C", "/elsewhere/c.mp3");
+    let library = Library {
+        tracks: vec![a, b, c],
+        playlists: vec![
+            list(1, None, "Sets", vec![], true),
+            list(2, Some(1), "Friday", vec![1, 3], false),
+            list(3, None, "All", vec![2], false),
+        ],
+        ..Library::default()
+    };
+    let cue = |hot_cue, start_ms, end_ms, comment: &str| Cue {
+        hot_cue,
+        start_ms,
+        end_ms,
+        comment: comment.into(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+    };
+    let analysis = |t: &Track| match t.id {
+        1 => TrackAnalysis {
+            beats: grid(128.0, 100, 2),
+            cues: vec![cue(Some(0), 1000, None, "Drop"), cue(None, 2000, Some(3875), "")],
+            ..TrackAnalysis::default()
+        },
+        // A grid but no length to lay it down to.
+        _ => TrackAnalysis { beats: grid(120.0, 0, 1), ..TrackAnalysis::default() },
+    };
+    let file = s.built(&library, &analysis);
+    let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({})).unwrap();
+    let at = |p: &str| s.dir.path().join(p);
+    let paths: Vec<&Path> = page.tracks.iter().map(|t| t.path.as_path()).collect();
+    assert_eq!(paths, [at("music/a.mp3"), at("music/sub/b.mp3"), at("elsewhere/c.mp3")]);
+    let [a, b, c] = &page.tracks[..] else { panic!("three tracks") };
+    assert_eq!(
+        (a.title.as_str(), a.artist.as_str(), a.genre.as_str(), a.key.as_deref(), a.bpm, a.rating, a.year),
+        ("A", "Art", "House", Some("8A"), Some(128.0), 3, 2019)
+    );
+    let cues = [
+        SourceCue { hot_cue: Some(0), start_ms: 1000, end_ms: None, name: "Drop".into(), color: Some("blue".into()) },
+        SourceCue {
+            hot_cue: None,
+            start_ms: 2000,
+            end_ms: Some(3875),
+            name: String::new(),
+            color: Some("green".into()),
+        },
+    ];
+    assert_eq!(a.cues, cues);
+    // 4 s at 128 BPM from the downbeat at 100 ms: nine beats.
+    assert_eq!(a.beats, grid(128.0, 100, 9));
+    assert_eq!((b.title.as_str(), b.bpm, b.beats.len()), ("B", Some(120.0), 0));
+    assert_eq!(c, &SourceTrack { path: at("elsewhere/c.mp3"), ..SourceTrack::default() });
+    let playlists = [
+        SourcePlaylist { path: "Sets/Friday".into(), tracks: vec![at("music/a.mp3"), at("elsewhere/c.mp3")] },
+        SourcePlaylist { path: "All".into(), tracks: vec![at("music/sub/b.mp3")] },
+    ];
+    assert_eq!((page.playlists.as_slice(), page.next, page.blob), (&playlists[..], None, None));
+    s.stop();
+}
+
+/// A collection is read a thousand tracks a page, its playlists on the last; a cursor that isn't
+/// one of its pages, options without the collection and a collection that isn't there are
+/// refused.
+#[test]
+fn a_collection_is_read_in_pages() {
+    let s = start();
+    let entry = |i: usize| format!(r#"<ENTRY TITLE="{i}"><LOCATION DIR="/:" FILE="{i}.mp3" VOLUME="USB"/></ENTRY>"#);
+    let entries: String = (0..1001).map(entry).collect();
+    let list = r#"<NODE TYPE="PLAYLIST" NAME="Last"><PLAYLIST><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="USB/:1000.mp3"/></ENTRY></PLAYLIST></NODE><NODE TYPE="SMARTLIST" NAME="Recent"/>"#;
+    let file = s.file(&format!("<NML><COLLECTION>{entries}</COLLECTION><PLAYLISTS>{list}</PLAYLISTS></NML>"));
+    let first = s.read_library(&file, &[], None, json!({})).unwrap();
+    assert_eq!((first.tracks.len(), first.playlists.len(), first.next.as_deref()), (1000, 0, Some("1000")));
+    let last = s.read_library(&file, &[], Some("1000"), json!({})).unwrap();
+    assert_eq!((last.tracks.len(), last.next), (1, None));
+    assert_eq!(last.playlists[0].tracks, [last.tracks[0].path.clone()]);
+    for cursor in ["1002", "x"] {
+        let e = s.read_library(&file, &[], Some(cursor), json!({})).unwrap_err();
+        assert_eq!(e.kind(), Some("invalid"), "{e:?}");
+        assert_eq!(e.message, format!("{cursor:?} isn't a page of {}", file.display()));
+    }
+    let read = json!({ "source": "traktor", "options": {}, "roots": [] });
+    let e = s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &read).unwrap_err();
+    assert_eq!(e.kind(), Some("invalid_params"), "{e:?}");
+    let e = s.read_library(&s.dir.path().join("gone.nml"), &[], None, json!({})).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    s.stop();
+}
+
+/// A page past what a message holds (a day-long track's grid at a fast tempo) goes in a blob in
+/// the scratch folder, holding the page.
+#[test]
+fn a_big_page_is_a_blob() {
+    let s = start();
+    let music = s.granted("music");
+    let long = Track { duration_secs: 86_400, bpm: 600.0, ..track(1, "", "Long", "/music/long.mp3") };
+    let library = Library { tracks: vec![long], ..Library::default() };
+    let file = s.built(&library, &|_| TrackAnalysis { beats: grid(600.0, 0, 1), ..TrackAnalysis::default() });
+    let scratch = s.granted("scratch");
+    let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({ "scratch": scratch })).unwrap();
+    assert_eq!(page, LibraryPage { blob: Some("page.json".into()), ..LibraryPage::default() });
+    let held: LibraryPage = serde_json::from_slice(&std::fs::read(scratch.join("page.json")).unwrap()).unwrap();
+    assert_eq!(held.tracks[0].beats.len(), 864_000);
+    s.stop();
+}
+
+/// A library a collection could be written from: tracks in a folder granted or not, with a key,
+/// a tempo (or none), a length, cues of every kind (past H too) and a grid (or none); playlists in
+/// a folder or not, listing tracks twice and tracks it hasn't.
+#[hegel::composite]
+fn library(tc: &TestCase) -> (Library, FxHashMap<u32, TrackAnalysis>) {
+    let n = tc.draw(gs::integers::<u32>().max_value(5));
+    let mut tracks = Vec::new();
+    let mut analysis = FxHashMap::default();
+    for id in 1..=n {
+        let folder = tc.draw(gs::sampled_from(vec!["music", "music/sub", "elsewhere"]));
+        let t = Track {
+            key: tc.draw(gs::sampled_from(vec!["", "Am", "8B", "F#m"])).into(),
+            bpm: tc.draw(gs::sampled_from(vec![0.0, 120.0, 128.5])),
+            duration_secs: tc.draw(gs::integers::<u32>().max_value(30)),
+            rating: tc.draw(gs::integers::<u8>().max_value(5)),
+            ..track(id, "Art", &format!("T{id}"), &format!("/{folder}/{id}.mp3"))
+        };
+        let cues = tc.draw(gs::vecs(hegel::tuples!(
+            gs::optional(gs::integers::<u8>().max_value(9)),
+            gs::integers::<u32>().max_value(30_000),
+            gs::optional(gs::integers::<u32>().max_value(30_000)),
+        )));
+        let cues = cues.into_iter().map(|(hot_cue, start_ms, end_ms)| Cue {
+            hot_cue,
+            start_ms,
+            end_ms,
+            comment: String::new(),
+            color: None,
+            color_id: 0,
+            loop_beats: None,
+        });
+        let beats = match tc.draw(gs::booleans()) {
+            true => grid(t.bpm.max(90.0), tc.draw(gs::integers::<u32>().max_value(2000)), 4),
+            false => Vec::new(),
+        };
+        analysis.insert(id, TrackAnalysis { beats, cues: cues.collect(), ..TrackAnalysis::default() });
+        tracks.push(t);
+    }
+    let mut ids: Vec<u32> = (1..=n).collect();
+    ids.push(99);
+    let in_folder = tc.draw(gs::booleans());
+    let mut playlists = vec![list(1, None, "Sets", vec![], true)];
+    for id in 2..tc.draw(gs::integers::<u32>().min_value(2).max_value(4)) {
+        let parent = in_folder.then_some(1);
+        playlists.push(list(
+            id,
+            parent,
+            &format!("P{id}"),
+            tc.draw(gs::vecs(gs::sampled_from(ids.clone())).max_size(4)),
+            false,
+        ));
+    }
+    (Library { tracks, playlists, ..Library::default() }, analysis)
+}
+
+/// Whatever library a collection is written from, the source answers each of its tracks by its
+/// audio file: those in the folder granted with their tags, key, tempo, cues on their pads (the
+/// host leaves out those past H) and the grid laid down from the first downbeat to the end of
+/// the track; the others by their path alone. Playlists come by their folders, listing the
+/// tracks they have by path.
+#[hegel::test(test_cases = 40)]
+fn a_collection_reads_as_its_library(tc: TestCase) {
+    let s = start();
+    let music = s.granted("music");
+    let (library, analysis) = tc.draw(library());
+    let file = s.built(&library, &|t: &Track| analysis[&t.id].clone());
+    let page = s.read_library(&file, std::slice::from_ref(&music), None, json!({})).unwrap();
+    let at = |t: &Track| s.dir.path().join(t.file_path.trim_start_matches('/'));
+    assert_eq!(
+        page.tracks.iter().map(|t| t.path.clone()).collect::<Vec<_>>(),
+        library.tracks.iter().map(at).collect::<Vec<_>>()
+    );
+    for (t, read) in library.tracks.iter().zip(&page.tracks) {
+        if t.file_path.starts_with("/elsewhere") {
+            assert_eq!(read, &SourceTrack { path: at(t), ..SourceTrack::default() });
+            continue;
+        }
+        let a = &analysis[&t.id];
+        let downbeat = a.beats.first();
+        let tempo = downbeat.map_or(t.bpm, |b| b.bpm);
+        assert_eq!(
+            (read.title.as_str(), read.rating, read.bpm),
+            (t.title.as_str(), t.rating, (tempo > 0.0).then_some(tempo))
+        );
+        let key = Camelot::parse(&t.key).map(Camelot::code);
+        assert_eq!(read.key, key);
+        // Loops in green, a loop that doesn't end after it starts as long as nothing; Traktor has no
+        // pad past H.
+        let cues: Vec<SourceCue> = a
+            .cues
+            .iter()
+            .filter(|c| c.hot_cue.is_none_or(|h| h <= 7))
+            .map(|c| SourceCue {
+                hot_cue: c.hot_cue,
+                start_ms: c.start_ms,
+                end_ms: c.end_ms.filter(|end| *end > c.start_ms),
+                name: String::new(),
+                color: Some(if c.end_ms.is_some() { "green" } else { "blue" }.into()),
+            })
+            .collect();
+        assert_eq!(read.cues, cues);
+        let end_ms = t.duration_secs * 1000;
+        match downbeat.filter(|_| t.duration_secs > 0) {
+            Some(first) => {
+                assert!(read.beats.iter().all(|b| b.bpm == first.bpm && b.time_ms < end_ms), "{:?}", read.beats);
+                assert_eq!(
+                    read.beats.iter().find(|b| b.time_ms == first.time_ms).map(|b| b.beat_number),
+                    (first.time_ms < end_ms).then_some(1)
+                );
+            }
+            None => assert!(read.beats.is_empty()),
+        }
+    }
+    let lists: Vec<(String, Vec<PathBuf>)> = library
+        .playlists
+        .iter()
+        .filter(|p| !p.is_folder)
+        .map(|p| {
+            let name = if p.parent_id.is_some() { format!("Sets/{}", p.name) } else { p.name.clone() };
+            (name, p.track_ids.iter().filter_map(|id| library.track(*id)).map(at).collect())
+        })
+        .collect();
+    let read: Vec<(String, Vec<PathBuf>)> = page.playlists.into_iter().map(|p| (p.path, p.tracks)).collect();
+    assert_eq!(read, lists);
     s.stop();
 }

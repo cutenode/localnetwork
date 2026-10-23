@@ -115,6 +115,8 @@ tokio.workspace = true
 # Splits hints into words the way a shell does, to check their quoting.
 shlex = "2.0.1"
 loclib-model = { workspace = true, features = ["test-util"] }
+# Writes the Traktor collections the interop plugin's library source is tested on.
+loclib-interop.workspace = true
 
 [lints]
 workspace = true

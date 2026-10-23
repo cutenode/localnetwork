@@ -83,9 +83,7 @@ fn located_again(e: &Entry, volume: Option<&str>) {
         Some(letter) => PathBuf::from(format!("{letter}{MAIN_SEPARATOR}{below}")),
         None => Path::new("/").join(parts.join("/")),
     };
-    // The startup disk is the one the collection was written on.
-    let startup = volume.is_none().then_some(e.location.volume.as_str());
-    assert_eq!(e.location.path(startup), want);
+    assert_eq!(e.location.path(&traktor::startup_disk()), want);
 }
 
 /// The year `RELEASE_DATE` reads as: the release date's when it's a day on the calendar, else the

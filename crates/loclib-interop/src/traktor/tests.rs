@@ -124,13 +124,21 @@ fn keys_dates_and_colours() {
 fn locations_are_paths_again() {
     let loc = |volume: &str, dir: &str| Location { volume: volume.into(), dir: dir.into(), file: "x.mp3".into() };
     let usb = loc("USB", "/:Contents/:Daft Punk/:");
-    assert_eq!(usb.path(Some("Macintosh HD")), Path::new("/Volumes/USB/Contents/Daft Punk/x.mp3"));
+    assert_eq!(usb.path("Macintosh HD"), Path::new("/Volumes/USB/Contents/Daft Punk/x.mp3"));
     let home = loc("Macintosh HD", "/:Users/:me/:");
-    assert_eq!(home.path(Some("Macintosh HD")), Path::new("/Users/me/x.mp3"));
-    assert_eq!(home.path(None), Path::new("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
+    assert_eq!(home.path("Macintosh HD"), Path::new("/Users/me/x.mp3"));
+    let elsewhere = home.path("Studio SSD");
+    assert_eq!(elsewhere, Path::new("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
     let windows = loc("E:", "/:Music/:");
-    assert_eq!(windows.path(None), PathBuf::from(format!("E:{MAIN_SEPARATOR}Music{MAIN_SEPARATOR}x.mp3")));
-    assert_eq!(loc("USB", "/:").path(None), Path::new("/Volumes/USB/x.mp3"));
+    assert_eq!(windows.path("E:"), PathBuf::from(format!("E:{MAIN_SEPARATOR}Music{MAIN_SEPARATOR}x.mp3")));
+    assert_eq!(loc("USB", "/:").path("Macintosh HD"), Path::new("/Volumes/USB/x.mp3"));
+}
+
+/// The startup disk is this Mac's, or the name `build` gives it elsewhere.
+#[test]
+fn the_startup_disk_is_named_as_build_names_it() {
+    assert_eq!(startup_disk(), startup_volume(Path::new("/Volumes")).unwrap_or_else(|| STARTUP_VOLUME.into()));
+    assert!(!startup_disk().is_empty());
 }
 
 /// Every `MUSICAL_KEY VALUE` is a key that's written as that value again.

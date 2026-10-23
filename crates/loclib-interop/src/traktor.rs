@@ -40,12 +40,18 @@ const STARTUP_VOLUME: &str = "Macintosh HD";
 
 /// The startup disk's name, which Traktor on a Mac gives audio outside `/Volumes`: macOS lists it
 /// in `volumes` (`/Volumes`) as a link to `/`.
-pub fn startup_volume(volumes: &Path) -> Option<String> {
+fn startup_volume(volumes: &Path) -> Option<String> {
     std::fs::read_dir(volumes)
         .ok()?
         .flatten()
         .find(|e| std::fs::read_link(e.path()).is_ok_and(|to| to == Path::new("/")))
         .map(|e| e.file_name().to_string_lossy().into_owned())
+}
+
+/// This computer's startup disk, by the name [`Location::path`] takes: this Mac's, or the name
+/// [`build`] gives it when this computer doesn't say (it isn't a Mac).
+pub fn startup_disk() -> String {
+    startup_volume(Path::new("/Volumes")).unwrap_or_else(|| STARTUP_VOLUME.into())
 }
 
 /// Where a file is, the way `LOCATION` says it.
@@ -65,11 +71,12 @@ impl Location {
     }
 
     /// The file on this computer, as [`location`] places one the other way: below its drive
-    /// letter, below `/` on the startup disk (the volume named `startup`), else below `/Volumes`.
-    pub fn path(&self, startup: Option<&str>) -> PathBuf {
+    /// letter, below `/` on the startup disk (the volume named `startup`, see [`startup_disk`]),
+    /// else below `/Volumes`.
+    pub fn path(&self, startup: &str) -> PathBuf {
         let mut path = match self.volume.as_bytes() {
             [letter, b':'] if letter.is_ascii_alphabetic() => PathBuf::from(format!("{}{MAIN_SEPARATOR}", self.volume)),
-            _ if startup == Some(self.volume.as_str()) => PathBuf::from("/"),
+            _ if self.volume == startup => PathBuf::from("/"),
             _ => Path::new("/Volumes").join(&self.volume),
         };
         path.extend(self.dir.split("/:").filter(|p| !p.is_empty()));

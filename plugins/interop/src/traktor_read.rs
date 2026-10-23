@@ -1,28 +1,119 @@
 //! A Traktor collection (`collection.nml`) read with loclib-interop: what it says about tracks, for
-//! `import` (the `traktor` importer).
+//! `import` (the `traktor` importer), and the library itself, for building a drive from (the
+//! `traktor` source).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use loclib_interop::Error;
 use loclib_interop::traktor::{self, Collection, Entry, Marker, MarkerKind};
 use loclib_model::harmony::Camelot;
 use loclib_plugin::{
-    Blob, Context, Host, ImportAnswer, Imported, ImportedCue, ImportedTrack, ReadImport, RpcError, TrackMatch,
+    Blob, Context, Host, ImportAnswer, Imported, ImportedCue, ImportedTrack, LibraryPage, ReadImport, ReadLibrary,
+    RpcError, SourceCue, SourcePlaylist, SourceTrack, TrackMatch, params,
 };
 use loclib_progress::Ctx;
-use serde::Serialize;
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 
 /// The most an answer holds in a message; a bigger one goes in a blob. Half what a message may be
 /// (16 MiB), for the rest of the message around it.
 const MESSAGE: usize = 8 << 20;
 
+/// How many of a collection's tracks a page of `library/read` holds.
+const PAGE: usize = 1000;
+
+/// The source's options.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceOptions {
+    /// The collection to read, absolute.
+    collection: PathBuf,
+}
+
+/// `library/read`: a page of the collection's tracks, each by its audio file on this computer, and
+/// on the last page its playlists. A track whose file isn't in a folder granted is answered by its
+/// path alone, for the host to leave out and say so, without what it holds.
+pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage, RpcError> {
+    let SourceOptions { collection: file } = params(req.options)?;
+    let collection = collection(&file, &host.ctx())?;
+    // A page has no warnings; what reading the collection left out goes in the log, once.
+    if req.cursor.is_none() {
+        collection.warnings.iter().for_each(|w| eprintln!("{}: {w}", file.display()));
+    }
+    let entries = &collection.entries;
+    // A cursor that isn't a number is past the end, refused below.
+    let from = req.cursor.as_deref().map_or(Ok(0), str::parse).unwrap_or(usize::MAX);
+    let to = from.saturating_add(PAGE).min(entries.len());
+    let page = entries.get(from..to).ok_or_else(|| {
+        let cursor = req.cursor.unwrap_or_default();
+        crate::invalid(format!("{cursor:?} isn't a page of {}", file.display()))
+    })?;
+    let startup = traktor::startup_disk();
+    let tracks = page.iter().map(|e| {
+        let path = e.location.path(&startup);
+        match req.roots.iter().any(|root| crate::resolved(&path).starts_with(root)) {
+            true => source_track(e, path),
+            false => SourceTrack { path, ..SourceTrack::default() },
+        }
+    });
+    let last = to == entries.len();
+    let mut playlists = Vec::new();
+    if last {
+        // Each track by the path its page answered it by, by the key playlists name it by.
+        let paths: FxHashMap<String, PathBuf> =
+            entries.iter().map(|e| (e.location.key(), e.location.path(&startup))).collect();
+        playlists.extend(collection.lists.iter().map(|list| SourcePlaylist {
+            path: list.path.join("/"),
+            tracks: list.keys.iter().filter_map(|key| paths.get(key).cloned()).collect(),
+        }));
+    }
+    let page = LibraryPage { tracks: tracks.collect(), playlists, blob: None, next: (!last).then(|| to.to_string()) };
+    Ok(match spilled(&page, &req.context, "page.json")? {
+        Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
+        None => page,
+    })
+}
+
+/// An entry as a source's track: its tags, key, tempo, cues (loops by where they end) and the
+/// beat grid its grid markers lay down. A grid that can't be is left out, said in the log.
+fn source_track(e: &Entry, path: PathBuf) -> SourceTrack {
+    let cues = cues(e).map(|m| SourceCue {
+        hot_cue: m.hot_cue,
+        start_ms: start_ms(m),
+        end_ms: is_loop(m).then(|| (m.start_ms + m.len_ms).max(0.0).round() as u32),
+        name: m.name.clone(),
+        color: colour(m),
+    });
+    let beats = e.beats().unwrap_or_else(|why| {
+        eprintln!("{}: its beat grid is left out: {why}", path.display());
+        Vec::new()
+    });
+    SourceTrack {
+        title: e.title.clone(),
+        artist: e.artist.clone(),
+        album: e.album.clone(),
+        genre: e.genre.clone(),
+        label: e.label.clone(),
+        remixer: e.remixer.clone(),
+        comment: e.comment.clone(),
+        year: e.year,
+        rating: e.rating,
+        key: key(e),
+        bpm: e.bpm,
+        cues: cues.collect(),
+        beats,
+        path,
+        ..SourceTrack::default()
+    }
+}
+
 /// `import/read`: each track's key, tempo and cues, found by its file, artist, title and length.
 /// Tracks the collection says none of those about are left out.
 pub(crate) fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, RpcError> {
     let collection = collection(&req.file, &host.ctx())?;
-    let startup = traktor::startup_volume(Path::new("/Volumes"));
+    let startup = traktor::startup_disk();
     let mut left_out = LeftOut::default();
-    let tracks = collection.entries.iter().filter_map(|e| imported(e, startup.as_deref(), &mut left_out));
+    let tracks = collection.entries.iter().filter_map(|e| imported(e, &startup, &mut left_out));
     let read = Imported {
         tracks: tracks.collect(),
         sessions: Vec::new(),
@@ -73,7 +164,7 @@ impl LeftOut {
 }
 
 /// What an entry says of its track for `import`, if anything: its key, tempo and cues.
-fn imported(e: &Entry, startup: Option<&str>, left_out: &mut LeftOut) -> Option<ImportedTrack> {
+fn imported(e: &Entry, startup: &str, left_out: &mut LeftOut) -> Option<ImportedTrack> {
     let cues: Vec<ImportedCue> = cues(e).filter_map(|m| imported_cue(m, e.bpm, left_out)).collect();
     let key = key(e);
     if key.is_none() && e.bpm.is_none() && cues.is_empty() {

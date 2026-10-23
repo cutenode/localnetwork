@@ -18,7 +18,7 @@ use crate::tui::palette::Item;
 
 /// The form's own fields, beside the source's options: the folders granted, and whether to
 /// replace a library the drive holds.
-const READ_FROM: &str = "read_from";
+pub(super) const READ_FROM: &str = "read_from";
 const REPLACE: &str = "replace";
 
 /// `m`'s library sources as the palette and a drive's menu offer them, each unavailable for `why`.

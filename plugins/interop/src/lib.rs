@@ -10,7 +10,8 @@
 //! (`location_root`).
 //!
 //! It reads Traktor's `collection.nml` too (`traktor_read`): an importer, for the keys, tempos and
-//! cues it has for a drive's tracks.
+//! cues it has for a drive's tracks, and a library source, for building a drive from the files it
+//! lists in the folders the user grants (`fs:read`).
 
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -34,7 +35,7 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    let hooks = Hooks::new().on(write_export).on(traktor_read::read_import);
+    let hooks = Hooks::new().on(write_export).on(traktor_read::read_import).on(traktor_read::read_library);
     loclib_plugin::serve(MANIFEST, hooks, input, output);
 }
 

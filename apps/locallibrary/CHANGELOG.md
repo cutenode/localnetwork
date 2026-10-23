@@ -291,7 +291,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
     and Traktor's `collection.nml` read back, `import` adding the keys, BPMs and cues it has for
-    a drive's tracks.
+    a drive's tracks, and `collection export --from interop:traktor` building a drive from it
+    (tracks, cues, beat grids and playlists).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
