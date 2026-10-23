@@ -55,6 +55,10 @@ struct PublishSetAt {
     destination: String,
     /// The set: its id (or the start of it), title or day, or `last`.
     set: String,
+    /// Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+    /// and tracks the profile hides (`profile hide`) are never named either.
+    #[serde(default)]
+    hide: Vec<usize>,
 }
 
 pub(super) fn register(r: &mut Registry) {
@@ -97,5 +101,5 @@ pub(super) fn register(r: &mut Registry) {
 }
 
 fn publish_plan(c: &Call<'_>, req: PublishSetAt) -> Result<Planned<SetPublish>, RpcError> {
-    Ok(host()?.publish_plan(&req.destination, &req.set, &c.store()?, c.ctx)?)
+    Ok(host()?.publish_plan(&req.destination, &req.set, &req.hide, &c.store()?, c.ctx)?)
 }

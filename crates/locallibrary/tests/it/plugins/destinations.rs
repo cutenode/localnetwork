@@ -14,6 +14,7 @@ use locallibrary::offsite::{self, CopyOptions, RestoreOptions};
 use locallibrary::op::AnyPlanned;
 use locallibrary::paths;
 use locallibrary::peers::LibraryOutcome;
+use locallibrary::profile::ProfilePrefs;
 use locallibrary::scrub::{self, RepairSource};
 use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::sync::{self, PullOptions};
@@ -238,9 +239,15 @@ fn set(store: &Store, dir: &Path) -> Set {
 fn a_set_is_published_after_its_dry_run_and_keeps_its_link() {
     let f = Fixture::echo();
     let s = set(&f.store, f.store.root());
-    let plan = f.plugins.publish_plan("echo:nowhere", "last", &f.store, &Ctx::silent()).unwrap();
+    let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
     assert_eq!((plan.operation(), plan.tracks, plan.destructive), ("echo.publish.nowhere", 2, false));
-    assert_eq!(plan.summary, ["publish Friday (2 tracks) and its recording at Nowhere, saying where"]);
+    assert_eq!(
+        plan.summary,
+        [
+            "publish Friday (2 tracks) and its recording at Nowhere, saying where",
+            "track 2 isn't named: marked unnamed (`sets edit --named`)"
+        ]
+    );
     assert_eq!(plan.warnings, ["2 tracks would be published"]);
     let asked = f.asked();
     let sent: Value = serde_json::from_str(asked[0].strip_prefix("set/publish ").unwrap()).unwrap();
@@ -256,13 +263,44 @@ fn a_set_is_published_after_its_dry_run_and_keeps_its_link() {
     assert_eq!(done.url.as_deref(), Some(url.as_str()));
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link.as_deref(), Some(url.as_str()), "the host keeps the link");
     // Published again, the link it has is replaced: said so, and destructive.
-    let again = f.plugins.publish_plan("echo:nowhere", &s.id, &f.store, &Ctx::silent()).unwrap();
+    let again = f.plugins.publish_plan("echo:nowhere", &s.id, &[], &f.store, &Ctx::silent()).unwrap();
     assert!(again.destructive && again.summary.contains(&format!("replace its link {url}")), "{:?}", again.summary);
     // Changed since it was planned: planned again.
     let mut book = SetBook::load(&f.store).unwrap();
     book.sets[0].updated_at = Utc::now() + chrono::Duration::seconds(5);
     book.save(&f.store).unwrap();
     let e = again.apply(Some(&f.store), &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+}
+
+#[test]
+fn tracks_the_profile_hides_or_hide_names_are_published_without_their_names() {
+    let f = Fixture::echo();
+    set(&f.store, f.store.root());
+    let mut book = SetBook::load(&f.store).unwrap();
+    book.sets[0].tracks.push(SetEntry { start_seconds: Some(60), ..SetEntry::added("Daft Punk - Around the World") });
+    book.save(&f.store).unwrap();
+    let prefs = ProfilePrefs { hidden_artists: vec!["burial".into()], ..ProfilePrefs::default() };
+    prefs.save(&f.store).unwrap();
+    let e = f.plugins.publish_plan("echo:nowhere", "last", &[4], &f.store, &Ctx::silent()).err().unwrap();
+    assert_eq!(e.to_string(), "there's no track 4 to hide: the set has 3");
+    let plan = f.plugins.publish_plan("echo:nowhere", "last", &[3], &f.store, &Ctx::silent()).unwrap();
+    assert_eq!(
+        plan.summary,
+        [
+            "publish Friday (3 tracks) and its recording at Nowhere, saying where",
+            "track 2 isn't named: marked unnamed (`sets edit --named`)",
+            "track 3 isn't named: hidden as asked",
+            "track 1 isn't named: hidden by your profile (`profile unhide`)"
+        ]
+    );
+    let asked = f.asked();
+    assert!(!asked[0].contains("Burial") && !asked[0].contains("Daft Punk"), "{asked:?}");
+    let sent: Value = serde_json::from_str(asked[0].strip_prefix("set/publish ").unwrap()).unwrap();
+    assert_eq!(sent["tracklist"], json!([{ "start_seconds": 60 }, { "start_seconds": 60 }, { "start_seconds": 60 }]));
+    // The profile changed since it was planned: planned again.
+    ProfilePrefs::default().save(&f.store).unwrap();
+    let e = plan.apply(Some(&f.store), &Ctx::silent()).unwrap_err();
     assert_eq!(e.code(), "stale_plan", "{e}");
 }
 
@@ -279,12 +317,12 @@ fn a_set_is_published_only_with_its_recording_at_a_set_destination() {
         Options::default(),
     );
     let s = set(&f.store, f.store.root());
-    let e = f.plugins.publish_plan("echo:folder", "last", &f.store, &Ctx::silent()).err().unwrap();
+    let e = f.plugins.publish_plan("echo:folder", "last", &[], &f.store, &Ctx::silent()).err().unwrap();
     assert_eq!(e.to_string(), "echo:folder (A folder of its own) isn't a destination for a set");
     // A link that isn't one is refused, and the set keeps none.
     let answer = json!({ "url": "javascript:alert(1)" }).to_string();
     f.plugins.set_setting("echo", &f.store, "answer", Some(answer.into())).unwrap();
-    let plan = f.plugins.publish_plan("echo:nowhere", "last", &f.store, &Ctx::silent()).unwrap();
+    let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
     let e = plan.apply(Some(&f.store), &Ctx::silent()).unwrap_err().to_string();
     assert_eq!(
         e,
@@ -292,12 +330,12 @@ fn a_set_is_published_only_with_its_recording_at_a_set_destination() {
     );
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
     std::fs::remove_file(&s.recording.as_ref().unwrap().path).unwrap();
-    let e = f.plugins.publish_plan("echo:nowhere", "last", &f.store, &Ctx::silent()).err().unwrap();
+    let e = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).err().unwrap();
     assert!(e.to_string().ends_with("friday.wav, the set's recording"), "{e}");
     let mut book = SetBook::load(&f.store).unwrap();
     book.sets[0].recording = None;
     book.save(&f.store).unwrap();
-    let e = f.plugins.publish_plan("echo:nowhere", "last", &f.store, &Ctx::silent()).err().unwrap();
+    let e = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).err().unwrap();
     assert_eq!(e.to_string(), "Friday has no recording to publish: a set destination publishes one");
 }
 
@@ -305,35 +343,45 @@ fn a_set_is_published_only_with_its_recording_at_a_set_destination() {
 /// says the set is (or would be) and its warnings. None: echo's own answer.
 type Answer = Option<(Option<&'static str>, Vec<String>)>;
 
-/// For any set (titled or not, with any tracks, each named or published without naming it, with a
-/// link or none) and whatever the plugin answers, publishing it at a set destination is planned
-/// with the plugin's dry run, which publishes nothing: the plan names the set's heading and its
-/// tracks, where the plugin says it would be, and the link it replaces (destructive exactly when
+/// For any set (titled or not, with any tracks, each named, marked unnamed or by an artist the
+/// profile hides, with a link or none), any positions asked to be hidden and whatever the plugin
+/// answers, publishing it at a set destination is planned with the plugin's dry run, which
+/// publishes nothing: the plan names the set's heading and its tracks, which tracks go unnamed and
+/// why, where the plugin says it would be, and the link it replaces (destructive exactly when
 /// there's one), warning as the plugin does, and the plugin is sent the set's details and a
 /// tracklist naming only the tracks it may, never the set's notes. Applied, the set's link is where
 /// the plugin says it's published when that's an https address, stays as it was when it says
-/// nowhere, and an address of another kind is refused, the link kept; a set or recording changed
-/// since it was planned is planned again. A destination of another kind, or none, and a set
-/// without its recording are refused before the plugin's asked.
+/// nowhere, and an address of another kind is refused, the link kept; a set, recording or profile
+/// changed since it was planned is planned again. A destination of another kind, or none, a set
+/// without its recording and a position to hide it doesn't have are refused before the plugin's
+/// asked.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let manifest =
         format!("{ECHO}\n[[contributes.settings]]\nkey = \"answer\"\ntitle = \"Answer\"\ntype = \"string\"\n");
     let f = Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default());
     let titled = tc.draw(gs::booleans());
-    let tracks: Vec<(bool, Option<u32>)> = tc.draw(
-        gs::vecs(gs::tuples!(gs::weighted_booleans(0.7), gs::optional(gs::integers::<u32>().max_value(7200))))
-            .max_size(4),
+    // Each named (0), marked unnamed (1) or by an artist the profile hides (2).
+    let tracks: Vec<(u8, Option<u32>)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::sampled_from(vec![0, 0, 0, 1, 2]),
+            gs::optional(gs::integers::<u32>().max_value(7200))
+        ))
+        .max_size(4),
     );
+    let hide: Vec<usize> =
+        tc.draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(tracks.len() + 1)).max_size(2));
+    let hidden_artists = vec!["Hidden".to_string()];
+    ProfilePrefs { hidden_artists, ..ProfilePrefs::default() }.save(&f.store).unwrap();
     let link = tc.draw(gs::optional(gs::just("https://old.example/friday")));
     // 0: on this computer, 1: gone since, 2: none.
     let recording_is = tc.draw(gs::sampled_from(vec![0, 0, 0, 1, 2]));
     let recording = f.store.root().join("friday.wav");
     std::fs::write(&recording, b"RIFF").unwrap();
-    let entries = tracks.iter().enumerate().map(|(i, &(named, start_seconds))| SetEntry {
-        unnamed: !named,
+    let entries = tracks.iter().enumerate().map(|(i, &(how, start_seconds))| SetEntry {
+        unnamed: how == 1,
         start_seconds,
-        ..SetEntry::added(&format!("Artist {i} - Title {i}"))
+        ..SetEntry::added(&format!("{} - Title {i}", if how == 2 { "Hidden".into() } else { format!("Artist {i}") }))
     });
     let date = NaiveDate::from_ymd_opt(2026, 10, 2).unwrap();
     let s = Set {
@@ -369,7 +417,7 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec!["last", "3m4nset", "Friday"]));
     let query = if query == "Friday" && !titled { "last" } else { query };
     let heading = if titled { "Friday".to_string() } else { date.to_string() };
-    let planned = f.plugins.publish_plan(spec_of, query, &f.store, &Ctx::silent());
+    let planned = f.plugins.publish_plan(spec_of, query, &hide, &f.store, &Ctx::silent());
     let asked = || std::fs::read_to_string(Fixture::kept(&f.store).with_file_name("asked")).unwrap_or_default();
     if let Some(said) = refused {
         assert_eq!(planned.err().unwrap().to_string(), said);
@@ -388,10 +436,29 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         assert!(asked().is_empty(), "the plugin was asked");
         return;
     }
-    let plan = planned.unwrap();
     let n = tracks.len();
+    if let Some(bad) = hide.iter().find(|&&p| p > n) {
+        assert_eq!(planned.err().unwrap().to_string(), format!("there's no track {bad} to hide: the set has {n}"));
+        assert!(asked().is_empty(), "the plugin was asked");
+        return;
+    }
+    let plan = planned.unwrap();
+    // Positions (from 1) of the tracks each reason leaves unnamed: marked, asked, the profile.
+    let why = |of: &dyn Fn(usize, u8) -> bool| -> Vec<usize> {
+        (1..).zip(&tracks).filter(|&(p, &(how, _))| of(p, how)).map(|(p, _)| p).collect()
+    };
+    let notes = [
+        (why(&|_, how| how == 1), "marked unnamed (`sets edit --named`)"),
+        (why(&|p, how| how != 1 && hide.contains(&p)), "hidden as asked"),
+        (why(&|p, how| how == 2 && !hide.contains(&p)), "hidden by your profile (`profile unhide`)"),
+    ];
+    let notes = notes.iter().filter(|(at, _)| !at.is_empty()).map(|(at, why)| match at.as_slice() {
+        [one] => format!("track {one} isn't named: {why}"),
+        _ => format!("tracks {} aren't named: {why}", at.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")),
+    });
     let would_be = answer.as_ref().and_then(|(url, _)| *url);
     let mut summary = vec![format!("publish {heading} ({n} tracks) and its recording at Nowhere, saying where")];
+    summary.extend(notes);
     summary.extend(would_be.map(|u| format!("it would be at {u}")));
     summary.extend(link.map(|l| format!("replace its link {l}")));
     assert_eq!(plan.summary, summary);
@@ -410,9 +477,9 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     let tracklist: Vec<Value> = tracks
         .iter()
         .enumerate()
-        .map(|(i, &(named, start))| {
+        .map(|(i, &(how, start))| {
             let mut e = json!({});
-            if named {
+            if how == 0 && !hide.contains(&(i + 1)) {
                 e = json!({ "artist": format!("Artist {i}"), "title": format!("Title {i}") });
             }
             if let Some(start) = start {
@@ -429,13 +496,14 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link.as_deref(), link, "a dry run publishes nothing");
 
     // Changed since it was planned, or not.
-    let changed = tc.draw(gs::sampled_from(vec![None, None, None, Some("set"), Some("recording")]));
+    let changed = tc.draw(gs::sampled_from(vec![None, None, None, Some("set"), Some("recording"), Some("profile")]));
     match changed {
         Some("set") => {
             let mut book = SetBook::load(&f.store).unwrap();
             book.sets[0].updated_at = Utc::now() + chrono::Duration::seconds(5);
             book.save(&f.store).unwrap();
         }
+        Some("profile") => ProfilePrefs::default().save(&f.store).unwrap(),
         Some(_) => std::fs::write(&recording, b"RIFF, longer").unwrap(),
         None => {}
     }
