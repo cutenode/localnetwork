@@ -154,10 +154,11 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
     let mut s = Sidecar::start(&fx);
     let mut m = Model::default();
     let a = path(&fx.volumes.join("A")).to_string();
-    let contract: Value = serde_json::from_slice(
-        &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json")).unwrap(),
-    )
-    .unwrap();
+    // This build's own contract: docs/rpc describes the default build, whose account methods a
+    // build without the account doesn't have.
+    let dir = fx.outside("contract");
+    fx.ok(&["rpc", "--emit-schema", path(&dir)]);
+    let contract: Value = serde_json::from_slice(&std::fs::read(dir.join("schema.json")).unwrap()).unwrap();
     let methods: Vec<&str> =
         contract["methods"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
     let mut names = 0;

@@ -1270,7 +1270,7 @@ fn draw_document(f: &mut Frame, v: &ProfileView, scroll: u16, area: Rect) {
     let json = serde_json::to_string_pretty(&v.document).unwrap_or_default();
     let lines: Vec<Line<'static>> = json.lines().map(json_line).collect();
     let b = block(title("Document", true), true)
-        .title(Line::from(Span::styled(" what a public profile would show · d closes ", faint())).right_aligned());
+        .title(Line::from(Span::styled(" what a public profile would show · D closes ", faint())).right_aligned());
     let max = (lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     f.render_widget(Paragraph::new(lines).block(b).scroll((scroll.min(max), 0)), area);
 }
