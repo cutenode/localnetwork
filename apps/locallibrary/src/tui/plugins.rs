@@ -382,6 +382,16 @@ impl App {
         Some(id.map_or(name, |id| id.to_string()))
     }
 
+    /// Where the drive a plugin names is mounted ([`App::plugin_drive`] the other way round): one
+    /// listed or open, never a path.
+    pub(super) fn named_drive(&self, drive: &str) -> Option<PathBuf> {
+        let named = |id: Option<uuid::Uuid>, name: &str| id.is_some_and(|id| id.to_string() == drive) || name == drive;
+        let listed = self.drives.iter().find(|d| named(d.id, d.name.as_deref().unwrap_or(&d.volume_name)));
+        let open =
+            || self.loaded.as_ref().filter(|l| named(l.device.id(), &l.device.name())).map(|l| l.root().to_path_buf());
+        listed.map(|d| d.root.clone()).or_else(open)
+    }
+
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a
     /// folder) the actions menu works on, and the set open.
     fn context(&self, t: &Target) -> Context {

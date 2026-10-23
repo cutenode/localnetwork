@@ -98,14 +98,27 @@ impl App {
     /// What providers of `kind` find for the tracks `target` selects on the drive at `root`: a
     /// form asks which provider (any, to start with) and whether over what tracks have first.
     pub(in crate::tui) fn fetch_form(&mut self, kind: ProviderKind, root: Option<PathBuf>, target: Option<&Target>) {
-        let Ok(plugins) = crate::plugins::host() else { return };
         let Some(root) = self.plugged(root) else { return };
         let tracks = target.map(|t| self.context(t).tracks).unwrap_or_default();
         if tracks.is_empty() {
             return self.toast("no track selected", Level::Info);
         }
-        let names: Vec<String> =
+        self.fetch_form_from(kind, root, tracks, None);
+    }
+
+    /// [`App::fetch_form`] for `tracks` (every one, when none), only from `from` to start with
+    /// when it says (`<plugin>` or `<plugin>.<provider>`, as a plugin's suggestion has it).
+    pub(super) fn fetch_form_from(
+        &mut self,
+        kind: ProviderKind,
+        root: PathBuf,
+        tracks: Vec<u32>,
+        from: Option<String>,
+    ) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let mut names: Vec<String> =
             plugins.providers(Some(kind)).into_iter().map(|(plugin, p)| format!("{plugin}.{}", p.name)).collect();
+        names.extend(from.clone().filter(|f| !names.contains(f)));
         let schema = json!({
             "type": "object",
             "properties": {
@@ -114,7 +127,8 @@ impl App {
             }
         });
         let title = format!("Fetch {}", kind.found());
-        let form = Form::with(title, Some(schema), &Map::new(), For::Fetch { kind, root, tracks });
+        let filled = Map::from_iter(from.map(|f| ("from".to_string(), Value::from(f))));
+        let form = Form::with(title, Some(schema), &filled, For::Fetch { kind, root, tracks });
         self.modal = Some(Modal::Form(form));
     }
 

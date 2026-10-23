@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-use loclib_plugin::{EventName, EventNotify, HostNotify, Suggested, method};
+use loclib_plugin::{EventName, EventNotify, HostAction, HostNotify, Suggested, Suggestion, method};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -30,9 +30,6 @@ const IDLE: Duration = Duration::from_secs(5);
 
 /// The longest message a plugin tells the user, in characters: the rest is cut.
 const MAX_MESSAGE: usize = 500;
-
-/// The longest params an operation a plugin suggests may have, as JSON: they're kept to plan it.
-const MAX_PARAMS: usize = 64 << 10;
 
 /// The most suggestions kept for the player to offer (see [`keep_suggested`]): the oldest go.
 pub const MAX_SUGGESTED: usize = 20;
@@ -87,15 +84,24 @@ impl Event {
     }
 }
 
-/// A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with
-/// its params: the front end offers to plan it, and the user confirms it as any plan.
+/// A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of
+/// its operations (`operation`) or one of the host's actions (`action`) on its own contributions.
+/// The front end offers to start it, and the user confirms it as when they start it themselves.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginNotice {
     /// The plugin's id.
     pub plugin: String,
     pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation: Option<Suggested>,
+    #[serde(flatten)]
+    #[schemars(schema_with = "suggests_schema")]
+    pub suggests: Option<Suggestion>,
+}
+
+/// [`PluginNotice::suggests`] as the sidecar's contract has it: `operation` or `action`, each
+/// optional, as front ends read them.
+fn suggests_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let (operation, action) = (g.subschema_for::<Suggested>(), g.subschema_for::<HostAction>());
+    schemars::json_schema!({ "type": "object", "properties": { "operation": operation, "action": action } })
 }
 
 /// A plugin's events waiting to be sent, and whether a thread is sending them.
@@ -199,9 +205,10 @@ impl Slot {
 impl Plugin {
     /// A notification from the plugin: `host/notify`, from one with a feature that sends it,
     /// told to the front end once it's text the user can read, without the secrets the host
-    /// filled in for it, and suggesting one of its own operations (with params neither too long
-    /// nor holding those secrets), if any. Anything else (the progress of a request nobody waits
-    /// for any more) is dropped.
+    /// filled in for it, and suggesting one of its own operations or an action on its own
+    /// contributions (with params it takes, neither too long nor holding those secrets), if any:
+    /// one it may not suggest is left out, and logged. Anything else (the progress of a request
+    /// nobody waits for any more) is dropped.
     pub(crate) fn notified(&self, live: &Live, name: &str, params: Value) {
         if name != method::HOST_NOTIFY {
             return;
@@ -210,7 +217,7 @@ impl Plugin {
         if !live.sends(method::HOST_NOTIFY) {
             return self.host.log(id, "it tells the user something without the events or services feature");
         }
-        let notice: HostNotify = match serde_json::from_value(params) {
+        let mut notice: HostNotify = match serde_json::from_value(params) {
             Ok(notice) => notice,
             Err(e) => return self.host.log(id, &format!("what it tells the user isn't host/notify's: {e}")),
         };
@@ -219,26 +226,15 @@ impl Plugin {
         if message.is_empty() {
             return self.host.log(id, "it tells the user nothing");
         }
-        let operation = notice.operation.filter(|o| {
-            let ours = self.manifest.contributes.operations.iter().any(|x| x.name == o.name);
-            let refused = if !ours {
-                format!("it suggests {:?}, which isn't one of its operations", o.name)
-            } else if !(o.params.is_null() || o.params.is_object()) {
-                format!("it suggests {:?} with params that aren't an object", o.name)
-            } else if o.params.to_string().len() > MAX_PARAMS {
-                format!("it suggests {:?} with params longer than {MAX_PARAMS} bytes", o.name)
-            } else {
-                return true;
-            };
-            self.host.log(id, &refused);
-            false
-        });
         // Kept and shown (planned) as the message is.
-        let operation = operation.map(|mut o| {
-            self.net.scrub_value(&mut o.params);
-            o
+        for s in notice.operation.iter_mut().chain(notice.action.iter_mut()) {
+            self.net.scrub_value(&mut s.params);
+        }
+        let suggests = notice.suggestion(&self.manifest).unwrap_or_else(|refused| {
+            self.host.log(id, &refused);
+            None
         });
-        (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, operation });
+        (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, suggests });
     }
 }
 
@@ -301,7 +297,7 @@ fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Re
     Ok(kept)
 }
 
-/// Keeps a plugin's suggestion (one with an operation) for the player to offer until it's
+/// Keeps a plugin's suggestion (an operation or an action) for the player to offer until it's
 /// reviewed or dismissed ([`forget_suggested`]), as the player and the `watch` agent do with what
 /// they're told: the newest [`MAX_SUGGESTED`]. Answers those kept now.
 pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {

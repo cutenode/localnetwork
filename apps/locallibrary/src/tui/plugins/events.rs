@@ -1,7 +1,8 @@
 //! Plugins' events and services in the player: what they tell the user is a message, and what
-//! they suggest waits in the palette to be reviewed (planned, then confirmed as any plan) or
-//! dismissed, kept in the store until it is, with what the `watch` agent kept for it. The
-//! services the user turned on run while the player does.
+//! they suggest (one of their operations, or one of the player's own flows on their
+//! contributions) waits in the palette to be reviewed (started as the user would, then confirmed
+//! as any plan) or dismissed, kept in the store until it is, with what the `watch` agent kept for
+//! it. The services the user turned on run while the player does.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -10,10 +11,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use locallibrary::plugin::{Cli, Notices, PluginNotice, forget_suggested, keep_suggested, suggested};
 use locallibrary::{Result, Store};
-use loclib_plugin::Context;
+use loclib_plugin::{Context, HostAction, Manifest, Suggested, Suggestion};
 
-use super::Run;
+use super::{Run, named};
 use crate::tui::app::{App, Level, Msg};
+use crate::tui::edits::Modal;
 use crate::tui::keymap::Act;
 use crate::tui::palette::Item;
 
@@ -49,7 +51,7 @@ impl App {
     pub(in crate::tui) fn plugin_notices(&self) -> Notices {
         let (tx, store_root) = (self.sender(), self.store_root.clone());
         Arc::new(move |notice: PluginNotice| {
-            if notice.operation.is_some() {
+            if notice.suggests.is_some() {
                 change_kept(&tx, &store_root, |root| keep_suggested(&Store::open_or_init(root)?, &notice));
             }
             let _ = tx.send(Msg::Notice(notice));
@@ -77,7 +79,7 @@ impl App {
     /// What a plugin tells the user, as a message, saying when it suggests something to review.
     pub(in crate::tui) fn told(&mut self, notice: PluginNotice) {
         let by = name(&notice.plugin);
-        let review = if notice.operation.is_some() { " (: to review)" } else { "" };
+        let review = if notice.suggests.is_some() { " (: to review)" } else { "" };
         self.toast(format!("{by}: {}{review}", notice.message), Level::Info);
     }
 
@@ -102,17 +104,69 @@ impl App {
         Some(notice)
     }
 
-    /// Plans what a plugin suggested (the one marked `marked`, see [`Act::Review`]), on the drive
-    /// actions work on: the plan is confirmed as any is, or it asks first. One gone since is not.
+    /// Starts what a plugin suggested (the one marked `marked`, see [`Act::Review`]) as the user
+    /// would, its params filled in: what it plans is confirmed as any plan is, or it asks first.
+    /// One gone since is not.
     pub(in crate::tui) fn review(&mut self, marked: u64) {
         let Some(notice) = self.forget(marked) else { return };
-        let Some(suggested) = notice.operation else { return };
         let Ok(m) = crate::plugins::host().and_then(|p| p.manifest(&notice.plugin)) else { return };
+        match notice.suggests {
+            Some(Suggestion::Operation(o)) => self.review_operation(m, o),
+            Some(Suggestion::Action(a)) => self.review_action(m, a),
+            None => {}
+        }
+    }
+
+    /// Plans one of `m`'s operations, on the drive actions work on.
+    fn review_operation(&mut self, m: &'static Manifest, suggested: Suggested) {
         let Some(op) = m.contributes.operations.iter().find(|o| o.name == suggested.name) else { return };
         let root = self.action_drive();
         let context = Context { drive: root.as_deref().and_then(|r| self.plugin_drive(r)), ..Context::default() };
         let run = Run { plugin: &m.id, hook: Cli::Operation(op), root, context };
         self.run_plugin(run, suggested.params);
+    }
+
+    /// Opens the player's own flow for one of the host's actions, on `m`'s contributions and the
+    /// drive it names (the drive actions work on, for a set's export naming none): fetching from
+    /// its providers and exporting in its format open their forms filled in, and analyzing asks
+    /// first.
+    fn review_action(&mut self, m: &'static Manifest, action: HostAction) {
+        let drive = match &action {
+            HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(&f.drive),
+            HostAction::Export(e) => e.drive.as_ref(),
+            HostAction::Analyze(a) => Some(&a.drive),
+        };
+        let root = match drive {
+            Some(d) => match self.named_drive(d) {
+                Some(root) => Some(root),
+                None => return self.toast(format!("{d} isn't plugged in"), Level::Info),
+            },
+            None => self.action_drive(),
+        };
+        match action {
+            HostAction::Export(e) => {
+                let Some(x) = m.contributes.exporters.iter().find(|x| x.format == e.format) else { return };
+                self.export_form(&m.id, &x.format, root, Some(&e));
+            }
+            HostAction::Analyze(a) => {
+                let Some(x) = m.contributes.analyzers.iter().find(|x| x.name == a.analyzer) else { return };
+                let Some(root) = self.plugged(root) else { return };
+                let tracks = match a.tracks.len() {
+                    0 => "every track".to_string(),
+                    n => crate::output::plural(n, "track"),
+                };
+                let question = format!("Analyze {tracks} on {} with {}?", self.drive_label(&root), named(&x.title));
+                let tracks = (!a.tracks.is_empty()).then_some(a.tracks);
+                let (plugin, analyzer) = (m.id.as_str(), x.name.as_str());
+                let yes = move |app: &mut App| app.analyze(plugin, analyzer, Some(root), tracks);
+                self.modal = Some(Modal::Ask(question, Box::new(yes)));
+            }
+            fetch => {
+                let (Some((kind, f)), Some(root)) = (fetch.fetch(), self.plugged(root)) else { return };
+                let from = f.provider.as_ref().map_or_else(|| m.id.clone(), |p| format!("{}.{p}", m.id));
+                self.fetch_form_from(kind, root, f.tracks.clone(), Some(from));
+            }
+        }
     }
 
     /// No longer offers what a plugin suggested (the one marked `marked`).

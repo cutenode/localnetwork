@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 use locallibrary::api::{JobEvent, Notice, WatchAction};
 use locallibrary::plugin::{Event, Options, PluginNotice, forget_suggested, keep_suggested, suggested};
 use locallibrary::watch::{MountedDrive, WatchEvent};
-use loclib_plugin::{EventName, Suggested};
+use loclib_plugin::{
+    AnalyzeAction, EventName, ExportAction, FetchAction, HostAction, HostNotify, Suggested, Suggestion,
+};
 use serde_json::json;
 
 use super::*;
@@ -80,8 +82,11 @@ fn a_plugin_is_told_of_what_it_listens_for() {
     assert_eq!(said[1], ("job.finished".into(), "-".into(), json!({ "id": 7, "method": "sync.apply", "ok": true })));
     eventually("it tells the user", || notices.lock().unwrap().len() == 2);
     let suggested = Suggested { name: "playlist".into(), params: json!({ "name": "drive.mounted" }) };
-    let first =
-        PluginNotice { plugin: "echo".into(), message: "heard drive.mounted".into(), operation: Some(suggested) };
+    let first = PluginNotice {
+        plugin: "echo".into(),
+        message: "heard drive.mounted".into(),
+        suggests: Some(Suggestion::Operation(suggested)),
+    };
     assert_eq!(notices.lock().unwrap()[0], first);
     assert!(!f.plugins.is_running("other"), "listening for nothing, it isn't started");
 }
@@ -176,7 +181,7 @@ fn what_a_plugin_tells_the_user_is_a_short_line() {
     }
     eventually("it tells the user", || notices.lock().unwrap().len() == 3);
     let notices = notices.lock().unwrap().clone();
-    let said: Vec<(&str, bool)> = notices[..2].iter().map(|n| (n.message.as_str(), n.operation.is_some())).collect();
+    let said: Vec<(&str, bool)> = notices[..2].iter().map(|n| (n.message.as_str(), n.suggests.is_some())).collect();
     assert_eq!(said, [("not an object", false), ("too long", false)]);
     assert!(notices[2].message.starts_with("aredline xxx"));
     assert_eq!(notices[2].message.chars().count(), 500);
@@ -201,12 +206,16 @@ fn a_suggestion_is_one_of_the_plugins_operations() {
     f.plugins.deliver(&event, Some(&f.store));
     eventually("it tells the user", || !notices.lock().unwrap().is_empty());
     let notice = notices.lock().unwrap()[0].clone();
-    assert_eq!((notice.message.as_str(), notice.operation.is_none()), ("heard plan.applied", true));
+    assert_eq!((notice.message.as_str(), notice.suggests.is_none()), ("heard plan.applied", true));
     let logs = f.logs.lock().unwrap().clone();
     assert!(logs.iter().any(|(_, l)| l == "it suggests \"playlist\", which isn't one of its operations"));
     assert_eq!(suggested(&f.store).unwrap(), []);
     let suggests = Suggested { name: "playlist".into(), params: json!({}) };
-    let kept = |n: usize| PluginNotice { message: n.to_string(), operation: Some(suggests.clone()), ..notice.clone() };
+    let kept = |n: usize| PluginNotice {
+        message: n.to_string(),
+        suggests: Some(Suggestion::Operation(suggests.clone())),
+        ..notice.clone()
+    };
     for n in 0..locallibrary::plugin::MAX_SUGGESTED + 2 {
         keep_suggested(&f.store, &kept(n)).unwrap();
     }
@@ -221,6 +230,81 @@ fn a_suggestion_is_one_of_the_plugins_operations() {
     std::fs::write(&file, "not json").unwrap();
     assert!(suggested(&f.store).is_err() && keep_suggested(&f.store, &kept(1)).is_err());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "not json");
+}
+
+/// The host's actions the echo plugin may suggest and some it may not (fetching cover art it has
+/// no provider of, another plugin's export format, an analyzer's with params too long, and an
+/// action with an operation too), each as `host/notify` says it, with what the host takes of it.
+fn actions() -> Vec<(Value, Option<HostAction>)> {
+    let fetch = FetchAction { drive: "USB".into(), tracks: vec![1], provider: Some("tags".into()) };
+    let export = ExportAction { format: "m3u".into(), drive: Some("USB".into()), ..ExportAction::default() };
+    let analyze = AnalyzeAction { analyzer: "size".into(), drive: "USB".into(), tracks: Vec::new() };
+    let taken = [HostAction::TrackFetch(fetch), HostAction::Export(export), HostAction::Analyze(analyze)];
+    let taken = taken.into_iter().map(|a| (serde_json::to_value(HostNotify::action("taken", &a)).unwrap(), Some(a)));
+    let action =
+        |name: &str, params: Value| json!({ "message": "refused", "action": { "name": name, "params": params } });
+    let mut both = action("analyze", json!({ "analyzer": "size", "drive": "USB" }));
+    both["operation"] = json!({ "name": "playlist", "params": { "name": "x" } });
+    let refused = [
+        action("art.fetch", json!({ "drive": "USB" })),
+        action("export", json!({ "format": "xml", "drive": "USB" })),
+        action("analyze", json!({ "analyzer": "size", "drive": "x".repeat(70 << 10) })),
+        both,
+    ];
+    taken.chain(refused.into_iter().map(|r| (r, None))).collect()
+}
+
+/// A plugin may suggest one of the host's actions on its own contributions instead of an
+/// operation: the front end is told it, and it's kept for the player as it is until it's
+/// reviewed or dismissed. One it may not suggest is left out, logged, and the line still told.
+#[test]
+fn a_plugin_may_suggest_the_hosts_actions() {
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let actions = actions();
+    for (tell, _) in &actions {
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": tell }) };
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    eventually("it tells the user", || notices.lock().unwrap().len() == actions.len());
+    let notices = notices.lock().unwrap().clone();
+    let said: Vec<(&str, Option<Suggestion>)> =
+        notices.iter().map(|n| (n.message.as_str(), n.suggests.clone())).collect();
+    let expected: Vec<(&str, Option<Suggestion>)> = actions
+        .iter()
+        .map(|(_, a)| (if a.is_some() { "taken" } else { "refused" }, a.clone().map(Suggestion::Action)))
+        .collect();
+    assert_eq!(said, expected);
+    let logs = f.logs.lock().unwrap().clone();
+    for refused in [
+        "it suggests the action \"art.fetch\", which it can't: no artwork provider",
+        "it suggests the action \"export\", which it can't: no exporter \"xml\"",
+        "it suggests the action \"analyze\" with params longer than 65536 bytes",
+        "it suggests both an operation and an action",
+    ] {
+        assert!(logs.iter().any(|(_, l)| l == refused), "{refused}");
+    }
+    keep_suggested(&f.store, &notices[0]).unwrap();
+    assert_eq!(suggested(&f.store).unwrap(), [notices[0].clone()], "kept as it is");
+    assert_eq!(forget_suggested(&f.store, &notices[0]).unwrap(), []);
+}
+
+/// For any suggestions a plugin makes, of actions it may suggest or not, the front end is told
+/// each line in order, with exactly the actions it may suggest: none it may not ever reaches it,
+/// so none can be planned.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn only_the_actions_a_plugin_may_suggest_reach_the_front_end(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let all = actions();
+    let picked: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(all.len() - 1)).max_size(8));
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    for &i in &picked {
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": all[i].0 }) };
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    eventually("it tells the user", || notices.lock().unwrap().len() == picked.len());
+    let got: Vec<Option<Suggestion>> = notices.lock().unwrap().iter().map(|n| n.suggests.clone()).collect();
+    let expected: Vec<Option<Suggestion>> = picked.iter().map(|&i| all[i].1.clone().map(Suggestion::Action)).collect();
+    assert_eq!(got, expected);
 }
 
 /// Shutting down sends the events still waiting first, as a command run once needs.
@@ -272,10 +356,10 @@ fn the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
         gs::vecs(gs::tuples!(gs::booleans(), gs::sampled_from(vec![String::new(), "a".into(), "b".into()])))
             .max_size(MAX_SUGGESTED * 3),
     );
-    let operation = Some(Suggested { name: "playlist".into(), params: json!({}) });
+    let operation = Some(Suggestion::Operation(Suggested { name: "playlist".into(), params: json!({}) }));
     let mut expected: Vec<PluginNotice> = Vec::new();
     for (keep, message) in changes {
-        let notice = PluginNotice { plugin: "echo".into(), message, operation: operation.clone() };
+        let notice = PluginNotice { plugin: "echo".into(), message, suggests: operation.clone() };
         let now = match keep {
             true => {
                 expected.push(notice.clone());
@@ -306,7 +390,7 @@ fn suggestions_kept_at_once_by_two_processes_are_all_kept() {
     let notice = |message: String| PluginNotice {
         plugin: "echo".into(),
         message,
-        operation: Some(Suggested { name: "playlist".into(), params: json!({}) }),
+        suggests: Some(Suggestion::Operation(Suggested { name: "playlist".into(), params: json!({}) })),
     };
     if let Some(keeper) = std::env::var_os(KEEPER) {
         let keeper = keeper.into_string().unwrap();
