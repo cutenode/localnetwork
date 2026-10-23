@@ -101,6 +101,44 @@ fn a_grid_expands_to_the_tracks_end() {
     assert_eq!(no_length.tracks[0].beats(), (Vec::new(), false), "no end to stop at");
 }
 
+/// rekordbox writes a grid that moves as a TEMPO on each beat, its time rounded to the
+/// millisecond, so a tempo's next beat can land just before the next TEMPO: each beat comes once.
+/// The markers are rekordbox 5.8.6's for its Demo Track 2, from rekordcrate's sample
+/// (https://github.com/Holzhaus/rekordcrate/blob/14d54eded7b0d2f6fe67c7871533dca35a73e5fa/data/xml/database.xml#L47-L56).
+#[test]
+fn a_tempo_on_each_beat_gives_each_beat_once() {
+    let xml = one_track(
+        r#"TotalTime="128""#,
+        r#"<TEMPO Inizio="0.025" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="48.026" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="48.525" Bpm="120.00" Metro="4/4" Battito="2"/>
+      <TEMPO Inizio="49.026" Bpm="120.00" Metro="4/4" Battito="3"/>
+      <TEMPO Inizio="49.525" Bpm="120.00" Metro="4/4" Battito="4"/>
+      <TEMPO Inizio="50.026" Bpm="120.00" Metro="4/4" Battito="1"/>
+      <TEMPO Inizio="50.525" Bpm="120.00" Metro="4/4" Battito="2"/>
+      <TEMPO Inizio="51.026" Bpm="120.00" Metro="4/4" Battito="3"/>
+      <TEMPO Inizio="51.525" Bpm="120.00" Metro="4/4" Battito="4"/>
+      <TEMPO Inizio="52.026" Bpm="120.00" Metro="4/4" Battito="1"/>
+"#,
+    );
+    let (beats, _) = read_xml_library(xml.as_bytes()).unwrap().tracks[0].beats();
+    let around: Vec<(u32, u16)> =
+        beats.iter().filter(|b| (47_000..=50_100).contains(&b.time_ms)).map(|b| (b.time_ms, b.beat_number)).collect();
+    let want = [(47_025, 3), (47_525, 4), (48_026, 1), (48_525, 2), (49_026, 3), (49_525, 4), (50_026, 1)];
+    assert_eq!(around, want);
+    // One beat every half second, from 25 ms to the end.
+    assert_eq!(beats.len(), 256);
+}
+
+/// A beat less than half a millisecond before the track's end would round to the end itself:
+/// the grid stops before it.
+#[test]
+fn no_beat_rounds_to_the_tracks_end() {
+    let xml = one_track(r#"TotalTime="1""#, r#"<TEMPO Inizio="0.4996" Bpm="120"/>"#);
+    let (beats, _) = read_xml_library(xml.as_bytes()).unwrap().tracks[0].beats();
+    assert_eq!(beats.iter().map(|b| b.time_ms).collect::<Vec<_>>(), [500]);
+}
+
 /// A grid is cut at MAX_BEATS, saying so: a ten-hour track at the fastest tempo has more.
 #[test]
 fn a_grid_is_cut_at_the_most_beats() {

@@ -166,16 +166,20 @@ pub(super) fn mark(tag: &Tag<'_>) -> Option<Mark> {
 }
 
 impl XmlTrack {
-    /// Its beat grid: the beats of each tempo, from the first at or after 0 to the next tempo,
-    /// up to the track's end (`TotalTime`), and whether it was cut at [`MAX_BEATS`]. None
-    /// without a length to end at.
+    /// Its beat grid: the beats of each tempo, from the first at or after 0 to half a beat before
+    /// the next tempo, up to the track's end (`TotalTime`), and whether it was cut at
+    /// [`MAX_BEATS`]. None without a length to end at.
     pub fn beats(&self) -> (Vec<Beat>, bool) {
         let Some(secs) = self.entry.duration_secs else { return (Vec::new(), false) };
-        let end = (f64::from(secs) * 1000.0).min(MAX_MS);
+        // Half a millisecond short, so no beat rounds to the end itself.
+        let end = (f64::from(secs) * 1000.0).min(MAX_MS) - 0.5;
         let mut beats: Vec<Beat> = Vec::new();
         for (i, t) in self.tempos.iter().enumerate() {
-            let until = self.tempos.get(i + 1).map_or(end, |next| next.start_ms.min(end));
             let interval = 60_000.0 / t.bpm;
+            // rekordbox puts a TEMPO on each beat of a grid that moves, at its time rounded to the
+            // millisecond: the beat before it projects to within a millisecond of it, and is it.
+            // Half a beat before keeps them apart, so the times only go up.
+            let until = self.tempos.get(i + 1).map_or(end, |next| (next.start_ms - interval / 2.0).min(end));
             let mut k = if t.start_ms < 0.0 { (-t.start_ms / interval).ceil() } else { 0.0 };
             loop {
                 let at = t.start_ms + k * interval;
@@ -186,11 +190,8 @@ impl XmlTrack {
                     return (beats, true);
                 }
                 let time_ms = at.round().max(0.0) as u32;
-                // A tempo starting within a millisecond of the last beat before it.
-                if beats.last().is_none_or(|b| b.time_ms < time_ms) {
-                    let in_bar = (u64::from(t.beat) - 1 + k as u64) % u64::from(t.beats_per_bar);
-                    beats.push(Beat { beat_number: in_bar as u16 + 1, bpm: t.bpm, time_ms });
-                }
+                let in_bar = (u64::from(t.beat) - 1 + k as u64) % u64::from(t.beats_per_bar);
+                beats.push(Beat { beat_number: in_bar as u16 + 1, bpm: t.bpm, time_ms });
                 k += 1.0;
             }
         }

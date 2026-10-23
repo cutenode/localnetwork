@@ -107,7 +107,8 @@ fn the_xml_reader_reads_back_what_the_writer_writes(tc: hegel::TestCase) {
             false => tc.draw(gs::integers::<u32>().min_value(1).max_value(16)),
             true => {
                 t.duration_secs = (start / 1000.0) as u32 + tc.draw(gs::integers::<u32>().min_value(1).max_value(60));
-                ((f64::from(t.duration_secs) * 1000.0 - start) / interval).ceil() as u32
+                // Each beat whose millisecond is before the end.
+                ((f64::from(t.duration_secs) * 1000.0 - 0.5 - start) / interval).ceil() as u32
             }
         };
         for k in 0..count {
