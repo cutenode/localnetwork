@@ -124,7 +124,8 @@ impl HostNotify {
     /// A line for the user suggesting one of the host's actions.
     pub fn action(message: impl Into<String>, action: &HostAction) -> HostNotify {
         let action = serde_json::to_value(action).and_then(serde_json::from_value);
-        HostNotify { message: message.into(), operation: None, action: Some(action.expect("{name, params}")) }
+        let action = action.expect("an action serializes as {name, params}");
+        HostNotify { message: message.into(), operation: None, action: Some(action) }
     }
 
     /// What it suggests, if the plugin whose manifest is `m` may suggest it: one of its own
@@ -255,9 +256,33 @@ impl HostAction {
         }
     }
 
-    /// Whether it's on `m`'s own contributions, with what they take: why not, if it isn't.
+    /// The drive it's on, as the plugin names it, when it names one.
+    pub fn drive(&self) -> Option<&str> {
+        match self {
+            HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => Some(&f.drive),
+            HostAction::Export(e) => e.drive.as_deref(),
+            HostAction::Analyze(a) => Some(&a.drive),
+        }
+    }
+
+    /// Its drive and the tracks it's for (by id; none for every one), when it has them: for a host
+    /// to name them as it knows them.
+    pub fn scope_mut(&mut self) -> (Option<&mut String>, Option<&mut Vec<u32>>) {
+        match self {
+            HostAction::ArtFetch(f) | HostAction::TrackFetch(f) => (Some(&mut f.drive), Some(&mut f.tracks)),
+            HostAction::Export(e) => (e.drive.as_mut(), None),
+            HostAction::Analyze(a) => (Some(&mut a.drive), Some(&mut a.tracks)),
+        }
+    }
+
+    /// Whether it's on `m`'s own contributions, with what they take, and on a drive named by id
+    /// or name (never a path, which a host would take for a folder): why not, if it isn't.
     fn check(&self, m: &Manifest) -> Result<(), String> {
         let c = &m.contributes;
+        let path = |d: &str| d.is_empty() || d.contains(['/', '\\']) || d.starts_with(['.', '~']);
+        if let Some(drive) = self.drive().filter(|d| path(d)) {
+            return Err(format!("{drive:?} isn't a drive's id or name"));
+        }
         if let Some((kind, f)) = self.fetch() {
             let mut ours = c.providers.iter().filter(|p| p.kind == kind);
             return match &f.provider {

@@ -183,6 +183,18 @@ fn a_suggestion_the_plugin_may_not_make_is_refused() {
         (action("track.fetch", json!(["USB"])), "\"track.fetch\" with params that aren't an object"),
         (action("delete", json!({})), "\"delete\", which it can't: unknown variant `delete`"),
         (action("analyze", long), "\"analyze\" with params longer than 65536 bytes"),
+        (
+            action("analyze", json!({ "analyzer": "size", "drive": "/Users/me/OldBackup" })),
+            "\"analyze\", which it can't: \"/Users/me/OldBackup\" isn't a drive's id or name",
+        ),
+        (
+            action("export", json!({ "format": "m3u", "drive": "~" })),
+            "\"export\", which it can't: \"~\" isn't a drive's id or name",
+        ),
+        (
+            action("track.fetch", json!({ "drive": "..\\USB" })),
+            "\"track.fetch\", which it can't: \"..\\\\USB\" isn't a drive's id or name",
+        ),
     ];
     for (notice, why) in cases {
         let refused = notice.suggestion(&m).unwrap_err();
@@ -202,7 +214,10 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
     let m = Manifest::parse(echo::MANIFEST).unwrap();
     let name: &str = tc.draw(gs::sampled_from(vec!["art.fetch", "track.fetch", "export", "analyze", "delete"]));
     let fields = [
-        ("drive", json!(tc.draw(gs::from_regex("[A-Z]{1,4}")))),
+        (
+            "drive",
+            json!(tc.draw(gs::sampled_from(vec!["USB", "My drive", "/Users/me/OldBackup", "~", "..", "C:\\USB", ""]))),
+        ),
         ("tracks", json!(tc.draw(gs::vecs(gs::integers::<u32>()).min_size(1).max_size(3)))),
         ("provider", json!(tc.draw(gs::sampled_from(vec!["tags", "covers"])))),
         ("format", json!(tc.draw(gs::sampled_from(vec!["m3u", "xml"])))),
@@ -212,13 +227,26 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
         ("options", json!({ "loud": tc.draw(gs::booleans()) })),
         ("output", json!("/Volumes/USB")),
     ];
-    let mut params: Map<String, Value> =
-        fields.into_iter().filter(|_| tc.draw(gs::booleans())).map(|(k, v)| (k.to_string(), v)).collect();
+    // What the action takes, mostly, and now and then what it doesn't.
+    let takes: &[&str] = match name {
+        "art.fetch" | "track.fetch" => &["drive", "tracks", "provider"],
+        "export" => &["format", "drive", "options"],
+        _ => &["analyzer", "drive", "tracks"],
+    };
+    let mut params: Map<String, Value> = fields
+        .into_iter()
+        .filter(|(k, _)| tc.draw(gs::weighted_booleans(if takes.contains(k) { 0.8 } else { 0.1 })))
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
     let (both, long) = (tc.draw(gs::weighted_booleans(0.1)), tc.draw(gs::weighted_booleans(0.1)));
     if long {
         params.insert("drive".into(), json!("x".repeat(MAX_SUGGESTED_PARAMS)));
     }
-    let has = |k: &str| params.contains_key(k);
+    // A drive by id or name: a path would be taken for a folder.
+    let named = params.get("drive").and_then(Value::as_str).is_none_or(|d| {
+        !d.is_empty() && !d.contains('/') && !d.contains('\\') && !d.starts_with('.') && !d.starts_with('~')
+    });
+    let has = |k: &str| params.contains_key(k) && (k != "drive" || named);
     let only = |takes: &[&str]| params.keys().all(|k| takes.contains(&k.as_str()));
     let is = |k: &str, v: &str| params.get(k) == Some(&json!(v));
     let fits = match name {
