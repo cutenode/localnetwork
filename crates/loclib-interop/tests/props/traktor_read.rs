@@ -354,3 +354,30 @@ fn anything_reads_or_is_refused(tc: TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// Playlists in folders of any depth and with names of any length read with their paths coming
+/// to 16 MiB at most, all told, or are refused for coming to more.
+#[hegel::test(test_cases = 40)]
+fn playlist_paths_stay_bounded(tc: TestCase) {
+    let name = "n".repeat(tc.draw(gs::sampled_from(vec![0, 10, 1 << 16, 1 << 20])));
+    let depth = tc.draw(gs::integers::<usize>().max_value(if name.len() > 1000 { 20 } else { 300 }));
+    let playlists = tc.draw(gs::integers::<usize>().max_value(40));
+    let nml = format!(
+        "<NML><PLAYLISTS>{}{}{}</PLAYLISTS></NML>",
+        format!("<NODE TYPE=\"FOLDER\" NAME=\"{name}\">").repeat(depth),
+        "<NODE TYPE=\"PLAYLIST\" NAME=\"p\"/>".repeat(playlists),
+        "</NODE>".repeat(depth)
+    );
+    let each = depth * name.len() + 1;
+    match traktor::read(nml.as_bytes()) {
+        Ok(c) => {
+            let total: usize = c.lists.iter().flat_map(|l| &l.path).map(String::len).sum();
+            assert_eq!((c.lists.len(), total), (playlists, each * playlists));
+            assert!(total <= 16 << 20);
+        }
+        Err(e) => {
+            assert!(each * playlists > 16 << 20, "{e}");
+            assert_eq!(e.to_string(), "not a Traktor collection: its playlists' paths come to more than 16 MiB");
+        }
+    }
+}

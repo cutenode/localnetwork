@@ -35,9 +35,10 @@ const REACH_MS: f64 = 4_294_967_295.0;
 /// grid to under a million beats.
 const LONGEST_MS: f64 = 86_400_000.0;
 
-/// The most folders a playlist is read in: deeper ones would make each playlist's path, and so
-/// what's read, grow with the square of the file.
-const DEPTH: usize = 128;
+/// The most bytes the playlists' paths come to, all told. Each playlist holds the names of the
+/// folders above it, so a few long names over many playlists (or folders nested deep) can come to
+/// far more than the file; real collections' come to a small part of this.
+const PATHS_BYTES: usize = 16 << 20;
 
 /// `bpm`, when it's a tempo a beat grid holds.
 fn tempo(bpm: f64) -> Option<f64> {
@@ -246,6 +247,8 @@ struct State {
     nodes: Vec<String>,
     /// Whether they're in Traktor's `$ROOT` folder, whose name isn't part of a playlist's path.
     in_root: bool,
+    /// What the playlists' paths come to so far, in bytes.
+    paths_bytes: usize,
     /// The playlist being read.
     list: Option<List>,
     out: Collection,
@@ -274,9 +277,6 @@ impl State {
                 }
             }
             (_, "NODE") => {
-                if self.nodes.len() == DEPTH {
-                    return Err(format!("its playlists are in folders more than {DEPTH} deep"));
-                }
                 let (kind, name) = (a.text("TYPE"), a.text("NAME"));
                 if self.nodes.is_empty() {
                     self.in_root = kind == "FOLDER" && name == "$ROOT";
@@ -284,8 +284,12 @@ impl State {
                 self.nodes.push(name);
                 match kind.as_str() {
                     "PLAYLIST" => {
-                        let path = self.nodes[usize::from(self.in_root)..].to_vec();
-                        self.list = Some(List { path, keys: Vec::new() });
+                        let path = &self.nodes[usize::from(self.in_root)..];
+                        self.paths_bytes += path.iter().map(String::len).sum::<usize>();
+                        if self.paths_bytes > PATHS_BYTES {
+                            return Err(format!("its playlists' paths come to more than {} MiB", PATHS_BYTES >> 20));
+                        }
+                        self.list = Some(List { path: path.to_vec(), keys: Vec::new() });
                     }
                     "SMARTLIST" => self.smart += 1,
                     _ => {}
