@@ -24,6 +24,19 @@ fn columns_count_what_the_terminal_shows() {
     assert_eq!(fit_with("abcdef", 2, "..."), "  ");
 }
 
+#[test]
+fn bars_and_shares_scale() {
+    assert_eq!(bar(1.0, 4), "████");
+    assert_eq!(bar(0.5, 4), "██");
+    assert_eq!(bar(0.0, 4), "");
+    assert_eq!(bar(1.0 / 32.0, 4), "▏");
+    assert_eq!(bar(2.0, 2), "██", "a share past the whole fills the bar");
+    assert_eq!(
+        (pct(0.42), pct(1.0), opt_pct(Some(0.0)), opt_pct(None)),
+        ("42%".into(), "100%".into(), "0%".into(), "–".into())
+    );
+}
+
 /// A name typed wrong declines the erase, whether or not the output is JSON.
 #[test]
 fn a_wrong_name_declines_an_erase() {

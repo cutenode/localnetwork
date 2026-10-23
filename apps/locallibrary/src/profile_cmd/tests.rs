@@ -1,11 +1,7 @@
 use super::*;
 
 #[test]
-fn bars_and_sparklines_scale() {
-    assert_eq!(bar(1.0, 4), "████");
-    assert_eq!(bar(0.5, 4), "██");
-    assert_eq!(bar(0.0, 4), "");
-    assert_eq!(bar(1.0 / 32.0, 4), "▏");
+fn sparklines_scale() {
     assert_eq!(spark(&[Some(0.0), None, Some(1.0)]), "▁ █");
     assert_eq!(spark(&[Some(2.0), Some(2.0)]), "▄▄");
     assert_eq!(spark(&[None]), "");

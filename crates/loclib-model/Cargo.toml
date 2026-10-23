@@ -24,6 +24,7 @@ schemars = ["dep:schemars"]
 test-util = []
 
 [dev-dependencies]
+dunce = "1.0.5"
 hegeltest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
