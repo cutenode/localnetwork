@@ -1,0 +1,20 @@
+id = "demos"
+name = "rekordbox's demo tracks"
+version = "0.1.0"
+protocol = "^0.2"
+# library:delete: removing the demo tracks deletes them and their files.
+capabilities = ["library:read", "library:plan", "library:delete"]
+
+# In `locallibrary check` and doctor, fixed by `clean`.
+[[contributes.checks]]
+name = "tracks"
+title = "rekordbox's demo tracks on the drive"
+default_on = true
+when = ["check"]
+
+# `locallibrary clean`, which a refresh after rekordbox's export runs first.
+[[contributes.operations]]
+name = "clean"
+title = "Remove rekordbox's demo tracks and their files"
+long_running = true
+cli = "clean"

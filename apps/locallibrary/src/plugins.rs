@@ -38,6 +38,7 @@ type Serve = fn(std::io::Stdin, std::io::Stdout);
 /// its crate.
 const FIRST_PARTY: &[(&str, Serve)] = &[
     (locallibrary_plugin_coverart::MANIFEST, locallibrary_plugin_coverart::serve),
+    (locallibrary_plugin_demos::MANIFEST, locallibrary_plugin_demos::serve),
     (locallibrary_plugin_interop::MANIFEST, locallibrary_plugin_interop::serve),
     (locallibrary_plugin_sound::MANIFEST, locallibrary_plugin_sound::serve),
     (locallibrary_plugin_tracklist::MANIFEST, locallibrary_plugin_tracklist::serve),

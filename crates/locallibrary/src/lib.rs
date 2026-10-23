@@ -17,7 +17,6 @@
 //! * `atmosphere`: sign in with an Atmosphere account (AT Protocol OAuth) and keep the session.
 //! * `publish`: the records locallibrary publishes to that account (My Settings, the profile,
 //!   sets).
-//! * [`clean`]: remove tracks nobody wants (rekordbox's bundled demo samples) from a drive.
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
 //! * [`onelibrary`]: read and edit `exportLibrary.db`, the only database newer players
@@ -66,7 +65,6 @@ pub mod backup;
 pub mod callback;
 pub mod catalog;
 pub mod check;
-pub mod clean;
 pub mod collection_export;
 mod commit;
 pub mod compare;
@@ -130,6 +128,7 @@ pub mod sync;
 pub mod tags;
 pub mod tidy;
 mod timeline;
+mod track_files;
 pub mod tree;
 pub mod upgrade;
 pub mod watch;

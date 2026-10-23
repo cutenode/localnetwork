@@ -300,20 +300,21 @@ fn clean_shows_a_plan_then_removes_demo_samples() {
     std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
     std::fs::write(&audio, "demo sample").unwrap();
 
+    // The demos plugin's operation.
     let v = env.json(&["clean", path(&a)]);
-    assert_eq!(v["applied"], false);
-    assert_eq!(v["plan"]["tracks"][0]["name"], "rekordbox - House 1");
+    assert_eq!((v["applied"].as_bool(), v["plan"]["operation"].as_str()), (Some(false), Some("demos.clean")), "{v}");
+    assert_eq!(v["plan"]["tracks_removed"][0]["name"], "rekordbox - House 1");
     assert!(audio.is_file());
 
     let v = env.json(&["--yes", "clean", path(&a)]);
     assert_eq!(v["applied"], true, "{v}");
-    assert_eq!(v["report"]["tracks_removed"], 1);
+    assert_eq!(v["report"]["files_deleted"], 1);
     assert!(!audio.exists());
     assert_eq!(env.json(&["info", path(&a)])["summary"]["tracks"], 2);
 
     let v = env.json(&["clean", path(&a)]);
     assert_eq!(v["applied"], false);
-    assert!(v["plan"]["tracks"].as_array().unwrap().is_empty());
+    assert!(v["plan"]["tracks_removed"].as_array().unwrap().is_empty());
 }
 
 #[test]

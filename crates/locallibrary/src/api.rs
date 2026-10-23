@@ -21,7 +21,6 @@ use uuid::Uuid;
 
 use crate::artwork::{self, Artwork};
 use crate::backup::{self, BackupInfo};
-use crate::clean;
 use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
@@ -1338,45 +1337,6 @@ impl Operation for merge::MergePlan {
 /// Plan and apply a merge in one go, for callers that don't confirm (see [`merge_plan`]).
 pub fn merge_apply(req: &MergeRequest, ctx: &Ctx<'_>) -> Result<merge::MergeReport> {
     merge_plan(req, ctx)?.apply(None, ctx)
-}
-// ---------------------------------------------------------------------------------------------
-// Clean
-// ---------------------------------------------------------------------------------------------
-
-/// The useless tracks (rekordbox's demo samples) a clean would remove, with their files.
-pub fn clean_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<clean::CleanPlan>> {
-    let d = resolve_drive(&req.drive)?;
-    let plan = clean::plan(&d, ctx)?;
-    let line = format!(
-        "remove {} track(s) and {} file(s) ({}) from {}",
-        plan.tracks.len(),
-        plan.files.len(),
-        bytes(plan.bytes),
-        d.name()
-    );
-    let (noop, warnings) = (plan.is_noop(), plan.warnings.clone());
-    Planned::new("clean", plan, ())
-        .line(line)
-        .warnings(warnings)
-        .destructive(!noop)
-        .noop(noop)
-        .touches(Touched::library(&d, true))
-        .reaching_clones(ctx)?
-        .guard(None)
-}
-
-impl Operation for clean::CleanPlan {
-    type Request = ();
-    type Report = clean::CleanReport;
-
-    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<clean::CleanReport> {
-        clean::apply(&planned.plan, &mut planned.drive(0)?, ctx)
-    }
-}
-
-/// Plan and apply a clean in one go, for callers that don't confirm (see [`clean_plan`]).
-pub fn clean_apply(req: &DriveRef, ctx: &Ctx<'_>) -> Result<clean::CleanReport> {
-    clean_plan(req, ctx)?.apply(None, ctx)
 }
 // ---------------------------------------------------------------------------------------------
 // Convert

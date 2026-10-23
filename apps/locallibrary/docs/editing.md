@@ -423,12 +423,15 @@ locallibrary clean Home
 
 rekordbox's collection ships with demo samples ("rekordbox - House 1", "Techno 1", "Breaks 1"...),
 and they end up on drives, often once per export (`House1.wav`, `House1-1.wav`, `House1-2.wav`...).
-`clean` removes every track on its list from `export.pdb` and OneLibrary's `exportLibrary.db`, along
-with its playlist and history entries, audio, analysis files and artwork, plus artists, albums,
-genres, labels, keys and artwork rows nothing else uses. Files another track (in either database)
-still points at are kept. The list lives in [`clean.rs`](../../../crates/locallibrary/src/clean.rs)
-(`USELESS_TRACKS`). The next export brings them back unless they're removed from the rekordbox
-collection too.
+`clean` is the demos plugin's (see [Plugins](plugins.md)): it deletes every track on its list,
+from `export.pdb` and OneLibrary's `exportLibrary.db` (one only OneLibrary lists too), as an edit
+(`delete_tracks`) along with its playlist and history entries, audio, analysis files and artwork,
+plus artists, albums, genres, labels, keys and artwork rows nothing else uses. Files another track
+(in either database) still points at are kept, and a demo track sharing its audio file with
+another track stays, as deleting the file's rows would delete that track too. The list lives in
+[the plugin](../../../plugins/demos/src/lib.rs) (`DEMO_TRACKS`), whose check lists them in `check`
+and `doctor`. The next export brings them back unless they're removed from the rekordbox collection
+too; `refresh` removes them first.
 
 ## Convert
 

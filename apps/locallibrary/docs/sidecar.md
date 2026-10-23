@@ -205,7 +205,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
-  `clean.plan/apply`, `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
+  `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
   previews), `xml.export`, `store.*`, `disks.list`,
   `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
   the one erased).

@@ -31,7 +31,7 @@ cli = "say""#;
 }
 
 /// The plugins locallibrary ships, as it lists them (before the tests' own).
-const SHIPPED: [&str; 4] = ["coverart", "interop", "sound", "tracklist"];
+const SHIPPED: [&str; 5] = ["coverart", "demos", "interop", "sound", "tracklist"];
 
 /// Every crate in the repository's `plugins/` ships: one left out of `plugins::FIRST_PARTY` (and
 /// so of `SHIPPED`) fails here instead of going unnoticed (`.github/NEW_PROJECT.md`).

@@ -144,7 +144,7 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
     let skipped = |k: StepKind| skip.contains(&k);
     let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
     let mut want = Vec::new();
-    let clean = if skipped(StepKind::Clean) { "skipped" } else { "no demo samples on the drive" };
+    let clean = if skipped(StepKind::Clean) { "skipped" } else { "the demos plugin isn't there" };
     assert_eq!(reason(&plan, StepKind::Clean), Some(clean));
     // The recorded edits (the playlist, the rule's playlist) are lost to an export.
     match () {

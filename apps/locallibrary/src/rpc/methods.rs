@@ -567,8 +567,6 @@ fn build() -> Registry {
     r.apply("push.apply", Required, |c, req| Ok(api::push_apply(&c.store()?, &req, c.ctx)?)).long().destructive();
     r.plan("merge.plan", |c, req| Ok(api::merge_plan(&req, c.ctx)?)).long();
     r.apply("merge.apply", PlanStore::None, |c, req| Ok(api::merge_apply(&req, c.ctx)?)).long();
-    r.plan("clean.plan", |c, req| Ok(api::clean_plan(&req, c.ctx)?)).long().destructive();
-    r.apply("clean.apply", PlanStore::None, |c, req| Ok(api::clean_apply(&req, c.ctx)?)).long().destructive();
     r.plan("convert.plan", |c, req| Ok(api::convert_plan(&req, c.ctx)?)).long().destructive();
     r.apply("convert.apply", PlanStore::None, |c, req| Ok(api::convert_apply(&req, c.ctx)?)).long().destructive();
 

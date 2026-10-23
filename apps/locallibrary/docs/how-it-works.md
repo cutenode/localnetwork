@@ -41,6 +41,8 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
 plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
                             each album looked up on MusicBrainz and its cover fetched from the Cover Art
                             Archive, as `set_artwork` edits
+plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
+                            removed by `clean` as one `delete_tracks` edit
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
                             library with loclib-interop into a folder on this computer
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
@@ -110,7 +112,7 @@ crates/locallibrary/src/    the library, built on the crates above
   check.rs     the check before a set, down to the tracks each player won't load
   probe.rs     reading audio files through symphonia: their headers, and whether their ends decode
   convert.rs   building export.pdb from OneLibrary or the reverse
-  clean.rs     removing unwanted tracks (rekordbox's demo samples) and their files
+  track_files.rs  a track's files on a drive, and which ones removing tracks leaves unused
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding
@@ -145,7 +147,7 @@ crates/locallibrary/src/    the library, built on the crates above
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
                             and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
-                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
+                            interop, coverart and demos plugins linked in, each run as `locallibrary plugin serve <id>`;
                             plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
                             rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves

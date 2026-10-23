@@ -295,6 +295,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
     album that could be several release groups offered as each of them. It's the only one that
     goes online, and only when it's run.
+  - `demos`: `clean` removes rekordbox's demo tracks with their files, and its check lists them
+    in `check` and doctor, with `clean` as the fix.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -530,6 +532,12 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
+- `clean` is the demos plugin's now: its plan is an edit plan (journaled, so `edits replay` makes it
+  again after an export), a demo track only OneLibrary lists goes too, and one sharing its audio
+  file with another track stays, said so. `refresh`'s first step runs it. Over RPC, `clean.plan`
+  and `clean.apply` are gone: use `plugins.op.plan {plugin: "demos", operation: "clean", context:
+  {drive}}` and `plugins.op.apply`. A `delete_tracks` edit removes every row of a track's audio
+  file, and may name a track only the drive's other database lists.
 - `playlist import` is the tracklist plugin's now. An entry that could be several tracks is asked
   about (in a terminal; otherwise it stops, exit status 2, saying how to answer): `--choose 3=812`
   answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves

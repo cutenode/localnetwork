@@ -142,7 +142,7 @@ fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> R
             (tracklist::detect(&bytes, hint.as_deref()), tracklist::parse(&bytes, hint.as_deref()).map_err(unreadable)?)
         }
     };
-    // Not `combined`: an edit can't name a track only OneLibrary has.
+    // Not `combined`: a playlist's entries can't name a track only OneLibrary has.
     let lib = host.drive(drive).library()?;
     let mut report = Report::new(format, tracklist::match_entries(&lib, &entries));
     for (&i, &track) in answers {

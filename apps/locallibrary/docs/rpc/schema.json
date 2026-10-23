@@ -920,64 +920,6 @@
       }
     },
     {
-      "name": "clean.plan",
-      "aliases": [],
-      "kind": "plan",
-      "pair": "clean.apply",
-      "operation": "clean",
-      "long_running": true,
-      "destructive": true,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/DriveRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/CleanPlan"
-          },
-          {
-            "$ref": "#/$defs/PlanFields"
-          }
-        ]
-      }
-    },
-    {
-      "name": "clean.apply",
-      "aliases": [],
-      "kind": "apply",
-      "pair": "clean.plan",
-      "operation": "clean",
-      "long_running": true,
-      "destructive": true,
-      "params": {
-        "anyOf": [
-          {
-            "$ref": "#/$defs/ApplyPlan"
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/$defs/DriveRef"
-              },
-              {
-                "$ref": "#/$defs/WriteOptions"
-              }
-            ]
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/CleanReport"
-      }
-    },
-    {
       "name": "convert.plan",
       "aliases": [],
       "kind": "plan",
@@ -7325,7 +7267,7 @@
             "op",
             "tracks"
           ],
-          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them."
+          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them. A track goes with every\nrow of its audio file, in each database; a path may name one only the drive's other\ndatabase lists (OneLibrary, drifted from `export.pdb`), which is deleted there."
         },
         {
           "type": "object",
@@ -16876,144 +16818,6 @@
         "fingerprint"
       ]
     },
-    "CleanPlan": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string"
-        },
-        "root": {
-          "type": "string"
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/TrackRef"
-          }
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Files to delete (audio, analysis, artwork), as drive keys."
-        },
-        "bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0,
-          "description": "Total size of `files`."
-        },
-        "playlists": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/AffectedPlaylist"
-          }
-        },
-        "lookup_rows": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0,
-          "description": "Artist/album/genre/label/key/artwork rows left unused by the removal."
-        },
-        "needed_bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0,
-          "description": "Space needed for the backup of the database and the deleted files."
-        },
-        "free_space": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
-        },
-        "fits": {
-          "type": "boolean"
-        },
-        "warnings": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "drive",
-        "root",
-        "tracks",
-        "files",
-        "bytes",
-        "playlists",
-        "lookup_rows",
-        "needed_bytes",
-        "free_space",
-        "fits",
-        "warnings"
-      ]
-    },
-    "AffectedPlaylist": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "entries_removed": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "path",
-        "entries_removed"
-      ]
-    },
-    "CleanReport": {
-      "type": "object",
-      "properties": {
-        "tracks_removed": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "files_deleted": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "freed_bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "backup": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "fingerprint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Hash"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "tracks_removed",
-        "files_deleted",
-        "freed_bytes",
-        "backup",
-        "fingerprint"
-      ]
-    },
     "ConvertPlan": {
       "type": "object",
       "properties": {
@@ -19056,7 +18860,7 @@
             "tracks",
             "keep_files"
           ],
-          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them."
+          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them. A track goes with every\nrow of its audio file, in each database; a path may name one only the drive's other\ndatabase lists (OneLibrary, drifted from `export.pdb`), which is deleted there."
         },
         {
           "type": "object",

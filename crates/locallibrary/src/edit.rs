@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::artwork::ImageSource;
 use crate::backup;
-use crate::clean;
 use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::cue_edit::CueChange;
 use crate::device::{Device, LineageOp};
@@ -161,7 +160,9 @@ pub enum Edit {
         fields: TrackFields,
     },
     /// Delete tracks with their playlist and history entries, and (unless `keep_files`) their
-    /// audio, analysis and artwork files when no other track uses them.
+    /// audio, analysis and artwork files when no other track uses them. A track goes with every
+    /// row of its audio file, in each database; a path may name one only the drive's other
+    /// database lists (OneLibrary, drifted from `export.pdb`), which is deleted there.
     DeleteTracks {
         tracks: TrackSelector,
         #[serde(default)]
@@ -482,8 +483,11 @@ enum Op {
         tracks: Vec<String>,
         fields: Box<TrackFields>,
     },
+    /// Every row of each of `tracks`' files, and of `elsewhere`'s: files only the drive's other
+    /// database lists, which a database lacking them leaves be.
     DeleteTracks {
         tracks: Vec<String>,
+        elsewhere: Vec<String>,
     },
     Repoint {
         from: String,
@@ -1230,11 +1234,17 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                 fields.apply_to(t);
             }
         }
-        Op::DeleteTracks { tracks } => {
-            let (ids, missing) = ids_of(db.lib(), tracks);
+        Op::DeleteTracks { tracks, elsewhere } => {
+            let (_, missing) = ids_of(db.lib(), tracks);
             if !missing.is_empty() {
                 skip(format!("{} track(s) aren't in this database (e.g. {})", missing.len(), missing[0]))?;
             }
+            // Every row of a file: two can share one, and its files go.
+            let files: FxHashSet<&String> = tracks.iter().chain(elsewhere).collect();
+            let ids: Vec<u32> = (db.lib().tracks.iter())
+                .filter(|t| files.contains(&paths::file_key(&t.file_path)))
+                .map(|t| t.id)
+                .collect();
             if ids.is_empty() {
                 return Ok(());
             }
@@ -1311,6 +1321,9 @@ struct Resolver<'a> {
     ctx: Ctx<'a>,
     /// Audio files (keys) the edit writes, which a track may be pointed at before they exist.
     incoming: &'a [String],
+    /// Audio files (keys) of tracks only the drive's other database lists, which a delete may
+    /// name.
+    elsewhere: FxHashSet<String>,
 }
 
 fn split_path(path: &str) -> Result<NodePath> {
@@ -1388,7 +1401,15 @@ fn indexes(positions: &[usize], len: usize) -> Result<Vec<usize>> {
 
 impl<'a> Resolver<'a> {
     fn new(device: &'a Device, extra: &'a DriveContext, lenient: bool, ctx: Ctx<'a>) -> Resolver<'a> {
-        Resolver { device, extra, lenient, notes: Default::default(), ctx, incoming: &[] }
+        Resolver {
+            device,
+            extra,
+            lenient,
+            notes: Default::default(),
+            ctx,
+            incoming: &[],
+            elsewhere: Default::default(),
+        }
     }
 
     fn note(&self, warning: String) {
@@ -1560,18 +1581,27 @@ impl<'a> Resolver<'a> {
                         .chain(lib.history.iter())
                         .flat_map(|q| q.track_ids.iter().copied())
                         .collect();
+                    // A track goes with every row of its file: not one whose file a track used
+                    // elsewhere shares.
+                    let files_elsewhere: FxHashSet<String> = (lib.tracks.iter())
+                        .filter(|t| used_elsewhere.contains(&t.id))
+                        .map(|t| paths::file_key(&t.file_path))
+                        .collect();
                     let mut only_here: Vec<u32> = lib
                         .playlists
                         .iter()
                         .filter(|q| inside.contains(&q.id))
                         .flat_map(|q| q.track_ids.iter().copied())
                         .filter(|t| !used_elsewhere.contains(t))
+                        .filter(|t| {
+                            lib.track(*t).is_none_or(|t| !files_elsewhere.contains(&paths::file_key(&t.file_path)))
+                        })
                         .collect();
                     only_here.sort_unstable();
                     only_here.dedup();
                     if !only_here.is_empty() {
                         desc.push_str(&format!(", with the {} track(s) only it uses", only_here.len()));
-                        ops.push(Op::DeleteTracks { tracks: Self::keys(lib, &only_here) });
+                        ops.push(Op::DeleteTracks { tracks: Self::keys(lib, &only_here), elsewhere: Vec::new() });
                         // Recorded as the tracks it deleted: a replay deletes those, not tracks
                         // added to the playlist since.
                         recorded.push(Edit::DeleteTracks {
@@ -1825,17 +1855,26 @@ impl<'a> Resolver<'a> {
                 )
             }
             Edit::DeleteTracks { tracks, keep_files } => {
-                let ids = self.select(lib, tracks, false)?;
+                let (elsewhere, here): (Vec<String>, Vec<String>) =
+                    tracks.paths.iter().cloned().partition(|p| self.elsewhere.contains(&paths::file_key(p)));
+                // Replaying, the tracks already gone are gone.
+                let here = self.present(lib, &here, "the edit selects");
+                let rest = TrackSelector { paths: here, ..tracks.clone() };
+                let ids = match rest.is_empty() && !tracks.is_empty() {
+                    true => Vec::new(),
+                    false => self.select(lib, &rest, false)?,
+                };
                 let desc = format!(
                     "delete {} track(s){}",
-                    ids.len(),
+                    ids.len() + elsewhere.len(),
                     if *keep_files { " (their files stay on the drive)" } else { "" }
                 );
                 let canonical = Edit::DeleteTracks {
-                    tracks: TrackSelector::paths(Self::device_paths(lib, &ids)),
+                    tracks: TrackSelector::paths(Self::device_paths(lib, &ids).into_iter().chain(elsewhere.clone())),
                     keep_files: *keep_files,
                 };
-                (vec![Op::DeleteTracks { tracks: Self::keys(lib, &ids) }], desc, canonical)
+                let elsewhere = elsewhere.iter().map(|p| paths::file_key(p)).collect();
+                (vec![Op::DeleteTracks { tracks: Self::keys(lib, &ids), elsewhere }], desc, canonical)
             }
             Edit::ReplaceTrack { duplicate, keep, keep_duplicate } => {
                 let one = |sel: &TrackSelector, what: &str| -> Result<&Track> {
@@ -1847,13 +1886,14 @@ impl<'a> Resolver<'a> {
                     }
                 };
                 let (dup, keeper) = (one(duplicate, "replace")?, one(keep, "keep")?);
-                if dup.id == keeper.id {
-                    return Err(Error::invalid("a track can't replace itself"));
+                // The duplicate goes with every row of its file.
+                if paths::file_key(&dup.file_path) == paths::file_key(&keeper.file_path) {
+                    return Err(Error::invalid("a track can't replace itself, or another of its own file"));
                 }
                 let mut ops =
                     vec![Op::Repoint { from: paths::file_key(&dup.file_path), to: paths::file_key(&keeper.file_path) }];
                 if !keep_duplicate {
-                    ops.push(Op::DeleteTracks { tracks: vec![paths::file_key(&dup.file_path)] });
+                    ops.push(Op::DeleteTracks { tracks: vec![paths::file_key(&dup.file_path)], elsewhere: Vec::new() });
                 }
                 let desc = format!("replace {} with {}", dup.display_name(), keeper.display_name());
                 let canonical = Edit::ReplaceTrack {
@@ -2223,7 +2263,7 @@ fn open_databases(device: &Device, warnings: &mut Vec<String>) -> Result<Databas
         }
         false => None,
     };
-    let plus = clean::open_plus(device, pdb.is_some(), warnings)?;
+    let plus = crate::onelibrary::open_plus(device, pdb.is_some(), warnings)?;
     Ok(Databases { pdb, plus })
 }
 
@@ -2327,6 +2367,11 @@ fn plan_with(
         edits.iter().cloned().partition(|e| e.is_step() || (opts.lenient && matches!(e, Edit::SetPath { .. })));
     let mut resolver = Resolver::new(device, extra, opts.lenient, ctx.clone());
     resolver.incoming = incoming;
+    if let (Some((_, _, pdb)), Some((plus, _))) = (&dbs.pdb, &dbs.plus) {
+        let here: FxHashSet<String> = pdb.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
+        resolver.elsewhere =
+            plus.tracks.iter().map(|t| paths::file_key(&t.file_path)).filter(|k| !here.contains(k)).collect();
+    }
     let (mut steps, mut changes, mut images) = (Vec::new(), Vec::new(), FxHashMap::default());
     for step in &given {
         let made = resolver.step(step, primary, &mut images);
@@ -2365,8 +2410,8 @@ fn plan_with(
                 warnings.extend(notes);
                 if let Edit::DeleteTracks { keep_files: true, .. } = edit {
                     for op in &edit_ops {
-                        if let Op::DeleteTracks { tracks } = op {
-                            kept.extend(tracks.iter().cloned());
+                        if let Op::DeleteTracks { tracks, elsewhere } = op {
+                            kept.extend(tracks.iter().chain(elsewhere).cloned());
                         }
                     }
                 }
@@ -2390,7 +2435,9 @@ fn plan_with(
 
     // What changes, on the main database.
     let after = &model.lib;
-    if onelibrary_changes && after == primary {
+    let deletes_elsewhere =
+        ops.iter().any(|op| matches!(op, Op::DeleteTracks { elsewhere, .. } if !elsewhere.is_empty()));
+    if onelibrary_changes && after == primary && !deletes_elsewhere {
         changes.push("make them in exportLibrary.db, which lacks them".into());
     }
     let diff = LibraryDiff::between(primary, after);
@@ -2428,13 +2475,19 @@ fn plan_with(
     let doomed: FxHashSet<String> = ops
         .iter()
         .filter_map(|op| match op {
-            Op::DeleteTracks { tracks } => Some(tracks.iter().cloned()),
+            Op::DeleteTracks { tracks, elsewhere } => Some(tracks.iter().chain(elsewhere).cloned()),
             _ => None,
         })
         .flatten()
         .collect();
-    let tracks_removed: Vec<TrackRef> =
-        primary.tracks.iter().filter(|t| doomed.contains(&paths::file_key(&t.file_path))).map(TrackRef::from).collect();
+    // The main database's, then those only the other lists.
+    let only_elsewhere = (dbs.plus.iter().filter(|_| dbs.pdb.is_some()))
+        .flat_map(|(l, _)| &l.tracks)
+        .filter(|t| resolver.elsewhere.contains(&paths::file_key(&t.file_path)));
+    let tracks_removed: Vec<TrackRef> = (primary.tracks.iter().chain(only_elsewhere))
+        .filter(|t| doomed.contains(&paths::file_key(&t.file_path)))
+        .map(TrackRef::from)
+        .collect();
     let edited: FxHashSet<String> = ops
         .iter()
         .filter_map(|op| match op {
@@ -2459,7 +2512,7 @@ fn plan_with(
     if doomed.iter().any(|k| !kept.contains(k)) {
         let libraries: Vec<&Library> =
             dbs.pdb.iter().map(|(_, _, l)| l).chain(dbs.plus.iter().map(|(l, _)| l)).collect();
-        let (removable, left) = clean::removable_files(
+        let (removable, left) = crate::track_files::removable_files(
             device,
             &libraries,
             dbs.plus.as_ref().map(|(_, o)| o),
@@ -3128,10 +3181,13 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
         .chain(primary.history.iter().filter(|_| history))
         .flat_map(|p| p.track_ids.iter().copied())
         .collect();
+    // A track goes with every row of its file: not one whose file a kept track shares.
+    let (kept, unused): (Vec<&Track>, Vec<&Track>) = primary.tracks.iter().partition(|t| used.contains(&t.id));
+    let kept: FxHashSet<String> = kept.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let dropped: Vec<String> =
-        primary.tracks.iter().filter(|t| !used.contains(&t.id)).map(|t| paths::file_key(&t.file_path)).collect();
+        unused.iter().map(|t| paths::file_key(&t.file_path)).filter(|k| !kept.contains(k)).collect();
     if !dropped.is_empty() {
-        ops.push(Op::DeleteTracks { tracks: dropped });
+        ops.push(Op::DeleteTracks { tracks: dropped, elsewhere: Vec::new() });
     }
     if !history {
         let mut counts: FxHashMap<&str, usize> = FxHashMap::default();
