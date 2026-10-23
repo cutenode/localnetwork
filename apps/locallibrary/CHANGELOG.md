@@ -652,6 +652,9 @@ their old names.
 - What other code writes to stderr while the player runs goes to its messages (`!`) instead of
   over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
   player before it said there's no audio output.
+- The player's outputs list (`d`) opens at once and lists the devices in the background, where
+  the player froze until every one was found (a while with ALSA). Devices that can't be listed
+  say why in the list, which used to show only the system's default.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
 - A drive holding a state the library's latest snapshot went through, though no snapshot holds

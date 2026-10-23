@@ -18,7 +18,7 @@ use super::super::audio::Audio;
 use super::super::audio::tests::wav;
 use super::super::edits::{Job, Modal};
 use super::super::ui::screen;
-use super::{App, NowPlaying, View};
+use super::{App, Msg, NowPlaying, View};
 
 // Copying a folder with its files' modification times, as the library's and the CLI's tests do.
 #[path = "../../../../../crates/locallibrary/tests/support/files.rs"]
@@ -335,6 +335,26 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
         );
     }
     assert!(done(app), "timed out; last message: {:?}", last_message(app));
+}
+
+/// Wait for the outputs list open now to have its devices (listed in the background), and only
+/// that: whatever else the background sends (a track opening, say) is left for later, so a test
+/// can pick an output while a track still opens.
+#[track_caller]
+pub fn outputs_listed(app: &mut App) {
+    let listing = |app: &App| app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some());
+    let (t, mut later) = (Instant::now(), Vec::new());
+    while listing(app) && t.elapsed() < Duration::from_secs(60) {
+        match app.rx.recv_timeout(Duration::from_millis(5)) {
+            Ok(msg @ Msg::Outputs(..)) => app.handle_msg(msg),
+            Ok(msg) => later.push(msg),
+            Err(_) => {}
+        }
+    }
+    for msg in later {
+        app.sender().send(msg).unwrap();
+    }
+    assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
 }
 
 /// The message the footer shows now ("" for none).
