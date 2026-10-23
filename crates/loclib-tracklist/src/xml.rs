@@ -1,16 +1,16 @@
 //! rekordbox XML (`DJ_PLAYLISTS`).
 
+mod library;
+
 use rustc_hash::FxHashMap;
+
+pub use library::{MAX_BEATS, Mark, Tempo, XmlLibrary, XmlTrack};
 
 use crate::detection::file_path;
 use crate::m3u::location_entry;
 use crate::table::parse_duration;
 use crate::{Entry, Error, Result};
-
-pub(crate) struct XmlDoc {
-    pub collection: Vec<Entry>,
-    pub playlists: Vec<(String, Vec<Entry>)>,
-}
+use library::{MAX_DEPTH, Skipped};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum TagKind {
@@ -177,15 +177,19 @@ struct XmlNode {
     keys: Vec<(String, usize)>,
 }
 
-pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
+pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
     let mut scanner = Scanner::new(text);
-    let mut collection: Vec<Entry> = Vec::new();
+    let mut collection: Vec<XmlTrack> = Vec::new();
     let mut by_id: FxHashMap<String, usize> = FxHashMap::default();
     let mut by_location: FxHashMap<String, usize> = FxHashMap::default();
     let mut stack: Vec<&str> = Vec::new();
     let mut nodes: Vec<XmlNode> = Vec::new();
     let mut lists: Vec<(String, XmlNode)> = Vec::new();
     let mut saw_root = false;
+    let mut skipped = Skipped::default();
+    // How deep inside an element nested past MAX_DEPTH the scanner is: everything there is left
+    // out, so no loop below runs over more than MAX_DEPTH names.
+    let mut too_deep = 0usize;
 
     // Folder path of the innermost node, without rekordbox's ROOT.
     let node_path = |nodes: &[XmlNode]| {
@@ -194,6 +198,20 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
     };
 
     while let Some(tag) = scanner.next_tag()? {
+        if too_deep > 0 {
+            match tag.kind {
+                TagKind::Start => too_deep += 1,
+                TagKind::End => too_deep -= 1,
+                TagKind::Empty => {}
+            }
+            continue;
+        }
+        // Nodes too: an end tag that skips theirs leaves them open.
+        if tag.kind != TagKind::End && stack.len().max(nodes.len()) >= MAX_DEPTH {
+            skipped.nested += 1;
+            too_deep = usize::from(tag.kind == TagKind::Start);
+            continue;
+        }
         if tag.kind == TagKind::End {
             if tag.name == "NODE" && stack.contains(&"PLAYLISTS") && !nodes.is_empty() {
                 let path = node_path(&nodes);
@@ -207,6 +225,7 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
             continue;
         }
         let parent = stack.last().copied();
+        let in_collection = stack.len() >= 2 && stack[stack.len() - 2] == "COLLECTION";
         match (tag.name, parent) {
             ("DJ_PLAYLISTS", _) => saw_root = true,
             ("TRACK", Some("COLLECTION")) => {
@@ -228,8 +247,17 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
                 if let Some(loc) = get("Location") {
                     by_location.insert(loc.to_string(), collection.len());
                 }
-                collection.push(e);
+                collection.push(library::track(&tag, e, &mut skipped));
             }
+            // The track they're in is the last one read.
+            ("TEMPO", Some("TRACK")) if in_collection => match (collection.last_mut(), library::tempo(&tag)) {
+                (Some(t), Some(tempo)) => t.tempos.push(tempo),
+                _ => skipped.tempos += 1,
+            },
+            ("POSITION_MARK", Some("TRACK")) if in_collection => match (collection.last_mut(), library::mark(&tag)) {
+                (Some(t), Some(mark)) => t.marks.push(mark),
+                _ => skipped.marks += 1,
+            },
             ("NODE", _) if stack.contains(&"PLAYLISTS") => {
                 nodes.push(XmlNode {
                     name: tag.attr("Name").unwrap_or_default().to_string(),
@@ -270,7 +298,7 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
                 .map(|(key, line)| {
                     let found = if node.by_location { by_location.get(&key) } else { by_id.get(&key) };
                     match found {
-                        Some(&i) => Entry { line, ..collection[i].clone() },
+                        Some(&i) => Entry { line, ..collection[i].entry.clone() },
                         None if node.by_location => {
                             Entry { line, raw: format!("Key=\"{key}\""), ..location_entry(&key) }
                         }
@@ -281,7 +309,10 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlDoc> {
             (path, entries)
         })
         .collect();
-    Ok(XmlDoc { collection, playlists })
+    for t in &mut collection {
+        t.tempos.sort_by(|a, b| a.start_ms.total_cmp(&b.start_ms));
+    }
+    Ok(XmlLibrary { tracks: collection, playlists, warnings: skipped.warnings() })
 }
 
 #[cfg(test)]

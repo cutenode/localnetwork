@@ -14,6 +14,7 @@ mod xml;
 pub use matching::{MatchKind, Matched, Matcher, Report, Status, Summary, match_entries};
 pub use table::{Record, read_table};
 pub use text::text_of;
+pub use xml::{MAX_BEATS, Mark, Tempo, XmlLibrary, XmlTrack};
 
 use serde::{Deserialize, Serialize};
 
@@ -105,11 +106,18 @@ pub fn xml_playlists(bytes: &[u8]) -> Result<Vec<(String, Vec<Entry>)>> {
     Ok(parse_xml(&text_of(bytes))?.playlists)
 }
 
+/// A rekordbox XML file as a library: its collection's tracks with their tags, key, tempo, beat
+/// grid and cues, its playlists as [`xml_playlists`] reads them, and what was left out as out of
+/// range.
+pub fn read_xml_library(bytes: &[u8]) -> Result<XmlLibrary> {
+    parse_xml(&text_of(bytes))
+}
+
 fn parse_text(text: &str, format: Format) -> Result<Vec<Entry>> {
     match format {
         Format::M3u => Ok(parse_m3u(text)),
         Format::Csv | Format::RekordboxText => parse_table(text, format),
-        Format::RekordboxXml => Ok(parse_xml(text)?.collection),
+        Format::RekordboxXml => Ok(parse_xml(text)?.tracks.into_iter().map(|t| t.entry).collect()),
         Format::Text => Ok(parse_plain(text)),
     }
 }
