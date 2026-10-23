@@ -175,7 +175,7 @@ fn a_track_shows_only_its_own_panels(tc: TestCase) {
             0 => app.track_state.select(Some(tc.draw(gs::integers::<usize>().max_value(n - 1)))),
             1 => settled(&mut app),
             _ => {
-                let track = app.visible[tc.draw(gs::integers::<usize>().max_value(n - 1))];
+                let track = tc.draw(gs::sampled_from(&app.visible[..]));
                 let at = tc.draw(gs::integers::<usize>().max_value(1));
                 let answer = match tc.draw(gs::booleans()) {
                     true => Ok(Box::new(Ready::of(&View::Text { title: None, text: said(track) }, &|_| None))),

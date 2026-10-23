@@ -151,8 +151,8 @@ fn written_volumes_describe_their_layout(tc: TestCase) {
 /// (1980 to 2107).
 #[hegel::test(test_cases = 300)]
 fn timestamps_keep_the_date_and_time(tc: TestCase) {
-    let secs = tc.draw(gs::integers::<i64>().min_value(-2_000_000_000).max_value(8_000_000_000));
-    let t = chrono::DateTime::from_timestamp(secs, 0).unwrap().naive_utc();
+    let at = |secs| chrono::DateTime::from_timestamp(secs, 0).unwrap().naive_utc();
+    let t = tc.draw(gs::default::<chrono::NaiveDateTime>().min_value(at(-2_000_000_000)).max_value(at(8_000_000_000)));
     let (date, time) = fat_timestamp(t);
     let year = i32::from(date >> 9) + 1980;
     assert_eq!(year, t.year().clamp(1980, 2107));

@@ -32,6 +32,46 @@ fn a_decoder_crash_on_a_worker_leaves_the_screen_alone() {
     assert!(format!("{:#}", opened.unwrap_err()).contains("crashed"));
 }
 
+/// What's written straight to stderr while the player runs (alsa-lib's complaints with no sound
+/// card) goes to the messages, not over the screen. Once stderr is put back, or the UI thread
+/// panics, it's the terminal again, so the panic's message is seen. stderr is the process's, so
+/// this runs in a process of its own.
+#[cfg(unix)]
+#[test]
+fn stderr_goes_to_the_messages_while_the_player_runs() {
+    const ALONE: &str = "LOCALLIBRARY_TEST_STDERR";
+    if std::env::var_os(ALONE).is_none() {
+        let name = "tui::tests::stderr_goes_to_the_messages_while_the_player_runs";
+        let out = Command::new(std::env::current_exe().unwrap())
+            .args([name, "--exact", "--nocapture"])
+            .env(ALONE, "1")
+            .output()
+            .unwrap();
+        let (said, err) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        assert!(out.status.success() && said.contains("1 passed"), "{said}{err}");
+        assert!(!err.contains("cannot find card"), "written over the screen: {err}");
+        assert!(err.contains("after the player") && err.contains("the player broke"), "{err}");
+        return;
+    }
+    // As alsa-lib writes: to the file descriptor, past Rust's stderr.
+    // SAFETY: writing a live buffer to a descriptor this process owns.
+    let write = |s: &str| unsafe { libc::write(2, s.as_ptr().cast(), s.len()) };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let logged = || rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let sender = tx.clone();
+    stderr::capture(move |line| sender.send(line.to_string()).unwrap());
+    write("ALSA lib confmisc.c:855:(parse_card) cannot find card '0'\n");
+    assert_eq!(logged(), "ALSA lib confmisc.c:855:(parse_card) cannot find card '0'");
+    stderr::restore();
+    write("after the player\n");
+
+    on_panic();
+    stderr::capture(move |line| tx.send(line.to_string()).unwrap());
+    write("cannot find card '1'\n");
+    assert_eq!(logged(), "cannot find card '1'");
+    assert!(std::panic::catch_unwind(|| panic!("the player broke")).is_err());
+}
+
 /// A signal while the player runs is the player's, and quits it as `q` does; before it runs
 /// (and after), it's the CLI's handler's.
 #[test]

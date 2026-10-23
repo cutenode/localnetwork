@@ -22,7 +22,7 @@ fn with_tracks(tc: &TestCase, n: usize) -> (OneLibrary, IndexMap<u32, Track>) {
     let defaults = one.content_defaults().unwrap();
     let mut tracks = IndexMap::new();
     for i in 0..n {
-        let mut t = any_track(tc, i, None);
+        let mut t = tc.draw(any_track(i, None));
         let rec = ContentRecord::from_track(&t, !t.analyze_path.is_empty(), &defaults);
         t.id = one.add_track(&rec, &t.file_path, &t.analyze_path, None).unwrap();
         // The album artist is the album's: without an album there is none.
@@ -84,8 +84,9 @@ fn colour(tc: &TestCase) -> (String, Option<Option<TrackColor>>) {
 #[hegel::test_helper]
 fn track_fields(tc: &TestCase) -> (TrackFields, Option<Option<Option<TrackColor>>>) {
     let some = |tc: &TestCase| tc.draw(gs::weighted_booleans(0.4));
-    let name =
-        |tc: &TestCase| some(tc).then(|| if tc.draw(gs::weighted_booleans(0.2)) { " ".into() } else { field(tc) });
+    let name = |tc: &TestCase| {
+        some(tc).then(|| if tc.draw(gs::weighted_booleans(0.2)) { " ".into() } else { tc.draw(field()) })
+    };
     let colour = some(tc).then(|| colour(tc));
     let f = TrackFields {
         title: name(tc),
@@ -204,7 +205,7 @@ fn probes(nodes: &Nodes, names: &[&str]) -> IndexSet<(u32, String)> {
 fn nodes_are_found_by_parent_and_name(tc: TestCase) {
     const NAMES: [&str; 4] = ["Set", "Warm up", "", "Ünï"];
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
-    let tree = [Tree::Playlist, Tree::History][tc.draw(gs::integers::<usize>().max_value(1))];
+    let tree = tc.draw(gs::sampled_from(&[Tree::Playlist, Tree::History]));
     let name = |tc: &TestCase| tc.draw(gs::sampled_from(NAMES.to_vec())).to_string();
     let mut nodes = Nodes::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {

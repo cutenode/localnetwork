@@ -114,6 +114,7 @@ jacquard-oauth.workspace = true
 tokio.workspace = true
 # Splits hints into words the way a shell does, to check their quoting.
 shlex = "2.0.1"
+loclib-model = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

@@ -25,6 +25,7 @@ mod props;
 #[cfg(test)]
 mod screens;
 mod state;
+mod stderr;
 mod theme;
 mod ui;
 
@@ -55,11 +56,15 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout()))?;
+    // What's written to stderr (alsa-lib's, with no sound card) would draw over the screen too.
+    let log = app.plugin_log();
+    stderr::capture(move |line| log("stderr", line));
     let _ = execute!(stdout(), EnableMouseCapture);
     SIGNAL.store(RUNNING, Ordering::Relaxed);
     let result = event_loop(&mut terminal, &mut app);
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
+    stderr::restore();
     crate::plugins::log_to(None);
     crate::plugins::events::notices_to(None);
     SIGNAL.store(IDLE, Ordering::Relaxed);
@@ -83,6 +88,7 @@ fn on_panic() {
         if std::thread::current().id() == ui {
             let _ = execute!(stdout(), DisableMouseCapture);
             ratatui::restore();
+            stderr::restore();
             hook(info);
         } else {
             app::note_panic(info);

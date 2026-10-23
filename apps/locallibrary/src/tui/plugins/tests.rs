@@ -1347,11 +1347,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
 /// The kinds of step `0..n` in an order drawn for the case.
 #[hegel::test_helper]
 fn turns(tc: &TestCase, n: usize) -> Vec<usize> {
-    let mut kinds: Vec<usize> = (0..n).collect();
-    for i in (1..n).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    kinds
+    tc.draw(gs::permutations((0..n).collect::<Vec<_>>()))
 }
 
 /// The form open now.
@@ -1890,7 +1886,7 @@ fn an_export_is_planned_then_written_or_left_be(tc: TestCase) {
     }
     // (The test plugin takes any names: it only says which it got.)
     let lists = ["Sets/Friday", "Warmup", "日本 😹"];
-    app.list_marks = lists.iter().filter(|_| tc.draw(gs::booleans())).map(|l| l.to_string()).collect();
+    app.list_marks = tc.draw(gs::subsequences(&lists[..])).iter().map(|l| l.to_string()).collect();
     if tc.draw(gs::booleans()) {
         press(&mut app, ":export for echo\n");
     } else {
@@ -2038,10 +2034,7 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     let mut app = app_on(&drive.0);
     let before = on_drive(&drive.0);
     let names = ["Given", "日本 😹", "Warmup", "Late night"];
-    let mut made: Vec<&str> = names.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    if made.is_empty() {
-        made.push(names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))]);
-    }
+    let made = tc.draw(gs::subsequences(&names[..]).min_size(1));
     let edits: Vec<Value> = made.iter().map(|p| json!({ "op": "create_playlist", "path": p })).collect();
     let manifest = crate::plugins::host().unwrap().manifest("echo").unwrap();
     let hook = Cli::Operation(&manifest.contributes.operations[0]);

@@ -25,14 +25,14 @@ fn defs(file: SettingsFile) -> impl Iterator<Item = &'static SettingDef> {
 
 #[hegel::test_helper]
 fn settings_file(tc: &TestCase) -> SettingsFile {
-    SettingsFile::ALL[tc.draw(gs::integers::<usize>().max_value(3))]
+    tc.draw(gs::sampled_from(&SettingsFile::ALL))
 }
 
 /// A setting of `file` and one of its choices' indexes.
 #[hegel::test_helper]
 fn setting(tc: &TestCase, file: SettingsFile) -> (&'static SettingDef, usize) {
     let defs: Vec<_> = defs(file).collect();
-    let d = defs[tc.draw(gs::integers::<usize>().max_value(defs.len() - 1))];
+    let d = tc.draw(gs::sampled_from(&defs));
     (d, tc.draw(gs::integers::<usize>().max_value(d.choices.len() - 1)))
 }
 
@@ -209,7 +209,7 @@ fn seeded(tc: &TestCase, file: SettingsFile) -> Option<SettingsBlob> {
         3 => Seed::UnknownValue(tc.draw(gs::integers::<usize>().max_value(defs(file).count() - 1))),
         _ => {
             let free: Vec<usize> = (0..data_len(file)).filter(|o| defs(file).all(|d| d.offset != *o)).collect();
-            Seed::Undecoded(free[tc.draw(gs::integers::<usize>().max_value(free.len() - 1))], tc.draw(gs::integers()))
+            Seed::Undecoded(tc.draw(gs::sampled_from(&free)), tc.draw(gs::integers()))
         }
     };
     let mut bytes = match seed {

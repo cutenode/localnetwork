@@ -2,7 +2,6 @@
 //! its depth, write the container, carry the tags over.
 
 use std::fs::File;
-use std::io::Read;
 use std::ops::ControlFlow;
 use std::path::Path;
 
@@ -58,7 +57,6 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
     let file = File::options().read(true).write(true).create(true).truncate(true).open(out);
     let mut file = Some(file.at(out)?);
     let mut tag = read_tag(source, recipe.container, ctx);
-    let mut frames_left = aiff_frames(source).unwrap_or(u64::MAX);
     // Progress is the source's size in step with the audio decoded, when its header says how
     // much there is; the rest when it's done.
     let size = std::fs::metadata(source).map_or(0, |m| m.len());
@@ -70,8 +68,6 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
     // A damaged packet is an error rather than skipped: leaving it out would move everything after
     // it earlier, and the cues with it.
     decode_native(source, Damaged::Fail, ctx, |samples: &[i32], rate, channels| -> Result<_> {
-        let frames = (samples.len() / channels).min(frames_left.try_into().unwrap_or(usize::MAX));
-        frames_left -= frames as u64;
         let p = match &mut pipeline {
             Some(p) => p,
             None => {
@@ -80,8 +76,8 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
                 pipeline.insert(Pipeline::new(file, out, recipe, rate, channels, tag.take())?)
             }
         };
-        p.push(&samples[..frames * channels])?;
-        decoded += frames as u64;
+        p.push(samples)?;
+        decoded += (samples.len() / channels) as u64;
         if let Some(total) = total {
             let at = size * decoded.min(total) / total;
             if at - reported >= PROGRESS_BYTES {
@@ -89,14 +85,13 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
                 reported = at;
             }
         }
-        Ok(if frames_left == 0 { ControlFlow::Break(()) } else { ControlFlow::Continue(()) })
+        Ok(ControlFlow::Continue(()))
     })?;
     ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: size - reported });
     let Some(pipeline) = pipeline else { return Err(parse(source, "it holds no audio")) };
     let channels = pipeline.channels;
     let frames = pipeline.finish()?;
-    // No frame at the new rate is a copy of nothing: a FLAC of only its header, an AIFF whose
-    // SSND symphonia reads as damaged.
+    // No frame at the new rate is a copy of nothing: a file of only its header.
     if frames == 0 {
         return Err(Error::TooShort {
             path: source.to_path_buf(),
@@ -106,31 +101,6 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
         });
     }
     Ok(Transcoded { frames, channels })
-}
-
-/// The frames an AIFF file's COMM chunk says it holds, when `path` is one. symphonia 0.5 takes
-/// the SSND chunk's offset and block size fields for audio, so it decodes 8 bytes past the end
-/// of the samples when a chunk follows them (as an ID3 tag usually does): noise at the end of
-/// the copy, and a frame or more too many, unless it stops here.
-pub(crate) fn aiff_frames(path: &Path) -> Option<u64> {
-    let mut file = std::io::BufReader::new(File::open(path).ok()?);
-    let mut header = [0; 12];
-    file.read_exact(&mut header).ok()?;
-    if &header[..4] != b"FORM" || !matches!(&header[8..], b"AIFF" | b"AIFC") {
-        return None;
-    }
-    loop {
-        let mut chunk = [0; 8];
-        file.read_exact(&mut chunk).ok()?;
-        let len = u32::from_be_bytes(chunk[4..].try_into().expect("4 bytes"));
-        if &chunk[..4] == b"COMM" {
-            let mut comm = [0; 6];
-            file.read_exact(&mut comm).ok()?;
-            return Some(u32::from_be_bytes(comm[2..].try_into().expect("4 bytes")).into());
-        }
-        // Chunks start on even offsets.
-        file.seek_relative(i64::from(len + len % 2)).ok()?;
-    }
 }
 
 /// The source's tags, in the form `container` holds them. `None` when it has none or they can't

@@ -82,11 +82,11 @@ fn what_is_saved_reads_back(tc: hegel::TestCase) {
         }),
         field_columns: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("sound.f{i}")).collect(),
         search_all: tc.draw(gs::booleans()),
-        volume: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(150)) as f32 / 100.0),
+        volume: tc.draw(gs::optional(gs::integers::<u8>().max_value(150))).map(|v| v as f32 / 100.0),
         vis: maybe(word()),
         details: tc.draw(gs::booleans()),
         repeat: maybe(word()),
-        quantize: tc.draw(gs::booleans()).then(|| tc.draw(gs::booleans())),
+        quantize: tc.draw(gs::optional(gs::booleans())),
         output: maybe(word()),
         mixes: (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| word().into()).collect(),
         queue: tc.draw(gs::booleans()).then(|| SavedQueue {
