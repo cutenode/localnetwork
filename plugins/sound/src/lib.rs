@@ -1,16 +1,28 @@
 //! locallibrary's sound analysis plugin, `sound`: one analyzer, `tempo-key-loudness`, measuring a
-//! track's tempo, key and loudness from its audio with loclib-analysis, for the host to keep and
-//! show as track-list columns (`sound.bpm`) and to read by role (doctor's `--analyze`, the check
-//! before a set, ordering a set). It reads nothing but the audio file it's handed, so it asks for
-//! no capabilities.
+//! track's tempo, key, loudness, beat grid and three-band waveform from its audio with
+//! loclib-analysis, for the host to keep and show as track-list columns (`sound.bpm`), to read
+//! by role (doctor's `--analyze`, the check before a set, ordering a set), and to draw (the grid
+//! and waveform) where a drive has none. It reads nothing but the audio file it's handed, so it
+//! asks for no capabilities.
 
 use std::io::{Read, Write};
 
-use loclib_analysis::{Want, analyze};
+use loclib_analysis::{COLUMNS_PER_SEC, Want, analyze};
 use loclib_plugin::{Analysis, AnalyzeTrack, FieldValue, Hooks, Host, RpcError};
 
 /// `locallibrary-plugin.toml`.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
+
+/// The least stable grid kept (loclib-analysis's `grid_stability`, `1 / (1 + cv)` of the time
+/// between beats). stratum-dsp only warns under 0.5, but what it scores above that can still be
+/// no grid: on steady synthetic kicks, grids of 0.58 to 0.75 repeat beats and break off partway,
+/// and 14 released dance tracks all scored 0.22 to 0.53, their beats' spacing varying by more
+/// than half a beat. The steady kicks and clicks it tracks evenly score 1. At 0.95, the time
+/// between beats varies by about 5% at most.
+const MIN_GRID_STABILITY: f32 = 0.95;
+
+/// The waveform's file, in the request's scratch folder.
+const WAVEFORM_BLOB: &str = "waveform.bands";
 
 /// `tempo-key-loudness`.
 fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
@@ -25,7 +37,7 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
     let loudness = analysis.loudness.as_ref();
     // Everything was worked out: what has nothing to show is null.
     let number = |n: Option<f64>| n.map_or(FieldValue::Null, FieldValue::Number);
-    let fields = [
+    let mut fields = vec![
         ("bpm", number(tempo.map(|e| e.bpm.into()))),
         ("bpm_confidence", number(tempo.map(|e| e.bpm_confidence.into()))),
         ("key", estimate.and_then(|e| e.key).map_or(FieldValue::Null, |k| FieldValue::String(k.code()))),
@@ -37,7 +49,26 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
             "clipped_runs",
             loudness.map_or(FieldValue::Null, |l| FieldValue::Integer(l.clipped_runs.try_into().unwrap_or(i64::MAX))),
         ),
+        (
+            "grid",
+            tempo
+                .filter(|e| e.grid_stability >= MIN_GRID_STABILITY)
+                .map_or(FieldValue::Null, |e| FieldValue::beats(&e.beats)),
+        ),
     ];
+    let drawn = analysis.waveform.as_ref().filter(|w| w.columns.iter().any(|c| *c != [0; 3]));
+    match (drawn, &req.context.scratch) {
+        (None, _) => fields.push(("waveform", FieldValue::Null)),
+        (Some(w), Some(scratch)) => {
+            let path = scratch.join(WAVEFORM_BLOB);
+            std::fs::write(&path, w.columns.as_flattened())
+                .map_err(|e| RpcError::failed("io", format!("{}: {e}", path.display())))?;
+            fields.push(("waveform", FieldValue::waveform(WAVEFORM_BLOB, COLUMNS_PER_SEC)));
+        }
+        // A host without scratch folders (feature `blobs`) has nowhere to take it from: it's
+        // left out, as not worked out.
+        (Some(_), None) => {}
+    }
     Ok(Analysis { fields: fields.into_iter().map(|(name, v)| (name.into(), v)).collect() })
 }
 

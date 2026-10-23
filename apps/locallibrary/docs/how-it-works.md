@@ -29,8 +29,9 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: decoding an
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
 crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
-                            clipping (ebur128), half/double tempo checks, and scoring analyzers against
-                            the GiantSteps annotations
+                            clipping (ebur128), its three-band waveform (loclib-mixid's frame levels),
+                            half/double tempo checks, and scoring analyzers against the GiantSteps
+                            annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
                             tags, an Engine DJ library (engine.sql)
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
@@ -44,7 +45,8 @@ plugins/coverart/           the coverart plugin: front covers for tracks without
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
                             library with loclib-interop into a folder on this computer
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
-                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them
+                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
+                            and its beat grid and three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md

@@ -308,10 +308,12 @@ fn analyze_writes_a_grid_into_the_analysis_files() {
     assert!(err.contains("write a key and BPM in a run of their own"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--apply", "grid", "--min-confidence", "0.5"]);
     assert!(err.contains("--min-confidence is for a key and BPM"), "{err}");
-    let out = env.ok(&["analyze", path(&root), "--apply", "grid", "--dry-run"]);
+    // The sound plugin works out a grid too.
+    let heard = ["--plugin", "echo", "--analyzer", "heard"];
+    let out = env.ok(&[&["analyze", path(&root), "--apply", "grid", "--dry-run"][..], &heard].concat());
     assert!(out.contains("heard (echo): 2 tracks analyzed"), "{out}");
     assert!(out.contains("2 of what's asked the tracks have already"), "{out}");
-    let out = env.ok(&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"]);
+    let out = env.ok(&[&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"][..], &heard].concat());
     assert!(out.contains("write the grid from Heard to 2 track(s)"), "{out}");
     let d = Device::open(&root).unwrap();
     for t in d.library().unwrap().tracks {

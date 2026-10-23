@@ -291,7 +291,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
-    `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
+    `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
+    percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform
+    and, where the beats it tracks fall evenly, a beat grid, drawn where a drive has none and
+    written with `analyze --apply grid,waveform`.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
     album that could be several release groups offered as each of them. It's the only one that
     goes online, and only when it's run.
