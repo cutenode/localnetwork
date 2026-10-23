@@ -94,7 +94,7 @@ fn a_commit_writes_everything_or_leaves_the_drive_as_it_was(tc: hegel::TestCase)
         if wanted.iter().any(|(k, _, _)| *k == key) {
             continue;
         }
-        let kind = kinds[tc.draw(gs::integers::<usize>().max_value(kinds.len() - 1))];
+        let kind = tc.draw(gs::sampled_from(&kinds));
         let optional = tc.draw(gs::booleans());
         let bytes = format!("new {i}").into_bytes();
         let (content, made): (Content<'_>, Option<Vec<u8>>) = match kind {
@@ -137,9 +137,9 @@ fn a_commit_writes_everything_or_leaves_the_drive_as_it_was(tc: hegel::TestCase)
     }
     // A folder can't be deleted as a file: the commit fails once it has swapped its files in.
     // One that was never there is always among them.
-    let deletes: Vec<String> = ["Contents/gone.mp3", "../outside.mp3", "Contents/adir"]
+    let deletes: Vec<String> = tc
+        .draw(gs::subsequences(&["Contents/gone.mp3", "../outside.mp3", "Contents/adir"]))
         .into_iter()
-        .filter(|_| tc.draw(gs::booleans()))
         .chain(["Contents/never.mp3"])
         .map(String::from)
         .collect();

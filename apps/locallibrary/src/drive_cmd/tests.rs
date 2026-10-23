@@ -35,7 +35,7 @@ fn fleet_drive(tc: &TestCase, dir: &std::path::Path, name: &str) -> FleetDrive {
     };
     let mut d = FleetDrive {
         status,
-        role: tc.draw(gs::booleans()).then(|| Role::ALL[tc.draw(gs::integers::<usize>().max_value(3))]),
+        role: tc.draw(gs::optional(gs::sampled_from(&Role::ALL[..]))),
         read_only: tc.draw(gs::booleans()),
         low_space: tc.draw(gs::booleans()),
         log: None,

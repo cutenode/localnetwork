@@ -47,8 +47,12 @@ fn requests_read_back(tc: TestCase) {
 /// A catalog reads back from its JSON: the same store, libraries, snapshots and labels.
 #[hegel::test(test_cases = 100)]
 fn catalogs_read_back(tc: TestCase) {
-    let at = chrono::DateTime::from_timestamp(tc.draw(gs::integers::<i64>().min_value(0).max_value(4_000_000_000)), 0)
-        .unwrap();
+    let last = chrono::DateTime::from_timestamp(4_000_000_000, 0).unwrap().naive_utc();
+    let at = tc.draw(
+        gs::default::<chrono::DateTime<chrono::Utc>>()
+            .min_value(chrono::DateTime::UNIX_EPOCH.naive_utc())
+            .max_value(last),
+    );
     let n = tc.draw(gs::integers::<usize>().max_value(3));
     let libraries: Vec<LibraryRecord> = (0..n)
         .map(|i| LibraryRecord {

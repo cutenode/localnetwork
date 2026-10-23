@@ -81,6 +81,7 @@ impl Track {
 /// rekordbox's eight track colours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(any(test, feature = "test-util"), derive(hegel::DefaultGenerator))]
 #[serde(rename_all = "snake_case")]
 pub enum TrackColor {
     Pink,

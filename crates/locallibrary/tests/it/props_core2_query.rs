@@ -28,8 +28,8 @@ fn tempo_colour_and_playlist_terms_select_what_they_name(tc: TestCase) {
         lib.tracks.push(t);
     }
     let ids: Vec<u32> = (1..=n).collect();
-    let in_list: Vec<u32> = ids.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
-    let in_nested: Vec<u32> = ids.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+    let in_list: Vec<u32> = tc.draw(gs::subsequences(&ids));
+    let in_nested: Vec<u32> = tc.draw(gs::subsequences(&ids));
     // A folder holding a playlist and a folder that holds the first folder again (a second row
     // for it, as damaged data can have).
     lib.playlists = vec![
@@ -63,7 +63,7 @@ fn tempo_colour_and_playlist_terms_select_what_they_name(tc: TestCase) {
         assert_eq!(select(&format!("bpm:~{target}")), want, "~{target}");
     }
 
-    let named: Vec<(&str, Option<u8>)> = COLOURS.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+    let named: Vec<(&str, Option<u8>)> = tc.draw(gs::subsequences(COLOURS));
     if !named.is_empty() {
         let names: Vec<&str> = named.iter().map(|c| c.0).collect();
         let colours: Vec<Option<TrackColor>> = named.iter().map(|c| c.1.and_then(TrackColor::from_id)).collect();

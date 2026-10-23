@@ -75,7 +75,7 @@ fn the_registry_matches_the_model(tc: TestCase) {
     }
 
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(12)) {
-        let i = tc.draw(gs::integers::<usize>().max_value(2));
+        let i = tc.draw(gs::integers::<usize>().max_value(ids.len() - 1));
         let id = ids[i];
         match tc.draw(gs::integers::<u8>().max_value(7)) {
             0 => {

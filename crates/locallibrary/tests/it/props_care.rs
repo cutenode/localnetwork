@@ -121,7 +121,7 @@ fn tidying_removes_exactly_the_clutter(tc: TestCase) {
     let mut want: BTreeSet<String> = BTreeSet::new();
     let mut trash = 0u64;
     let empty_trash = tc.draw(gs::booleans());
-    let chosen: Vec<(&str, Option<TidyKind>)> = CLUTTER.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+    let chosen: Vec<(&str, Option<TidyKind>)> = tc.draw(gs::subsequences(CLUTTER));
     for (key, kind) in &chosen {
         let p = root.join(key);
         fs::create_dir_all(p.parent().unwrap()).unwrap();

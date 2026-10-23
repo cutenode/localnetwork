@@ -1,8 +1,8 @@
 use super::*;
 use crate::Device;
-use hegel::TestCase;
 use hegel::generators as gs;
-use loclib_model::test_util::track;
+use hegel::{Generator, TestCase};
+use loclib_model::test_util::{keys, track};
 
 /// What the datasets name a key: `C minor`.
 fn spelled(key: Camelot) -> String {
@@ -51,8 +51,6 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
     for d in [root.join("Contents"), folder.clone(), keys_dir.clone(), tempos_dir.clone()] {
         std::fs::create_dir_all(d).unwrap();
     }
-    let key =
-        |tc: &TestCase| Camelot::from_pitch(tc.draw(gs::integers::<u32>().max_value(11)), tc.draw(gs::booleans()));
     let in_folder = tc.draw(gs::booleans());
     let (mtg, with_tempos) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     // Files that aren't annotations are passed over.
@@ -61,8 +59,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
     let (mut keyed, mut timed, mut audible, mut on_drive, mut broken) = (vec![], vec![], vec![], vec![], vec![]);
     for i in 0..tc.draw(gs::integers::<u32>().min_value(1).max_value(5)) {
         let id = format!("10{i}");
-        let annotated_key = tc.draw(gs::optional(gs::just(()))).map(|_| key(&tc));
-        if let Some(k) = annotated_key {
+        if let Some(k) = tc.draw(gs::optional(keys())) {
             keyed.push(id.clone());
             match mtg {
                 true => table.push(format!("{id}\t{}\t2", spelled(k))),
@@ -70,7 +67,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
             }
         } else if mtg {
             // Annotated with too little confidence to count.
-            table.push(format!("{id}\t{}\t1", spelled(key(&tc))));
+            table.push(format!("{id}\t{}\t1", spelled(tc.draw(keys()))));
         }
         if with_tempos && tc.draw(gs::booleans()) {
             timed.push(id.clone());
@@ -80,7 +77,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
         if tc.draw(gs::booleans()) {
             on_drive.push(id.clone());
             let mut t = track(i, "A", &id, &format!("/Contents/{file}"));
-            t.key = tc.draw(gs::optional(gs::just(()))).map_or(String::new(), |_| key(&tc).note());
+            t.key = tc.draw(gs::optional(keys().map(Camelot::note))).unwrap_or_default();
             tracks.push(t);
         }
         let has_audio = tc.draw(gs::weighted_booleans(0.3)) && (in_folder || on_drive.contains(&id));

@@ -94,7 +94,7 @@ fn entry(artist: &str, title: &str) -> Entry {
 fn named_tracks_are_found(tc: TestCase) {
     let lib = library(&tc, 1, 30);
     let matcher = Matcher::new(&lib);
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let version = tc.draw(gs::sampled_from(vec!["", " (Original Mix)", " - Radio Edit", " [Extended Mix]"]));
     // "Mystery Guest" isn't anyone in the library.
     let guest = tc.draw(gs::sampled_from(vec!["", " feat. Mystery Guest", ", Mystery Guest", " & Mystery Guest"]));
@@ -124,7 +124,7 @@ fn lengths_tell_copies_of_a_track_apart(tc: TestCase) {
         })
         .collect();
     let lib = Library { tracks, ..Default::default() };
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let mut e = entry(&respelled(&tc, &artist), &respelled(&tc, &title));
     e.duration_secs =
         Some((i64::from(t.duration_secs) + tc.draw(gs::integers::<i64>().min_value(-2).max_value(2))) as u32);
@@ -139,7 +139,7 @@ fn lengths_tell_copies_of_a_track_apart(tc: TestCase) {
 #[hegel::test(test_cases = 150)]
 fn titles_alone_find_the_tracks_with_that_title(tc: TestCase) {
     let lib = library(&tc, 1, 30);
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let off = tc.draw(gs::optional(gs::integers::<i64>().min_value(-5).max_value(5)));
     let secs = off.map(|o| (i64::from(t.duration_secs) + o) as u32);
     let e = Entry { duration_secs: secs, ..entry("", &respelled(&tc, &t.title)) };
@@ -198,7 +198,7 @@ fn generic_versions_pick_their_own(tc: TestCase) {
 #[hegel::test(test_cases = 150)]
 fn typos_still_find_the_track(tc: TestCase) {
     let lib = library(&tc, 1, 30);
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let e = entry(&respelled(&tc, &t.artist), &typo(&tc, &t.title));
     assert_eq!(Matcher::new(&lib).find(&e), Status::Found { track_id: t.id, how: MatchKind::Fuzzy }, "{e:?}");
 }
@@ -209,7 +209,7 @@ fn typos_still_find_the_track(tc: TestCase) {
 #[hegel::test(test_cases = 150)]
 fn files_are_found_by_their_path(tc: TestCase) {
     let lib = library(&tc, 1, 30);
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let matcher = Matcher::new(&lib);
     let windows = format!("D:\\Music\\{}\\{}.MP3", t.artist.to_uppercase(), t.title);
     let posix = format!("/Users/me/Music/{}/{}.mp3", t.artist.to_lowercase(), t.title);
@@ -231,7 +231,7 @@ fn files_are_found_by_their_path(tc: TestCase) {
 #[hegel::test(test_cases = 100)]
 fn isrcs_find_their_track(tc: TestCase) {
     let lib = library(&tc, 1, 30);
-    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let t = &tc.draw(gs::sampled_from(&lib.tracks));
     let isrc = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => t.isrc.clone(),
         1 => t.isrc.replace('-', "").to_lowercase(),

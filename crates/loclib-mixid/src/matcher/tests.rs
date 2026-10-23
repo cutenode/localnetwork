@@ -866,6 +866,7 @@ fn a_recurring_stretch_is_heard_three_ways_at_most(tc: TestCase) {
         .collect();
     pattern.sort_unstable();
     pattern.dedup();
+    tc.assume(fingerprint::landmarks(&pattern, crate::index::LIBRARY_FANOUT).len() >= 2 * SLICE_VOTES as usize);
     let repeats = tc.draw(gs::integers::<u32>().min_value(1).max_value(5));
     let track: Vec<Peak> =
         (0..repeats).flat_map(|k| pattern.iter().map(move |p| Peak { t: p.t + k * period, ..*p })).collect();
@@ -876,7 +877,6 @@ fn a_recurring_stretch_is_heard_three_ways_at_most(tc: TestCase) {
     let mix: Vec<Peak> = pattern.iter().map(|p| Peak { t: p.t + at, ..*p }).collect();
     let variants = fingerprint::variants(0.0);
     let found = detect(&index, &mix, 3 * SLICE, &variants, &Ctx::silent()).unwrap();
-    tc.assume(fingerprint::landmarks(&pattern, crate::index::LIBRARY_FANOUT).len() >= 2 * SLICE_VOTES as usize);
     assert!(found.iter().all(|d| d.slot == 0 && d.slice == 1 && d.votes >= SLICE_VOTES), "{found:#?}");
     assert_eq!(found.len(), repeats.min(3) as usize, "{found:#?}");
     assert!(found.windows(2).all(|w| w[0].votes >= w[1].votes));

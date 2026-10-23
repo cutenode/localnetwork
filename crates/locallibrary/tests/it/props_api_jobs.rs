@@ -23,7 +23,7 @@ use uuid::Uuid;
 /// refused, naming every step.
 #[hegel::test(test_cases = 300)]
 fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
-    let kind = StepKind::ALL[tc.draw(gs::integers::<usize>().max_value(StepKind::ALL.len() - 1))];
+    let kind = tc.draw(gs::sampled_from(&StepKind::ALL));
     let id: String =
         kind.id().chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", "  "]));
@@ -141,7 +141,7 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
     let mut volumes = common::isolate(dir.path(), None);
     let mut club: Option<Uuid> = None;
     for i in 0..n {
-        let kind = [Kind::Loose, Kind::Main, Kind::Club][tc.draw(gs::integers::<usize>().max_value(2))];
+        let kind = tc.draw(gs::sampled_from(&[Kind::Loose, Kind::Main, Kind::Club]));
         if store.is_none() {
             // The store holding the saved demo, with any drive: its own folder goes, each clone is
             // written where it's mounted.

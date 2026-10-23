@@ -381,7 +381,7 @@ fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
     std::fs::create_dir_all(&rb).unwrap();
     std::fs::write(rb.join("master.db"), f.plain()).unwrap();
     let collection = masterdb::open(&rb.join("master.db"), DEFAULT_KEY).unwrap();
-    let chosen: Vec<String> = names.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+    let chosen: Vec<String> = tc.draw(gs::subsequences(&names));
 
     let root = dir.path().join("Export");
     std::fs::create_dir_all(&root).unwrap();
@@ -565,10 +565,7 @@ fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase)
     use hegel::generators as gs;
     let pc = Computer::new();
     let anlz = pc.dir.path().join("rekordbox/share/PIONEER/USBANLZ/P016/0000875E");
-    let mut broken: Vec<&str> = ANALYSIS_EXTENSIONS.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    if broken.is_empty() {
-        broken.push(tc.draw(gs::sampled_from(ANALYSIS_EXTENSIONS.to_vec())));
-    }
+    let broken: Vec<&str> = tc.draw(gs::subsequences(&ANALYSIS_EXTENSIONS).min_size(1));
     for ext in &broken {
         let junk = tc.draw(gs::text().alphabet("xyz \u{0}é").max_size(40));
         std::fs::write(anlz.join(format!("ANLZ0000.{ext}")), format!("not an analysis file: {junk}")).unwrap();

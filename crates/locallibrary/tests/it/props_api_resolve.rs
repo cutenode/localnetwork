@@ -118,7 +118,10 @@ fn a_drive_is_found_where_it_was_last_seen_or_said_to_be_missing(tc: TestCase) {
     for (place, name, seen_at, id) in &known {
         let spec = match tc.draw(gs::booleans()) {
             true => any_case(&tc, name),
-            false => id.to_string()[..tc.draw(gs::integers::<usize>().min_value(4).max_value(8))].to_string(),
+            false => {
+                let id = id.to_string();
+                id[..tc.draw(gs::integers::<usize>().min_value(4).max_value(id.len()))].to_string()
+            }
         };
         match (place, api::resolve_drive(&spec)) {
             (Place::Nested, Ok(d)) => assert_eq!(d.root(), seen_at),

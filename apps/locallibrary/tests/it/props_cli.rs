@@ -20,7 +20,7 @@ use crate::support::{Env, Run, path};
 #[hegel::test_helper]
 fn fill(tc: &TestCase, fx: &Env, words: &[&str]) -> Vec<String> {
     let a = path(&fx.volumes.join("A")).to_string();
-    let pick = |options: &[&str]| options[tc.draw(gs::integers::<usize>().max_value(options.len() - 1))].to_string();
+    let pick = |options: &[&str]| tc.draw(gs::sampled_from(options)).to_string();
     words
         .iter()
         .map(|w| match *w {

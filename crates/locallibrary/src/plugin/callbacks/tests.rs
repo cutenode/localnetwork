@@ -493,7 +493,7 @@ fn text_with_paths(tc: &TestCase) -> (String, String) {
     let roots = roots();
     let (mut text, mut said) = (String::new(), String::new());
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(5)) {
-        let (root, as_said) = &roots[tc.draw(gs::integers::<usize>().max_value(roots.len() - 1))];
+        let (root, as_said) = &tc.draw(gs::sampled_from(&roots));
         match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => {
                 let words = tc.draw(gs::text().alphabet("abz :=,").max_size(6));
@@ -518,7 +518,7 @@ fn text_with_paths(tc: &TestCase) -> (String, String) {
         }
     }
     if tc.draw(gs::booleans()) {
-        let (root, as_said) = &roots[tc.draw(gs::integers::<usize>().max_value(roots.len() - 1))];
+        let (root, as_said) = &tc.draw(gs::sampled_from(&roots));
         text.push_str(root);
         said.push_str(as_said);
     }
