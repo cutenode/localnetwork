@@ -1,10 +1,12 @@
 //! The `rekordbox-xml` library source (`library/read`): a rekordbox XML file's collection as a
 //! library to build a drive from, a page at a time. Each track is its audio file (`Location`)
-//! with its tags, key, tempo, cues and the beat grid its `TEMPO`s make; the playlists come with
-//! the last page. The host checks every file is in a folder it was granted, and leaves the others
-//! out, so the source answers every track the file has.
+//! with its tags, key, tempo, cues and the beat grid its `TEMPO`s make; the playlists and what was
+//! left out come with the last page. The host checks every file is in a folder it was granted,
+//! and leaves the others out, so the source answers every track the file has.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+use std::time::UNIX_EPOCH;
 
 use loclib_plugin::{Host, LibraryPage, ReadLibrary, RpcError, SourceCue, SourcePlaylist, SourceTrack, params};
 use loclib_tracklist::{MAX_BEATS, XmlLibrary, XmlPlaylist, XmlTrack, read_xml_library};
@@ -27,7 +29,7 @@ struct Options {
     file: PathBuf,
 }
 
-/// What a page left out, by why.
+/// What a read's pages left out so far, by why.
 #[derive(Default)]
 struct LeftOut {
     no_file: usize,
@@ -37,38 +39,94 @@ struct LeftOut {
     past_bytes: usize,
 }
 
-/// `library/read`: the page of the collection from `cursor` (an index into it), the file read
-/// again for each, in a blob when it's big. Its reader's warnings come with the first page.
+/// The file as it was when a read of it began: its length and modification time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    len: u64,
+    mtime_ns: u128,
+}
+
+impl Stamp {
+    fn of(file: &Path) -> Result<Stamp, RpcError> {
+        let meta = std::fs::metadata(file).map_err(|e| RpcError::failed("io", format!("{}: {e}", file.display())))?;
+        let since = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok());
+        Ok(Stamp { len: meta.len(), mtime_ns: since.map_or(0, |d| d.as_nanos()) })
+    }
+
+    /// The cursor of the page from track `i`: `i:len:mtime_ns`.
+    fn cursor(self, i: usize) -> String {
+        format!("{i}:{}:{}", self.len, self.mtime_ns)
+    }
+}
+
+/// The track a cursor's page starts at, and the file's stamp when its read began.
+fn from_cursor(c: &str) -> Option<(usize, Stamp)> {
+    let mut parts = c.split(':');
+    let i = parts.next()?.parse().ok()?;
+    let stamp = Stamp { len: parts.next()?.parse().ok()?, mtime_ns: parts.next()?.parse().ok()? };
+    parts.next().is_none().then_some((i, stamp))
+}
+
+/// A read under way: its file's collection, kept between pages so the file is read once, and
+/// what its pages have left out so far.
+struct Reading {
+    file: PathBuf,
+    stamp: Stamp,
+    library: XmlLibrary,
+    left_out: LeftOut,
+}
+
+/// The read under way. One is kept at a time, dropped with its last page; another read's page
+/// reads its file again (and says what's left out of the pages from there).
+static READING: Mutex<Option<Reading>> = Mutex::new(None);
+
+/// `library/read`: the page of the collection from `cursor`, in a blob when it's big. The file is
+/// read once for all its pages, and a file saved since the first is refused (`conflict`), as its
+/// tracks may have moved. What was left out is said with the last page.
 pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage, RpcError> {
     let Options { file } = params(req.options)?;
-    let library = xml_file::read(&file, read_xml_library)?;
+    let stamp = Stamp::of(&file)?;
+    let shown = file.display();
     let from = match req.cursor.as_deref() {
         None => 0,
-        Some(c) => c.parse().ok().filter(|&i| i <= library.tracks.len()).ok_or_else(|| {
-            RpcError::invalid_params(format!("{c:?} isn't a cursor of {}'s collection", file.display()))
-        })?,
+        Some(c) => {
+            let (i, began) = from_cursor(c)
+                .ok_or_else(|| RpcError::invalid_params(format!("{c:?} isn't a cursor of {shown}'s collection")))?;
+            if began != stamp {
+                return Err(RpcError::failed("conflict", format!("{shown} changed while it was read: build again")));
+            }
+            i
+        }
     };
+    let mut reading = READING.lock().unwrap_or_else(PoisonError::into_inner);
+    let kept = reading.as_ref().is_some_and(|r| r.file == file && r.stamp == stamp);
+    if req.cursor.is_none() || !kept {
+        let library = xml_file::read(&file, read_xml_library)?;
+        *reading = Some(Reading { file: file.clone(), stamp, library, left_out: LeftOut::default() });
+    }
+    let Reading { library, left_out, .. } = reading.as_mut().expect("read just now");
+    if from > library.tracks.len() {
+        return Err(RpcError::invalid_params(format!("{shown}'s collection has no track {from}")));
+    }
     let mut page = LibraryPage::default();
-    let mut left_out = LeftOut::default();
     let mut items = 0;
     for (i, t) in library.tracks.iter().enumerate().skip(from) {
         host.ctx().check()?;
         if page.tracks.len() == PER_PAGE || items >= PAGE_ITEMS {
-            page.next = Some(i.to_string());
+            page.next = Some(stamp.cursor(i));
             break;
         }
-        if let Some(track) = track(t, &mut left_out) {
+        if let Some(track) = track(t, left_out) {
             items += 1 + track.beats.len() + track.cues.len();
             page.tracks.push(track);
         }
     }
     if page.next.is_none() {
-        page.playlists = playlists(&library, &mut left_out);
+        page.playlists = playlists(library, left_out);
+        page.warnings = std::mem::take(&mut library.warnings);
+        page.warnings.extend(left_out.warnings());
+        *reading = None;
     }
-    if from == 0 {
-        page.warnings = library.warnings;
-    }
-    page.warnings.extend(left_out.warnings());
     Ok(match xml_file::spilled(&page, req.context.scratch.as_deref(), "page.json")? {
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,

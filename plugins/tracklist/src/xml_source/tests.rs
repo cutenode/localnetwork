@@ -11,6 +11,11 @@ use super::*;
 use crate::tests::{kind, start, write};
 use crate::xml_import::tests::collection_with;
 
+/// The track a cursor's page starts at (`i:len:mtime_ns`).
+fn at(cursor: &Option<String>) -> Option<usize> {
+    cursor.as_deref().map(|c| c.split(':').next().unwrap().parse().unwrap())
+}
+
 /// Each page of the source over `file` (with `scratch` as each request's folder, the blobs read
 /// into their pages), from the first until one has no `next`, and the cursors asked for.
 fn pages(file: &str, scratch: Option<&Path>) -> (Vec<LibraryPage>, Vec<Option<String>>) {
@@ -26,8 +31,8 @@ fn pages(file: &str, scratch: Option<&Path>) -> (Vec<LibraryPage>, Vec<Option<St
         }
         let next = page.next.clone();
         pages.push(page);
-        // The host refuses a cursor it was given before; this one is an index, so it must grow.
-        let at = |c: &Option<String>| c.as_deref().map_or(0, |c| c.parse::<usize>().unwrap());
+        // The host refuses a cursor it was given before; this one starts with an index, so it
+        // must grow.
         match next {
             Some(next) if at(&Some(next.clone())) <= at(&cursor) => panic!("the page after {cursor:?} is {next:?}"),
             Some(next) => cursors.push(Some(next)),
@@ -128,9 +133,9 @@ fn a_collection_is_read_with_tags_cues_grids_and_playlists() {
 }
 
 /// A collection comes a page at a time, each at most PER_PAGE tracks, or fewer once their beats
-/// and cues come to PAGE_ITEMS, its playlists with the last and the reader's warnings with the
-/// first; a page bigger than a quarter of a message is a file in the request's scratch folder.
-/// A grid past MAX_BEATS is cut, and one with no length to end at left out, each counted.
+/// and cues come to PAGE_ITEMS, its playlists with the last; a page bigger than a quarter of a
+/// message is a file in the request's scratch folder. A grid past MAX_BEATS is cut, and one with
+/// no length to end at left out: what's left out over all the pages is said once, with the last.
 #[test]
 fn a_big_collection_comes_in_pages() {
     let dir = tempfile::tempdir().unwrap();
@@ -145,22 +150,19 @@ fn a_big_collection_comes_in_pages() {
     let file = write(dir.path(), "rekordbox.xml", &collection_with(&tracks, lists));
     let scratch = tempfile::tempdir().unwrap();
     let (paged, cursors) = pages(&file, Some(scratch.path()));
-    assert_eq!(cursors, [None, Some("1".into()), Some("501".into()), Some("1001".into())]);
+    assert_eq!(cursors.iter().map(at).collect::<Vec<_>>(), [None, Some(1), Some(501), Some(1001)]);
     let sizes: Vec<usize> = paged.iter().map(|p| p.tracks.len()).collect();
     assert_eq!(sizes, [1, 500, 500, 199]);
     assert_eq!(paged[0].tracks[0].beats.len(), MAX_BEATS);
     assert!(paged[1].tracks[0].beats.is_empty());
     let said: Vec<&[String]> = paged.iter().map(|p| p.warnings.as_slice()).collect();
-    let cut = format!("1 beat grid(s) cut at {MAX_BEATS} beats");
-    assert_eq!(
-        said,
-        [
-            &["1 beat grid tempo(s) (TEMPO) left out: a time, tempo or beat out of range".to_string(), cut][..],
-            &["1 beat grid(s) left out: no length (TotalTime) to end at".to_string()][..],
-            &[][..],
-            &["1 track(s) left out: no audio file (Location)".to_string()][..],
-        ]
-    );
+    let last = [
+        "1 beat grid tempo(s) (TEMPO) left out: a time, tempo or beat out of range".to_string(),
+        "1 track(s) left out: no audio file (Location)".into(),
+        "1 beat grid(s) left out: no length (TotalTime) to end at".into(),
+        format!("1 beat grid(s) cut at {MAX_BEATS} beats"),
+    ];
+    assert_eq!(said, [&[][..], &[][..], &[][..], &last[..]]);
     let lists: Vec<usize> = paged.iter().map(|p| p.playlists.len()).collect();
     assert_eq!(lists, [0, 0, 0, 1]);
     let (inline, _) = pages(&file, None);
@@ -185,13 +187,51 @@ fn playlists_name_files_up_to_a_bound() {
     );
 }
 
+/// A file saved between pages is refused (`conflict`): its tracks may have moved, so the pages
+/// after the first could skip or repeat some. Kept as it was, the file is read once: the pages
+/// after the first come from what the first read, even with its bytes since changed.
+#[test]
+fn a_file_saved_between_pages_is_refused_and_the_rest_read_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let tracks: Vec<(String, String)> =
+        (0..600).map(|id| (format!(r#"TrackID="{id}" Name="t{id}" Location="/m/{id}.mp3""#), String::new())).collect();
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&tracks, ""));
+    let s = start(Library::default());
+    let read = |cursor: Option<&str>| {
+        let req = json!({ "source": "rekordbox-xml", "options": { "file": file }, "roots": ["/"], "cursor": cursor });
+        s.host.request::<_, LibraryPage>(method::READ_LIBRARY, &req)
+    };
+    let first = read(None).unwrap();
+    let next = first.next.clone().unwrap();
+    assert_eq!(at(&Some(next.clone())), Some(500));
+
+    // The same length and time, other bytes: it isn't read again.
+    let mtime = std::fs::metadata(&file).unwrap().modified().unwrap();
+    let len = std::fs::metadata(&file).unwrap().len() as usize;
+    std::fs::write(&file, " ".repeat(len)).unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(mtime).unwrap();
+    let second = read(Some(&next)).unwrap();
+    assert_eq!((second.tracks.len(), second.next.is_none()), (100, true));
+
+    // Saved again after its first page, with fewer tracks: refused.
+    std::fs::write(&file, collection_with(&tracks, "")).unwrap();
+    let next = read(None).unwrap().next.unwrap();
+    std::fs::write(&file, collection_with(&tracks[..10], "")).unwrap();
+    let e = read(Some(&next)).unwrap_err();
+    assert_eq!(kind(&e), ("conflict", format!("{file} changed while it was read: build again").as_str()));
+    s.stop();
+}
+
 /// A cursor this source didn't give, or options without a file, are refused; a file that isn't
 /// there fails naming it.
 #[test]
 fn what_cant_be_read_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let file = write(dir.path(), "rekordbox.xml", &collection_with(&[], ""));
-    for cursor in ["x", "1", "-1"] {
+    let meta = std::fs::metadata(&file).unwrap();
+    let mtime_ns = meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let past_the_end = format!("1:{}:{mtime_ns}", meta.len());
+    for cursor in ["x", "1", "-1", "1:2", "1:2:3:4", past_the_end.as_str()] {
         let e = asked(json!({ "file": file }), Some(cursor)).unwrap_err();
         assert_eq!(e.code, loclib_plugin::code::INVALID_PARAMS, "{cursor}: {e:?}");
     }

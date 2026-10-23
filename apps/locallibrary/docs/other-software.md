@@ -84,6 +84,7 @@ other library tools and `locallibrary xml`. The tracklist plugin reads one two w
 - `collection export --from tracklist:rekordbox-xml` builds a drive from the collection, as from
   rekordbox's own (above): each track whose audio file is in a folder you grant, with its tags,
   rating, key, tempo, cues and a beat grid from its `TEMPO` markers to its end, and its playlists.
+  The file is read once; saved again while the drive is planned, it's refused: build again.
 
 The file can say anything, so values out of range (a time past a day, a tempo outside 0.01-655.35
 BPM, a hot cue past H, folders nested more than about 60 deep) are left out and counted in the
