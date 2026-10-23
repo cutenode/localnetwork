@@ -32,7 +32,7 @@ crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (
                             clipping (ebur128), half/double tempo checks, and scoring analyzers against
                             the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
-                            tags, an Engine DJ library (engine.sql)
+                            tags, an Engine DJ library (engine.sql); and Traktor's collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
                             spectrum, scope and cover art, in the colours of a palette the caller passes
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
