@@ -28,10 +28,9 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: decoding an
                             (doctor's duplicates by sound, cues carried or moved by the offset)
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
-crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
-                            clipping (ebur128), its three-band waveform (loclib-mixid's frame levels),
-                            half/double tempo checks, and scoring analyzers against the GiantSteps
-                            annotations
+crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum-dsp), its loudness, peaks and
+                            clipping (ebur128), its three-band waveform, half/double tempo checks, and
+                            scoring analyzers against the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
                             tags, an Engine DJ library (engine.sql)
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,

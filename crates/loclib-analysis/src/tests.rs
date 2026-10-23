@@ -55,23 +55,56 @@ fn a_kick_track_is_estimated() {
     assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
 }
 
-/// A low tone, then a high one: the lows are drawn where the low tone is and the highs where
-/// the high one is, a column every 23 ms.
+/// The waveform `signal` (at 44.1 kHz) draws.
+fn waveform_of(dir: &tempfile::TempDir, signal: &[f64]) -> Vec<[u8; 3]> {
+    let path = write(dir, "drawn.wav", 44_100, signal);
+    let want = Want { estimate: false, loudness: false, waveform: true };
+    analyze(&path, want, &Ctx::silent()).unwrap().waveform.unwrap().columns
+}
+
+/// A bass tone, then a hi-hat's: the lows are drawn where the bass is and the highs where the
+/// hi-hat is, a column every 1024 samples.
 #[test]
 fn a_waveform_draws_each_band() {
     let dir = tempfile::tempdir().unwrap();
-    let tones = [sine(44_100, 2.0, 100.0, 0.5, 0.0), sine(44_100, 2.0, 5_000.0, 0.5, 0.0)].concat();
-    let path = write(&dir, "tones.wav", 44_100, &tones);
-    let want = Want { estimate: false, loudness: false, waveform: true };
-    let analysis = analyze(&path, want, &Ctx::silent()).unwrap();
-    let w = analysis.waveform.clone().unwrap();
-    assert!((w.columns.len() as f64 - 4.0 * COLUMNS_PER_SEC).abs() <= 2.0, "{} columns", w.columns.len());
+    let columns =
+        waveform_of(&dir, &[sine(44_100, 2.0, 100.0, 0.5, 0.0), sine(44_100, 2.0, 10_000.0, 0.5, 0.0)].concat());
+    assert_eq!(columns.len(), (4 * 44_100usize).div_ceil(1024));
+    assert!((COLUMNS_PER_SEC - 44_100.0 / 1024.0).abs() < 1e-12);
     let second = COLUMNS_PER_SEC as usize;
-    assert!(w.columns[..second].iter().all(|[low, _, high]| low > high), "{:?}", &w.columns[..second]);
-    let last = &w.columns[w.columns.len() - second..];
-    assert!(last.iter().all(|[low, _, high]| high > low), "{last:?}");
-    let json = serde_json::to_string(&analysis).unwrap();
-    assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
+    assert!(columns[..second].iter().all(|[low, mid, high]| low > mid && mid > high), "{:?}", &columns[..second]);
+    let last = &columns[columns.len() - second..];
+    assert!(last.iter().all(|[low, mid, high]| high > mid && mid >= low), "{last:?}");
+}
+
+/// The bands are drawn against one another: highs 20 dB under the lows draw a tenth as high, and
+/// a track of nothing but dither (-90 dBFS) draws near 0, not scaled up to fill the height.
+#[test]
+fn bands_keep_their_ratios_and_quiet_stays_low() {
+    let dir = tempfile::tempdir().unwrap();
+    let bass = sine(44_100, 2.0, 100.0, 0.5, 0.0);
+    let mix: Vec<f64> = bass.iter().zip(sine(44_100, 2.0, 10_000.0, 0.05, 0.0)).map(|(a, b)| a + b).collect();
+    let columns = waveform_of(&dir, &mix);
+    for [low, _, high] in &columns[2..columns.len() - 2] {
+        // A column holds 2.3 cycles of the bass, so its level moves a little with where they fall.
+        assert!(*low >= 230 && (f64::from(*high) / f64::from(*low) - 0.1).abs() < 0.015, "{low} {high}");
+    }
+    let dither: Vec<f64> = (0..44_100 * 2).map(|i| if (i * 7919) % 3 == 0 { 1.0 } else { -1.0 } / 32_767.0).collect();
+    let quiet = waveform_of(&dir, &dither);
+    assert!(quiet.iter().flatten().all(|&b| b <= 2), "{quiet:?}");
+}
+
+/// Column `i` is the audio from `i` columns in to `i + 1`: a tone from 20 columns in to 30 leaves
+/// the first 20 silent, fills the next 10, and all but its filters' ringing is gone after.
+#[test]
+fn columns_are_drawn_where_their_audio_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let silence = vec![0.0; 20 * 1024];
+    let tone: Vec<f64> = sine(44_100, 1.0, 1_000.0, 0.5, 0.0).into_iter().take(10 * 1024).collect();
+    let columns = waveform_of(&dir, &[&silence[..], &tone, &silence].concat());
+    assert!(columns[..20].iter().all(|c| *c == [0; 3]), "{:?}", &columns[..31]);
+    assert!(columns[20..30].iter().all(|c| c[1] >= 250), "{:?}", &columns[..31]);
+    assert!(columns[30][1] < 64, "{:?}", &columns[..31]);
 }
 
 /// A blip too short for a tempo is measured all the same: no tempo, and its loudness.

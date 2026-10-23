@@ -78,6 +78,8 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 /// outside the 16 Hz to 2.8 MHz it takes, as that file's analyzer error. A cancelled analysis is
 /// cancelled, and a file that isn't there is that file's error.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+// A last column of one sample.
+#[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
 fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
     // Up to a quarter of a second, and a few frames at least.
@@ -102,10 +104,12 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
                     assert!(l.true_peak_dbtp() >= l.sample_peak_dbfs() - 0.05, "{l:?}");
                     assert_eq!(l.sample_peak_dbfs() == f64::NEG_INFINITY, !sound, "{l:?}");
                 }
-                // A column for each of the analyser's frames, the last padded out, and silence
-                // draws none.
+                // A column for every 1024 samples of the mono mix at 44.1 kHz (the last however
+                // few), and silence draws none.
                 if let Some(w) = &a.waveform {
-                    assert!(w.columns.len() <= (a.duration_secs * COLUMNS_PER_SEC).ceil() as usize + 2, "{w:?}");
+                    let resampled = (frames as u64 * 44_100).div_ceil(u64::from(rate));
+                    assert_eq!(w.columns.len() as u64, resampled.div_ceil(1024), "{w:?}");
+                    assert_eq!(COLUMNS_PER_SEC, 44_100.0 / 1024.0);
                     assert!(sound || w.columns.iter().all(|c| *c == [0; 3]), "{w:?}");
                 }
             }

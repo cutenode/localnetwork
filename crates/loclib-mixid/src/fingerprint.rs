@@ -55,7 +55,7 @@ pub struct Density {
 pub const LIBRARY: Density = Density { per_sec: 20.0, max_per_frame: 5 };
 pub const QUERY: Density = Density { per_sec: 40.0, max_per_frame: 8 };
 
-/// Coarse loudness of one frame, for drawing a recording's waveform ([`columns`]).
+/// Coarse loudness of one frame, for drawing the mix's waveform ([`columns`]).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FrameLevels {
     /// Peak absolute sample value.
@@ -72,29 +72,63 @@ pub struct LevelColumns {
     pub bands: [Vec<u8>; 3],
 }
 
-/// `levels` as `per_sec` columns a second of audio, at most [`FRAMES_PER_SEC`] (a column a
-/// frame): each column the loudest of the frames it covers, each series scaled by a high
-/// percentile of its own, so one spike doesn't flatten the rest.
+/// `levels` as `per_sec` columns a second of audio: each column the loudest of the frames whose
+/// middle falls in it (frame `i` stands for the hop centred `i + 1` frames in), each series
+/// scaled [`Scale::Apart`], the bands on a curve that lifts quiet ones.
+///
+/// # Panics
+///
+/// Unless `per_sec` is more than 0 and at most half [`FRAMES_PER_SEC`], so that every column
+/// holds a frame.
 pub fn columns(levels: &[FrameLevels], per_sec: f64) -> LevelColumns {
-    let per = FRAMES_PER_SEC / per_sec;
-    let n = (levels.len() as f64 / per).ceil() as usize;
-    let mut peak = vec![0f32; n];
-    let mut bands = vec![[0f32; 3]; n];
+    assert!(
+        per_sec > 0.0 && per_sec <= FRAMES_PER_SEC / 2.0,
+        "{per_sec} columns a second isn't more than 0 and at most half {FRAMES_PER_SEC}"
+    );
+    let column = |i: usize| ((i + 1) as f64 / FRAMES_PER_SEC * per_sec) as usize;
+    let n = levels.len().checked_sub(1).map_or(0, |last| column(last) + 1);
+    let mut pooled: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0; n]);
     for (i, l) in levels.iter().enumerate() {
-        let c = ((i as f64 / per) as usize).min(n.saturating_sub(1));
-        peak[c] = peak[c].max(l.peak);
-        for (acc, v) in bands[c].iter_mut().zip(l.bands) {
-            *acc = acc.max(v);
+        let c = column(i);
+        for (series, v) in pooled.iter_mut().zip([l.peak, l.bands[0], l.bands[1], l.bands[2]]) {
+            series[c] = series[c].max(v);
         }
     }
-    let scale = |v: &[f32], gamma: f32| -> Vec<u8> {
-        let mut sorted: Vec<f32> = v.to_vec();
+    let [peak, low, mid, high] = scaled(pooled.each_ref().map(Vec::as_slice), Scale::Apart, [1.0, 0.8, 0.8, 0.8]);
+    LevelColumns { peak, bands: [low, mid, high] }
+}
+
+/// How [`scaled`] fits levels into 0-255.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Scale {
+    /// Each series against a high percentile of its own, so one spike doesn't flatten the rest:
+    /// where each is loud, not how they compare.
+    Apart,
+    /// Every series against a high percentile of the loudest of them at each column, and never
+    /// against less than `floor`: how they compare, with a near-silent recording drawn near 0.
+    Together { floor: f32 },
+}
+
+/// `series` (levels a column, all as long) as 0-255 by `scale`, each raised to its `gamma`
+/// (under 1 lifts quiet levels).
+pub fn scaled<const N: usize>(series: [&[f32]; N], scale: Scale, gamma: [f32; N]) -> [Vec<u8>; N] {
+    // The 99.5th percentile.
+    let top = |levels: Vec<f32>| {
+        let mut sorted = levels;
         sorted.sort_by(f32::total_cmp);
-        let top = sorted.get(sorted.len() * 995 / 1000).copied().unwrap_or(0.0).max(1e-9);
-        v.iter().map(|x| ((x / top).min(1.0).powf(gamma) * 255.0).round() as u8).collect()
+        sorted.get(sorted.len() * 995 / 1000).copied().unwrap_or(0.0)
     };
-    let band = |b: usize| bands.iter().map(|c| c[b]).collect::<Vec<f32>>();
-    LevelColumns { peak: scale(&peak, 1.0), bands: [0, 1, 2].map(|b| scale(&band(b), 0.8)) }
+    let together = match scale {
+        Scale::Apart => None,
+        Scale::Together { floor } => {
+            let loudest = (0..series[0].len()).map(|c| series.iter().fold(0.0f32, |m, s| m.max(s[c])));
+            Some(top(loudest.collect()).max(floor))
+        }
+    };
+    std::array::from_fn(|k| {
+        let top = together.unwrap_or_else(|| top(series[k].to_vec())).max(1e-9);
+        series[k].iter().map(|x| ((x / top).min(1.0).powf(gamma[k]) * 255.0).round() as u8).collect()
+    })
 }
 
 /// Streaming analyser: push samples at [`RATE`], then [`Analyzer::finish`] for the peaks.

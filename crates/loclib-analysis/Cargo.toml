@@ -11,6 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+biquad = "0.6.0"
 ebur128 = "0.1"
 indexmap.workspace = true
 loclib-mixid.workspace = true

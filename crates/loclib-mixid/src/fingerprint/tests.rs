@@ -134,51 +134,108 @@ fn peaks_dont_depend_on_how_samples_arrive(tc: TestCase) {
     assert!(levels.iter().all(|l| l.peak <= loudest && l.bands.iter().all(|b| *b >= 0.0)));
 }
 
-/// Frames pool into columns, each the loudest of its frames, and each series is scaled on its
-/// own: its loudest column is full height whatever the others', bands on a curve that lifts
-/// quiet ones.
+/// Frames pool into the columns their middles fall in, each column the loudest of its frames,
+/// and each series is scaled on its own: its loudest column is full height whatever the others',
+/// bands on a curve that lifts quiet ones.
 #[test]
 fn columns_pool_frames_and_scale_each_series() {
     let frame = |peak, bands| FrameLevels { peak, bands };
     let levels =
         [frame(0.1, [0.2, 0.0, 1.0]), frame(0.5, [0.4, 0.0, 1.0]), frame(0.25, [0.1, 0.0, 1.0]), frame(0.2, [0.0; 3])];
     let two_frames_a_column = columns(&levels, FRAMES_PER_SEC / 2.0);
-    let expected = LevelColumns { peak: vec![255, 128], bands: [vec![255, 84], vec![0, 0], vec![255, 255]] };
+    let expected =
+        LevelColumns { peak: vec![51, 255, 102], bands: [vec![146, 255, 0], vec![0, 0, 0], vec![255, 255, 0]] };
     assert_eq!(two_frames_a_column, expected);
-    assert_eq!(columns(&levels, FRAMES_PER_SEC).peak, [51, 255, 128, 102], "a column a frame");
-    assert_eq!(columns(&[], FRAMES_PER_SEC), LevelColumns::default());
+    assert_eq!(columns(&[], 4.0), LevelColumns::default());
+    // Frame 10's hop is centred 255 ms in: the second quarter second.
+    let mut late = [FrameLevels::default(); 11];
+    late[10].peak = 1.0;
+    assert_eq!(columns(&late, 4.0).peak, [0, 255]);
 }
 
-/// Any frames at any rate up to a column a frame: as many columns as the frames last, each
-/// series' loudest full height (or none, for silence), louder never drawn lower, and the same
-/// frames at another level drawn the same, give or take rounding.
+/// Any frames at any rate up to two frames a column: a column for each stretch the frames'
+/// middles reach, each the loudest of the frames whose middle falls in it, each series' loudest
+/// full height (or none, for silence), louder never drawn lower, and the same frames at another
+/// level drawn the same, give or take rounding.
 #[hegel::test(test_cases = 200)]
 fn columns_scale_each_series_to_its_loudest(tc: TestCase) {
     let level = || hegel::one_of!(gs::just(0.0f32), gs::floats::<f32>().min_value(1e-3).max_value(1.0));
     let frames: Vec<(f32, [f32; 3])> =
         tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
     let levels: Vec<FrameLevels> = frames.iter().map(|&(peak, bands)| FrameLevels { peak, bands }).collect();
-    let per_sec = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(FRAMES_PER_SEC));
-    let pooled = columns(&levels, per_sec);
-    let n = levels.len() as f64 * per_sec / FRAMES_PER_SEC;
-    let series = |c: &LevelColumns| [c.peak.clone(), c.bands[0].clone(), c.bands[1].clone(), c.bands[2].clone()];
+    let per_sec = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(FRAMES_PER_SEC / 2.0));
     let of = |l: &FrameLevels| [l.peak, l.bands[0], l.bands[1], l.bands[2]];
-    for (s, drawn) in series(&pooled).iter().enumerate() {
-        assert!((drawn.len() as f64 - n).abs() < 1.0 + 1e-9, "{} columns for {n}", drawn.len());
-        let loudest = levels.iter().map(|l| of(l)[s]).fold(0.0f32, f32::max);
-        assert_eq!(drawn.iter().copied().max().unwrap_or(0), if loudest > 0.0 { 255 } else { 0 }, "series {s}");
+    // Frame i's middle is (i + 1) frames in.
+    let at = |i: usize| ((i + 1) as f64 / FRAMES_PER_SEC * per_sec) as usize;
+    let n = levels.len().checked_sub(1).map_or(0, |last| at(last) + 1);
+    let mut loudest = vec![[0f32; 4]; n];
+    for (i, l) in levels.iter().enumerate() {
+        for (m, v) in loudest[at(i)].iter_mut().zip(of(l)) {
+            *m = m.max(v);
+        }
     }
-    for (s, drawn) in series(&columns(&levels, FRAMES_PER_SEC)).iter().enumerate() {
-        assert_eq!(drawn.len(), levels.len(), "a column a frame");
-        let frames: Vec<(f32, u8)> = levels.iter().map(|l| of(l)[s]).zip(drawn.iter().copied()).collect();
-        for (a, b) in frames.iter().flat_map(|a| frames.iter().map(move |b| (a, b))) {
-            assert!(a.0 > b.0 || a.1 <= b.1, "series {s}: {a:?} drawn above {b:?}");
+    let c = columns(&levels, per_sec);
+    let drawn = [&c.peak, &c.bands[0], &c.bands[1], &c.bands[2]];
+    for (s, series) in drawn.iter().enumerate() {
+        assert_eq!(series.len(), n, "series {s}");
+        let top = loudest.iter().map(|m| m[s]).fold(0.0f32, f32::max);
+        assert_eq!(series.iter().copied().max().unwrap_or(0), if top > 0.0 { 255 } else { 0 }, "series {s}");
+        for (a, b) in (0..n).flat_map(|a| (0..n).map(move |b| (a, b))) {
+            assert!(loudest[a][s] > loudest[b][s] || series[a] <= series[b], "series {s}: {a} drawn above {b}");
         }
     }
     let k = tc.draw(gs::floats::<f32>().min_value(0.01).max_value(100.0));
-    let scaled: Vec<FrameLevels> =
+    let louder: Vec<FrameLevels> =
         levels.iter().map(|l| FrameLevels { peak: l.peak * k, bands: l.bands.map(|b| b * k) }).collect();
-    for (a, b) in series(&pooled).iter().zip(series(&columns(&scaled, per_sec))) {
-        assert!(a.iter().zip(&b).all(|(x, y)| x.abs_diff(*y) <= 1), "{a:?} at {k}x is {b:?}");
+    let again = columns(&louder, per_sec);
+    for (a, b) in drawn.iter().zip([&again.peak, &again.bands[0], &again.bands[1], &again.bands[2]]) {
+        assert!(a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 1), "{a:?} at {k}x is {b:?}");
+    }
+}
+
+/// A rate of no columns, a negative or not-a-number one, or one above two frames a column
+/// (which would leave columns no frame falls in) is refused.
+#[hegel::test(test_cases = 50)]
+fn columns_refuse_rates_that_leave_columns_empty(tc: TestCase) {
+    let per_sec = tc.draw(hegel::one_of!(
+        gs::just(0.0f64),
+        gs::just(f64::NAN),
+        gs::floats::<f64>().max_value(-1e-9),
+        gs::floats::<f64>().min_value(FRAMES_PER_SEC / 2.0 + 1e-9),
+    ));
+    let levels = [FrameLevels::default(); 4];
+    assert!(std::panic::catch_unwind(|| columns(&levels, per_sec)).is_err(), "{per_sec}");
+}
+
+/// Scaled together, a recording's bands keep their ratios (one 20 dB under another draws a
+/// tenth as high) and its loudest is full height; a near-silent one stays near 0.
+#[test]
+fn bands_scaled_together_keep_their_ratios() {
+    let (lows, highs) = ([0.5f32; 8], [0.05f32; 8]);
+    let [low, high] = scaled([&lows, &highs], Scale::Together { floor: 0.01 }, [1.0; 2]);
+    assert_eq!((low[0], high[0]), (255, 26));
+    let dither = [3e-5f32; 8];
+    assert_eq!(scaled([&dither], Scale::Together { floor: 0.01 }, [1.0]), [vec![1; 8]]);
+}
+
+/// Any levels scaled together: louder is never drawn lower, whichever series it's in; the
+/// loudest is full height when it's over the floor, and under it as high as it is against it.
+#[hegel::test(test_cases = 200)]
+fn levels_scaled_together_are_drawn_against_one_another(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().max_value(200));
+    let level = || gs::vecs(gs::floats::<f32>().min_value(0.0).max_value(1.0)).min_size(n).max_size(n);
+    let series: [Vec<f32>; 3] = [tc.draw(level()), tc.draw(level()), tc.draw(level())];
+    let floor = tc.draw(gs::floats::<f32>().min_value(1e-4).max_value(0.5));
+    let drawn = scaled(series.each_ref().map(Vec::as_slice), Scale::Together { floor }, [1.0; 3]);
+    let all: Vec<(f32, u8)> =
+        series.iter().zip(&drawn).flat_map(|(s, d)| s.iter().copied().zip(d.iter().copied())).collect();
+    for (a, b) in all.iter().flat_map(|a| all.iter().map(move |b| (a, b))) {
+        assert!(a.0 > b.0 || a.1 <= b.1, "{a:?} drawn above {b:?}");
+    }
+    let loudest = all.iter().map(|(v, _)| *v).fold(0.0f32, f32::max);
+    let highest = all.iter().map(|(_, d)| *d).max().unwrap_or(0);
+    match loudest <= floor {
+        true => assert_eq!(highest, (loudest / floor * 255.0).round() as u8, "under the floor"),
+        false => assert_eq!(highest, 255),
     }
 }
