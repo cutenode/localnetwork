@@ -14,7 +14,7 @@ mod xml;
 pub use matching::{MatchKind, Matched, Matcher, Report, Status, Summary, match_entries};
 pub use table::{Record, read_table};
 pub use text::text_of;
-pub use xml::{MAX_BEATS, Mark, Tempo, XmlLibrary, XmlTrack};
+pub use xml::{MAX_BEATS, MAX_PATH_BYTES, Mark, Tempo, XmlEntry, XmlLibrary, XmlPlaylist, XmlTrack};
 
 use serde::{Deserialize, Serialize};
 
@@ -100,24 +100,28 @@ pub fn detect(bytes: &[u8], hint: Option<&str>) -> Format {
     detect_text(&text_of(bytes), hint)
 }
 
-/// The playlists of a rekordbox XML file as (folder path like `Sets/2026/Warmup`, entries),
-/// in document order. Folders themselves aren't listed.
-pub fn xml_playlists(bytes: &[u8]) -> Result<Vec<(String, Vec<Entry>)>> {
-    Ok(parse_xml(&text_of(bytes))?.playlists)
+/// The entries of the playlist of a rekordbox XML file that `query` names (a folder path like
+/// `Sets/2026/Warmup`, see [`XmlLibrary::playlist`]), or none when no playlist is that.
+pub fn xml_playlist(bytes: &[u8], query: &str) -> Result<Option<Vec<Entry>>> {
+    Ok(parse_xml(&text_of(bytes), true)?.playlist(query))
 }
 
 /// A rekordbox XML file as a library: its collection's tracks with their tags, key, tempo, beat
-/// grid and cues, its playlists as [`xml_playlists`] reads them, and what was left out as out of
-/// range.
+/// grid and cues, its playlists (folders aren't listed), and what was left out.
 pub fn read_xml_library(bytes: &[u8]) -> Result<XmlLibrary> {
-    parse_xml(&text_of(bytes))
+    parse_xml(&text_of(bytes), true)
+}
+
+/// [`read_xml_library`] without the playlists, for what only needs the tracks.
+pub fn read_xml_collection(bytes: &[u8]) -> Result<XmlLibrary> {
+    parse_xml(&text_of(bytes), false)
 }
 
 fn parse_text(text: &str, format: Format) -> Result<Vec<Entry>> {
     match format {
         Format::M3u => Ok(parse_m3u(text)),
         Format::Csv | Format::RekordboxText => parse_table(text, format),
-        Format::RekordboxXml => Ok(parse_xml(text)?.tracks.into_iter().map(|t| t.entry).collect()),
+        Format::RekordboxXml => Ok(parse_xml(text, false)?.tracks.into_iter().map(|t| t.entry).collect()),
         Format::Text => Ok(parse_plain(text)),
     }
 }

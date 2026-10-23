@@ -168,6 +168,23 @@ fn a_big_collection_comes_in_pages() {
     assert!(scratch.path().join("page.json").is_file(), "the first page, with its grid, is a blob");
 }
 
+/// Playlists that name a track with a long path many times name it only up to PLAYLIST_BYTES of
+/// files: the entries past that are left out, counted.
+#[test]
+fn playlists_name_files_up_to_a_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = format!("/m/{}.mp3", "x".repeat((1 << 20) - 7));
+    let track = (format!(r#"TrackID="1" Name="A" Location="{long}""#), String::new());
+    let list = format!("<NODE Type=\"1\" Name=\"All\" KeyType=\"0\">{}</NODE>", "<TRACK Key=\"1\"/>".repeat(100));
+    let file = write(dir.path(), "rekordbox.xml", &collection_with(&[track], &list));
+    let (pages, _) = pages(&file, Some(dir.path()));
+    let kept = pages[0].playlists[0].tracks.len();
+    assert_eq!(
+        (kept, pages[0].warnings.as_slice()),
+        (64, &["36 playlist entr(ies) left out: the playlists name more than 64 MiB of files".to_string()][..])
+    );
+}
+
 /// A cursor this source didn't give, or options without a file, are refused; a file that isn't
 /// there fails naming it.
 #[test]

@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
-use loclib_model::model::{self, Library, Playlist, Track};
+use loclib_model::model::{Library, Playlist, Track};
 use loclib_plugin::{Choice, ChoiceItem, Context, Hooks, Host, OpAnswer, OpPlan, PlanOp, RpcError, params};
 use loclib_tracklist::{self as tracklist, Format, MatchKind, Report, Status, Summary};
 use serde::Deserialize;
@@ -143,9 +143,9 @@ fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> R
     let unreadable = |e: tracklist::Error| RpcError::failed("invalid", e.to_string());
     let (format, entries) = match &req.playlist {
         Some(p) => {
-            let lists = tracklist::xml_playlists(&bytes).map_err(unreadable)?;
-            let entries = model::pick(lists, p.trim().trim_matches('/'))
-                .ok_or_else(|| RpcError::failed("not_found", format!("not found: playlist {p:?} in {file}")))?;
+            let entries = tracklist::xml_playlist(&bytes, p.trim().trim_matches('/')).map_err(unreadable)?;
+            let entries =
+                entries.ok_or_else(|| RpcError::failed("not_found", format!("not found: playlist {p:?} in {file}")))?;
             (Format::RekordboxXml, entries)
         }
         None => {

@@ -4,7 +4,7 @@ mod library;
 
 use rustc_hash::FxHashMap;
 
-pub use library::{MAX_BEATS, Mark, Tempo, XmlLibrary, XmlTrack};
+pub use library::{MAX_BEATS, MAX_PATH_BYTES, Mark, Tempo, XmlEntry, XmlLibrary, XmlPlaylist, XmlTrack};
 
 use crate::detection::file_path;
 use crate::m3u::location_entry;
@@ -177,25 +177,54 @@ struct XmlNode {
     keys: Vec<(String, usize)>,
 }
 
-pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
+/// What each part of a playlist's folder path costs, besides its name's bytes: an empty name
+/// costs something too.
+const PATH_PART: usize = 16;
+
+/// The playlists read so far, and what their folder paths have cost.
+#[derive(Default)]
+struct Lists {
+    lists: Vec<(String, XmlNode)>,
+    path_bytes: usize,
+}
+
+impl Lists {
+    /// Closes the innermost of `nodes`: a playlist is kept with its folder path (without
+    /// rekordbox's ROOT), unless the paths come to more than MAX_PATH_BYTES, as a file with many
+    /// playlists below long folder names would have them.
+    fn close(&mut self, nodes: &mut Vec<XmlNode>, skipped: &mut Skipped) {
+        if !nodes.last().is_some_and(|n| n.playlist) {
+            nodes.pop();
+            return;
+        }
+        let skip = usize::from(nodes.first().is_some_and(|n| n.name == "ROOT"));
+        let parts = &nodes[skip..];
+        let cost: usize = parts.iter().map(|n| PATH_PART + n.name.len()).sum();
+        if self.path_bytes + cost > MAX_PATH_BYTES {
+            skipped.paths += 1;
+            nodes.pop();
+            return;
+        }
+        self.path_bytes += cost;
+        let path = parts.iter().map(|n| n.name.as_str()).collect::<Vec<_>>().join("/");
+        self.lists.push((path, nodes.pop().expect("a playlist")));
+    }
+}
+
+/// Reads `text`, its playlists too when `playlists`.
+pub(crate) fn parse_xml(text: &str, playlists: bool) -> Result<XmlLibrary> {
     let mut scanner = Scanner::new(text);
     let mut collection: Vec<XmlTrack> = Vec::new();
     let mut by_id: FxHashMap<String, usize> = FxHashMap::default();
     let mut by_location: FxHashMap<String, usize> = FxHashMap::default();
     let mut stack: Vec<&str> = Vec::new();
     let mut nodes: Vec<XmlNode> = Vec::new();
-    let mut lists: Vec<(String, XmlNode)> = Vec::new();
+    let mut lists = Lists::default();
     let mut saw_root = false;
     let mut skipped = Skipped::default();
     // How deep inside an element nested past MAX_DEPTH the scanner is: everything there is left
     // out, so no loop below runs over more than MAX_DEPTH names.
     let mut too_deep = 0usize;
-
-    // Folder path of the innermost node, without rekordbox's ROOT.
-    let node_path = |nodes: &[XmlNode]| {
-        let skip = usize::from(nodes.first().is_some_and(|n| n.name == "ROOT"));
-        nodes[skip..].iter().map(|n| n.name.as_str()).collect::<Vec<_>>().join("/")
-    };
 
     while let Some(tag) = scanner.next_tag()? {
         if too_deep > 0 {
@@ -214,10 +243,7 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
         }
         if tag.kind == TagKind::End {
             if tag.name == "NODE" && stack.contains(&"PLAYLISTS") && !nodes.is_empty() {
-                let path = node_path(&nodes);
-                if let Some(n) = nodes.pop().filter(|n| n.playlist) {
-                    lists.push((path, n));
-                }
+                lists.close(&mut nodes, &mut skipped);
             }
             if let Some(i) = stack.iter().rposition(|&s| s == tag.name) {
                 stack.truncate(i);
@@ -241,10 +267,10 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
                     path: get("Location").and_then(file_path),
                     isrc: None,
                 };
-                if let Some(id) = get("TrackID") {
+                if let Some(id) = get("TrackID").filter(|_| playlists) {
                     by_id.insert(id.to_string(), collection.len());
                 }
-                if let Some(loc) = get("Location") {
+                if let Some(loc) = get("Location").filter(|_| playlists) {
                     by_location.insert(loc.to_string(), collection.len());
                 }
                 collection.push(library::track(&tag, e, &mut skipped));
@@ -258,7 +284,7 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
                 Ok(mark) => collection.last_mut().expect("the TRACK it's in").marks.push(mark),
                 Err(why) => skipped.mark(why),
             },
-            ("NODE", _) if stack.contains(&"PLAYLISTS") => {
+            ("NODE", _) if playlists && stack.contains(&"PLAYLISTS") => {
                 nodes.push(XmlNode {
                     name: tag.attr("Name").unwrap_or_default().to_string(),
                     playlist: tag.attr("Type") == Some("1"),
@@ -266,10 +292,7 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
                     keys: Vec::new(),
                 });
                 if tag.kind == TagKind::Empty {
-                    let path = node_path(&nodes);
-                    if let Some(n) = nodes.pop().filter(|n| n.playlist) {
-                        lists.push((path, n));
-                    }
+                    lists.close(&mut nodes, &mut skipped);
                 }
             }
             ("TRACK", Some("NODE")) => {
@@ -287,9 +310,11 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
         return Err(Error::NotRekordboxXml);
     }
 
-    // Playlist entries are the collection's, at the playlist's line; keys the collection lacks
-    // stay as entries (with only a path, for location keys) so they're reported missing.
+    // Playlist entries are the collection's tracks by index, read when they're asked for: a track
+    // in many playlists, or many times in one, is never copied. Keys the collection lacks stay as
+    // entries (with only a path, for location keys) so they're reported missing.
     let playlists = lists
+        .lists
         .into_iter()
         .map(|(path, node)| {
             let entries = node
@@ -297,16 +322,15 @@ pub(crate) fn parse_xml(text: &str) -> Result<XmlLibrary> {
                 .into_iter()
                 .map(|(key, line)| {
                     let found = if node.by_location { by_location.get(&key) } else { by_id.get(&key) };
+                    let raw = format!("Key=\"{key}\"");
                     match found {
-                        Some(&i) => Entry { line, ..collection[i].entry.clone() },
-                        None if node.by_location => {
-                            Entry { line, raw: format!("Key=\"{key}\""), ..location_entry(&key) }
-                        }
-                        None => Entry { line, raw: format!("Key=\"{key}\""), ..Default::default() },
+                        Some(&index) => XmlEntry::Track { index, line, raw },
+                        None if node.by_location => XmlEntry::Missing(Entry { line, raw, ..location_entry(&key) }),
+                        None => XmlEntry::Missing(Entry { line, raw, ..Default::default() }),
                     }
                 })
                 .collect();
-            (path, entries)
+            XmlPlaylist { path, entries }
         })
         .collect();
     for t in &mut collection {

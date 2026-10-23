@@ -8,11 +8,12 @@ use loclib_plugin::framing::MAX_LINE;
 use loclib_tracklist::{self as tracklist, XmlLibrary};
 use serde::Serialize;
 
-/// The rekordbox XML file at `file`, read as a library.
-pub(crate) fn read(file: &Path) -> Result<XmlLibrary, RpcError> {
+/// The rekordbox XML file at `file`, read with `read` ([`tracklist::read_xml_library`], or
+/// [`tracklist::read_xml_collection`] without the playlists).
+pub(crate) fn read(file: &Path, read: fn(&[u8]) -> tracklist::Result<XmlLibrary>) -> Result<XmlLibrary, RpcError> {
     let shown = file.display();
     let bytes = std::fs::read(file).map_err(|e| RpcError::failed("io", format!("{shown}: {e}")))?;
-    tracklist::read_xml_library(&bytes).map_err(|e| RpcError::failed("invalid", format!("{shown}: {e}")))
+    read(&bytes).map_err(|e| RpcError::failed("invalid", format!("{shown}: {e}")))
 }
 
 /// `answer` written to `name` in the request's `scratch` folder when its JSON is more than a

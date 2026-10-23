@@ -120,6 +120,24 @@ fn a_big_answer_comes_in_a_blob() {
     assert_eq!((read.tracks.len(), read.tracks[9_999].find.artist.as_deref()), (10_000, Some("9999")));
 }
 
+/// The importer reads only the collection: playlists, which it has no use for, aren't built, so
+/// what's wrong with them (here, folder paths too long to keep) isn't said.
+#[test]
+fn the_playlists_arent_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = "f".repeat(1 << 20);
+    let lists: String =
+        (0..20).map(|i| format!("<NODE Type=\"1\" Name=\"p{i}\" KeyType=\"0\"><TRACK Key=\"1\"/></NODE>")).collect();
+    let tree = format!("<NODE Type=\"0\" Name=\"{folder}\">{lists}</NODE>");
+    let file = write(
+        dir.path(),
+        "rekordbox.xml",
+        &collection_with(&[(r#"TrackID="1" Name="A""#.into(), String::new())], &tree),
+    );
+    let read = read(&file);
+    assert_eq!((read.tracks.len(), read.warnings.len()), (1, 0), "{:?}", read.warnings);
+}
+
 /// A file that isn't there, or isn't rekordbox XML, is refused, naming it.
 #[test]
 fn what_cant_be_read_is_refused() {

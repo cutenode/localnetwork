@@ -3,13 +3,13 @@
 //! cues and loops, which the host adds where the track has none.
 
 use loclib_plugin::{Blob, Host, ImportAnswer, Imported, ImportedCue, ImportedTrack, ReadImport, RpcError, TrackMatch};
-use loclib_tracklist::{Mark, XmlTrack};
+use loclib_tracklist::{Mark, XmlTrack, read_xml_collection};
 
 use crate::xml_file;
 
 /// `import/read`: what the file says of each collection track, in a blob when it's big.
 pub(crate) fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, RpcError> {
-    let library = xml_file::read(&req.file)?;
+    let library = xml_file::read(&req.file, read_xml_collection)?;
     host.ctx().check()?;
     let mut unsized_loops = 0;
     let tracks = library.tracks.into_iter().map(|t| imported(t, &mut unsized_loops)).collect();

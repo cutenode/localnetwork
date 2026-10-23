@@ -442,9 +442,8 @@ fn imported(
     let unreadable = |e: tracklist::Error| ("invalid", e.to_string());
     let (format, entries) = match playlist {
         Some(p) => {
-            let lists = tracklist::xml_playlists(bytes).map_err(unreadable)?;
-            let entries = model::pick(lists, p.trim().trim_matches('/'))
-                .ok_or_else(|| ("not_found", format!("not found: playlist {p:?} in {file}")))?;
+            let entries = tracklist::xml_playlist(bytes, p.trim().trim_matches('/')).map_err(unreadable)?;
+            let entries = entries.ok_or_else(|| ("not_found", format!("not found: playlist {p:?} in {file}")))?;
             (Format::RekordboxXml, entries)
         }
         None => (tracklist::detect(bytes, Some(name)), tracklist::parse(bytes, Some(name)).map_err(unreadable)?),

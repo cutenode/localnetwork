@@ -148,6 +148,20 @@ fn no_beat_rounds_to_the_tracks_end() {
     assert_eq!(beats.iter().map(|b| b.time_ms).collect::<Vec<_>>(), [500]);
 }
 
+/// Playlists below a folder with a 1 MiB name each cost that much of their folder paths: 15 fit
+/// in MAX_PATH_BYTES (16 MiB), and the rest are left out, counted.
+#[test]
+fn playlists_paths_are_bounded() {
+    let folder = "f".repeat(1 << 20);
+    let lists: String = (0..20).map(|i| format!("<NODE Type=\"1\" Name=\"p{i}\" KeyType=\"0\"/>")).collect();
+    let xml = format!(
+        "<DJ_PLAYLISTS><PLAYLISTS><NODE Type=\"0\" Name=\"{folder}\">{lists}</NODE></PLAYLISTS></DJ_PLAYLISTS>"
+    );
+    let read = read_xml_library(xml.as_bytes()).unwrap();
+    assert_eq!(read.playlists.len(), 15);
+    assert_eq!(read.warnings, ["5 playlist(s) left out: their folder paths come to more than 16 MiB"]);
+}
+
 /// A grid is cut at MAX_BEATS, saying so: a ten-hour track at the fastest tempo has more.
 #[test]
 fn a_grid_is_cut_at_the_most_beats() {
@@ -167,7 +181,7 @@ fn elements_nested_too_deep_are_left_out() {
         "<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"1\" Name=\"A\"/></COLLECTION><PLAYLISTS>{open}<NODE Type=\"1\" Name=\"lost\"/>{close}<NODE Type=\"1\" Name=\"kept\" KeyType=\"0\"><TRACK Key=\"1\"/></NODE></PLAYLISTS></DJ_PLAYLISTS>"
     );
     let read = read_xml_library(xml.as_bytes()).unwrap();
-    let names: Vec<&str> = read.playlists.iter().map(|(p, _)| p.as_str()).collect();
+    let names: Vec<&str> = read.playlists.iter().map(|p| p.path.as_str()).collect();
     assert_eq!(names, ["kept"]);
     assert_eq!(read.warnings, ["1 element(s) nested more than 64 deep left out, with what's in them"]);
 }

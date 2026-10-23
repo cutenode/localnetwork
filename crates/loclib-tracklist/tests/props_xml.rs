@@ -48,7 +48,7 @@ fn escaped(tc: &TestCase, v: &str, quote: char) -> String {
     out
 }
 
-/// Playlists as `xml_playlists` reads them: folder path and entries.
+/// Playlists as a library reads them, each entry resolved: folder path and entries.
 type Playlists = Vec<(String, Vec<Entry>)>;
 
 /// A document being written, which knows the line it's on.
@@ -201,7 +201,7 @@ fn write_nodes(tc: &TestCase, doc: &mut Doc, tracks: &[Track], path: &[String], 
                 doc.tag(tc, "TRACK", &[("Key", key.clone())], true);
                 doc.push("\n");
                 entries.push(match found {
-                    Some(t) => Entry { line, ..t.entry.clone() },
+                    Some(t) => Entry { line, raw: format!("Key=\"{key}\""), ..t.entry.clone() },
                     None if by_location => {
                         // Only the file is known: its name says what it is.
                         let file = key.rsplit('/').next().unwrap_or_default();
@@ -267,8 +267,8 @@ fn library_xml(tc: &TestCase) -> (String, Vec<Track>, Playlists) {
 /// A rekordbox XML file reads back as its collection (every attribute decoded, on the track's
 /// line, with its tag as the raw text), whatever the attribute order, quoting, escaping and
 /// layout, comments and other markup around it. Its playlists read back with their folder
-/// paths and tracks in order, by TrackID or by location, and the keys the collection lacks are
-/// kept as entries to report missing. It's detected as rekordbox XML whatever it's called.
+/// paths and tracks in order, by TrackID or by location, each with its key as its text, and
+/// the keys the collection lacks are kept as entries to report missing. It's detected as rekordbox XML whatever it's called.
 #[hegel::test(test_cases = 200)]
 fn rekordbox_xml_reads_back(tc: TestCase) {
     let (xml, tracks, lists) = library_xml(&tc);
@@ -282,7 +282,13 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
     assert_eq!(loclib_tracklist::detect(&bytes, hint), Format::RekordboxXml);
     let want: Vec<Entry> = tracks.iter().map(|t| t.entry.clone()).collect();
     assert_eq!(loclib_tracklist::parse(&bytes, hint).unwrap(), want);
-    assert_eq!(loclib_tracklist::xml_playlists(&bytes).unwrap(), lists);
+    let library = loclib_tracklist::read_xml_library(&bytes).unwrap();
+    let read: Playlists = library
+        .playlists
+        .iter()
+        .map(|p| (p.path.clone(), p.entries.iter().map(|e| library.entry(e)).collect()))
+        .collect();
+    assert_eq!(read, lists);
 }
 
 /// An XML file cut off anywhere reads as the tracks whose tags it still holds whole, or fails
@@ -555,9 +561,41 @@ fn any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
         assert!(beats.iter().all(|b| u64::from(b.time_ms) < end && (1..=bar).contains(&b.beat_number)));
     }
     // DJ_PLAYLISTS and PLAYLISTS hold the folders: 62 of them leave room for the playlist.
-    let lists: Vec<&str> = read.playlists.iter().map(|(p, _)| p.as_str()).collect();
+    let lists: Vec<&str> = read.playlists.iter().map(|p| p.path.as_str()).collect();
     match depth <= 61 {
         true => assert_eq!((lists.len(), lists[0].matches('/').count()), (1, depth)),
         false => assert!(lists.is_empty() && counted(w, "nested") == 1, "{w:?}"),
+    }
+}
+
+/// However long the folder names above many playlists, and however often a playlist names a
+/// track with a long name, what's read stays near the file's size: playlists keep tracks by
+/// index (a playlist's entry has its key as its text, not the track's tag), and the playlists'
+/// folder paths come to at most MAX_PATH_BYTES, each part costing 16 bytes besides its name.
+/// Those past it are left out in the file's order, counted.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn long_names_and_many_entries_stay_bounded(tc: TestCase) {
+    let folder = "f".repeat(tc.draw(gs::sampled_from(vec![0, 1_000, 300_000, 1 << 20])));
+    let comment = "c".repeat(tc.draw(gs::sampled_from(vec![0, 1 << 20])));
+    let (lists, refs) =
+        (tc.draw(gs::integers::<usize>().max_value(40)), tc.draw(gs::integers::<usize>().max_value(2_000)));
+    let mut xml =
+        format!("<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"1\" Name=\"A\" Comments=\"{comment}\"/></COLLECTION>");
+    xml += &format!("<PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\"><NODE Type=\"0\" Name=\"{folder}\">");
+    for i in 0..lists {
+        xml += &format!("<NODE Type=\"1\" Name=\"p{i}\" KeyType=\"0\">{}</NODE>", "<TRACK Key=\"1\"/>".repeat(refs));
+    }
+    xml += "</NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>";
+    let library = loclib_tracklist::read_xml_library(xml.as_bytes()).unwrap();
+    let cost = |path: &str| path.split('/').map(|part| 16 + part.len()).sum::<usize>();
+    let kept: usize = library.playlists.iter().map(|p| cost(&p.path)).sum();
+    assert!(kept <= loclib_tracklist::MAX_PATH_BYTES, "{kept}");
+    let each = cost(&format!("{folder}/p{}", lists.saturating_sub(1)));
+    let fits = library.playlists.len();
+    assert!(fits == lists || kept + each > loclib_tracklist::MAX_PATH_BYTES, "left out while there was room");
+    assert_eq!(fits + counted(&library.warnings, "folder paths"), lists);
+    for p in &library.playlists {
+        let entries = library.playlist(&p.path).unwrap();
+        assert!(entries.len() == refs && entries.iter().all(|e| e.raw == "Key=\"1\"" && e.title == "A"));
     }
 }

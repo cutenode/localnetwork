@@ -15,16 +15,78 @@ pub(super) const MAX_DEPTH: usize = 64;
 const MAX_MS: f64 = 86_400_000.0;
 /// The tempos a beat grid holds (hundredths of a BPM, up to 655.35).
 const BPM: std::ops::RangeInclusive<f64> = 0.01..=655.35;
+/// The most the playlists' folder paths come to, each part costing its name's bytes and a few
+/// more: a library of 10,000 playlists three folders deep takes about 1 MiB.
+pub const MAX_PATH_BYTES: usize = 16 << 20;
 
 /// A rekordbox XML file read whole ([`crate::read_xml_library`]).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct XmlLibrary {
     /// The `COLLECTION`'s tracks, in order.
     pub tracks: Vec<XmlTrack>,
-    /// Each playlist by its folder path (`Sets/2026/Warmup`), as [`crate::xml_playlists`] reads them.
-    pub playlists: Vec<(String, Vec<Entry>)>,
+    /// The playlists, in the file's order (none from [`crate::read_xml_collection`]).
+    pub playlists: Vec<XmlPlaylist>,
     /// What was left out as out of range, a line each, counted.
     pub warnings: Vec<String>,
+}
+
+/// A playlist: its folder path (`Sets/2026/Warmup`, without rekordbox's `ROOT`) and its entries.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct XmlPlaylist {
+    pub path: String,
+    pub entries: Vec<XmlEntry>,
+}
+
+/// A playlist's entry: a collection track, by its index in [`XmlLibrary::tracks`], or one the
+/// collection lacks, as an entry with only what its key says (a location key's file).
+#[derive(Debug, Clone, PartialEq)]
+pub enum XmlEntry {
+    /// `line` is the playlist's line for it, `raw` its key (`Key="5"`).
+    Track {
+        index: usize,
+        line: usize,
+        raw: String,
+    },
+    Missing(Entry),
+}
+
+impl XmlLibrary {
+    /// `e` as a tracklist's entry: its collection track's, at the playlist's line, its key as the
+    /// text it came from.
+    pub fn entry(&self, e: &XmlEntry) -> Entry {
+        let (index, line, raw) = match e {
+            XmlEntry::Track { index, line, raw } => (*index, *line, raw),
+            XmlEntry::Missing(missing) => return missing.clone(),
+        };
+        // Not the track's own `raw`, its whole TRACK tag.
+        let t = &self.tracks[index].entry;
+        Entry {
+            line,
+            raw: raw.clone(),
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            album: t.album.clone(),
+            mix: t.mix.clone(),
+            duration_secs: t.duration_secs,
+            path: t.path.clone(),
+            isrc: t.isrc.clone(),
+        }
+    }
+
+    /// The file `e` names, when it names one.
+    pub fn file<'a>(&'a self, e: &'a XmlEntry) -> Option<&'a str> {
+        match e {
+            XmlEntry::Track { index, .. } => self.tracks[*index].entry.path.as_deref(),
+            XmlEntry::Missing(missing) => missing.path.as_deref(),
+        }
+    }
+
+    /// The entries of the playlist `query` names: by its path, or ignoring case when that's one
+    /// playlist's ([`loclib_model::model::pick`]).
+    pub fn playlist(&self, query: &str) -> Option<Vec<Entry>> {
+        let picked = loclib_model::model::pick(self.playlists.iter().map(|p| (&p.path, p)), query)?;
+        Some(picked.entries.iter().map(|e| self.entry(e)).collect())
+    }
 }
 
 /// A track of the collection: what a tracklist's entry has of it, and what a library keeps.
@@ -93,6 +155,7 @@ pub(super) struct Skipped {
     pub marks: usize,
     pub mark_kinds: usize,
     pub nested: usize,
+    pub paths: usize,
 }
 
 impl Skipped {
@@ -126,6 +189,10 @@ impl Skipped {
                 "cue(s) (POSITION_MARK) left out: fade-in, fade-out and load marks (Type 1-3) aren't supported".into(),
             ),
             (self.nested, format!("element(s) nested more than {MAX_DEPTH} deep left out, with what's in them")),
+            (
+                self.paths,
+                format!("playlist(s) left out: their folder paths come to more than {} MiB", MAX_PATH_BYTES >> 20),
+            ),
         ];
         said.into_iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect()
     }

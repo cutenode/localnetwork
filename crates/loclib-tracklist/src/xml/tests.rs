@@ -1,5 +1,5 @@
 use crate::testing::{at, pairs};
-use crate::{parse, xml_playlists};
+use crate::{parse, read_xml_library, xml_playlist};
 
 const XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <DJ_PLAYLISTS Version="1.0.0">
@@ -50,17 +50,21 @@ fn xml_collection() {
     assert!(parse(b"<?xml version=\"1.0\"?><DJ_PLAYLISTS><COLLECTION><TRACK Name=\"x", None).is_err());
 }
 
+/// Playlists by folder path, their entries the collection's tracks at the playlist's lines, each
+/// with its key as the text it came from rather than the track's whole tag.
 #[test]
 fn xml_playlists_by_path() {
-    let lists = xml_playlists(XML.as_bytes()).unwrap();
-    let names: Vec<&str> = lists.iter().map(|(p, _)| p.as_str()).collect();
+    let library = read_xml_library(XML.as_bytes()).unwrap();
+    let names: Vec<&str> = library.playlists.iter().map(|p| p.path.as_str()).collect();
     assert_eq!(names, ["Shows/Warmup", "Shows/Empty", "By location"]);
-    let warmup = &lists[0].1;
-    assert_eq!(at(warmup), pairs(&[("deadmau5", "Strobe"), ("Led Zeppelin", "Rock & Roll – Part 2"), ("", "")]));
+    let warmup = xml_playlist(XML.as_bytes(), "Shows/Warmup").unwrap().unwrap();
+    assert_eq!(at(&warmup), pairs(&[("deadmau5", "Strobe"), ("Led Zeppelin", "Rock & Roll – Part 2"), ("", "")]));
     assert_eq!(warmup[0].line, 18);
-    assert_eq!(warmup[2].raw, "Key=\"42\"");
-    assert!(lists[1].1.is_empty());
-    let by_loc = &lists[2].1;
+    let raws: Vec<&str> = warmup.iter().map(|e| e.raw.as_str()).collect();
+    assert_eq!(raws, ["Key=\"3\"", "Key=\"1\"", "Key=\"42\""]);
+    assert_eq!(xml_playlist(XML.as_bytes(), "shows/empty").unwrap(), Some(Vec::new()), "by path, ignoring case");
+    assert_eq!(xml_playlist(XML.as_bytes(), "Nowhere").unwrap(), None);
+    let by_loc = library.playlist("By location").unwrap();
     assert_eq!(by_loc[0].title, "Opus");
     assert_eq!((by_loc[1].artist.as_str(), by_loc[1].title.as_str()), ("Artist", "Gone"));
     assert_eq!(by_loc[1].path.as_deref(), Some("/gone/Artist - Gone.mp3"));

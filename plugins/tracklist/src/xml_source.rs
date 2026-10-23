@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use loclib_plugin::{Host, LibraryPage, ReadLibrary, RpcError, SourceCue, SourcePlaylist, SourceTrack, params};
-use loclib_tracklist::{Entry, MAX_BEATS, XmlTrack};
+use loclib_tracklist::{MAX_BEATS, XmlLibrary, XmlPlaylist, XmlTrack, read_xml_library};
 use serde::Deserialize;
 
 use crate::xml_file;
@@ -16,6 +16,9 @@ use crate::xml_file;
 const PER_PAGE: usize = 500;
 /// A page ends once its tracks have this many beats and cues: a few MiB of JSON.
 const PAGE_ITEMS: usize = 100_000;
+/// The most the playlists' files come to: 100,000 entries naming files by 200-byte paths are
+/// 20 MB.
+const PLAYLIST_BYTES: usize = 64 << 20;
 
 /// The source's options.
 #[derive(Deserialize)]
@@ -31,13 +34,14 @@ struct LeftOut {
     no_length: usize,
     cut: usize,
     entries: usize,
+    past_bytes: usize,
 }
 
 /// `library/read`: the page of the collection from `cursor` (an index into it), the file read
 /// again for each, in a blob when it's big. Its reader's warnings come with the first page.
 pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage, RpcError> {
     let Options { file } = params(req.options)?;
-    let library = xml_file::read(&file)?;
+    let library = xml_file::read(&file, read_xml_library)?;
     let from = match req.cursor.as_deref() {
         None => 0,
         Some(c) => c.parse().ok().filter(|&i| i <= library.tracks.len()).ok_or_else(|| {
@@ -59,8 +63,7 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
         }
     }
     if page.next.is_none() {
-        page.playlists =
-            library.playlists.into_iter().map(|(path, entries)| playlist(path, entries, &mut left_out)).collect();
+        page.playlists = playlists(&library, &mut left_out);
     }
     if from == 0 {
         page.warnings = library.warnings;
@@ -109,12 +112,26 @@ fn track(t: &XmlTrack, left_out: &mut LeftOut) -> Option<SourceTrack> {
     })
 }
 
-/// A playlist by its tracks' files; an entry without one (a track the collection lacks, or
-/// one with no `Location`) is left out.
-fn playlist(path: String, entries: Vec<Entry>, left_out: &mut LeftOut) -> SourcePlaylist {
-    let tracks: Vec<PathBuf> = entries.iter().filter_map(|e| e.path.as_deref().map(PathBuf::from)).collect();
-    left_out.entries += entries.len() - tracks.len();
-    SourcePlaylist { path, tracks }
+/// The playlists by their tracks' files. An entry without one (a track the collection lacks, or
+/// one with no `Location`) is left out, and so is one past PLAYLIST_BYTES of files named, as a
+/// file naming a track with a long path many times would have them.
+fn playlists(library: &XmlLibrary, left_out: &mut LeftOut) -> Vec<SourcePlaylist> {
+    let mut bytes = 0;
+    let playlist = |p: &XmlPlaylist| {
+        let mut tracks = Vec::new();
+        for e in &p.entries {
+            match library.file(e) {
+                None => left_out.entries += 1,
+                Some(f) if bytes + f.len() > PLAYLIST_BYTES => left_out.past_bytes += 1,
+                Some(f) => {
+                    bytes += f.len();
+                    tracks.push(PathBuf::from(f));
+                }
+            }
+        }
+        SourcePlaylist { path: p.path.clone(), tracks }
+    };
+    library.playlists.iter().map(playlist).collect()
 }
 
 impl LeftOut {
@@ -124,6 +141,13 @@ impl LeftOut {
             (self.no_length, "beat grid(s) left out: no length (TotalTime) to end at".into()),
             (self.cut, format!("beat grid(s) cut at {MAX_BEATS} beats")),
             (self.entries, "playlist entr(ies) left out: not a collection track with an audio file".into()),
+            (
+                self.past_bytes,
+                format!(
+                    "playlist entr(ies) left out: the playlists name more than {} MiB of files",
+                    PLAYLIST_BYTES >> 20
+                ),
+            ),
         ];
         said.into_iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect()
     }

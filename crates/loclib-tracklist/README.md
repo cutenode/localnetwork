@@ -60,9 +60,9 @@ does it.
   an artist column, titles are split at a dash.
 - `Format::RekordboxText`: rekordbox's "Export a playlist to a file", UTF-16 and tab-separated,
   with the browser's visible columns as the header.
-- `Format::RekordboxXml`: `parse` returns the `COLLECTION`'s tracks, and `xml_playlists` each
-  playlist by its folder path (`Sets/2026/Warmup`). A playlist's tracks the collection lacks stay
-  as entries, so they come out missing.
+- `Format::RekordboxXml`: `parse` returns the `COLLECTION`'s tracks, and `xml_playlist` the
+  entries of the playlist at a folder path (`Sets/2026/Warmup`). A playlist's tracks the
+  collection lacks stay as entries, so they come out missing.
 
 ## rekordbox XML as a library
 
@@ -72,13 +72,16 @@ remixer, composer, comments, year, rating (0-5 stars), key (`Tonality`, as writt
 (`AverageBpm`), its beat grid's tempo changes (`TEMPO`: where, the BPM, beats to the bar and which
 beat of it) and its hot cues, memory cues and loops (`POSITION_MARK`: hot cue A-H or none, start
 and end in milliseconds, name, colour). `XmlTrack::beats` expands the tempos into a beat grid,
-from the first beat at or after 0 to the track's end (`TotalTime`).
+from the first beat at or after 0 to the track's end (`TotalTime`). Its `playlists` hold their
+entries as collection tracks by index (`XmlEntry`), so a track listed many times is never
+copied: `XmlLibrary::entry` reads one, `XmlLibrary::playlist` a whole playlist.
+`read_xml_collection` leaves the playlists out.
 
 The file can say anything, so every value that sizes something is checked: a tempo, cue or track
 tempo that's missing a value or out of range (times past a day, tempos outside 0.01-655.35 BPM,
 hot cues past H, a loop that doesn't end after it starts) is left out and counted in the
-`warnings`, a grid stops at `MAX_BEATS`, and elements nested more than 64 deep are left out
-with what's in them. Fade-in, fade-out and load marks (`Type` 1-3) and meters past 4 beats to the
+`warnings`, a grid stops at `MAX_BEATS`, elements nested more than 64 deep are left out with
+what's in them, and playlists are left out once their folder paths come to `MAX_PATH_BYTES`. Fade-in, fade-out and load marks (`Type` 1-3) and meters past 4 beats to the
 bar aren't supported: they're left out and counted apart. Track colours, `Grouping`, `Kind` and
 the file's sizes, bit rates and play counts aren't read.
 
