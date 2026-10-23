@@ -1,10 +1,11 @@
 //! The tracklist plugin: makes a playlist on a drive from a tracklist (M3U, CSV, rekordbox text or
 //! XML, or "Artist - Title" lines), finding its tracks with loclib-tracklist. It reads the list
 //! itself, as it's the user's own file, and the drive's library through the host; the playlist it
-//! answers is an edit locallibrary plans, confirms and applies. An entry that could be several
-//! tracks it asks the user about first, one at a time (the `choose` feature): the host plans it
-//! again with the answer, the entry's number (`"3"`) set to the track's id, or to `null` to leave
-//! it out.
+//! answers is an edit locallibrary plans, confirms and applies. The entries that could be several
+//! tracks it asks the user about first, all in one round (the `choose` feature, the first as the
+//! question and the rest as its `more`, at most `Choice::MAX_QUESTIONS`): the host plans it again
+//! with the answers, each entry's number (`"3"`) set to the track's id, or to `null` to leave it
+//! out. A host that asks only the first is asked about the rest in the rounds after.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -57,18 +58,20 @@ fn answers(params: &Value) -> Result<Answers, RpcError> {
         .collect()
 }
 
-/// `import`: the playlist filled with the tracks found, in the list's order. While an entry that
-/// could be several tracks isn't answered, the question which (the first such). With none found,
-/// a plan that changes nothing, saying so.
+/// `import`: the playlist filled with the tracks found, in the list's order. While entries that
+/// could be several tracks aren't answered, the questions which, all in one round (as many as
+/// one may ask: the rest in the next). With none found, a plan that changes nothing, saying so.
 fn plan_op(req: PlanOp, host: &Host) -> Result<OpAnswer, RpcError> {
     let import: Import = params(req.params.clone())?;
     let answers = answers(&req.params)?;
     let (report, lib) = matched(&import, &answers, &req.context, host)?;
-    let undecided = (report.entries.iter().enumerate())
-        .find(|(i, m)| matches!(m.status, Status::Ambiguous { .. }) && !answers.contains_key(i));
-    if let Some((i, m)) = undecided {
-        let Status::Ambiguous { candidates } = &m.status else { unreachable!("ambiguous") };
-        return Ok(question(i, m.entry.raw.trim(), candidates, &lib).into());
+    let undecided = report.entries.iter().enumerate().filter(|(i, _)| !answers.contains_key(i));
+    let questions = undecided.filter_map(|(i, m)| match &m.status {
+        Status::Ambiguous { candidates } => Some(question(i, m.entry.raw.trim(), candidates, &lib)),
+        _ => None,
+    });
+    if let Some(asked) = Choice::together(questions) {
+        return Ok(asked.into());
     }
     let files = |ids: &[u32]| lib.tracks_by_id(ids).into_iter().map(|t| t.file_path.clone()).collect::<Vec<_>>();
     // As entries, by file: a set list that played a track twice keeps both. Those left out
@@ -113,13 +116,8 @@ fn question(i: usize, raw: &str, candidates: &[u32], lib: &Library) -> Choice {
         value: t.id.into(),
     });
     let none = ChoiceItem { label: "leave it out".into(), detail: None, value: Value::Null };
-    Choice {
-        title: format!("{n}. {raw}"),
-        param: n.to_string(),
-        multi: false,
-        items: items.chain([none]).collect(),
-        more: Vec::new(),
-    }
+    let items = items.chain([none]).collect();
+    Choice { title: format!("{n}. {raw}"), param: n.to_string(), multi: false, items, more: Vec::new() }
 }
 
 /// What tells a candidate from its namesakes: its album and length.
