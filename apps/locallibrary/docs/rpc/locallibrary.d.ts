@@ -8382,6 +8382,12 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+  /**
+   * Questions asked after this one before the hook runs again, each about a param of its own
+   * (and asking none of its own). A host that doesn't know them asks this one alone, so a hook
+   * still asks what's left when it's run again.
+   */
+  more?: PluginChoice[];
 };
 
 export type TreeItem = {
@@ -8470,7 +8476,7 @@ export type SetPublished = {
 
 /**
  * What planning a plugin's operation comes to: its plan, or a question for the user first, after
- * which it's planned again with the param set ([`Choice::answered`]).
+ * which it's planned again with each of its params set ([`Choice::answered`]).
  */
 export type OpPlanned = {
   choose: PluginChoice;

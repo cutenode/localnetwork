@@ -3,7 +3,8 @@
 //! drive menu), a form for their params (see [`super::form`]), and each run in the background as
 //! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
-//! either asks first is a list to choose from, after which it runs again with the answer. Each
+//! either asks first is a list to choose from (several, one after another), after which it runs
+//! again with the answers. Each
 //! plugin's settings are a form, kept in the store, with a switch for each of its services, and
 //! its accounts are signed in to and out of beside them. What the other families of hooks add
 //! (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell the
@@ -69,16 +70,19 @@ impl Run {
 
 /// A plugin's question being asked, and what answering it goes on to.
 pub enum Asking {
-    /// A command's or an operation's: it runs again with the answer.
-    Hook { run: Run, params: Value, choice: Choice },
+    /// A command's or an operation's: its next question, until `answers` has one for each, then
+    /// it runs again with them.
+    Hook { run: Run, params: Value, choice: Choice, answers: Vec<Vec<Value>> },
     /// Which of the candidates providers found for a track: then the next track's, then the plan.
     Offer { offer: Offer, choice: Choice, fetching: providers::Fetching },
 }
 
 impl Asking {
+    /// The question being asked.
     pub fn choice(&self) -> &Choice {
         match self {
-            Asking::Hook { choice, .. } | Asking::Offer { choice, .. } => choice,
+            Asking::Hook { choice, answers, .. } => choice.questions().nth(answers.len()).expect("one left to ask"),
+            Asking::Offer { choice, .. } => choice,
         }
     }
 }
@@ -445,7 +449,7 @@ impl App {
                         plugins.run_command(plugin, name, params.clone(), context, store.as_ref(), ctx, &partial)?;
                     Ok(Box::new(move |app: &mut App| match answer {
                         CommandOutput::View(View::Choose(choice)) => {
-                            app.ask(Asking::Hook { run: again, params, choice })
+                            app.ask(Asking::Hook { run: again, params, choice, answers: Vec::new() })
                         }
                         answer => app.show_answer(title, answer),
                     }))
@@ -461,7 +465,7 @@ impl App {
                     let planned = plugins.plan_op(plugin, &op.name, params.clone(), context, store.as_ref(), ctx);
                     Ok(Box::new(move |app: &mut App| match planned {
                         Ok(OpPlanned::Choose { choose }) => {
-                            app.ask(Asking::Hook { run: again, params, choice: choose })
+                            app.ask(Asking::Hook { run: again, params, choice: choose, answers: Vec::new() })
                         }
                         other => {
                             let plan = other.and_then(OpPlanned::plan).map(|p| Box::new(p) as Box<dyn AnyPlanned>);
@@ -474,11 +478,17 @@ impl App {
     }
 
     /// Ask a plugin's question: a list of its items to choose from (any of them, marked with
-    /// space, when it takes several).
+    /// space, when it takes several), titled with how far along it is when it's one of several.
     pub(super) fn ask(&mut self, asking: Asking) {
         let c = asking.choice();
+        let title = match &asking {
+            Asking::Hook { choice, answers, .. } if !choice.more.is_empty() => {
+                format!("{} ({} of {})", c.title, answers.len() + 1, choice.more.len() + 1)
+            }
+            _ => c.title.clone(),
+        };
         let items = c.items.iter().map(|i| Item::new(i.label.clone(), i.detail.clone().unwrap_or_default()));
-        let (title, items, multi) = (c.title.clone(), items.collect::<Vec<_>>(), c.multi);
+        let (items, multi) = (items.collect::<Vec<_>>(), c.multi);
         let n = items.len();
         let mut p = Picker::new(title, items, Then::Choose(Box::new(asking)));
         if multi {
@@ -487,10 +497,17 @@ impl App {
         self.modal = Some(Modal::Pick(p));
     }
 
-    /// Go on with what was chosen for `asking`: the values of the items chosen.
+    /// Go on with what was chosen for `asking`: the values of the items chosen. A hook's next
+    /// question is asked, and once each has its answer the hook runs again.
     pub(super) fn answer(&mut self, asking: Asking, values: Vec<Value>) {
         match asking {
-            Asking::Hook { run, params, choice } => self.run_plugin(run, choice.answered(params, values)),
+            Asking::Hook { run, params, choice, mut answers } => {
+                answers.push(values);
+                match answers.len() > choice.more.len() {
+                    true => self.run_plugin(run, choice.answered(params, answers)),
+                    false => self.ask(Asking::Hook { run, params, choice, answers }),
+                }
+            }
             Asking::Offer { offer, fetching, .. } => self.answer_offer(offer, fetching, values),
         }
     }

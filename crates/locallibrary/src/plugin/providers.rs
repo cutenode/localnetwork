@@ -143,7 +143,7 @@ impl Offer {
         });
         let none = ChoiceItem { label: "none of these".into(), detail: None, value: Value::Null };
         let items = items.chain([none]).collect();
-        Choice { title: self.name.clone(), param: self.track.to_string(), multi: false, items }
+        Choice { title: self.name.clone(), param: self.track.to_string(), multi: false, items, more: Vec::new() }
     }
 
     /// The candidate picked for the user, chosen ([`Offer::picked`]).

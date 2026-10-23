@@ -113,7 +113,13 @@ fn question(i: usize, raw: &str, candidates: &[u32], lib: &Library) -> Choice {
         value: t.id.into(),
     });
     let none = ChoiceItem { label: "leave it out".into(), detail: None, value: Value::Null };
-    Choice { title: format!("{n}. {raw}"), param: n.to_string(), multi: false, items: items.chain([none]).collect() }
+    Choice {
+        title: format!("{n}. {raw}"),
+        param: n.to_string(),
+        multi: false,
+        items: items.chain([none]).collect(),
+        more: Vec::new(),
+    }
 }
 
 /// What tells a candidate from its namesakes: its album and length.

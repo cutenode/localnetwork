@@ -172,7 +172,7 @@ fn a_list_asks_which_track_an_entry_is_then_fills_the_playlist_and_warns_of_the_
     let schema = Manifest::parse(MANIFEST).unwrap().contributes.operations[0].params.clone();
     assert_eq!(asked.check(schema.as_ref()), Ok(()), "the host can ask it");
 
-    let left_out = asked.answered(params.clone(), vec![Value::Null]);
+    let left_out = asked.answered(params.clone(), vec![vec![Value::Null]]);
     let plan = s.plan(left_out).unwrap();
     assert_eq!(plan.summary, format!("{list}: 3 entr(ies) as Text: 1 found, 1 ambiguous, 1 missing"));
     assert_eq!(plan.warnings, ["2. In Charge: left out", "3. Nobody - Nothing isn't on the drive"]);
@@ -579,7 +579,7 @@ fn any_tracklist_imports_what_loclib_tracklist_matches_once_each_question_is_ans
                 assert_eq!(choose.check(schema.as_ref()), Ok(()));
                 let value = tc.draw(gs::sampled_from(values));
                 answers.push((i, value.as_u64().map(|id| id as u32)));
-                params = choose.answered(params, vec![value]);
+                params = choose.answered(params, vec![vec![value]]);
             }
             (answered, undecided) => panic!("answered {answered:?} with {undecided:?} undecided"),
         }

@@ -27,7 +27,7 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 /// What planning a plugin's operation comes to: its plan, or a question for the user first, after
-/// which it's planned again with the param set ([`Choice::answered`]).
+/// which it's planned again with each of its params set ([`Choice::answered`]).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(untagged)]
 // Made once a run, and the plan taken out at once: boxing it would only make each caller unbox it.
@@ -42,10 +42,14 @@ impl OpPlanned {
     pub fn plan(self) -> Result<Planned<EditPlan>> {
         match self {
             OpPlanned::Plan(plan) => Ok(plan),
-            OpPlanned::Choose { choose } => Err(Error::invalid(format!(
-                "{}: it asks which first, as `{}` in its params",
-                choose.title, choose.param
-            ))),
+            OpPlanned::Choose { choose } => {
+                let params: Vec<String> = choose.questions().map(|q| format!("`{}`", q.param)).collect();
+                Err(Error::invalid(format!(
+                    "{}: it asks which first, as {} in its params",
+                    choose.title,
+                    params.join(", ")
+                )))
+            }
         }
     }
 }
@@ -88,14 +92,14 @@ impl Plugins {
 impl Slot {
     /// Whether the plugin may ask `choice` of the user, for a hook whose params `schema`
     /// describes, run with `params`: it has the `choose` feature, the question is one the hook
-    /// can be run again with ([`Choice::check`]), and not about a param it was given (which
-    /// would have the user answer it forever).
+    /// can be run again with ([`Choice::check`]), and none of its questions about a param it was
+    /// given (which would have the user answer it forever).
     pub(crate) fn askable(&self, choice: &Choice, schema: Option<&Value>, params: &Value, live: &Live) -> Result<()> {
         if !live.has("choose") {
             return Err(self.misbehaved("it asks a question without the choose feature"));
         }
-        if params.get(&choice.param).is_some() {
-            return Err(self.misbehaved(format!("it asks again for {}, which it was given", choice.param)));
+        if let Some(q) = choice.questions().find(|q| params.get(&q.param).is_some()) {
+            return Err(self.misbehaved(format!("it asks again for {}, which it was given", q.param)));
         }
         choice.check(schema).map_err(|why| self.misbehaved(format!("its question won't do: {why}")))
     }

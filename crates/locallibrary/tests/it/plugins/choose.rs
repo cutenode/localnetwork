@@ -11,7 +11,7 @@ use super::*;
 
 fn choice(param: &str, values: Vec<Value>) -> Choice {
     let items = values.into_iter().map(|value| ChoiceItem { label: value.to_string(), detail: None, value }).collect();
-    Choice { title: "Which one?".into(), param: param.into(), multi: false, items }
+    Choice { title: "Which one?".into(), param: param.into(), multi: false, items, more: Vec::new() }
 }
 
 /// The echo manifest, its `playlist` operation's name not required: a param a hook asks for is
@@ -43,7 +43,7 @@ fn a_view_command_asks_and_is_run_again_answered() {
         panic!("a question")
     };
     assert_eq!(got, asked);
-    let answered = got.answered(params, vec![got.items[1].value.clone()]);
+    let answered = got.answered(params, vec![vec![got.items[1].value.clone()]]);
     let CommandOutput::View(View::Text { text, .. }) = f.command("titles", answered, &Ctx::silent()).unwrap() else {
         panic!("its answer")
     };
@@ -60,7 +60,7 @@ fn an_operation_asks_and_is_planned_again_answered() {
     let OpPlanned::Choose { choose } = f.plan_asking(params.clone()).unwrap() else { panic!("a question") };
     let e = f.plan_asking(params.clone()).and_then(OpPlanned::plan).unwrap_err();
     assert_eq!(e.to_string(), "Which one?: it asks which first, as `name` in its params");
-    let answered = choose.answered(params, vec![json!("Peak")]);
+    let answered = choose.answered(params, vec![vec![json!("Peak")]]);
     let plan = f.plan_asking(answered).unwrap().plan().unwrap();
     assert_eq!(plan.playlists_created, ["Peak"]);
 }
@@ -95,6 +95,86 @@ fn a_question_needs_the_feature_and_a_param_the_hook_takes() {
     assert_eq!(failure(e), "the Echo plugin failed: it asks a question without the choose feature");
 }
 
+/// Questions asked together are passed on whole, and the hook run again once with every answer;
+/// each is refused as one alone would be, and so are two about one param, more than a round may
+/// ask, and one about a param the hook requires (it was given, or the host would have refused
+/// its params).
+#[test]
+fn questions_asked_together_are_answered_in_one_run() {
+    let f = Fixture::asking();
+    let together = |params: &[&str]| Choice::together(params.iter().map(|p| choice(p, vec![json!(1), json!(2)])));
+    let asked = together(&["pick", "other", "third"]).unwrap();
+    let params = json!({ "ask": asked });
+    let CommandOutput::View(View::Choose(got)) = f.command("titles", params.clone(), &Ctx::silent()).unwrap() else {
+        panic!("a question")
+    };
+    assert_eq!(got, asked);
+    let answered = got.answered(params, vec![vec![json!(2)], vec![json!(1)], vec![json!(2)]]);
+    let CommandOutput::View(View::Text { text, .. }) = f.command("titles", answered, &Ctx::silent()).unwrap() else {
+        panic!("its answer")
+    };
+    assert_eq!(text, "2 1 2");
+    let names = Choice { more: vec![choice("other", vec![json!(1)])], ..choice("name", vec![json!("Peak")]) };
+    let e = f.plan_asking(json!({ "ask": names })).and_then(OpPlanned::plan).unwrap_err();
+    assert_eq!(e.to_string(), "Which one?: it asks which first, as `name`, `other` in its params");
+
+    let refused = |c: Choice| failure(f.plan_asking(json!({ "ask": c, "name": "Kept" })).unwrap_err());
+    let twice = Choice { more: vec![choice("other", vec![json!(1)])], ..choice("other", vec![json!(1)]) };
+    assert_eq!(
+        refused(twice),
+        "the Echo plugin failed: its question won't do: \"Which one?\" asks for \"other\" again"
+    );
+    let many: Vec<String> = (0..=Choice::MAX_QUESTIONS).map(|n| format!("p{n}")).collect();
+    let mut many = together(&many.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+    many.more.push(choice("last", vec![json!(1)]));
+    assert_eq!(
+        refused(many),
+        "the Echo plugin failed: its question won't do: it asks 65 questions at once, more than 64"
+    );
+    let unfit = Choice { more: vec![choice("name", vec![json!(5)])], ..choice("other", vec![json!(1)]) };
+    let e = failure(f.plan_asking(json!({ "ask": unfit })).unwrap_err());
+    assert_eq!(
+        e,
+        "the Echo plugin failed: its question won't do: \"Which one?\"'s item 0 isn't a value of a param \"name\" the hook takes"
+    );
+    // The echo manifest as it is requires the playlist's name.
+    let required = Fixture::echo();
+    let asks_name = Choice { more: vec![choice("name", vec![json!("x")])], ..choice("other", vec![json!(1)]) };
+    let params = json!({ "ask": asks_name, "name": "Kept" });
+    let e =
+        required.plugins.plan_op("echo", "playlist", params, required.context(), Some(&required.store), &Ctx::silent());
+    assert_eq!(failure(e.unwrap_err()), "the Echo plugin failed: it asks again for name, which it was given");
+}
+
+/// Any questions an operation asks together, one about its `name` and others about any params
+/// (now and then one asked before): the host passes them on exactly when each is about a param
+/// of its own, and planned once with an answer to each, the playlist is named as answered.
+#[hegel::test(test_cases = 15)]
+fn any_questions_passed_on_together_are_planned_with_every_answer(tc: TestCase) {
+    let f = Fixture::asking();
+    let mut params: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "c", "name"])).max_size(3));
+    let at = tc.draw(gs::integers::<usize>().max_value(params.len()));
+    params.insert(at, "name");
+    let distinct = (1..params.len()).all(|i| !params[..i].contains(&params[i]));
+    let values: Vec<Value> = (0..params.len()).map(|i| json!(format!("Set {i}"))).collect();
+    let asked = Choice::together(params.iter().zip(&values).map(|(p, v)| choice(p, vec![v.clone()]))).unwrap();
+    let ask = json!({ "ask": asked });
+    match f.plan_asking(ask.clone()) {
+        Ok(OpPlanned::Choose { choose }) => {
+            assert!(distinct, "{params:?}");
+            assert_eq!(choose, asked);
+            let answered = choose.answered(ask, values.iter().map(|v| vec![v.clone()]).collect());
+            let plan = f.plan_asking(answered).unwrap().plan().unwrap();
+            assert_eq!(plan.playlists_created, [format!("Set {at}")]);
+        }
+        Ok(OpPlanned::Plan(_)) => panic!("asked, not planned"),
+        Err(e) => {
+            assert!(!distinct, "{params:?}: {e}");
+            assert!(failure(e).contains("again"), "{params:?}");
+        }
+    }
+}
+
 /// Any question an operation asks, of its `name` or another param, of values of any kind: the
 /// host passes it on exactly when the operation could be planned again with each of its answers,
 /// and planned with any of them, the plan is the operation's with that param.
@@ -122,7 +202,7 @@ fn any_question_passed_on_is_one_its_answers_plan(tc: TestCase) {
             assert_eq!(choose, asked);
             let pick = tc.draw(gs::sampled_from(values));
             let named = pick.as_str().filter(|_| param == "name").unwrap_or("Kept").to_string();
-            let plan = f.plan_asking(choose.answered(params, vec![pick])).unwrap().plan().unwrap();
+            let plan = f.plan_asking(choose.answered(params, vec![vec![pick]])).unwrap().plan().unwrap();
             assert_eq!(plan.playlists_created, [named]);
         }
         Ok(OpPlanned::Plan(_)) => panic!("asked, not planned"),

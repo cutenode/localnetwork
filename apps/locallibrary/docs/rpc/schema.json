@@ -32033,6 +32033,13 @@
           "items": {
             "$ref": "#/$defs/ChoiceItem"
           }
+        },
+        "more": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginChoice"
+          },
+          "description": "Questions asked after this one before the hook runs again, each about a param of its own\n(and asking none of its own). A host that doesn't know them asks this one alone, so a hook\nstill asks what's left when it's run again."
         }
       },
       "required": [
@@ -32330,7 +32337,7 @@
           ]
         }
       ],
-      "description": "What planning a plugin's operation comes to: its plan, or a question for the user first, after\nwhich it's planned again with the param set ([`Choice::answered`])."
+      "description": "What planning a plugin's operation comes to: its plan, or a question for the user first, after\nwhich it's planned again with each of its params set ([`Choice::answered`])."
     },
     "PluginExport": {
       "type": "object",
