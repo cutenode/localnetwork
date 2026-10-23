@@ -5,6 +5,15 @@
 //! tracks it asks the user about first, one at a time (the `choose` feature): the host plans it
 //! again with the answer, the entry's number (`"3"`) set to the track's id, or to `null` to leave
 //! it out.
+//!
+//! It also reads rekordbox XML collections whole: as an importer (`rekordbox-xml`, in
+//! [`xml_import`]), each track's key, tempo and cues for the host to add to a drive's tracks, and
+//! as a library source (in [`xml_source`]), the tracks with their tags, cues and beat grids and
+//! the playlists, to build a drive from.
+
+mod xml_file;
+mod xml_import;
+mod xml_source;
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -22,7 +31,8 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(plan_op), input, output);
+    let hooks = Hooks::new().on(plan_op).on(xml_import::read_import).on(xml_source::read_library);
+    loclib_plugin::serve(MANIFEST, hooks, input, output);
 }
 
 /// The `import` operation's params, but for the answers to its questions (see [`answers`]). The

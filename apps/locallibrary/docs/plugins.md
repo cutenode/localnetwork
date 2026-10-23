@@ -17,7 +17,8 @@ are:
   check before a set and ordering a set read tempos, keys and levels from (see [Roles](#roles)).
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
-  several.
+  several. It reads rekordbox XML collections too, as an import format (`rekordbox-xml`) and a
+  library source (see [Other DJ software](other-software.md#rekordbox-xml)).
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
@@ -209,8 +210,9 @@ FOLDER` (`--grant` again for more folders, the source's options as `--option KEY
 and locallibrary copies only audio files players play that are in them (their links resolved),
 not on the drive itself: it reads each file's length and format itself, hashes it before copying
 it, and checks the copy. What it leaves out (a file elsewhere, one that isn't audio, a cue in a
-slot taken) is listed as a warning. Cues, beat grids and waveforms a track comes with go into
-analysis files made for it, each read back first. Building again copies only what changed; a
+slot taken) is listed as a warning, and so is what the plugin says it couldn't read. Cues, beat
+grids and waveforms a track comes with go into analysis files made for it, each read back first.
+Building again copies only what changed; a
 library on the drive that wasn't built from that source is only replaced with `--replace`. In the
 player, "build from …" in the palette and a drive's menu asks for the folders and options first.
 
