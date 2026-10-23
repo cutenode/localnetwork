@@ -91,7 +91,7 @@ fn a_sets_format_writes_out_the_set_open() {
     assert_eq!(app.open_set().as_deref(), Some("3m2friday2222"));
     // A list marked in the tree is the drive's, not the set's.
     app.list_marks = vec!["Warmup".into()];
-    press(&mut app, ":export the set\n");
+    press(&mut app, ":export the set for sheet\n");
     let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form") };
     assert!(f.fields[0].text.ends_with("Friday.txt"), "named after the set: {}", f.fields[0].text);
     let out = dir.path().join("friday.txt");
@@ -265,7 +265,7 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     go(&mut app, NodeId::Category(Category::Sets));
     go(&mut app, NodeId::Group(Category::Sets, open.id.clone()));
     assert_eq!(app.open_set(), Some(open.id.clone()));
-    let f = form(&mut app, "export the set");
+    let f = form(&mut app, "export the set for sheet");
     let named = format!("{} {}.txt", open.date, open.title.as_deref().unwrap());
     assert!(f.fields[0].text.ends_with(&named), "named after the set: {}", f.fields[0].text);
     let out = dir.path().join("out.txt");

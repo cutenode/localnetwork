@@ -19,7 +19,9 @@ are:
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
   several.
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
-  --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
+  --format traktor -o DIR`), and a set or a mix as a playlist there (`locallibrary sets export
+  SET --format traktor-set --drive LIBRARY -o DIR`, see [Other DJ
+  software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
   it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
@@ -180,7 +182,9 @@ A format may write out a set or a recorded mix instead (`plugin info` says which
 sets export SET --format FORMAT -o PATH [--drive LIBRARY]`, and `locallibrary mix RECORDING
 --format FORMAT --export PATH` (one recording, its report kept in the store for the plugin to
 read), with `--option`, `--dry-run` and `--replace` as above. In the player, a set's formats are
-in the palette while the set is open (Browse › Sets).
+in the palette while the set is open (Browse › Sets). Formats share one set of names whatever
+they write out, so interop's for sets and mixes are `traktor-set`, `serato-mix` and so on (see
+[Other DJ software](other-software.md#sets-and-mixes)).
 
 ## Import formats
 

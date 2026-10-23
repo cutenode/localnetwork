@@ -289,7 +289,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
     entry is when it could be several.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
-    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
+    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
+    and a set or a recorded mix as one playlist of the tracks played, in order, from a drive
+    (`sets export SET --format traktor-set --drive DRIVE`, `mix --format serato-mix`).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an

@@ -5,6 +5,9 @@
 //! and the audio, for Serato's copies, from the drive itself (where the host says it's mounted,
 //! the export's `source.root`), which it never writes to.
 //!
+//! A set's or a mix's exporter (`traktor-set`, `serato-mix`...) writes the same files with one
+//! playlist instead: the tracks played, in order, from the drive the user names (`set_export`).
+//!
 //! Tracks point at their audio where it will be when the other software reads the files: the
 //! drive's mount point, or another folder holding a copy of the drive's `Contents/`
 //! (`location_root`).
@@ -22,6 +25,7 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod set_export;
 mod write;
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
@@ -54,7 +58,9 @@ struct Options {
 /// Works out the export in memory, as loclib-interop does, and with `dry_run` answers the
 /// files it would write; otherwise writes them, below `output`.
 fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-    let software: Software = params(Value::from(req.exporter))?;
+    // A set's or a mix's exporter is named for the software and what it writes out (`traktor-set`).
+    let software = req.exporter.split_once('-').map_or(req.exporter.as_str(), |(software, _)| software);
+    let software: Software = params(Value::from(software))?;
     let options: Options = params::<Option<Options>>(req.options)?.unwrap_or_default();
     if !req.source.history.is_empty() {
         return Err(invalid(format!("{} doesn't take history lists", software.name())));
@@ -65,13 +71,19 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
     if options.write_tags && options.location_root.is_some() {
         return Err(invalid("a location root doesn't go with writing tags: the crates list the tagged copies"));
     }
+    let played = set_export::read(&req.source, host)?;
     // The library exports are made from, with what only OneLibrary has.
     let drive = host.drive(&req.source.drive).combined();
     let drive_root = req.source.root.clone();
     let mut library = drive.library()?;
     let renumbered = library.number_for_files();
-    let library =
-        library.subset(&req.source.playlists).map_err(|query| invalid(format!("not found: playlist {query:?}")))?;
+    let (library, unplayed) = match played {
+        Some(played) => played.narrow(library)?,
+        None => {
+            let only = library.subset(&req.source.playlists);
+            (only.map_err(|query| invalid(format!("not found: playlist {query:?}")))?, Vec::new())
+        }
+    };
     // Engine keeps no analysis, and Serato's crates alone none either.
     let carried = match software {
         Software::Traktor => true,
@@ -131,7 +143,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
         files: files.collect(),
         counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
         notes: notes(&export),
-        warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
+        warnings: unplayed.into_iter().chain(export.warnings.iter().cloned()).chain(missing_audio(&source)).collect(),
     })
 }
 

@@ -1151,7 +1151,16 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
                     | Act::Import(..)
                     | Act::Fetch(_)
             );
-            assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
+            // A set's export needs a set open too, which none of these places has.
+            let of_set = match act {
+                Act::Export(p, f) => {
+                    let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+                    m.contributes.exporters.iter().any(|e| e.format == *f && e.source == loclib_plugin::ExportFrom::Set)
+                }
+                _ => false,
+            };
+            let said = if of_set { why.or(Some("open a set first")) } else { why.filter(|_| needs) };
+            assert_eq!(i.unavailable.as_deref(), said, "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
         }
         let name = tc.draw(gs::sampled_from(own));

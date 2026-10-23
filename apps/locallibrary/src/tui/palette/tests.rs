@@ -223,6 +223,9 @@ fn a_choice_from_a_list_is_done_to_its_drive(tc: hegel::TestCase) {
         p.state.select(Some(i));
         key(&mut app, KeyCode::Enter);
     } else {
+        // Scrolled to it first, as the arrows or the wheel would: a long menu runs past the screen.
+        let Some(Modal::Pick(p)) = &mut app.modal else { unreachable!() };
+        p.state.select(Some(i));
         super::super::ui::screen(&mut app, 120, 40);
         let r = app.areas.menu;
         if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {

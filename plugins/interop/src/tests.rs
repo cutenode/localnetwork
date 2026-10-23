@@ -13,7 +13,7 @@ use loclib_interop::{Content, File};
 use loclib_model::analysis::{Beat, Cue};
 use loclib_model::model::{ONELIBRARY_ONLY, Playlist};
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
+use loclib_plugin::{Capability, ExportFrom, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
 use loclib_progress::Ctx;
 use serde_json::json;
 use tempfile::TempDir;
@@ -27,12 +27,14 @@ const PAGE: usize = 500;
 const PLUS: u32 = ONELIBRARY_ONLY | 1;
 
 /// A drive `USB`: its folder, holding the audio (an MP3 Serato's tag can go into for each track,
-/// but a FLAC file for the third), the library exports read and each track's beat grid and cues.
+/// but a FLAC file for the third), the library exports read and each track's beat grid and cues;
+/// and the sets and mixes the store keeps, by id (none unless a test adds them).
 struct Drive {
     dir: TempDir,
     root: PathBuf,
     library: Library,
     analysis: FxHashMap<u32, TrackAnalysis>,
+    kept: FxHashMap<String, Value>,
 }
 
 /// An MP3 lofty reads: an ID3v2.3 tag with a title, then MPEG-1 layer III frames of silence.
@@ -124,7 +126,7 @@ fn drive() -> Drive {
             TrackAnalysis { beats: grid(126.0), cues: vec![cue(Some(1), 1_000, None, "Drop")], ..Default::default() },
         ),
     ]);
-    Drive { dir, root, library, analysis }
+    Drive { dir, root, library, analysis, kept: FxHashMap::default() }
 }
 
 /// A read callback: its method and params.
@@ -153,7 +155,7 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
     let (host, incoming) = Peer::new(from_plugin, to_plugin);
     let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
     let (to, log) = (host.clone(), calls.clone());
-    let (library, analysis) = (drive.library.clone(), drive.analysis.clone());
+    let (library, analysis, kept) = (drive.library.clone(), drive.analysis.clone(), drive.kept.clone());
     let answering = std::thread::spawn(move || {
         for msg in incoming {
             let Incoming::Request(req) = msg else { continue };
@@ -162,7 +164,7 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
                 // The export: the host's second request, after `hello`.
                 to.notify(method::CANCEL, &json!({ "id": 2 }));
             }
-            to.respond(&req.id, read(&library, &analysis, &req.method, req.params));
+            to.respond(&req.id, read(&library, &analysis, &kept, &req.method, req.params));
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -172,10 +174,11 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
 
 /// A read as the host answers a plugin: the reads the manifest's capabilities grant, only with
 /// the params a plugin may give each, of the drive `USB`, `drive.library`'s tracks a page at a
-/// time and at most 100 tracks' analysis at once.
+/// time and at most 100 tracks' analysis at once; and the sets and mixes `kept`, by id.
 fn read(
     lib: &Library,
     analysis: &FxHashMap<u32, TrackAnalysis>,
+    kept: &FxHashMap<String, Value>,
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
@@ -183,12 +186,18 @@ fn read(
     let (capability, allowed): (Capability, &[&str]) = match method {
         "drive.library" => (Capability::LibraryRead, &["drive", "combined", "offset", "limit"]),
         "tracks.analysis" => (Capability::AnalysisRead, &["drive", "combined", "ids", "waveform", "encoding"]),
+        "sets.get" => (Capability::SetsRead, &["set", "venue"]),
+        "mix.reports.get" => (Capability::SetsRead, &["id"]),
         _ => return Err(RpcError::failed("denied", format!("{method:?} isn't a read a plugin can call"))),
     };
     assert!(manifest.capabilities.contains(&capability), "{method} needs {capability}");
     let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
     if let Some(name) = params.keys().find(|k| !allowed.contains(&k.as_str())) {
         return Err(RpcError::invalid_params(format!("a plugin doesn't give {method} `{name}`")));
+    }
+    if capability == Capability::SetsRead {
+        let id = params.get("set").or(params.get("id")).and_then(Value::as_str).unwrap_or_default();
+        return kept.get(id).cloned().ok_or_else(|| RpcError::failed("not_found", format!("not found: {id:?}")));
     }
     if params["drive"] != "USB" {
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
@@ -385,11 +394,30 @@ fn paths(e: &Exported) -> Vec<PathBuf> {
 fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
-    let formats: Vec<(&str, bool)> =
-        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder)).collect();
-    assert_eq!(formats, [("traktor", true), ("serato", true), ("engine", true)]);
+    let sources: Vec<(&str, ExportFrom)> =
+        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.source)).collect();
+    assert_eq!(
+        sources,
+        [
+            ("traktor", ExportFrom::Drive),
+            ("serato", ExportFrom::Drive),
+            ("engine", ExportFrom::Drive),
+            ("traktor-set", ExportFrom::Set),
+            ("serato-set", ExportFrom::Set),
+            ("engine-set", ExportFrom::Set),
+            ("traktor-mix", ExportFrom::Mix),
+            ("serato-mix", ExportFrom::Mix),
+            ("engine-mix", ExportFrom::Mix),
+        ]
+    );
+    assert!(manifest.contributes.exporters.iter().all(|e| e.folder));
+    // A set's or a mix's exporter takes the options its drive's exporter does.
+    for e in &manifest.contributes.exporters[3..] {
+        let drives = manifest.contributes.exporters.iter().find(|d| e.format.starts_with(&format!("{}-", d.format)));
+        assert_eq!(e.options, drives.unwrap().options, "{}", e.format);
+    }
     // Where the drive is mounted comes with the export: no drive:info.
-    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead];
+    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead, Capability::SetsRead];
     assert_eq!(manifest.capabilities, capabilities);
 }
 
@@ -830,22 +858,41 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     assert!(!wal.exists());
 
     let root = root.map_or(drive.root.clone(), PathBuf::from);
-    let out = resolved(&output);
-    let want = want.unwrap();
-    let export = want.build(&root, skip, |s| match software {
-        Software::Traktor => traktor::build(s, &output, &Ctx::silent()).unwrap(),
+    is_built(&want.unwrap(), &Asked { software, root, skip, tags, on_drive }, &drive, &output, &done, Vec::new());
+}
+
+/// An export's format and options, as the plugin was asked for it: the folder its tracks' audio
+/// will be in, and whether it skips analysis, writes Serato's tags or Engine's paths from the
+/// drive's root.
+struct Asked {
+    software: Software,
+    root: PathBuf,
+    skip: bool,
+    tags: bool,
+    on_drive: bool,
+}
+
+/// What `done` wrote below `output` and said of it is what loclib-interop builds of `want` as
+/// `asked` (Serato's copies made of `drive`'s audio): the files and their sizes, the counts, the
+/// notes (naming the plugin's options), and the warnings: `left_out` first, then
+/// loclib-interop's, then one naming the tracks whose audio isn't where the files say.
+fn is_built(want: &Expected, asked: &Asked, drive: &Drive, output: &Path, done: &Exported, left_out: Vec<String>) {
+    let Asked { software, ref root, skip, tags, on_drive } = *asked;
+    let out = resolved(output);
+    let export = want.build(root, skip, |s| match software {
+        Software::Traktor => traktor::build(s, output, &Ctx::silent()).unwrap(),
         Software::Serato if tags => {
             let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(&drive.root, &paths::key(&t.file_path)));
             let copies = serato::Copies { root: out.clone(), audio: &audio };
-            serato::build(s, &output, Some(&copies), &Ctx::silent()).unwrap()
+            serato::build(s, output, Some(&copies), &Ctx::silent()).unwrap()
         }
-        Software::Serato => serato::build::<Error>(s, &output, None, &Ctx::silent()).unwrap(),
+        Software::Serato => serato::build::<Error>(s, output, None, &Ctx::silent()).unwrap(),
         _ => {
             let style = if on_drive { PathStyle::Drive } else { PathStyle::Relative };
             engine::build(s, &out, style, &Ctx::silent()).unwrap()
         }
     });
-    assert_eq!(written(&output), contents(&export, &out, &output));
+    assert_eq!(written(output), contents(&export, &out, output));
     let described: Vec<(&str, u64)> = done.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect();
     assert_eq!(described, export.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect::<Vec<_>>());
     let counts: Vec<(&str, u64)> = done.counts.iter().map(|(label, n)| (label.as_str(), *n)).collect();
@@ -863,12 +910,13 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     assert!(done.notes.iter().all(|n| !n.contains('`')), "{:?}", done.notes);
     let missing: Vec<&Track> =
         want.library.tracks.iter().filter(|t| !root.join(paths::key(&t.file_path)).is_file()).collect();
-    let mut warnings = export.warnings.clone();
+    let mut warnings = left_out;
+    warnings.extend(export.warnings.iter().cloned());
     if let Some(first) = missing.first() {
         warnings.push(format!(
             "{} track(s) have no audio under {} (e.g. {}); they're listed anyway",
             missing.len(),
-            resolved(&root).display(),
+            resolved(root).display(),
             first.file_path
         ));
     }
@@ -891,3 +939,6 @@ fn the_part_that_exists_is_resolved() {
         assert_eq!(resolved(&real.join("new/../up/x")), real.join("deep/er/x"));
     }
 }
+
+/// The set and mix exporters.
+mod sets;
