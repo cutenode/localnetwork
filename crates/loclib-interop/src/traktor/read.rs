@@ -35,10 +35,14 @@ const REACH_MS: f64 = 4_294_967_295.0;
 /// grid to under a million beats.
 const LONGEST_MS: f64 = 86_400_000.0;
 
-/// The most bytes the playlists' paths come to, all told. Each playlist holds the names of the
-/// folders above it, so a few long names over many playlists (or folders nested deep) can come to
-/// far more than the file; real collections' come to a small part of this.
+/// The most bytes the playlists' paths come to, all told, each name counted with what holding it
+/// takes (a `String`), so empty names count too. Each playlist holds the names of the folders
+/// above it, so a few long names over many playlists, or many playlists under folders nested
+/// deep, come to far more than the file; real collections' come to a small part of this.
 const PATHS_BYTES: usize = 16 << 20;
+
+/// The deepest playlists and folders are nested: real collections' are a few deep.
+const DEPTH: usize = 128;
 
 /// `bpm`, when it's a tempo a beat grid holds.
 fn tempo(bpm: f64) -> Option<f64> {
@@ -280,6 +284,9 @@ impl State {
                 }
             }
             (_, "NODE") => {
+                if self.nodes.len() == DEPTH {
+                    return Err(format!("its playlists and folders are nested more than {DEPTH} deep"));
+                }
                 let (kind, name) = (a.text("TYPE"), a.text("NAME"));
                 if self.nodes.is_empty() {
                     self.in_root = kind == "FOLDER" && name == "$ROOT";
@@ -293,7 +300,8 @@ impl State {
                 match kind.as_str() {
                     "PLAYLIST" => {
                         let path = &self.nodes[usize::from(self.in_root)..];
-                        self.paths_bytes += path.iter().map(String::len).sum::<usize>();
+                        let held = |n: &String| n.len() + std::mem::size_of::<String>();
+                        self.paths_bytes += path.iter().map(held).sum::<usize>();
                         if self.paths_bytes > PATHS_BYTES {
                             return Err(format!("its playlists' paths come to more than {} MiB", PATHS_BYTES >> 20));
                         }

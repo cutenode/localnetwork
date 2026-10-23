@@ -358,29 +358,40 @@ fn anything_reads_or_is_refused(tc: TestCase) {
     }
 }
 
-/// Playlists in folders of any depth and with names of any length read with their paths coming
-/// to 16 MiB at most, all told, or are refused for coming to more.
-#[hegel::test(test_cases = 40)]
+/// Playlists in folders of any depth (many under deep folders with empty names too) and with
+/// names of any length read with their paths coming to 16 MiB at most, all told, each name
+/// counted with what holding it takes (a `String`), or are refused: for nodes nested more than
+/// 128 deep, or for paths coming to more.
+#[hegel::test(test_cases = 60)]
 fn playlist_paths_stay_bounded(tc: TestCase) {
     let name = "n".repeat(tc.draw(gs::sampled_from(vec![0, 10, 1 << 16, 1 << 20])));
-    let depth = tc.draw(gs::integers::<usize>().max_value(if name.len() > 1000 { 20 } else { 300 }));
-    let playlists = tc.draw(gs::integers::<usize>().max_value(40));
+    let depth = tc.draw(gs::integers::<usize>().max_value(if name.len() > 1000 { 20 } else { 200 }));
+    let playlists = tc.draw(hegel::one_of!(
+        gs::integers::<usize>().max_value(40),
+        gs::integers::<usize>().min_value(5000).max_value(8000)
+    ));
     let nml = format!(
         "<NML><PLAYLISTS>{}{}{}</PLAYLISTS></NML>",
         format!("<NODE TYPE=\"FOLDER\" NAME=\"{name}\">").repeat(depth),
         "<NODE TYPE=\"PLAYLIST\" NAME=\"p\"/>".repeat(playlists),
         "</NODE>".repeat(depth)
     );
-    let each = depth * name.len() + 1;
+    let segment = std::mem::size_of::<String>();
+    let each = depth * (name.len() + segment) + 1 + segment;
+    let cost =
+        |c: &traktor::Collection| -> usize { c.lists.iter().flat_map(|l| &l.path).map(|n| n.len() + segment).sum() };
+    let refused = |why: &str| format!("not a Traktor collection: {why}");
     match traktor::read(nml.as_bytes()) {
         Ok(c) => {
-            let total: usize = c.lists.iter().flat_map(|l| &l.path).map(String::len).sum();
-            assert_eq!((c.lists.len(), total), (playlists, each * playlists));
-            assert!(total <= 16 << 20);
+            assert_eq!((c.lists.len(), cost(&c)), (playlists, each * playlists));
+            assert!(cost(&c) <= 16 << 20 && depth + usize::from(playlists > 0) <= 128);
+        }
+        Err(e) if depth + usize::from(playlists > 0) > 128 => {
+            assert_eq!(e.to_string(), refused("its playlists and folders are nested more than 128 deep"));
         }
         Err(e) => {
             assert!(each * playlists > 16 << 20, "{e}");
-            assert_eq!(e.to_string(), "not a Traktor collection: its playlists' paths come to more than 16 MiB");
+            assert_eq!(e.to_string(), refused("its playlists' paths come to more than 16 MiB"));
         }
     }
 }

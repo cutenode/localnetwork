@@ -194,8 +194,8 @@ fn numbers_out_of_reach_are_left_out() {
 }
 
 /// Playlists whose paths come to more than 16 MiB are refused: each holds its folders' names, so a
-/// long folder name over many playlists comes to far more than the file. Folders nested deep are
-/// read as any are.
+/// long folder name over many playlists comes to far more than the file. So are folders nested
+/// more than 128 deep.
 #[test]
 fn playlists_past_16_mib_of_paths_are_refused() {
     let lists = |n: usize| {
@@ -208,9 +208,12 @@ fn playlists_past_16_mib_of_paths_are_refused() {
     assert_eq!(read(lists(15).as_bytes()).unwrap().lists.len(), 15);
     let refused = read(lists(17).as_bytes()).unwrap_err().to_string();
     assert_eq!(refused, "not a Traktor collection: its playlists' paths come to more than 16 MiB");
-    let deep =
-        format!("<NML><PLAYLISTS>{}{}</PLAYLISTS></NML>", "<NODE TYPE=\"FOLDER\">".repeat(500), "</NODE>".repeat(500));
-    assert!(read(deep.as_bytes()).unwrap().lists.is_empty());
+    let deep = |n: usize| {
+        format!("<NML><PLAYLISTS>{}{}</PLAYLISTS></NML>", "<NODE TYPE=\"FOLDER\">".repeat(n), "</NODE>".repeat(n))
+    };
+    assert!(read(deep(128).as_bytes()).is_ok());
+    let refused = read(deep(129).as_bytes()).unwrap_err().to_string();
+    assert_eq!(refused, "not a Traktor collection: its playlists and folders are nested more than 128 deep");
 }
 
 #[test]
