@@ -166,7 +166,7 @@ fn a_suggestion_the_plugin_may_not_make_is_refused() {
         ),
         (
             action("export", json!({ "format": "m3u", "set": "last" })),
-            "\"export\", which it can't: its exporter \"m3u\" takes a drive",
+            "\"export\", which it can't: its exporter \"m3u\" doesn't write out a set",
         ),
         (
             action("analyze", json!({ "analyzer": "tempo", "drive": "USB" })),
@@ -204,6 +204,32 @@ fn a_suggestion_the_plugin_may_not_make_is_refused() {
     assert_eq!(both.suggestion(&m), Err("it suggests both an operation and an action".into()));
     let operation = HostNotify { operation: Some(playlist.clone()), ..HostNotify::default() };
     assert_eq!(operation.suggestion(&m), Ok(Some(Suggestion::Operation(playlist))));
+}
+
+/// An export of a set is taken for an exporter whose sources include sets, and refused for one that
+/// writes out a drive's library alone; one naming both a set and a mix is refused either way.
+#[test]
+fn a_suggested_export_takes_a_source_its_exporter_writes_out() {
+    let lists = "\n[[contributes.exporters]]\nformat = \"lists\"\ntitle = \"Lists\"\nextension = \"txt\"\nsource = [\"drive\", \"set\"]\n";
+    let manifest = echo::MANIFEST.replacen(
+        r#"capabilities = ["library:read""#,
+        r#"capabilities = ["sets:read", "library:read""#,
+        1,
+    );
+    let m = Manifest::parse(&(manifest + lists)).unwrap();
+    let export = |format: &str, params: Value| {
+        let mut params = params;
+        params["format"] = json!(format);
+        let action = Some(Suggested { name: "export".into(), params });
+        HostNotify { message: "m".into(), operation: None, action }.suggestion(&m)
+    };
+    let set = ExportAction { format: "lists".into(), set: Some("last".into()), ..ExportAction::default() };
+    assert_eq!(export("lists", json!({ "set": "last" })), Ok(Some(Suggestion::Action(HostAction::Export(set)))));
+    assert!(matches!(export("lists", json!({ "drive": "USB" })), Ok(Some(_))));
+    let refused = "it suggests the action \"export\", which it can't: its exporter \"m3u\" doesn't write out a set";
+    assert_eq!(export("m3u", json!({ "set": "last" })), Err(refused.into()));
+    let both = export("lists", json!({ "set": "last", "mix": "1" })).unwrap_err();
+    assert!(both.ends_with("it names both a set and a mix"), "{both}");
 }
 
 /// For any action suggested, the host takes it exactly when it's one of the host's actions with

@@ -246,6 +246,19 @@ pub struct AnalyzeAction {
     pub tracks: Vec<u32>,
 }
 
+impl ExportAction {
+    /// What it writes out: the set it names, the mix it names, else the drive's library. None when
+    /// it names both a set and a mix.
+    pub fn from(&self) -> Option<ExportFrom> {
+        match (&self.set, &self.mix) {
+            (Some(_), Some(_)) => None,
+            (Some(_), None) => Some(ExportFrom::Set),
+            (None, Some(_)) => Some(ExportFrom::Mix),
+            (None, None) => Some(ExportFrom::Drive),
+        }
+    }
+}
+
 impl HostAction {
     /// A fetch's kind of provider, and its params.
     pub fn fetch(&self) -> Option<(ProviderKind, &FetchAction)> {
@@ -296,13 +309,14 @@ impl HostAction {
                 let Some(exporter) = c.exporters.iter().find(|x| x.format == e.format) else {
                     return Err(format!("no exporter {:?}", e.format));
                 };
-                let (takes, fits) = match exporter.source {
-                    ExportFrom::Drive => ("a drive", e.drive.is_some() && e.set.is_none() && e.mix.is_none()),
-                    ExportFrom::Set => ("a set (and maybe a drive)", e.set.is_some() && e.mix.is_none()),
-                    ExportFrom::Mix => ("a mix (and maybe a drive)", e.mix.is_some() && e.set.is_none()),
+                let (from, what) = match e.from() {
+                    Some(ExportFrom::Drive) if e.drive.is_none() => return Err("it names no drive, set or mix".into()),
+                    Some(from) => (from, serde_json::to_value(from).unwrap_or_default()),
+                    None => return Err("it names both a set and a mix".into()),
                 };
-                if !fits {
-                    return Err(format!("its exporter {:?} takes {takes}", e.format));
+                if !exporter.takes(from) {
+                    let what = what.as_str().unwrap_or_default();
+                    return Err(format!("its exporter {:?} doesn't write out a {what}", e.format));
                 }
                 let options = Value::Object(e.options.clone());
                 check_params(exporter.options.as_ref(), &options).map_err(|x| format!("options: {}", x.message))

@@ -176,7 +176,8 @@ impl App {
         match action {
             HostAction::Export(e) => {
                 let Some(x) = m.contributes.exporters.iter().find(|x| x.format == e.format) else { return };
-                self.export_form(&m.id, &x.format, Some(root), Some(&e));
+                let Some(from) = e.from().filter(|f| x.takes(*f)) else { return };
+                self.export_form(&m.id, &x.format, from, Some(root), Some(&e));
             }
             HostAction::Analyze(a) => {
                 let Some(x) = m.contributes.analyzers.iter().find(|x| x.name == a.analyzer) else { return };
