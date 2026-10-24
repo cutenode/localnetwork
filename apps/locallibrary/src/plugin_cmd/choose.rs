@@ -33,19 +33,31 @@ pub fn interactive(out: Output) -> bool {
     !out.json && std::io::stdin().is_terminal()
 }
 
-/// The values chosen for `choice`, asked on stderr and read from stdin (see [`answer`]); refused
-/// when questions can't be asked here (see [`unanswered`]).
-pub fn ask(choice: &Choice, out: Output) -> Result<Vec<Value>> {
+/// The values chosen for each of `choice`'s questions, asked on stderr and read from stdin (see
+/// [`answers`]); refused, saying how to answer every one, when questions can't be asked here
+/// (see [`unanswered`]).
+pub fn ask(choice: &Choice, out: Output) -> Result<Vec<Vec<Value>>> {
     if !interactive(out) {
-        return Err(usage(unanswered(&[choice])));
+        return Err(usage(unanswered(&choice.questions().collect::<Vec<_>>())));
     }
-    answer(choice, &mut std::io::stdin().lock())
+    answers(choice, &mut std::io::stdin().lock())
 }
 
-/// `choice` asked on stderr, its items numbered, and its answer read from `input`, asked again
-/// until it's one: refused when `input` ends first.
-pub(super) fn answer(choice: &Choice, input: &mut impl BufRead) -> Result<Vec<Value>> {
-    eprintln!("{} {}", style("?").cyan().bold(), choice.title);
+/// Each of `choice`'s questions asked in turn (see [`answer`]), with how far along it is when
+/// there are several.
+pub(super) fn answers(choice: &Choice, input: &mut impl BufRead) -> Result<Vec<Vec<Value>>> {
+    let n = choice.more.len() + 1;
+    let count = |i: usize| match n {
+        1 => String::new(),
+        _ => format!(" {}", dim(format!("({} of {n})", i + 1))),
+    };
+    choice.questions().enumerate().map(|(i, q)| answer(q, &count(i), input)).collect()
+}
+
+/// `choice` asked on stderr (`count` after its title), its items numbered, and its answer read
+/// from `input`, asked again until it's one: refused when `input` ends first.
+pub(super) fn answer(choice: &Choice, count: &str, input: &mut impl BufRead) -> Result<Vec<Value>> {
+    eprintln!("{} {}{count}", style("?").cyan().bold(), choice.title);
     for (i, item) in choice.items.iter().enumerate() {
         let detail = item.detail.as_deref().map(|d| format!("  {}", dim(d))).unwrap_or_default();
         eprintln!("  {:>3}. {}{detail}", i + 1, item.label);

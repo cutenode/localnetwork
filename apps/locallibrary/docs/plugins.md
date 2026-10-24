@@ -124,10 +124,12 @@ labelled values, a tree, a chart (as a table of its points), a picture (said in 
 sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
 picture as a PNG `data:` URL); an operation shows its plan
 and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
-Either may ask you something first (which track an entry is, say): in a terminal you pick from a
-numbered list; otherwise, or with `--json`, it stops and says how to answer with `--choose
+Either may ask you something first (which track an entry is, say), or several things at once
+(which track each of a tracklist's entries is): in a terminal you pick from a numbered list for
+each; otherwise, or with `--json`, it stops and says how to answer each with `--choose
 PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the actions menu
-where the plugin offers them, and a question one asks is a list to pick from. On the command
+where the plugin offers them, and a question one asks is a list to pick from, several one after
+another (titled `2 of 5` and so on, esc cancelling them all). On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
 its flag gives it otherwise.
 
@@ -310,13 +312,13 @@ A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a fu
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. A command or an operation may answer a question for you (`Choice`) instead, and is run
-again with your answer as one of its params. A view (a command's, a panel's) is any of
-loclib-plugin's kinds, each with a plain text form for a host that can't draw it, and a theme
-is a table of colours in the manifest. `Hooks::on_event` handles events, a service is a hook
-that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks
-is an optional feature of the
-protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
+ready. A command or an operation may answer a question for you (`Choice`) instead, or several
+at once (`Choice::together`), and is run again with your answers as its params. A view (a
+command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
+that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
+handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
+you something. Each family of hooks is an optional feature of the protocol, so a newer
+locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety
 

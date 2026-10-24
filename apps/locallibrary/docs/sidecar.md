@@ -434,10 +434,12 @@ may ask the user something first: `plugins.run` answers a view `{kind: "choose",
 multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing
 kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
-one that asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
-playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks in
-turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and `null`
-leaves the entry out.
+one that asks. A question may carry `more`, further questions of the same shape (at most 64 in
+all, each about a param of its own): ask them all, then call it again once with every param
+set. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
+playlist?, append?}`, `file` absolute), which asks about the entries that could be several tracks
+64 at a time, the first as the question and the rest in its `more`: `param` is the entry's number,
+counting from 1, each item's `value` a track id, and `null` leaves the entry out.
 
 ### Destinations
 
