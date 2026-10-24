@@ -1,0 +1,29 @@
+{
+	"$schema": "./schema.json",
+	"number": 5,
+	"title": "apps/localtoolbox",
+	"description": "Issues for the localtoolbox Chrome extension",
+	"readme": "Open issues labelled localtoolbox or \"localtoolbox: <area>\", kept in step by tools/project.sh with the Local Network project (https://github.com/orgs/cutenode/projects/9): Status is the same on both, and Area comes from the area labels. How the fields are used: https://github.com/cutenode/localnetwork/blob/main/.github/CONTRIBUTING.md#issues-and-the-project",
+	"scope": ["localtoolbox"],
+	"field": { "name": "Area", "prefix": "localtoolbox: " },
+	"views": [
+		{
+			"name": "Board",
+			"layout": "BOARD_LAYOUT",
+			"filter": "",
+			"fields": ["Title", "Assignees", "Area", "Priority", "Labels", "Milestone"]
+		},
+		{
+			"name": "Backlog",
+			"layout": "TABLE_LAYOUT",
+			"filter": "is:open",
+			"fields": ["Title", "Status", "Area", "Priority", "Effort", "Milestone", "Labels", "Assignees"]
+		},
+		{
+			"name": "Bugs",
+			"layout": "TABLE_LAYOUT",
+			"filter": "is:open type:Bug",
+			"fields": ["Title", "Status", "Area", "Priority", "Labels", "Assignees"]
+		}
+	]
+}
