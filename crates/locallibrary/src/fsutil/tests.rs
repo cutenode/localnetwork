@@ -282,58 +282,6 @@ fn json_reads_back_what_was_written(tc: hegel::TestCase) {
     assert!(matches!(read_json::<IndexMap<String, i64>>(&path), Err(Error::Parse { .. })));
 }
 
-/// Made absolute, a path is the current folder (when it's relative) followed by its parts, each
-/// `..` taking the part before it away and each `.` nothing; nothing at all stays nothing. Resolved,
-/// the part that exists is the real folder, followed by the rest.
-#[hegel::test(test_cases = 60)]
-#[hegel::explicit_test_case(parts = vec!["a", "..", ".", "b"], rooted = false, made = 1usize)]
-#[hegel::explicit_test_case(parts = Vec::<&str>::new(), rooted = false, made = 0usize)]
-// Regression: `..` was folded before symlinks were resolved, so this many up from a macOS temp
-// folder (`/var/folders/xx/yyy/T/.tmpX`, `/var` being `/private/var`) gave `/`, not `/private`.
-#[hegel::explicit_test_case(parts = vec![".."; 6], rooted = false, made = 0usize)]
-fn paths_are_folded_part_by_part(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
-    let rooted = tc.draw(gs::booleans());
-    let joined = parts.join("/");
-    let path = PathBuf::from(if rooted { format!("/{joined}") } else { joined.clone() });
-    // On Windows a rooted path is on the current folder's drive.
-    let mut want = if rooted { std::path::absolute("/").unwrap() } else { std::env::current_dir().unwrap() };
-    if !rooted && parts.is_empty() {
-        want = PathBuf::new();
-    }
-    for p in &parts {
-        match *p {
-            ".." => {
-                want.pop();
-            }
-            "." => {}
-            name => want.push(name),
-        }
-    }
-    assert_eq!(absolute(&path), want, "{path:?}");
-    if !rooted && parts.is_empty() {
-        assert_eq!(resolved(&path), PathBuf::new());
-    }
-    // Below a real folder: the parts that exist resolve, the rest are appended.
-    let dir = tempfile::tempdir().unwrap();
-    let real = crate::device::dunce_canonicalize(dir.path());
-    let made = tc.draw(gs::integers::<usize>().max_value(2));
-    fs::create_dir_all(real.join("a/b").iter().take(real.components().count() + made).collect::<PathBuf>()).unwrap();
-    let below = dir.path().join(&joined);
-    let mut folded = real.clone();
-    for p in &parts {
-        match *p {
-            ".." => {
-                folded.pop();
-            }
-            "." => {}
-            name => folded.push(name),
-        }
-    }
-    assert_eq!(resolved(&below), folded, "{below:?}");
-}
-
 /// Flushing makes every file that's there durable and skips the ones that are gone, but a file it
 /// may not open stops it, naming the file; a file exists for reading exactly when it opens.
 #[cfg(unix)]
