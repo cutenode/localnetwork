@@ -338,6 +338,7 @@ export async function createApp(options: CreateAppOptions) {
 
 			for (const space of watched) await syncer.watch(space);
 			await staff.reconcileMembership();
+			await projects.reconcileManagerSpaces();
 			bootstrapped = true;
 			await syncer.syncAll();
 		},
