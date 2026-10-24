@@ -35,7 +35,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use self::aup::{Label, Project};
-use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, QUERY, RATE};
+use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, LevelColumns, QUERY, RATE};
 use self::index::{Cache, IndexReport, LibraryIndex};
 use self::matcher::Found;
 use crate::device::Device;
@@ -520,32 +520,8 @@ fn transitions(plays: &[Play]) -> Vec<Transition> {
 const WAVEFORM_RATE: f64 = 4.0;
 
 fn waveform(levels: &[FrameLevels]) -> MixWaveform {
-    let per = FRAMES_PER_SEC / WAVEFORM_RATE;
-    let columns = (levels.len() as f64 / per).ceil() as usize;
-    let mut peak = vec![0f32; columns];
-    let mut bands = vec![[0f32; 3]; columns];
-    for (i, l) in levels.iter().enumerate() {
-        let c = ((i as f64 / per) as usize).min(columns.saturating_sub(1));
-        peak[c] = peak[c].max(l.peak);
-        for (acc, v) in bands[c].iter_mut().zip(l.bands) {
-            *acc = acc.max(v);
-        }
-    }
-    // Scale each series by a high percentile, so one spike doesn't flatten the rest.
-    let scale = |v: &[f32], gamma: f32| -> Vec<u8> {
-        let mut sorted: Vec<f32> = v.to_vec();
-        sorted.sort_by(f32::total_cmp);
-        let top = sorted.get(sorted.len() * 995 / 1000).copied().unwrap_or(0.0).max(1e-9);
-        v.iter().map(|x| ((x / top).min(1.0).powf(gamma) * 255.0).round() as u8).collect()
-    };
-    let band = |b: usize| bands.iter().map(|c| c[b]).collect::<Vec<f32>>();
-    MixWaveform {
-        columns_per_sec: WAVEFORM_RATE,
-        peak: scale(&peak, 1.0),
-        low: scale(&band(0), 0.8),
-        mid: scale(&band(1), 0.8),
-        high: scale(&band(2), 0.8),
-    }
+    let LevelColumns { peak, bands: [low, mid, high] } = fingerprint::columns(levels, WAVEFORM_RATE);
+    MixWaveform { columns_per_sec: WAVEFORM_RATE, peak, low, mid, high }
 }
 
 #[cfg(test)]

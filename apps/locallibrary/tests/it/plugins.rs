@@ -402,7 +402,8 @@ fn tracks_are_filtered_and_sorted_by_what_analyzers_worked_out() {
 }
 
 /// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
-/// audio, once, and `track` shows every field it declares as `sound.FIELD`.
+/// audio, once, and `track` shows every column it declares as `sound.FIELD` (its waveform isn't
+/// one).
 #[test]
 fn the_sound_plugin_measures_tracks() {
     let env = Env::new();
@@ -414,7 +415,8 @@ fn the_sound_plugin_measures_tracks() {
     assert!(analyzed.contains("tempo-key-loudness (sound): 2 tracks analyzed, 0 already"), "{analyzed}");
     assert!(env.ok(&["analyze", "USB"]).contains("0 tracks analyzed, 2 already"));
     let manifest = Manifest::parse(locallibrary_plugin_sound::MANIFEST).unwrap();
-    let declared: Vec<&String> = manifest.contributes.analyzers[0].fields.keys().collect();
+    let columns = manifest.contributes.analyzers[0].fields.iter().filter(|(_, t)| !t.is_structured());
+    let declared: Vec<&String> = columns.map(|(name, _)| name).collect();
     let shown = env.json(&["track", "USB", "--track", "1"]);
     let fields = shown[0]["fields"]["sound"]["tempo-key-loudness"].as_object().unwrap();
     assert_eq!(fields.keys().collect::<Vec<_>>(), declared, "{fields:?}");

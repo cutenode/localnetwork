@@ -295,7 +295,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     (`sets export SET --format traktor --drive DRIVE -o DIR`, `mix RECORDING --drive DRIVE
     --format serato --export DIR`).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
-    `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
+    `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
+    percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
+    drawn where a drive has none and written with `analyze --apply waveform`.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
     album that could be several release groups offered as each of them, and from the same
     MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
