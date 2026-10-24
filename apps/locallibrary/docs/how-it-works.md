@@ -28,9 +28,9 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: decoding an
                             (doctor's duplicates by sound, cues carried or moved by the offset)
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
-crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
-                            clipping (ebur128), half/double tempo checks, and scoring analyzers against
-                            the GiantSteps annotations
+crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum-dsp), its loudness, peaks and
+                            clipping (ebur128), its three-band waveform, half/double tempo checks, and
+                            scoring analyzers against the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
                             tags, an Engine DJ library (engine.sql); and Traktor's collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
@@ -38,14 +38,15 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
-plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
-                            each album looked up on MusicBrainz and its cover fetched from the Cover Art
-                            Archive, as `set_artwork` edits
+plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
+                            all, asked to), each album looked up on MusicBrainz and its cover fetched from
+                            the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
                             library with loclib-interop into a folder on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
-                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them
+                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
+                            and its three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md

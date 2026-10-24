@@ -53,7 +53,17 @@
 				<form method="POST" action="?/managers" class="card flex flex-col gap-3 p-5" use:enhance>
 					<h2 class="section-title">Managers</h2>
 					{#each data.managers as manager (manager.did)}
-						<label class="flex items-center gap-2.5 text-small"><input type="checkbox" class="checkbox" name="keep" value={manager.did} checked /><Handle account={manager} /></label>
+						<div class="flex min-h-6 items-center justify-between gap-2">
+							<label class="flex min-w-0 items-center gap-2.5 text-small"><input type="checkbox" class="checkbox" name="keep" value={manager.did} checked /><Handle account={manager} class="truncate" /></label>
+							{#await data.verifications then statuses}
+								{@const status = statuses?.[manager.did]}
+								{#if status === 'verified'}
+									<StatusPill {status} />
+								{:else if status}
+									<a class="link shrink-0 text-label" href="/admin/verifications?subject={encodeURIComponent(manager.handle ?? manager.did)}">{status === 'outdated' ? 'Re-issue' : 'Verify'}</a>
+								{/if}
+							{/await}
+						</div>
 					{:else}
 						<p class="text-small text-fg-muted">Unclaimed.</p>
 					{/each}

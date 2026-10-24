@@ -108,7 +108,7 @@ fn formats() -> PossibleValuesParser {
 /// The formats plugins add for what `source` is, as a `--format` takes them.
 pub(crate) fn plugin_formats(source: ExportFrom) -> Vec<PossibleValue> {
     let plugins = crate::plugins::checked().into_iter().flat_map(|p| p.manifests());
-    let added = plugins.flat_map(|m| &m.contributes.exporters).filter(|e| e.source == source);
+    let added = plugins.flat_map(|m| &m.contributes.exporters).filter(|e| e.takes(source));
     added.map(|e| PossibleValue::new(&e.format).help(&e.title)).collect()
 }
 

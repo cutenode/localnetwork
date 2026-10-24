@@ -17,7 +17,7 @@ use locallibrary::profile::{
 use locallibrary::progress::Ctx;
 
 use crate::open_store;
-use crate::output::{Output, dim, fit, heading, ok, plural, thousands, warn};
+use crate::output::{BLOCKS, Output, bar, dim, fit, heading, ok, opt_pct, pct, plural, thousands, warn};
 
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -392,18 +392,6 @@ fn find_entry(list: &[String], query: &str, what: &str) -> Result<String> {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
-const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-/// A horizontal bar `frac` of `width` cells long, in eighths.
-fn bar(frac: f64, width: usize) -> String {
-    let eighths = (frac.clamp(0.0, 1.0) * width as f64 * 8.0).round() as usize;
-    let mut s = "█".repeat(eighths / 8);
-    if !eighths.is_multiple_of(8) {
-        s.push(['▏', '▎', '▍', '▌', '▋', '▊', '▉'][eighths % 8 - 1]);
-    }
-    s
-}
-
 /// One block per value, scaled between the smallest and largest.
 fn spark(values: &[Option<f64>]) -> String {
     let known: Vec<f64> = values.iter().flatten().copied().collect();
@@ -418,14 +406,6 @@ fn spark(values: &[Option<f64>]) -> String {
             Some(_) => BLOCKS[3],
         })
         .collect()
-}
-
-fn pct(x: f64) -> String {
-    format!("{:.0}%", x * 100.0)
-}
-
-fn opt_pct(x: Option<f64>) -> String {
-    x.map_or_else(|| "–".to_string(), pct)
 }
 
 struct Page<'a> {

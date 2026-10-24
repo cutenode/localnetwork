@@ -51,7 +51,7 @@
 		<input name="actor" class="input" value={f.actor} placeholder="Actor handle or DID" aria-label="Actor" />
 		<select name="action" class="input" aria-label="Action">
 			<option value="">Any action</option>
-			{#each ['auth', 'project', 'request', 'role', 'booking', 'planner', 'epk', 'show', 'follow', 'system'] as prefix (prefix)}<option value={prefix} selected={f.action === prefix}>{prefix}.*</option>{/each}
+			{#each data.actionGroups as prefix (prefix)}<option value={prefix} selected={f.action === prefix}>{prefix}.*</option>{/each}
 		</select>
 		<select name="outcome" class="input" aria-label="Outcome">
 			<option value="">Any outcome</option>

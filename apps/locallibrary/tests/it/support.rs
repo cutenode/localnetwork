@@ -420,6 +420,39 @@ pub fn terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
     unsafe { (std::fs::File::from_raw_fd(ours), std::os::fd::OwnedFd::from_raw_fd(theirs)) }
 }
 
+/// `command` run with its stdout a terminal of its own (of `size`, if given): how it exited, and
+/// what the terminal was shown.
+#[cfg(unix)]
+pub fn shown_in_a_terminal(command: &mut Command, size: Option<libc::winsize>) -> (std::process::ExitStatus, String) {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    // Written after everything the command wrote, once it has exited.
+    const END: &[u8] = b"<the command has exited>";
+    let (mut screen, stdout) = terminal();
+    if let Some(size) = size {
+        // SAFETY: TIOCSWINSZ only reads the size given, for a terminal this opened.
+        assert_eq!(unsafe { libc::ioctl(stdout.as_raw_fd(), libc::TIOCSWINSZ, &size) }, 0);
+    }
+    // Reading to the end of the terminal would lose output: on macOS, the last close of a terminal
+    // drops what hasn't been read yet, and the command's exit can come before its last write is
+    // read. So the terminal stays open here, and reading stops at a mark written after the command
+    // (and its pager) have exited.
+    let mut ours = std::fs::File::from(stdout.try_clone().unwrap());
+    let mut child = command.stdout(Stdio::from(stdout)).spawn().unwrap();
+    let exited = std::thread::spawn(move || {
+        let status = child.wait().unwrap();
+        ours.write_all(END).unwrap();
+        status
+    });
+    let (mut shown, mut buf) = (Vec::new(), [0; 4096]);
+    while !shown.ends_with(END) {
+        let n = screen.read(&mut buf).unwrap();
+        shown.extend_from_slice(&buf[..n]);
+    }
+    shown.truncate(shown.len() - END.len());
+    (exited.join().unwrap(), String::from_utf8_lossy(&shown).into_owned())
+}
+
 /// Sets `path`'s permission bits.
 #[cfg(unix)]
 pub fn set_mode(path: &Path, mode: u32) {

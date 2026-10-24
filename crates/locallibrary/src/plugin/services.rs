@@ -114,7 +114,7 @@ fn supervise(slot: &Weak<Slot>, service: &str, store: Option<&Store>, cancel: &C
         if failed > options.restarts {
             let message = format!("its {service} service is off: it failed {failed} times in a row ({why})");
             s.host.log(id, &message);
-            (options.notices)(PluginNotice { plugin: id.clone(), message, operation: None });
+            (options.notices)(PluginNotice { plugin: id.clone(), message, suggests: None });
             return;
         }
         let wait = options.backoff.saturating_mul(1u32 << (failed - 1).min(16)).min(MAX_BACKOFF);

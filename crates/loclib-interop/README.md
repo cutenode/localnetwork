@@ -4,8 +4,8 @@ Writes a DJ library for other DJ software: Traktor's `collection.nml`, Serato's 
 cue tag in copies of the audio), and a new Engine DJ library; and reads Traktor's
 `collection.nml` back. It was split out of
 [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), whose interop plugin
-(`plugins/interop`) uses it to export rekordbox USB drives, and to build them from a Traktor
-collection.
+(`plugins/interop`) uses it to export rekordbox USB drives and the sets played from them, and to
+build drives from a Traktor collection.
 
 You bring a `loclib_model::Library`, the folder its audio will be in when the other software reads
 it, and optionally each track's analysis. Each writer hands back the files to write (paths below

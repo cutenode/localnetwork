@@ -1,3 +1,4 @@
+import { AUDIT_ACTIONS } from '#lib/server/audit/log.ts';
 import { requireStaff } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,6 +30,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		entries: entries.map((entry) => ({ ...entry, actor: accounts.get(entry.actorDid)! })),
 		stats,
 		orphans: orphans.length,
+		actionGroups: [...new Set(AUDIT_ACTIONS.map((action) => action.split('.')[0]))],
 		filters: { actor: actorParam, action: filter.action ?? '', outcome: filter.outcome ?? '', q: filter.query ?? '' }
 	};
 };

@@ -4,6 +4,8 @@
 
 // The modules sit in props/ beside this file; `hegel-coverage.sh` can't place tests in a
 // `props/main.rs` crate root.
+// The formats' properties share these, each using some: without all three formats, some go unused.
+#[cfg_attr(not(all(feature = "engine", feature = "serato", feature = "traktor")), allow(dead_code))]
 #[path = "props/common.rs"]
 mod common;
 #[path = "props/encode.rs"]

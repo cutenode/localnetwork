@@ -72,6 +72,8 @@ fn onelibrary_alone_or_unreadable_is_said() {
     assert!(message.starts_with("OneLibrary can't be read: "), "{message}");
 }
 
+/// Artwork gone from the drive is a warning naming `art auto`, and `art fetch` only when the app
+/// runs a plugin that finds cover art: here none is.
 #[test]
 fn artwork_missing_on_the_drive_is_a_warning() {
     let dir = tempfile::tempdir().unwrap();

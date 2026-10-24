@@ -1,7 +1,7 @@
 //! Plugins' exporters (`export/write`): planned with a dry run, which says which files the export
 //! writes, so overwriting any is confirmed first; applied by the plugin writing them. An exporter
-//! writes out a drive's library, a set or a mix, as its manifest's `source` says: the host checks
-//! the request names that (and only that), and finds it.
+//! writes out a drive's library, a set or a mix, or several of them, as its manifest's `source`
+//! says: the host checks the request names one it lists (and only one), and finds it.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
@@ -55,11 +55,11 @@ pub struct ExportFile {
 }
 
 impl Plugins {
-    /// Plans an export with one of a plugin's exporters, of what `source` names as the
-    /// exporter's `source` says: the drive `source.drive` names (by id, name or path; the plugin
-    /// is told where it's mounted, whatever `source.root` says), the set `source.set` names (as
-    /// `sets show` finds one, the plugin told its id) or the mix kept in `store` as
-    /// `source.mix`, a set's or a mix's with the drive its tracks are on when it names one. To
+    /// Plans an export with one of a plugin's exporters, of what `source` names, when the
+    /// exporter's `source` lists it: the set `source.set` names (as `sets show` finds one, the
+    /// plugin told its id), else the mix kept in `store` as `source.mix`, each with the drive its
+    /// tracks are on when it names one, else the drive `source.drive` names (by id, name or path;
+    /// the plugin is told where it's mounted, whatever `source.root` says). To
     /// `output` (absolute), with `options` (checked against the exporter's schema; `null` is
     /// none), never on a drive or in the store. The plugin says which files it would write,
     /// writing none: the plan (operation `<plugin>.export.<exporter>`) is destructive when it
@@ -139,33 +139,51 @@ impl Plugins {
     }
 }
 
-/// `source` as `exporter` writes it out, once it names what the exporter's `source` says, and
-/// nothing another kind of exporter's does: a set by its id, found in `store`, and a mix kept
-/// there.
+/// `source` as `exporter` writes it out: the set it names (by its id, found in `store`), else the
+/// mix kept there it names, else the drive's library; refused when the exporter doesn't list that
+/// source, or the request names more than it is.
 fn of(exporter: &Exporter, mut source: ExportSource, store: Option<&Store>) -> Result<ExportSource> {
-    let named = |what: &str| Error::invalid(format!("{} writes out {what}: say which", exporter.title));
-    let not =
-        |what: &str| Error::invalid(format!("{} writes out a {}, not {what}", exporter.title, exporter.source.name()));
+    let writes = |name: fn(ExportFrom) -> String| either(exporter.sources().iter().map(|s| name(*s)));
+    let named = || {
+        let what =
+            writes(|s| if s == ExportFrom::Drive { "a drive's library".into() } else { format!("a {}", s.name()) });
+        Error::invalid(format!("{} writes out {what}: say which", exporter.title))
+    };
+    let not = |what: &str| {
+        Error::invalid(format!("{} writes out {}, not {what}", exporter.title, writes(|s| format!("a {}", s.name()))))
+    };
     let lists = !source.playlists.is_empty() || !source.history.is_empty();
     let store = || store.ok_or_else(|| Error::invalid("sets and mixes are kept in the store, and there's none"));
-    match exporter.source {
-        ExportFrom::Drive if source.drive.is_empty() => return Err(named("a drive's library")),
-        ExportFrom::Drive if source.set.is_some() => return Err(not("a set")),
-        ExportFrom::Drive if source.mix.is_some() => return Err(not("a mix")),
-        ExportFrom::Drive => {}
-        ExportFrom::Set | ExportFrom::Mix if lists => return Err(not("a drive's playlists")),
-        ExportFrom::Set if source.mix.is_some() => return Err(not("a mix")),
-        ExportFrom::Set => {
-            let set = source.set.as_deref().ok_or_else(|| named("a set"))?;
-            source.set = Some(SetBook::load(store()?)?.find(set)?.id.clone());
-        }
-        ExportFrom::Mix if source.set.is_some() => return Err(not("a set")),
-        ExportFrom::Mix => {
-            let mix = source.mix.as_deref().ok_or_else(|| named("a mix"))?;
+    let from = match (&source.set, &source.mix) {
+        (Some(_), _) => ExportFrom::Set,
+        (None, Some(_)) => ExportFrom::Mix,
+        (None, None) => ExportFrom::Drive,
+    };
+    if !exporter.takes(from) {
+        return Err(if from == ExportFrom::Drive { named() } else { not(&format!("a {}", from.name())) });
+    }
+    match (source.set.as_deref(), source.mix.as_deref()) {
+        (None, None) if source.drive.is_empty() => return Err(named()),
+        (None, None) => {}
+        _ if lists => return Err(not("a drive's playlists")),
+        (Some(_), Some(_)) if !exporter.takes(ExportFrom::Mix) => return Err(not("a mix")),
+        (Some(_), Some(_)) => return Err(Error::invalid("name a set or a mix to write out, not both")),
+        (Some(set), None) => source.set = Some(SetBook::load(store()?)?.find(set)?.id.clone()),
+        (None, Some(mix)) => {
             crate::mix::report::load(store()?.root(), mix)?;
         }
     }
     Ok(source)
+}
+
+/// `a, b or c`.
+fn either(parts: impl Iterator<Item = String>) -> String {
+    let parts: Vec<String> = parts.collect();
+    match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => String::new(),
+    }
 }
 
 /// `file`'s key below `dir`, when it's there.
