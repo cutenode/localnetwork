@@ -178,6 +178,11 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.goto('/dashboard/bookings?tab=open');
 		await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%2Fbookings%3Ftab%3Dopen$/);
+		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too.
+		await page.goto('/%64ashboard/bookings');
+		await expect(page).toHaveURL(/\/login\?next=%2F%2564ashboard%2Fbookings$/);
+		await page.goto('/%61dmin');
+		await expect(page).toHaveURL(/\/login\?next=%2F%2561dmin$/);
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
@@ -240,6 +245,15 @@ test.describe('signed in', () => {
 		const admin = await page.goto('/admin/requests');
 		expect(admin?.status()).toBe(403);
 		await expect(page.getByText('Only moderators and admins can see this page')).toBeVisible();
+
+		// SvelteKit routes an encoded path to the same pages, so it's turned away just the same. A data
+		// request shows it: past a refusing layout, it would still carry the page's own data.
+		for (const path of ['/%61dmin/__data.json', '/adm%69n/requests/__data.json', '/%61dmin/audit/__data.json']) {
+			const response = await page.request.get(path, { maxRedirects: 0 });
+			expect(response.status(), path).toBe(403);
+			expect(await response.text(), path).not.toContain('"type":"data"');
+		}
+
 		await signOut(page);
 	});
 

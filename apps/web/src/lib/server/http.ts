@@ -27,17 +27,19 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	return viewer;
 }
 
-const isUnder = (path: string, area: string) => path === area || path.startsWith(`${area}/`);
+const isUnder = (routeId: string | null, area: string) => routeId === area || !!routeId?.startsWith(`${area}/`);
 
 /**
- * Guards the signed-in areas by path, from the server hook: the dashboard needs a viewer and the
- * staff console needs staff. A layout's check alone isn't enough, since SvelteKit runs a page's
- * loads alongside its layouts', so they'd query before the layout refused.
+ * Guards the signed-in areas from the server hook: the dashboard needs a viewer and the staff
+ * console needs staff. A layout's check alone isn't enough, since SvelteKit runs a page's loads
+ * alongside its layouts' and still sends their data on a data request when the layout refuses. It
+ * goes by the route SvelteKit matched (`event.route.id`), not the path: routes match the decoded
+ * path, so `/%61dmin` reaches `/admin` while its path doesn't start with it.
  */
-export function guardArea(locals: LocalsLike, url: URL): void {
-	if (isUnder(url.pathname, '/dashboard')) requireViewer(locals, url);
+export function guardArea(locals: LocalsLike, url: URL, routeId: string | null): void {
+	if (isUnder(routeId, '/dashboard')) requireViewer(locals, url);
 
-	if (isUnder(url.pathname, '/admin')) requireStaff(locals, url);
+	if (isUnder(routeId, '/admin')) requireStaff(locals, url);
 }
 
 /**
