@@ -70,7 +70,7 @@ impl Location {
         format!("{}{}{}", self.volume, self.dir, self.file)
     }
 
-    /// The file on this computer, as [`location`] places one the other way: below its drive
+    /// The file on this computer, as [`build`] locates one the other way: below its drive
     /// letter, below `/` on the startup disk (the volume named `startup`, see [`startup_disk`]),
     /// else below `/Volumes`.
     pub fn path(&self, startup: &str) -> PathBuf {
