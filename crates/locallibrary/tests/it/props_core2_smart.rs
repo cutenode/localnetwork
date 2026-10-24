@@ -12,7 +12,7 @@ const CASES: &[&str] = &["Smart/Peak", "smart/peak", "SMART/PEAK", "Smart/PEAK",
 
 #[hegel::test(test_cases = 100)]
 fn a_path_matching_several_rules_only_ignoring_case_removes_none(tc: TestCase) {
-    let held: Vec<&str> = CASES.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+    let held: Vec<&str> = tc.draw(gs::subsequences(CASES));
     let mut rules = SmartPlaylists::default();
     for path in &held {
         let rule = SmartPlaylist {

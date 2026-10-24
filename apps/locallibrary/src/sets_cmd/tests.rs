@@ -41,8 +41,7 @@ fn moves_and_inserts_read_as_written(tc: TestCase) {
 fn marks_say_what_sets_an_entry_apart(tc: TestCase) {
     let mut e: SetEntry = serde_json::from_value(json!({"title": "T", "artist": "A", "origin": "session"})).unwrap();
     e.unnamed = tc.draw(gs::booleans());
-    e.origin = [EntryOrigin::Session, EntryOrigin::Added, EntryOrigin::Recording]
-        [tc.draw(gs::integers::<usize>().max_value(2))];
+    e.origin = tc.draw(gs::sampled_from(&[EntryOrigin::Session, EntryOrigin::Added, EntryOrigin::Recording][..]));
     let m = marks(&e);
     assert_eq!(m.contains("unnamed"), e.unnamed, "{m:?}");
     assert_eq!(m.contains("added"), e.origin == EntryOrigin::Added, "{m:?}");

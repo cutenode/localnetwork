@@ -2363,6 +2363,11 @@ export type PublishSetAt = {
   destination: string;
   /** The set: its id (or the start of it), title or day, or `last`. */
   set: string;
+  /**
+   * Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+   * and tracks the profile hides (`profile hide`) are never named either.
+   */
+  hide?: number[];
 };
 
 export type PlanPluginOp = {
@@ -8616,7 +8621,10 @@ export type Provided = {
   kind: ProviderKind;
   /** How many tracks they were asked about. */
   asked: number;
-  /** Each track something was found for, in the library's order. */
+  /**
+   * Each track something was found for (tags only when they'd change it), in the library's
+   * order.
+   */
   offers: Offer[];
   /** The images the candidates are of, each once, by id (its content's hash): in base64. */
   images: { [key: string]: string };

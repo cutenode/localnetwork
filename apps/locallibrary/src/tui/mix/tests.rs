@@ -1022,10 +1022,7 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     let plays: Vec<(f64, f64)> = app.mix.report().unwrap().plays.iter().map(|p| (p.start, p.end)).collect();
     let mut zoom = 1;
     // Each kind of step in turn, in an order drawn for the case.
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(7).max_value(21)) {
         let loaded = set_loaded(&app);
         let pos = at(&app);
@@ -1309,10 +1306,7 @@ fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
         o.audio = audio.then(|| set.clone());
     }
     app.mix.set_recent(&[set.clone(), other.clone()]);
-    let mut turns: Vec<u8> = (0..9).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..9).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(9).max_value(18)) {
         screen(&mut app, 160, 48);
         app.mix.input = None;
@@ -1444,10 +1438,7 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     for i in 0..n {
         assert!(s.contains(&format!("REC00{i}.wav")) && s.contains("0:00 · DNA"), "{s}");
     }
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for turn in turns {
         app.view = View::Mixes;
         match turn {

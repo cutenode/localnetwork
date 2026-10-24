@@ -625,7 +625,7 @@ fn the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
     .into_iter()
     .filter(|(_, names)| !names.is_empty())
     .collect();
-    let (section, names) = tables[tc.draw(gs::integers::<usize>().max_value(tables.len() - 1))].clone();
+    let (section, names) = tc.draw(gs::sampled_from(&tables[..]));
     t.select_section(Section::ALL.iter().position(|s| *s == section).unwrap());
     let sel = tc.draw(gs::integers::<usize>().max_value(names.len() - 1));
     (t.pane, t.rows) = (Pane::Detail, TableState::default().with_selected(Some(sel)));
@@ -969,10 +969,7 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = profile_app(tab_of(full_view()));
     let signature = Section::ALL.iter().position(|s| *s == Section::Signature).unwrap();
-    let mut turns: Vec<u8> = (0..8).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..8).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(8).max_value(16)) {
         app.view = View::Profile;
         if !matches!(app.profile.view, Some(Ok(_))) {

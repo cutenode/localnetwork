@@ -188,7 +188,7 @@ fn some_sessions(tc: &TestCase) -> Vec<Session> {
             };
             let mut s = session(&format!("s{i}"), &tracks, window);
             for e in &mut s.tracks {
-                e.start_seconds = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>().max_value(7200)));
+                e.start_seconds = tc.draw(gs::optional(gs::integers::<u32>().max_value(7200)));
             }
             s
         })
@@ -311,7 +311,7 @@ fn a_set_is_dated_by_what_knows_best_whatever_it_has(tc: TestCase) {
     let local = |d: u32, h: u32| {
         day(d).and_hms_opt(h, 0, 0).unwrap().and_local_timezone(Local).earliest().unwrap().with_timezone(&Utc)
     };
-    let given = tc.draw(gs::booleans()).then(|| day(tc.draw(gs::integers::<u32>().min_value(1).max_value(5))));
+    let given = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(5))).map(day);
     // A tag as given, and the day it gives.
     let (tag, tagged) = tc.draw(gs::sampled_from(vec![
         (None, None),

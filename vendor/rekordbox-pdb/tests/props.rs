@@ -149,7 +149,7 @@ fn raw_name(tc: &TestCase) -> String {
 fn lookups_fall_back_to_another_row_of_the_same_name(tc: TestCase) {
     use rekordbox_pdb::TableType as T;
     let tables = [T::Genres, T::Labels, T::Keys, T::Albums];
-    let table = tables[tc.draw(gs::integers::<usize>().max_value(3))];
+    let table = tc.draw(gs::sampled_from(&tables));
     let name = raw_name(&tc);
     let artist = tc.draw(gs::integers::<u32>().max_value(3));
     let lookup = |ed: &mut PdbEditor| match table {
@@ -380,9 +380,9 @@ fn pages_that_count_no_slots_hold_no_rows(tc: TestCase) {
     let before = Database::from_bytes(orig.clone()).unwrap();
     let tables =
         [T::Tracks, T::Artists, T::Albums, T::Keys, T::Colors, T::PlaylistTree, T::PlaylistEntries, T::Columns];
-    let table = tables[tc.draw(gs::integers::<usize>().max_value(tables.len() - 1))];
+    let table = tc.draw(gs::sampled_from(&tables));
     let locs = before.row_locations(table);
-    let page = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))] / PAGE;
+    let page = tc.draw(gs::sampled_from(locs)) / PAGE;
     let mut data = orig;
     data[page * PAGE + 0x18] = 0;
     data[page * PAGE + 0x19] &= !1;
@@ -559,7 +559,7 @@ fn linking_without_a_tag_tracks_table_is_refused(tc: TestCase) {
     let db = ExtDatabase::from_bytes(data.clone()).unwrap();
     assert!(!db.has_table(rekordbox_pdb::ExtTableType::TagTracks) && db.tag_tracks.is_empty());
     let mut ed = ExtEditor::from_bytes(data).unwrap();
-    let (tag, _) = ed.tags(1)[tc.draw(gs::integers::<usize>().max_value(ed.tags(1).len() - 1))];
+    let (tag, _) = tc.draw(gs::sampled_from(ed.tags(1)));
     let Err(e) = ed.link(tag, tc.draw(gs::integers::<u32>())) else { panic!("linked without a table") };
     assert!(matches!(e, PdbError::NoTable(4)) && e.to_string().contains('4'), "{e}");
     let name = raw_name(&tc);
@@ -686,7 +686,7 @@ fn tags_named_in_an_unknown_kind_are_refused(tc: TestCase) {
     let mut data = std::fs::read(ONE_SONG_EXT).unwrap();
     let db = ExtDatabase::from_bytes(data.clone()).unwrap();
     let locs = db.row_locations(rekordbox_pdb::ExtTableType::Tags);
-    let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
+    let row = tc.draw(gs::sampled_from(locs));
     // These rows are near ones: the name's offset is the byte at 0x1d.
     let at = row + data[row + 0x1d] as usize;
     let kind = tc.draw(gs::integers::<u8>().filter(|k| k & 1 == 0 && *k != 0x40 && *k != 0x90));
@@ -710,13 +710,13 @@ fn long_string_lengths_are_checked(tc: TestCase) {
     let at = if ext {
         let db = ExtDatabase::from_bytes(data.clone()).unwrap();
         let locs = db.row_locations(rekordbox_pdb::ExtTableType::Tags);
-        let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
+        let row = tc.draw(gs::sampled_from(locs));
         row + data[row + 0x1d] as usize
     } else {
         let db = Database::from_bytes(data.clone()).unwrap();
         let table = tc.draw(gs::sampled_from(vec![T::Tracks, T::PlaylistTree, T::Keys]));
         let locs = db.row_locations(table);
-        let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
+        let row = tc.draw(gs::sampled_from(locs));
         row + match table {
             T::Tracks => u16::from_le_bytes([data[row + 0x5e + 2 * 17], data[row + 0x5f + 2 * 17]]) as usize,
             T::PlaylistTree => 20,

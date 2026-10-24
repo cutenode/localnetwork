@@ -2,7 +2,7 @@
 # Explore `locallibrary tui` with Bombadil (tui.ts) on a throwaway copy of a fixture drive.
 #
 #   ./tui.sh                 # 2 minutes
-#   TIME_LIMIT=30m ./tui.sh  # longer; any of Bombadil's options can follow, e.g. --seed 7
+#   TIME_LIMIT=30m ./tui.sh  # longer; any of Bombadil's options can follow, e.g. --columns 80
 #
 # The machine's own drives are hidden (LOCALLIBRARY_VOLUMES), the store is an empty folder,
 # `open`/`xdg-open` are stubbed out and the TUI's home and working folder are in the run's own

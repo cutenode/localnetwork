@@ -154,10 +154,11 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
     let mut s = Sidecar::start(&fx);
     let mut m = Model::default();
     let a = path(&fx.volumes.join("A")).to_string();
-    let contract: Value = serde_json::from_slice(
-        &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json")).unwrap(),
-    )
-    .unwrap();
+    // This build's own contract: docs/rpc describes the default build, whose account methods a
+    // build without the account doesn't have.
+    let dir = fx.outside("contract");
+    fx.ok(&["rpc", "--emit-schema", path(&dir)]);
+    let contract: Value = serde_json::from_slice(&std::fs::read(dir.join("schema.json")).unwrap()).unwrap();
     let methods: Vec<&str> =
         contract["methods"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
     let mut names = 0;
@@ -263,10 +264,8 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
                 // A kept plan, one applied already, one of the other kind, or none at all.
                 let kept: Vec<(String, &str)> = m.plans.iter().map(|(k, v)| (k.clone(), *v)).collect();
                 let (id, op) = match tc.draw(gs::integers::<u8>().max_value(2)) {
-                    0 if !kept.is_empty() => kept[tc.draw(gs::integers::<usize>().max_value(kept.len() - 1))].clone(),
-                    1 if !m.used.is_empty() => {
-                        (m.used[tc.draw(gs::integers::<usize>().max_value(m.used.len() - 1))].clone(), "edit")
-                    }
+                    0 if !kept.is_empty() => tc.draw(gs::sampled_from(&kept[..])),
+                    1 if !m.used.is_empty() => (tc.draw(gs::sampled_from(&m.used[..])), "edit"),
                     _ => ("no-such-plan".to_string(), "edit"),
                 };
                 let apply_as =
@@ -541,7 +540,7 @@ fn a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
         std::thread::sleep(Duration::from_millis(20));
     }
     // The first runs; the others wait for the worker.
-    let waiting = &ids[tc.draw(gs::integers::<usize>().min_value(1).max_value(n - 1))];
+    let waiting = &tc.draw(gs::sampled_from(&ids[1..]));
     let v = s.call("$/cancel", json!({ "id": waiting }));
     assert_eq!(v["result"]["cancelled"], true, "{v}");
     let a = s.answer(waiting);
@@ -577,7 +576,7 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
         let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
             true => m["name"].as_str().unwrap(),
-            false => aliases[tc.draw(gs::integers::<usize>().max_value(aliases.len() - 1))],
+            false => tc.draw(gs::sampled_from(&aliases[..])),
         };
         // Up to three tries, for parameters the method takes (drawn ones may not quite fit).
         for _ in 0..3 {

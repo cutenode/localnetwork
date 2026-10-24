@@ -229,6 +229,11 @@ A failure prints the shrunk example and a `#[hegel::reproduce_failure("…")]` l
 locally, failing examples are also kept in `.hegel/` in the crate's folder (ignored by git), under
 the test's path (`it::props_pdb::...`), and tried first next time.
 
+Pick from a list with Hegel's own `gs::sampled_from`, `subsequences`, `permutations` and `optional`
+rather than by drawn index: they shrink better, and an index drawn up to a hard-coded number never
+reaches what's added past it. `pnpm exec ast-grep scan` refuses one (CI runs it in
+`repo-checks.yml`).
+
 CI derandomises the runs, so every pull request tries the same inputs. The scheduled workflow's
 `hegel` job runs the Hegel tests over and over for 40 minutes a shard on fresh ones, and caches the
 failing examples it finds for the next week's run.
@@ -276,7 +281,7 @@ working folder of its own, so files it writes stay in the run's folder; it lets 
 edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --seed 7`).
+print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
 
 ## Releasing
 

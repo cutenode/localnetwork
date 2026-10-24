@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_analysis::tempo::TempoRelation;
-use loclib_analysis::{Error, VERSION, Want, analyze};
+use loclib_analysis::{COLUMNS_PER_SEC, Error, VERSION, Want, analyze};
 use loclib_mixid::test_util::wav_of;
 use loclib_progress::Ctx;
 
@@ -36,7 +36,7 @@ fn click_tracks_are_heard_at_their_tempo(tc: TestCase) {
     let bpm = tc.draw(gs::floats::<f64>().min_value(90.0).max_value(150.0));
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), 44_100, &clicks(44_100, bpm, 8.0));
-    let analysis = analyze(&path, Want { estimate: true, loudness: false }, &Ctx::silent()).unwrap();
+    let analysis = analyze(&path, Want { estimate: true, loudness: false, waveform: false }, &Ctx::silent()).unwrap();
     let e = analysis.estimate.unwrap();
     let heard = TempoRelation::between(e.bpm.into(), bpm);
     assert!(
@@ -59,7 +59,7 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
     let n = (rate as f64 * secs) as usize;
     let sine: Vec<f64> = (0..n).map(|i| level * (2.0 * PI * 1_000.0 * i as f64 / rate as f64).sin()).collect();
     let path = write(dir.path(), rate, &sine);
-    let analysis = analyze(&path, Want { estimate: false, loudness }, &Ctx::silent()).unwrap();
+    let analysis = analyze(&path, Want { estimate: false, loudness, waveform: false }, &Ctx::silent()).unwrap();
     assert_eq!((analysis.version, analysis.estimate.is_some()), (VERSION, false));
     assert!((analysis.duration_secs - n as f64 / rate as f64).abs() < 1e-9, "{analysis:?}");
     let Some(l) = analysis.loudness else { return assert!(!loudness) };
@@ -73,11 +73,13 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
 }
 
 /// Any WAV, at any rate a file can say and any length up to a moment, is analysed for what's
-/// asked of it: as long as the file, its loudness when asked for, and its tempo and key when
-/// asked for and there's sound to estimate. Only the loudness meter refuses a rate, one outside
-/// the 16 Hz to 2.8 MHz it takes, as that file's analyzer error. A cancelled analysis is
+/// asked of it: as long as the file, its loudness and waveform when asked for, and its tempo and
+/// key when asked for and there's sound to estimate. Only the loudness meter refuses a rate, one
+/// outside the 16 Hz to 2.8 MHz it takes, as that file's analyzer error. A cancelled analysis is
 /// cancelled, and a file that isn't there is that file's error.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+// A last column of one sample.
+#[hegel::explicit_test_case(rate = 44_100u32, frames = 1_025usize, level = 0.5f64)]
 fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
     // Up to a quarter of a second, and a few frames at least.
@@ -88,18 +90,27 @@ fn files_are_analysed_for_what_is_asked(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), rate, &signal);
     let gone = dir.path().join("gone.wav");
-    for (estimate, loudness) in [(false, false), (false, true), (true, false), (true, true)] {
-        let want = Want { estimate, loudness };
+    for want in (0..8).map(|i| Want { estimate: i & 1 != 0, loudness: i & 2 != 0, waveform: i & 4 != 0 }) {
+        let Want { estimate, loudness, waveform } = want;
         let refused = loudness && !(16..=2_822_400).contains(&rate);
         match analyze(&path, want, &Ctx::silent()) {
             Err(Error::Analyzer { path: at, .. }) if refused => assert_eq!(at, path),
             Ok(a) if !refused => {
                 assert!((a.duration_secs - frames as f64 / f64::from(rate)).abs() < 1e-9, "{a:?}");
-                assert_eq!((a.loudness.is_some(), a.estimate.is_some()), (loudness, estimate && sound), "{a:?}");
+                let measured = (a.loudness.is_some(), a.estimate.is_some(), a.waveform.is_some());
+                assert_eq!(measured, (loudness, estimate && sound, waveform), "{a:?}");
                 // Between samples a signal only peaks higher, and silence has no peak at all.
                 if let Some(l) = &a.loudness {
                     assert!(l.true_peak_dbtp() >= l.sample_peak_dbfs() - 0.05, "{l:?}");
                     assert_eq!(l.sample_peak_dbfs() == f64::NEG_INFINITY, !sound, "{l:?}");
+                }
+                // A column for every 1024 samples of the mono mix at 44.1 kHz (the last however
+                // few), and silence draws none.
+                if let Some(w) = &a.waveform {
+                    let resampled = (frames as u64 * 44_100).div_ceil(u64::from(rate));
+                    assert_eq!(w.columns.len() as u64, resampled.div_ceil(1024), "{w:?}");
+                    assert_eq!(COLUMNS_PER_SEC, 44_100.0 / 1024.0);
+                    assert!(sound || w.columns.iter().all(|c| *c == [0; 3]), "{w:?}");
                 }
             }
             other => panic!("{rate} Hz, {frames} frames, {want:?}: {other:?}"),

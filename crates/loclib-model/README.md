@@ -71,7 +71,8 @@ assert!(diff.changed_playlists.is_empty());
 ## Features
 
 - `schemars`: JSON Schema (`schemars::JsonSchema`) for the serialisable types.
-- `test-util`: `test_util::track`, a ready-made track for tests. Not a stable API.
+- `test-util`: `test_util::track`, a ready-made track for tests, and Hegel generators of tracks
+  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API.
 
 ## What it doesn't do
 

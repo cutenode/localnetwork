@@ -870,7 +870,7 @@ fn cue_statistics_after_cue_edits(tc: &TestCase, last: u8) {
     let root = common::demo_drive(dir.path(), "Main");
     let lib = Device::open_export(&root).unwrap().library().unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
-        let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+        let t = &tc.draw(gs::sampled_from(&lib.tracks));
         let edit = CueEdit::Set(SetCue {
             hot_cue: tc.draw(gs::optional(gs::integers::<u8>().max_value(last))).map(HotCue),
             at: CuePosition::Ms(tc.draw(gs::integers::<u32>().max_value(t.duration_secs * 1000 / 2))),

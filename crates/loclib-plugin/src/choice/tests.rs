@@ -98,7 +98,7 @@ fn a_choice_that_checks_is_answered_with_params_that_fit(tc: TestCase) {
     if checked.is_err() {
         return;
     }
-    let chosen: Vec<Value> = values.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let chosen: Vec<Value> = tc.draw(gs::subsequences(values));
     let chosen = match (multi, chosen.is_empty()) {
         (false, true) => vec![choice.items[0].value.clone()],
         _ => chosen,
