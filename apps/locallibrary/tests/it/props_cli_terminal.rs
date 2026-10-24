@@ -246,10 +246,9 @@ fn plain(s: &str) -> String {
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_paged_listing_is_the_listing(tc: TestCase) {
-    use std::io::Read;
     use std::process::Stdio;
 
-    use crate::support::terminal;
+    use crate::support::shown_in_a_terminal;
     let fx = Env::from_template();
     let listing = tc.draw(gs::sampled_from(
         &[
@@ -266,7 +265,6 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
     let to_file = format!("printf %s \"$LESS\" > '{}'; cat > '{}'", less.display(), paged.display());
     let how = tc.draw(gs::integers::<u8>().max_value(3));
     let user_less = tc.draw(gs::booleans());
-    let (mut screen_end, stdout) = terminal();
     let mut c = fx.command();
     c.env_remove("LESS");
     if user_less {
@@ -278,12 +276,9 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
         2 => c.env("PAGER", "cat"),
         _ => c.env("PAGER", " "),
     };
-    let mut child = c.args(listing).stdout(Stdio::from(stdout)).stderr(Stdio::null()).spawn().unwrap();
-    drop(c);
-    let mut screen = Vec::new();
-    let _ = screen_end.read_to_end(&mut screen);
-    assert!(child.wait().unwrap().success());
-    let screen = plain(&String::from_utf8_lossy(&screen));
+    let (status, screen) = shown_in_a_terminal(c.args(listing).stderr(Stdio::null()), None);
+    assert!(status.success());
+    let screen = plain(&screen);
     if how == 0 {
         assert_eq!(plain(&std::fs::read_to_string(&paged).unwrap()), piped, "{listing:?}");
         assert_eq!(std::fs::read_to_string(&less).unwrap(), if user_less { "S" } else { "FRX" });
@@ -302,23 +297,14 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
 #[hegel::explicit_test_case(columns = 40u16)]
 #[hegel::explicit_test_case(columns = 160u16)]
 fn help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
-    use std::io::Read;
-    use std::os::fd::AsRawFd;
     use std::process::Stdio;
 
-    use crate::support::terminal;
+    use crate::support::shown_in_a_terminal;
     let fx = Env::from_template();
     let columns = tc.draw(gs::integers::<u16>().min_value(20).max_value(200));
-    let (mut screen_end, stdout) = terminal();
     let size = libc::winsize { ws_row: 40, ws_col: columns, ws_xpixel: 0, ws_ypixel: 0 };
-    // SAFETY: TIOCSWINSZ only reads the size given, for a terminal this test opened.
-    assert_eq!(unsafe { libc::ioctl(stdout.as_raw_fd(), libc::TIOCSWINSZ, &size) }, 0);
-    let mut c = fx.command();
-    let mut child = c.arg("--help").stdout(Stdio::from(stdout)).stderr(Stdio::null()).spawn().unwrap();
-    drop(c);
-    let mut screen = Vec::new();
-    let _ = screen_end.read_to_end(&mut screen);
-    assert!(child.wait().unwrap().success());
+    let (status, screen) = shown_in_a_terminal(fx.command().arg("--help").stderr(Stdio::null()), Some(size));
+    assert!(status.success());
     // The command list: from the usage line to the options.
     let commands = |help: &str| -> Vec<String> {
         help.lines()
@@ -328,7 +314,7 @@ fn help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
             .map(String::from)
             .collect()
     };
-    let (shown, piped) = (commands(&plain(&String::from_utf8_lossy(&screen))), commands(&fx.ok(&["--help"])));
+    let (shown, piped) = (commands(&plain(&screen)), commands(&fx.ok(&["--help"])));
     let words =
         |lines: &[String]| lines.iter().flat_map(|l| l.split_whitespace().map(String::from)).collect::<Vec<_>>();
     assert_eq!(words(&shown), words(&piped), "{shown:#?}");
