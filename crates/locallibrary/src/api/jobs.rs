@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
+use loclib_plugin::Context;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -59,6 +60,8 @@ pub enum StepKind {
     Player,
     /// Write My Settings (`settings apply`).
     Settings,
+    /// Run plugins' operations (`locallibrary PLUGIN OPERATION`).
+    Operations,
     /// Save drives in the store (`pull`).
     Pull,
     /// Copy the newest library onto the other drives (`sync`).
@@ -70,12 +73,13 @@ pub enum StepKind {
 }
 
 impl StepKind {
-    pub const ALL: [StepKind; 9] = [
+    pub const ALL: [StepKind; 10] = [
         StepKind::Clean,
         StepKind::Replay,
         StepKind::Smart,
         StepKind::Player,
         StepKind::Settings,
+        StepKind::Operations,
         StepKind::Pull,
         StepKind::Sync,
         StepKind::Check,
@@ -90,6 +94,7 @@ impl StepKind {
             StepKind::Smart => "smart",
             StepKind::Player => "player",
             StepKind::Settings => "settings",
+            StepKind::Operations => "operations",
             StepKind::Pull => "pull",
             StepKind::Sync => "sync",
             StepKind::Check => "check",
@@ -112,6 +117,7 @@ impl StepKind {
             StepKind::Smart => "Fill the rule-based playlists",
             StepKind::Player => "Put back the name and colour players show",
             StepKind::Settings => "Write My Settings",
+            StepKind::Operations => "Run the plugins' operations",
             StepKind::Pull => "Save the drive in the store",
             StepKind::Sync => "Copy the newest library onto the other drives",
             StepKind::Check => "Check the drives for the players",
@@ -696,19 +702,53 @@ pub struct RefreshRequest {
     /// The drive rekordbox exported to [default: see [`refresh_drive`]].
     #[serde(default)]
     pub drive: Option<String>,
-    /// Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `pull`, `sync`).
+    /// Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `operations`, `pull`,
+    /// `sync`).
     #[serde(default)]
     pub skip: Vec<StepKind>,
     /// Then copy the drive onto the other mounted drives of its library, when it's the newest.
     #[serde(default)]
     pub sync: bool,
+    /// Plugins' operations to run on the drive after the steps that put it right, in this order,
+    /// before it's saved.
+    #[serde(default)]
+    pub operations: Vec<OperationStep>,
+}
+
+/// A plugin's operation a job runs.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct OperationStep {
+    /// `<plugin>.<operation>`, as `plugins.describe` lists them.
+    pub operation: String,
+    /// As the operation's `params` schema says; `null` is none. One filled from the selection
+    /// that isn't given is the drive refreshed, if that's what it takes.
+    #[serde(default)]
+    pub params: Value,
+}
+
+impl OperationStep {
+    /// Planning it on the drive at `spec`, by the plugins the app hosts (see
+    /// [`crate::plugin::set_hosted`]). A question it asks is refused: a job can't ask it.
+    fn again(&self, spec: &str) -> Result<Replan> {
+        let named = |o: &str| Error::invalid(format!("an operation is named PLUGIN.OPERATION, not {o:?}"));
+        let (plugin, operation) = self.operation.split_once('.').ok_or_else(|| named(&self.operation))?;
+        let (plugin, operation) = (plugin.to_string(), operation.to_string());
+        let (params, spec) = (self.params.clone(), spec.to_string());
+        Ok(replan(move |store, ctx| {
+            let plugins = crate::plugin::hosted().ok_or_else(|| Error::NotFound(format!("plugin {plugin:?}")))?;
+            let context = Context { drive: Some(spec.clone()), ..Context::default() };
+            plugins.plan_op(&plugin, &operation, params.clone(), context, store, ctx)?.plan()
+        }))
+    }
 }
 
 /// What refreshing a drive after a rekordbox export would do, step by step, each only when
 /// needed: remove rekordbox's demo samples, make the recorded edits again (playlists, tracks,
 /// My Tags, cues), fill the rule-based playlists, put back the name and colour players show
-/// (as `drive player` last set them), write My Settings, save the drive in the store, and (with
-/// `sync`) copy it onto the other mounted drives of its library.
+/// (as `drive player` last set them), write My Settings, run the plugins' operations asked for,
+/// save the drive in the store, and (with `sync`) copy it onto the other mounted drives of its
+/// library. An operation that can't be planned (its plugin or the operation is missing, it
+/// refuses the params, it asks a question) fails the plan, the error naming it (`operation`).
 pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Result<Planned<JobPlan>> {
     let d = match &req.drive {
         Some(spec) => resolve_drive(spec)?,
@@ -824,6 +864,19 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
         s.unless_runs("its settings are as the profile has them")
     };
     steps.push(s);
+
+    // Plugins' operations, in the order asked for.
+    if !req.operations.is_empty() {
+        let mut s = JobStep::new(StepKind::Operations);
+        if !skipped(StepKind::Operations) {
+            for o in &req.operations {
+                let named = |e: Error| e.with("operation", &o.operation);
+                let again = o.again(&spec).map_err(named)?;
+                s.op(again(Some(store), ctx).map_err(named)?, again);
+            }
+        }
+        steps.push(s.unless_runs(if skipped(StepKind::Operations) { "skipped" } else { "they change nothing" }));
+    }
 
     // Save it.
     let writes = steps.iter().any(|s| s.runs);

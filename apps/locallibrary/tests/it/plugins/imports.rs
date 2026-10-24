@@ -51,7 +51,7 @@ fn a_file_is_imported_as_an_edit() {
     let json = env.json(&["--yes", "import", path(&log), "USB"]);
     assert_eq!(json["report"]["sessions"].as_array().map(Vec::len), Some(1), "{json}");
 
-    let other = env.outside("list.nml");
+    let other = env.outside("list.lst");
     std::fs::write(&other, "").unwrap();
     assert!(env.fails(2, &["import", path(&other), "USB"]).contains("say what reads it: --format FORMAT"));
     assert!(env.fails(2, &["import", path(&other), "USB", "--format", "nope"]).contains("invalid value 'nope'"));
@@ -186,11 +186,11 @@ fn a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
     let warnings: Vec<String> =
         (0..tc.draw(gs::integers::<usize>().max_value(1))).map(|w| format!("line {w}")).collect();
     let by_extension = tc.draw(gs::booleans());
-    let file = env.outside(if by_extension { "read.json" } else { "read.nml" });
+    let file = env.outside(if by_extension { "read.json" } else { "read.lst" });
     std::fs::write(&file, json!({ "tracks": entries, "sessions": logs, "warnings": warnings }).to_string()).unwrap();
     let mut args = vec!["import", path(&file), "USB"];
     if !by_extension {
-        // No importer reads .nml files: it's for `--format` to say.
+        // No importer reads .lst files: it's for `--format` to say.
         assert!(env.fails(2, &args).contains("say what reads it: --format FORMAT"));
         args.extend(["--format", "given"]);
     }
