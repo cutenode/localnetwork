@@ -120,9 +120,17 @@ function picking(s: Screen): boolean {
   return s.footer.startsWith(" ◆ ");
 }
 
-/** The base state: global keys (views, help, quit) do what they say. */
+/** The base state: global keys (views, help, quit) do what they say, digits aside while the
+ *  pads are on. */
 function base(s: Screen): boolean {
   return s.tabs === VIEWS.length && !overlay(s) && !typing(s) && !picking(s);
+}
+
+/** The digit row plays hot cues instead of switching views: in the library with the pads on or
+ *  in full screen, where the player's title says `' pads on` or `f back`. */
+function padsOn(s: Screen): boolean {
+  const player = s.lines.find((l) => l.includes(" Now playing "));
+  return s.active === 1 && player !== undefined && /( ' pads on | f back )/.test(player);
 }
 
 /** A confirmation ("Write to DEMO?", "Eject DEMO?"), known by its keys at the bottom: only `y`
@@ -163,10 +171,11 @@ export const oneActiveView = always(() => {
   return s.tabs < VIEWS.length || s.activeCount === 1;
 });
 
-/** The footer always says something: key hints, a toast, a prompt or the search box. */
+/** The footer always says something: key hints, a toast, a prompt or the search box. Each starts
+ *  with a space, so a terminal one column wide shows none of it. */
 export const footerNeverBlank = always(() => {
   const s = screen.current;
-  return s.rows < 2 || overlay(s) || s.footer.trim() !== "";
+  return s.rows < 2 || s.columns < 2 || overlay(s) || s.footer.trim() !== "";
 });
 
 /** With the machine's drives hidden, the only drive is the fixture copy. */
@@ -189,9 +198,9 @@ export const editsFinish = always(
   now(() => editing(screen.current)).implies(eventually(() => !editing(screen.current)).within(30, "seconds")),
 );
 
-/** Pressing 1-5 in the base state switches to that view. */
+/** Pressing 1-5 in the base state switches to that view, unless the pads are on. */
 export const digitsSwitchViews = always(() => {
-  if (!base(screen.current)) return true;
+  if (!base(screen.current) || padsOn(screen.current)) return true;
   return next(() => {
     const t = typed();
     if (t === null || !/^[1-5]$/.test(t)) return true;

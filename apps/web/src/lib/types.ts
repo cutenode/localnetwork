@@ -247,6 +247,23 @@ export type RequestView = {
 
 export type StaffRole = 'admin' | 'moderator';
 
+/** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
+export type IssuedVerification = {
+	uri: string;
+	cid: string;
+	rkey: string;
+	subject: string;
+	handle: string;
+	displayName: string;
+	createdAt: string;
+};
+
+/** An account's handle, when it points back to the account, and its Bluesky display name, as they are now. */
+export type LiveIdentity = { handle: string | null; displayName: string | null };
+
+/** Where an account stands with the root's verifications. `outdated` ones no longer match, so apps don't show them. */
+export type VerificationStatus = 'verified' | 'outdated' | 'unverified';
+
 export type Viewer = {
 	did: string;
 	handle: string | null;

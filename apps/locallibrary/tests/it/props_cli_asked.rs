@@ -404,6 +404,7 @@ fn watch_stops_at_ctrl_c(tc: TestCase) {
 /// fetch says the same with and without `--json`, a dry run copies nothing, and the other store
 /// then has the libraries the first has (up to date when fetched again). The server says who
 /// connected and what they took.
+#[cfg(feature = "peers")]
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(json = false, only = false)]
 #[hegel::explicit_test_case(json = true, only = true)]

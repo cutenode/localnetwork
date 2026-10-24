@@ -134,18 +134,6 @@ fn browses_by_category() {
     assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"], "in the order they were played");
 }
 
-/// Handle the app's background messages until the store's sets are read.
-fn read_sets(app: &mut App) {
-    loop {
-        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
-        let sets = matches!(msg, Msg::Sets(..));
-        app.handle_msg(msg);
-        if sets {
-            return;
-        }
-    }
-}
-
 /// Sets in the store at `store_root`: Friday (track 3, one typed in by hand, track 2), an
 /// older one at Corsica Studios (track 1), and one with nothing on the drive.
 fn save_sets(store_root: &Path, lib: &Library) {
