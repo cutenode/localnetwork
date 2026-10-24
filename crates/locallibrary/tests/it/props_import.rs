@@ -169,10 +169,11 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
         assert_eq!(e.duration_secs, Some(t.duration_secs.min(36_000)));
         assert_eq!(e.path.as_deref(), Some(t.file_path.as_str()));
     }
-    let playlists = import::xml_playlists(xml.as_bytes()).unwrap();
-    assert_eq!(playlists.len(), lists.len());
-    for (i, ((path, got), ids)) in playlists.iter().zip(&lists).enumerate() {
-        assert_eq!(path, &format!("Shows/List {i}"));
+    let library = import::read_xml_library(xml.as_bytes()).unwrap();
+    assert_eq!(library.playlists.len(), lists.len());
+    for (i, (p, ids)) in library.playlists.iter().zip(&lists).enumerate() {
+        assert_eq!(p.path, format!("Shows/List {i}"));
+        let got: Vec<import::Entry> = p.entries.iter().map(|e| library.entry(e)).collect();
         let titles: Vec<&str> = got.iter().map(|e| e.title.as_str()).collect();
         let want: Vec<&str> = ids.iter().map(|id| lib.tracks[*id as usize - 1].title.as_str()).collect();
         assert_eq!(titles, want);

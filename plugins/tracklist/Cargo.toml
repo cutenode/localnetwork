@@ -1,6 +1,6 @@
 [package]
 name = "locallibrary-plugin-tracklist"
-description = "locallibrary's tracklist import, as a plugin: makes a playlist from an M3U, CSV, rekordbox text or XML file, or \"Artist - Title\" lines"
+description = "locallibrary's tracklist import, as a plugin: makes a playlist from an M3U, CSV, rekordbox text or XML file, or \"Artist - Title\" lines, and reads rekordbox XML collections (keys, tempos, cues, beat grids, playlists) to import and to build drives from"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

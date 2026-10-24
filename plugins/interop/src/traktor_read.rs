@@ -91,7 +91,8 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
             tracks: list.keys.iter().filter_map(|key| paths.get(key).cloned()).collect(),
         }));
     }
-    let page = LibraryPage { tracks, playlists, blob: None, next: (!last).then(|| format!("{to} {stamp}")) };
+    let next = (!last).then(|| format!("{to} {stamp}"));
+    let page = LibraryPage { tracks, playlists, blob: None, next, warnings: Vec::new() };
     Ok(match spilled(&page, &req.context, "page.json")? {
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,

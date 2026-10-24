@@ -21,7 +21,8 @@ crates/loclib-equipment/    what each player, all-in-one system and mixer reads 
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
-                            matching them to a library: by path, ISRC, artist and title, then fuzzily
+                            matching them to a library: by path, ISRC, artist and title, then fuzzily;
+                            and rekordbox XML collections with their tags, keys, beat grids and cues
 crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
@@ -48,7 +49,8 @@ plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer,
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
-                            loclib-tracklist, as one `set_entries` edit
+                            loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
+                            as an importer (keys, tempos, cues) and a library source to build drives from
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the

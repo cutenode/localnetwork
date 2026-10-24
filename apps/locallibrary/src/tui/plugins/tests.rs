@@ -11,7 +11,6 @@ use super::super::palette::Picker;
 use super::super::ui::screen;
 use super::exporters::WRITE_TO;
 use super::importers::READ_FROM;
-use super::sources::READ_FROM as GRANTS;
 use super::*;
 
 /// The list open now.
@@ -479,7 +478,7 @@ fn plans_are_known_by_their_plugins() {
     let (dir, _root) = demo_drive();
     echo_plugin(dir.path());
     assert_eq!(planned_by("echo.playlist", false), Some("Echo"));
-    assert_eq!(planned_by("tracklist.import", false), Some("Tracklist import"));
+    assert_eq!(planned_by("tracklist.import", false), Some("Tracklists and rekordbox XML"));
     assert_eq!(planned_by("echo.export.echo-m3u", true), Some("Echo"));
     assert_eq!(planned_by("interop.export.traktor", true), Some("Other DJ software"));
     assert_eq!(planned_by("echo.export.echo-m3u", false), None, "not an operation");
@@ -1189,7 +1188,10 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             assert!(app.modal.is_none() && app.view == view);
             // Asked for anyway (a key, a stale list), an analyzer or an export says the same.
             if !in_menu
-                && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Import(..))
+                && matches!(
+                    acts[i],
+                    Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Import(..) | Act::Source(..)
+                )
             {
                 app.toast = None;
                 app.perform(acts[i], None);
@@ -1292,12 +1294,13 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!((title, fields[0].as_str()), (i.title.clone(), READ_FROM));
             press(app, "\u{1b}");
         }
-        // A form asking for the folders it may read first.
+        // The folders to grant, whether to replace, then the source's options.
         Act::Source(p, s) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
             let s = m.contributes.sources.iter().find(|x| x.name == s).unwrap();
-            let (title, fields) = form_open(app);
-            assert_eq!((title, fields[0].as_str()), (s.title.clone(), GRANTS));
+            let mut fields = vec![READ_FROM.to_string(), "replace".into()];
+            fields.extend(properties(s.options.as_ref()).map(|(k, _)| k.clone()));
+            assert_eq!(form_open(app), (s.title.clone(), fields));
             press(app, "\u{1b}");
         }
         Act::PluginSettings(p) => {
@@ -1879,6 +1882,22 @@ fn an_operation_is_planned_applied_and_taken_back(tc: TestCase) {
     press(&mut app, "u");
     say_yes(&mut app);
     assert_eq!(on_drive(&drive.0), before, "taken back: {}", last_message(&app));
+}
+
+/// Building a drive from a library source, chosen from the palette on a plugged-in drive, asks
+/// for the folders to grant, whether to replace its library, and the source's options: the
+/// tracklist plugin's rekordbox XML file.
+#[test]
+fn a_library_source_asks_for_its_folders_and_options() {
+    plugins_once();
+    let drive = plugged();
+    let mut app = app_on(&drive.0);
+    press(&mut app, ":build from rekordbox xml\n");
+    let fields = ["read_from", "replace", "file"].map(String::from).to_vec();
+    assert_eq!(form_open(&app), ("rekordbox XML collection".to_string(), fields));
+    // As the palette's property checks a source entry it draws: esc backs out.
+    chosen(&mut app, Act::Source("tracklist", "rekordbox-xml"), &[], Some(&drive));
+    assert!(app.modal.is_none());
 }
 
 /// An export from the palette or the drive's menu, written where the form's typed to, with

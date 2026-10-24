@@ -2,7 +2,7 @@
 
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use loclib_tracklist::{Entry, Error, Format};
+use loclib_tracklist::{Entry, Error, Format, MAX_BEATS, Mark, Tempo, XmlTrack};
 
 /// Characters a `file://` URL may leave as they are.
 const URL_SAFE: &percent_encoding::AsciiSet =
@@ -48,7 +48,7 @@ fn escaped(tc: &TestCase, v: &str, quote: char) -> String {
     out
 }
 
-/// Playlists as `xml_playlists` reads them: folder path and entries.
+/// Playlists as a library reads them, each entry resolved: folder path and entries.
 type Playlists = Vec<(String, Vec<Entry>)>;
 
 /// A document being written, which knows the line it's on.
@@ -201,7 +201,7 @@ fn write_nodes(tc: &TestCase, doc: &mut Doc, tracks: &[Track], path: &[String], 
                 doc.tag(tc, "TRACK", &[("Key", key.clone())], true);
                 doc.push("\n");
                 entries.push(match found {
-                    Some(t) => Entry { line, ..t.entry.clone() },
+                    Some(t) => Entry { line, raw: format!("Key=\"{key}\""), ..t.entry.clone() },
                     None if by_location => {
                         // Only the file is known: its name says what it is.
                         let file = key.rsplit('/').next().unwrap_or_default();
@@ -267,8 +267,8 @@ fn library_xml(tc: &TestCase) -> (String, Vec<Track>, Playlists) {
 /// A rekordbox XML file reads back as its collection (every attribute decoded, on the track's
 /// line, with its tag as the raw text), whatever the attribute order, quoting, escaping and
 /// layout, comments and other markup around it. Its playlists read back with their folder
-/// paths and tracks in order, by TrackID or by location, and the keys the collection lacks are
-/// kept as entries to report missing. It's detected as rekordbox XML whatever it's called.
+/// paths and tracks in order, by TrackID or by location, each with its key as its text, and
+/// the keys the collection lacks are kept as entries to report missing. It's detected as rekordbox XML whatever it's called.
 #[hegel::test(test_cases = 200)]
 fn rekordbox_xml_reads_back(tc: TestCase) {
     let (xml, tracks, lists) = library_xml(&tc);
@@ -282,7 +282,13 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
     assert_eq!(loclib_tracklist::detect(&bytes, hint), Format::RekordboxXml);
     let want: Vec<Entry> = tracks.iter().map(|t| t.entry.clone()).collect();
     assert_eq!(loclib_tracklist::parse(&bytes, hint).unwrap(), want);
-    assert_eq!(loclib_tracklist::xml_playlists(&bytes).unwrap(), lists);
+    let library = loclib_tracklist::read_xml_library(&bytes).unwrap();
+    let read: Playlists = library
+        .playlists
+        .iter()
+        .map(|p| (p.path.clone(), p.entries.iter().map(|e| library.entry(e)).collect()))
+        .collect();
+    assert_eq!(read, lists);
 }
 
 /// An XML file cut off anywhere reads as the tracks whose tags it still holds whole, or fails
@@ -351,4 +357,245 @@ fn stray_markup_in_a_tag_is_skipped(tc: TestCase) {
     let mut want: Vec<Entry> = tracks.iter().map(|t| t.entry.clone()).collect();
     want[i].raw = messy;
     assert_eq!(loclib_tracklist::parse_as(doc.as_bytes(), Format::RekordboxXml).unwrap(), want);
+}
+
+/// One collection track as locallibrary's XML writer writes one: its tags, rating, key and
+/// tempo, a TEMPO at each tempo change and its cues, with `{:.3}` seconds and `{:.2}` BPMs.
+/// What it should read as, but for its entry.
+#[hegel::test_helper]
+fn library_track(tc: &TestCase, doc: &mut Doc) -> XmlTrack {
+    let tags: Vec<String> = (0..6).map(|_| tc.draw(text())).collect();
+    let (year, stars) = (tc.draw(gs::integers::<u16>()), tc.draw(gs::integers::<u8>().max_value(5)));
+    let hundredths = tc.draw(gs::integers::<u16>());
+    let mut attrs: Vec<(&str, String)> = vec![("TrackID", "1".into()), ("Name", "Glue".into())];
+    let names = ["Genre", "Label", "Remixer", "Composer", "Comments", "Tonality"];
+    attrs.extend(names.into_iter().zip(tags.iter().cloned()));
+    attrs.push(("Year", year.to_string()));
+    attrs.push(("Rating", [0, 51, 102, 153, 204, 255][usize::from(stars)].to_string()));
+    attrs.push(("AverageBpm", format!("{:.2}", f64::from(hundredths) / 100.0)));
+    let mut starts: Vec<i32> =
+        tc.draw(gs::vecs(gs::integers::<i32>().min_value(-5_000).max_value(900_000)).max_size(4).unique(true));
+    starts.sort();
+    let tempos: Vec<Tempo> = starts
+        .into_iter()
+        .map(|start| {
+            let beats_per_bar = tc.draw(gs::integers::<u8>().min_value(1).max_value(4));
+            let beat = tc.draw(gs::integers::<u8>().min_value(1).max_value(beats_per_bar));
+            let bpm = f64::from(tc.draw(gs::integers::<u16>().min_value(1))) / 100.0;
+            Tempo { start_ms: f64::from(start), bpm, beats_per_bar, beat }
+        })
+        .collect();
+    let marks: Vec<Mark> = (0..tc.draw(gs::integers::<usize>().max_value(4)))
+        .map(|_| {
+            let hot_cue = tc.draw(gs::optional(gs::integers::<u8>().max_value(7)));
+            let start_ms = tc.draw(gs::integers::<u32>().max_value(86_000_000));
+            let end_ms =
+                tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(400_000))).map(|n| start_ms + n);
+            let rgb = hot_cue.and(tc.draw(gs::optional(gs::vecs(gs::integers::<u8>()).min_size(3).max_size(3))));
+            Mark { hot_cue, start_ms, end_ms, name: tc.draw(text()), rgb: rgb.map(|c| [c[0], c[1], c[2]]) }
+        })
+        .collect();
+    doc.push("    ");
+    doc.tag(tc, "TRACK", &attrs, false);
+    doc.push("\n");
+    for t in &tempos {
+        let attrs = [
+            ("Inizio", format!("{:.3}", t.start_ms / 1000.0)),
+            ("Bpm", format!("{:.2}", t.bpm)),
+            ("Metro", format!("{}/4", t.beats_per_bar)),
+            ("Battito", t.beat.to_string()),
+        ];
+        doc.tag(tc, "TEMPO", &attrs, true);
+        doc.push("\n");
+    }
+    for m in &marks {
+        let kind = if m.end_ms.is_some() { "4" } else { "0" };
+        let mut attrs = vec![("Name", m.name.clone()), ("Type", kind.to_string())];
+        attrs.push(("Start", format!("{:.3}", f64::from(m.start_ms) / 1000.0)));
+        attrs.extend(m.end_ms.map(|end| ("End", format!("{:.3}", f64::from(end) / 1000.0))));
+        attrs.push(("Num", m.hot_cue.map_or(-1, i32::from).to_string()));
+        if let Some([r, g, b]) = m.rgb {
+            attrs.extend([("Red", r.to_string()), ("Green", g.to_string()), ("Blue", b.to_string())]);
+        }
+        doc.tag(tc, "POSITION_MARK", &attrs, true);
+        doc.push("\n");
+    }
+    doc.push("    </TRACK>\n");
+    let tag = |i: usize| tags[i].trim().to_string();
+    XmlTrack {
+        genre: tag(0),
+        label: tag(1),
+        remixer: tag(2),
+        composer: tag(3),
+        comment: tag(4),
+        key: Some(tag(5)).filter(|k| !k.is_empty()),
+        year,
+        rating: stars,
+        bpm: (hundredths > 0).then(|| f64::from(hundredths) / 100.0),
+        tempos,
+        marks,
+        ..XmlTrack::default()
+    }
+}
+
+/// A collection track in the shape locallibrary's XML writer gives it reads back with its tags,
+/// rating, key and tempo, its grid's tempos and its cues as written, whatever the attribute
+/// quoting, escaping and layout.
+#[hegel::test(test_cases = 200)]
+fn a_library_track_reads_back(tc: TestCase) {
+    let mut doc = Doc("<DJ_PLAYLISTS Version=\"1.0.0\">\n  <COLLECTION Entries=\"1\">\n".into());
+    let want = library_track(&tc, &mut doc);
+    doc.push("  </COLLECTION>\n</DJ_PLAYLISTS>\n");
+    tc.note(&doc.0);
+    let read = loclib_tracklist::read_xml_library(doc.0.as_bytes()).unwrap();
+    assert!(read.warnings.is_empty(), "{:?}", read.warnings);
+    let got = &read.tracks[0];
+    assert_eq!(*got, XmlTrack { entry: got.entry.clone(), ..want });
+}
+
+/// A number as a file might spell one: in range or not, not finite, or not a number at all.
+fn number() -> impl hegel::PrintableGenerator<String> {
+    hegel::one_of!(
+        gs::floats::<f64>().map(|f| f.to_string()),
+        gs::floats::<f64>().min_value(-100.0).max_value(1_000.0).map(|f| format!("{f:.3}")),
+        gs::integers::<i64>().map(|n| n.to_string()),
+        gs::sampled_from(vec!["NaN", "inf", "-inf", "1e308", "-0", "", "x", "4/4", "0/0", "255/1"]).map(String::from)
+    )
+}
+
+/// Attributes, each left out, one of its values (at the edges of its range and past them) or
+/// any [`number`].
+#[hegel::test_helper]
+fn any_attrs<'a>(tc: &TestCase, attrs: &[(&'a str, &[&str])]) -> Vec<(&'a str, String)> {
+    let mut drawn = Vec::new();
+    for (name, values) in attrs {
+        let value = match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => continue,
+            1 => tc.draw(number()),
+            _ => tc.draw(gs::sampled_from(values.to_vec())).to_string(),
+        };
+        drawn.push((*name, value));
+    }
+    drawn
+}
+
+/// A TRACK's numbers, a TEMPO's and a POSITION_MARK's, with values at the edges of their ranges.
+const TRACK_NUMBERS: &[(&str, &[&str])] = &[
+    ("TotalTime", &["0", "3", "600", "36000"]),
+    ("AverageBpm", &["0.00", "128", "655.35", "655.36", "700"]),
+    ("Rating", &["0", "255", "256"]),
+];
+const TEMPO_NUMBERS: &[(&str, &[&str])] = &[
+    ("Inizio", &["0", "-0.5", "1.000", "86400", "86400.001", "-86400.001"]),
+    ("Bpm", &["120", "0.01", "0.009", "655.35", "655.36", "700"]),
+    ("Metro", &["4/4", "3/4", "1/4", "5/4", "0/4"]),
+    ("Battito", &["1", "3", "4", "5", "0"]),
+];
+const MARK_NUMBERS: &[(&str, &[&str])] = &[
+    ("Type", &["0", "4", "1"]),
+    ("Start", &["0", "1.5", "86400", "86400.001", "-0.001"]),
+    ("End", &["2", "1.5", "86400", "86400.001"]),
+    ("Num", &["-1", "0", "7", "8", "-2"]),
+    ("Red", &["0", "255", "256"]),
+    ("Green", &["0", "255"]),
+    ("Blue", &["0", "255"]),
+];
+
+/// How many the warnings about `what` count, together (out of range, and not supported).
+fn counted(warnings: &[String], what: &str) -> usize {
+    let lines = warnings.iter().filter(|w| w.contains(what));
+    lines.map(|w| w.split(' ').next().unwrap().parse::<usize>().unwrap()).sum()
+}
+
+/// Whatever numbers the file holds, reading it finishes with bounded output: each tempo, cue and
+/// track tempo read is in range, the others are counted in its warnings, and a grid is at most
+/// MAX_BEATS beats, in order, at or after 0 and before the track's end, each 1-4 in its bar.
+/// Playlists nested too deep are left out, counted.
+#[hegel::test(test_cases = 200)]
+fn any_numbers_read_in_range_with_bounded_grids(tc: TestCase) {
+    let mut doc = Doc("<DJ_PLAYLISTS>\n<COLLECTION>\n".into());
+    let (mut tempos, mut marks) = (0, 0);
+    for id in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        let mut attrs = vec![("TrackID", id.to_string())];
+        attrs.extend(any_attrs(&tc, TRACK_NUMBERS));
+        doc.tag(&tc, "TRACK", &attrs, false);
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+            tempos += 1;
+            doc.tag(&tc, "TEMPO", &any_attrs(&tc, TEMPO_NUMBERS), true);
+        }
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+            marks += 1;
+            doc.tag(&tc, "POSITION_MARK", &any_attrs(&tc, MARK_NUMBERS), true);
+        }
+        doc.push("</TRACK>\n");
+    }
+    let depth = tc.draw(hegel::one_of!(
+        gs::integers::<usize>().min_value(58).max_value(66),
+        gs::integers::<usize>().max_value(200)
+    ));
+    doc.push("</COLLECTION>\n<PLAYLISTS>");
+    doc.push(&"<NODE Type=\"0\" Name=\"f\">".repeat(depth));
+    doc.push("<NODE Type=\"1\" Name=\"deep\"/>");
+    doc.push(&"</NODE>".repeat(depth));
+    doc.push("</PLAYLISTS>\n</DJ_PLAYLISTS>\n");
+    tc.note(&doc.0);
+    let read = loclib_tracklist::read_xml_library(doc.0.as_bytes()).unwrap();
+    let w = &read.warnings;
+    let kept = read.tracks.iter().fold((0, 0), |(t, m), x| (t + x.tempos.len(), m + x.marks.len()));
+    assert_eq!((kept.0 + counted(w, "(TEMPO)"), kept.1 + counted(w, "(POSITION_MARK)")), (tempos, marks));
+    for t in &read.tracks {
+        assert!(t.bpm.is_none_or(|b| (0.01..=655.35).contains(&b)) && t.rating <= 5);
+        for tempo in &t.tempos {
+            assert!((0.01..=655.35).contains(&tempo.bpm) && tempo.start_ms.abs() <= 86_400_000.0, "{tempo:?}");
+            assert!((1..=4).contains(&tempo.beats_per_bar) && (1..=tempo.beats_per_bar).contains(&tempo.beat));
+        }
+        for m in &t.marks {
+            assert!(m.start_ms <= 86_400_000 && m.end_ms.is_none_or(|e| e > m.start_ms && e <= 86_400_000));
+            assert!(m.hot_cue.is_none_or(|h| h <= 7));
+        }
+        let (beats, cut) = t.beats();
+        let end = t.entry.duration_secs.map_or(0, |s| u64::from(s) * 1000);
+        assert!(beats.len() <= MAX_BEATS && (!cut || beats.len() == MAX_BEATS));
+        assert!(beats.windows(2).all(|w| w[0].time_ms < w[1].time_ms));
+        let bar = t.tempos.iter().map(|x| u16::from(x.beats_per_bar)).max().unwrap_or(4);
+        assert!(beats.iter().all(|b| u64::from(b.time_ms) < end && (1..=bar).contains(&b.beat_number)));
+    }
+    // DJ_PLAYLISTS and PLAYLISTS hold the folders: 62 of them leave room for the playlist.
+    let lists: Vec<&str> = read.playlists.iter().map(|p| p.path.as_str()).collect();
+    match depth <= 61 {
+        true => assert_eq!((lists.len(), lists[0].matches('/').count()), (1, depth)),
+        false => assert!(lists.is_empty() && counted(w, "nested") == 1, "{w:?}"),
+    }
+}
+
+/// However long the folder names above many playlists, and however often a playlist names a
+/// track with a long name, what's read stays near the file's size: playlists keep tracks by
+/// index (a playlist's entry has its key as its text, not the track's tag), and the playlists'
+/// folder paths come to at most MAX_PATH_BYTES, each part costing 16 bytes besides its name.
+/// Those past it are left out in the file's order, counted.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn long_names_and_many_entries_stay_bounded(tc: TestCase) {
+    let folder = "f".repeat(tc.draw(gs::sampled_from(vec![0, 1_000, 300_000, 1 << 20])));
+    let comment = "c".repeat(tc.draw(gs::sampled_from(vec![0, 1 << 20])));
+    let (lists, refs) =
+        (tc.draw(gs::integers::<usize>().max_value(40)), tc.draw(gs::integers::<usize>().max_value(2_000)));
+    let mut xml =
+        format!("<DJ_PLAYLISTS><COLLECTION><TRACK TrackID=\"1\" Name=\"A\" Comments=\"{comment}\"/></COLLECTION>");
+    xml += &format!("<PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\"><NODE Type=\"0\" Name=\"{folder}\">");
+    for i in 0..lists {
+        xml += &format!("<NODE Type=\"1\" Name=\"p{i}\" KeyType=\"0\">{}</NODE>", "<TRACK Key=\"1\"/>".repeat(refs));
+    }
+    xml += "</NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>";
+    let library = loclib_tracklist::read_xml_library(xml.as_bytes()).unwrap();
+    let cost = |path: &str| path.split('/').map(|part| 16 + part.len()).sum::<usize>();
+    let kept: usize = library.playlists.iter().map(|p| cost(&p.path)).sum();
+    assert!(kept <= loclib_tracklist::MAX_PATH_BYTES, "{kept}");
+    let each = cost(&format!("{folder}/p{}", lists.saturating_sub(1)));
+    let fits = library.playlists.len();
+    assert!(fits == lists || kept + each > loclib_tracklist::MAX_PATH_BYTES, "left out while there was room");
+    assert_eq!(fits + counted(&library.warnings, "folder paths"), lists);
+    for p in &library.playlists {
+        let entries = library.playlist(&p.path).unwrap();
+        assert!(entries.len() == refs && entries.iter().all(|e| e.raw == "Key=\"1\"" && e.title == "A"));
+    }
 }
