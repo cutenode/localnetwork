@@ -3,6 +3,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::Stdio;
+use std::sync::LazyLock;
 
 use loclib_plugin::Manifest;
 use serde_json::{Value, json};
@@ -30,41 +31,32 @@ cli = "say""#;
         .replace("title = \"Make a playlist\"", "title = \"Make a playlist\"\ncli = \"playlist fresh\"")
 }
 
-/// The plugins locallibrary ships, as it lists them (before the tests' own).
-const SHIPPED: [&str; 4] = ["coverart", "interop", "sound", "tracklist"];
-
-/// Every crate in the repository's `plugins/` ships: one left out of `plugins::FIRST_PARTY` (and
-/// so of `SHIPPED`) fails here instead of going unnoticed (`.github/NEW_PROJECT.md`).
-#[test]
-fn every_plugin_crate_ships() {
+/// The plugins locallibrary ships, as it lists them (before the tests' own): one for every folder in
+/// the repository's `plugins/`, in alphabetical order. Read from the folders, so a plugin
+/// `plugin list` leaves out fails the tests that compare the two.
+static SHIPPED: LazyLock<Vec<&str>> = LazyLock::new(|| {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
-    let mut ids: Vec<String> = std::fs::read_dir(dir)
+    let mut ids: Vec<&str> = std::fs::read_dir(dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.is_dir())
-        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
+        // Kept for the tests' whole run, as ids they put beside their own plugins'.
+        .map(|path| &*path.file_name().unwrap().to_str().unwrap().to_owned().leak())
         .collect();
     ids.sort();
-    assert_eq!(ids, SHIPPED);
-}
+    ids
+});
 
-/// Every plugin that ships is in the docs: plugins.md's list, and how-it-works.md's layout and the
-/// plugins it says plugins.rs links in. A new plugin left out of them fails here.
+/// Every plugin that ships is in the docs: plugins.md's list and how-it-works.md's layout. A new
+/// plugin left out of them fails here.
 #[test]
 fn every_shipped_plugin_is_documented() {
     let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
     let plugins = std::fs::read_to_string(docs.join("plugins.md")).unwrap();
     let how = std::fs::read_to_string(docs.join("how-it-works.md")).unwrap();
-    // The sentence wraps over lines of the layout block, so it's matched word by word.
-    let (linked, _) = how
-        .split_once("(plugins.rs: the ")
-        .and_then(|(_, rest)| rest.split_once(" plugins linked in"))
-        .expect("docs/how-it-works.md names the plugins plugins.rs links in");
-    let linked: Vec<&str> = linked.split(|c: char| !c.is_alphanumeric()).collect();
-    for id in SHIPPED {
+    for id in SHIPPED.iter() {
         assert!(plugins.contains(&format!("\n- **{id}**:")), "docs/plugins.md doesn't list {id}");
         assert!(how.contains(&format!("\nplugins/{id}/ ")), "docs/how-it-works.md's layout doesn't have plugins/{id}/");
-        assert!(linked.contains(&id), "docs/how-it-works.md doesn't say plugins.rs links {id} in");
     }
 }
 
@@ -187,7 +179,7 @@ fn a_plugin_serves_on_stdout_alone() {
 #[test]
 fn plugins_are_listed_and_their_settings_kept() {
     let ids = |listed: &Value| listed.as_array().unwrap().iter().map(|p| p["id"].clone()).collect::<Vec<_>>();
-    assert_eq!(ids(&Env::new().json(&["plugin", "list"])), SHIPPED);
+    assert_eq!(ids(&Env::new().json(&["plugin", "list"])), *SHIPPED);
     let env = env();
     let list = env.ok(&["plugin"]);
     assert!(list.contains("echo  Echo 0.1.0"), "{list}");

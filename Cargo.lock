@@ -3972,6 +3972,7 @@ dependencies = [
  "signal-hook",
  "tempfile",
  "tokio",
+ "toml",
  "unicode-width 0.2.2",
  "uuid",
  "walkdir",

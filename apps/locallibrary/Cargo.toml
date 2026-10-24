@@ -79,7 +79,8 @@ indexmap.workspace = true
 loclib-plugin.workspace = true
 # The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
 loclib-progress.workspace = true
-# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`.
+# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`: one
+# for every folder in plugins/, which build.rs checks.
 locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
 locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
 locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
@@ -118,3 +119,7 @@ loclib-model = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
+
+[build-dependencies]
+# Reads this manifest's dependencies, to check there's one for every plugin (build.rs).
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse"] }

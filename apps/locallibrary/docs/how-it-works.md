@@ -147,10 +147,10 @@ crates/locallibrary/src/    the library, built on the crates above
                messages never name a CLI command or flag: the CLI's hints.rs words those)
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
-                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
-                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
-                            plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
-                            rodio, drawing with loclib-waveform, the `tui` and `playback` features;
+                            and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
+                            linked in from the table build.rs writes, each run as `locallibrary plugin serve
+                            <id>`; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)
 apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
