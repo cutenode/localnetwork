@@ -31237,8 +31237,8 @@
           "description": "A JSON Schema for its options (an object)."
         },
         "source": {
-          "$ref": "#/$defs/ExportFrom",
-          "description": "What it writes out [default: a drive's library]."
+          "$ref": "#/$defs/ExportSources",
+          "description": "What it writes out [default: a drive's library]: one source (`\"set\"`), or a list of them\n(`[\"drive\", \"set\", \"mix\"]`) for an exporter that writes each out the same way."
         }
       },
       "required": [
@@ -31247,6 +31247,20 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "ExportSources": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExportFrom"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportFrom"
+          }
+        }
+      ],
+      "description": "What an exporter writes out, as its manifest says it: one source, or a list."
     },
     "ExportFrom": {
       "oneOf": [

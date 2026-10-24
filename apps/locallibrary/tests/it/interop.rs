@@ -1,9 +1,9 @@
-//! The interop plugin locallibrary ships, end to end: `export --format traktor|serato|engine`
-//! through the plugin host on real drives, and the sidecar's `plugins.export.*`. What the files
-//! hold is loclib-interop's to test (its tests/props), and what the plugin makes of the host's
-//! answers is plugins/interop's; here is what only the real host and the command line show: the
-//! reads (a drive's own analysis, the tracks only OneLibrary has), the options, asking before
-//! overwriting, and the exit statuses.
+//! The interop plugin locallibrary ships, end to end: `export --format traktor|serato|engine` and
+//! `sets export --format traktor` through the plugin host on real drives, and the sidecar's
+//! `plugins.export.*`. What the files hold is loclib-interop's to test (its tests/props), and what
+//! the plugin makes of the host's answers is plugins/interop's; here is what only the real host
+//! and the command line show: the reads (a drive's own analysis, the tracks only OneLibrary has),
+//! the options, asking before overwriting, and the exit statuses.
 
 use std::path::Path;
 
@@ -280,4 +280,29 @@ fn analysis_and_what_only_onelibrary_has_are_read() {
     assert_eq!(cues(only), read, "OneLibrary's own track's grid and cues, read as before");
     let listed = nml.split("NAME=\"Booth\"").nth(1).unwrap();
     assert!(listed[..listed.find("</NODE>").unwrap()].contains("Demo Track 1.mp3"), "{nml}");
+}
+
+/// A set goes to Traktor as a playlist of its tracks on the drive named, in the order played:
+/// one typed in by hand is left out, saying so, and with no drive named it's refused, saying how
+/// to name one.
+#[test]
+fn a_set_goes_to_traktor_as_a_playlist() {
+    let env = Env::ascii();
+    let club = env.club("Club");
+    env.ok(&["sets", "new", "--title", "Friday", "--date", "2026-10-03", "--venue", "Warehouse"]);
+    env.ok(&["sets", "edit", "Friday", "--insert", "1:Floorplan - Never Grow Old", "--insert", "1:Deluxe Cynic"]);
+    let out = env.outside("set for traktor");
+    let export = ["sets", "export", "Friday", "--format", "traktor", "-o", path(&out)];
+    let refused = env.fails(1, &export);
+    assert!(refused.contains("a set's export points at its tracks' audio: name the drive they're on"), "{refused}");
+    assert!(!out.exists());
+
+    let said = env.ok(&[&export[..], &["--drive", path(&club)]].concat());
+    assert!(said.contains("1. Floorplan - Never Grow Old isn't on the drive: left out"), "{said}");
+    assert!(said.contains("1 tracks, 1 playlists"), "{said}");
+    let nml = std::fs::read_to_string(out.join("collection.nml")).unwrap();
+    let list = nml.split("<NODE TYPE=\"PLAYLIST\" NAME=\"2026-10-03 Friday\">").nth(1).unwrap();
+    assert!(list.starts_with("<PLAYLIST ENTRIES=\"1\""), "{nml}");
+    assert!(nml.contains("<COLLECTION ENTRIES=\"1\">"), "only the set's tracks: {nml}");
+    assert!(list.contains("02 Deluxe Cynic.mp3"), "{nml}");
 }

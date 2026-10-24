@@ -469,9 +469,10 @@ chooses to.
 ### Export formats
 
 `plugins.export.plan {plugin, exporter, drive, playlists?, history?, set?, mix?, output, options}`
-(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` is
-`set` takes `set`, as `sets.get` names one, and `mix` the id of a report kept in the store,
-`mix.reports.list`, either with a `drive` or not, and no playlists) answers `{plugin, exporter,
+(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` lists
+`set` takes `set`, as `sets.get` names one, one listing `mix` takes `mix`, the id of a report kept
+in the store, `mix.reports.list`, either with a `drive` or not, and no playlists; it writes out
+whichever of a set, a mix or the drive the request names) answers `{plugin, exporter,
 output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what
 goes in, in order; `notes`: what the format can't hold and what to do with the files; the library's
 problems are the plan's `warnings`), destructive when a file `exists` already, applied by

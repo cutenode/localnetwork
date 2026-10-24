@@ -2,14 +2,18 @@ id = "interop"
 name = "Other DJ software"
 version = "0.1.0"
 protocol = "^0.2"
-# library:read for the library exports read (`combined`), analysis:read for beat grids and cues.
-# The files name the audio by its full path: where the drive is mounted comes with the export.
-capabilities = ["library:read", "analysis:read"]
+# library:read for the library exports read (`combined`), analysis:read for beat grids and cues,
+# sets:read for a set or a mix written out as a playlist. The files name the audio by its full
+# path: where the drive is mounted comes with the export.
+capabilities = ["library:read", "analysis:read", "sets:read"]
 
 [[contributes.exporters]]
 format = "traktor"
 title = "Traktor Pro: collection.nml with tracks, beat grids, cues and playlists"
 folder = true
+# Each writes out a drive's library, or a set or a mix as one playlist of the tracks played
+# from the drive, with the same options.
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"
@@ -30,6 +34,7 @@ description = "Leave out beat grids and cues"
 format = "serato"
 title = "Serato DJ: a crate per playlist"
 folder = true
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"
@@ -55,6 +60,7 @@ description = "Copy the audio into the output folder and write cue points into t
 format = "engine"
 title = "Engine DJ: a new Engine Library with tracks and playlists"
 folder = true
+source = ["drive", "set", "mix"]
 
 [contributes.exporters.options]
 type = "object"

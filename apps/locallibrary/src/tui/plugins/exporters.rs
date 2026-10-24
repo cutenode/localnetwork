@@ -20,18 +20,20 @@ use crate::tui::palette::Item;
 pub(super) const WRITE_TO: &str = "write_to";
 
 /// `m`'s export formats as the palette and a drive's menu offer them, each unavailable for `why`:
-/// a drive's, and a set's while one is open (`set`).
-pub(super) fn items(m: &'static Manifest, why: Option<&str>, set: bool) -> Vec<(Act, Item)> {
-    let formats = m.contributes.exporters.iter().filter_map(|e| {
-        let (label, why) = match e.source {
+/// an entry for the drive, one for the set open (`set`), or, with `sets` (the palette), one saying
+/// to open a set first.
+pub(super) fn items(m: &'static Manifest, why: Option<&str>, set: bool, sets: bool) -> Vec<(Act, Item)> {
+    let formats = m.contributes.exporters.iter().flat_map(|e| e.sources().iter().map(move |from| (e, *from)));
+    let formats = formats.filter_map(|(e, from)| {
+        let (label, why) = match from {
             ExportFrom::Drive => (format!("export for {}…", e.format), why),
-            ExportFrom::Set => {
+            ExportFrom::Set if set || sets => {
                 (format!("export the set for {}…", e.format), why.or((!set).then_some("open a set first")))
             }
-            ExportFrom::Mix => return None,
+            ExportFrom::Set | ExportFrom::Mix => return None,
         };
         let item = Item { unavailable: why.map(String::from), ..Item::new(label, &m.name) };
-        Some((Act::Export(&m.id, &e.format), item))
+        Some((Act::Export(&m.id, &e.format, from), item))
     });
     formats.collect()
 }
@@ -62,17 +64,23 @@ impl App {
     }
 
     /// Export the drive at `root` in a plugin's format (the playlists marked in the tree only, when
-    /// it's the drive open and some are, as rekordbox XML is), or the set open for a set's format:
-    /// a form asks where (a file or folder on this computer, named after the drive or the set) and
-    /// for the format's options first.
-    pub(in crate::tui) fn plugin_export(&mut self, plugin: &'static str, format: &'static str, root: Option<PathBuf>) {
+    /// it's the drive open and some are, as rekordbox XML is), or the set open (`from`): a form
+    /// asks where (a file or folder on this computer, named after the drive or the set) and for
+    /// the format's options first.
+    pub(in crate::tui) fn plugin_export(
+        &mut self,
+        plugin: &'static str,
+        format: &'static str,
+        from: ExportFrom,
+        root: Option<PathBuf>,
+    ) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Some(root) = self.plugged(root) else { return };
         let exporter =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.exporters.iter().find(|e| e.format == format));
         let Some(e) = exporter else { return };
-        let set = self.open_set().filter(|_| e.source == ExportFrom::Set);
-        if e.source == ExportFrom::Set && set.is_none() {
+        let set = self.open_set().filter(|_| from == ExportFrom::Set);
+        if from == ExportFrom::Set && set.is_none() {
             return self.toast("open a set first", crate::tui::app::Level::Info);
         }
         let label = |key: &String| {
@@ -87,7 +95,7 @@ impl App {
         let schema = with_path(WRITE_TO, what, e.options.as_ref());
         let filled = Map::from_iter([(WRITE_TO.to_string(), Value::from(to))]);
         // A set's format writes out the set, whatever lists are marked.
-        let open = self.loaded.as_ref().is_some_and(|l| l.root() == root) && e.source == ExportFrom::Drive;
+        let open = self.loaded.as_ref().is_some_and(|l| l.root() == root) && from == ExportFrom::Drive;
         let playlists = if open { self.list_marks.clone() } else { Vec::new() };
         let then = For::Export { plugin, format, root, playlists, set };
         let form = Form::with(e.title.clone(), Some(schema), &filled, then);

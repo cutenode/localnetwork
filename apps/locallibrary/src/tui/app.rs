@@ -3388,7 +3388,7 @@ impl App {
             Act::CheckSettings => self.check_settings(),
             Act::Fix(i) => self.fix(i),
             Act::Theme(key) => self.use_theme(key),
-            Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
+            Act::Export(plugin, format, from) => self.plugin_export(plugin, format, from, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
             Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {

@@ -308,13 +308,16 @@ host can ask before overwriting any. `counts` (optional) are labelled numbers of
 the order to show them (`{"tracks": 12, "cues": 40}`); `notes` (optional) say what the format can't
 hold and what to do with the files, `warnings` what's wrong with this library. An export reads the
 drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by name) only
-narrow which lists go in. A set's exporter is given `set` instead (the set's id, which `sets.get`
+narrow which lists go in. A set's export is given `set` instead (the set's id, which `sets.get`
 reads) and a mix's `mix` (the id of the report kept of it, which `mix.reports.get` reads), each
-with the `drive` its tracks are on when the user names one (else `""`).
+with the `drive` its tracks are on when the user names one (else `""`): which of the three a
+request carries is what it writes out.
 
-- `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
-  without the dot) or `folder = true`, `options`, and `source`: what it writes out, `drive` (a
-  drive's library, unless it says), `set` or `mix`; a set's or a mix's reads it, which takes
+- `[[contributes.exporters]]`: `format` (one per exporter, whatever it writes out), `title`,
+  `extension` (lowercase letters and digits, without the dot) or `folder = true`, `options`, and
+  `source`: what it writes out, `drive` (a drive's library, unless it says), `set` or `mix`, or a
+  list of them (`["drive", "set", "mix"]`) for an exporter that writes each out with the same
+  options. The host refuses a request for a source it doesn't list; reading a set or a mix takes
   `sets:read`.
 
 ### importers
