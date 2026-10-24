@@ -21,3 +21,6 @@ mod software;
 #[cfg(feature = "traktor")]
 #[path = "props/traktor.rs"]
 mod traktor;
+#[cfg(feature = "traktor")]
+#[path = "props/traktor_read.rs"]
+mod traktor_read;

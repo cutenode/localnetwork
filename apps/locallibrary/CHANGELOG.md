@@ -300,7 +300,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
     and a set or a recorded mix as one playlist of the tracks played, in order, from a drive
     (`sets export SET --format traktor --drive DRIVE -o DIR`, `mix RECORDING --drive DRIVE
-    --format serato --export DIR`).
+    --format serato --export DIR`); and Traktor's `collection.nml` read back, `import` adding
+    the keys, BPMs and cues it has for a drive's tracks, and `collection export --from
+    interop:traktor` building a drive from it (tracks, cues, beat grids and playlists).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
     percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
@@ -427,7 +429,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
     `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
-    format, so a build for NML alone needs no SQLite.
+    format, so a build for NML alone needs no SQLite; and reading a `collection.nml` back (tracks,
+    markers, playlists, and a beat grid laid out from its grid markers).
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes, a theme's (`Palette::of`).
