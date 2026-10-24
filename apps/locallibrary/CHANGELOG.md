@@ -227,14 +227,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   locallibrary reads itself, in a folder for each request that `store gc` removes if a crash
   left it. A view command's
   rows show as they come. A command or an operation may ask you something first (which track a
-  tracklist's entry is): picked from a list in a terminal and in the player, or answered with
+  tracklist's entry is), or several things in one round (a `Choice`'s `more`, up to 64): picked
+  from a list each in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
-  the kind is asked, what they find is offered best first (each image held and sent once, and
-  what's kept bounded), one alone scoring `plugin providers --auto-pick` (0.9) or more chosen for
-  you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
-  has both, and its palette the auto-pick; the sidecar `plugins.provide`,
-  `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  the kind is asked, what they find is offered best first (tags only when they'd change a track,
+  each image held and sent once, and what's kept bounded), one alone scoring `plugin providers
+  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed
+  as any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
+  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
   Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
   drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
   problem counting as one, with the command line of the plugin's operation that fixes it when
@@ -295,10 +296,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
-    `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
+    `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
+    percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
+    drawn where a drive has none and written with `analyze --apply waveform`.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
-    album that could be several release groups offered as each of them. It's the only one that
-    goes online, and only when it's run.
+    album that could be several release groups offered as each of them, and from the same
+    MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
+    label when it was found by name, and a track's title and artist when its ISRC found it (a
+    track without an album only from a single of its title). It's the only one that goes online,
+    and only when it's run.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -472,7 +478,8 @@ their old names.
 - Messages say what to run: a sync that can't tell which drive is newer names `sync --from` with
   the drives, a drive left mid-operation names the command that finishes it, `doctor` points
   duplicates to `track dedupe`, unfiled tracks to `playlist unfiled` and missing artwork to `art
-  auto`, and a freshly formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
+  auto` (`check` and `doctor` to `art fetch` too, while a plugin finds cover art), and a freshly
+  formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
   it takes, `--json` mentions `--yes` only on commands that write, and the commands people run
   most have examples in their `--help`.
 - Output can be piped: what a command reports (lists, plans, the problems a check finds) goes to
@@ -536,10 +543,13 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
-- `playlist import` is the tracklist plugin's now. An entry that could be several tracks is asked
-  about (in a terminal; otherwise it stops, exit status 2, saying how to answer): `--choose 3=812`
-  answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves
-  it out. `--json` gives the plan alone. Over RPC, `import.plan` and `import.apply` are gone: plan
+- `playlist import` is the tracklist plugin's now. The entries that could be several tracks are
+  asked about 64 at a time (all at once for most lists), so the list and the drive's library are
+  read once a round rather than once an entry (in a terminal; otherwise it stops, exit status 2,
+  saying how to answer that round's): `--choose 3=812` answers for entry 3, numbered from 1 as
+  the warnings number them, and `--choose 3=null` leaves it out. A track chosen that isn't on the
+  drive (removed since it was asked about) is warned of and left out. `--json` gives the plan
+  alone. Over RPC, `import.plan` and `import.apply` are gone: plan
   with `plugins.op.plan {plugin: "tracklist", operation: "import", params: {file, into, ...},
   context: {drive}}`, which may answer `{"choose": ...}` first, and apply with `plugins.op.apply`.
 - `export --format traktor|serato|engine` is the interop plugin's now. Its options are
@@ -635,6 +645,10 @@ their old names.
 
 ### Fixed
 
+- Tracks your profile hides (`profile hide`) are no longer named when a set is published at a
+  plugin's set destination (`sets publish --to`) or written out in a format for publishing (`sets
+  export` text, Mixcloud, CUE, YouTube, 1001Tracklists). `sets publish --to` takes `--hide` too,
+  and its dry run says which tracks go unnamed and why.
 - A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
   was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
@@ -658,6 +672,9 @@ their old names.
 - What other code writes to stderr while the player runs goes to its messages (`!`) instead of
   over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
   player before it said there's no audio output.
+- The player's outputs list (`d`) opens at once and lists the devices in the background, where
+  the player froze until every one was found (a while with ALSA). Devices that can't be listed
+  say why in the list, which used to show only the system's default.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
 - A drive holding a state the library's latest snapshot went through, though no snapshot holds

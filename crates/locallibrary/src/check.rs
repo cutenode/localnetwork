@@ -33,6 +33,7 @@
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
 use indexmap::IndexMap;
+use loclib_plugin::ProviderKind;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
 use std::path::PathBuf;
@@ -474,11 +475,17 @@ fn files_item(drive: &str, missing: &[doctor::BrokenTrack], item: &mut impl FnMu
         );
     }
     if !artwork.is_empty() {
+        // Named only when the app runs a plugin that finds cover art (see `plugin::set_hosted`).
+        let fetches = crate::plugin::hosted().is_some_and(|p| !p.providers(Some(ProviderKind::Artwork)).is_empty());
+        let fetch = match fetches {
+            true => format!(", and `locallibrary art fetch \"{drive}\"` finds covers online"),
+            false => String::new(),
+        };
         item(
             "files",
             Level::Warning,
             format!(
-                "{} track(s) have no artwork image: {}; `locallibrary art auto \"{drive}\"` fills in art their files embed",
+                "{} track(s) have no artwork image: {}; `locallibrary art auto \"{drive}\"` fills in art their files embed{fetch}",
                 artwork.len(),
                 names(&artwork, 3)
             ),

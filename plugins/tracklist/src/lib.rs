@@ -1,10 +1,13 @@
 //! The tracklist plugin: makes a playlist on a drive from a tracklist (M3U, CSV, rekordbox text or
 //! XML, or "Artist - Title" lines), finding its tracks with loclib-tracklist. It reads the list
 //! itself, as it's the user's own file, and the drive's library through the host; the playlist it
-//! answers is an edit locallibrary plans, confirms and applies. An entry that could be several
-//! tracks it asks the user about first, one at a time (the `choose` feature): the host plans it
-//! again with the answer, the entry's number (`"3"`) set to the track's id, or to `null` to leave
-//! it out.
+//! answers is an edit locallibrary plans, confirms and applies. The entries that could be several
+//! tracks it asks the user about first, all in one round (the `choose` feature, the first as the
+//! question and the rest as its `more`, at most `Choice::MAX_QUESTIONS`): the host plans it again
+//! with the answers, each entry's number (`"3"`) set to the track's id, or to `null` to leave it
+//! out. A host that asks only the first is asked about the rest in the rounds after. A track
+//! chosen that the drive no longer has can't be asked about again (the host refuses a question
+//! about a param it gave), so its entry is missing, warned of as any is.
 //!
 //! It also reads rekordbox XML collections whole: as an importer (`rekordbox-xml`, in
 //! [`xml_import`]), each track's key, tempo and cues for the host to add to a drive's tracks, and
@@ -67,18 +70,20 @@ fn answers(params: &Value) -> Result<Answers, RpcError> {
         .collect()
 }
 
-/// `import`: the playlist filled with the tracks found, in the list's order. While an entry that
-/// could be several tracks isn't answered, the question which (the first such). With none found,
-/// a plan that changes nothing, saying so.
+/// `import`: the playlist filled with the tracks found, in the list's order. While entries that
+/// could be several tracks aren't answered, the questions which, all in one round (as many as
+/// one may ask: the rest in the next). With none found, a plan that changes nothing, saying so.
 fn plan_op(req: PlanOp, host: &Host) -> Result<OpAnswer, RpcError> {
     let import: Import = params(req.params.clone())?;
     let answers = answers(&req.params)?;
     let (report, lib) = matched(&import, &answers, &req.context, host)?;
-    let undecided = (report.entries.iter().enumerate())
-        .find(|(i, m)| matches!(m.status, Status::Ambiguous { .. }) && !answers.contains_key(i));
-    if let Some((i, m)) = undecided {
-        let Status::Ambiguous { candidates } = &m.status else { unreachable!("ambiguous") };
-        return Ok(question(i, m.entry.raw.trim(), candidates, &lib).into());
+    let undecided = report.entries.iter().enumerate().filter(|(i, _)| !answers.contains_key(i));
+    let questions = undecided.filter_map(|(i, m)| match &m.status {
+        Status::Ambiguous { candidates } => Some(question(i, m.entry.raw.trim(), candidates, &lib)),
+        _ => None,
+    });
+    if let Some(asked) = Choice::together(questions) {
+        return Ok(asked.into());
     }
     let files = |ids: &[u32]| lib.tracks_by_id(ids).into_iter().map(|t| t.file_path.clone()).collect::<Vec<_>>();
     // As entries, by file: a set list that played a track twice keeps both. Those left out
@@ -123,7 +128,8 @@ fn question(i: usize, raw: &str, candidates: &[u32], lib: &Library) -> Choice {
         value: t.id.into(),
     });
     let none = ChoiceItem { label: "leave it out".into(), detail: None, value: Value::Null };
-    Choice { title: format!("{n}. {raw}"), param: n.to_string(), multi: false, items: items.chain([none]).collect() }
+    let items = items.chain([none]).collect();
+    Choice { title: format!("{n}. {raw}"), param: n.to_string(), multi: false, items, more: Vec::new() }
 }
 
 /// What tells a candidate from its namesakes: its album and length.
@@ -134,7 +140,8 @@ fn detail(t: &Track) -> Option<String> {
 }
 
 /// The tracklist `req` names, found in the library of the drive the user is on, with the tracks
-/// the user chose (`answers`) found; and that library.
+/// the user chose (`answers`) found, or missing when the drive doesn't have them; and that
+/// library.
 fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> Result<(Report, Library), RpcError> {
     let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
     let file = req.file.display();
@@ -161,10 +168,12 @@ fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> R
             .get_mut(i)
             .ok_or_else(|| RpcError::failed("invalid", format!("no entry {} in the list", i + 1)))?;
         let Some(track) = track else { continue };
-        if lib.track(track).is_none() {
-            return Err(RpcError::failed("not_found", format!("not found: track #{track}")));
-        }
-        m.status = Status::Found { track_id: track, how: MatchKind::Chosen };
+        // A track the drive doesn't have (removed since it was asked about) can't be asked about
+        // again, as the host refuses a question about a param it gave: it's missing, and warned of.
+        m.status = match lib.track(track) {
+            Some(_) => Status::Found { track_id: track, how: MatchKind::Chosen },
+            None => Status::Missing,
+        };
     }
     report.summary = Summary::of(&report.entries);
     Ok((report, lib))

@@ -131,7 +131,8 @@ fn an_xml_playlist_is_the_one_of_exactly_its_path() {
     assert!(err.contains("not found: playlist \"set\""), "{err}");
 }
 
-/// A choice must name an entry the list has and a track the drive has; refused, nothing is made.
+/// A choice must name an entry the list has; refused, nothing is made. One naming a track the
+/// drive hasn't leaves its entry out, saying so.
 #[test]
 fn a_bad_choice_is_refused() {
     let env = Env::new();
@@ -140,8 +141,10 @@ fn a_bad_choice_is_refused() {
     let list = env.outside("list.txt");
     std::fs::write(&list, "Nobody - Nothing\n").unwrap();
     let import = ["--yes", "playlist", "import", d, path(&list), "--into", "Set", "--choose"];
-    let err = env.fails(1, &[&import[..], &["1=999"]].concat());
-    assert!(err.contains("not found: track #999"), "{err}");
+    let r = env.run(&[&import[..], &["1=999"]].concat());
+    let said = format!("{}{}", r.out, r.err);
+    assert_eq!(r.code, 0, "{said}");
+    assert!(said.contains("1. Nobody - Nothing isn't on the drive"), "{said}");
     let first = pdb_library(&root).tracks[0].id;
     let err = env.fails(1, &[&import[..], &[format!("6={first}").as_str()]].concat());
     assert!(err.contains("no entry 6 in the list"), "{err}");

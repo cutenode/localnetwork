@@ -793,6 +793,7 @@ fn outputs_name_the_default() {
         names: vec!["MacBook Speakers".into(), "DJM-A9".into()],
         default: Some("MacBook Speakers".into()),
         state: ListState::default().with_selected(Some(0)),
+        ..Default::default()
     });
     let s = screen(&mut app, 100, 24);
     assert!(s.contains("the system's default (MacBook Speakers)") && s.contains("DJM-A9"), "{s}");
@@ -1070,6 +1071,7 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
                 names: names.clone(),
                 default: None,
                 state: ListState::default().with_selected(Some(sel)),
+                ..Default::default()
             });
             ([vec!["the system's default".to_string()], names].concat(), sel)
         }
@@ -1562,6 +1564,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
                 names: vec!["MacBook Speakers".into(), "DJM-A9".into()],
                 default: Some("MacBook Speakers".into()),
                 state: ListState::default().with_selected(Some(0)),
+                ..Default::default()
             });
             vec!["the system's default (MacBook Speakers)".to_string(), "DJM-A9".into()]
         }

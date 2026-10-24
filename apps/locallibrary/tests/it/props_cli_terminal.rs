@@ -414,7 +414,7 @@ fn the_night_before_job_is_said_to_have_moved(tc: TestCase) {
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn colour_is_what_color_says(tc: TestCase) {
     let fx = Env::from_template();
-    let listings: [&[&str]; 14] = [
+    let listings: &[&[&str]] = &[
         &["profile", "sections"],
         &["profile", "Club"],
         &["profile", "prefs"],
@@ -428,6 +428,7 @@ fn colour_is_what_color_says(tc: TestCase) {
         &["plays", "stats", "Club"],
         &["players", "models"],
         &["undo", "--list"],
+        #[cfg(feature = "account")]
         &["account"],
     ];
     // `profile` says when it was built, to the minute, so runs either side of a minute's turn
@@ -436,7 +437,7 @@ fn colour_is_what_color_says(tc: TestCase) {
     let unstamped =
         |s: &str| s.lines().map(|l| l.split_once(" built ").map_or(l, |(head, _)| head)).collect::<Vec<_>>().join("\n");
     let mut coloured_any = false;
-    for listing in tc.draw(gs::permutations(&listings[..])) {
+    for listing in tc.draw(gs::permutations(listings)) {
         let ascii: &[&str] = if tc.draw(gs::booleans()) { &["--ascii"] } else { &[] };
         #[cfg(unix)]
         let piped = unstamped(&fx.ok(&[ascii, listing].concat()));

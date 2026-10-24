@@ -142,6 +142,13 @@ jobs:
       # is in without an edit here. `--in-place` mutates this checkout rather than a copy of it. A
       # step timeout, inside the job's, still leaves the partial results to report and upload.
       - timeout-minutes: 90
+        env:
+          # Each test process gets at most 2 GiB of data (prlimit as nextest's target runner), so a
+          # mutant that grows an allocation without bound fails its test on an allocation error.
+          # Unlimited, a mutant that made the resampler's weights millions of taps long filled the
+          # runner's 16 GB, and the runner lost its connection with the shard's results unsaved.
+          # Unmutated, every test here runs within 1 GiB, and nextest runs four at a time here.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: prlimit --data=2147483648
         run: |
           base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
           if [ -z "$base" ]; then

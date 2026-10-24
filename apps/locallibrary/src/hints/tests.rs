@@ -110,6 +110,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "drive.reidentify",
         "snapshot.label",
         "convert.plan",
+        #[cfg(feature = "account")]
         "account.login.begin",
         "settings.schema",
         "settings.import.plan",

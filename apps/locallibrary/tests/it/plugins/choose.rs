@@ -50,6 +50,24 @@ fn a_command_asks_and_is_answered_with_choose() {
     assert!(format!("{}{}", r.out, r.err).contains("answer with --choose pick=VALUE"), "{}\n{}", r.out, r.err);
 }
 
+/// Questions asked together, without a terminal, are refused saying how to answer each; given
+/// every answer, the command runs once with them all.
+#[test]
+fn questions_asked_together_are_each_answered_with_choose() {
+    let env = env();
+    let mut params: Value = serde_json::from_str(&ask("pick", &[json!(1), json!(2)])).unwrap();
+    let more: Value = serde_json::from_str(&ask("other", &[json!("a"), json!("b")])).unwrap();
+    params["ask"]["more"] = json!([more["ask"]]);
+    let params = params.to_string();
+    let titles = ["echo", "titles", "USB", "--params", &params];
+    let asked = env.fails(2, &titles);
+    let said = "Which one?: answer with --choose pick=VALUE, VALUE one of:\n  1  is 1\n  2  is 2\n\
+                Which one?: answer with --choose other=VALUE, VALUE one of:\n  \"a\"  is \"a\"\n  \"b\"  is \"b\"";
+    assert!(asked.contains(said), "{asked}");
+    let both = env.ok(&[&titles[..], &["--choose", "pick=2", "--choose", "other=b"]].concat());
+    assert_eq!(both.trim(), "2 \"b\"");
+}
+
 #[test]
 fn an_operation_asks_and_is_planned_answered() {
     let env = env();

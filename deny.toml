@@ -23,6 +23,12 @@ ignore = [
     # in through jacquard-oauth's jose-jwk, for JWK types. Sign-in signs with an ES256 DPoP key
     # and never holds an RSA private key, so there's nothing to leak.
     { id = "RUSTSEC-2023-0071", reason = "no RSA private key is ever used" },
+    # crypto-bigint 0.5.5's constant-time gaps (fixed only in 0.7.6). It comes in through
+    # k256, p256 and p384 0.13, which jacquard-common, jacquard-oauth and jose-jwk 0.12.2 (the
+    # latest) require. The secret it touches is the ES256 DPoP key sign-in makes per session,
+    # and reading it needs timing measurements on this machine. Remove this once jacquard moves
+    # to the RustCrypto 0.14 crates.
+    { id = "RUSTSEC-2026-0387", reason = "no fixed crypto-bigint reachable through jacquard 0.12" },
 ]
 
 [licenses]

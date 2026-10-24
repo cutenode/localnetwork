@@ -131,6 +131,23 @@
 					</form>
 				{/if}
 			{/if}
+			{#if data.verification}
+				<Card as="section" class="flex flex-col items-start gap-3 text-small">
+					<h2 class="section-title">Bluesky verification</h2>
+					{#await data.verification}
+						<span class="inline-block h-6 w-24 animate-pulse rounded-full bg-raised" aria-hidden="true"></span><span class="sr-only">Checking</span>
+					{:then status}
+						{#if !status}
+							<p class="text-fg-muted">Couldn't check right now.</p>
+						{:else}
+							<StatusPill {status} />
+						{/if}
+						{#if status && status !== 'verified'}
+							<a class="btn-secondary w-full" href="/admin/verifications?subject={encodeURIComponent(request.requester.handle ?? request.requester.did)}">{status === 'outdated' ? 'Re-issue verification' : 'Verify on Bluesky'}</a>
+						{/if}
+					{/await}
+				</Card>
+			{/if}
 			<Card as="section" class="text-small">
 				<h2 class="section-title">Requester history</h2>
 				<ul class="mt-1 divide-y divide-line">

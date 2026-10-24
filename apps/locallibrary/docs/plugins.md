@@ -15,6 +15,8 @@ are:
 - **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
   check before a set and ordering a set read tempos, keys and levels from (see [Roles](#roles)).
+  It also works out a three-band waveform, which the player draws for a track whose drive has
+  none (see [Analysis](#analysis)).
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
   several. It reads rekordbox XML collections too, as an import format (`rekordbox-xml`) and a
@@ -22,8 +24,9 @@ are:
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
-  fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
-  it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
+  fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
+  [Providers](#providers)). It's the only one that goes online, and only when you run it, through
+  locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
 
 ## What you have
 
@@ -122,10 +125,12 @@ labelled values, a tree, a chart (as a table of its points), a picture (said in 
 sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
 picture as a PNG `data:` URL); an operation shows its plan
 and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
-Either may ask you something first (which track an entry is, say): in a terminal you pick from a
-numbered list; otherwise, or with `--json`, it stops and says how to answer with `--choose
+Either may ask you something first (which track an entry is, say), or several things at once
+(which track each of a tracklist's entries is): in a terminal you pick from a numbered list for
+each; otherwise, or with `--json`, it stops and says how to answer each with `--choose
 PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the actions menu
-where the plugin offers them, and a question one asks is a list to pick from. On the command
+where the plugin offers them, and a question one asks is a list to pick from, several one after
+another (titled `2 of 5` and so on, esc cancelling them all). On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
 its flag gives it otherwise.
 
@@ -143,9 +148,10 @@ PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer 
 file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
 locallibrary writes the store.
 
-A set destination publishes a set's recording with its tracklist (tracks marked unnamed stay
-unnamed, notes stay private): `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the
-plugin what would happen first, shows it and always asks before anything goes (`--dry-run` stops
+A set destination publishes a set's recording with its tracklist (tracks marked unnamed, tracks
+your profile hides and those `--hide 3,7` names go without their names, notes stay private):
+`locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
+shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
 there), and keeps where the set can be heard as its link.
 
 ## Events
@@ -232,7 +238,8 @@ A provider finds cover art or details (tags) for tracks, online usually: `locall
 album, year, genre, label, ISRC). They ask every provider of that kind about a library's tracks
 (`--track`, `--playlist`, `--filter`... for some), only those without artwork, or missing a tag,
 unless `--replace`; `--from PLUGIN` (or `PLUGIN.PROVIDER`) asks only that one. What they find for
-each track is listed best first, with how sure each provider is. One alone scoring `plugin
+each track is listed best first, with how sure each provider is, leaving out tags that would
+change nothing (what the track has, or a tag it has without `--replace`). One alone scoring `plugin
 providers`' auto-pick or more (0.9 unless `plugin providers --auto-pick 0.8`, or "provider
 settings…" in the player's palette, says otherwise, kept in the store as `providers.auto_pick`) is
 chosen for you; you pick the others, in a terminal, or with `--choose TRACK=N` (`--choose
@@ -243,6 +250,17 @@ in the actions menu ask the providers about the tracks selected. A provider neve
 library itself, and needs no capability to: it's given the tracks' tags (`library:read`) and
 answers what it found. Of what one answers, locallibrary keeps 25 candidates a track and 50,000 in
 all, and images coming to 512 MiB; past that it leaves the rest out and says so.
+
+The coverart plugin has one of each, and looks each album up on MusicBrainz once for either: by
+a track's ISRC first, else by the album's name and artist. `coverart.covers` offers the front cover
+of each release group it could be. `coverart.tags` offers each one's album title and year, and
+its label only when it was found by name (MusicBrainz's ISRC search doesn't name labels). When
+it's the only release group named so, a second lookup adds its top genre and the year it first
+came out; otherwise the year is the earliest of its releases the search listed. A track whose
+ISRC found it also gets that recording's title and artist; the album's other tracks get the
+album's details alone. A track without an album is looked up by its title, and gets details only
+from a single of that name, never from an album it's the title track of. One release group found
+by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 ## Roles
 
@@ -297,13 +315,13 @@ A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a fu
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. A command or an operation may answer a question for you (`Choice`) instead, and is run
-again with your answer as one of its params. A view (a command's, a panel's) is any of
-loclib-plugin's kinds, each with a plain text form for a host that can't draw it, and a theme
-is a table of colours in the manifest. `Hooks::on_event` handles events, a service is a hook
-that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks
-is an optional feature of the
-protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
+ready. A command or an operation may answer a question for you (`Choice`) instead, or several
+at once (`Choice::together`), and is run again with your answers as its params. A view (a
+command's, a panel's) is any of loclib-plugin's kinds, each with a plain text form for a host
+that can't draw it, and a theme is a table of colours in the manifest. `Hooks::on_event`
+handles events, a service is a hook that runs until it's cancelled, and `host.notify(..)` tells
+you something. Each family of hooks is an optional feature of the protocol, so a newer
+locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety
 
