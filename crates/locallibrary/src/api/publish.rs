@@ -9,7 +9,6 @@
 //! plan needs no sign-in, so a record can be looked at before signing in. Everything published
 //! is public.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -272,16 +271,6 @@ pub struct SetPublishRequest {
     pub hide: Vec<usize>,
 }
 
-/// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
-fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
-    let list: Vec<String> = positions.iter().map(usize::to_string).collect();
-    match list.as_slice() {
-        [] => None,
-        [one] => Some(format!("track {one} isn't named: {why}")),
-        many => Some(format!("tracks {} aren't named: {why}", many.join(", "))),
-    }
-}
-
 /// A set as its record: where and when it was played, who with, and its tracks in order
 /// (unidentified where the set, the request or the profile says not to name them), keyed by the
 /// set's id. Planned signed out, it can only be looked at.
@@ -296,9 +285,7 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     let store = Store::open(store_root)?;
     let book = SetBook::load(&store)?;
     let set = book.find(&req.set)?;
-    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
-        return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
-    }
+    let unnamed = set.unnamed(&req.hide, &ProfilePrefs::load(&store)?)?;
     if set.tracks.len() > publish::SET_TRACK_LIMIT {
         return Err(Error::invalid(format!(
             "the set has {} tracks, more than a set record holds ({}): drop some first (`sets edit --drop`)",
@@ -306,31 +293,11 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
             publish::SET_TRACK_LIMIT
         )));
     }
-    let prefs = ProfilePrefs::load(&store)?;
-    let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
-    for (i, e) in set.tracks.iter().enumerate() {
-        let n = i + 1;
-        if e.unnamed {
-            marked.push(n);
-        } else if req.hide.contains(&n) {
-            asked.push(n);
-        } else if !prefs.may_name(&e.name(), &e.artist) {
-            profile.push(n);
-        }
-    }
-    let mut notes: Vec<String> = [
-        unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
-        unnamed_note(&asked, "hidden as asked"),
-        unnamed_note(&profile, "hidden by your profile (`profile unhide`)"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
+    let mut notes = unnamed.notes;
     // How tracks came in is in the recording's report: without it (gone from the store), it's left out.
     let report =
         set.recording.as_ref().and_then(|r| r.report.as_deref()).and_then(|id| report::load(store_root, id).ok());
-    let mut record = publish::set_record(set, &hidden, report.as_ref(), Utc::now());
+    let mut record = publish::set_record(set, &unnamed.positions, report.as_ref(), Utc::now());
     if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
         notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
     }

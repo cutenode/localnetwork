@@ -629,6 +629,10 @@ their old names.
 
 ### Fixed
 
+- Tracks your profile hides (`profile hide`) are no longer named when a set is published at a
+  plugin's set destination (`sets publish --to`) or written out in a format for publishing (`sets
+  export` text, Mixcloud, CUE, YouTube, 1001Tracklists). `sets publish --to` takes `--hide` too,
+  and its dry run says which tracks go unnamed and why.
 - A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
   was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
