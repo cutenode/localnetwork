@@ -7,6 +7,7 @@ import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/cor
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
+import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
@@ -251,6 +252,22 @@ describe('Local Network on a real atproto spaces network', () => {
 				profile: profile('Hijack')
 			})
 		).rejects.toBeInstanceOf(ForbiddenError);
+		// The dashboard's form turns someone who doesn't manage the project away before it reads what they sent.
+		const { slug } = (await net.app.projects.byUri(projectUri))!;
+		const url = new URL(`http://127.0.0.1/dashboard/projects/${slug}/profile`);
+		const form = new FormData();
+		form.set('name', 'Hijack');
+		const lee = await net.viewer('lee');
+
+		await expect(
+			proposeChanges.default({
+				params: { slug },
+				url,
+				request: new Request(url, { method: 'POST', body: form }),
+				locals: { app: net.app, viewer: lee, log: silentLogger }
+			})
+		).rejects.toMatchObject({ status: 403 });
+		expect(await net.app.requests.list({ requester: lee.did })).toEqual([]);
 		await net.app.requests.decide({ actor: ada, uri: update.uri, outcome: 'approved' });
 		const updated = await net.app.projects.byUri(projectUri);
 		expect(updated).toMatchObject({

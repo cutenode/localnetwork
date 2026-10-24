@@ -27,12 +27,25 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	return viewer;
 }
 
+const isUnder = (path: string, area: string) => path === area || path.startsWith(`${area}/`);
+
+/**
+ * Guards the signed-in areas by path, from the server hook: the dashboard needs a viewer and the
+ * staff console needs staff. A layout's check alone isn't enough, since SvelteKit runs a page's
+ * loads alongside its layouts', so they'd query before the layout refused.
+ */
+export function guardArea(locals: LocalsLike, url: URL): void {
+	if (isUnder(url.pathname, '/dashboard')) requireViewer(locals, url);
+
+	if (isUnder(url.pathname, '/admin')) requireStaff(locals, url);
+}
+
 /**
  * Only allow same-site relative redirects after sign-in. Browsers drop tabs and newlines from a
  * URL and read a backslash as a slash, so those are refused outright, and what's left has to
  * resolve to this site the way a browser would resolve it.
  */
-export function safeNext(value: string | null | undefined, fallback = '/me'): string {
+export function safeNext(value: string | null | undefined, fallback = '/dashboard'): string {
 	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
 
 	const base = 'http://same.site';

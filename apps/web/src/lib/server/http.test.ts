@@ -8,6 +8,7 @@ import {
 	all,
 	cacheBriefly,
 	clientIp,
+	guardArea,
 	limit,
 	optionalCurrency,
 	requireAdmin,
@@ -81,20 +82,20 @@ describe('act', () => {
 describe('safeNext', () => {
 	it('only allows same-site paths', () => {
 		expect(safeNext('/projects?q=a')).toBe('/projects?q=a');
-		expect(safeNext('//evil.test')).toBe('/me');
-		expect(safeNext('/\\evil.test')).toBe('/me');
+		expect(safeNext('//evil.test')).toBe('/dashboard');
+		expect(safeNext('/\\evil.test')).toBe('/dashboard');
 		expect(safeNext('https://evil.test', '/')).toBe('/');
-		expect(safeNext(null)).toBe('/me');
+		expect(safeNext(null)).toBe('/dashboard');
 	});
 
 	it('refuses paths a browser would read as another site', () => {
 		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
 		// these becomes `//evil.test`.
 		for (const next of ['/\t/evil.test', '/\n/evil.test', '/\r\n/evil.test', '/\\\\evil.test', '/x\\..\\\\evil.test']) {
-			expect(safeNext(next)).toBe('/me');
+			expect(safeNext(next)).toBe('/dashboard');
 		}
 
-		expect(safeNext('/ /evil.test')).toBe('/me');
+		expect(safeNext('/ /evil.test')).toBe('/dashboard');
 		expect(safeNext('/%09/evil.test')).toBe('/%09/evil.test');
 	});
 });
@@ -128,6 +129,28 @@ describe('guards', () => {
 		expect(thrown(() => requireAdmin({ viewer: viewer('moderator') }, url))).toMatchObject({ status: 403 });
 		expect(requireStaff({ viewer: viewer('moderator') }, url).did).toBe('did:plc:a');
 		expect(requireAdmin({ viewer: viewer('admin') }, url).isAdmin).toBe(true);
+	});
+
+	it('guards the dashboard and the staff console by path, and nothing else', () => {
+		const at = (path: string) => new URL(path, 'https://x.test');
+
+		expect(thrown(() => guardArea({ viewer: null }, at('/dashboard/bookings?x=1')))).toMatchObject({
+			status: 303,
+			location: '/login?next=%2Fdashboard%2Fbookings%3Fx%3D1'
+		});
+		expect(thrown(() => guardArea({ viewer: null }, at('/dashboard')))).toMatchObject({ status: 303 });
+		expect(thrown(() => guardArea({ viewer: viewer() }, at('/dashboard/planner')))).toBeUndefined();
+		expect(thrown(() => guardArea({ viewer: null }, at('/admin/requests')))).toMatchObject({
+			status: 303,
+			location: '/login?next=%2Fadmin%2Frequests'
+		});
+		expect(thrown(() => guardArea({ viewer: viewer() }, at('/admin')))).toMatchObject({ status: 403 });
+		expect(thrown(() => guardArea({ viewer: viewer() }, at('/admin/audit/export')))).toMatchObject({ status: 403 });
+		expect(thrown(() => guardArea({ viewer: viewer('moderator') }, at('/admin/requests')))).toBeUndefined();
+		// Only whole path segments count, and public pages stay open.
+		expect(thrown(() => guardArea({ viewer: null }, at('/dashboards')))).toBeUndefined();
+		expect(thrown(() => guardArea({ viewer: viewer() }, at('/administer')))).toBeUndefined();
+		expect(thrown(() => guardArea({ viewer: null }, at('/projects/neon-tide')))).toBeUndefined();
 	});
 
 	it('reads repeated fields and the client address', () => {
