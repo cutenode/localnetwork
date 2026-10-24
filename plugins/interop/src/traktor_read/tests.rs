@@ -638,55 +638,93 @@ fn a_collection_reads_as_its_library(tc: TestCase) {
     s.stop();
 }
 
-/// Tracks of any length with grids at any tempo (a day at the fastest a grid holds too) come a
-/// page at a time, each page holding fewer than 100,000 beats and cues before its last track,
-/// and no track more than a day's beats at 655.35 BPM; every track comes once, in order.
-#[hegel::test(test_cases = 10)]
-fn pages_hold_a_bounded_grid(tc: TestCase) {
+/// A track a page could hold: of some length (or none), with a grid at a tempo up to the fastest
+/// one holds, and some cues.
+#[hegel::composite]
+fn paged(tc: &TestCase) -> Entry {
+    let marker = |kind, start_ms, bpm| Marker {
+        kind,
+        name: String::new(),
+        start_ms,
+        len_ms: 0.0,
+        hot_cue: None,
+        color: None,
+        bpm,
+    };
+    let bpm = tc.draw(gs::sampled_from(vec![60.0, 120.0, 655.35]));
+    let mut markers = vec![marker(MarkerKind::Grid, 0.0, Some(bpm))];
+    let cues = tc.draw(gs::integers::<u32>().max_value(4));
+    markers.extend((0..cues).map(|i| marker(MarkerKind::Cue, f64::from(i) * 1000.0, None)));
+    Entry {
+        location: traktor::Location {
+            volume: "USB".into(),
+            dir: "/:".into(),
+            file: format!("{}.mp3", tc.draw(gs::integers::<u32>())),
+        },
+        duration_secs: tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(120))).map(f64::from),
+        markers,
+        ..Entry::default()
+    }
+}
+
+/// Whatever the tracks and a page's limits (as small as one track, or a beat), pages hold at
+/// most their tracks, fewer beats and cues than their budget before their last track, and end
+/// early only for the budget; every track comes once, in order, each grid laid down to its
+/// track's end, and grids with no length to end at are counted over every page.
+#[hegel::test(test_cases = 200)]
+fn pages_keep_to_their_limits(tc: TestCase) {
+    let entries = tc.draw(gs::vecs(paged()).max_size(12));
+    let limits = Limits {
+        tracks: tc.draw(gs::integers::<usize>().min_value(1).max_value(5)),
+        marks: tc.draw(gs::integers::<usize>().min_value(1).max_value(20_000)),
+    };
+    let (mut from, mut unlaid, mut paths) = (0, Vec::new(), Vec::new());
+    while from < entries.len() {
+        let page = page_tracks(&entries[from..], "Macintosh HD", |_| true, limits, &mut unlaid);
+        let marks: Vec<usize> = page.iter().map(|t| t.beats.len() + t.cues.len()).collect();
+        let (_, before_last) = marks.split_last().expect("a track a page");
+        assert!(page.len() <= limits.tracks, "{limits:?}");
+        assert!(before_last.iter().sum::<usize>() < limits.marks, "{marks:?} {limits:?}");
+        let ended_early = page.len() < limits.tracks && from + page.len() < entries.len();
+        assert!(!ended_early || marks.iter().sum::<usize>() >= limits.marks, "{marks:?} {limits:?}");
+        for (t, e) in page.iter().zip(&entries[from..]) {
+            let fastest = e.markers[0].bpm.unwrap();
+            let most = e.duration_secs.map_or(0.0, |s| s * fastest / 60.0) + 1.0;
+            assert!(t.beats.len() as f64 <= most, "{} beats in {:?}s at {fastest}", t.beats.len(), e.duration_secs);
+        }
+        from += page.len();
+        paths.extend(page.into_iter().map(|t| t.path));
+    }
+    let want: Vec<PathBuf> = entries.iter().map(|e| e.location.path("Macintosh HD")).collect();
+    assert_eq!(paths, want);
+    let no_length = entries.iter().filter(|e| e.duration_secs.is_none()).count();
+    let counted: usize = unlaid.iter().map(|(_, n)| n).sum();
+    assert_eq!(counted, no_length);
+}
+
+/// With the real limits, a page of long tracks at fast tempos ends after the track that brings
+/// it to 100,000 beats and cues, and what was left out over every page comes with the last.
+#[test]
+fn a_page_ends_once_its_beats_and_cues_reach_100_000() {
     let s = start();
     let music = s.granted("music");
-    let scratch = s.granted("scratch");
-    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(10));
-    let tracks: Vec<Track> = (1..=n)
-        .map(|id| Track {
-            duration_secs: tc.draw(gs::sampled_from(vec![0, 600, 7200, 86_400])),
-            bpm: tc.draw(gs::sampled_from(vec![120.0, 655.35])),
-            ..track(id, "", &format!("T{id}"), &format!("/music/{id}.mp3"))
-        })
-        .collect();
-    let library = Library { tracks, ..Library::default() };
-    let bpms: FxHashMap<u32, f64> = library.tracks.iter().map(|t| (t.id, t.bpm)).collect();
-    let file =
-        s.built(&library, &|t: &Track| TrackAnalysis { beats: grid(bpms[&t.id], 0, 1), ..TrackAnalysis::default() });
-    let mut titles = Vec::new();
-    let mut cursor: Option<String> = None;
-    let warnings = loop {
-        let page = s
-            .read_library(&file, std::slice::from_ref(&music), cursor.as_deref(), json!({ "scratch": scratch }))
-            .unwrap();
-        let page = match page.blob {
-            Some(blob) => LibraryPage {
-                next: page.next,
-                ..serde_json::from_slice(&std::fs::read(scratch.join(blob)).unwrap()).unwrap()
-            },
-            None => page,
-        };
-        let marks: Vec<usize> = page.tracks.iter().map(|t| t.beats.len() + t.cues.len()).collect();
-        let (_, before_last) = marks.split_last().expect("a track a page");
-        assert!(before_last.iter().sum::<usize>() < 100_000, "{marks:?}");
-        assert!(marks.iter().all(|m| *m <= 943_705), "{marks:?}");
-        titles.extend(page.tracks.into_iter().map(|t| t.title));
-        cursor = page.next;
-        if cursor.is_none() {
-            break page.warnings;
-        }
-        assert!(page.warnings.is_empty(), "said with the last page only: {:?}", page.warnings);
+    // About 60,000 beats each at 655.35 BPM, and one with no length to lay its grid down to.
+    let long = |id| Track {
+        duration_secs: 5500,
+        bpm: 655.35,
+        ..track(id, "", &format!("T{id}"), &format!("/music/{id}.mp3"))
     };
-    assert_eq!(titles, library.tracks.iter().map(|t| t.title.clone()).collect::<Vec<_>>());
-    // The grids with no length to end at, counted over every page.
-    let unlaid = library.tracks.iter().filter(|t| t.duration_secs == 0).count();
-    let said = (unlaid > 0)
-        .then(|| format!("{unlaid} beat grid(s) left out: the track's length isn't known, or is over a day"));
-    assert_eq!(warnings, Vec::from_iter(said));
+    let library = Library {
+        tracks: vec![long(1), long(2), long(3), Track { duration_secs: 0, ..long(4) }],
+        ..Library::default()
+    };
+    let file = s.built(&library, &|_| TrackAnalysis { beats: grid(655.35, 0, 1), ..TrackAnalysis::default() });
+    let first = s.read_library(&file, std::slice::from_ref(&music), None, json!({})).unwrap();
+    let beats: Vec<usize> = first.tracks.iter().map(|t| t.beats.len()).collect();
+    assert_eq!((beats.len(), first.warnings.len()), (2, 0), "{beats:?}");
+    assert!(beats[0] < 100_000 && beats.iter().sum::<usize>() >= 100_000, "{beats:?}");
+    let last = s.read_library(&file, std::slice::from_ref(&music), first.next.as_deref(), json!({})).unwrap();
+    assert_eq!((last.tracks.len(), last.next), (2, None));
+    assert_eq!(last.warnings, ["1 beat grid(s) left out: the track's length isn't known, or is over a day"]);
     s.stop();
 }

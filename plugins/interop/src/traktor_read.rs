@@ -21,15 +21,21 @@ use serde::{Deserialize, Serialize};
 /// (16 MiB), for the rest of the message around it.
 const MESSAGE: usize = 8 << 20;
 
-/// How many of a collection's tracks a page of `library/read` holds at most.
-const PAGE: usize = 1000;
+/// How big a page of `library/read` gets.
+#[derive(Clone, Copy, Debug)]
+struct Limits {
+    /// The most tracks it holds.
+    tracks: usize,
+    /// How many beats and cues it holds before it ends, after the track that brings it there.
+    marks: usize,
+}
 
-/// How many beats and cues a page holds before it ends, after the track that brings it there:
-/// grids of long tracks at fast tempos would otherwise make a page of a thousand tracks hundreds
-/// of millions of beats. A track's own grid is at most a day's beats (see `Entry::beats`). This
-/// keeps each page small; the host stops a whole read past 2^26 (some 67 million) beats and cues,
-/// hundreds of pages, more than any library has.
-const PAGE_MARKS: usize = 100_000;
+/// A page's limits: a thousand tracks, and 100,000 beats and cues, as grids of long tracks at
+/// fast tempos would otherwise make a page of a thousand tracks hundreds of millions of beats. A
+/// track's own grid is at most a day's beats (see `Entry::beats`). This keeps each page small;
+/// the host stops a whole read past 2^26 (some 67 million) beats and cues, hundreds of pages,
+/// more than any library has.
+const LIMITS: Limits = Limits { tracks: 1000, marks: 100_000 };
 
 /// The source's options.
 #[derive(Deserialize)]
@@ -83,20 +89,8 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
     })?;
     let from = entries.len() - rest.len();
     let startup = traktor::startup_disk();
-    let (mut tracks, mut marks) = (Vec::new(), 0);
-    for e in rest.iter().take(PAGE) {
-        // The page ends after the track that brings its beats and cues to `PAGE_MARKS`.
-        if marks >= PAGE_MARKS {
-            break;
-        }
-        let path = e.location.path(&startup);
-        let track = match req.roots.iter().any(|root| crate::resolved(&path).starts_with(root)) {
-            true => source_track(e, path, unlaid),
-            false => SourceTrack { path, ..SourceTrack::default() },
-        };
-        marks += track.beats.len() + track.cues.len();
-        tracks.push(track);
-    }
+    let granted = |path: &Path| req.roots.iter().any(|root| crate::resolved(path).starts_with(root));
+    let tracks = page_tracks(rest, &startup, granted, LIMITS, unlaid);
     let to = from + tracks.len();
     let last = to == entries.len();
     let (mut playlists, mut warnings) = (Vec::new(), Vec::new());
@@ -119,6 +113,32 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,
     })
+}
+
+/// The tracks of the page that starts with `rest`'s first, within `limits`: each whose file is
+/// `granted` (in a folder the user granted) with all it holds, the others by path alone.
+fn page_tracks(
+    rest: &[Entry],
+    startup: &str,
+    granted: impl Fn(&Path) -> bool,
+    limits: Limits,
+    unlaid: &mut Vec<(&'static str, usize)>,
+) -> Vec<SourceTrack> {
+    let (mut tracks, mut marks) = (Vec::new(), 0);
+    for e in rest.iter().take(limits.tracks) {
+        // The page ends after the track that brings its beats and cues to the budget.
+        if marks >= limits.marks {
+            break;
+        }
+        let path = e.location.path(startup);
+        let track = match granted(&path) {
+            true => source_track(e, path, unlaid),
+            false => SourceTrack { path, ..SourceTrack::default() },
+        };
+        marks += track.beats.len() + track.cues.len();
+        tracks.push(track);
+    }
+    tracks
 }
 
 /// An entry as a source's track: its tags, key, tempo, cues (loops by where they end) and the
