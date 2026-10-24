@@ -10,8 +10,8 @@
 //! about a param it gave), so its entry is missing, warned of as any is.
 //!
 //! It also reads rekordbox XML collections whole: as an importer (`rekordbox-xml`, in
-//! [`xml_import`]), each track's key, tempo and cues for the host to add to a drive's tracks, and
-//! as a library source (in [`xml_source`]), the tracks with their tags, cues and beat grids and
+//! `xml_import`), each track's key, tempo and cues for the host to add to a drive's tracks, and
+//! as a library source (in `xml_source`), the tracks with their tags, cues and beat grids and
 //! the playlists, to build a drive from.
 
 mod xml_file;
