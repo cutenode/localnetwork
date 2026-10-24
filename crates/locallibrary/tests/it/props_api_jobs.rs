@@ -33,7 +33,7 @@ fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
         Some(k) => assert_eq!(StepKind::parse(&other).unwrap(), *k),
         None => {
             let e = StepKind::parse(&other).unwrap_err().to_string();
-            assert!(e.contains("clean, replay, smart, player, settings, pull, sync, check, eject"), "{e}");
+            assert!(e.contains("clean, replay, smart, player, settings, operations, pull, sync, check, eject"), "{e}");
         }
     }
 }
@@ -540,7 +540,7 @@ fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
         assert_eq!(api::refresh_drive(Some(&p.store)).unwrap().root(), p.main);
     }
     let drive = (!unnamed).then(|| path(&p.main));
-    let req = api::RefreshRequest { drive, skip: skip.clone(), sync };
+    let req = api::RefreshRequest { drive, skip: skip.clone(), sync, ..Default::default() };
     let plan = api::refresh_plan(&p.store, &req, &ctx).unwrap();
     let skipped = |k: StepKind| skip.contains(&k);
     let mut want = Vec::new();
