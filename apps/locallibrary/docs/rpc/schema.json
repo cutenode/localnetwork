@@ -32692,7 +32692,7 @@
           "items": {
             "$ref": "#/$defs/Offer"
           },
-          "description": "Each track something was found for, in the library's order."
+          "description": "Each track something was found for (tags only when they'd change it), in the library's\norder."
         },
         "images": {
           "type": "object",

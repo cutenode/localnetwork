@@ -21,8 +21,9 @@ are:
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
-  fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
-  it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
+  fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
+  [Providers](#providers)). It's the only one that goes online, and only when you run it, through
+  locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
 
 ## What you have
 
@@ -230,7 +231,8 @@ A provider finds cover art or details (tags) for tracks, online usually: `locall
 album, year, genre, label, ISRC). They ask every provider of that kind about a library's tracks
 (`--track`, `--playlist`, `--filter`... for some), only those without artwork, or missing a tag,
 unless `--replace`; `--from PLUGIN` (or `PLUGIN.PROVIDER`) asks only that one. What they find for
-each track is listed best first, with how sure each provider is. One alone scoring `plugin
+each track is listed best first, with how sure each provider is, leaving out tags that would
+change nothing (what the track has, or a tag it has without `--replace`). One alone scoring `plugin
 providers`' auto-pick or more (0.9 unless `plugin providers --auto-pick 0.8`, or "provider
 settings…" in the player's palette, says otherwise, kept in the store as `providers.auto_pick`) is
 chosen for you; you pick the others, in a terminal, or with `--choose TRACK=N` (`--choose
@@ -241,6 +243,17 @@ in the actions menu ask the providers about the tracks selected. A provider neve
 library itself, and needs no capability to: it's given the tracks' tags (`library:read`) and
 answers what it found. Of what one answers, locallibrary keeps 25 candidates a track and 50,000 in
 all, and images coming to 512 MiB; past that it leaves the rest out and says so.
+
+The coverart plugin has one of each, and looks each album up on MusicBrainz once for either: by
+a track's ISRC first, else by the album's name and artist. `coverart.covers` offers the front cover
+of each release group it could be. `coverart.tags` offers each one's album title and year, and
+its label only when it was found by name (MusicBrainz's ISRC search doesn't name labels). When
+it's the only release group named so, a second lookup adds its top genre and the year it first
+came out; otherwise the year is the earliest of its releases the search listed. A track whose
+ISRC found it also gets that recording's title and artist; the album's other tracks get the
+album's details alone. A track without an album is looked up by its title, and gets details only
+from a single of that name, never from an album it's the title track of. One release group found
+by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 
 ## Roles
 

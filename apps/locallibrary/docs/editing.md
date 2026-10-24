@@ -62,7 +62,7 @@ locallibrary playlist unfiled Home                   # tracks in no playlist, so
 locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
 locallibrary track set Home --track 12 --bpm 126.5 --isrc GBDUW0000059 --release-date 2019-05-01
-locallibrary track fetch Home --playlist "Sets/2026/Friday"  # details missing, found online
+locallibrary track fetch Home --playlist "Sets/2026/Friday"  # details missing, found on MusicBrainz
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
 locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
@@ -412,7 +412,10 @@ no drive takes each library plugged in (and each rekordbox drive of none) but ar
 drives: it shows each plan and asks once. `art fetch` asks the plugins' providers (the coverart
 plugin's: MusicBrainz and the Cover Art Archive) for tracks without artwork (`--replace`: any), and
 asks you which cover when an album could be several; it's an edit like `art set` (see
-[Providers](plugins.md#providers)).
+[Providers](plugins.md#providers)). `track fetch` asks the same plugin, from the same MusicBrainz
+lookups, for the details tracks lack: the album's title, year and genre, its label when it was
+found by name, and a track's own title and artist when its ISRC found it. `check` and `doctor`
+name `art fetch` beside `art auto` for tracks without artwork while a plugin finds cover art.
 
 ## Clean
 

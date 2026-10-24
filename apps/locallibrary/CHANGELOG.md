@@ -230,11 +230,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   tracklist's entry is): picked from a list in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
-  the kind is asked, what they find is offered best first (each image held and sent once, and
-  what's kept bounded), one alone scoring `plugin providers --auto-pick` (0.9) or more chosen for
-  you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
-  has both, and its palette the auto-pick; the sidecar `plugins.provide`,
-  `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  the kind is asked, what they find is offered best first (tags only when they'd change a track,
+  each image held and sent once, and what's kept bounded), one alone scoring `plugin providers
+  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed
+  as any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
+  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
   Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
   drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
   problem counting as one, with the command line of the plugin's operation that fixes it when
@@ -293,8 +293,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
-    album that could be several release groups offered as each of them. It's the only one that
-    goes online, and only when it's run.
+    album that could be several release groups offered as each of them, and from the same
+    MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
+    label when it was found by name, and a track's title and artist when its ISRC found it (a
+    track without an album only from a single of its title). It's the only one that goes online,
+    and only when it's run.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -466,7 +469,8 @@ their old names.
 - Messages say what to run: a sync that can't tell which drive is newer names `sync --from` with
   the drives, a drive left mid-operation names the command that finishes it, `doctor` points
   duplicates to `track dedupe`, unfiled tracks to `playlist unfiled` and missing artwork to `art
-  auto`, and a freshly formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
+  auto` (`check` and `doctor` to `art fetch` too, while a plugin finds cover art), and a freshly
+  formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
   it takes, `--json` mentions `--yes` only on commands that write, and the commands people run
   most have examples in their `--help`.
 - Output can be piped: what a command reports (lists, plans, the problems a check finds) goes to
