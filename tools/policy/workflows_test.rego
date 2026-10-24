@@ -65,6 +65,34 @@ test_passed_never_fails if {
 	".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed or was cancelled" in workflows.deny with input as with_ci(broken)
 }
 
+draft_outputs := {
+	"run": "${{ steps.pr.outputs.draft != 'true' && steps.filter.outputs.run == 'true' }}",
+	"draft": "${{ steps.pr.outputs.draft == 'true' && steps.filter.outputs.run == 'true' }}",
+}
+
+draft_step := {"if": "needs.changes.outputs.draft == 'true'", "run": "exit 1"}
+
+test_draft_from_event if {
+	broken := json.patch(ci, [
+		{"op": "add", "path": "/jobs/changes/outputs", "value": {"run": "${{ !github.event.pull_request.draft && steps.filter.outputs.run == 'true' }}"}},
+		{"op": "add", "path": "/jobs/passed/steps/-", "value": draft_step},
+	])
+	".github/workflows/site-ci.yml: the changes job's \"run\" output reads draft from the event, which can be stale; read it from the API (see locallibrary-ci.yml)" in workflows.deny with input as with_ci(broken)
+}
+
+test_draft_passes if {
+	broken := json.patch(ci, [{"op": "add", "path": "/jobs/changes/outputs", "value": draft_outputs}])
+	".github/workflows/site-ci.yml: the passed job should exit 1 when the changes job's draft output is true, or a draft's skipped jobs pass it" in workflows.deny with input as with_ci(broken)
+}
+
+test_draft_fails_passed if {
+	drafts := json.patch(ci, [
+		{"op": "add", "path": "/jobs/changes/outputs", "value": draft_outputs},
+		{"op": "add", "path": "/jobs/passed/steps/-", "value": draft_step},
+	])
+	count(workflows.deny) == 0 with input as with_ci(drafts)
+}
+
 test_job_ignores_changes if {
 	broken := json.remove(ci, ["jobs/verify/needs"])
 	".github/workflows/site-ci.yml: job \"verify\" should need `changes`, and skip itself when nothing it checks changed" in workflows.deny with input as with_ci(broken)
