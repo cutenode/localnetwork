@@ -144,9 +144,10 @@ PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer 
 file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
 locallibrary writes the store.
 
-A set destination publishes a set's recording with its tracklist (tracks marked unnamed stay
-unnamed, notes stay private): `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the
-plugin what would happen first, shows it and always asks before anything goes (`--dry-run` stops
+A set destination publishes a set's recording with its tracklist (tracks marked unnamed, tracks
+your profile hides and those `--hide 3,7` names go without their names, notes stay private):
+`locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
+shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
 there), and keeps where the set can be heard as its link.
 
 ## Events

@@ -337,6 +337,26 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     assert!(done(app), "timed out; last message: {:?}", last_message(app));
 }
 
+/// Wait for the outputs list open now to have its devices (listed in the background), and only
+/// that: whatever else the background sends (a track opening, say) is left for later, so a test
+/// can pick an output while a track still opens.
+#[track_caller]
+pub fn outputs_listed(app: &mut App) {
+    let listing = |app: &App| app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some());
+    let (t, mut later) = (Instant::now(), Vec::new());
+    while listing(app) && t.elapsed() < Duration::from_secs(60) {
+        match app.rx.recv_timeout(Duration::from_millis(5)) {
+            Ok(msg @ Msg::Outputs(..)) => app.handle_msg(msg),
+            Ok(msg) => later.push(msg),
+            Err(_) => {}
+        }
+    }
+    for msg in later {
+        app.sender().send(msg).unwrap();
+    }
+    assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
+}
+
 /// Handle the app's background messages until the store's sets are read. Opening a drive starts
 /// a read of the sets in the store the app has then: a test that points the app at another store
 /// waits for that read first, or it can land after the other store's and leave no sets.

@@ -2363,6 +2363,11 @@ export type PublishSetAt = {
   destination: string;
   /** The set: its id (or the start of it), title or day, or `last`. */
   set: string;
+  /**
+   * Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+   * and tracks the profile hides (`profile hide`) are never named either.
+   */
+  hide?: number[];
 };
 
 export type PlanPluginOp = {

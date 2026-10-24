@@ -1490,6 +1490,7 @@ fn switching_outputs_keeps_the_track_as_it_was() {
     app.outputs = super::super::audio::tests::OUTPUTS;
     let switch = |app: &mut App, down: usize| {
         press(app, "d");
+        outputs_listed(app);
         for _ in 0..down {
             key(app, KeyCode::Down);
         }
