@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::super::super::app::testing::{
     app_on, confirming, demo_drive, echo_plugin, key, last_message, mounted, plugged, plugins_once_with, press,
-    say_yes, settle, wait,
+    read_sets, say_yes, settle, wait,
 };
 use super::super::super::app::{App, Focus};
 use super::super::super::browse::{Category, NodeId};
@@ -72,6 +72,7 @@ fn a_sets_format_writes_out_the_set_open() {
     mounted(dir.path());
     // The store the plugin reads the set from: the player's.
     let mut app = app_on(&root);
+    read_sets(&mut app);
     app.store_root = dir.path().join("store");
     let friday = Set { id: "3m2friday2222".into(), title: Some("Friday".into()), ..Set::default() };
     SetBook { sets: vec![friday], ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
@@ -122,6 +123,7 @@ fn given(manifest: String) -> String {
 /// `app` on the store every case of a property shares, without sets: a plugin's reads are of the
 /// store the host started it in, which the first case's is.
 fn shared_store(mut app: App) -> App {
+    read_sets(&mut app);
     app.store_root = plugins_once_with(given).join("store");
     let _ = std::fs::remove_file(app.store_root.join("sets.json"));
     app

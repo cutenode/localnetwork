@@ -18,6 +18,7 @@ import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
+import { VerificationService } from '../services/verifications';
 import type { Viewer } from '#lib/types.ts';
 import { FakeNetwork } from './fakes';
 import { FakeHappyView } from './happyview';
@@ -109,6 +110,13 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const shows = new ShowService(core, projects, directory, publicRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
+	/** Each account's handle, as the identity resolver would report it once checked both ways. */
+	const handles = new Map<string, string>();
+
+	const verifications = new VerificationService(core, publicRepo, {
+		resolve: async (did) => ({ handle: handles.get(did) ?? null })
+	});
+
 	await ensureRootSpaces(core);
 	await audit.idle();
 
@@ -144,6 +152,8 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		epks,
 		shows,
 		follows,
+		verifications,
+		handles,
 		publicRepo,
 		viewer,
 		capable,

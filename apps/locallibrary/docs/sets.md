@@ -148,9 +148,10 @@ tracklist (its rules checked), a CUE sheet (with the recording attached), YouTub
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
 `.m3u8` or `.txt`), and a plugin's formats more: `--format traktor --drive Home -o DIR` makes
 it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see [Other DJ
-software](other-software.md#sets-and-mixes)). `sets publish` puts a set on your [Atmosphere
-account](account.md#publishing) as a `computer.localnetwork.dj.set` record, a type Local Network's
-tools share, of up to 500 tracks.
+software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
+publishing: a track marked unnamed or one your profile hides (`profile hide`) is `ID - ID` there.
+`sets publish` puts a set on your [Atmosphere account](account.md#publishing) as a
+`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
 
 ## Mixes
 
