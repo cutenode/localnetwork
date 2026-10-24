@@ -1,7 +1,10 @@
 //! Which MusicBrainz release groups an album could be: found by one of its tracks' ISRC when it
 //! has one (a recording search, which names the releases it's on), else by a release search for
 //! the album's name and artist. Only releases named as the album is count; their release groups
-//! are what the album could be, one alone being surely it. The Cover Art Archive has their covers.
+//! are what the album could be, one alone being surely it. The Cover Art Archive has their covers;
+//! the releases say the album's year and (a release search's only) its label, the recording an
+//! ISRC names its title and artist, and a release group looked up on its own its genres and the
+//! date it first came out.
 
 use loclib_model::model::normalize;
 use loclib_plugin::{Fetch, Host, RpcError};
@@ -13,6 +16,9 @@ use crate::Album;
 /// Where MusicBrainz is.
 pub(crate) const MUSICBRAINZ: &str = "https://musicbrainz.org";
 
+/// The label MusicBrainz credits a release with when it came out on none.
+const NO_LABEL: &str = "[no label]";
+
 /// What a recording search answers, as far as this plugin reads it.
 #[derive(Deserialize)]
 struct Recordings {
@@ -21,8 +27,20 @@ struct Recordings {
 
 #[derive(Deserialize)]
 struct Recording {
+    title: String,
+    #[serde(default, rename = "artist-credit")]
+    artist_credit: Vec<Credit>,
     #[serde(default)]
     releases: Vec<Release>,
+}
+
+/// An artist credited, as the credit names them, and what joins them to the next (` & `,
+/// ` feat. `).
+#[derive(Deserialize)]
+struct Credit {
+    name: String,
+    #[serde(default)]
+    joinphrase: String,
 }
 
 /// What a release search answers.
@@ -34,8 +52,25 @@ struct Releases {
 #[derive(Deserialize)]
 struct Release {
     title: String,
+    /// `2018-03-09`, `2018-03` or `2018`.
+    #[serde(default)]
+    date: String,
+    /// Only a release search's releases have it.
+    #[serde(default, rename = "label-info")]
+    label_info: Vec<LabelInfo>,
     #[serde(rename = "release-group")]
     release_group: Option<ReleaseGroup>,
+}
+
+/// A label a release came out on (a catalog number alone has none).
+#[derive(Deserialize)]
+struct LabelInfo {
+    label: Option<Label>,
+}
+
+#[derive(Deserialize)]
+struct Label {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -47,11 +82,26 @@ pub(crate) struct ReleaseGroup {
     pub(crate) primary_type: Option<String>,
 }
 
+/// A release group an album could be, with what its releases named as the album say of it.
+pub(crate) struct Group {
+    pub(crate) group: ReleaseGroup,
+    /// The first release's title: the album as MusicBrainz spells it.
+    pub(crate) album: String,
+    /// The year the earliest of them came out (a reissue's isn't the album's), of those on the
+    /// search's page: an earlier one can be past it.
+    pub(crate) year: Option<u16>,
+    /// The first record label a release names: none when found by an ISRC, as a recording
+    /// search's releases name none.
+    pub(crate) label: Option<String>,
+    /// The recording the album's ISRC names, when it was found by one: its title and artist.
+    pub(crate) recording: Option<(String, String)>,
+}
+
 /// What looking an album up found.
 pub(crate) enum Found {
     /// The release groups of releases named as the album is, as MusicBrainz lists them (none, or
     /// several), and whether they were found by an ISRC.
-    Groups { groups: Vec<ReleaseGroup>, by_isrc: bool },
+    Groups { groups: Vec<Group>, by_isrc: bool },
     /// MusicBrainz didn't answer the search (`503`, each time: it's busy).
     Refused(u16),
 }
@@ -61,7 +111,14 @@ pub(crate) enum Found {
 pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcError> {
     if let Some(isrc) = &album.isrc {
         let groups = match search(host, "recording", &format!("isrc:{isrc}"))? {
-            Ok(Recordings { recordings }) => named(recordings.into_iter().flat_map(|r| r.releases), &album.name),
+            Ok(Recordings { recordings }) => {
+                let releases = recordings.into_iter().flat_map(|r| {
+                    let artist: String = r.artist_credit.iter().flat_map(|c| [&*c.name, &*c.joinphrase]).collect();
+                    let recording = (r.title, artist);
+                    r.releases.into_iter().map(move |release| (release, Some(recording.clone())))
+                });
+                named(releases, &album.name)
+            }
             Err(status) => return Ok(Found::Refused(status)),
         };
         // Not on MusicBrainz by its ISRC, or not on a release of that name: by name, then.
@@ -74,12 +131,58 @@ pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcErro
         query = format!("{query} AND {}", phrase("artist", &album.artist));
     }
     Ok(match search(host, "release", &query)? {
-        Ok(Releases { releases }) => Found::Groups { groups: named(releases.into_iter(), &album.name), by_isrc: false },
+        Ok(Releases { releases }) => {
+            let groups = named(releases.into_iter().map(|release| (release, None)), &album.name);
+            Found::Groups { groups, by_isrc: false }
+        }
         Err(status) => Found::Refused(status),
     })
 }
 
-/// How many times a search is sent while MusicBrainz answers 503, which it does when too many
+/// What a release group's lookup answers with its genres, as far as this plugin reads it.
+#[derive(Deserialize)]
+struct Looked {
+    /// `2017-09-01`, `2017`, or empty when MusicBrainz doesn't know.
+    #[serde(default, rename = "first-release-date")]
+    first_release_date: String,
+    #[serde(default)]
+    genres: Vec<Genre>,
+}
+
+#[derive(Deserialize)]
+struct Genre {
+    name: String,
+    /// How many voted for it.
+    count: u32,
+}
+
+/// What a release group's lookup says of it.
+#[derive(Clone)]
+pub(crate) struct Lookup {
+    /// The one most voted for (of equals, the first: MusicBrainz lists them by name).
+    pub(crate) genre: Option<String>,
+    /// The year it first came out, of all its releases.
+    pub(crate) year: Option<u16>,
+}
+
+/// Release group `id`'s genre and first year, or the status MusicBrainz refused it with. Fails as
+/// a search does.
+pub(crate) fn look_up(host: &Host, id: &str) -> Result<Result<Lookup, u16>, RpcError> {
+    let path = format!("release-group/{id}?inc=genres&fmt=json");
+    let looked = get::<Looked>(host, &path, &format!("release group {id}"), "release group")?;
+    Ok(looked.map(|l| Lookup {
+        // `max_by_key` gives the last of equals: reversed, that's the first.
+        genre: l.genres.into_iter().rev().max_by_key(|g| g.count).map(|g| g.name),
+        year: year(&l.first_release_date),
+    }))
+}
+
+/// The year of a MusicBrainz date (`2018-03-09`, `2018-03`, `2018`): its first 4 digits.
+fn year(date: &str) -> Option<u16> {
+    date.get(..4)?.parse().ok()
+}
+
+/// How many times a request is sent while MusicBrainz answers 503, which it does when too many
 /// requests come at once (from everyone, at busy times), each waiting its turn at the host.
 const TRIES: usize = 3;
 
@@ -88,19 +191,25 @@ const TRIES: usize = 3;
 fn search<T: DeserializeOwned>(host: &Host, entity: &str, query: &str) -> Result<Result<T, u16>, RpcError> {
     let params =
         form_urlencoded::Serializer::new(String::new()).append_pair("query", query).append_pair("fmt", "json").finish();
-    let fetch = Fetch::get(format!("{MUSICBRAINZ}/ws/2/{entity}/?{params}"));
+    get(host, &format!("{entity}/?{params}"), &format!("{entity} search {query:?}"), "search result")
+}
+
+/// Asks MusicBrainz's API for `path` (`release/?query=...`): its answer, a `what` (`asked`, as
+/// the log says), or the status it was refused with.
+fn get<T: DeserializeOwned>(host: &Host, path: &str, asked: &str, what: &str) -> Result<Result<T, u16>, RpcError> {
+    let fetch = Fetch::get(format!("{MUSICBRAINZ}/ws/2/{path}"));
     let mut tries = 1;
     loop {
         let fetched = host.fetch(&fetch).map_err(|e| match e.kind() {
             Some("cancelled") => e,
             _ => RpcError { message: format!("couldn't reach MusicBrainz: {}", e.message), ..e },
         })?;
-        eprintln!("coverart: MusicBrainz {entity} search {query:?}: {}", fetched.status);
+        eprintln!("coverart: MusicBrainz {asked}: {}", fetched.status);
         match fetched.status {
             503 if tries < TRIES => tries += 1,
             200 => {
                 let answer = serde_json::from_str(fetched.body.as_deref().unwrap_or_default()).map_err(|e| {
-                    RpcError::failed("external", format!("MusicBrainz answered what isn't a search result: {e}"))
+                    RpcError::failed("external", format!("MusicBrainz answered what isn't a {what}: {e}"))
                 });
                 return answer.map(Ok);
             }
@@ -114,14 +223,25 @@ fn phrase(field: &str, value: &str) -> String {
     format!("{field}:\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The release groups of `releases` named as `name` is, each once, in their order.
-fn named(releases: impl Iterator<Item = Release>, name: &str) -> Vec<ReleaseGroup> {
-    let mut groups: Vec<ReleaseGroup> = Vec::new();
-    for group in releases.filter(|r| same(&r.title, name)).filter_map(|r| r.release_group) {
+/// The release groups of `releases` (each with the recording it was found by, if one) named as
+/// `name` is, each once, in their order, with what those releases say of it.
+fn named(releases: impl Iterator<Item = (Release, Option<(String, String)>)>, name: &str) -> Vec<Group> {
+    let mut groups: Vec<Group> = Vec::new();
+    for (release, recording) in releases.filter(|(r, _)| same(&r.title, name)) {
+        let Some(group) = release.release_group else { continue };
         // An id goes in the Cover Art Archive's URL: only one shaped as MusicBrainz's are.
         let is_mbid = group.id.len() == 36 && group.id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
-        if is_mbid && !groups.iter().any(|g| g.id == group.id) {
-            groups.push(group);
+        if !is_mbid {
+            continue;
+        }
+        let year = year(&release.date);
+        let label = release.label_info.into_iter().filter_map(|l| l.label).map(|l| l.name).find(|l| l != NO_LABEL);
+        match groups.iter_mut().find(|g| g.group.id == group.id) {
+            Some(had) => {
+                had.year = had.year.into_iter().chain(year).min();
+                had.label = had.label.take().or(label);
+            }
+            None => groups.push(Group { group, album: release.title, year, label, recording }),
         }
     }
     groups

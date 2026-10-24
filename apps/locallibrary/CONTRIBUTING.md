@@ -281,7 +281,7 @@ working folder of its own, so files it writes stay in the run's folder; it lets 
 edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --seed 7`).
+print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
 
 ## Releasing
 

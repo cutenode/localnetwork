@@ -146,7 +146,8 @@ the track that was fifth just before the one that was second. `--insert` looks t
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
-`.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
+`.m3u8` or `.txt`). Every format but CSV and M3U8 is for publishing: a track marked unnamed or one
+your profile hides (`profile hide`) is `ID - ID` there. `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
 a `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
 
 ## Mixes

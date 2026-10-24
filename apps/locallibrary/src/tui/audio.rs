@@ -588,12 +588,16 @@ pub fn open_file(path: &Path) -> Result<OpenedFile> {
     })
 }
 
+/// The outputs' names, and which is the system's default.
+pub type Listed = (Vec<String>, Option<String>);
+
 /// The outputs the player can play through: the machine's devices (see [`Outputs::DEVICES`]), or
 /// none (an app made for a test, which mustn't play through the speakers).
 #[derive(Clone, Copy)]
 pub struct Outputs {
-    /// The outputs' names, and which is the system's default.
-    pub list: fn() -> (Vec<String>, Option<String>),
+    /// List the outputs. It can take a while (cpal asks every host), so the player does it in
+    /// the background.
+    pub list: fn() -> Result<Listed>,
     /// Open the output called `name` (the default for `None`).
     pub open: fn(Option<&str>) -> Result<Audio>,
 }
@@ -604,10 +608,10 @@ impl Outputs {
 
     /// None at all.
     pub const NONE: Outputs =
-        Outputs { list: || (Vec::new(), None), open: |_| anyhow::bail!("no audio output device") };
+        Outputs { list: || Ok((Vec::new(), None)), open: |_| anyhow::bail!("no audio output device") };
 
     /// One that plays to no one, in real time (see [`Audio::silent`]).
-    pub const SILENT: Outputs = Outputs { list: || (Vec::new(), None), open: |_| Ok(Audio::silent()) };
+    pub const SILENT: Outputs = Outputs { list: || Ok((Vec::new(), None)), open: |_| Ok(Audio::silent()) };
 
     /// The machine's devices, or [`Outputs::SILENT`] when `$LOCALLIBRARY_AUDIO` is `silent`: a
     /// test switch, for harnesses that play tracks in the player (the AT Store screenshots) and
@@ -630,21 +634,22 @@ impl Outputs {
     }
 }
 
-/// The names of the output devices, and which is the system's default.
+/// The names of the output devices, and which is the system's default (failing when the host
+/// can't list them at all).
 #[cfg(feature = "playback")]
-fn device_names() -> (Vec<String>, Option<String>) {
+fn device_names() -> Result<Listed> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
     let host = rodio::cpal::default_host();
     let name = |d: &rodio::cpal::Device| d.description().ok().map(|d| d.name().to_string());
     let default = host.default_output_device().as_ref().and_then(name);
-    let names = host.output_devices().map(|ds| ds.filter_map(|d| name(&d)).collect()).unwrap_or_default();
-    (names, default)
+    let names = host.output_devices()?.filter_map(|d| name(&d)).collect();
+    Ok((names, default))
 }
 
 /// Built without the `playback` feature: no output devices.
 #[cfg(not(feature = "playback"))]
-fn device_names() -> (Vec<String>, Option<String>) {
-    (Vec::new(), None)
+fn device_names() -> Result<Listed> {
+    Ok((Vec::new(), None))
 }
 
 /// Open the output device called `name`, or the default one (failing that, as rodio does, the

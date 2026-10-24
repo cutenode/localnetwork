@@ -29,7 +29,7 @@ pub const REKORDBOX: &str = "rekordbox";
 pub const ESTIMATE: &str = "stratum-dsp";
 
 /// What the benchmark scores: no loudness.
-const TEMPO_AND_KEY: Want = Want { estimate: true, loudness: false };
+const TEMPO_AND_KEY: Want = Want { estimate: true, loudness: false, waveform: false };
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct BenchOptions {

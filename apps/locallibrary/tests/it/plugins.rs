@@ -402,7 +402,8 @@ fn tracks_are_filtered_and_sorted_by_what_analyzers_worked_out() {
 }
 
 /// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
-/// audio, once, and `track` shows every field it declares as `sound.FIELD`.
+/// audio, once, and `track` shows every column it declares as `sound.FIELD` (its waveform isn't
+/// one).
 #[test]
 fn the_sound_plugin_measures_tracks() {
     let env = Env::new();
@@ -414,7 +415,8 @@ fn the_sound_plugin_measures_tracks() {
     assert!(analyzed.contains("tempo-key-loudness (sound): 2 tracks analyzed, 0 already"), "{analyzed}");
     assert!(env.ok(&["analyze", "USB"]).contains("0 tracks analyzed, 2 already"));
     let manifest = Manifest::parse(locallibrary_plugin_sound::MANIFEST).unwrap();
-    let declared: Vec<&String> = manifest.contributes.analyzers[0].fields.keys().collect();
+    let columns = manifest.contributes.analyzers[0].fields.iter().filter(|(_, t)| !t.is_structured());
+    let declared: Vec<&String> = columns.map(|(name, _)| name).collect();
     let shown = env.json(&["track", "USB", "--track", "1"]);
     let fields = shown[0]["fields"]["sound"]["tempo-key-loudness"].as_object().unwrap();
     assert_eq!(fields.keys().collect::<Vec<_>>(), declared, "{fields:?}");
@@ -425,8 +427,8 @@ fn the_sound_plugin_measures_tracks() {
 }
 
 /// The coverart plugin locallibrary ships says which servers it talks to and that it finds cover
-/// art for `art fetch`, planning none itself; tracks the drive doesn't have are refused before
-/// anything goes online.
+/// art for `art fetch` and track details for `track fetch`, planning none itself; tracks the drive
+/// doesn't have are refused before anything goes online.
 #[test]
 fn the_coverart_plugin_finds_nothing_without_going_online() {
     let env = Env::new();
@@ -436,16 +438,43 @@ fn the_coverart_plugin_finds_nothing_without_going_online() {
         "Cover art (coverart) 0.1.0",
         "talk to musicbrainz.org",
         "covers  Cover Art Archive: cover art, for locallibrary art fetch",
+        "tags    MusicBrainz: track details, for locallibrary track fetch",
     ] {
         assert!(info.contains(line), "{line}: {info}");
     }
     assert!(!info.contains("plan cover art changes"), "{info}");
-    let missing = env.fails(1, &["art", "fetch", "USB", "--from", "coverart", "--track", "99", "--dry-run"]);
-    assert!(missing.contains("error: not found: track #99"), "{missing}");
+    for args in [["art", "fetch", "USB", "--from", "coverart"], ["track", "fetch", "USB", "--from", "coverart.tags"]] {
+        let missing = env.fails(1, &[&args[..], &["--track", "99", "--dry-run"]].concat());
+        assert!(missing.contains("error: not found: track #99"), "{missing}");
+    }
     assert!(
         env.fails(2, &["analyze", "USB", "--plugin", "coverart"])
             .contains("error: the coverart plugin has no analyzer\n")
     );
+}
+
+/// A track whose artwork is gone has `check` and `doctor` name `art fetch` beside `art auto`: the
+/// coverart plugin finds covers online.
+#[test]
+fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
+    let env = Env::new();
+    let usb = env.demo("USB");
+    std::fs::write(env.outside("cover.jpg"), crate::support::jpeg(64)).unwrap();
+    env.ok(&["--yes", "art", "set", "USB", path(&env.outside("cover.jpg")), "--track", "1"]);
+    std::fs::remove_dir_all(usb.join("PIONEER/Artwork")).unwrap();
+
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+    let files = v["items"].as_array().unwrap().iter().find(|i| i["check"] == "files" && i["level"] == "warning");
+    let message = files.and_then(|i| i["message"].as_str()).unwrap_or_else(|| panic!("{v}"));
+    let said = "; `locallibrary art auto \"USB\"` fills in art their files embed, and `locallibrary art fetch \"USB\"` finds covers online";
+    assert!(message.starts_with("1 track(s) have no artwork image: ") && message.ends_with(said), "{message}");
+    let doctor = env.run(&["doctor", "USB", "--only", "missing"]);
+    for hint in
+        ["`locallibrary art auto \"USB\"` fills in artwork", "`locallibrary art fetch \"USB\"` finds covers online"]
+    {
+        assert!(doctor.out.contains(hint) || doctor.err.contains(hint), "{hint}: {}{}", doctor.out, doctor.err);
+    }
 }
 
 /// A plugin whose id is a namespace of the sidecar's methods is left out, saying why, and the

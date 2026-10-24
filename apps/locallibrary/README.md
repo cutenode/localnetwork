@@ -179,8 +179,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   speed
 - [loclib-transcode](../../crates/loclib-transcode): which copy of a file a set of players needs,
   and lossless copies (AIFF, WAV, FLAC) that keep cue points in time
-- [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo, key and beats, loudness
-  and clipping, and scoring analyzers against annotated datasets
+- [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo and key, loudness and
+  clipping, three-band waveforms, and scoring analyzers against annotated datasets
 - [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
 - [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
   spectrum and cover art

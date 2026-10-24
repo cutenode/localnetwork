@@ -12199,6 +12199,16 @@
         "set": {
           "type": "string",
           "description": "The set: its id (or the start of it), title or day, or `last`."
+        },
+        "hide": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "description": "Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed\nand tracks the profile hides (`profile hide`) are never named either.",
+          "default": []
         }
       },
       "required": [
@@ -32689,7 +32699,7 @@
           "items": {
             "$ref": "#/$defs/Offer"
           },
-          "description": "Each track something was found for, in the library's order."
+          "description": "Each track something was found for (tags only when they'd change it), in the library's\norder."
         },
         "images": {
           "type": "object",

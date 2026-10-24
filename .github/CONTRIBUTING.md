@@ -62,3 +62,15 @@ Pull requests also get a dependency review (`dependency-review.yml`). It fails w
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
 
 Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `tests`, `documentation`, `dependencies`, `github_actions` and `tooling`. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.
+
+## Issues and the project
+
+Every open issue is on the organization's [Local Network project](https://github.com/orgs/cutenode/projects/9). The [Project workflow](workflows/project.yml) adds each new issue and fills in its Status and Product.
+
+- Status: Inbox (new), Todo (triaged), In Progress, Done. Closing an issue, or merging the pull request that closes it, moves it to Done.
+- Product: the tool, from the issue's labels (`locallibrary`, or any `locallibrary: <area>` label). An issue with no tool's label gets `repo`. To move an issue, change its label, not the field.
+- Type: Bug, Feature or Task.
+- Priority and Effort: set while triaging. Features can also get a Start date and Target date, which place them on the roadmap.
+- A release is a milestone, like `locallibrary v0.1.0`. Big work gets sub-issues, and work that has to wait gets a "blocked by" link.
+
+The views: Board (a column per Status, a row per Product), Inbox to triage, Backlog, Bugs, Releases (by milestone) and Roadmap (features by date).

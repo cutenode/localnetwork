@@ -1,0 +1,53 @@
+{
+	"title": "Local Network",
+	"description": "Issues for the website, locallibrary, localtoolbox and the lexicons",
+	"readme": "Every open issue in cutenode/localnetwork, kept in step by tools/project.sh. How the fields and views are used: https://github.com/cutenode/localnetwork/blob/main/.github/CONTRIBUTING.md#issues-and-the-project",
+	"status": [
+		{ "name": "Inbox", "color": "GRAY", "description": "New, not looked at yet" },
+		{ "name": "Todo", "color": "BLUE", "description": "Triaged and worth doing" },
+		{ "name": "In Progress", "color": "YELLOW", "description": "Someone is on it" },
+		{ "name": "Done", "color": "GREEN", "description": "Closed or merged" }
+	],
+	"product": {
+		"name": "Product",
+		"other": { "name": "repo", "color": "GRAY", "description": "CI, tooling and releases across the repo" }
+	},
+	"issueFields": ["Priority", "Effort", "Start date", "Target date"],
+	"views": [
+		{
+			"name": "Board",
+			"layout": "BOARD_LAYOUT",
+			"filter": "",
+			"fields": ["Title", "Assignees", "Product", "Priority", "Labels", "Milestone"]
+		},
+		{
+			"name": "Inbox",
+			"layout": "TABLE_LAYOUT",
+			"filter": "is:open status:Inbox",
+			"fields": ["Title", "Product", "Labels", "Priority", "Effort"]
+		},
+		{
+			"name": "Backlog",
+			"layout": "TABLE_LAYOUT",
+			"filter": "is:open -status:Inbox",
+			"fields": ["Title", "Status", "Product", "Priority", "Effort", "Milestone", "Labels", "Assignees"]
+		},
+		{
+			"name": "Bugs",
+			"layout": "TABLE_LAYOUT",
+			"filter": "is:open type:Bug",
+			"fields": ["Title", "Status", "Product", "Priority", "Labels", "Assignees"]
+		},
+		{
+			"name": "Releases",
+			"layout": "TABLE_LAYOUT",
+			"filter": "has:milestone",
+			"fields": ["Title", "Status", "Milestone", "Product", "Priority", "Effort", "Sub-issues progress"]
+		},
+		{
+			"name": "Roadmap",
+			"layout": "ROADMAP_LAYOUT",
+			"filter": "type:Feature"
+		}
+	]
+}
