@@ -124,6 +124,11 @@ const NML: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <PLAYLISTS><NODE TYPE="SMARTLIST" NAME="Recent"/></PLAYLISTS></NML>
 "##;
 
+/// A path written with `/`, as this computer writes it (`\` on Windows).
+fn native(path: &str) -> String {
+    path.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
 fn cue(
     hot_cue: Option<&str>,
     start_ms: u32,
@@ -149,7 +154,7 @@ fn a_collection_is_imported() {
     let read = s.imported(NML);
     let glue = ImportedTrack {
         find: TrackMatch {
-            path: Some(Path::new("/Volumes/USB/Contents/Bicep/Glue.mp3").to_string_lossy().into_owned()),
+            path: Some(native("/Volumes/USB/Contents/Bicep/Glue.mp3")),
             isrc: None,
             artist: Some("Bicep".into()),
             title: Some("Glue".into()),
@@ -168,11 +173,7 @@ fn a_collection_is_imported() {
         my_tags: Vec::new(),
     };
     let b = ImportedTrack {
-        find: TrackMatch {
-            path: Some(format!("E:{}b.wav", std::path::MAIN_SEPARATOR)),
-            title: Some("b".into()),
-            ..TrackMatch::default()
-        },
+        find: TrackMatch { path: Some(native("E:/b.wav")), title: Some("b".into()), ..TrackMatch::default() },
         key: Some("Fm".into()),
         ..ImportedTrack::default()
     };
@@ -329,7 +330,7 @@ fn markers_are_imported_as_cues(tc: TestCase) {
         let key = key.filter(|k| *k < 24).map(|k| Camelot::from_pitch(u32::from(k % 12), k < 12).code());
         if key.is_some() || bpm.is_some() || !cues.is_empty() {
             let find = TrackMatch {
-                path: Some(Path::new("/Volumes/USB").join(format!("{i}.mp3")).to_string_lossy().into_owned()),
+                path: Some(native(&format!("/Volumes/USB/{i}.mp3"))),
                 title: Some(format!("t{i}")),
                 ..TrackMatch::default()
             };

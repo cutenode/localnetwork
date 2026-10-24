@@ -23,7 +23,7 @@
 //!   `TYPE="PLAYLIST"` with a `PLAYLIST` of `ENTRY`/`PRIMARYKEY`s.
 
 use std::fmt::Write as _;
-use std::path::{MAIN_SEPARATOR, Path, PathBuf};
+use std::path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path, PathBuf};
 
 use chrono::{Datelike, Timelike};
 
@@ -72,12 +72,14 @@ impl Location {
 
     /// The file on this computer, as [`build`] locates one the other way: below its drive
     /// letter, below `/` on the startup disk (the volume named `startup`, see [`startup_disk`]),
-    /// else below `/Volumes`.
+    /// else below `/Volumes`. In this computer's separator throughout: on Windows a Mac volume's
+    /// file is `\Volumes\USB\x.mp3` (which isn't there, but reads as a path as any other does), on
+    /// a Mac a drive letter's is `E:/x.mp3`.
     pub fn path(&self, startup: &str) -> PathBuf {
         let mut path = match self.volume.as_bytes() {
             [letter, b':'] if letter.is_ascii_alphabetic() => PathBuf::from(format!("{}{MAIN_SEPARATOR}", self.volume)),
-            _ if self.volume == startup => PathBuf::from("/"),
-            _ => Path::new("/Volumes").join(&self.volume),
+            _ if self.volume == startup => PathBuf::from(MAIN_SEPARATOR_STR),
+            _ => Path::new(MAIN_SEPARATOR_STR).join("Volumes").join(&self.volume),
         };
         path.extend(self.dir.split("/:").filter(|p| !p.is_empty()));
         path.push(&self.file);

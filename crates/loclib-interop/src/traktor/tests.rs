@@ -118,20 +118,21 @@ fn keys_dates_and_colours() {
     assert_eq!(uuid("Shows/Friday").len(), 32);
 }
 
-/// A location read back is a path on this computer: below `/Volumes`, `/` for the startup disk,
-/// and below a drive letter.
+/// A location read back is a path on this computer, in its separator throughout (`\` on
+/// Windows): below `/Volumes`, `/` for the startup disk, and below a drive letter.
 #[test]
 fn locations_are_paths_again() {
     let loc = |volume: &str, dir: &str| Location { volume: volume.into(), dir: dir.into(), file: "x.mp3".into() };
+    let native = |p: &str| p.replace('/', MAIN_SEPARATOR_STR);
+    let path = |l: Location, startup: &str| l.path(startup).to_string_lossy().into_owned();
     let usb = loc("USB", "/:Contents/:Daft Punk/:");
-    assert_eq!(usb.path("Macintosh HD"), Path::new("/Volumes/USB/Contents/Daft Punk/x.mp3"));
+    assert_eq!(path(usb, "Macintosh HD"), native("/Volumes/USB/Contents/Daft Punk/x.mp3"));
     let home = loc("Macintosh HD", "/:Users/:me/:");
-    assert_eq!(home.path("Macintosh HD"), Path::new("/Users/me/x.mp3"));
-    let elsewhere = home.path("Studio SSD");
-    assert_eq!(elsewhere, Path::new("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
-    let windows = loc("E:", "/:Music/:");
-    assert_eq!(windows.path("E:"), PathBuf::from(format!("E:{MAIN_SEPARATOR}Music{MAIN_SEPARATOR}x.mp3")));
-    assert_eq!(loc("USB", "/:").path("Macintosh HD"), Path::new("/Volumes/USB/x.mp3"));
+    assert_eq!(path(home.clone(), "Macintosh HD"), native("/Users/me/x.mp3"));
+    let elsewhere = path(home, "Studio SSD");
+    assert_eq!(elsewhere, native("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
+    assert_eq!(path(loc("E:", "/:Music/:"), "E:"), native("E:/Music/x.mp3"));
+    assert_eq!(path(loc("USB", "/:"), "Macintosh HD"), native("/Volumes/USB/x.mp3"));
 }
 
 /// The startup disk is this Mac's, or the name `build` gives it elsewhere.

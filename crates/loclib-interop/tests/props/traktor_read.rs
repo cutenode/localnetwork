@@ -1,7 +1,7 @@
 //! Properties of reading `collection.nml` back: what `build` writes reads as the library it was
 //! written from, grid markers lay down the grid they say, and nothing makes the reader panic.
 
-use std::path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path, PathBuf};
+use std::path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path};
 
 use hegel::TestCase;
 use hegel::generators::{self as gs, PrintableGenerator};
@@ -75,18 +75,18 @@ fn a_collection_reads_back(tc: TestCase) {
     assert_eq!(read.lists, want);
 }
 
-/// The path an entry's location reads as is where the library's file was: below `/Volumes/USB`,
-/// a drive letter, or `/` on the startup disk.
+/// The path an entry's location reads as is where the library's file was, in this computer's
+/// separator throughout: below `/Volumes/USB`, a drive letter, or `/` on the startup disk.
 fn located_again(e: &Entry, volume: Option<&str>) {
     let parts: Vec<&str> =
         e.location.dir.split("/:").filter(|p| !p.is_empty()).chain([e.location.file.as_str()]).collect();
     let below = parts.join(MAIN_SEPARATOR_STR);
     let want = match volume {
-        Some("USB") => Path::new("/Volumes/USB").join(parts.join("/")),
-        Some(letter) => PathBuf::from(format!("{letter}{MAIN_SEPARATOR}{below}")),
-        None => Path::new("/").join(parts.join("/")),
+        Some("USB") => format!("{MAIN_SEPARATOR}Volumes{MAIN_SEPARATOR}USB{MAIN_SEPARATOR}{below}"),
+        Some(letter) => format!("{letter}{MAIN_SEPARATOR}{below}"),
+        None => format!("{MAIN_SEPARATOR}{below}"),
     };
-    assert_eq!(e.location.path(&traktor::startup_disk()), want);
+    assert_eq!(e.location.path(&traktor::startup_disk()).to_string_lossy(), want);
 }
 
 /// The year `RELEASE_DATE` reads as: the release date's when it's a day on the calendar, else the
