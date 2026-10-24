@@ -330,7 +330,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `player.show`, `player.set.plan/apply`, `drive.contact.plan/apply`, `provision.plan/apply`
   (`provision.apply` with the request takes the plan's `format.identity` as `format_identity` when
   formatting), and the jobs `refresh.plan/apply` and `prep.plan/apply` (what `locallibrary refresh`
-  and `prep` do, as one plan of steps; its plans' `operation` is still `set`). `sync.many.apply`
+  and `prep` do, as one plan of steps; its plans' `operation` is still `set`). `refresh.plan` takes
+  `operations`, plugins' operations to run as its `operations` step (`[{operation:
+  "<plugin>.<name>", params}]`); one that can't be planned fails the plan, its error's
+  `fields.operation` naming it. `sync.many.apply`
   returns one result per target: a target that fails carries an `error` and doesn't stop the others.
 - Writes that had no plan step have one: `drive.adopt.plan`, `drive.adopt_as.plan`,
   `drive.rename.plan`, `drive.contact.plan`, `player.set.plan`, `edits.clear.plan`,

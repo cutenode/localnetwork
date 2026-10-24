@@ -2133,10 +2133,18 @@ export type ProvisionApply = {
 export type RefreshRequest = {
   /** The drive rekordbox exported to [default: see [`refresh_drive`]]. */
   drive?: string | null;
-  /** Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `pull`, `sync`). */
+  /**
+   * Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `operations`, `pull`,
+   * `sync`).
+   */
   skip?: StepKind[];
   /** Then copy the drive onto the other mounted drives of its library, when it's the newest. */
   sync?: boolean;
+  /**
+   * Plugins' operations to run on the drive after the steps that put it right, in this order,
+   * before it's saved.
+   */
+  operations?: OperationStep[];
 };
 
 /** A step of a job. */
@@ -2151,6 +2159,8 @@ export type StepKind =
   | "player"
   /** Write My Settings (`settings apply`). */
   | "settings"
+  /** Run plugins' operations (`locallibrary PLUGIN OPERATION`). */
+  | "operations"
   /** Save drives in the store (`pull`). */
   | "pull"
   /** Copy the newest library onto the other drives (`sync`). */
@@ -2159,6 +2169,17 @@ export type StepKind =
   | "check"
   /** Eject the drives (`eject`). */
   | "eject";
+
+/** A plugin's operation a job runs. */
+export type OperationStep = {
+  /** `<plugin>.<operation>`, as `plugins.describe` lists them. */
+  operation: string;
+  /**
+   * As the operation's `params` schema says; `null` is none. One filled from the selection
+   * that isn't given is the drive refreshed, if that's what it takes.
+   */
+  params?: unknown;
+};
 
 /** Getting drives ready for a set. */
 export type SetJobRequest = {

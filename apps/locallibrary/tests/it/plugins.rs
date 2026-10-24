@@ -19,6 +19,7 @@ mod imports;
 mod panels;
 mod props;
 mod providers;
+mod refresh;
 mod sources;
 
 /// The echo manifest as these tests register it ([`echo_plugin`]): its `echo` command at

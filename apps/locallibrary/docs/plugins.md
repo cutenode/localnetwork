@@ -138,7 +138,10 @@ PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the
 where the plugin offers them, and a question one asks is a list to pick from, several one after
 another (titled `2 of 5` and so on, esc cancelling them all). On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
-its flag gives it otherwise.
+its flag gives it otherwise. `refresh --then 'PLUGIN.OPERATION KEY=VALUE...'` runs an operation
+as a step of a refresh, after the steps that put the drive right and before it's saved (see
+[After rekordbox exports](editing.md#after-rekordbox-exports)); one that asks something first is
+refused there.
 
 ## Destinations
 
