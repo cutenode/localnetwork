@@ -65,6 +65,7 @@ mod sets;
 mod support;
 mod tags;
 mod tracklist;
+mod tracklist_xml;
 
 /// When exports say they were written (`SOURCE_DATE_EPOCH`): 2026-09-21, 14:13:20 UTC.
 const STAMPED: i64 = 1_790_000_000;

@@ -19,14 +19,14 @@ type Call = (String, Value);
 
 /// The plugin served on a thread, over pipes, past `hello`, with a host whose drive `USB` has a
 /// library and that answers its reads as locallibrary does.
-struct Session {
-    host: Peer,
+pub(crate) struct Session {
+    pub(crate) host: Peer,
     served: JoinHandle<()>,
     answering: JoinHandle<()>,
     calls: Arc<Mutex<Vec<Call>>>,
 }
 
-fn start(lib: Library) -> Session {
+pub(crate) fn start(lib: Library) -> Session {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
     let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
@@ -93,7 +93,7 @@ impl Session {
     }
 
     /// Closes the plugin's input: it stops. Answers the reads it called back for.
-    fn stop(self) -> Vec<Call> {
+    pub(crate) fn stop(self) -> Vec<Call> {
         self.host.close();
         self.served.join().unwrap();
         self.answering.join().unwrap();
@@ -109,13 +109,13 @@ fn set_entries(into: &str, paths: &[&str]) -> Value {
     json!({ "op": "set_entries", "playlist": into, "paths": paths, "create": true })
 }
 
-fn write(dir: &Path, name: &str, text: &str) -> String {
+pub(crate) fn write(dir: &Path, name: &str, text: &str) -> String {
     let file = dir.join(name);
     std::fs::write(&file, text).unwrap();
     file.to_string_lossy().into_owned()
 }
 
-fn kind(e: &RpcError) -> (&str, &str) {
+pub(crate) fn kind(e: &RpcError) -> (&str, &str) {
     (e.kind().unwrap_or_default(), e.message.as_str())
 }
 
@@ -129,13 +129,15 @@ fn club() -> Library {
     Library { tracks, ..Default::default() }
 }
 
-/// It plans and may shorten a playlist: replacing one's entries with a shorter list does.
+/// It plans and may shorten a playlist: replacing one's entries with a shorter list does. Its
+/// library source reads the folders it's granted.
 #[test]
 fn the_manifest_is_a_first_party_one_that_reads_and_plans() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     assert!(manifest.validate(true).is_ok());
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");
-    let capabilities = [Capability::LibraryRead, Capability::LibraryPlan, Capability::LibraryDelete];
+    let capabilities =
+        [Capability::LibraryRead, Capability::LibraryPlan, Capability::LibraryDelete, Capability::FsRead];
     assert_eq!(manifest.capabilities, capabilities);
     assert!(manifest.contributes.commands.is_empty());
     let operation = &manifest.contributes.operations[0];
@@ -440,9 +442,8 @@ fn imported(
     let unreadable = |e: tracklist::Error| ("invalid", e.to_string());
     let (format, entries) = match playlist {
         Some(p) => {
-            let lists = tracklist::xml_playlists(bytes).map_err(unreadable)?;
-            let entries = model::pick(lists, p.trim().trim_matches('/'))
-                .ok_or_else(|| ("not_found", format!("not found: playlist {p:?} in {file}")))?;
+            let entries = tracklist::xml_playlist(bytes, p.trim().trim_matches('/')).map_err(unreadable)?;
+            let entries = entries.ok_or_else(|| ("not_found", format!("not found: playlist {p:?} in {file}")))?;
             (Format::RekordboxXml, entries)
         }
         None => (tracklist::detect(bytes, Some(name)), tracklist::parse(bytes, Some(name)).map_err(unreadable)?),

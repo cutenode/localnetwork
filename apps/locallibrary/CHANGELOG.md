@@ -287,7 +287,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   See docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
-    entry is when it could be several.
+    entry is when it could be several. It reads rekordbox XML collections whole too: `import
+    rekordbox.xml LIBRARY` adds their keys, tempos, hot cues, memory cues and loops to the
+    drive's tracks, and `collection export DRIVE --from tracklist:rekordbox-xml --grant FOLDER
+    --option file=rekordbox.xml` builds a drive from one, with its tags, cues, beat grids and
+    playlists. Values out of range in the file are left out, counted in the plan's warnings.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
@@ -314,9 +318,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   --grant FOLDER` builds a drive from a library a plugin reads (feature `sources`, capability
   `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
   and only audio files players play in them (links resolved) are copied, each read and hashed by
-  locallibrary itself and checked as it's copied; the rest is left out with a warning. Cues, beat
-  grids and waveforms a track brings go into analysis files made for it, read back first. The
-  player has "build from …" in the palette and a drive's menu, the sidecar
+  locallibrary itself and checked as it's copied; the rest is left out with a warning, as is what
+  the plugin says it couldn't read, and a read past 64 million beats and cues is stopped. Cues,
+  beat grids and waveforms a track brings go into analysis files made for it, read back first.
+  The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
 - **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
   locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
@@ -403,7 +408,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     patch single bytes and recompute the checksum.
   - `loclib-tracklist`: reading M3U, CSV and other tables, rekordbox's text export and XML, and
     plain "Artist - Title" text, and finding the tracks in a library by path, ISRC, artist and
-    title, then fuzzily.
+    title, then fuzzily; and reading a rekordbox XML collection as a library, with each track's
+    tags, key, tempo, beat grid and cues.
   - `loclib-mixid`: which known tracks a recording plays, when, at what speed and with or without
     key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher),
     and how two files of one recording line up, to a fraction of a sample (`refine`).

@@ -5,12 +5,21 @@
 //! tracks it asks the user about first, one at a time (the `choose` feature): the host plans it
 //! again with the answer, the entry's number (`"3"`) set to the track's id, or to `null` to leave
 //! it out.
+//!
+//! It also reads rekordbox XML collections whole: as an importer (`rekordbox-xml`, in
+//! [`xml_import`]), each track's key, tempo and cues for the host to add to a drive's tracks, and
+//! as a library source (in [`xml_source`]), the tracks with their tags, cues and beat grids and
+//! the playlists, to build a drive from.
+
+mod xml_file;
+mod xml_import;
+mod xml_source;
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
-use loclib_model::model::{self, Library, Playlist, Track};
+use loclib_model::model::{Library, Playlist, Track};
 use loclib_plugin::{Choice, ChoiceItem, Context, Hooks, Host, OpAnswer, OpPlan, PlanOp, RpcError, params};
 use loclib_tracklist::{self as tracklist, Format, MatchKind, Report, Status, Summary};
 use serde::Deserialize;
@@ -22,7 +31,8 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(plan_op), input, output);
+    let hooks = Hooks::new().on(plan_op).on(xml_import::read_import).on(xml_source::read_library);
+    loclib_plugin::serve(MANIFEST, hooks, input, output);
 }
 
 /// The `import` operation's params, but for the answers to its questions (see [`answers`]). The
@@ -133,9 +143,9 @@ fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> R
     let unreadable = |e: tracklist::Error| RpcError::failed("invalid", e.to_string());
     let (format, entries) = match &req.playlist {
         Some(p) => {
-            let lists = tracklist::xml_playlists(&bytes).map_err(unreadable)?;
-            let entries = model::pick(lists, p.trim().trim_matches('/'))
-                .ok_or_else(|| RpcError::failed("not_found", format!("not found: playlist {p:?} in {file}")))?;
+            let entries = tracklist::xml_playlist(&bytes, p.trim().trim_matches('/')).map_err(unreadable)?;
+            let entries =
+                entries.ok_or_else(|| RpcError::failed("not_found", format!("not found: playlist {p:?} in {file}")))?;
             (Format::RekordboxXml, entries)
         }
         None => {
