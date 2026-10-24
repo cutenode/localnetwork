@@ -132,9 +132,10 @@ opt-level = 3
 [profile.dev.package.hybrid-array]
 opt-level = 3
 
-# What every run of the CLI does first: reading its command line (with clap's checks of it) and
-# checking the plugins' manifests, whose JSON Schemas are compiled against the 2020-12 meta-schema.
-# Unoptimised, that was a third of the CPU time of the tests that run the CLI hundreds of times.
+# What every run of a debug build of the CLI does first: reading its command line (with clap's
+# checks of it) and checking the plugins' manifests, whose JSON Schemas are compiled against the
+# 2020-12 meta-schema (a release build skips that, see `PluginSpec::first_party`). Unoptimised,
+# that was a third of the CPU time of the tests that run the CLI hundreds of times.
 [profile.dev.package.clap_builder]
 opt-level = 3
 

@@ -68,9 +68,16 @@ impl App {
         }
     }
 
-    /// Run a plugin's analyzer on the tracks of the drive at `root` in the background (esc stops
-    /// it), keeping what it works out in the store; then its columns, filters and sorts read it.
-    pub(in crate::tui) fn analyze(&mut self, plugin: &'static str, analyzer: &'static str, root: Option<PathBuf>) {
+    /// Run a plugin's analyzer on the tracks of the drive at `root` (only `tracks`, by id, when it
+    /// says) in the background (esc stops it), keeping what it works out in the store; then its
+    /// columns, filters and sorts read it.
+    pub(in crate::tui) fn analyze(
+        &mut self,
+        plugin: &'static str,
+        analyzer: &'static str,
+        root: Option<PathBuf>,
+        tracks: Option<Vec<u32>>,
+    ) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Some(root) = self.plugged(root) else { return };
         let Some(declared) =
@@ -82,7 +89,8 @@ impl App {
         let store_root = self.store_root.clone();
         self.task("Analyzing".into(), move |ctx| {
             let store = Store::open_or_init(&store_root)?;
-            let done = plugins.analyze(plugin, analyzer, &root.display().to_string(), None, &store, ctx)?;
+            let done =
+                plugins.analyze(plugin, analyzer, &root.display().to_string(), tracks.as_deref(), &store, ctx)?;
             Ok(Box::new(move |app: &mut App| {
                 let tracks = crate::output::plural(done.analyzed, "track");
                 let mut said = format!("{title}: {tracks} analyzed, {} already", done.kept);

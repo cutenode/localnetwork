@@ -295,7 +295,7 @@ const EDITS: &[&[&str]] = &[
 
 #[hegel::test_helper]
 fn fill(tc: &TestCase, fx: &Env, d: &Drive, words: &[&str]) -> Vec<String> {
-    let pick = |options: &[&str]| options[tc.draw(gs::integers::<usize>().max_value(options.len() - 1))].to_string();
+    let pick = |options: &[&str]| tc.draw(gs::sampled_from(options)).to_string();
     let names = ["Friday", "Warm-ups", "Ünïcödé", "Set"];
     words
         .iter()

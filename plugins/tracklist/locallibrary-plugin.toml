@@ -1,9 +1,10 @@
 id = "tracklist"
-name = "Tracklist import"
+name = "Tracklists and rekordbox XML"
 version = "0.1.0"
 protocol = "^0.2"
 # library:delete: replacing a playlist's entries with a shorter list leaves it with fewer.
-capabilities = ["library:read", "library:plan", "library:delete"]
+# fs:read: the library source's audio files, in the folders the user grants it.
+capabilities = ["library:read", "library:plan", "library:delete", "fs:read"]
 
 # `locallibrary playlist import`, with the other playlist commands. Offered on a playlist too, to
 # fill it.
@@ -41,7 +42,33 @@ type = "boolean"
 description = "Add to the playlist instead of replacing its contents"
 
 # Which track an ambiguous entry is, by the entry's number counted from 1 (`3 = 42`), or `null`
-# to leave it out: the import asks for each it isn't given, one at a time.
+# to leave it out: the import asks about those it isn't given, up to 64 a round.
 [contributes.operations.params.patternProperties."^[1-9][0-9]*$"]
 type = ["integer", "null"]
 minimum = 0
+
+# `locallibrary import rekordbox.xml DRIVE`: a rekordbox XML collection's keys, tempos and cues,
+# which the host adds to the drive's tracks where they have none.
+[[contributes.importers]]
+format = "rekordbox-xml"
+title = "rekordbox XML: keys, tempos, hot cues, memory cues and loops"
+extension = "xml"
+provides = ["fields", "cues"]
+
+# `locallibrary collection export DRIVE --from tracklist:rekordbox-xml --grant FOLDER --option
+# file=rekordbox.xml`: a drive built from a rekordbox XML collection, its tracks with their tags,
+# cues and beat grids, and its playlists.
+[[contributes.sources]]
+name = "rekordbox-xml"
+title = "rekordbox XML collection"
+
+[contributes.sources.options]
+type = "object"
+required = ["file"]
+additionalProperties = false
+
+[contributes.sources.options.properties.file]
+type = "string"
+minLength = 1
+x-path = true
+description = "The rekordbox XML file (in rekordbox, File > Export Collection in xml format)"

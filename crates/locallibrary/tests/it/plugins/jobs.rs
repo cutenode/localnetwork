@@ -116,7 +116,13 @@ fn a_refresh_refuses_an_operation_that_asks() {
     let manifest = ECHO.replace(", required = [\"name\"] }", " }");
     let f = Hosted::new(Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default()));
     let item = |v: &str| ChoiceItem { label: v.into(), detail: None, value: json!(v) };
-    let ask = Choice { title: "Which one?".into(), param: "name".into(), multi: false, items: vec![item("Peak")] };
+    let ask = Choice {
+        title: "Which one?".into(),
+        param: "name".into(),
+        multi: false,
+        items: vec![item("Peak")],
+        more: Vec::new(),
+    };
     let e = f.refresh(vec![op("echo.playlist", json!({ "ask": ask }))], ONLY_OPERATIONS.to_vec()).err().unwrap();
     assert_eq!(e.code(), "invalid");
     assert_eq!(e.to_string(), "Which one?: it asks which first, as `name` in its params");

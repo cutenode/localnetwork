@@ -130,8 +130,8 @@ pub fn damage(tc: &TestCase, root: &Path, files: &[String], deletable: &[String]
     (rotted, gone)
 }
 
-/// Some of `items`, each kept or not as drawn.
+/// Some of `items`, in their order.
 #[hegel::test_helper]
-pub fn some<T: Clone>(tc: &TestCase, items: &[T]) -> Vec<T> {
-    items.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect()
+pub fn some<T: Clone + Send + Sync + std::fmt::Debug>(tc: &TestCase, items: &[T]) -> Vec<T> {
+    tc.draw(gs::subsequences(items))
 }

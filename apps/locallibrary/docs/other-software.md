@@ -64,6 +64,34 @@ read (history lists players recorded there can't be checked). Its databases, ana
 artwork are backed up, so `undo` puts back the library it held, but audio isn't: audio the export
 removed stays gone unless it's in the store.
 
+## rekordbox XML
+
+```bash
+locallibrary import ~/Desktop/rekordbox.xml USB --dry-run       # what its keys, tempos and cues add
+locallibrary collection export ~/stick --from tracklist:rekordbox-xml --grant ~/Music \
+  --option file=$HOME/Desktop/rekordbox.xml                     # a drive built from it
+```
+
+rekordbox writes its whole collection as XML (File > Export Collection in xml format), as do
+other library tools and `locallibrary xml`. The tracklist plugin reads one two ways besides
+`playlist import`, which makes a playlist of it (see [Plugins](plugins.md)):
+
+- `import` finds each of its tracks on a drive by file (the last folders of its `Location`), then
+  artist, title and length, and adds what the drive's tracks lack: a key (`Tonality`) and a BPM
+  (`AverageBpm`) where a track has none, and hot cues, memory cues and loops in slots (or at
+  places) it has none in. A loop's length is counted in beats at the tempo where it starts; one
+  that isn't 1-512 beats or 1/2 to 1/32 of one comes as a cue, said in a warning.
+- `collection export --from tracklist:rekordbox-xml` builds a drive from the collection, as from
+  rekordbox's own (above): each track whose audio file is in a folder you grant, with its tags,
+  rating, key, tempo, cues and a beat grid from its `TEMPO` markers to its end, and its playlists.
+  The file is read once; saved again while the drive is planned, it's refused: build again.
+
+The file can say anything, so values out of range (a time past a day, a tempo outside 0.01-655.35
+BPM, a hot cue past H, folders nested more than about 60 deep) are left out and counted in the
+plan's warnings, and a beat grid stops at 262,144 beats. Fade-in, fade-out and load marks and
+meters past 4 beats to the bar aren't supported, and are counted the same way. Track colours and
+`Grouping` aren't read.
+
 ## Other DJ software
 
 ```bash
@@ -122,3 +150,22 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
   artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+
+### Sets and mixes
+
+```bash
+locallibrary sets export Friday --format traktor --drive Home -o ~/Desktop/friday-for-traktor
+locallibrary sets export Friday --format serato --drive Home -o ~/Music/friday --option write_tags=true
+locallibrary mix "Live at the Warehouse.wav" --drive Home --format engine --export ~/Desktop/warehouse
+```
+
+A set you played (see [Sets](sets.md)), or the tracklist `mix` found in a recording, goes across
+as one playlist of its tracks in the order played, with the same formats: `sets export
+--format` and `mix --format` take `traktor`, `serato` and `engine`. The files point at the audio
+on a drive, so a set's export needs one (`--drive`; a mix's is the drive `mix` matched it against),
+and it's written as that drive's export is, with the same options: the playlist, named for the
+day and the title (or the venue), holds the tracks found on the drive by their files, and only
+those tracks go in, with their beat grids and cues where the format carries them. A track played
+twice is listed twice, but for Engine, whose playlists hold a track once. Tracks not on the drive
+(one typed in by hand, or gone since) are left out, each named in a warning; with none on it, the
+export is refused.

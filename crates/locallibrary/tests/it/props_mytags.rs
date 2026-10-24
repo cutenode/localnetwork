@@ -285,8 +285,7 @@ impl MyTags {
 /// the model has it. (A name `add_category`, `add_tag` or `rename` accepts must also save.)
 #[hegel::test(test_cases = 300)]
 fn edits_match_the_model(tc: TestCase) {
-    let which = tc.draw(gs::integers::<usize>().max_value(1));
-    let bytes = std::fs::read(&fixtures()[which]).unwrap();
+    let bytes = std::fs::read(tc.draw(gs::sampled_from(&fixtures()))).unwrap();
     let model = Model::read(&ExtDatabase::from_bytes(bytes.clone()).unwrap());
     let editor = ExtEditor::from_bytes(bytes).unwrap();
     let seen_links = model.links.clone();
@@ -315,8 +314,7 @@ fn a_name_too_long_for_a_page_is_refused_up_front() {
 /// was, byte for byte.
 #[hegel::test]
 fn edits_that_change_nothing_leave_the_file_as_it_was(tc: TestCase) {
-    let which = tc.draw(gs::integers::<usize>().max_value(1));
-    let original = std::fs::read(&fixtures()[which]).unwrap();
+    let original = std::fs::read(tc.draw(gs::sampled_from(&fixtures()))).unwrap();
     let model = Model::read(&ExtDatabase::from_bytes(original.clone()).unwrap());
     let mut ed = ExtEditor::from_bytes(original.clone()).unwrap();
     let ids = model.ids();
@@ -403,10 +401,7 @@ const TAG_PATHS: &[&str] = &[
 #[hegel::test_helper]
 fn tag_edit(tc: &TestCase, ids: &[u32]) -> tags::Edit {
     let tag = tc.draw(gs::sampled_from(TAG_PATHS)).to_string();
-    let mut tracks: Vec<u32> = ids.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
-    if tracks.is_empty() {
-        tracks.push(ids[0]);
-    }
+    let tracks: Vec<u32> = tc.draw(gs::subsequences(ids).min_size(1));
     match tc.draw(gs::integers::<u8>().max_value(5)) {
         0..=2 => tags::Edit::Add { tag, tracks },
         3 => tags::Edit::Remove { tag, tracks },

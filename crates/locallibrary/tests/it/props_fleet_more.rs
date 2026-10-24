@@ -87,7 +87,7 @@ fn drives_stand_where_their_state_is_in_the_librarys_history(tc: TestCase) {
     assert!(entry.0.is_some_and(|e| e.ok == ok && e.summary == "checked") && entry.1.is_none());
 
     // One primary a library: a second makes the first a backup.
-    let (first, second) = (ids[tc.draw(gs::integers::<usize>().max_value(2))], ids[0]);
+    let (first, second) = (tc.draw(gs::sampled_from(&ids)), ids[0]);
     fleet::set_role(&store, first, Some(Role::Primary)).unwrap();
     fleet::set_role(&store, second, Some(Role::Primary)).unwrap();
     let roles = fleet::known(&store, &[], false).unwrap();

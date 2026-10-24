@@ -79,6 +79,32 @@ fn the_sidecar_answers_a_plugins_question_to_its_caller() {
     assert_eq!(bad["error"]["data"]["kind"], "external", "{bad}");
 }
 
+/// Questions asked together come to the caller whole, who calls again once with every answer.
+#[test]
+fn the_sidecar_answers_questions_asked_together_whole() {
+    let (_env, mut s, drive) = sidecar();
+    let mut asked = question("pick", &[json!(1), json!("two")]);
+    asked["more"] = json!([question("other", &[json!("a")])]);
+    let run = |params: Value| json!({ "plugin": "echo", "command": "titles", "params": params, "context": { "drive": drive } });
+    let view = result(s.call(1, "plugins.run", run(json!({ "ask": asked }))));
+    assert_eq!(
+        view,
+        json!({ "kind": "choose", "title": "Which?", "param": "pick", "items": asked["items"], "more": asked["more"] })
+    );
+    let answered = result(s.call(2, "plugins.run", run(json!({ "ask": asked, "pick": "two", "other": "a" }))));
+    assert_eq!(answered, json!({ "kind": "text", "text": "\"two\" \"a\"" }));
+
+    let mut names = question("name", &[json!("Peak")]);
+    names["more"] = json!([question("other", &[json!(1)])]);
+    let op = |params: Value| json!({ "plugin": "echo", "operation": "playlist", "params": params, "context": { "drive": drive } });
+    let choose = result(s.call(3, "plugins.op.plan", op(json!({ "ask": names }))));
+    assert_eq!(choose, json!({ "choose": names }));
+    let refused = s.call(4, "plugins.op.apply", op(json!({ "ask": names })));
+    assert_eq!(refused["error"]["message"], "Which?: it asks which first, as `name`, `other` in its params");
+    let planned = result(s.call(5, "plugins.op.plan", op(json!({ "ask": names, "name": "Peak", "other": 1 }))));
+    assert_eq!(planned["playlists_created"], json!(["Peak"]));
+}
+
 /// The providers are listed with the score a candidate alone is picked for the user at, which is
 /// set, and put back; what they find for a drive's tracks is planned and applied as picked.
 #[test]

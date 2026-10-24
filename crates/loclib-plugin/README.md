@@ -39,8 +39,16 @@ and typed table columns, see [views](#views)).
      "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
      `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
-     one the hook takes but doesn't require (the host checks params first), and each item's
-     value one it takes: a question that isn't is refused.
+     one the hook takes but doesn't require (the host checks params first), not one it was
+     given (it would be asked forever), and each item's value one it takes: a question that
+     isn't is refused. `more` (a list of questions of the same shape, without a `more` of their
+     own) asks those too in the same round, and the host runs the hook again once with every
+     one's param set. Each is checked as the first is, no two ask about the same param, and a
+     round asks at most 64 (`Choice::MAX_QUESTIONS`): every entry of a long set's tracklist,
+     while the user doesn't sit through more before the hook hears their answers. A caller may
+     answer only some of them (`--choose`, an RPC caller, a host older than `more`, which asks
+     the first alone), so a hook asks again only about the params it still lacks: one asking
+     about a param it was given is refused.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -284,9 +292,27 @@ left out, and other paths are said from their drive, `<store>` or `~`. Nothing a
 host never waits for it: once too many wait to be sent to a plugin, it drops the oldest.
 
 A plugin with `events` (or `services`) may send the host `host/notify {message, operation?:
-{name, params}}`, a notification, whenever it likes: a line for the user (cut to one line of 500
-characters), and one of its own operations to suggest, its `params` an object of at most 64 KiB as
-JSON, which the host plans (and the user confirms) only if the user chooses to.
+{name, params}, action?: {name, params}}`, a notification, whenever it likes: a line for the user
+(cut to one line of 500 characters), and something to suggest, its `params` an object of at most
+64 KiB as JSON (`MAX_SUGGESTED_PARAMS`), which the host starts (and the user confirms) only if the
+user chooses to. That's one of its own operations, or one of the host's own flows (`HostAction`,
+`HostNotify::action` sends one) on its own contributions, as the host starts it when the user
+does. Its drive is named by id or name (never a path): the host finds it among those it knows
+and names it by id (else name) as it passes it on, refusing one it doesn't know, and keeps the
+tracks the drive has, each once, refusing one with none. The actions:
+
+- `art.fetch` and `track.fetch` `{drive, tracks?, provider?}`: what its providers of that kind
+  (`artwork` or `metadata`; only `provider` when it says) find for the tracks (every one unless it
+  says, by id), offered and planned as any.
+- `export` `{format, drive?, set?, mix?, options?}`: its exporter `format`, of the drive's library,
+  a set or a mix as the exporter's `source` takes (with a drive at most for a set or a mix), its
+  `options` fitting the exporter's. Where to is always the user's to pick.
+- `analyze` `{analyzer, drive, tracks?}`: its analyzer on the drive's tracks.
+
+The host refuses (and logs) a suggestion with both, an action it doesn't know or params the action
+doesn't take, and one on another plugin's contributions, and tells the line alone. A host older
+than actions leaves `action` out (`HostNotify` takes keys it doesn't know), so it tells the line
+alone too.
 
 - `[[contributes.events]]`: `on`, the events it listens for, each once, each granted.
 
@@ -300,13 +326,16 @@ host can ask before overwriting any. `counts` (optional) are labelled numbers of
 the order to show them (`{"tracks": 12, "cues": 40}`); `notes` (optional) say what the format can't
 hold and what to do with the files, `warnings` what's wrong with this library. An export reads the
 drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by name) only
-narrow which lists go in. A set's exporter is given `set` instead (the set's id, which `sets.get`
+narrow which lists go in. A set's export is given `set` instead (the set's id, which `sets.get`
 reads) and a mix's `mix` (the id of the report kept of it, which `mix.reports.get` reads), each
-with the `drive` its tracks are on when the user names one (else `""`).
+with the `drive` its tracks are on when the user names one (else `""`): which of the three a
+request carries is what it writes out.
 
-- `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
-  without the dot) or `folder = true`, `options`, and `source`: what it writes out, `drive` (a
-  drive's library, unless it says), `set` or `mix`; a set's or a mix's reads it, which takes
+- `[[contributes.exporters]]`: `format` (one per exporter, whatever it writes out), `title`,
+  `extension` (lowercase letters and digits, without the dot) or `folder = true`, `options`, and
+  `source`: what it writes out, `drive` (a drive's library, unless it says), `set` or `mix`, or a
+  list of them (`["drive", "set", "mix"]`) for an exporter that writes each out with the same
+  options. The host refuses a request for a source it doesn't list; reading a set or a mix takes
   `sets:read`.
 
 ### importers
@@ -384,7 +413,7 @@ after it stops or fails, a few times in a row at most.
 ### sources
 
 `library/read {source, options, roots, cursor?, context}` -> `{"tracks": [...], "playlists":
-[{path, tracks}], "blob"?, "next"?}`: a page of a library the plugin reads from somewhere on the
+[{path, tracks}], "blob"?, "next"?, "warnings"?}`: a page of a library the plugin reads from somewhere on the
 computer (another program's collection, a folder of tagged files), which the host builds a drive
 from. `roots` are the folders the user granted it for this read (absolute); the host asks for
 pages, passing each one's `next` back as `cursor`, until one has none. A track is `{path, title,
@@ -394,7 +423,8 @@ or a key as rekordbox names it, `cues` `[{hot_cue?, start_ms, end_ms?, name?, co
 0 for A to 7 for H; `color` as cue edits take one), `beats` a beat grid as an analyzer's `beats`
 field is, `waveform` a blob as its `waveform` field is, `my_tags` `Category/Tag`. A playlist's
 `path` is `Folder/Name`, its `tracks` their `path`s. A page too big for a message is a blob, `{"blob":
-"page.json"}`, holding a page as JSON. The host trusts no path: it copies only a regular audio file
+"page.json"}`, holding a page as JSON. `warnings` say what it couldn't read, a line each, and the
+plan shows them. The host trusts no path: it copies only a regular audio file
 in one of `roots` (links resolved), not on the drive written to, reading its length and format
 itself and hashing it before copying, and leaves out (with a warning) the tracks that aren't and
 what it can't write of the rest; cues, beat grids and waveforms go into analysis files it makes.
@@ -459,7 +489,8 @@ re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fe
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an
 operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
-command).
+command). `Choice::together(questions)` asks several in one round, the first with the rest as
+its `more`, leaving any past `Choice::MAX_QUESTIONS` for the round after.
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a family of its own in this crate (`src/hooks/`): its request types implementing `Hook`

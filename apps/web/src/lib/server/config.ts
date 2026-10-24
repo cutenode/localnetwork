@@ -63,7 +63,7 @@ const envSchema = z.object({
 	DATABASE_PATH: z.string().min(1).default('data/localnetwork.db'),
 	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
 	ROOT_IDENTIFIER: z.string().min(1, 'set ROOT_IDENTIFIER to the root account handle or DID'),
-	ROOT_PASSWORD: z.string().min(1, 'set ROOT_PASSWORD to an app password for the root account'),
+	ROOT_PASSWORD: z.string().min(1, 'set ROOT_PASSWORD to the root account password (not an app password)'),
 	ROOT_SERVICE: absoluteUrl.optional(),
 	ADMIN_DIDS: didList,
 	PLC_URL: absoluteUrl.default('https://plc.directory'),

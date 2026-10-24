@@ -217,7 +217,7 @@ const MOUNTS: [&str; 7] = ["/media/dj/A", "/media/dj/B", "/mnt/usb", "/", "/boot
 fn node(tc: &TestCase, path: &str, part: bool, nested: bool) -> (Value, Option<Volume>, Vec<String>) {
     let mut v = json!({ "name": path.trim_start_matches("/dev/"), "path": path,
             "type": if part { "part" } else { "crypt" }, "size": tc.draw(gs::integers::<u64>()) });
-    let fs = if tc.draw(gs::booleans()) { Some(tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()))) } else { None };
+    let fs = tc.draw(gs::optional(gs::sampled_from(FILESYSTEMS.to_vec())));
     if let Some((t, ver, _)) = fs {
         v["fstype"] = json!(t);
         v["fsver"] = json!(ver);

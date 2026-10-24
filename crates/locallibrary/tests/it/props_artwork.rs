@@ -49,16 +49,13 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
     let mut rows = 0;
     let mut medium: IndexMap<u8, Vec<u8>> = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(4)) {
-        let mut batch: Vec<u32> = drawn::some(&tc, &ids);
-        if batch.is_empty() {
-            batch.push(ids[tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))]);
-        }
+        let mut batch: Vec<u32> = tc.draw(gs::subsequences(&ids).min_size(1));
         // Often exactly the tracks of one picture, which is then replaced in place.
         if !row.is_empty() && tc.draw(gs::weighted_booleans(0.5)) {
             let mut existing: Vec<usize> = row.values().copied().collect();
             existing.sort_unstable();
             existing.dedup();
-            let r = existing[tc.draw(gs::integers::<usize>().max_value(existing.len() - 1))];
+            let r = tc.draw(gs::sampled_from(existing));
             let users: Vec<u32> = ids.iter().copied().filter(|t| row.get(t) == Some(&r)).collect();
             if !users.is_empty() {
                 batch = users;

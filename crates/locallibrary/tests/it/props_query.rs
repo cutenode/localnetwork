@@ -7,6 +7,7 @@ use hegel::{Generator, TestCase};
 use locallibrary::fields::{Declared, FieldValue, TrackValues};
 use locallibrary::model::{Library, Playlist, Track, TrackColor};
 use locallibrary::query::{self, Filter, QueryContext, SortField, SortKey, TrackSelector};
+use loclib_model::test_util::{self, tracks_like};
 
 const TEXT_FIELDS: &[&str] =
     &["", "artist:", "a:", "title:", "t:", "album:", "genre:", "g:", "label:", "comment:", "remixer:", "mix:", "path:"];
@@ -105,58 +106,41 @@ fn word() -> impl hegel::PrintableGenerator<String> {
     gs::text().alphabet("abAé ").max_size(4)
 }
 
-#[hegel::composite]
-fn track(tc: &TestCase, id: u32) -> Track {
-    Track {
-        id,
-        title: tc.draw(word()),
-        artist: tc.draw(word()),
-        album: tc.draw(word()),
-        album_artist: tc.draw(word()),
-        genre: tc.draw(word()),
-        label: tc.draw(word()),
-        key: tc.draw(hegel::one_of!(gs::sampled_from(vec!["8A", "Am", "9A", "3B", "", "x"]).map(String::from), word())),
-        remixer: tc.draw(word()),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: tc.draw(word()),
-        mix_name: tc.draw(word()),
-        isrc: String::new(),
-        bpm: tc.draw(hegel::one_of!(gs::floats::<f64>().min_value(0.0).max_value(200.0), gs::floats::<f64>())),
-        duration_secs: tc.draw(gs::integers::<u32>().max_value(1000)),
-        year: tc.draw(gs::integers::<u16>().max_value(2030)),
-        track_number: 0,
-        disc_number: 0,
-        rating: tc.draw(gs::integers::<u8>().max_value(5)),
-        color: tc.draw(gs::optional(gs::integers::<u8>().min_value(1).max_value(8))).and_then(TrackColor::from_id),
-        play_count: tc.draw(gs::integers::<u16>().max_value(3)),
-        bitrate: tc.draw(gs::sampled_from(vec![128u32, 320, 1411])),
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: format!("/Contents/{id}/{}.mp3", tc.draw(word())),
-        analyze_path: if tc.draw(gs::booleans()) {
-            format!("/PIONEER/USBANLZ/{id}/ANLZ0000.DAT")
-        } else {
-            String::new()
-        },
-        date_added: tc.draw(hegel::one_of!(
+fn track(id: u32) -> impl hegel::PrintableGenerator<Track> {
+    tracks_like(test_util::track(id, "", "", ""))
+        .title(word())
+        .artist(word())
+        .album(word())
+        .album_artist(word())
+        .genre(word())
+        .label(word())
+        .key(hegel::one_of!(gs::sampled_from(vec!["8A", "Am", "9A", "3B", "", "x"]).map(String::from), word()))
+        .remixer(word())
+        .comment(word())
+        .mix_name(word())
+        .bpm(hegel::one_of!(gs::floats::<f64>().min_value(0.0).max_value(200.0), gs::floats::<f64>()))
+        .duration_secs(gs::integers::<u32>().max_value(1000))
+        .year(gs::integers::<u16>().max_value(2030))
+        .rating(gs::integers::<u8>().max_value(5))
+        .color(gs::default::<Option<TrackColor>>())
+        .play_count(gs::integers::<u16>().max_value(3))
+        .bitrate(gs::sampled_from(vec![128u32, 320, 1411]))
+        .file_path(word().map(move |w| format!("/Contents/{id}/{w}.mp3")))
+        .analyze_path(gs::sampled_from(vec![String::new(), format!("/PIONEER/USBANLZ/{id}/ANLZ0000.DAT")]))
+        .date_added(hegel::one_of!(
             gs::sampled_from(vec!["2026-09-30", "2025-01-02", "2026-01", "", "999999-01-01", "2026-99-99"])
                 .map(String::from),
             gs::from_regex("[0-9]{4}-[0-9]{2}-[0-9]{2}").fullmatch(true),
             gs::text().max_size(10),
-        )),
-        release_date: String::new(),
-        artwork_id: tc.draw(gs::optional(gs::integers::<u32>().max_value(3))),
-        artwork_path: None,
-    }
+        ))
+        .artwork_id(gs::optional(gs::integers::<u32>().max_value(3)))
 }
 
 /// A small library with a folder "Sets" holding playlists "Friday" and "Deep".
 #[hegel::composite]
 fn library(tc: &TestCase) -> Library {
-    let n = tc.draw(gs::integers::<u32>().max_value(8));
-    let tracks: Vec<Track> = (1..=n).map(|id| tc.draw(track(id))).collect();
+    let lib = tc.draw(test_util::libraries(0, 8, track));
+    let n = lib.tracks.len() as u32;
     let ids = || gs::vecs(gs::integers::<u32>().min_value(1).max_value(n.max(1))).max_size(6);
     let list = |id: u32, parent: Option<u32>, name: &str, track_ids: Vec<u32>| Playlist {
         id,
@@ -171,7 +155,7 @@ fn library(tc: &TestCase) -> Library {
         list(2, Some(1), "Friday", tc.draw(ids())),
         list(3, Some(1), "Deep", tc.draw(ids())),
     ];
-    Library { tracks, playlists, ..Default::default() }
+    Library { playlists, ..lib }
 }
 
 /// One filter term with no spaces or quotes, sometimes negated.
@@ -384,9 +368,8 @@ fn sort_orders_round_trip(tc: TestCase) {
 fn sorting_is_stable_and_lexicographic(tc: TestCase) {
     let mut lib = tc.draw(library());
     // Exact copies (but for the id) must keep their relative order.
-    let copies: Vec<Track> =
-        lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).filter(|_| tc.draw(gs::booleans())).collect();
-    lib.tracks.extend(copies);
+    let copies: Vec<Track> = lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).collect();
+    lib.tracks.extend(tc.draw(gs::subsequences(copies)));
     let keys = tc.draw(sort_keys());
 
     let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
@@ -563,13 +546,13 @@ fn numeric_terms_compare_as_written(tc: TestCase) {
         ("bitrate", |t| f64::from(t.bitrate)),
         ("bpm", |t| t.bpm),
     ];
-    let (name, read) = fields[tc.draw(gs::integers::<usize>().max_value(fields.len() - 1))];
+    let (name, read) = tc.draw(gs::sampled_from(&fields));
     // Bounds at a track's own value as often as not, where the operators differ.
     let values: Vec<f64> =
         lib.tracks.iter().map(read).filter(|v| v.fract() == 0.0 && *v >= 0.0 && *v <= 2030.0).collect();
     let bound = |tc: &TestCase| match values.is_empty() || tc.draw(gs::booleans()) {
         true => f64::from(tc.draw(gs::integers::<u16>().max_value(2030))),
-        false => values[tc.draw(gs::integers::<usize>().max_value(values.len() - 1))],
+        false => tc.draw(gs::sampled_from(&values)),
     };
     let (x, y) = (bound(&tc), bound(&tc));
     let tolerance = if name == "bpm" { 0.5 } else { 0.0 };
@@ -640,10 +623,7 @@ fn is_and_has_match_what_they_name(tc: TestCase) {
     ];
     let field = tc.draw(gs::sampled_from(vec!["is", "has"]));
     let mine: Vec<&(&str, &str, Holds)> = all.iter().filter(|(f, _, _)| *f == field).collect();
-    let picked: Vec<usize> = (0..mine.len()).filter(|_| tc.draw(gs::booleans())).collect();
-    if picked.is_empty() {
-        return;
-    }
+    let picked: Vec<usize> = tc.draw(gs::subsequences((0..mine.len()).collect::<Vec<_>>()).min_size(1));
     let values: Vec<&str> = picked.iter().map(|i| mine[*i].1).collect();
     let f = Filter::parse(&format!("{field}:{}", values.join("|"))).unwrap();
     let expected: Vec<bool> = lib.tracks.iter().map(|t| picked.iter().any(|i| (mine[*i].2)(t))).collect();
@@ -663,7 +643,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
         .tracks
         .iter()
         .map(|t| {
-            let mine: Vec<String> = paths.iter().filter(|_| tc.draw(gs::booleans())).map(|p| p.to_string()).collect();
+            let mine: Vec<String> = tc.draw(gs::subsequences(&paths)).into_iter().map(str::to_string).collect();
             (locallibrary::paths::file_key(&t.file_path), mine)
         })
         .collect();

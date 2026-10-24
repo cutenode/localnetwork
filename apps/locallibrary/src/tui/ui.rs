@@ -2669,6 +2669,16 @@ fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
         None => "the system's default".into(),
     };
     let mut items = vec![ListItem::new(Line::from(vec![mark(playing == Some(None)), Span::styled(default, text())]))];
+    // Until the devices are in, a row where they go says so (or why they can't be listed).
+    let why = match (&o.listing, &o.failed) {
+        (Some(_), _) => Some(("listing the outputs…".to_string(), dim())),
+        (_, Some(e)) => Some((format!("can't list the outputs: {e}"), fg(theme::current().critical))),
+        _ => None,
+    };
+    if let Some((why, style)) = why {
+        let why = Span::styled(clip(&why, (w as usize).saturating_sub(6)), style);
+        items.push(ListItem::new(Line::from(vec![Span::raw("  "), why])));
+    }
     for n in &o.names {
         let on = playing.as_ref().is_some_and(|p| p.as_deref() == Some(n.as_str()));
         items.push(ListItem::new(Line::from(vec![

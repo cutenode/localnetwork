@@ -13,7 +13,7 @@ fn choice(multi: bool, n: usize) -> Choice {
             value: json!(i * 10),
         })
         .collect();
-    Choice { title: "Which?".into(), param: "pick".into(), multi, items }
+    Choice { title: "Which?".into(), param: "pick".into(), multi, items, more: Vec::new() }
 }
 
 /// One number, from 1, picks one item; with `multi`, any with commas, none empty.
@@ -36,9 +36,19 @@ fn an_answer_is_the_items_numbered() {
 #[test]
 fn a_question_is_asked_until_answered() {
     let c = choice(false, 3);
-    assert_eq!(answer(&c, &mut "9\nx\n2\n".as_bytes()).unwrap(), [json!(10)]);
-    assert_eq!(answer(&choice(true, 3), &mut "1,3\n".as_bytes()).unwrap(), [json!(0), json!(20)]);
-    let e = answer(&c, &mut "4\n".as_bytes()).unwrap_err();
+    assert_eq!(answers(&c, &mut "9\nx\n2\n".as_bytes()).unwrap(), [[json!(10)]]);
+    assert_eq!(answers(&choice(true, 3), &mut "1,3\n".as_bytes()).unwrap(), [[json!(0), json!(20)]]);
+    let e = answers(&c, &mut "4\n".as_bytes()).unwrap_err();
+    assert_eq!(e.to_string(), "Which?: no answer");
+}
+
+/// Questions asked together are asked in turn, each until it's answered: input ending before
+/// the last is answered fails, naming the one it was on.
+#[test]
+fn questions_asked_together_are_asked_in_turn() {
+    let c = Choice { more: vec![Choice { param: "also".into(), ..choice(true, 2) }], ..choice(false, 3) };
+    assert_eq!(answers(&c, &mut "3\n7\n2,1\n".as_bytes()).unwrap(), [vec![json!(20)], vec![json!(10), json!(0)]]);
+    let e = answers(&c, &mut "1\n".as_bytes()).unwrap_err();
     assert_eq!(e.to_string(), "Which?: no answer");
 }
 
@@ -88,4 +98,29 @@ fn any_answer_typed_is_items_named(tc: TestCase) {
             assert!(!fine || (!c.multi && parts.len() != 1), "{line}");
         }
     }
+}
+
+/// Any questions asked together, answered a line each (each answer after any lines that aren't
+/// one): the answers are each question's items named, in the questions' order.
+#[hegel::test(test_cases = 50)]
+fn any_questions_together_are_answered_each_in_turn(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+    let questions: Vec<Choice> = (0..n)
+        .map(|i| Choice {
+            param: format!("p{i}"),
+            ..choice(false, tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        })
+        .collect();
+    let c = Choice { more: questions[1..].to_vec(), ..questions[0].clone() };
+    let mut typed = String::new();
+    let mut foreseen = Vec::new();
+    for q in &questions {
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+            typed.push_str(&format!("{}\n", q.items.len() + 1));
+        }
+        let pick = tc.draw(gs::integers::<usize>().min_value(1).max_value(q.items.len()));
+        typed.push_str(&format!("{pick}\n"));
+        foreseen.push(vec![q.items[pick - 1].value.clone()]);
+    }
+    assert_eq!(answers(&c, &mut typed.as_bytes()).unwrap(), foreseen, "{typed:?}");
 }
