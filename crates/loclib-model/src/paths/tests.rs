@@ -131,3 +131,104 @@ fn path_styles_round_trip_through_json(tc: TestCase) {
     assert_eq!(serde_json::from_value::<PathStyle>(json).unwrap(), style);
     assert_eq!(PathStyle::default(), PathStyle::Relative);
 }
+
+/// Made absolute, a path is the current folder (when it's relative) followed by its parts, each
+/// `..` taking the part before it away and each `.` nothing; nothing at all stays nothing. With
+/// what's real followed, the part that exists is the real folder, followed by the rest.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(parts = vec!["a", "..", ".", "b"], rooted = false, made = 1usize)]
+#[hegel::explicit_test_case(parts = Vec::<&str>::new(), rooted = false, made = 0usize)]
+// Regression: `..` was folded before symlinks were resolved, so this many up from a macOS temp
+// folder (`/var/folders/xx/yyy/T/.tmpX`, `/var` being `/private/var`) gave `/`, not `/private`.
+#[hegel::explicit_test_case(parts = vec![".."; 6], rooted = false, made = 0usize)]
+fn paths_are_folded_part_by_part(tc: TestCase) {
+    let real = |p: &Path| dunce::canonicalize(p).ok();
+    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
+    let rooted = tc.draw(gs::booleans());
+    let joined = parts.join("/");
+    let path = PathBuf::from(if rooted { format!("/{joined}") } else { joined.clone() });
+    // On Windows a rooted path is on the current folder's drive.
+    let mut want = if rooted { std::path::absolute("/").unwrap() } else { std::env::current_dir().unwrap() };
+    if !rooted && parts.is_empty() {
+        want = PathBuf::new();
+    }
+    for p in &parts {
+        match *p {
+            ".." => {
+                want.pop();
+            }
+            "." => {}
+            name => want.push(name),
+        }
+    }
+    assert_eq!(absolute_with(&path, |_| None), want, "{path:?}");
+    if !rooted && parts.is_empty() {
+        assert_eq!(absolute_with(&path, real), PathBuf::new());
+    }
+    // Below a real folder: the parts that exist resolve, the rest are appended.
+    let dir = tempfile::tempdir().unwrap();
+    let root = real(dir.path()).unwrap();
+    let made = tc.draw(gs::integers::<usize>().max_value(2));
+    std::fs::create_dir_all(root.join("a/b").iter().take(root.components().count() + made).collect::<PathBuf>())
+        .unwrap();
+    let below = dir.path().join(&joined);
+    let mut folded = root.clone();
+    for p in &parts {
+        match *p {
+            ".." => {
+                folded.pop();
+            }
+            "." => {}
+            name => folded.push(name),
+        }
+    }
+    assert_eq!(absolute_with(&below, real), folded, "{below:?}");
+}
+
+#[test]
+fn relative_paths() {
+    assert_eq!(
+        relative(Path::new("/Volumes/USB/Lists"), Path::new("/Volumes/USB/Contents/A/x.mp3")).as_deref(),
+        Some("../Contents/A/x.mp3")
+    );
+    assert_eq!(
+        relative(Path::new("/Volumes/USB"), Path::new("/Volumes/USB/Contents/x.mp3")).as_deref(),
+        Some("Contents/x.mp3")
+    );
+    assert_eq!(
+        relative(Path::new("/Users/me/out/Engine Library"), Path::new("/Volumes/USB/Contents/a.mp3")).as_deref(),
+        Some("../../../../Volumes/USB/Contents/a.mp3")
+    );
+}
+
+#[test]
+fn a_relative_path_needs_a_root_in_common() {
+    assert_eq!(relative(Path::new("Lists"), Path::new("/Volumes/USB/x.mp3")), None);
+    assert_eq!(relative(Path::new("out"), Path::new("out/x.mp3")), None);
+}
+
+/// A path made relative to an absolute folder leads back to the file from that folder (each `..`
+/// climbing one folder, only as far as the two paths part); from a relative folder, which shares
+/// no root with the file, there's none.
+#[hegel::test(test_cases = 300)]
+fn a_relative_path_leads_from_the_folder_to_the_file(tc: TestCase) {
+    let parts = || gs::vecs(gs::sampled_from(vec!["Volumes", "USB", "Lists", "Contents", "a b", "é"])).max_size(4);
+    let (from, to): (Vec<&str>, Vec<&str>) = (tc.draw(parts()), tc.draw(parts().min_size(1)));
+    let rooted = tc.draw(gs::booleans());
+    let from_path = PathBuf::from(format!("{}{}", if rooted { "/" } else { "" }, from.join("/")));
+    let to_path = PathBuf::from(format!("/{}", to.join("/")));
+    let Some(r) = relative(&from_path, &to_path) else {
+        return assert!(!rooted, "{from_path:?} to {to_path:?}");
+    };
+    assert!(rooted, "{from_path:?} is relative, yet {r:?}");
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut at: Vec<&str> = from.clone();
+    for step in r.split('/').filter(|s| !s.is_empty()) {
+        match step {
+            ".." => assert!(at.pop().is_some(), "{r:?} climbs past the root"),
+            s => at.push(s),
+        }
+    }
+    assert_eq!(at, to, "{from_path:?} + {r:?}");
+    assert_eq!(r.split('/').filter(|s| *s == "..").count(), from.len() - common, "{r:?}");
+}

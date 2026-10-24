@@ -1,12 +1,12 @@
 //! Path keys: how a track's audio file is recognised across exports of one library, and finding
-//! it below a folder.
+//! it below a folder; and paths on this computer made absolute, and relative to a folder.
 //!
 //! A *key* is a path relative to the drive root, `/`-separated, Unicode NFC-normalised, without a
 //! leading slash (`Contents/A/B/x.mp3`). Normalising matters: rekordbox writes NFC names, while
 //! macOS may hand back NFD names when listing a directory, and the same track must compare equal
 //! either way.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
@@ -24,6 +24,42 @@ pub enum PathStyle {
     Drive,
     /// Absolute on this computer, through the drive's mount point.
     Absolute,
+}
+
+/// `to` relative to the folder `from`, `/`-separated. `None` when `from` has no root (a relative
+/// folder) or they share none (another Windows drive).
+pub fn relative(from: &Path, to: &Path) -> Option<String> {
+    let a: Vec<Component> = from.components().filter(|c| *c != Component::CurDir).collect();
+    let b: Vec<Component> = to.components().filter(|c| *c != Component::CurDir).collect();
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    if common == 0 || !matches!(a.first(), Some(Component::RootDir | Component::Prefix(_))) {
+        return None;
+    }
+    let ups = (common..a.len()).map(|_| "..".to_string());
+    let downs = b[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned());
+    Some(ups.chain(downs).collect::<Vec<_>>().join("/"))
+}
+
+/// `path` made absolute, part by part: `.` is nothing and `..` takes away the part before it.
+/// Each name is followed by what `real` says the path so far is (when it says), so that what
+/// a `..` takes away is a real folder. `std::path::absolute` leaves `..` in, except on Windows,
+/// which folds it this way itself before a path is opened.
+pub fn absolute_with(path: &Path, real: impl Fn(&Path) -> Option<PathBuf>) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            Component::Normal(_) => {
+                out.push(c);
+                out = real(&out).unwrap_or(out);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Normalise any path-ish string into a key.

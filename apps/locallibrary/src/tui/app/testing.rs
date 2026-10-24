@@ -357,6 +357,20 @@ pub fn outputs_listed(app: &mut App) {
     assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
 }
 
+/// Handle the app's background messages until the store's sets are read. Opening a drive starts
+/// a read of the sets in the store the app has then: a test that points the app at another store
+/// waits for that read first, or it can land after the other store's and leave no sets.
+pub fn read_sets(app: &mut App) {
+    loop {
+        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
+        let sets = matches!(msg, Msg::Sets(..));
+        app.handle_msg(msg);
+        if sets {
+            return;
+        }
+    }
+}
+
 /// The message the footer shows now ("" for none).
 pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())

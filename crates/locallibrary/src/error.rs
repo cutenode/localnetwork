@@ -463,12 +463,6 @@ impl From<loclib_progress::Cancelled> for Error {
     }
 }
 
-impl From<loclib_tracklist::Error> for Error {
-    fn from(e: loclib_tracklist::Error) -> Self {
-        Error::invalid(e.to_string())
-    }
-}
-
 impl From<loclib_mixid::Error> for Error {
     fn from(e: loclib_mixid::Error) -> Self {
         use loclib_mixid::Error as E;
