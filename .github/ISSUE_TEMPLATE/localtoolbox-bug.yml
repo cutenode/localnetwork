@@ -1,6 +1,7 @@
 name: localtoolbox bug
 description: Something the localtoolbox Chrome extension got wrong
 labels: ["bug", "localtoolbox"]
+type: Bug
 body:
   - type: dropdown
     id: tool
