@@ -73,7 +73,7 @@ fn parse_never_panics_on_bytes(tc: TestCase) {
     let hint = tc.draw(gs::sampled_from(HINTS.to_vec()));
     let _ = loclib_tracklist::parse(&bytes, hint);
     let _ = loclib_tracklist::detect(&bytes, hint);
-    let _ = loclib_tracklist::xml_playlists(&bytes);
+    let _ = loclib_tracklist::read_xml_library(&bytes);
     for f in FORMATS {
         let _ = loclib_tracklist::parse_as(&bytes, f);
     }

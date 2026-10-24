@@ -409,7 +409,7 @@ after it stops or fails, a few times in a row at most.
 ### sources
 
 `library/read {source, options, roots, cursor?, context}` -> `{"tracks": [...], "playlists":
-[{path, tracks}], "blob"?, "next"?}`: a page of a library the plugin reads from somewhere on the
+[{path, tracks}], "blob"?, "next"?, "warnings"?}`: a page of a library the plugin reads from somewhere on the
 computer (another program's collection, a folder of tagged files), which the host builds a drive
 from. `roots` are the folders the user granted it for this read (absolute); the host asks for
 pages, passing each one's `next` back as `cursor`, until one has none. A track is `{path, title,
@@ -419,7 +419,8 @@ or a key as rekordbox names it, `cues` `[{hot_cue?, start_ms, end_ms?, name?, co
 0 for A to 7 for H; `color` as cue edits take one), `beats` a beat grid as an analyzer's `beats`
 field is, `waveform` a blob as its `waveform` field is, `my_tags` `Category/Tag`. A playlist's
 `path` is `Folder/Name`, its `tracks` their `path`s. A page too big for a message is a blob, `{"blob":
-"page.json"}`, holding a page as JSON. The host trusts no path: it copies only a regular audio file
+"page.json"}`, holding a page as JSON. `warnings` say what it couldn't read, a line each, and the
+plan shows them. The host trusts no path: it copies only a regular audio file
 in one of `roots` (links resolved), not on the drive written to, reading its length and format
 itself and hashing it before copying, and leaves out (with a warning) the tracks that aren't and
 what it can't write of the rest; cues, beat grids and waveforms go into analysis files it makes.
