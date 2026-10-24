@@ -273,35 +273,18 @@ use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use loclib_model::test_util::keys;
 
-/// The mix's waveform has a column every quarter second for each series, scaled so its
-/// loudest column is full height; louder is never drawn lower, and the same mix at another
-/// level draws the same, give or take rounding.
-#[hegel::test(test_cases = 200)]
-fn the_mix_waveform_is_scaled_to_its_loudest(tc: TestCase) {
-    let level = || hegel::one_of!(gs::just(0.0f32), gs::floats::<f32>().min_value(1e-3).max_value(1.0));
+/// The mix's waveform has a column every quarter second: loclib-mixid's columns of its levels
+/// at that rate (whose pooling and scaling its tests cover).
+#[hegel::test(test_cases = 50)]
+fn the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
+    let level = || gs::floats::<f32>().min_value(0.0).max_value(1.0);
     let frames: Vec<(f32, [f32; 3])> =
         tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
     let levels: Vec<FrameLevels> = frames.iter().map(|&(peak, bands)| FrameLevels { peak, bands }).collect();
     let w = waveform(&levels);
-    let columns = (levels.len() as f64 / (FRAMES_PER_SEC / WAVEFORM_RATE)).ceil() as usize;
-    assert_eq!(w.columns_per_sec, WAVEFORM_RATE);
-    for (name, series, of) in [
-        ("peak", &w.peak, levels.iter().map(|l| l.peak).collect::<Vec<_>>()),
-        ("low", &w.low, levels.iter().map(|l| l.bands[0]).collect()),
-        ("mid", &w.mid, levels.iter().map(|l| l.bands[1]).collect()),
-        ("high", &w.high, levels.iter().map(|l| l.bands[2]).collect()),
-    ] {
-        assert_eq!(series.len(), columns, "{name}");
-        let loudest = of.iter().copied().fold(0.0f32, f32::max);
-        assert_eq!(series.iter().copied().max().unwrap_or(0), if loudest > 0.0 { 255 } else { 0 }, "{name}");
-    }
-    let c = tc.draw(gs::floats::<f32>().min_value(0.01).max_value(100.0));
-    let scaled: Vec<FrameLevels> =
-        levels.iter().map(|l| FrameLevels { peak: l.peak * c, bands: l.bands.map(|b| b * c) }).collect();
-    let v = waveform(&scaled);
-    for (a, b) in [(&w.peak, &v.peak), (&w.low, &v.low), (&w.mid, &v.mid), (&w.high, &v.high)] {
-        assert!(a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 1), "{a:?} at {c}x is {b:?}");
-    }
+    let c = fingerprint::columns(&levels, 4.0);
+    assert_eq!(w.columns_per_sec, 4.0);
+    assert_eq!((w.peak, [w.low, w.mid, w.high]), (c.peak, c.bands));
 }
 
 /// One transition between each play and the next: when the next comes in, how long both
