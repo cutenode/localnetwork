@@ -222,6 +222,29 @@ test.describe('signed in', () => {
 		await expectAccessible(page);
 	});
 
+	test("an admin verifies a project's manager on Bluesky, then removes it", async ({ page }) => {
+		await signIn(page, 'ada.test', 'ada-pass', '/admin/projects/neon-tide');
+		const managers = page.locator('form[action="?/managers"]');
+		await managers.getByRole('link', { name: 'Verify' }).click();
+		// The manager's handle, or their DID until the app has learned the handle.
+		await expect(page.getByLabel('Handle or DID')).not.toHaveValue('');
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Verify', exact: true }).click();
+		await expect(page.getByText('Verified @neon.test as “Neon”')).toBeVisible();
+		const row = page.getByRole('row', { name: /@neon\.test/ });
+		await expect(row.getByText('Verified', { exact: true })).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/admin/projects/neon-tide');
+		await expect(managers.getByText('Verified', { exact: true })).toBeVisible();
+
+		await page.goto('/admin/verifications');
+		page.once('dialog', (dialog) => dialog.accept());
+		await row.getByRole('button', { name: 'Remove' }).click();
+		await expect(page.getByText('Verification removed')).toBeVisible();
+		await expect(row).toHaveCount(0);
+	});
+
 	test('someone asks to see a press kit, and its owner lets them in', async ({ page }) => {
 		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/epk');
 		await page.getByRole('link', { name: /Clubs/ }).click();

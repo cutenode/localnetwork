@@ -42,7 +42,10 @@ fn recording(notes: &[f64], bpm: f64) -> Vec<u8> {
 fn heard(dir: &Path, audio: &[u8]) -> f64 {
     let file = dir.join("heard.wav");
     fs::write(&file, audio).unwrap();
-    let e = analyze(&file, Want { estimate: true, loudness: false }, &Ctx::silent()).unwrap().estimate.unwrap();
+    let e = analyze(&file, Want { estimate: true, loudness: false, waveform: false }, &Ctx::silent())
+        .unwrap()
+        .estimate
+        .unwrap();
     assert!(e.bpm > 0.0, "a tempo to score: {e:?}");
     e.bpm.into()
 }

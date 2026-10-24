@@ -14,8 +14,9 @@ use serde::Serialize;
 use super::super::Plugins;
 use super::super::process::Slot;
 use crate::op::{Operation, Planned, Probe, Touched};
+use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
-use crate::sets::{Set, SetBook};
+use crate::sets::{Set, SetBook, Unnamed};
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -59,9 +60,9 @@ pub struct SetPublished {
     pub warnings: Vec<String>,
 }
 
-/// The set as it's published: its details and tracklist, never its notes, and tracks the DJ
-/// publishes without naming them as only their place.
-fn published(set: &Set) -> (PublishedSet, Vec<TracklistEntry>) {
+/// The set as it's published: its details and tracklist, never its notes, and the tracks at
+/// `unnamed`'s positions as only their place.
+fn published(set: &Set, unnamed: &Unnamed) -> (PublishedSet, Vec<TracklistEntry>) {
     let details = PublishedSet {
         id: set.id.clone(),
         date: set.date.to_string(),
@@ -71,14 +72,15 @@ fn published(set: &Set) -> (PublishedSet, Vec<TracklistEntry>) {
         city: set.city.clone(),
         country: set.country.clone(),
     };
-    let named = |e: &crate::sets::SetEntry, text: &str| (!e.unnamed).then(|| text.to_string());
-    let tracklist = set
-        .tracks
-        .iter()
-        .map(|e| TracklistEntry {
-            artist: named(e, &e.artist),
-            title: named(e, &e.title),
-            start_seconds: e.start_seconds,
+    let tracklist = (1..)
+        .zip(&set.tracks)
+        .map(|(n, e)| {
+            let named = !unnamed.positions.contains(&n);
+            TracklistEntry {
+                artist: named.then(|| e.artist.clone()),
+                title: named.then(|| e.title.clone()),
+                start_seconds: e.start_seconds,
+            }
         })
         .collect();
     (details, tracklist)
@@ -87,10 +89,19 @@ fn published(set: &Set) -> (PublishedSet, Vec<TracklistEntry>) {
 impl Plugins {
     /// Plans publishing the set `set` names (see [`SetBook::find`]) with its recording at the
     /// set destination `spec` names (`<plugin>:<destination>`): the plugin's dry run says what
-    /// would happen, publishing nothing. The plan (operation `<plugin>.publish.<destination>`) is
-    /// stale once the set or its recording changes, and destructive when the set has a link
-    /// already, which publishing replaces.
-    pub fn publish_plan(&self, spec: &str, set: &str, store: &Store, ctx: &Ctx<'_>) -> Result<Planned<SetPublish>> {
+    /// would happen, publishing nothing. Tracks the set marks unnamed, those at the positions
+    /// (from 1) in `hide` and those the DJ's profile hides go without their names (see
+    /// [`Set::unnamed`]), and the plan says which. The plan (operation
+    /// `<plugin>.publish.<destination>`) is stale once the set, its recording or the profile's
+    /// choices change, and destructive when the set has a link already, which publishing replaces.
+    pub fn publish_plan(
+        &self,
+        spec: &str,
+        set: &str,
+        hide: &[usize],
+        store: &Store,
+        ctx: &Ctx<'_>,
+    ) -> Result<Planned<SetPublish>> {
         let (slot, destination) = self.destination(spec, DestinationKind::Set)?;
         let book = SetBook::load(store)?;
         let set = book.find(set)?;
@@ -100,7 +111,8 @@ impl Plugins {
         if !recording.is_file() {
             return Err(Error::NotFound(format!("{}, the set's recording", recording.display())));
         }
-        let (details, tracklist) = published(set);
+        let unnamed = set.unnamed(hide, &ProfilePrefs::load(store)?)?;
+        let (details, tracklist) = published(set, &unnamed);
         let (context, _) = slot.context(loclib_plugin::Context::default(), Some(store))?;
         let mut publish =
             PublishSet { destination: destination.clone(), set: details, recording, tracklist, dry_run: true, context };
@@ -110,6 +122,7 @@ impl Plugins {
             &slot.manifest.contributes.destinations.iter().find(|d| d.name == destination).expect("declared").title;
         let mut summary =
             vec![format!("publish {} ({} tracks) and its recording at {title}", set.heading(), set.tracks.len())];
+        summary.extend(unnamed.notes);
         summary.extend(url.as_ref().map(|u| format!("it would be at {u}")));
         let replaces = set.link.clone();
         summary.extend(replaces.as_ref().map(|l| format!("replace its link {l}")));
@@ -132,7 +145,8 @@ impl Plugins {
             .summary(summary)
             .warnings(warnings)
             .destructive(destructive)
-            .touches(Touched::path(&folder, false, vec![Probe::Stamp(vec![file])])))
+            .touches(Touched::path(&folder, false, vec![Probe::Stamp(vec![file])]))
+            .touches(Touched::path(store.root(), false, vec![Probe::Content(vec![PREFS_FILE.into()])])))
     }
 }
 

@@ -20,7 +20,8 @@ fn providing() -> String {
         .replacen("[[contributes.settings]]", more, 1)
 }
 
-/// An [`Env`] with [`providing`]'s plugin, and the demo drive USB (two tracks), where it is.
+/// An [`Env`] with [`providing`]'s plugin, and the demo drive USB (two tracks), where it is. Each
+/// fetch asks echo alone (`--from echo`): the coverart plugin's providers would go online.
 fn env() -> (Env, PathBuf) {
     let mut env = Env::new();
     env.plugins(&[&providing()]);
@@ -54,7 +55,7 @@ fn track_fetch_picks_the_sure_one_and_asks_about_the_rest() {
     let (env, usb) = env();
     let ids: Vec<u32> = years(&usb).iter().map(|(id, _)| *id).collect();
     answer(&env, json!({ "each": [year(0.95, 1999), year(0.2, 1950)], "warnings": ["one not found"] }));
-    let r = env.run(&["--yes", "track", "fetch", "USB"]);
+    let r = env.run(&["--yes", "track", "fetch", "USB", "--from", "echo"]);
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     for said in ["track details found for 2 of 2 track(s)", "fill in the details of 2 track(s) from Tags"] {
         assert!(r.out.contains(said), "{said}: {}", r.out);
@@ -63,7 +64,7 @@ fn track_fetch_picks_the_sure_one_and_asks_about_the_rest() {
     assert_eq!(years(&usb), ids.iter().map(|id| (*id, 1999)).collect::<Vec<_>>());
 
     answer(&env, json!({ "each": [year(0.5, 2001), year(0.4, 2002)] }));
-    let fetch = ["--yes", "track", "fetch", "USB", "--replace"];
+    let fetch = ["--yes", "track", "fetch", "USB", "--from", "echo", "--replace"];
     let asked = env.fails(2, &fetch);
     for id in &ids {
         assert!(asked.contains(&format!(": answer with --choose {id}=VALUE, VALUE one of:")), "{asked}");
@@ -108,7 +109,7 @@ fn track_fetch_in_json_from_one_provider() {
     );
     assert_eq!(years(&usb)[0], (ids[0], 1984));
     let err = env.fails(1, &["track", "fetch", "USB", "--from", "nope"]);
-    assert!(err.contains("nope provides no metadata: echo.found do"), "{err}");
+    assert!(err.contains("nope provides no metadata: coverart.tags, echo.found do"), "{err}");
     let err = env.fails(1, &["art", "fetch", "USB", "--from", "echo.found"]);
     assert!(err.contains("echo.found provides no artwork: coverart.covers, echo.covers do"), "{err}");
 }
@@ -173,13 +174,13 @@ fn track_fetch_leaves_a_track_with_every_tag_alone() {
     let before = tracks(&usb);
     assert!(before.iter().all(|t| t.year == 0 && !t.title.is_empty()), "{before:?}");
     answer(&env, json!({ "each": [tags("First", 1999)] }));
-    env.ok(&["--yes", "track", "fetch", "USB", "--track", &before[0].id.to_string()]);
+    env.ok(&["--yes", "track", "fetch", "USB", "--from", "echo", "--track", &before[0].id.to_string()]);
     let had = tracks(&usb);
     let full = &had[0];
     assert_eq!((full.title.as_str(), full.year, full.genre.as_str()), (before[0].title.as_str(), 1999, "Genre"));
     assert_eq!(had[1].year, 0);
     answer(&env, json!({ "each": [tags("Second", 2005)] }));
-    let out = env.ok(&["--yes", "track", "fetch", "USB"]);
+    let out = env.ok(&["--yes", "track", "fetch", "USB", "--from", "echo"]);
     for said in ["track details found for 1 of 1 track(s)", "fill in the details of 1 track(s) from Tags"] {
         assert!(out.contains(said), "{said}: {out}");
     }
@@ -200,6 +201,7 @@ fn plugin_providers_shows_and_sets_the_auto_pick() {
     let out = env.ok(&["plugin", "providers"]);
     for line in [
         "coverart.covers  artwork   Cover Art Archive",
+        "coverart.tags    metadata  MusicBrainz",
         "echo.found       metadata  Found",
         "echo.covers      artwork   Covers",
     ] {
@@ -213,7 +215,7 @@ fn plugin_providers_shows_and_sets_the_auto_pick() {
     assert_eq!(env.json(&["plugin", "providers"])["auto_pick"], json!(0.5));
     // Now one alone at 0.5 is chosen for you.
     answer(&env, json!({ "each": [year(0.5, 2001), year(0.4, 2002)] }));
-    env.ok(&["--yes", "track", "fetch", "USB", "--replace"]);
+    env.ok(&["--yes", "track", "fetch", "USB", "--from", "echo", "--replace"]);
     assert!(years(&usb).iter().all(|(_, y)| *y == 2001));
     env.ok(&["--yes", "plugin", "providers", "--reset"]);
     assert_eq!(env.json(&["plugin", "providers"])["auto_pick"], json!(0.9));
@@ -241,7 +243,15 @@ fn any_answers_fill_in_the_candidates_numbered(tc: TestCase) {
     let (env, usb) = env();
     let before = years(&usb);
     let mut candidates = Vec::new();
-    let mut args = vec!["--yes".to_string(), "track".into(), "fetch".into(), "USB".into(), "--replace".into()];
+    let mut args = vec![
+        "--yes".to_string(),
+        "track".into(),
+        "fetch".into(),
+        "USB".into(),
+        "--from".into(),
+        "echo".into(),
+        "--replace".into(),
+    ];
     let mut want = Vec::new();
     for (k, (id, had)) in before.iter().enumerate() {
         let n = tc.draw(gs::integers::<usize>().max_value(3));

@@ -796,7 +796,7 @@ fn an_export_is_planned_confirmed_and_written() {
     assert_eq!(entry(&app, "export for echo-m3u…").1, Some("open a drive first"));
     assert_eq!(entry(&app, "export for traktor…").0.detail, "Other DJ software");
     press(&mut app, "\u{1b}");
-    app.plugin_export("echo", "echo-m3u", None);
+    app.plugin_export("echo", "echo-m3u", loclib_plugin::ExportFrom::Drive, None);
     assert_eq!((app.modal.is_none(), last_message(&app)), (true, "open a drive first"));
 
     mounted(dir.path());
@@ -1151,7 +1151,10 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
                     | Act::Import(..)
                     | Act::Fetch(_)
             );
-            assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
+            // A set's export needs a set open too, which none of these places has.
+            let of_set = matches!(act, Act::Export(_, _, loclib_plugin::ExportFrom::Set));
+            let said = if of_set { why.or(Some("open a set first")) } else { why.filter(|_| needs) };
+            assert_eq!(i.unavailable.as_deref(), said, "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
         }
         let name = tc.draw(gs::sampled_from(own));
@@ -1272,7 +1275,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), (format!("Write from {}", named(&a.title)), fields));
             press(app, "\u{1b}");
         }
-        Act::Export(p, f) => {
+        Act::Export(p, f, _) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
             let e = m.contributes.exporters.iter().find(|e| e.format == f).unwrap();
             let (title, fields) = form_open(app);

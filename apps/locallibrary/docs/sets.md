@@ -146,8 +146,12 @@ the track that was fifth just before the one that was second. `--insert` looks t
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
-`.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
-a `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
+`.m3u8` or `.txt`), and a plugin's formats more: `--format traktor --drive Home -o DIR` makes
+it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see [Other DJ
+software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
+publishing: a track marked unnamed or one your profile hides (`profile hide`) is `ID - ID` there.
+`sets publish` puts a set on your [Atmosphere account](account.md#publishing) as a
+`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
 
 ## Mixes
 
@@ -191,6 +195,9 @@ sets with one title don't overwrite each other), for showing elsewhere, such as 
 profile, where it's attached to the mix. It's versioned JSON (`"format": "locallibrary.mix-report"`,
 `"version": 2`, camelCase) with the mix, every play and the track it matched (tempo, key, cues,
 phrases, a downsampled waveform overview and small cover art), the transitions and the gaps.
+With a plugin's `--format` it writes what that says instead: `--format traktor` (or `serato`,
+`engine`) is a playlist of the tracks it played, in order (see [Other DJ
+software](other-software.md#sets-and-mixes)).
 
 The `--html` report and the export are made to be shared, so they hold what they show and no
 more: no file paths, no drive name or size, no My Tags, comments or ratings, and a cover only when

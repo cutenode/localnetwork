@@ -2363,6 +2363,11 @@ export type PublishSetAt = {
   destination: string;
   /** The set: its id (or the start of it), title or day, or `last`. */
   set: string;
+  /**
+   * Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+   * and tracks the profile hides (`profile hide`) are never named either.
+   */
+  hide?: number[];
 };
 
 export type PlanPluginOp = {
@@ -8071,9 +8076,15 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
-  /** What it writes out [default: a drive's library]. */
-  source?: ExportFrom;
+  /**
+   * What it writes out [default: a drive's library]: one source (`"set"`), or a list of them
+   * (`["drive", "set", "mix"]`) for an exporter that writes each out the same way.
+   */
+  source?: ExportSources;
 };
+
+/** What an exporter writes out, as its manifest says it: one source, or a list. */
+export type ExportSources = ExportFrom | ExportFrom[];
 
 /** What an exporter writes out. */
 export type ExportFrom =
@@ -8382,6 +8393,12 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+  /**
+   * Questions asked after this one before the hook runs again, each about a param of its own
+   * (and asking none of its own). A host that doesn't know them asks this one alone, so a hook
+   * still asks what's left when it's run again.
+   */
+  more?: PluginChoice[];
 };
 
 export type TreeItem = {
@@ -8470,7 +8487,7 @@ export type SetPublished = {
 
 /**
  * What planning a plugin's operation comes to: its plan, or a question for the user first, after
- * which it's planned again with the param set ([`Choice::answered`]).
+ * which it's planned again with each of its params set ([`Choice::answered`]).
  */
 export type OpPlanned = {
   choose: PluginChoice;
@@ -8616,7 +8633,10 @@ export type Provided = {
   kind: ProviderKind;
   /** How many tracks they were asked about. */
   asked: number;
-  /** Each track something was found for, in the library's order. */
+  /**
+   * Each track something was found for (tags only when they'd change it), in the library's
+   * order.
+   */
   offers: Offer[];
   /** The images the candidates are of, each once, by id (its content's hash): in base64. */
   images: { [key: string]: string };

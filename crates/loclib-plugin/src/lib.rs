@@ -34,7 +34,7 @@ pub use hooks::events::{
     AnalyzeAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,
     MAX_SUGGESTED_PARAMS, Suggested, Suggestion,
 };
-pub use hooks::exporters::{ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport};
+pub use hooks::exporters::{ExportFrom, ExportSource, ExportSources, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{
     ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, ImportedPlay, ImportedTrack, Importer, ReadImport,
     TrackMatch,

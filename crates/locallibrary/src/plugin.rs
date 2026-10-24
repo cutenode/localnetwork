@@ -125,12 +125,24 @@ pub struct PluginSpec {
 }
 
 impl PluginSpec {
-    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in).
+    /// A plugin locallibrary ships, from its manifest (`locallibrary-plugin.toml`, compiled in),
+    /// which is checked only in builds with debug assertions (the tests'): it's the same on every
+    /// start, and checking it compiles its JSON Schemas against the 2020-12 meta-schema, which
+    /// added about a millisecond to every run of the CLI, `--version` included.
     pub fn first_party(manifest: &str, launch: Launch) -> Result<PluginSpec> {
         let manifest = Manifest::parse(manifest).map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
-        manifest.validate(true).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", manifest.id)))?;
+        check_first_party(&manifest)?;
         Ok(PluginSpec { manifest, launch, first_party: true })
     }
+}
+
+/// [`Manifest::validate`] for a plugin locallibrary ships, in builds with debug assertions (see
+/// [`PluginSpec::first_party`]). The app's tests check each manifest it ships.
+fn check_first_party(m: &Manifest) -> Result<()> {
+    if !cfg!(debug_assertions) {
+        return Ok(());
+    }
+    m.validate(true).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", m.id)))
 }
 
 /// How the host runs plugins.
@@ -222,8 +234,9 @@ pub struct Plugins {
 
 impl Plugins {
     /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
-    /// doesn't ship, an invalid manifest, two plugins with one id, and two commands (or
-    /// operations) with one `cli` place (the app checks them against its own commands).
+    /// doesn't ship, an invalid manifest (in builds with debug assertions: see
+    /// [`PluginSpec::first_party`]), two plugins with one id, and two commands (or operations) with
+    /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
         let host = Arc::new(process::Host { reads, options });
         let mut plugins = IndexMap::new();
@@ -233,7 +246,7 @@ impl Plugins {
             if !spec.first_party {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
             }
-            m.validate(true).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", m.id)))?;
+            check_first_party(m)?;
             let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
             let operations = m.contributes.operations.iter().filter_map(|o| o.cli.as_deref());
             if let Some(name) = commands.chain(operations).find(|n| !cli.insert(n.to_string())) {

@@ -143,6 +143,7 @@ fn link(env: &Env) -> Value {
 
 /// Publishing a set at a plugin's destination shows the plugin's dry run and always asks first:
 /// not confirmed (or a dry run), nothing is published; confirmed, the link it answers is the set's.
+/// `--hide` leaves tracks unnamed there too.
 #[test]
 fn a_set_is_published_at_a_plugins_destination_once_confirmed() {
     let (env, _) = env();
@@ -156,7 +157,8 @@ fn a_set_is_published_at_a_plugins_destination_once_confirmed() {
         r.out
     );
     assert_eq!(link(&env), Value::Null);
-    env.ok(&["sets", "publish", "Friday", "--to", "echo:nowhere", "--dry-run"]);
+    let out = env.ok(&["sets", "publish", "Friday", "--to", "echo:nowhere", "--hide", "1", "--dry-run"]);
+    assert!(out.contains("track 1 isn't named: hidden as asked"), "{out}");
     assert_eq!(link(&env), Value::Null);
     let out = env.ok(&["--yes", "sets", "publish", "Friday", "--to", "echo:nowhere"]);
     assert!(out.contains("published: https://sets.example/3m4n5o6p7q8r9"), "{out}");

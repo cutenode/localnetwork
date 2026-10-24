@@ -2,7 +2,7 @@
 
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
@@ -238,7 +238,7 @@ fn stage(path: &Path, bytes: &[u8], private: bool) -> Result<tempfile::NamedTemp
 /// `path` made absolute against the current folder, `.` and `..` resolved lexically (as a browser
 /// resolves a link: symlinks aren't followed).
 pub fn absolute(path: &Path) -> PathBuf {
-    fold(path, |_| None)
+    loclib_model::paths::absolute_with(path, |_| None)
 }
 
 /// `path` made absolute, with symlinks resolved as far as it exists (macOS's `/tmp` is
@@ -247,29 +247,7 @@ pub fn absolute(path: &Path) -> PathBuf {
 /// rather than back to the link's folder, so a path is inside a folder here exactly when what it
 /// opens is (once the folders that aren't there yet are made, `..` folded over them).
 pub fn resolved(path: &Path) -> PathBuf {
-    fold(path, |p| p.canonicalize().ok().map(crate::device::without_verbatim_prefix))
-}
-
-/// `path` made absolute, part by part: `.` is nothing and `..` takes away the part before it.
-/// Each name is followed by what `real` says the path so far is (when it says), so that what
-/// a `..` takes away is a real folder. `std::path::absolute` leaves `..` in, except on Windows,
-/// which folds it this way itself before a path is opened.
-fn fold(path: &Path, real: impl Fn(&Path) -> Option<PathBuf>) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
-        match c {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            Component::Normal(_) => {
-                out.push(c);
-                out = real(&out).unwrap_or(out);
-            }
-            c => out.push(c),
-        }
-    }
-    out
+    loclib_model::paths::absolute_with(path, |p| p.canonicalize().ok().map(crate::device::without_verbatim_prefix))
 }
 
 /// Delete a file if it exists. Returns whether it did.

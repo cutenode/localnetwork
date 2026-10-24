@@ -177,8 +177,8 @@ impl Test {
         if let Some(choice) = asked(p) {
             return Ok(serde_json::to_value(View::Choose(choice)).expect("a view is JSON"));
         }
-        if let Some(param) = p["ask"]["param"].as_str() {
-            let text = p[param].to_string();
+        if let Ok(choice) = serde_json::from_value::<Choice>(p["ask"].clone()) {
+            let text = choice.questions().map(|q| p[&q.param].to_string()).collect::<Vec<_>>().join(" ");
             return Ok(serde_json::to_value(View::Text { title: None, text }).expect("a view is JSON"));
         }
         if let Some(method) = p["call"].as_str() {

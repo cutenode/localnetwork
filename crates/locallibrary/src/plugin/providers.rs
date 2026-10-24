@@ -65,7 +65,8 @@ pub struct Provided {
     pub kind: ProviderKind,
     /// How many tracks they were asked about.
     pub asked: usize,
-    /// Each track something was found for, in the library's order.
+    /// Each track something was found for (tags only when they'd change it), in the library's
+    /// order.
     pub offers: Vec<Offer>,
     /// The images the candidates are of, each once, by id (its content's hash): in base64.
     pub images: IndexMap<String, String>,
@@ -143,7 +144,7 @@ impl Offer {
         });
         let none = ChoiceItem { label: "none of these".into(), detail: None, value: Value::Null };
         let items = items.chain([none]).collect();
-        Choice { title: self.name.clone(), param: self.track.to_string(), multi: false, items }
+        Choice { title: self.name.clone(), param: self.track.to_string(), multi: false, items, more: Vec::new() }
     }
 
     /// The candidate picked for the user, chosen ([`Offer::picked`]).
@@ -202,8 +203,9 @@ impl Plugins {
 
     /// Asks the providers of `req.kind` (`req.from`'s alone, when it names one) about the tracks
     /// of `req.drive` it chooses: what each found, best first, the one alone scoring the
-    /// `providers.auto_pick` setting or more picked. A provider that fails is a warning: the
-    /// others' are offered.
+    /// `providers.auto_pick` setting or more picked. Tags that would change nothing on a track
+    /// aren't offered, and a track left with nothing isn't asked about. A provider that fails is a
+    /// warning: the others' are offered.
     pub fn provide(&self, req: &Provide, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<Provided> {
         let all = self.providers(Some(req.kind));
         let named = |(plugin, p): &(&str, &Provider)| format!("{plugin}.{}", p.name);
@@ -261,6 +263,12 @@ impl Plugins {
             candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
             let mut seen = FxHashSet::default();
             candidates.retain(|c| seen.insert((c.artwork.clone(), c.metadata.clone())));
+            // Tags that would change nothing aren't offered, nor picked: a track lacking only an
+            // ISRC is asked about, and a provider may find just what it has.
+            candidates.retain(|c| c.metadata.as_ref().is_none_or(|m| !fields_of(t, m, req.replace).is_empty()));
+            if candidates.is_empty() {
+                return None;
+            }
             let sure = candidates.iter().filter(|c| c.score >= threshold).count();
             Some(Offer { track: t.id, name: t.display_name(), picked: (sure == 1).then_some(0), candidates })
         });

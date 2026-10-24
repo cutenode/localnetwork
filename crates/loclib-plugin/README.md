@@ -39,8 +39,16 @@ and typed table columns, see [views](#views)).
      "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
      `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
-     one the hook takes but doesn't require (the host checks params first), and each item's
-     value one it takes: a question that isn't is refused.
+     one the hook takes but doesn't require (the host checks params first), not one it was
+     given (it would be asked forever), and each item's value one it takes: a question that
+     isn't is refused. `more` (a list of questions of the same shape, without a `more` of their
+     own) asks those too in the same round, and the host runs the hook again once with every
+     one's param set. Each is checked as the first is, no two ask about the same param, and a
+     round asks at most 64 (`Choice::MAX_QUESTIONS`): every entry of a long set's tracklist,
+     while the user doesn't sit through more before the hook hears their answers. A caller may
+     answer only some of them (`--choose`, an RPC caller, a host older than `more`, which asks
+     the first alone), so a hook asks again only about the params it still lacks: one asking
+     about a param it was given is refused.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -318,13 +326,16 @@ host can ask before overwriting any. `counts` (optional) are labelled numbers of
 the order to show them (`{"tracks": 12, "cues": 40}`); `notes` (optional) say what the format can't
 hold and what to do with the files, `warnings` what's wrong with this library. An export reads the
 drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by name) only
-narrow which lists go in. A set's exporter is given `set` instead (the set's id, which `sets.get`
+narrow which lists go in. A set's export is given `set` instead (the set's id, which `sets.get`
 reads) and a mix's `mix` (the id of the report kept of it, which `mix.reports.get` reads), each
-with the `drive` its tracks are on when the user names one (else `""`).
+with the `drive` its tracks are on when the user names one (else `""`): which of the three a
+request carries is what it writes out.
 
-- `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
-  without the dot) or `folder = true`, `options`, and `source`: what it writes out, `drive` (a
-  drive's library, unless it says), `set` or `mix`; a set's or a mix's reads it, which takes
+- `[[contributes.exporters]]`: `format` (one per exporter, whatever it writes out), `title`,
+  `extension` (lowercase letters and digits, without the dot) or `folder = true`, `options`, and
+  `source`: what it writes out, `drive` (a drive's library, unless it says), `set` or `mix`, or a
+  list of them (`["drive", "set", "mix"]`) for an exporter that writes each out with the same
+  options. The host refuses a request for a source it doesn't list; reading a set or a mix takes
   `sets:read`.
 
 ### importers
@@ -473,7 +484,8 @@ re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fe
 answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
 (`host/notify`). A hook answers its answer or what makes one: an
 operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
-command).
+command). `Choice::together(questions)` asks several in one round, the first with the rest as
+its `more`, leaving any past `Choice::MAX_QUESTIONS` for the round after.
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a family of its own in this crate (`src/hooks/`): its request types implementing `Hook`

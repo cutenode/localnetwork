@@ -127,6 +127,29 @@ fn tracks_lacking_what_a_kind_finds_are_asked_about() {
     assert_eq!(p.asked, tracks.len() - with_art);
 }
 
+/// Tags that would change nothing on a track (what it has, or a tag it has without `replace`)
+/// aren't offered, so they're never picked; a track found nothing else isn't asked about.
+#[test]
+fn tags_changing_nothing_are_not_offered() {
+    let f = Fixture::providers(&["echo"]);
+    let tracks = common::library(&f.drive).tracks;
+    assert!(tracks.iter().all(|t| !t.title.is_empty() && t.year == 0), "{tracks:?}");
+    let year = json!({ "score": 0.95, "source": "S", "label": "2001", "metadata": { "year": 2001 } });
+    f.answer("echo", json!({ "each": [tags(0.95, "Another"), year] }));
+    let p = f.provide(ProviderKind::Metadata, Some("echo"), false).unwrap();
+    let ids: Vec<u32> = tracks.iter().map(|t| t.id).collect();
+    let offered: Vec<(u32, Vec<String>, Option<usize>)> =
+        ids.iter().map(|id| (*id, vec!["2001".to_string()], Some(0))).collect();
+    assert_eq!(titles(&p), offered, "only the year, picked");
+    f.answer("echo", json!({ "each": [tags(0.95, "Another")] }));
+    let p = f.provide(ProviderKind::Metadata, Some("echo"), false).unwrap();
+    assert_eq!((p.asked, p.offers.len()), (tracks.len(), 0));
+    // With `replace`, a title the track has already changes nothing either.
+    let theirs: Vec<Value> = tracks.iter().map(|t| for_track(t.id, tags(0.95, &t.title))).collect();
+    f.answer("echo", json!({ "candidates": theirs }));
+    assert!(f.provide(ProviderKind::Metadata, Some("echo"), true).unwrap().offers.is_empty());
+}
+
 /// A provider that fails is a warning, the others' offered; cancelled, it cancels. One that answers
 /// what it wasn't asked fails.
 #[test]
@@ -311,7 +334,8 @@ fn drawn_candidate(tc: &TestCase) -> Value {
 }
 
 /// Whatever two providers find for the tracks, with any setting: each track's candidates are
-/// theirs, best first, each once, and picked exactly when one alone scores the setting or more;
+/// theirs that would change it, best first, each once (a track with none offered nothing), and
+/// picked exactly when one alone scores the setting or more;
 /// planned, the picks write each tag a track lacks (or, with `replace`, any it doesn't have).
 #[hegel::test(test_cases = 20)]
 fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
@@ -328,22 +352,36 @@ fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
     let replace = tc.draw(gs::booleans());
     let before = common::library(&f.drive).tracks;
     let p = f.provide(ProviderKind::Metadata, None, replace).unwrap();
-    // Each found for every track asked about, the same tags once.
-    let mut distinct: Vec<&Value> = Vec::new();
-    for c in &all {
-        if !distinct.contains(&&c["metadata"]) {
-            distinct.push(&c["metadata"]);
+    // Each track asked about is offered the tags found that would change it, the same once; one
+    // with none isn't offered anything.
+    let changes = |t: &locallibrary::Track, c: &Value| match c["metadata"]["title"].as_str() {
+        Some(title) => title != t.title && (replace || t.title.trim().is_empty()),
+        None => {
+            let year = c["metadata"]["year"].as_u64().unwrap() as u16;
+            year != t.year && (replace || t.year == 0)
         }
-    }
-    let asked = before.iter().filter(|t| replace || lacks_a_tag(t)).count();
-    assert_eq!((p.asked, p.offers.len()), (asked, if distinct.is_empty() { 0 } else { asked }));
-    for o in &p.offers {
-        assert_eq!(o.candidates.len(), distinct.len());
+    };
+    let asked: Vec<&locallibrary::Track> = before.iter().filter(|t| replace || lacks_a_tag(t)).collect();
+    assert_eq!(p.asked, asked.len());
+    let mut offers = p.offers.iter();
+    for t in asked {
+        let mut distinct: Vec<&Value> = Vec::new();
+        for c in all.iter().filter(|c| changes(t, c)) {
+            if !distinct.contains(&&c["metadata"]) {
+                distinct.push(&c["metadata"]);
+            }
+        }
+        if distinct.is_empty() {
+            continue;
+        }
+        let o = offers.next().unwrap_or_else(|| panic!("#{} is offered nothing", t.id));
+        assert_eq!((o.track, o.candidates.len()), (t.id, distinct.len()));
         let scores: Vec<f64> = o.candidates.iter().map(|c| c.score).collect();
         assert!(scores.windows(2).all(|w| w[0] >= w[1]), "{scores:?}");
         let sure = scores.iter().filter(|s| **s >= threshold).count();
         assert_eq!(o.picked, (sure == 1).then_some(0));
     }
+    assert!(offers.next().is_none(), "offered more: {:?}", titles(&p));
     let picks: Vec<_> = (p.offers.iter())
         .filter_map(|o| o.chosen(&json!(tc.draw(gs::integers::<usize>().max_value(o.candidates.len())))))
         .collect();

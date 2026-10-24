@@ -122,3 +122,22 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
   artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+
+### Sets and mixes
+
+```bash
+locallibrary sets export Friday --format traktor --drive Home -o ~/Desktop/friday-for-traktor
+locallibrary sets export Friday --format serato --drive Home -o ~/Music/friday --option write_tags=true
+locallibrary mix "Live at the Warehouse.wav" --drive Home --format engine --export ~/Desktop/warehouse
+```
+
+A set you played (see [Sets](sets.md)), or the tracklist `mix` found in a recording, goes across
+as one playlist of its tracks in the order played, with the same formats: `sets export
+--format` and `mix --format` take `traktor`, `serato` and `engine`. The files point at the audio
+on a drive, so a set's export needs one (`--drive`; a mix's is the drive `mix` matched it against),
+and it's written as that drive's export is, with the same options: the playlist, named for the
+day and the title (or the venue), holds the tracks found on the drive by their files, and only
+those tracks go in, with their beat grids and cues where the format carries them. A track played
+twice is listed twice, but for Engine, whose playlists hold a track once. Tracks not on the drive
+(one typed in by hand, or gone since) are left out, each named in a warning; with none on it, the
+export is refused.
