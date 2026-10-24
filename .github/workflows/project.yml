@@ -1,0 +1,48 @@
+name: Project
+
+# Keeps the organization's "Local Network" project in step with tools/project.sh: an issue that's
+# opened, reopened, transferred here or relabelled is added and gets its Product, and a change to
+# the project's files on main applies them. GITHUB_TOKEN can't reach an organization's projects, so
+# this runs on the PROJECT_TOKEN secret, a fine-grained token with the organization's Projects
+# permission (read and write) and this repository's Issues (read). Without it the job does nothing.
+on:
+  issues:
+    types: [opened, reopened, transferred, labeled, unlabeled]
+  push:
+    branches: [main]
+    paths:
+      - .github/project.json
+      - .github/labels.yml
+      - .github/workflows/project.yml
+      - tools/project.sh
+  workflow_dispatch:
+
+permissions: {}
+
+# A new issue's form adds its labels one event at a time: the last event's run sees them all.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || 'apply' }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.GH_TOKEN != ''
+        with:
+          persist-credentials: false
+      - if: env.GH_TOKEN != ''
+        env:
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          if [ -n "$NUMBER" ]; then
+            tools/project.sh sync "$NUMBER"
+          else
+            tools/project.sh apply
+          fi
