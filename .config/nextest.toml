@@ -25,6 +25,15 @@ priority = 100
 filter = 'package(loclib-plugin)'
 slow-timeout = { period = "30s", terminate-after = 2 }
 
+# Under some mutants the plugins' own tests don't finish (coverart's, five mutants in one run),
+# and each such mutant held its mutants shard for cargo-mutants' whole timeout (152s), running the
+# shard out of time. The slowest, the sound plugin's `fields_are_what_doctor_reports`, takes up to
+# 45s (the mutants baseline and the Hegel coverage job, on Linux), so these fail after a minute and
+# a half.
+[[profile.default.overrides]]
+filter = 'package(/^locallibrary-plugin-/)'
+slow-timeout = { period = "30s", terminate-after = 3 }
+
 # A plugin test waits on a plugin process: one that never answers fails after two minutes instead
 # of holding the job until its timeout.
 [[profile.default.overrides]]

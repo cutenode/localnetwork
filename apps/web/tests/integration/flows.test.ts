@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
-import { CALENDAR_EVENT, COLLECTION, SPACE_TYPE } from '../../src/lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
@@ -72,6 +72,29 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(role?.value).toMatchObject({ subject: net.user('milo').did, role: 'moderator', grantedBy: ada.did });
 		const members = await root.listMembers(net.app.spaces.moderation);
 		expect(members).toContainEqual({ did: net.user('milo').did, read: true, write: true });
+	});
+
+	it("lets an admin verify an account on Bluesky from the root's repo, and remove it", async () => {
+		const ada = await net.viewer('ada');
+		const milo = net.user('milo');
+		await expect(net.app.verifications.grant(ada, milo.did)).rejects.toThrow('@milo.test has no display name');
+
+		await milo.agent.com.atproto.repo.putRecord({
+			repo: milo.did,
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: 'Milo' }
+		});
+
+		await net.app.verifications.grant(ada, milo.did);
+		const root = await net.app.core.root();
+		const [record] = await root.listRecords(VERIFICATION);
+		expect(record.uri).toMatch(new RegExp(`^at://${net.rootDid}/${VERIFICATION}/`));
+		expect(record.value).toMatchObject({ subject: milo.did, handle: 'milo.test', displayName: 'Milo' });
+		expect(await net.app.verifications.statuses([milo.did])).toEqual({ [milo.did]: 'verified' });
+
+		await net.app.verifications.revoke(ada, milo.did);
+		expect(await root.listRecords(VERIFICATION)).toEqual([]);
 	});
 
 	let createRequestUri = '';

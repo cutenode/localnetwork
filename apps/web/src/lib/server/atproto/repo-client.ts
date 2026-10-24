@@ -91,6 +91,8 @@ export interface RootRepoClient extends RepoClient {
 	getDelegationToken(space: string): Promise<string>;
 	/** Spaces the root holds a repo in (used to rediscover booking spaces). */
 	listSpaces(spaceType: string): Promise<string[]>;
+	/** Every record in one collection of the root's own public repo. Unlike a public read, a PDS that's down throws. */
+	listRecords(collection: string): Promise<StoredRecord[]>;
 }
 
 /** The CID a PDS gives `record` (with its `$type`) when it writes it. */
@@ -307,6 +309,27 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		const { data } = await this.agent.com.atproto.space.getDelegationToken({ space });
 
 		return data.token;
+	}
+
+	async listRecords(collection: string) {
+		const records: StoredRecord[] = [];
+		let cursor: string | undefined;
+
+		do {
+			const { data } = await this.agent.com.atproto.repo.listRecords({
+				repo: this.did,
+				collection,
+				limit: 100,
+				cursor
+			});
+
+			records.push(
+				...data.records.map((record) => ({ uri: record.uri, cid: record.cid, value: asJson(record.value) }))
+			);
+			cursor = data.cursor;
+		} while (cursor);
+
+		return records;
 	}
 
 	async listSpaces(spaceType: string) {
