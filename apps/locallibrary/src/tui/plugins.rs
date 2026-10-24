@@ -380,11 +380,34 @@ impl App {
     /// param from the selection is filled in with, here as on the command line and in the
     /// sidecar.
     pub(super) fn plugin_drive(&self, root: &Path) -> Option<String> {
-        let listed = self.drives.iter().find(|d| d.root == root);
-        let listed = listed.map(|d| (d.id, d.name.clone().unwrap_or_else(|| d.volume_name.clone())));
-        let open = || self.loaded.as_ref().filter(|l| l.root() == root).map(|l| (l.device.id(), l.device.name()));
-        let (id, name) = listed.or_else(open)?;
+        let (_, id, name) = self.plugin_drives().find(|(r, ..)| *r == root)?;
         Some(id.map_or(name, |id| id.to_string()))
+    }
+
+    /// Where the drive a plugin names (by id, else by name) is mounted: one listed or open, never
+    /// a path ([`App::plugin_drive`] the other way round). Why not, when none is or several are.
+    pub(super) fn named_drive(&self, drive: &str) -> Result<PathBuf, String> {
+        let mut roots: Vec<&Path> = Vec::new();
+        for (root, id, name) in self.plugin_drives() {
+            let named = id.is_some_and(|id| id.to_string() == drive) || name == drive;
+            if named && !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
+        match roots[..] {
+            [root] => Ok(root.to_path_buf()),
+            [] => Err(format!("{drive} isn't plugged in")),
+            _ => Err(format!("more than one drive is named {drive}")),
+        }
+    }
+
+    /// The drives listed, then the one open: where each is mounted, its id and its name.
+    fn plugin_drives(&self) -> impl Iterator<Item = (&Path, Option<uuid::Uuid>, String)> {
+        let listed = self
+            .drives
+            .iter()
+            .map(|d| (d.root.as_path(), d.id, d.name.clone().unwrap_or_else(|| d.volume_name.clone())));
+        listed.chain(self.loaded.as_ref().map(|l| (l.root(), l.device.id(), l.device.name())))
     }
 
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a

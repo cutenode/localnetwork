@@ -5,12 +5,13 @@
 use std::path::PathBuf;
 
 use locallibrary::Store;
-use loclib_plugin::{ExportFrom, ExportSource, Manifest};
+use locallibrary::sets::SetBook;
+use loclib_plugin::{ExportAction, ExportFrom, ExportSource, Manifest};
 use serde_json::{Map, Value, json};
 
 use crate::plugins::params::properties;
-use crate::tui::app::{App, View as Screen};
-use crate::tui::browse::{Category, NodeId};
+use crate::tui::app::{App, Level, View as Screen};
+use crate::tui::browse::{Category, NodeId, set_label};
 use crate::tui::edits::Modal;
 use crate::tui::form::{For, Form};
 use crate::tui::keymap::Act;
@@ -74,28 +75,58 @@ impl App {
         from: ExportFrom,
         root: Option<PathBuf>,
     ) {
+        self.export_form(plugin, format, from, root, None);
+    }
+
+    /// [`App::plugin_export`], or the export a plugin `suggested`: its set rather than the one
+    /// open, the whole library, and its options filled in. Where to is the user's to pick either
+    /// way.
+    pub(super) fn export_form(
+        &mut self,
+        plugin: &'static str,
+        format: &'static str,
+        from: ExportFrom,
+        root: Option<PathBuf>,
+        suggested: Option<&ExportAction>,
+    ) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Some(root) = self.plugged(root) else { return };
         let exporter =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.exporters.iter().find(|e| e.format == format));
         let Some(e) = exporter else { return };
-        let set = self.open_set().filter(|_| from == ExportFrom::Set);
-        if from == ExportFrom::Set && set.is_none() {
-            return self.toast("open a set first", crate::tui::app::Level::Info);
+        if from == ExportFrom::Mix {
+            return self.toast("the player doesn't export mixes", Level::Info);
         }
-        let label = |key: &String| {
-            let group = self.loaded.as_ref().and_then(|l| l.grouped(Category::Sets, key).map(|g| g.label.clone()));
-            group.unwrap_or_else(|| key.clone())
+        // The set: the one open, or the one suggested as the store has it, so where it goes is
+        // named from the set found, never from what a plugin said.
+        let (set, name) = match (from, suggested) {
+            (ExportFrom::Set, None) => {
+                let Some(key) = self.open_set() else { return self.toast("open a set first", Level::Info) };
+                let group = self.loaded.as_ref().and_then(|l| l.grouped(Category::Sets, &key).map(|g| g.label.clone()));
+                (Some(key.clone()), group.unwrap_or(key))
+            }
+            (ExportFrom::Set, Some(s)) => {
+                let query = s.set.as_deref().unwrap_or_default();
+                let found = Store::open(&self.store_root).and_then(|store| SetBook::load(&store));
+                match found.and_then(|book| book.find(query).map(|set| (Some(set.id.clone()), set_label(set)))) {
+                    Ok(found) => found,
+                    Err(e) => return self.toast(e.to_string(), Level::Info),
+                }
+            }
+            _ => (None, self.drive_label(&root)),
         };
-        let name = set.as_ref().map_or_else(|| self.drive_label(&root), label);
         let (to, what) = match &e.extension {
             Some(ext) => (format!("~/Music/{name}.{ext}"), "The file to write, on this computer"),
             None => (format!("~/Music/{name} for {format}"), "The folder to write into, on this computer"),
         };
         let schema = with_path(WRITE_TO, what, e.options.as_ref());
-        let filled = Map::from_iter([(WRITE_TO.to_string(), Value::from(to))]);
-        // A set's format writes out the set, whatever lists are marked.
+        let mut filled = Map::from_iter([(WRITE_TO.to_string(), Value::from(to))]);
+        // Never where it goes.
+        let options = suggested.into_iter().flat_map(|s| s.options.clone()).filter(|(k, _)| k != WRITE_TO);
+        filled.extend(options);
+        // A set's export writes out the set, whatever lists are marked; a suggestion, the library.
         let open = self.loaded.as_ref().is_some_and(|l| l.root() == root) && from == ExportFrom::Drive;
+        let open = open && suggested.is_none();
         let playlists = if open { self.list_marks.clone() } else { Vec::new() };
         let then = For::Export { plugin, format, root, playlists, set };
         let form = Form::with(e.title.clone(), Some(schema), &filled, then);

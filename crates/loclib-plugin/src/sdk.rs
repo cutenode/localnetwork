@@ -175,7 +175,8 @@ impl Host {
     }
 
     /// Tells the user something (`host/notify`), from an event or a service: a line, and maybe
-    /// an operation of the plugin's to review, which the host plans only if they choose to.
+    /// an operation of the plugin's or one of the host's actions to review
+    /// ([`HostNotify::action`]), which the host plans only if they choose to.
     pub fn notify(&self, notice: &HostNotify) {
         self.peer.notify(method::HOST_NOTIFY, notice);
     }
