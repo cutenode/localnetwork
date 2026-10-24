@@ -165,12 +165,20 @@ is dropped, and its log says so), so a slow plugin never holds up the player, th
 `watch`.
 
 A plugin may tell you something back, from an event or a service, and suggest one of its own
-operations: the player shows it as a message, and "review: ..." in the palette plans the
-operation, shown and asked about as any is, or "dismiss: ..." lets it go. Suggestions are kept in
-the store until you do either (the newest 20), so they're still there when the player opens
-again; `watch` says what it's told and keeps its suggestions for the player the same way. The
-sidecar sends it as a `plugin.notice` event. Nothing a plugin suggests is planned or applied
-unless you choose to.
+operations, or one of locallibrary's own flows on what it contributes: fetching cover art or track
+details from its providers (`art.fetch`, `track.fetch`), exporting in one of its formats
+(`export`) or running one of its analyzers (`analyze`), on a drive known here it names (never a
+path: one locallibrary doesn't know, the suggestion is left out) and the tracks of it that drive
+has. The player shows it as a message, and "review: ..." in the palette plans the operation,
+shown and asked about as any is, or opens the flow as if you'd started it, filled in: the fetch
+form only from its providers to start with, saying which drive and how many tracks; the export
+form with its options and a set's own name for the file (where it goes is yours to pick, as
+always); or a question before analyzing. The player doesn't export mixes, so it says so for a
+mix's format. "dismiss: ..." lets it go. Suggestions are kept in the store until you
+do either (the newest 20), so they're still there when the player opens again; `watch` says what
+it's told and keeps its suggestions for the player the same way. The sidecar sends it as a
+`plugin.notice` event. A plugin can't suggest another plugin's work, and nothing it suggests is
+planned or applied unless you choose to.
 
 ## Export formats
 

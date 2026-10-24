@@ -284,9 +284,27 @@ left out, and other paths are said from their drive, `<store>` or `~`. Nothing a
 host never waits for it: once too many wait to be sent to a plugin, it drops the oldest.
 
 A plugin with `events` (or `services`) may send the host `host/notify {message, operation?:
-{name, params}}`, a notification, whenever it likes: a line for the user (cut to one line of 500
-characters), and one of its own operations to suggest, its `params` an object of at most 64 KiB as
-JSON, which the host plans (and the user confirms) only if the user chooses to.
+{name, params}, action?: {name, params}}`, a notification, whenever it likes: a line for the user
+(cut to one line of 500 characters), and something to suggest, its `params` an object of at most
+64 KiB as JSON (`MAX_SUGGESTED_PARAMS`), which the host starts (and the user confirms) only if the
+user chooses to. That's one of its own operations, or one of the host's own flows (`HostAction`,
+`HostNotify::action` sends one) on its own contributions, as the host starts it when the user
+does. Its drive is named by id or name (never a path): the host finds it among those it knows
+and names it by id (else name) as it passes it on, refusing one it doesn't know, and keeps the
+tracks the drive has, each once, refusing one with none. The actions:
+
+- `art.fetch` and `track.fetch` `{drive, tracks?, provider?}`: what its providers of that kind
+  (`artwork` or `metadata`; only `provider` when it says) find for the tracks (every one unless it
+  says, by id), offered and planned as any.
+- `export` `{format, drive?, set?, mix?, options?}`: its exporter `format`, of the drive's library,
+  a set or a mix as the exporter's `source` takes (with a drive at most for a set or a mix), its
+  `options` fitting the exporter's. Where to is always the user's to pick.
+- `analyze` `{analyzer, drive, tracks?}`: its analyzer on the drive's tracks.
+
+The host refuses (and logs) a suggestion with both, an action it doesn't know or params the action
+doesn't take, and one on another plugin's contributions, and tells the line alone. A host older
+than actions leaves `action` out (`HostNotify` takes keys it doesn't know), so it tells the line
+alone too.
 
 - `[[contributes.events]]`: `on`, the events it listens for, each once, each granted.
 

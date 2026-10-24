@@ -16,11 +16,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host, HostNotify, ImportAnswer, LibraryPage, ListItem,
-    OpAnswer, OpPlan, PlanCheck, PlanOp, ProvideCandidates, PublishSet, PutBlob, PutManifest, ReadImport, ReadLibrary,
-    RenderPanel, RpcError, RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View,
-    WriteExport, params,
+    Analysis, AnalyzeAction, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, ExportAction,
+    Exported, ExportedFile, Fetch, FetchAction, FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host,
+    HostAction, HostNotify, ImportAnswer, LibraryPage, ListItem, Manifest, OpAnswer, OpPlan, PlanCheck, PlanOp,
+    ProvideCandidates, PublishSet, PutBlob, PutManifest, ReadImport, ReadLibrary, RenderPanel, RpcError, RunCheck,
+    RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -405,20 +405,40 @@ fn heard(e: EventNotify, host: &Host) -> Result<(), RpcError> {
     eprintln!("event {name} {} {}", e.drive.as_deref().unwrap_or("-"), e.payload);
     let operation = Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) });
     let told = serde_json::from_value(e.payload["tell"].clone());
-    host.notify(&told.unwrap_or(HostNotify { message: format!("heard {name}"), operation }));
+    host.notify(&told.unwrap_or(HostNotify { message: format!("heard {name}"), operation, action: None }));
     Ok(())
 }
 
-/// A service, as its name says: `crash` exits as it starts, `quits` answers at once, and any
-/// other tells the user it started and runs until it's cancelled. Each logs `service <name>
-/// started` first.
+/// What the `suggests` service suggests: each of the host's actions echo has contributions for
+/// (its metadata provider, its exporter and its analyzer), on the drive `USB`.
+fn suggestions(m: &Manifest) -> [(&'static str, HostAction); 3] {
+    let drive = "USB".to_string();
+    let fetch = FetchAction { drive: drive.clone(), tracks: vec![1], provider: Some("tags".into()) };
+    let format = m.contributes.exporters[0].format.clone();
+    let export = ExportAction { format, drive: Some(drive.clone()), ..ExportAction::default() };
+    let analyze = AnalyzeAction { analyzer: m.contributes.analyzers[0].name.clone(), drive, tracks: Vec::new() };
+    [
+        ("fetch track 1's tags", HostAction::TrackFetch(fetch)),
+        ("export USB", HostAction::Export(export)),
+        ("analyze USB", HostAction::Analyze(analyze)),
+    ]
+}
+
+/// A service, as its name says: `crash` exits as it starts, `quits` answers at once, `suggests`
+/// suggests each of [`suggestions`] and any other tells the user it started, and both run until
+/// they're cancelled. Each logs `service <name> started` first.
 fn serve_service(req: StartService, host: &Host) -> Result<(), RpcError> {
     eprintln!("service {} started", req.service);
     match req.service.as_str() {
         "crash" => std::process::exit(3),
         "quits" => Ok(()),
         name => {
-            host.notify(&HostNotify { message: format!("{name} is running"), operation: None });
+            match name {
+                "suggests" => {
+                    suggestions(host.manifest()).iter().for_each(|(m, a)| host.notify(&HostNotify::action(*m, a)));
+                }
+                _ => host.notify(&HostNotify { message: format!("{name} is running"), ..HostNotify::default() }),
+            }
             loop {
                 host.ctx().check()?;
                 std::thread::sleep(Duration::from_millis(10));

@@ -322,8 +322,9 @@ pub enum Notice {
 #[non_exhaustive]
 pub enum PluginEvent {
     /// It tells the user something (`host/notify`), and may suggest one of its operations, which
-    /// a front end offers to plan (`plugins.op.plan`): never planned or applied unless the user
-    /// chooses to.
+    /// a front end offers to plan (`plugins.op.plan`), or one of the host's actions on its own
+    /// contributions, which a front end offers to start as the user would: never planned or
+    /// applied unless the user chooses to.
     #[serde(rename = "plugin.notice")]
     Notice(crate::plugin::PluginNotice),
 }

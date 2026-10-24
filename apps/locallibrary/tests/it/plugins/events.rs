@@ -100,8 +100,43 @@ fn the_sidecar_runs_services_and_sends_what_plugins_say() {
     assert_eq!(heard["operation"], json!({ "name": "playlist", "params": { "name": "job.finished" } }));
 }
 
+/// A service, `suggests`, suggesting each of the host's actions echo has contributions for.
+const SUGGESTS: &str = "\n[[contributes.services]]\nname = \"suggests\"\ntitle = \"Suggestions\"\n";
+
+/// The sidecar sends the host's actions a plugin suggests as its `plugin.notice` events'
+/// `action`, which a front end starts with the sidecar's own methods, filled in from it: what the
+/// providers find, the export's plan (to where the user picks) and the analysis.
+#[test]
+fn the_sidecar_sends_the_actions_plugins_suggest() {
+    let mut env = Env::new();
+    env.plugins(&[&(echo() + SUGGESTS)]);
+    env.demo("USB");
+    let mut rpc = Rpc::start(env.command());
+    rpc.call(1, "events.subscribe", json!({ "kinds": ["plugin"] }));
+    rpc.call(2, "plugins.settings.set", json!({ "plugin": "echo", "key": "services.suggests", "value": true }));
+    let action = |rpc: &mut Rpc, message: &str| rpc.event(|e| e["message"] == message)["action"].clone();
+    let fetch = action(&mut rpc, "fetch track 1's tags");
+    let tags = json!({ "drive": "USB", "tracks": [1], "provider": "tags" });
+    assert_eq!(fetch, json!({ "name": "track.fetch", "params": tags }));
+    let export = action(&mut rpc, "export USB");
+    assert_eq!(export, json!({ "name": "export", "params": { "format": "echo-m3u", "drive": "USB" } }));
+    let analyze = action(&mut rpc, "analyze USB");
+    assert_eq!(analyze, json!({ "name": "analyze", "params": { "analyzer": "size", "drive": "USB" } }));
+
+    let p = &fetch["params"];
+    let provide = json!({ "kind": "metadata", "drive": p["drive"], "tracks": { "ids": p["tracks"] }, "from": "echo.tags", "replace": true });
+    assert_eq!(rpc.call(3, "plugins.provide", provide)["result"]["asked"], 1);
+    let (p, out) = (&export["params"], env.store.with_file_name("USB.m3u"));
+    let plan = json!({ "plugin": "echo", "exporter": p["format"], "drive": p["drive"], "output": out });
+    let planned = rpc.call(4, "plugins.export.plan", plan);
+    assert_eq!(planned["result"]["files"][0]["path"], json!(out), "{planned}");
+    let p = &analyze["params"];
+    let analyzed = json!({ "plugin": "echo", "analyzer": p["analyzer"], "drive": p["drive"] });
+    assert_eq!(rpc.call(5, "plugins.analyze", analyzed)["result"]["analyzed"], 2);
+}
+
 /// The `watch` agent tells plugins what it does, runs their services, says what they tell the
-/// user and keeps what they suggest for the player.
+/// user and keeps what they suggest for the player, operations and the host's actions alike.
 #[cfg(unix)]
 #[test]
 fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
@@ -112,16 +147,23 @@ fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
     use crate::support::play;
 
     let mut env = Env::new();
-    env.plugins(&[&listening(&["drive.pulled"])]);
+    env.plugins(&[&(listening(&["drive.pulled"]) + SUGGESTS)]);
     let main = env.pulled("Main");
+    // What the `suggests` service suggests its actions on.
+    env.demo("USB");
     play(&main, "HISTORY 002", &[]);
     env.ok(&["--yes", "plugin", "settings", "echo", "services.beat", "on"]);
+    env.ok(&["--yes", "plugin", "settings", "echo", "services.suggests", "on"]);
     let mut child = env.command().args(["watch", "--pull", "--settle", "0"]).stdout(Stdio::piped()).spawn().unwrap();
     let (tx, lines) = std::sync::mpsc::channel();
     let stdout = child.stdout.take().unwrap();
     std::thread::spawn(move || BufReader::new(stdout).lines().for_each(|l| drop(tx.send(l.unwrap()))));
-    // Both, in either order.
-    let wanted = [" echo: beat is running", " echo: heard drive.pulled (the player offers to review it)"];
+    // All, in any order.
+    let wanted = [
+        " echo: beat is running",
+        " echo: heard drive.pulled (the player offers to review it)",
+        " echo: analyze USB (the player offers to review it)",
+    ];
     let mut said: Vec<String> = Vec::new();
     while !wanted.iter().all(|w| said.iter().any(|l| l.contains(w))) {
         let l = lines.recv_timeout(Duration::from_secs(60)).unwrap_or_else(|_| panic!("watch said {said:?}"));
@@ -131,5 +173,8 @@ fn the_watch_agent_tells_plugins_and_keeps_their_suggestions() {
     let _ = child.wait();
     let kept: Value =
         serde_json::from_slice(&std::fs::read(env.store.join("plugins/suggested.json")).unwrap()).unwrap();
-    assert_eq!(kept[0]["operation"]["params"], json!({ "name": "drive.pulled" }));
+    let kept = kept.as_array().unwrap();
+    assert!(kept.iter().any(|k| k["operation"]["params"] == json!({ "name": "drive.pulled" })), "{kept:?}");
+    let analyze = json!({ "name": "analyze", "params": { "analyzer": "size", "drive": "USB" } });
+    assert!(kept.iter().any(|k| k["message"] == "analyze USB" && k["action"] == analyze), "{kept:?}");
 }
