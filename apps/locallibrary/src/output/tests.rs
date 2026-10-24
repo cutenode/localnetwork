@@ -24,6 +24,19 @@ fn columns_count_what_the_terminal_shows() {
     assert_eq!(fit_with("abcdef", 2, "..."), "  ");
 }
 
+#[test]
+fn bars_and_shares_scale() {
+    assert_eq!(bar(1.0, 4), "████");
+    assert_eq!(bar(0.5, 4), "██");
+    assert_eq!(bar(0.0, 4), "");
+    assert_eq!(bar(1.0 / 32.0, 4), "▏");
+    assert_eq!(bar(2.0, 2), "██", "a share past the whole fills the bar");
+    assert_eq!(
+        (pct(0.42), pct(1.0), opt_pct(Some(0.0)), opt_pct(None)),
+        ("42%".into(), "100%".into(), "0%".into(), "–".into())
+    );
+}
+
 /// A name typed wrong declines the erase, whether or not the output is JSON.
 #[test]
 fn a_wrong_name_declines_an_erase() {
@@ -232,7 +245,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
     // (label, counts items, position, message), as the bar should have them.
     let mut model: Option<(&str, bool, u64, String)> = None;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
-        let phase = phases[tc.draw(gs::integers::<usize>().max_value(phases.len() - 1))];
+        let phase = tc.draw(gs::sampled_from(&phases[..]));
         let event = match tc.draw(gs::integers::<u8>().max_value(4)) {
             0 => {
                 let items = tc.draw(gs::integers::<u64>().max_value(4));
@@ -288,7 +301,7 @@ fn every_outcome_exits_as_the_help_says(tc: hegel::TestCase) {
         (Outcome::Problems, "problems", 4),
         (Outcome::Partial, "partial", 5),
     ];
-    let (o, name, status) = all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    let (o, name, status) = tc.draw(gs::sampled_from(&all[..]));
     assert_eq!((o.name(), o.code()), (name, status));
     assert_eq!(o.exit(), ExitCode::from(status));
     let applied = tc.draw(gs::booleans());

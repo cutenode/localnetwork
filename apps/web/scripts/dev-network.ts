@@ -23,7 +23,7 @@ import {
 	validateRecord
 } from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
-import { CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
@@ -58,17 +58,24 @@ const APP_PORT = Number(process.env.PORT ?? 5173);
 const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', password: 'root-pass' };
 
 const ACCOUNTS = [
-	{ handle: 'ada.test', password: 'ada-pass', note: 'admin (ADMIN_DIDS)' },
-	{ handle: 'milo.test', password: 'milo-pass', note: 'regular account; make them a moderator in Staff' },
+	{ handle: 'ada.test', password: 'ada-pass', displayName: 'Ada', note: 'admin (ADMIN_DIDS)' },
+	{
+		handle: 'milo.test',
+		password: 'milo-pass',
+		displayName: 'Milo',
+		note: 'regular account; make them a moderator in Staff'
+	},
 	{
 		handle: 'neon.test',
 		password: 'neon-pass',
+		displayName: 'Neon',
 		note: 'DJ; manages two demo projects, has three sets, two press kits, and four shows'
 	},
-	{ handle: 'pat.test', password: 'pat-pass', note: "promoter; follows both of neon's projects" },
+	{ handle: 'pat.test', password: 'pat-pass', displayName: 'Pat', note: "promoter; follows both of neon's projects" },
 	...DEMO_DJS.map((dj) => ({
 		handle: dj.handle,
 		password: dj.password,
+		displayName: DEMO_PROJECTS[dj.project].name,
 		note: `DJ; manages ${DEMO_PROJECTS[dj.project].name}, has ${dj.sets.length} sets`
 	}))
 ];
@@ -146,15 +153,22 @@ async function main() {
 	const dids: Record<string, string> = {};
 
 	for (const account of ACCOUNTS) {
-		const agent = pds.getAgent();
+		const agent = new AtpAgent({ service: pds.url });
 
-		const result = await agent.com.atproto.server.createAccount({
+		await agent.createAccount({
 			handle: account.handle,
 			email: `${account.handle}@example.test`,
 			password: account.password
 		});
 
-		dids[account.handle] = result.data.did;
+		dids[account.handle] = agent.assertDid;
+		// A Bluesky display name, which verifying an account in Staff → Verifications needs.
+		await agent.com.atproto.repo.putRecord({
+			repo: agent.assertDid,
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: account.displayName }
+		});
 	}
 
 	// neon.test's own records, as locallibrary would publish them: playing stats and recent sets.

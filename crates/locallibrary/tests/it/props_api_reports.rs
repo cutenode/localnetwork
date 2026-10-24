@@ -600,9 +600,12 @@ fn sidecar_messages_round_trip(tc: TestCase) {
         methods: vec![text(), text()],
     });
     round_trip(&api::VersionInfo { version: text(), methods: vec![text()] });
-    let started =
-        chrono::DateTime::from_timestamp(tc.draw(gs::integers::<i64>().min_value(0).max_value(4_000_000_000)), 0)
-            .unwrap();
+    let last = chrono::DateTime::from_timestamp(4_000_000_000, 0).unwrap().naive_utc();
+    let started = tc.draw(
+        gs::default::<chrono::DateTime<chrono::Utc>>()
+            .min_value(chrono::DateTime::UNIX_EPOCH.naive_utc())
+            .max_value(last),
+    );
     let job = round_trip(&api::JobInfo { id: id.clone(), method: text(), started, queued: flag() });
     assert_eq!(job.get("queued").is_some(), job["queued"] == true, "queued only when it is");
     round_trip(&api::Subscribe { kinds: vec![text()], interval_ms: ms() });

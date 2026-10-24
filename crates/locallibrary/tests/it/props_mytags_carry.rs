@@ -53,7 +53,7 @@ fn carry(tc: &TestCase, both: bool) {
     let mut model: IndexMap<String, BTreeSet<String>> = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
         let tag = tc.draw(gs::sampled_from(TAGS));
-        let tracks: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|_| tc.draw(gs::booleans())).collect();
+        let tracks: Vec<u32> = tc.draw(gs::subsequences(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
         let remove = tc.draw(gs::weighted_booleans(0.25));
         let edit = if remove {
             Edit::Remove { tag: tag.into(), tracks: tracks.clone() }

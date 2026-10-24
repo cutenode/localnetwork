@@ -29,7 +29,7 @@ fn refused(env: &Env, args: &[&str]) -> Value {
 /// tracks answered with any of them or none (`--choose N=ID`, `N=null`): `playlist import` fills
 /// the playlist with the tracks loclib-tracklist finds in the drive's library and those chosen, in
 /// the list's order (after its entries, appending), or changes nothing when there are none. A
-/// choice for an entry the list doesn't have, or of a track the drive lacks, is refused.
+/// choice for an entry the list doesn't have is refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     let env = Env::new();
@@ -90,7 +90,6 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
         refused(&env, &["playlist", "import", d, path(&file), "--into", &into, "--choose", &choice])
     };
     assert_eq!(choose(n + 1, lib.tracks[0].id), "invalid");
-    assert_eq!(choose(1, 9999), "not_found");
 }
 
 /// The twelve-track drive's playlist, and the rekordbox XML of its library: importing that

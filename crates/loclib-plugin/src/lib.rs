@@ -30,8 +30,11 @@ pub use hooks::destinations::{
     Destination, DestinationKind, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Kept, Missing, PublishSet,
     Published, PublishedSet, PutBlob, PutManifest, TracklistEntry,
 };
-pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
-pub use hooks::exporters::{ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport};
+pub use hooks::events::{
+    AnalyzeAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,
+    MAX_SUGGESTED_PARAMS, Suggested, Suggestion,
+};
+pub use hooks::exporters::{ExportFrom, ExportSource, ExportSources, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{
     ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, ImportedPlay, ImportedTrack, Importer, ReadImport,
     TrackMatch,

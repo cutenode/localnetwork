@@ -35,6 +35,7 @@ import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
 import { SupportService } from './services/supports';
 import { TracklistService } from './services/tracklists';
+import { VerificationService } from './services/verifications';
 import { SpaceSyncer } from './sync/engine';
 import { createProjections } from './sync/projections';
 
@@ -182,6 +183,7 @@ export async function createApp(options: CreateAppOptions) {
 	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
 	const shows = new ShowService(core, projects, happyView, publicRepo);
 	const follows = new FollowService(core, happyView);
+	const verifications = new VerificationService(core, publicRepo, identity);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
@@ -259,6 +261,7 @@ export async function createApp(options: CreateAppOptions) {
 		epks,
 		shows,
 		follows,
+		verifications,
 		bugReports,
 		sessions,
 		geocoder,

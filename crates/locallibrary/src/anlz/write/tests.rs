@@ -311,8 +311,8 @@ fn each_cue_goes_in_one_list_of_its_type(tc: hegel::TestCase) {
     assert_eq!(held(&[(CueFile::Dat, PCOB), (CueFile::Ext, PCOB)]), every);
     assert_eq!(held(&[(CueFile::Ext, PCO2)]), every);
 
-    let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
-    let tag = [PCOB, PCO2][tc.draw(gs::integers::<usize>().max_value(1))];
+    let file = tc.draw(gs::sampled_from(&[CueFile::Dat, CueFile::DatAlone, CueFile::Ext]));
+    let tag = tc.draw(gs::sampled_from(&[PCOB, PCO2]));
     let other = tc.draw(gs::integers::<u32>().min_value(2));
     assert!(file.wanted(&tag, other, &hot, &memory).is_empty());
 }

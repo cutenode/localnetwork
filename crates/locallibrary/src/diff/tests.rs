@@ -54,10 +54,10 @@ fn lis() {
 fn drawn_lib(tc: &hegel::TestCase) -> Library {
     use hegel::generators as gs;
     let names = ["Set", "Same", "Gone", "New"];
-    let lists: Vec<(&str, Vec<u32>)> = names
-        .iter()
-        .filter(|_| tc.draw(gs::booleans()))
-        .map(|n| (*n, tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(4))))
+    let lists: Vec<(&str, Vec<u32>)> = tc
+        .draw(gs::subsequences(&names))
+        .into_iter()
+        .map(|n| (n, tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6)).max_size(4))))
         .collect();
     let refs: Vec<(&str, &[u32])> = lists.iter().map(|(n, ids)| (*n, ids.as_slice())).collect();
     lib(&refs)

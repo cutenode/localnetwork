@@ -368,7 +368,7 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     // Analysis files that can't be read (rekordbox's demo export's are real ones).
     let root = drive(dir.path(), "Garbled", true);
     let lib = common::library(&root);
-    let garbled: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|_| tc.draw(gs::booleans())).collect();
+    let garbled: Vec<u32> = tc.draw(gs::subsequences(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
     for id in &garbled {
         let dat = file(&root, &lib.track(*id).unwrap().analyze_path);
         for f in [dat.clone(), dat.with_extension("EXT")] {

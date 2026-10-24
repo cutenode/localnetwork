@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { Activity, ClipboardCheck, Disc3, LayoutDashboard, ScrollText, ShieldCheck } from '@lucide/svelte';
+	import { Activity, BadgeCheck, ClipboardCheck, Disc3, LayoutDashboard, ScrollText, ShieldCheck } from '@lucide/svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { LayoutProps } from './$types';
 
@@ -14,6 +14,7 @@
 		...(data.viewer?.isAdmin
 			? [
 					{ href: '/admin/staff', label: 'Staff', icon: ShieldCheck },
+					{ href: '/admin/verifications', label: 'Verifications', icon: BadgeCheck },
 					{ href: '/admin/system', label: 'System', icon: Activity }
 				]
 			: [])

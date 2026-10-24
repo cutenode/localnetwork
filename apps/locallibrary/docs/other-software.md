@@ -64,6 +64,34 @@ read (history lists players recorded there can't be checked). Its databases, ana
 artwork are backed up, so `undo` puts back the library it held, but audio isn't: audio the export
 removed stays gone unless it's in the store.
 
+## rekordbox XML
+
+```bash
+locallibrary import ~/Desktop/rekordbox.xml USB --dry-run       # what its keys, tempos and cues add
+locallibrary collection export ~/stick --from tracklist:rekordbox-xml --grant ~/Music \
+  --option file=$HOME/Desktop/rekordbox.xml                     # a drive built from it
+```
+
+rekordbox writes its whole collection as XML (File > Export Collection in xml format), as do
+other library tools and `locallibrary xml`. The tracklist plugin reads one two ways besides
+`playlist import`, which makes a playlist of it (see [Plugins](plugins.md)):
+
+- `import` finds each of its tracks on a drive by file (the last folders of its `Location`), then
+  artist, title and length, and adds what the drive's tracks lack: a key (`Tonality`) and a BPM
+  (`AverageBpm`) where a track has none, and hot cues, memory cues and loops in slots (or at
+  places) it has none in. A loop's length is counted in beats at the tempo where it starts; one
+  that isn't 1-512 beats or 1/2 to 1/32 of one comes as a cue, said in a warning.
+- `collection export --from tracklist:rekordbox-xml` builds a drive from the collection, as from
+  rekordbox's own (above): each track whose audio file is in a folder you grant, with its tags,
+  rating, key, tempo, cues and a beat grid from its `TEMPO` markers to its end, and its playlists.
+  The file is read once; saved again while the drive is planned, it's refused: build again.
+
+The file can say anything, so values out of range (a time past a day, a tempo outside 0.01-655.35
+BPM, a hot cue past H, folders nested more than about 60 deep) are left out and counted in the
+plan's warnings, and a beat grid stops at 262,144 beats. Fade-in, fade-out and load marks and
+meters past 4 beats to the bar aren't supported, and are counted the same way. Track colours and
+`Grouping` aren't read.
+
 ## Other DJ software
 
 ```bash
@@ -132,3 +160,55 @@ same, for the marked playlists or the whole drive (see [the player](player.md)).
   pick the file in Preferences > Advanced > rekordbox xml > Imported Library; its tracks and
   playlists show under rekordbox xml in the tree, to import from there. History lists, My Tags,
   artwork and waveforms don't come across.
+
+### Sets and mixes
+
+```bash
+locallibrary sets export Friday --format traktor --drive Home -o ~/Desktop/friday-for-traktor
+locallibrary sets export Friday --format serato --drive Home -o ~/Music/friday --option write_tags=true
+locallibrary mix "Live at the Warehouse.wav" --drive Home --format engine --export ~/Desktop/warehouse
+```
+
+A set you played (see [Sets](sets.md)), or the tracklist `mix` found in a recording, goes across
+as one playlist of its tracks in the order played, in the same formats but rekordbox's: `sets
+export --format` and `mix --format` take `traktor`, `serato` and `engine` (for rekordbox, `sets
+playlist` puts a set on the drive itself). The files point at the audio
+on a drive, so a set's export needs one (`--drive`; a mix's is the drive `mix` matched it against),
+and it's written as that drive's export is, with the same options: the playlist, named for the
+day and the title (or the venue), holds the tracks found on the drive by their files, and only
+those tracks go in, with their beat grids and cues where the format carries them. A track played
+twice is listed twice, but for Engine, whose playlists hold a track once. Tracks not on the drive
+(one typed in by hand, or gone since) are left out, each named in a warning; with none on it, the
+export is refused.
+
+### From Traktor
+
+```bash
+nml="$HOME/Documents/Native Instruments/Traktor 4.0.0/collection.nml"
+locallibrary import "$nml" Home --dry-run                       # keys, BPMs and cues for Home's tracks
+locallibrary collection export /Volumes/STICK --from interop:traktor --grant ~/Music \
+  --option collection="$nml" --dry-run                          # a drive built from the collection
+```
+
+Traktor keeps its collection in `collection.nml`, in `Documents/Native Instruments/Traktor
+<version>/`. The interop plugin reads it two ways. Its `traktor` importer, the one for `.nml`
+files, adds to a drive you have: `import` finds Traktor's tracks on the drive by their file, then
+artist, title and length, and adds what they lack (see [Import formats](plugins.md#import-formats)):
+a key and a BPM, and cues in hot cue slots (or at places) a track has none in. Its `traktor`
+library source builds a drive from the collection, as rekordbox's collection is (see [Library
+sources](plugins.md#library-sources)): every track whose audio is in a folder you grant, with its
+title, artist, album, genre, label, remixer, comment, year, rating, key, BPM, cues and beat grid,
+and the playlists in their folders. A track elsewhere (on a volume that isn't mounted, say) is
+left out, saying so. On a Mac, Traktor names audio by its volume: the startup disk's name is `/`,
+any other volume's is below `/Volumes`; on Windows it's the drive letter.
+
+Either way hot cues stay on their pads, memory cues, fade-in, fade-out and load markers become
+memory cues, and loops keep their length (in beats for `import`), all in the colours Traktor
+shows them in (cues blue, fade markers orange, load markers yellow, loops green). A grid marker
+on a pad is a hot cue there too. The source lays Traktor's beat grid out from its grid markers to
+the end of each track (a track over a day long, or with no length, gets none); `import` leaves
+the grid alone. Hot cues past H are left out, and `import` leaves out loops that aren't a whole
+number of beats (or 1/2 to 1/32 of one) at the track's tempo. Smart playlists aren't built:
+what's in one is a search Traktor runs. A folder or playlist whose name has a `/` is built as
+folders, since a playlist's path is its names with `/` between them. Whatever's left out, and
+each name with a `/`, is among the warnings `import`'s or the build's plan shows.

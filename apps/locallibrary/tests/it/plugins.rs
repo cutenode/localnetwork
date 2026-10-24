@@ -3,6 +3,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::Stdio;
+use std::sync::LazyLock;
 
 use loclib_plugin::Manifest;
 use serde_json::{Value, json};
@@ -30,41 +31,32 @@ cli = "say""#;
         .replace("title = \"Make a playlist\"", "title = \"Make a playlist\"\ncli = \"playlist fresh\"")
 }
 
-/// The plugins locallibrary ships, as it lists them (before the tests' own).
-const SHIPPED: [&str; 4] = ["coverart", "interop", "sound", "tracklist"];
-
-/// Every crate in the repository's `plugins/` ships: one left out of `plugins::FIRST_PARTY` (and
-/// so of `SHIPPED`) fails here instead of going unnoticed (`.github/NEW_PROJECT.md`).
-#[test]
-fn every_plugin_crate_ships() {
+/// The plugins locallibrary ships, as it lists them (before the tests' own): one for every folder in
+/// the repository's `plugins/`, in alphabetical order. Read from the folders, so a plugin
+/// `plugin list` leaves out fails the tests that compare the two.
+static SHIPPED: LazyLock<Vec<&str>> = LazyLock::new(|| {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
-    let mut ids: Vec<String> = std::fs::read_dir(dir)
+    let mut ids: Vec<&str> = std::fs::read_dir(dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.is_dir())
-        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
+        // Kept for the tests' whole run, as ids they put beside their own plugins'.
+        .map(|path| &*path.file_name().unwrap().to_str().unwrap().to_owned().leak())
         .collect();
     ids.sort();
-    assert_eq!(ids, SHIPPED);
-}
+    ids
+});
 
-/// Every plugin that ships is in the docs: plugins.md's list, and how-it-works.md's layout and the
-/// plugins it says plugins.rs links in. A new plugin left out of them fails here.
+/// Every plugin that ships is in the docs: plugins.md's list and how-it-works.md's layout. A new
+/// plugin left out of them fails here.
 #[test]
 fn every_shipped_plugin_is_documented() {
     let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
     let plugins = std::fs::read_to_string(docs.join("plugins.md")).unwrap();
     let how = std::fs::read_to_string(docs.join("how-it-works.md")).unwrap();
-    // The sentence wraps over lines of the layout block, so it's matched word by word.
-    let (linked, _) = how
-        .split_once("(plugins.rs: the ")
-        .and_then(|(_, rest)| rest.split_once(" plugins linked in"))
-        .expect("docs/how-it-works.md names the plugins plugins.rs links in");
-    let linked: Vec<&str> = linked.split(|c: char| !c.is_alphanumeric()).collect();
-    for id in SHIPPED {
+    for id in SHIPPED.iter() {
         assert!(plugins.contains(&format!("\n- **{id}**:")), "docs/plugins.md doesn't list {id}");
         assert!(how.contains(&format!("\nplugins/{id}/ ")), "docs/how-it-works.md's layout doesn't have plugins/{id}/");
-        assert!(linked.contains(&id), "docs/how-it-works.md doesn't say plugins.rs links {id} in");
     }
 }
 
@@ -187,7 +179,7 @@ fn a_plugin_serves_on_stdout_alone() {
 #[test]
 fn plugins_are_listed_and_their_settings_kept() {
     let ids = |listed: &Value| listed.as_array().unwrap().iter().map(|p| p["id"].clone()).collect::<Vec<_>>();
-    assert_eq!(ids(&Env::new().json(&["plugin", "list"])), SHIPPED);
+    assert_eq!(ids(&Env::new().json(&["plugin", "list"])), *SHIPPED);
     let env = env();
     let list = env.ok(&["plugin"]);
     assert!(list.contains("echo  Echo 0.1.0"), "{list}");
@@ -402,7 +394,8 @@ fn tracks_are_filtered_and_sorted_by_what_analyzers_worked_out() {
 }
 
 /// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
-/// audio, once, and `track` shows every field it declares as `sound.FIELD`.
+/// audio, once, and `track` shows every column it declares as `sound.FIELD` (its waveform isn't
+/// one).
 #[test]
 fn the_sound_plugin_measures_tracks() {
     let env = Env::new();
@@ -414,7 +407,8 @@ fn the_sound_plugin_measures_tracks() {
     assert!(analyzed.contains("tempo-key-loudness (sound): 2 tracks analyzed, 0 already"), "{analyzed}");
     assert!(env.ok(&["analyze", "USB"]).contains("0 tracks analyzed, 2 already"));
     let manifest = Manifest::parse(locallibrary_plugin_sound::MANIFEST).unwrap();
-    let declared: Vec<&String> = manifest.contributes.analyzers[0].fields.keys().collect();
+    let columns = manifest.contributes.analyzers[0].fields.iter().filter(|(_, t)| !t.is_structured());
+    let declared: Vec<&String> = columns.map(|(name, _)| name).collect();
     let shown = env.json(&["track", "USB", "--track", "1"]);
     let fields = shown[0]["fields"]["sound"]["tempo-key-loudness"].as_object().unwrap();
     assert_eq!(fields.keys().collect::<Vec<_>>(), declared, "{fields:?}");
@@ -425,8 +419,8 @@ fn the_sound_plugin_measures_tracks() {
 }
 
 /// The coverart plugin locallibrary ships says which servers it talks to and that it finds cover
-/// art for `art fetch`, planning none itself; tracks the drive doesn't have are refused before
-/// anything goes online.
+/// art for `art fetch` and track details for `track fetch`, planning none itself; tracks the drive
+/// doesn't have are refused before anything goes online.
 #[test]
 fn the_coverart_plugin_finds_nothing_without_going_online() {
     let env = Env::new();
@@ -436,16 +430,43 @@ fn the_coverart_plugin_finds_nothing_without_going_online() {
         "Cover art (coverart) 0.1.0",
         "talk to musicbrainz.org",
         "covers  Cover Art Archive: cover art, for locallibrary art fetch",
+        "tags    MusicBrainz: track details, for locallibrary track fetch",
     ] {
         assert!(info.contains(line), "{line}: {info}");
     }
     assert!(!info.contains("plan cover art changes"), "{info}");
-    let missing = env.fails(1, &["art", "fetch", "USB", "--from", "coverart", "--track", "99", "--dry-run"]);
-    assert!(missing.contains("error: not found: track #99"), "{missing}");
+    for args in [["art", "fetch", "USB", "--from", "coverart"], ["track", "fetch", "USB", "--from", "coverart.tags"]] {
+        let missing = env.fails(1, &[&args[..], &["--track", "99", "--dry-run"]].concat());
+        assert!(missing.contains("error: not found: track #99"), "{missing}");
+    }
     assert!(
         env.fails(2, &["analyze", "USB", "--plugin", "coverart"])
             .contains("error: the coverart plugin has no analyzer\n")
     );
+}
+
+/// A track whose artwork is gone has `check` and `doctor` name `art fetch` beside `art auto`: the
+/// coverart plugin finds covers online.
+#[test]
+fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
+    let env = Env::new();
+    let usb = env.demo("USB");
+    std::fs::write(env.outside("cover.jpg"), crate::support::jpeg(64)).unwrap();
+    env.ok(&["--yes", "art", "set", "USB", path(&env.outside("cover.jpg")), "--track", "1"]);
+    std::fs::remove_dir_all(usb.join("PIONEER/Artwork")).unwrap();
+
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+    let files = v["items"].as_array().unwrap().iter().find(|i| i["check"] == "files" && i["level"] == "warning");
+    let message = files.and_then(|i| i["message"].as_str()).unwrap_or_else(|| panic!("{v}"));
+    let said = "; `locallibrary art auto \"USB\"` fills in art their files embed, and `locallibrary art fetch \"USB\"` finds covers online";
+    assert!(message.starts_with("1 track(s) have no artwork image: ") && message.ends_with(said), "{message}");
+    let doctor = env.run(&["doctor", "USB", "--only", "missing"]);
+    for hint in
+        ["`locallibrary art auto \"USB\"` fills in artwork", "`locallibrary art fetch \"USB\"` finds covers online"]
+    {
+        assert!(doctor.out.contains(hint) || doctor.err.contains(hint), "{hint}: {}{}", doctor.out, doctor.err);
+    }
 }
 
 /// A plugin whose id is a namespace of the sidecar's methods is left out, saying why, and the

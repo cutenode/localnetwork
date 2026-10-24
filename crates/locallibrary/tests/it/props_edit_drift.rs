@@ -121,19 +121,16 @@ fn edits_on_drifted_databases_change_export_pdb_alike_and_onelibrary_only_where_
     let lib = pdb::read_library(&both.join(paths::EXPORT_PDB)).unwrap();
     let files: Vec<String> = lib.tracks.iter().map(|t| t.file_path.clone()).collect();
     let bonus = lib.tracks.iter().find(|t| t.title == "Bonus").unwrap().file_path.clone();
-    // The player puts one more entry in aab, in OneLibrary.
+    // The player puts one more entry in aab, in OneLibrary: one of the twelve tracks it holds (not
+    // Bonus, which is in export.pdb alone).
     if tc.draw(gs::booleans()) {
-        player_adds(&both, "aab", &files[tc.draw(gs::integers::<usize>().max_value(11))]);
+        player_adds(&both, "aab", &tc.draw(gs::sampled_from(&files[..12])));
     }
     let plus_before = common::plus_library(&both);
     let plus_files = |l: &Library| -> BTreeSet<String> { l.tracks.iter().map(|t| paths::key(&t.file_path)).collect() };
 
     // Every kind of edit, one at a time, in a drawn order.
-    let mut kinds: Vec<u8> = (0..=10).collect();
-    for i in (1..kinds.len()).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    for kind in kinds {
+    for kind in tc.draw(gs::permutations((0..=10).collect::<Vec<u8>>())) {
         let edits = vec![draw_edit(&tc, kind, &files[..12], &bonus)];
         let plan = |root: &Path| {
             let d = Device::open_export(root).unwrap();

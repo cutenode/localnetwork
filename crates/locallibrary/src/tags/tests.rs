@@ -178,11 +178,11 @@ fn draw_tree(tc: &TestCase, names: &[&str], ids: &dyn Fn(&TestCase) -> i64) -> T
         }
     };
     let cased = |tc: &TestCase, n: &str| if tc.draw(gs::booleans()) { n.to_string() } else { n.to_uppercase() };
-    for c in names.iter().filter(|_| tc.draw(gs::booleans())) {
+    for c in tc.draw(gs::subsequences(names)) {
         let id = fresh(tc, &tree);
         tree.ids.insert(id);
         let mut node = CategoryNode { id, name: cased(tc, c), tags: Vec::new() };
-        for t in names.iter().filter(|_| tc.draw(gs::booleans())) {
+        for t in tc.draw(gs::subsequences(names)) {
             let id = fresh(tc, &tree);
             tree.ids.insert(id);
             node.tags.push(TagNode { id, name: cased(tc, t), tracks: BTreeSet::new(), strays: 0 });
@@ -289,10 +289,11 @@ fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
         pair("Situation", "Tag 0"),
     ];
     // Room to spare, and every category taken with the first one full.
+    let all: [&str; MAX_CATEGORIES] = ["Genre", "Components", "Situation", "Mood"];
     for full in [false, true] {
         let categories: &[&str] = match full {
-            true => &["Genre", "Components", "Situation", "Mood"],
-            false => &["Genre", "Components", "Situation"][..tc.draw(gs::integers::<usize>().max_value(3))],
+            true => &all,
+            false => &all[..tc.draw(gs::integers::<usize>().max_value(all.len() - 1))],
         };
         let tree = tree_of(&tc, categories, if full { MAX_TAGS } else { 2 }, &keys);
         let other = tc.draw(gs::booleans()).then(|| {
@@ -384,7 +385,7 @@ fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
     let mut one = onelibrary_of(&library);
     one.add_my_tag(1, 0, "Genre", true).unwrap();
     one.add_my_tag(2, 1, "Deep", false).unwrap();
-    let linked: Vec<u32> = (1..=6).filter(|_| tc.draw(gs::booleans())).collect();
+    let linked: Vec<u32> = tc.draw(gs::subsequences(&[1, 2, 3, 4, 5, 6]));
     one.link_my_tag(2, &linked).unwrap();
     let clean = plus_tree(&one, &library).unwrap();
     assert_eq!(clean.strays, 0);

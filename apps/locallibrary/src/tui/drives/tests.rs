@@ -274,18 +274,19 @@ fn the_list_shown_is_the_one_acted_on() {
 #[hegel::test(test_cases = 200)]
 fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let drives: Vec<String> = ["DNA", "SD", "USB"][..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))]
+    let names = ["DNA", "SD", "USB"];
+    let drives: Vec<String> = names[..tc.draw(gs::integers::<usize>().min_value(1).max_value(names.len()))]
         .iter()
         .map(|d| d.to_string())
         .collect();
-    let pick = |tc: &hegel::TestCase| drives[tc.draw(gs::integers::<usize>().max_value(drives.len() - 1))].clone();
+    let pick = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(&drives[..]));
     let levels = [CheckLevel::Info, CheckLevel::Warning, CheckLevel::Problem];
     let mut r = report(tc.draw(gs::integers::<usize>().max_value(3)), tc.draw(gs::integers::<usize>().max_value(3)));
     r.drives = drives.clone();
     r.items = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|i| CheckItem {
             drive: pick(&tc),
-            finding: Finding::new(levels[tc.draw(gs::integers::<usize>().max_value(2))], "x", format!("item {i}")),
+            finding: Finding::new(tc.draw(gs::sampled_from(&levels[..])), "x", format!("item {i}")),
             fix: None,
         })
         .collect();
@@ -618,13 +619,9 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir, root) = demo_app();
     let lib = app.loaded.as_ref().unwrap().library.clone();
-    let marks: Vec<String> = lib
-        .playlists
-        .iter()
-        .filter(|p| !p.is_folder)
-        .map(|p| lib.playlist_path(p.id))
-        .filter(|_| tc.draw(gs::booleans()))
-        .collect();
+    let marks = tc.draw(gs::subsequences(
+        lib.playlists.iter().filter(|p| !p.is_folder).map(|p| lib.playlist_path(p.id)).collect::<Vec<_>>(),
+    ));
     app.list_marks = marks.clone();
     let shown = lib.playlists.iter().find(|p| !p.is_folder).map(|p| p.id).filter(|_| tc.draw(gs::booleans()));
     let l = app.loaded.as_mut().unwrap();
@@ -681,7 +678,7 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     // those), and a playlist to bring back guessed from the tree.
     let xml_of = |app: &mut App, marks: &[String]| {
         app.list_marks = marks.to_vec();
-        app.perform(Act::Export("interop", "rekordbox"), None);
+        app.perform(Act::Export("interop", "rekordbox", loclib_plugin::ExportFrom::Drive), None);
         let Some(Modal::Form(f)) = app.modal.take() else { panic!("no form: {}", last_message(app)) };
         assert!(f.fields[0].text.ends_with(".xml"), "{}", f.fields[0].text);
         let super::super::form::For::Export { playlists, .. } = f.then else { panic!("not an export") };
@@ -738,11 +735,12 @@ fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
     use hegel::generators as gs;
     const FROM: [PlayersFrom; 4] = [PlayersFrom::Given, PlayersFrom::Library, PlayersFrom::Default, PlayersFrom::None];
     let mut r = report(0, 0);
+    let models = ["CDJ-3000", "XDJ-AZ"];
     // Every source once, then as drawn.
     r.players = (0..4 + tc.draw(gs::integers::<usize>().max_value(3)))
         .map(|i| DrivePlayers {
             drive: format!("D{i}"),
-            models: ["CDJ-3000", "XDJ-AZ"][..tc.draw(gs::integers::<usize>().max_value(2))]
+            models: models[..tc.draw(gs::integers::<usize>().max_value(models.len()))]
                 .iter()
                 .map(|m| m.to_string())
                 .collect(),
@@ -792,8 +790,7 @@ fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
     let (mut app, dir) = app_with(library());
     let lib = app.loaded.as_ref().unwrap().library.clone();
     let source = app.loaded.as_ref().unwrap().root().to_path_buf();
-    let marks: Vec<String> =
-        lib.playlists.iter().map(|p| lib.playlist_path(p.id)).filter(|_| tc.draw(gs::booleans())).collect();
+    let marks = tc.draw(gs::subsequences(lib.playlists.iter().map(|p| lib.playlist_path(p.id)).collect::<Vec<_>>()));
     app.list_marks = marks.clone();
     let other = dir.path().join("OTHER");
     let onto = tc.draw(gs::sampled_from(&[None, Some(source.clone()), Some(other.clone())][..]));

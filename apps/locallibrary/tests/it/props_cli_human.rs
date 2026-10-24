@@ -564,8 +564,8 @@ pub fn agree_runs(args: &[&str], human: &Run, json: &Run, spec: &[&str], univers
 /// failure's message said the same way; a success's text holding what `spec` picks out of its
 /// JSON (see [`expected`]), and naming nothing of `universe` the JSON or `args` don't. The JSON, when it
 /// succeeded.
-// Only props_cli_asked, which is Unix-only, uses it so far.
-#[cfg_attr(not(unix), allow(dead_code))]
+// Only props_cli_asked's fetch, which is Unix-only and needs `peers`, uses it so far.
+#[cfg_attr(not(all(unix, feature = "peers")), allow(dead_code))]
 pub fn agree(fx: &Env, args: &[&str], spec: &[&str], universe: &[String]) -> Option<Value> {
     let words: Vec<String> = args.iter().map(|w| fill(fx, w)).collect();
     let args: Vec<&str> = words.iter().map(String::as_str).collect();

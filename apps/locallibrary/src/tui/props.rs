@@ -384,7 +384,7 @@ fn walk_in(tc: &TestCase, start: &str, keys: &'static [&'static str], steps: usi
     use super::theme::{Mode, set_test_mode};
     let Fixture { _dir, mut app, .. } = walk_fixture();
     // On a dark terminal, a light one, or one without colours.
-    set_test_mode(Some([Mode::Dark, Mode::Light, Mode::Plain][tc.draw(gs::integers::<usize>().max_value(2))]));
+    set_test_mode(Some(tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]))));
     app.on_key(key_event(start));
     walk(tc, &mut app, _dir.path(), keys, steps);
     set_test_mode(None);
@@ -757,20 +757,20 @@ const TERMS: &[&str] = &[
 /// A small library of made-up tracks, and a playlist of some of them in any order.
 #[hegel::test_helper]
 fn small_library(tc: &TestCase) -> locallibrary::Library {
-    use super::app::testing::track;
+    use super::app::testing::{strings_from, track};
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let tracks: Vec<_> = (1..=n)
         .map(|id| {
-            let mut t = track(id, tc.draw(gs::sampled_from(ARTISTS)), tc.draw(gs::sampled_from(TITLES)));
-            t.genre = tc.draw(gs::sampled_from(GENRES)).into();
-            t
+            tc.draw(
+                loclib_model::test_util::tracks_like(track(id, "", ""))
+                    .artist(strings_from(ARTISTS))
+                    .title(strings_from(TITLES))
+                    .genre(strings_from(GENRES)),
+            )
         })
         .collect();
-    let mut ids: Vec<u32> = (1..=n).collect();
-    let mut listed = Vec::new();
-    for _ in 0..tc.draw(gs::integers::<usize>().max_value(n as usize)) {
-        listed.push(ids.remove(tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))));
-    }
+    let mut listed = tc.draw(gs::permutations((1..=n).collect::<Vec<u32>>()));
+    listed.truncate(tc.draw(gs::integers::<usize>().max_value(n as usize)));
     let list = locallibrary::Playlist {
         id: 1,
         parent_id: None,
@@ -1311,7 +1311,7 @@ fn the_drive_list_follows_what_is_plugged_in(tc: TestCase) {
             app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "g", "G"][..]))));
             continue;
         }
-        let mut list: Vec<_> = pool.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+        let mut list = tc.draw(gs::subsequences(&pool[..]));
         if tc.draw(gs::booleans()) {
             list.reverse();
         }
@@ -1438,7 +1438,8 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
     use locallibrary::compare::Relation;
     use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
     let (mut app, dir) = super::app::testing::blank(View::Drives);
-    let libs: Vec<(uuid::Uuid, &str)> = ["Home", "away", "Club"][..tc.draw(gs::integers::<usize>().max_value(3))]
+    let names = ["Home", "away", "Club"];
+    let libs: Vec<(uuid::Uuid, &str)> = names[..tc.draw(gs::integers::<usize>().max_value(names.len()))]
         .iter()
         .enumerate()
         .map(|(i, n)| (uuid::Uuid::from_u128(i as u128 + 1), *n))
@@ -1447,19 +1448,22 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
     for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
         let root = dir.path().join(format!("DRIVE{i}"));
         std::fs::create_dir_all(&root).unwrap();
-        let lib = tc.draw(gs::booleans()).then(|| libs.get(tc.draw(gs::integers::<usize>().max_value(2)))).flatten();
+        let lib = tc.draw(gs::optional(gs::integers::<usize>().max_value(names.len() - 1))).and_then(|i| libs.get(i));
         let info = locallibrary::DeviceInfo {
             has_export: tc.draw(gs::booleans()),
             library_id: lib.map(|l| l.0),
             ..locallibrary::Device::open(&root).unwrap().info()
         };
         let mut f = super::app::testing::fleet(info.clone(), lib.map(|l| l.1));
-        f.role = tc.draw(gs::booleans()).then(|| Role::ALL[tc.draw(gs::integers::<usize>().max_value(3))]);
-        f.status.relation = tc.draw(gs::booleans()).then(|| {
-            [Relation::Identical, Relation::LeftNewer, Relation::RightNewer, Relation::Diverged, Relation::Unrelated]
-                [tc.draw(gs::integers::<usize>().max_value(4))]
-        });
-        f.status.back_from_set = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(3)));
+        f.role = tc.draw(gs::optional(gs::sampled_from(&Role::ALL[..])));
+        f.status.relation = tc.draw(gs::optional(gs::sampled_from(vec![
+            Relation::Identical,
+            Relation::LeftNewer,
+            Relation::RightNewer,
+            Relation::Diverged,
+            Relation::Unrelated,
+        ])));
+        f.status.back_from_set = tc.draw(gs::optional(gs::integers::<usize>().max_value(3)));
         f.status.settings_drift = tc.draw(gs::integers::<usize>().max_value(2));
         f.status.error = tc.draw(gs::booleans()).then(|| "unreadable".to_string());
         (f.read_only, f.low_space) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
@@ -1485,13 +1489,11 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
                     last_mount: dir.path().join("gone"),
                     last_seen: chrono::Utc::now(),
                     capacity: None,
-                    standing: [Standing::UpToDate, Standing::Unsaved, Standing::Unknown]
-                        [tc.draw(gs::integers::<usize>().max_value(2))]
-                    .clone(),
+                    standing: tc.draw(gs::sampled_from(vec![Standing::UpToDate, Standing::Unsaved, Standing::Unknown])),
                     log: DriveLog::default(),
                 })
                 .collect(),
-            identical: tc.draw(gs::booleans()).then(|| tc.draw(gs::booleans())),
+            identical: tc.draw(gs::optional(gs::booleans())),
             unsaved: tc.draw(gs::booleans()),
         })
         .collect();

@@ -14,7 +14,7 @@ use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 use locallibrary::{Ctx, Device, Store};
 use ratatui::crossterm::event::KeyCode;
 
-use super::app::testing::{demo_drive, just_now, key, overlay, set, wait};
+use super::app::testing::{demo_drive, just_now, key, overlay, read_sets, set, wait};
 use super::app::{App, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
@@ -58,6 +58,7 @@ pub(super) fn shown(dir: tempfile::TempDir, root: PathBuf) -> Fixture {
         .collect();
 
     let mut app = App::with_library(&root, lib);
+    read_sets(&mut app);
     app.store_root = store_root;
     // The drive as the Drives view lists it: its space made up, as the machine's varies.
     let mut info = Device::open(&root).unwrap().info();

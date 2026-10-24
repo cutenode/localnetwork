@@ -19,11 +19,7 @@ fn key_of(code: KeyCode, ctrl: bool) -> KeyEvent {
 /// once in every `n` steps, however its draws lean.
 #[hegel::test_helper]
 fn turns(tc: &TestCase, n: u8) -> Vec<u8> {
-    let mut kinds: Vec<u8> = (0..n).collect();
-    for i in (1..kinds.len()).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    kinds
+    tc.draw(gs::permutations((0..n).collect::<Vec<_>>()))
 }
 
 /// The test library's playlists and history over made-up tracks, shown on a drive.
@@ -359,7 +355,8 @@ fn snapshot(i: usize) -> SnapshotInfo {
 /// another library load, a lookup nobody asked for) changes nothing; the rest is shown or said.
 /// A failing poll of the volumes is said once until one works; the open drive going away marks
 /// what's shown as out of date, said once, and coming back has it read again; a file check lists
-/// the missing files under Problems; My Tags, sets and an offer to replay land on their drive.
+/// the missing files under Problems; My Tags, sets and an offer to replay land on their drive;
+/// the outputs listed land in the list they were listed for, while it's open.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn background_results_land_where_they_belong(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
@@ -377,8 +374,8 @@ fn background_results_land_where_they_belong(tc: TestCase) {
         created: chrono::Utc::now(),
         updated: chrono::Utc::now(),
     };
-    let kinds = turns(&tc, 19);
-    for step in 0..tc.draw(gs::integers::<usize>().min_value(19).max_value(40)) {
+    let kinds = turns(&tc, 20);
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(20).max_value(40)) {
         let ours = tc.draw(gs::booleans());
         let g = if ours { generation } else { generation + 1 };
         let toast = app.toast.clone().map(|t| t.0);
@@ -595,6 +592,33 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 assert!(app.drives_again, "read again once that one's done");
                 app.handle_msg(Msg::Failed(Work::Drives, "the list fell over".into()));
                 assert!(!app.drives_again && !app.drives_in_flight);
+            }
+            19 => {
+                // The outputs (d) listed: for the list open, an older one, or one closed since.
+                app.perform(Act::Outputs, None);
+                let listing = app.deck.outputs.as_ref().and_then(|o| o.listing).unwrap();
+                let open = tc.draw(gs::booleans());
+                if !open {
+                    app.deck.outputs = None;
+                }
+                let r = match tc.draw(gs::booleans()) {
+                    true => Ok((vec!["Phones".to_string()], Some("Phones".to_string()))),
+                    false => Err("no sound server".to_string()),
+                };
+                let ok = r.is_ok();
+                app.handle_msg(Msg::Outputs(if ours { listing } else { listing - 1 }, r));
+                match &app.deck.outputs {
+                    None => assert!(!open, "not opened again"),
+                    Some(o) if ours => {
+                        assert!(o.listing.is_none());
+                        assert_eq!((o.names.len(), o.failed.is_some()), (usize::from(ok), !ok));
+                    }
+                    Some(o) => assert!(o.listing == Some(listing) && o.names.is_empty() && o.failed.is_none()),
+                }
+                let w = tc.draw(gs::integers::<u16>().min_value(1).max_value(160));
+                assert_eq!(super::super::ui::screen(&mut app, w, 30).lines().count(), 30);
+                // Closed, so the keys of the steps after it aren't the list's.
+                app.deck.outputs = None;
             }
             _ => {
                 let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]));
@@ -945,7 +969,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // With no output to open now, the next can't play: it says why, and stops.
                 if was.is_some() && tc.draw(gs::booleans()) {
                     app.outputs = super::super::audio::Outputs {
-                        list: || (Vec::new(), None),
+                        list: || Ok((Vec::new(), None)),
                         open: |_| anyhow::bail!("no outputs"),
                     };
                     // (At the end of the queue, with nothing to go round to, n just stops.)
@@ -1253,13 +1277,14 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
 
 /// The screen redraws at animation rate while anything is under way (a read, a search waiting
 /// for typing to pause, the drives' status being read, a job, a lookup of the selected track's
-/// matches, a track's files being read, a cue's flash) and rests once nothing is.
+/// matches, a track's files being read, the outputs being listed, a cue's flash) and rests once
+/// nothing is.
 #[hegel::test(test_cases = 100)]
 fn the_screen_moves_only_while_something_does(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     wait(&mut app, |a| a.loading.is_none());
     assert!(!app.animating(), "at rest");
-    let conditions: [fn(&mut App, bool); 6] = [
+    let conditions: [fn(&mut App, bool); 7] = [
         |a, on| a.loading = on.then(|| "Reading TEST…".into()),
         |a, on| a.search_due = on.then(|| Instant::now() + Duration::from_secs(60)),
         |a, on| a.status_loading = on,
@@ -1267,6 +1292,8 @@ fn the_screen_moves_only_while_something_does(tc: TestCase) {
         |a, on| a.details_asked = on.then_some((1, 0)),
         // The details shown, with the selected track's not looked up yet.
         |a, on| a.show_details = on,
+        // The outputs being listed (d), or listed.
+        |a, on| a.deck.outputs = Some(super::super::deck::Outputs { listing: on.then_some(1), ..Default::default() }),
     ];
     // Each sets it going on its own.
     for c in &conditions {
@@ -1324,8 +1351,9 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     lib.tracks = any_tracks(&tc, 8);
     let (mut app, _dir) = app_with(lib);
     let l = app.loaded.as_mut().unwrap();
-    let tags: FxHashMap<String, Vec<String>> = (l.library.tracks.iter())
-        .filter(|_| tc.draw(gs::booleans()))
+    let tags: FxHashMap<String, Vec<String>> = tc
+        .draw(gs::subsequences(&l.library.tracks[..]))
+        .iter()
         .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
         .collect();
     l.my_tags = MyTags::Reading;
@@ -1680,7 +1708,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             0 => {
                 let tabs = a.tabs.clone();
-                let (v, r) = tabs[tc.draw(gs::integers::<usize>().max_value(tabs.len() - 1))];
+                let (v, r) = tc.draw(gs::sampled_from(&tabs[..]));
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.view, v, "the tab clicked");
                 // (The Drives and Snapshots views read what they show from the store, here none.)
@@ -1688,7 +1716,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             1 => {
                 let cols = a.columns.clone();
-                let (field, r) = cols[tc.draw(gs::integers::<usize>().max_value(cols.len() - 1))];
+                let (field, r) = tc.draw(gs::sampled_from(&cols[..]));
                 let before = app.sort;
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.sort, browse::click(before, field));
@@ -2276,7 +2304,7 @@ fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
     let declared = FIELD_KINDS.iter().map(|(n, t)| (n.to_string(), *t)).collect();
     app.loaded.as_mut().unwrap().fields = Fields::Read(Arc::new(TrackValues { declared, tracks }));
     let order: Vec<FieldName> =
-        (0..FIELD_KINDS.len()).filter(|_| tc.draw(gs::booleans())).map(|k| FieldName::new(FIELD_KINDS[k].0)).collect();
+        tc.draw(gs::subsequences(&FIELD_KINDS[..])).into_iter().map(|(n, _)| FieldName::new(n)).collect();
     let mut order = order;
     let n = order.len();
     order.rotate_left(tc.draw(gs::integers::<usize>().max_value(n)).min(n));

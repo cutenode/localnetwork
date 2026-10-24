@@ -101,7 +101,7 @@ fn models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
         if !tc.draw(gs::booleans()) {
             continue;
         }
-        let rates = rate_lists[tc.draw(gs::integers::<usize>().max_value(rate_lists.len() - 1))];
+        let rates = tc.draw(gs::sampled_from(&rate_lists));
         let inferred = tc.draw(gs::booleans());
         audio.push(if codec.lossless() { lossless(codec, rates, inferred) } else { lossy(codec, rates, inferred) });
     }
@@ -118,7 +118,7 @@ fn models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
         source: "",
     };
     assert!(!m.export_pdb.inferred && !m.onelibrary.inferred && !m.exfat.inferred);
-    let codec = Codec::ALL[tc.draw(gs::integers::<usize>().max_value(Codec::ALL.len() - 1))];
+    let codec = tc.draw(gs::sampled_from(&Codec::ALL));
     let rate = tc.draw(gs::sampled_from(vec![0, 16_000, 22_050, 32_000, 44_100, 48_000, 88_200, 96_000, 192_000]));
     let depth = tc.draw(gs::sampled_from(vec![0, 8, 16, 24, 32]));
     let plays = m.plays(codec, rate, depth);

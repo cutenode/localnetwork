@@ -1,16 +1,24 @@
 //! The interop plugin: a drive's library for other DJ software, written by loclib-interop on this
 //! computer: Traktor's `collection.nml`, Serato's crates (with cue points in tags of copies of the
-//! audio on request) and a new Engine DJ library, each into a folder, and a rekordbox XML file. It reads the library exports are
-//! made from (locallibrary's `combined` one) and the tracks' beat grids and cues through the host,
-//! and the audio, for Serato's copies, from the drive itself (where the host says it's mounted,
-//! the export's `source.root`), which it never writes to.
+//! audio on request) and a new Engine DJ library, each into a folder, and a rekordbox XML file.
+//! It reads the library exports are made from (locallibrary's `combined` one) and the tracks' beat
+//! grids and cues through the host, and the audio, for Serato's copies, from the drive itself
+//! (where the host says it's mounted, the export's `source.root`), which it never writes to.
+//!
+//! Given a set or a mix instead of a drive's lists, each folder format writes the same files with
+//! one playlist: the tracks played, in order, from the drive the user names (`set_export`).
 //!
 //! Tracks point at their audio where it will be when the other software reads the files: the
 //! drive's mount point, or another folder holding a copy of the drive's `Contents/`
 //! (`location_root`).
+//!
+//! It reads Traktor's `collection.nml` too (`traktor_read`): an importer, for the keys, tempos and
+//! cues it has for a drive's tracks, and a library source, for building a drive from the files it
+//! lists in the folders the user grants (`fs:read`). What either leaves out comes back as warnings,
+//! the source's counted over its whole read and given with its last page.
 
 use std::io::{Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use loclib_interop::{Error, Export, Software, Source, engine, rekordbox, serato, traktor};
 use loclib_model::analysis::TrackAnalysis;
@@ -22,6 +30,8 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod set_export;
+mod traktor_read;
 mod write;
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
@@ -30,7 +40,8 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(write_export), input, output);
+    let hooks = Hooks::new().on(write_export).on(traktor_read::read_import).on(traktor_read::read_library);
+    loclib_plugin::serve(MANIFEST, hooks, input, output);
 }
 
 /// An exporter's options (`export --option`, `plugins.export.plan`'s `options`): each exporter
@@ -65,13 +76,19 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
     if options.write_tags && options.location_root.is_some() {
         return Err(invalid("a location root doesn't go with writing tags: the crates list the tagged copies"));
     }
+    let played = set_export::read(&req.source, host)?;
     // The library exports are made from, with what only OneLibrary has.
     let drive = host.drive(&req.source.drive).combined();
     let drive_root = req.source.root.clone();
     let mut library = drive.library()?;
     let renumbered = library.number_for_files();
-    let library =
-        library.subset(&req.source.playlists).map_err(|query| invalid(format!("not found: playlist {query:?}")))?;
+    let (library, unplayed) = match played {
+        Some(played) => played.narrow(library)?,
+        None => {
+            let only = library.subset(&req.source.playlists);
+            (only.map_err(|query| invalid(format!("not found: playlist {query:?}")))?, Vec::new())
+        }
+    };
     // Engine keeps no analysis, and Serato's crates alone none either.
     let carried = match software {
         Software::Traktor | Software::Rekordbox => true,
@@ -137,7 +154,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
         files: files.collect(),
         counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
         notes: notes(&export),
-        warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
+        warnings: unplayed.into_iter().chain(export.warnings.iter().cloned()).chain(missing_audio(&source)).collect(),
     })
 }
 
@@ -174,25 +191,11 @@ fn missing_audio(source: &Source<'_>) -> Option<String> {
 }
 
 /// `path` (absolute) with its symlinks resolved as far as it's there, so two paths compare, and
-/// relative paths between them lead where they say. Part by part, as locallibrary's own
-/// `fsutil::resolved`: a `..` takes away a real folder (out of a link's target), or, past what's
-/// there, the name before it (Windows folds `..` by name itself, in `std::path::absolute`).
+/// relative paths between them lead where they say: a `..` takes away a real folder (out of a
+/// link's target), or, past what's there, the name before it. Without Windows' `\\?\` prefix
+/// where the path means the same without it.
 fn resolved(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
-        match c {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            Component::Normal(_) => {
-                out.push(c);
-                out = dunce::canonicalize(&out).unwrap_or(out);
-            }
-            c => out.push(c),
-        }
-    }
-    out
+    paths::absolute_with(path, |p| dunce::canonicalize(p).ok())
 }
 
 /// What can't be done as asked, as locallibrary's `invalid` error.

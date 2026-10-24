@@ -154,7 +154,7 @@ fn log(out: Output, w: Watched<'_>) {
 /// What a plugin tells the user while watching: said as an event is, and kept for the player to
 /// offer when it suggests something (in `store`).
 fn told(out: Output, store: Option<&Store>, notice: PluginNotice) {
-    if let Some(store) = store.filter(|_| notice.operation.is_some())
+    if let Some(store) = store.filter(|_| notice.suggests.is_some())
         && let Err(e) = keep_suggested(store, &notice)
     {
         say!("{}", dim(format!("{}'s suggestion wasn't kept: {e}", notice.plugin)));
@@ -165,7 +165,7 @@ fn told(out: Output, store: Option<&Store>, notice: PluginNotice) {
         return;
     }
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-    let review = if notice.operation.is_some() { " (the player offers to review it)" } else { "" };
+    let review = if notice.suggests.is_some() { " (the player offers to review it)" } else { "" };
     say!("{} {}: {}{review}", dim(now), notice.plugin, notice.message);
 }
 

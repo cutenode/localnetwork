@@ -24,7 +24,7 @@ use super::app::{App, Level, Msg};
 use super::keymap::Act;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
 use super::ui::Scrolled;
-use crate::output::plural;
+use crate::output::{BLOCKS, bar, opt_pct, pct, plural};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scope {
@@ -437,8 +437,6 @@ pub fn on_mouse(app: &mut App, m: MouseEvent) -> bool {
 // Drawing
 // ---------------------------------------------------------------------------------------------
 
-const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
 fn block(title: Line<'static>, focused: bool) -> Block<'static> {
     Block::bordered().border_type(theme::border_type(focused)).border_style(theme::border(focused)).title(title)
 }
@@ -446,24 +444,6 @@ fn block(title: Line<'static>, focused: bool) -> Block<'static> {
 fn title(s: &str, focused: bool) -> Line<'static> {
     let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
     Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
-}
-
-fn pct(x: f64) -> String {
-    format!("{:.0}%", x * 100.0)
-}
-
-fn opt_pct(x: Option<f64>) -> String {
-    x.map_or_else(|| "–".to_string(), pct)
-}
-
-/// A horizontal bar of `frac` × `width` cells, in eighths.
-fn bar(frac: f64, width: usize) -> String {
-    let eighths = (frac.clamp(0.0, 1.0) * width as f64 * 8.0).round() as usize;
-    let mut s = "█".repeat(eighths / 8);
-    if !eighths.is_multiple_of(8) {
-        s.push(['▏', '▎', '▍', '▌', '▋', '▊', '▉'][eighths % 8 - 1]);
-    }
-    s
 }
 
 /// `s` in exactly `width` columns: cut short with an ellipsis, or padded.
@@ -1270,7 +1250,7 @@ fn draw_document(f: &mut Frame, v: &ProfileView, scroll: u16, area: Rect) {
     let json = serde_json::to_string_pretty(&v.document).unwrap_or_default();
     let lines: Vec<Line<'static>> = json.lines().map(json_line).collect();
     let b = block(title("Document", true), true)
-        .title(Line::from(Span::styled(" what a public profile would show · d closes ", faint())).right_aligned());
+        .title(Line::from(Span::styled(" what a public profile would show · D closes ", faint())).right_aligned());
     let max = (lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     f.render_widget(Paragraph::new(lines).block(b).scroll((scroll.min(max), 0)), area);
 }

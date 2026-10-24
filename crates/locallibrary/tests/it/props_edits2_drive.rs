@@ -105,8 +105,7 @@ fn deleted_tracks_audio_outside_contents_is_left_and_said(tc: TestCase) {
     let root = common::demo_drive(dir.path(), "Main");
     let outside = common::add_track(&root, NewTrack::new("Outside", "/Music/Outside.mp3"), b"ID3 outside");
     let inside = common::add_track(&root, NewTrack::new("Inside", "/Contents/Inside.mp3"), b"ID3 inside");
-    let doomed: Vec<u32> = [outside, inside].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    let doomed = if doomed.is_empty() { vec![outside] } else { doomed };
+    let doomed: Vec<u32> = tc.draw(gs::subsequences(&[outside, inside]).min_size(1));
     let mut d = Device::open_export(&root).unwrap();
     let e = Edit::DeleteTracks { tracks: ids(&doomed), keep_files: false };
     let plan = edit::plan(&d, &[e], &EditOptions::default(), &Ctx::silent()).unwrap();
@@ -257,7 +256,7 @@ fn packing_a_onelibrary_only_drive_takes_the_chosen_playlists_tracks(tc: TestCas
     common::onelibrary_only(&root);
     let lib = common::plus_library(&root);
     let lists: Vec<_> = lib.playlists.iter().filter(|p| !p.is_folder).collect();
-    let chosen = lists[tc.draw(gs::integers::<usize>().max_value(lists.len() - 1))];
+    let chosen = tc.draw(gs::sampled_from(&lists));
     let history = tc.draw(gs::booleans());
     let target = common::blank(dir.path(), "Club");
     let opts = PackOptions { playlists: vec![lib.playlist_path(chosen.id)], history, ..Default::default() };

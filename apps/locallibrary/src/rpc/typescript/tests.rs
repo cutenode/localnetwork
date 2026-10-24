@@ -102,7 +102,7 @@ const NAMES: &[&str] = &["a", "kind", "a b", "1st", "$x", "with-dash", "é", "_o
 #[hegel::test_helper]
 fn schema(tc: &hegel::TestCase, depth: usize) -> Value {
     use hegel::generators as gs;
-    let name = |tc: &hegel::TestCase| NAMES[tc.draw(gs::integers::<usize>().max_value(NAMES.len() - 1))];
+    let name = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(NAMES));
     let kind = tc.draw(gs::integers::<u8>().max_value(if depth == 0 { 6 } else { 12 }));
     let mut s = match kind {
         0 => json!({ "type": tc.draw(gs::sampled_from(&["string", "integer", "number", "boolean", "null"][..])) }),

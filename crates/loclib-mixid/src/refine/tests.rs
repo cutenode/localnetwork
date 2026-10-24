@@ -102,12 +102,12 @@ use hegel::generators as gs;
 /// microsecond from any estimate up to 4 ms out, and correlates as the same audio.
 #[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
-    let dir = tempfile::tempdir().unwrap();
-    let x = synth(8.0, tc.draw(gs::integers::<u32>().min_value(1)));
     // Whole samples here, so a fraction of one at 44.1 kHz but every 160th.
     let delay =
         tc.draw(gs::integers::<isize>().min_value(1).max_value(600)) * if tc.draw(gs::booleans()) { 1 } else { -1 };
     tc.assume(delay % 160 != 0);
+    let dir = tempfile::tempdir().unwrap();
+    let x = synth(8.0, tc.draw(gs::integers::<u32>().min_value(1)));
     let gain = tc.draw(gs::floats::<f32>().min_value(0.25).max_value(1.0));
     let rate = tc.draw(gs::sampled_from(vec![44_100, 48_000]));
     let miss = tc.draw(gs::floats::<f64>().min_value(-0.004).max_value(0.004));

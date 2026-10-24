@@ -4,10 +4,11 @@
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
+use hegel::{Generator, PrintableGenerator, TestCase};
 use locallibrary::export::{self, Locator, PathStyle};
 use locallibrary::import::{self, Format, MatchKind, Status};
 use locallibrary::{Library, Track, paths};
+use loclib_model::test_util::{self, tracks_like};
 
 /// Text without control characters, trimmed (readers trim fields), as track metadata.
 fn field() -> impl hegel::PrintableGenerator<String> {
@@ -24,62 +25,21 @@ fn path_part() -> impl hegel::PrintableGenerator<String> {
     .filter(|s: &String| s != "." && s != ".." && !s.ends_with(char::is_whitespace))
 }
 
-fn blank(id: u32) -> Track {
-    Track {
-        id,
-        title: String::new(),
-        artist: String::new(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 0,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: String::new(),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
-}
-
 /// A track with any metadata and a unique path (`/Contents/<id>/...`).
-#[hegel::composite]
-fn track(tc: &TestCase, id: u32) -> Track {
-    Track {
-        title: tc.draw(field().filter(|s: &String| !s.is_empty())),
-        artist: tc.draw(field()),
-        album: tc.draw(field()),
-        genre: tc.draw(field()),
-        comment: tc.draw(field()),
-        bpm: tc.draw(gs::floats::<f64>().min_value(0.0).max_value(300.0)),
-        duration_secs: tc.draw(gs::integers::<u32>().min_value(1).max_value(59_999)),
-        file_path: format!("/Contents/{id}/{}/{}.mp3", tc.draw(path_part()), tc.draw(path_part())),
-        ..blank(id)
-    }
+fn track(id: u32) -> impl PrintableGenerator<Track> {
+    tracks_like(test_util::track(id, "", "", ""))
+        .title(field().filter(|s: &String| !s.is_empty()))
+        .artist(field())
+        .album(field())
+        .genre(field())
+        .comment(field())
+        .bpm(gs::floats::<f64>().min_value(0.0).max_value(300.0))
+        .duration_secs(gs::integers::<u32>().min_value(1).max_value(59_999))
+        .file_path(hegel::tuples!(path_part(), path_part()).map(move |(a, b)| format!("/Contents/{id}/{a}/{b}.mp3")))
 }
 
-fn library(tc: &TestCase) -> Library {
-    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
-    Library { tracks: (1..=n).map(|id| tc.draw(track(id))).collect(), ..Default::default() }
+fn library() -> impl PrintableGenerator<Library> {
+    test_util::libraries(1, 6, track)
 }
 
 fn drive_locator() -> Locator {
@@ -89,7 +49,7 @@ fn drive_locator() -> Locator {
 /// CSV export reads back with the same title, artist, album, duration and path.
 #[hegel::test(test_cases = 300)]
 fn csv_export_reads_back(tc: TestCase) {
-    let lib = library(&tc);
+    let lib = tc.draw(library());
     let refs: Vec<&Track> = lib.tracks.iter().collect();
     let csv = export::csv(&refs, &drive_locator());
     tc.note(&csv);
@@ -109,7 +69,7 @@ fn csv_export_reads_back(tc: TestCase) {
 /// neither contains a dash separator.
 #[hegel::test(test_cases = 300)]
 fn m3u8_export_reads_back(tc: TestCase) {
-    let lib = library(&tc);
+    let lib = tc.draw(library());
     let name = tc.draw(field());
     let refs: Vec<&Track> = lib.tracks.iter().collect();
     let m3u = export::m3u8(&name, &refs, &drive_locator());
@@ -130,7 +90,7 @@ fn m3u8_export_reads_back(tc: TestCase) {
 /// as the track it came from.
 #[hegel::test(test_cases = 100)]
 fn exported_lists_match_their_tracks(tc: TestCase) {
-    let lib = library(&tc);
+    let lib = tc.draw(library());
     let style = tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]));
     let csv = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();
@@ -152,8 +112,7 @@ fn exported_lists_match_their_tracks(tc: TestCase) {
 fn text_export_reads_back(tc: TestCase) {
     let name = || gs::from_regex("[A-Za-z0-9é][A-Za-z0-9é&'.,()! \u{a0}]{0,10}[A-Za-z0-9é)!]").fullmatch(true);
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(12));
-    let tracks: Vec<Track> =
-        (1..=n).map(|id| Track { artist: tc.draw(name()), title: tc.draw(name()), ..blank(id) }).collect();
+    let tracks: Vec<Track> = (1..=n).map(|id| test_util::track(id, &tc.draw(name()), &tc.draw(name()), "")).collect();
     let refs: Vec<&Track> = tracks.iter().collect();
     let text = export::text(&refs);
     tc.note(&text);
@@ -167,7 +126,7 @@ fn text_export_reads_back(tc: TestCase) {
 /// names, artists, albums, durations and file locations, and each playlist's tracks in order.
 #[hegel::test(test_cases = 300)]
 fn rekordbox_xml_reads_back(tc: TestCase) {
-    let lib = library(&tc);
+    let lib = tc.draw(library());
     let lists: Vec<Vec<u32>> = tc.draw(
         gs::vecs(gs::vecs(gs::integers::<u32>().min_value(1).max_value(lib.tracks.len() as u32)).max_size(5))
             .max_size(3),
@@ -210,10 +169,11 @@ fn rekordbox_xml_reads_back(tc: TestCase) {
         assert_eq!(e.duration_secs, Some(t.duration_secs.min(36_000)));
         assert_eq!(e.path.as_deref(), Some(t.file_path.as_str()));
     }
-    let playlists = import::xml_playlists(xml.as_bytes()).unwrap();
-    assert_eq!(playlists.len(), lists.len());
-    for (i, ((path, got), ids)) in playlists.iter().zip(&lists).enumerate() {
-        assert_eq!(path, &format!("Shows/List {i}"));
+    let library = import::read_xml_library(xml.as_bytes()).unwrap();
+    assert_eq!(library.playlists.len(), lists.len());
+    for (i, (p, ids)) in library.playlists.iter().zip(&lists).enumerate() {
+        assert_eq!(p.path, format!("Shows/List {i}"));
+        let got: Vec<import::Entry> = p.entries.iter().map(|e| library.entry(e)).collect();
         let titles: Vec<&str> = got.iter().map(|e| e.title.as_str()).collect();
         let want: Vec<&str> = ids.iter().map(|id| lib.tracks[*id as usize - 1].title.as_str()).collect();
         assert_eq!(titles, want);

@@ -5,7 +5,8 @@ import { type Db, openDatabase } from '../db';
 import { silentLogger } from '../logger';
 import { FakeNetwork } from '../testing/fakes';
 import { canonicalJson, chainHash, sanitizeDetails } from './chain';
-import { AuditLog } from './log';
+import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/entry.json' with { type: 'json' };
+import { AUDIT_ACTIONS, AuditLog, SUBJECT_KINDS } from './log';
 
 const ROOT = 'did:plc:root';
 
@@ -14,6 +15,15 @@ const ALICE = 'did:plc:alice';
 const BOB = 'did:plc:bob';
 
 const space = rootSpaces(ROOT).audit;
+
+describe('the audit entry lexicon', () => {
+	const { properties } = auditEntry.defs.main.record;
+
+	it('lists every action and subject kind the log records, so other readers know them', () => {
+		expect(properties.action.knownValues).toEqual([...AUDIT_ACTIONS]);
+		expect(properties.subjectKind.knownValues).toEqual([...SUBJECT_KINDS]);
+	});
+});
 
 describe('AuditLog', () => {
 	let db: Db;

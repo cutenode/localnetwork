@@ -233,6 +233,7 @@ fn made_loops_and_seeks_keep_to_the_track() {
 fn outputs_list_and_close() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     press(&mut app, "d");
+    outputs_listed(&mut app);
     let o = app.deck.outputs.as_ref().expect("listed");
     assert_eq!(o.state.selected(), Some(0), "the default, with nothing picked");
     let n = o.names.len();
@@ -254,6 +255,71 @@ fn outputs_list_and_close() {
         None => assert!(said.contains("no audio output"), "{said}"),
     }
     assert_eq!(app.deck.output, None);
+}
+
+/// `d` opens the outputs list at once, saying the devices are being listed (they're listed in
+/// the background: that can take a while); they fill it as they come, the one playing selected.
+#[test]
+fn the_outputs_list_opens_before_its_devices_are_in() {
+    use super::super::audio::tests::OUTPUTS;
+    use super::super::ui::screen;
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    app.outputs = OUTPUTS;
+    app.audio = Some((OUTPUTS.open)(Some("Phones")).unwrap());
+    press(&mut app, "d");
+    let s = screen(&mut app, 100, 30);
+    assert!(s.contains("the system's default") && s.contains("listing the outputs…") && !s.contains("Phones"), "{s}");
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.deck.outputs.as_ref().unwrap().state.selected(), Some(0), "only the default to move to");
+    outputs_listed(&mut app);
+    let s = screen(&mut app, 100, 30);
+    assert!(s.contains("● Phones") && !s.contains("listing the outputs"), "{s}");
+    assert_eq!(app.deck.outputs.as_ref().unwrap().state.selected(), Some(1), "the one playing");
+}
+
+/// The devices listed for a list closed since, or opened again since, are dropped: they don't
+/// open it again, or fill the new one with an older listing.
+#[test]
+fn a_late_listing_of_the_outputs_is_dropped() {
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    app.outputs = super::super::audio::tests::OUTPUTS;
+    let listing = |app: &App| app.deck.outputs.as_ref().and_then(|o| o.listing);
+    press(&mut app, "d");
+    let first = listing(&app).expect("being listed");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.deck.outputs.is_none(), "esc closes it while it's listed");
+    let old = || Ok((vec!["Unplugged".to_string()], None));
+    app.handle_msg(Msg::Outputs(first, old()));
+    assert!(app.deck.outputs.is_none(), "not opened again");
+    press(&mut app, "d");
+    assert_ne!(listing(&app), Some(first));
+    app.handle_msg(Msg::Outputs(first, old()));
+    let o = app.deck.outputs.as_ref().unwrap();
+    assert!(o.listing.is_some() && o.names.is_empty(), "still being listed: {o:?}");
+    outputs_listed(&mut app);
+    assert_eq!(app.deck.outputs.as_ref().unwrap().names, ["Phones"]);
+}
+
+/// Outputs that can't be listed (or a listing that panics) say why in the list, which still
+/// plays through the system's default.
+#[test]
+fn outputs_that_cant_be_listed_say_why() {
+    use super::super::audio::Outputs;
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    app.outputs = Outputs { list: || anyhow::bail!("no sound server"), ..Outputs::NONE };
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    let s = super::super::ui::screen(&mut app, 100, 30);
+    assert!(s.contains("can't list the outputs: no sound server"), "{s}");
+    assert_eq!(last_message(&app), "", "said in the list alone");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(last_message(&app), "no audio output device", "the default, tried");
+
+    app.outputs = Outputs { list: || panic!("a broken driver"), ..Outputs::NONE };
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    let failed = app.deck.outputs.as_ref().unwrap().failed.clone().unwrap_or_default();
+    assert!(failed.contains("a broken driver"), "{failed}");
 }
 
 /// Full screen, each hot cue has its key before it, with colours or without.
@@ -327,11 +393,13 @@ fn auto_cue_is_turned_on_and_off() {
 fn an_output_that_wont_open_is_said() {
     let (mut app, _dir) = playing(TrackAnalysis::default());
     app.outputs = super::super::audio::Outputs {
-        list: || (vec!["Interface".into()], None),
+        list: || Ok((vec!["Interface".into()], None)),
         open: |_| anyhow::bail!("the interface is gone"),
     };
     // The default and the interface: the list stops at either end.
-    press(&mut app, "djjk");
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    press(&mut app, "jjk");
     assert_eq!(app.deck.outputs.as_ref().and_then(|o| o.state.selected()), Some(0));
     press(&mut app, "j\n");
     assert_eq!(last_message(&app), "the interface is gone");
@@ -493,10 +561,8 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
     // Loops saved on the track (from, to, and their length in beats as rekordbox measured it).
-    let saved: Vec<_> = [(0, 2_000, Some((4, 1))), (0, 6_000, None), (500, 1_500, Some((1, 2)))]
-        .into_iter()
-        .filter(|_| tc.draw(gs::booleans()))
-        .collect();
+    let saved: Vec<_> =
+        tc.draw(gs::subsequences(&[(0, 2_000, Some((4, 1))), (0, 6_000, None), (500, 1_500, Some((1, 2)))][..]));
     let cues = saved.iter().map(|&(from, to, beats)| Cue { loop_beats: beats, ..cue(None, from, Some(to)) }).collect();
     let (mut app, _dir) = playing(TrackAnalysis { beats, cues, ..Default::default() });
     app.outputs = super::super::audio::tests::OUTPUTS;
@@ -607,6 +673,7 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
                 let playing = app.audio.as_ref().and_then(|a| a.device()).map(str::to_string);
                 let open = app.audio.is_some();
                 app.perform(Act::Outputs, None);
+                outputs_listed(&mut app);
                 // Drawn with the one playing through marked.
                 let s = super::super::ui::screen(&mut app, 120, 40);
                 let listed = s.lines().skip_while(|l| !l.contains("Output ─")).take_while(|l| !l.contains("esc close"));
@@ -682,11 +749,12 @@ fn cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
     assert_eq!(last_message(&app), "no more phrases");
 
     app.outputs = super::super::audio::Outputs {
-        list: || (vec!["Gone".into()], None),
+        list: || Ok((vec!["Gone".into()], None)),
         open: |_| anyhow::bail!("the output is gone"),
     };
     let before = app.audio.as_ref().map(|a| a.device().map(str::to_string));
     app.perform(Act::Outputs, None);
+    outputs_listed(&mut app);
     key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     assert_eq!(last_message(&app), "the output is gone");

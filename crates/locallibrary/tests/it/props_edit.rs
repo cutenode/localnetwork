@@ -987,7 +987,7 @@ fn draw_node_name(tc: &TestCase, m: &Model, names: Names) -> String {
     if all.is_empty() || !tc.draw(gs::weighted_booleans(0.3)) {
         return draw_name(tc, names);
     }
-    m.shape.node(&all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))].0).name.clone()
+    m.shape.node(&tc.draw(gs::sampled_from(all)).0).name.clone()
 }
 
 fn draw_text(tc: &TestCase, names: Names) -> String {
@@ -1009,7 +1009,7 @@ fn draw_spec(tc: &TestCase, m: &Model, folders_only: bool, names: Names) -> Stri
     if all.is_empty() || tc.draw(gs::integers::<u8>().max_value(9)) == 0 {
         return draw_name(tc, names);
     }
-    let (ix, path) = &all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    let (ix, path) = &tc.draw(gs::sampled_from(all));
     match tc.draw(gs::integers::<u8>().max_value(9)) {
         0..=6 => path.clone(),
         7 => swap_ascii_case(path),
@@ -1025,8 +1025,8 @@ fn draw_tracks(tc: &TestCase, pool: &[String], max: usize) -> TrackSelector {
             if tc.draw(gs::weighted_booleans(0.05)) {
                 return "/Contents/Nobody/Nothing.mp3".to_string();
             }
-            let p = &pool[tc.draw(gs::integers::<usize>().max_value(pool.len() - 1))];
-            if tc.draw(gs::weighted_booleans(0.1)) { p.to_uppercase() } else { p.clone() }
+            let p = tc.draw(gs::sampled_from(pool));
+            if tc.draw(gs::weighted_booleans(0.1)) { p.to_uppercase() } else { p }
         })
         .collect::<Vec<_>>();
     TrackSelector::paths(paths)
@@ -1325,7 +1325,7 @@ fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase
     let dir = tempfile::tempdir().unwrap();
     let root = fresh_pdb_drive(dir.path());
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
-    let track = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+    let track = tc.draw(gs::sampled_from(&lib.tracks));
     // Around a row's 4,050 bytes: as ASCII, or as UTF-16 (two bytes a character).
     let (c, width) = tc.draw(gs::sampled_from(vec![("x", 1), ("é", 2)]));
     let around =
@@ -1550,7 +1550,7 @@ fn names_that_differ_only_in_case_name_different_playlists(tc: TestCase) {
         p.track_ids.len()
     };
     let (a, b) = (entries(&first), entries(&second));
-    let track = drive.pool[tc.draw(gs::integers::<usize>().max_value(drive.pool.len() - 1))].clone();
+    let track = tc.draw(gs::sampled_from(&drive.pool));
     run(vec![Edit::AddTracks {
         playlist: second.clone(),
         tracks: TrackSelector::paths([track]),
@@ -2033,7 +2033,7 @@ fn tempos_and_album_artists_read_back_from_every_database(tc: TestCase) {
         fs::write(root.join(paths::LIBRARY_PLUS_DB), plus_db()).unwrap();
     }
     let tracks = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks;
-    let was = tracks[tc.draw(gs::integers::<usize>().max_value(tracks.len() - 1))].clone();
+    let was = tc.draw(gs::sampled_from(&tracks));
     let bpm = tc.draw(gs::optional(gs::floats::<f64>().min_value(1.0).max_value(999.99)));
     let album = tc.draw(gs::optional(gs::sampled_from(vec!["", "Isles"]).map(String::from)));
     let album_artist = tc.draw(gs::optional(gs::sampled_from(vec![" ", "Bicep", "Four Tet"]).map(String::from)));

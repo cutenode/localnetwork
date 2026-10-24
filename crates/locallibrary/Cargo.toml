@@ -103,7 +103,7 @@ form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
 
 [dev-dependencies]
-hegeltest.workspace = true
+hegeltest = { workspace = true, features = ["chrono"] }
 # Independent parser used to cross-check what locallibrary writes.
 rekordcrate.workspace = true
 binrw = "0.14"

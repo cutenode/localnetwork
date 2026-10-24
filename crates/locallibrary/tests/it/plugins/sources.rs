@@ -581,7 +581,7 @@ fn brought(tc: &TestCase, i: usize, name: &str) -> Brought {
     let (mut cues, mut kept, mut slots) = (Vec::new(), Vec::new(), Vec::new());
     for j in 0..tc.draw(gs::integers::<u32>().max_value(4)) {
         let start = 1000 + j * 1000;
-        let hot: Option<u8> = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(9)));
+        let hot: Option<u8> = tc.draw(gs::optional(gs::integers::<u8>().max_value(9)));
         let end = match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => None,
             1 => Some(start + 500),
@@ -702,7 +702,7 @@ fn files_are_copied_only_as_they_were_checked(tc: TestCase) {
     for (i, file) in files.iter().enumerate() {
         put(file, &wav(1.0 + i as f64), None);
     }
-    let changed = &files[tc.draw(gs::integers::<usize>().max_value(n - 1))];
+    let changed = &tc.draw(gs::sampled_from(&files));
     let name = changed.file_name().unwrap().to_string_lossy().into_owned();
     let watch = GrowsWhileHashed { file: changed.clone(), grown: AtomicBool::new(false) };
     let req = f.request(&[&music], Value::Null);

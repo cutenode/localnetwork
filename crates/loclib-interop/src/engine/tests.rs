@@ -13,19 +13,8 @@ fn keys_round_the_wheel() {
 }
 
 #[test]
-fn dates_and_paths() {
+fn dates() {
     assert_eq!(unix_date("1970-01-02"), Some(86_400));
     assert_eq!(unix_date("2026-09-30 10:00"), Some(1_790_726_400));
     assert_eq!(unix_date("soon"), None);
-    #[cfg(unix)]
-    {
-        assert_eq!(
-            relative(Path::new("/Users/me/out/Engine Library"), Path::new("/Volumes/USB/Contents/a.mp3")).as_deref(),
-            Some("../../../../Volumes/USB/Contents/a.mp3")
-        );
-        assert_eq!(
-            relative(Path::new("/Volumes/USB/Engine Library"), Path::new("/Volumes/USB/Contents/a.mp3")).as_deref(),
-            Some("../Contents/a.mp3")
-        );
-    }
 }

@@ -78,8 +78,11 @@ listening to your library the way the players see it:
   empty, it stays as it was. A plugin's services are switches there too: turned on, they run
   while the player does.
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
-  drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; what
-  `watch` kept while the player was closed is offered as it opens.
+  drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; when it
+  suggests fetching from its providers, exporting in its format or running its analyzer, "review:
+  …" opens that form (or asks first, for an analyzer) filled in, as if you'd started it, saying
+  which drive and how many tracks (a mix's export is refused: the player doesn't export mixes).
+  What `watch` kept while the player was closed is offered as it opens.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you

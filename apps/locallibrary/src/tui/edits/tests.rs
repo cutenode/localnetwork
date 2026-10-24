@@ -941,10 +941,7 @@ fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
-    let mut turns: Vec<u8> = (0..12).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..12).collect::<Vec<_>>()));
     let planned = |app: &App| app.job.as_ref().is_some_and(|j| j.label == "Planning");
     for step in 0..tc.draw(gs::integers::<usize>().min_value(12).max_value(24)) {
         wait(&mut app, |a| a.job.is_none());

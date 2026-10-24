@@ -21,32 +21,37 @@ crates/loclib-equipment/    what each player, all-in-one system and mixer reads 
 crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): every setting's schema, decoding
                             and byte-level patching
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
-                            matching them to a library: by path, ISRC, artist and title, then fuzzily
+                            matching them to a library: by path, ISRC, artist and title, then fuzzily;
+                            and rekordbox XML collections with their tags, keys, beat grids and cues
 crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
 crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
                             FLAC, resampled with the timing kept to the sample, dithered, with tags
-crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
-                            clipping (ebur128), half/double tempo checks, and scoring analyzers against
-                            the GiantSteps annotations
+crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum-dsp), its loudness, peaks and
+                            clipping (ebur128), its three-band waveform, half/double tempo checks, and
+                            scoring analyzers against the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
-                            tags, an Engine DJ library (engine.sql), rekordbox XML
+                            tags, an Engine DJ library (engine.sql), rekordbox XML; and Traktor's
+                            collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
                             spectrum, scope and cover art, in the colours of a palette the caller passes
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
-plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
-                            each album looked up on MusicBrainz and its cover fetched from the Cover Art
-                            Archive, as `set_artwork` edits
+plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
+                            all, asked to), each album looked up on MusicBrainz and its cover fetched from
+                            the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
-                            writing a drive's library with loclib-interop on this computer
+                            writing a drive's library with loclib-interop on this computer, and an importer
+                            and a library source reading Traktor's collection.nml back
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
-                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them
+                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
+                            and its three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
-                            loclib-tracklist, as one `set_entries` edit
+                            loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
+                            as an importer (keys, tempos, cues) and a library source to build drives from
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the
@@ -143,10 +148,10 @@ crates/locallibrary/src/    the library, built on the crates above
                messages never name a CLI command or flag: the CLI's hints.rs words those)
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
-                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
-                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
-                            plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
-                            rodio, drawing with loclib-waveform, the `tui` and `playback` features;
+                            and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
+                            linked in from the table build.rs writes, each run as `locallibrary plugin serve
+                            <id>`; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)
 apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
