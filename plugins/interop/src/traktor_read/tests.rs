@@ -435,6 +435,7 @@ fn a_collection_is_a_library_source() {
         SourcePlaylist { path: "All".into(), tracks: vec![at("music/sub/b.mp3")] },
     ];
     assert_eq!((page.playlists.as_slice(), page.next, page.blob), (&playlists[..], None, None));
+    assert_eq!(page.warnings, ["1 beat grid(s) left out: the track's length isn't known, or is over a day"]);
     s.stop();
 }
 
@@ -449,25 +450,26 @@ fn a_collection_is_read_in_pages() {
     let list = r#"<NODE TYPE="PLAYLIST" NAME="Last"><PLAYLIST><ENTRY><PRIMARYKEY TYPE="TRACK" KEY="USB/:1000.mp3"/></ENTRY></PLAYLIST></NODE><NODE TYPE="SMARTLIST" NAME="Recent"/>"#;
     let file = s.file(&format!("<NML><COLLECTION>{entries}</COLLECTION><PLAYLISTS>{list}</PLAYLISTS></NML>"));
     let first = s.read_library(&file, &[], None, json!({})).unwrap();
-    assert_eq!((first.tracks.len(), first.playlists.len()), (1000, 0));
+    assert_eq!((first.tracks.len(), first.playlists.len(), first.warnings.len()), (1000, 0, 0));
     let next = first.next.unwrap();
     let (index, stamp) = next.split_once(' ').unwrap();
     let meta = std::fs::metadata(&file).unwrap();
     assert_eq!((index, stamp.split(':').next()), ("1000", Some(meta.len().to_string().as_str())));
-    let last = s.read_library(&file, &[], Some(&next), json!({})).unwrap();
-    assert_eq!((last.tracks.len(), last.next.as_deref()), (1, None));
-    assert_eq!(last.playlists[0].tracks, [last.tracks[0].path.clone()]);
     for cursor in [format!("1002 {stamp}"), "x".into(), "y z".into()] {
         let e = s.read_library(&file, &[], Some(&cursor), json!({})).unwrap_err();
         assert_eq!(e.kind(), Some("invalid"), "{e:?}");
         assert_eq!(e.message, format!("{cursor:?} isn't a page of {}", file.display()));
     }
-    // What's read stays read while the file stays as it is (its size and when it changed): here
-    // as it was, though its bytes aren't.
+    // What's read stays read between pages while the file stays as it is (its size and when it
+    // changed): here as it was, though its bytes aren't.
     let nml = std::fs::read(&file).unwrap();
     std::fs::write(&file, vec![b' '; nml.len()]).unwrap();
     std::fs::File::options().write(true).open(&file).unwrap().set_modified(meta.modified().unwrap()).unwrap();
-    assert_eq!(s.read_library(&file, &[], Some(&next), json!({})).unwrap(), last);
+    let last = s.read_library(&file, &[], Some(&next), json!({})).unwrap();
+    assert_eq!((last.tracks.len(), last.next.as_deref()), (1, None));
+    assert_eq!(last.playlists[0].tracks, [last.tracks[0].path.clone()]);
+    // What the read left out, said once, with the last page.
+    assert_eq!(last.warnings, ["1 smart playlist(s), whose rules aren't read, left out"]);
     // Saved between pages, it's read again from the start.
     std::fs::write(&file, [nml.as_slice(), b"\n"].concat()).unwrap();
     let e = s.read_library(&file, &[], Some(&next), json!({})).unwrap_err();
@@ -623,6 +625,15 @@ fn a_collection_reads_as_its_library(tc: TestCase) {
         .collect();
     let read: Vec<(String, Vec<PathBuf>)> = page.playlists.into_iter().map(|p| (p.path, p.tracks)).collect();
     assert_eq!(read, lists);
+    // A grid on a track granted without a length to lay it down to is left out, and said.
+    let unlaid = library
+        .tracks
+        .iter()
+        .filter(|t| !t.file_path.starts_with("/elsewhere") && t.duration_secs == 0 && !analysis[&t.id].beats.is_empty())
+        .count();
+    let said = (unlaid > 0)
+        .then(|| format!("{unlaid} beat grid(s) left out: the track's length isn't known, or is over a day"));
+    assert_eq!(page.warnings, Vec::from_iter(said));
     s.stop();
 }
 
@@ -648,7 +659,7 @@ fn pages_hold_a_bounded_grid(tc: TestCase) {
         s.built(&library, &|t: &Track| TrackAnalysis { beats: grid(bpms[&t.id], 0, 1), ..TrackAnalysis::default() });
     let mut titles = Vec::new();
     let mut cursor: Option<String> = None;
-    loop {
+    let warnings = loop {
         let page = s
             .read_library(&file, std::slice::from_ref(&music), cursor.as_deref(), json!({ "scratch": scratch }))
             .unwrap();
@@ -666,9 +677,15 @@ fn pages_hold_a_bounded_grid(tc: TestCase) {
         titles.extend(page.tracks.into_iter().map(|t| t.title));
         cursor = page.next;
         if cursor.is_none() {
-            break;
+            break page.warnings;
         }
-    }
+        assert!(page.warnings.is_empty(), "said with the last page only: {:?}", page.warnings);
+    };
     assert_eq!(titles, library.tracks.iter().map(|t| t.title.clone()).collect::<Vec<_>>());
+    // The grids with no length to end at, counted over every page.
+    let unlaid = library.tracks.iter().filter(|t| t.duration_secs == 0).count();
+    let said = (unlaid > 0)
+        .then(|| format!("{unlaid} beat grid(s) left out: the track's length isn't known, or is over a day"));
+    assert_eq!(warnings, Vec::from_iter(said));
     s.stop();
 }

@@ -3,7 +3,7 @@
 //! `traktor` source).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use loclib_interop::Error;
@@ -26,7 +26,9 @@ const PAGE: usize = 1000;
 
 /// How many beats and cues a page holds before it ends, after the track that brings it there:
 /// grids of long tracks at fast tempos would otherwise make a page of a thousand tracks hundreds
-/// of millions of beats. A track's own grid is at most a day's beats (see `Entry::beats`).
+/// of millions of beats. A track's own grid is at most a day's beats (see `Entry::beats`). This
+/// keeps each page small; the host stops a whole read past 2^26 (some 67 million) beats and cues,
+/// hundreds of pages, more than any library has.
 const PAGE_MARKS: usize = 100_000;
 
 /// The source's options.
@@ -37,18 +39,26 @@ struct SourceOptions {
     collection: PathBuf,
 }
 
+/// A collection being read a page at a time: its file and the file's stamp (its size and when it
+/// changed) as the first page found them, and the beat grids left out of the pages so far, by why.
+struct Reading {
+    file: PathBuf,
+    stamp: String,
+    collection: Collection,
+    unlaid: Vec<(&'static str, usize)>,
+}
+
+/// The read under way, kept between its pages so the file is read once for them all.
+static READING: Mutex<Option<Reading>> = Mutex::new(None);
+
 /// `library/read`: a page of the collection's tracks, each by its audio file on this computer, and
-/// on the last page its playlists. A track whose file isn't in a folder granted is answered by its
-/// path alone, for the host to leave out and say so, without what it holds.
+/// on the last page its playlists and what the read left out. A track whose file isn't in a folder
+/// granted is answered by its path alone, for the host to leave out and say so, without what it
+/// holds.
 pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage, RpcError> {
     let SourceOptions { collection: file } = params(req.options)?;
-    let (stamp, collection) = cached(&file, &host.ctx())?;
-    // A page has no warnings; what reading the collection left out goes in the log, once.
-    if req.cursor.is_none() {
-        let warnings = collection.warnings.iter().chain(&collection.playlist_warnings);
-        warnings.for_each(|w| eprintln!("{}: {w}", file.display()));
-    }
-    let entries = &collection.entries;
+    let ctx = host.ctx();
+    let stamp = stamp(&file, &ctx)?;
     // A cursor is the index of the page's first track and the file's stamp when the first page
     // was read: a save between pages would shift the tracks under it.
     let (from, read_at) = match req.cursor.as_deref() {
@@ -59,6 +69,14 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
         let changed = format!("{} changed since its first page was read: read it again", file.display());
         return Err(RpcError::failed("conflict", changed));
     }
+    let mut reading = READING.lock().unwrap_or_else(PoisonError::into_inner);
+    let kept = reading.as_ref().is_some_and(|r| r.file == file && r.stamp == stamp);
+    if req.cursor.is_none() || !kept {
+        let collection = collection(&file, &ctx)?;
+        *reading = Some(Reading { file: file.clone(), stamp: stamp.clone(), collection, unlaid: Vec::new() });
+    }
+    let Reading { collection, unlaid, .. } = reading.as_mut().expect("read just now");
+    let entries = &collection.entries;
     let rest = from.and_then(|from| entries.get(from..)).ok_or_else(|| {
         let cursor = req.cursor.as_deref().unwrap_or_default();
         crate::invalid(format!("{cursor:?} isn't a page of {}", file.display()))
@@ -73,7 +91,7 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
         }
         let path = e.location.path(&startup);
         let track = match req.roots.iter().any(|root| crate::resolved(&path).starts_with(root)) {
-            true => source_track(e, path),
+            true => source_track(e, path, unlaid),
             false => SourceTrack { path, ..SourceTrack::default() },
         };
         marks += track.beats.len() + track.cues.len();
@@ -81,7 +99,7 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
     }
     let to = from + tracks.len();
     let last = to == entries.len();
-    let mut playlists = Vec::new();
+    let (mut playlists, mut warnings) = (Vec::new(), Vec::new());
     if last {
         // Each track by the path its page answered it by, by the key playlists name it by.
         let paths: FxHashMap<String, PathBuf> =
@@ -90,9 +108,13 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
             path: list.path.join("/"),
             tracks: list.keys.iter().filter_map(|key| paths.get(key).cloned()).collect(),
         }));
+        // What the whole read left out, said once.
+        warnings.extend(collection.warnings.iter().chain(&collection.playlist_warnings).cloned());
+        warnings.extend(unlaid.iter().map(|(why, n)| format!("{n} beat grid(s) left out: {why}")));
+        *reading = None;
     }
     let next = (!last).then(|| format!("{to} {stamp}"));
-    let page = LibraryPage { tracks, playlists, blob: None, next, warnings: Vec::new() };
+    let page = LibraryPage { tracks, playlists, blob: None, next, warnings };
     Ok(match spilled(&page, &req.context, "page.json")? {
         Some(blob) => LibraryPage { blob: Some(blob), next: page.next, ..LibraryPage::default() },
         None => page,
@@ -100,8 +122,9 @@ pub(crate) fn read_library(req: ReadLibrary, host: &Host) -> Result<LibraryPage,
 }
 
 /// An entry as a source's track: its tags, key, tempo, cues (loops by where they end) and the
-/// beat grid its grid markers lay down. A grid that can't be is left out, said in the log.
-fn source_track(e: &Entry, path: PathBuf) -> SourceTrack {
+/// beat grid its grid markers lay down. A grid that can't be is left out, counted in `unlaid` by
+/// why.
+fn source_track(e: &Entry, path: PathBuf, unlaid: &mut Vec<(&'static str, usize)>) -> SourceTrack {
     let cues = cues(e).map(|m| SourceCue {
         hot_cue: m.hot_cue,
         start_ms: start_ms(m),
@@ -110,7 +133,10 @@ fn source_track(e: &Entry, path: PathBuf) -> SourceTrack {
         color: colour(m),
     });
     let beats = e.beats().unwrap_or_else(|why| {
-        eprintln!("{}: its beat grid is left out: {why}", path.display());
+        match unlaid.iter_mut().find(|(w, _)| *w == why) {
+            Some((_, n)) => *n += 1,
+            None => unlaid.push((why, 1)),
+        }
         Vec::new()
     });
     SourceTrack {
@@ -150,26 +176,12 @@ pub(crate) fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, 
     })
 }
 
-/// The collection the source read last, by its file and the file's stamp.
-static CACHED: Mutex<Option<(PathBuf, String, Arc<Collection>)>> = Mutex::new(None);
-
-/// The collection in `file` and the file's stamp (its size and when it changed), read once while
-/// it stays as it is: a source reads it a page at a time, and a big one takes a while to read.
-fn cached(file: &Path, ctx: &Ctx<'_>) -> Result<(String, Arc<Collection>), RpcError> {
+/// `file`'s stamp: its size and when it changed.
+fn stamp(file: &Path, ctx: &Ctx<'_>) -> Result<String, RpcError> {
     let meta =
         std::fs::metadata(file).map_err(|source| crate::failure(Error::Io { path: file.into(), source }, ctx))?;
     let changed = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).unwrap_or_default();
-    let stamp = format!("{}:{}", meta.len(), changed.as_nanos());
-    let mut cached = CACHED.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some((path, at, collection)) = cached.as_ref()
-        && path == file
-        && *at == stamp
-    {
-        return Ok((stamp, collection.clone()));
-    }
-    let collection = Arc::new(collection(file, ctx)?);
-    *cached = Some((file.into(), stamp.clone(), collection.clone()));
-    Ok((stamp, collection))
+    Ok(format!("{}:{}", meta.len(), changed.as_nanos()))
 }
 
 /// The collection in `file`.

@@ -195,8 +195,9 @@ Either way hot cues stay on their pads, memory cues, fade-in, fade-out and load 
 memory cues, and loops keep their length (in beats for `import`), all in the colours Traktor
 shows them in (cues blue, fade markers orange, load markers yellow, loops green). A grid marker
 on a pad is a hot cue there too. The source lays Traktor's beat grid out from its grid markers to
-the end of each track (a track over a day long gets none); `import` leaves the grid alone. Hot
-cues past H are left out, saying so, and `import` leaves out loops that aren't a whole number of
-beats (or 1/2 to 1/32 of one) at the track's tempo the same way. Smart playlists aren't built:
+the end of each track (a track over a day long, or with no length, gets none); `import` leaves
+the grid alone. Hot cues past H are left out, and `import` leaves out loops that aren't a whole
+number of beats (or 1/2 to 1/32 of one) at the track's tempo. Smart playlists aren't built:
 what's in one is a search Traktor runs. A folder or playlist whose name has a `/` is built as
-folders, since a playlist's path is its names with `/` between them (the plugin's log names each).
+folders, since a playlist's path is its names with `/` between them. Whatever's left out, and
+each name with a `/`, is among the warnings `import`'s or the build's plan shows.

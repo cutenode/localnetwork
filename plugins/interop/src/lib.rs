@@ -14,7 +14,8 @@
 //!
 //! It reads Traktor's `collection.nml` too (`traktor_read`): an importer, for the keys, tempos and
 //! cues it has for a drive's tracks, and a library source, for building a drive from the files it
-//! lists in the folders the user grants (`fs:read`).
+//! lists in the folders the user grants (`fs:read`). What either leaves out comes back as warnings,
+//! the source's counted over its whole read and given with its last page.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

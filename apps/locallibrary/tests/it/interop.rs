@@ -312,7 +312,7 @@ fn a_traktor_collection_imports_back() {
 /// A drive is built from a Traktor collection through the interop plugin's source: the tracks
 /// whose audio is in the folder granted, with their tags, key, cues and the beat grid laid out
 /// from Traktor's grid marker, and the playlists in their folders; a track elsewhere is left out,
-/// saying so.
+/// saying so, and so is a grid with no length to end at, the plan says (with the source named).
 #[test]
 fn a_drive_is_built_from_a_traktor_collection() {
     use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
@@ -335,7 +335,7 @@ fn a_drive_is_built_from_a_traktor_collection() {
     let library = Library {
         tracks: vec![
             Track { key: "Am".into(), duration_secs: 10, bpm: 120.0, ..track(1, "Art", "A", "/music/a.wav") },
-            Track { duration_secs: 2, ..track(2, "Art", "B", "/music/b.wav") },
+            Track { duration_secs: 0, ..track(2, "Art", "B", "/music/b.wav") },
             track(3, "Art", "C", "/elsewhere/c.wav"),
         ],
         playlists: vec![list(1, None, "Sets", vec![], true), list(2, Some(1), "Friday", vec![1, 3, 2], false)],
@@ -355,6 +355,7 @@ fn a_drive_is_built_from_a_traktor_collection() {
     let cues = vec![cue(Some(0), 1000, None, "Drop"), cue(None, 2000, Some(4000), "")];
     let analysis = |t: &Track| match t.id {
         1 => TrackAnalysis { beats: beats.clone(), cues: cues.clone(), ..TrackAnalysis::default() },
+        2 => TrackAnalysis { beats: beats[..1].to_vec(), ..TrackAnalysis::default() },
         _ => TrackAnalysis::default(),
     };
     let src = loclib_interop::Source { library: &library, root: env.outside(""), analysis: Some(&analysis) };
@@ -369,6 +370,8 @@ fn a_drive_is_built_from_a_traktor_collection() {
     let planned = env.ok(&[&from[..], &["--option", &option, "--dry-run"]].concat());
     assert!(planned.contains("2 track(s), 1 playlist(s)"), "{planned}");
     assert!(planned.contains("1 track(s) left out, e.g. ") && planned.contains("c.wav: isn't there"), "{planned}");
+    let unlaid = "Traktor Pro: a collection.nml's tracks, cues, beat grids and playlists: 1 beat grid(s) left out: the track's length isn't known, or is over a day";
+    assert!(planned.contains(unlaid), "{planned}");
     env.ok(&[&["--yes"][..], &from, &["--option", &option]].concat());
 
     let built = Device::open(&stick).unwrap();
