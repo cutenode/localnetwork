@@ -198,35 +198,6 @@ pub mod testing {
         crate::plugin::THREAD_ELEVATED.with(|e| e.set(elevated));
     }
 
-    /// A stand-in for Lexicon Community's address document, which tests take rather than fetching
-    /// it: what locallibrary writes of it (a name, a locality and the required country code), with
-    /// the published document's limits.
-    #[cfg(feature = "account")]
-    pub fn address_lexicon() -> serde_json::Value {
-        let text = serde_json::json!({ "type": "string" });
-        serde_json::json!({
-            "lexicon": 1,
-            "id": crate::atmosphere::lexicon::ADDRESS,
-            "defs": { "main": {
-                "type": "object",
-                "required": ["country"],
-                "properties": {
-                    "country": { "type": "string", "minLength": 2, "maxLength": 10 },
-                    "locality": text,
-                    "name": text,
-                },
-            } },
-        })
-    }
-
-    /// Validating records in this process takes [`address_lexicon`] rather than fetching the real
-    /// one. A process that runs `locallibrary` itself names a folder holding it in
-    /// `$LOCALLIBRARY_LEXICONS` instead.
-    #[cfg(feature = "account")]
-    pub fn address_lexicon_stand_in() {
-        crate::atmosphere::lexicon::keep(crate::atmosphere::lexicon::ADDRESS, address_lexicon());
-    }
-
     /// Plans on this thread warn as they would on `os` (`linux`, `windows`; `None`: this one)
     /// about what hasn't been tested there (see [`crate::format::untested_here`]).
     pub fn os_on_this_thread(os: Option<&'static str>) {
