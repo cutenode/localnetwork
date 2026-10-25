@@ -32,7 +32,7 @@ use locallibrary::retention::PruneOptions;
 use locallibrary::settings::{self, DriveSettings, SCHEMA, SettingValue};
 use locallibrary::store::{Snapshot, Store};
 use locallibrary::tree::FileEntry;
-use locallibrary::{Error, Hash, Library, artwork, backup, clean, convert, merge, xml};
+use locallibrary::{Error, Hash, Library, artwork, backup, clean, convert, merge};
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::Serialize;
@@ -1790,9 +1790,9 @@ fn json_of<T: Serialize>(v: &T) -> Value {
 
 /// A drive named by its path, adopted name in any case, or id's first characters, reads and
 /// plans through the api as the modules do for it directly: its library and backups, compare,
-/// clean, convert, merge, missing and automatic artwork, its tracks' art and an XML export
-/// (which won't replace a file unless asked). Applying a clean or a merge leaves nothing more
-/// to do; a conversion leaves the drive with the database it was for.
+/// clean, convert, merge, missing and automatic artwork and its tracks' art. Applying a clean
+/// or a merge leaves nothing more to do; a conversion leaves the drive with the database it was
+/// for.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -1848,27 +1848,6 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
         let bytes = got.map(|a| BASE64_STANDARD.decode(a.base64).unwrap());
         assert_eq!(bytes, artwork::read_from_drive(&d, &lib, t.id).unwrap(), "track {}", t.id);
     }
-
-    let only: Vec<String> = match tc.draw(gs::booleans()) {
-        true => lib.playlists.iter().take(1).map(|p| p.name.clone()).collect(),
-        false => vec![],
-    };
-    let opts = xml::XmlOptions { location_root: None, skip_analysis: tc.draw(gs::booleans()), only: only.clone() };
-    let output = dir.path().join("library.xml");
-    let export = |replace| api::ExportXml {
-        drive: spec.clone(),
-        output: output.clone(),
-        location_root: None,
-        skip_analysis: opts.skip_analysis,
-        only: only.clone(),
-        replace,
-    };
-    let report = api::export_xml(&export(false), &ctx).unwrap();
-    let (text, direct) = xml::export(&d, &opts, &ctx).unwrap();
-    assert_eq!(fs::read_to_string(&output).unwrap(), text);
-    assert_eq!(json_of(&report), json_of(&direct));
-    assert!(api::export_xml(&export(false), &ctx).is_err(), "an XML export replaced a file unasked");
-    api::export_xml(&export(true), &ctx).unwrap();
 
     let merge = api::MergeRequest { source: path(&other), target: spec.clone(), options: Default::default() };
     let merged = api::merge_plan(&merge, &ctx).unwrap();
@@ -2094,7 +2073,6 @@ fn requests_are_taken_as_their_schemas_describe(tc: TestCase) {
         request_agrees::<api::AdoptDrive>,
         request_agrees::<api::ListDrives>,
         request_agrees::<api::DriveRef>,
-        request_agrees::<api::ExportXml>,
         request_agrees::<api::SetArtwork>,
         request_agrees::<api::GetArtwork>,
         request_agrees::<api::EmbedArtwork>,

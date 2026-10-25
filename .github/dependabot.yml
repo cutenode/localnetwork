@@ -9,6 +9,10 @@
 # semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
 # pins) and package.json are changed by hand.
 #
+# Docker: the digest apps/web/Dockerfile pins its base image to. The tag names only Node's major
+# version, which follows .node-version and is changed by hand. Dependabot has no security updates
+# for Docker, so there's no security group.
+#
 # Security updates don't wait for the month or the cooldown: they come as soon as an advisory is
 # published, grouped into one pull request per ecosystem by the `*-security` groups.
 version: 2
@@ -50,4 +54,16 @@ updates:
         patterns: ["*"]
       npm-security:
         applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+    groups:
+      docker:
         patterns: ["*"]

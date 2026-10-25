@@ -21,13 +21,13 @@ are:
   from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
   several. It reads rekordbox XML collections too, as an import format (`rekordbox-xml`) and a
   library source (see [Other DJ software](other-software.md#rekordbox-xml)).
-- **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
-  --format traktor -o DIR`), and a set or a mix as a playlist there (`locallibrary sets export
-  SET --format traktor --drive LIBRARY -o DIR`, see [Other DJ
-  software](other-software.md#other-dj-software)); and Traktor's collection read back: the
-  keys, BPMs and cues it has for a drive's tracks (`locallibrary import collection.nml
-  LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE --from
-  interop:traktor --grant FOLDER --option collection=FILE`), see [From
+- **interop**: the library for Traktor, Serato and Engine DJ, and as rekordbox XML
+  (`locallibrary export LIBRARY --format traktor -o DIR`, or `locallibrary xml`), and a set or a
+  mix as a playlist for the first three (`locallibrary sets export SET --format traktor --drive
+  LIBRARY -o DIR`, see [Other DJ software](other-software.md#other-dj-software)); and Traktor's
+  collection read back: the keys, BPMs and cues it has for a drive's tracks (`locallibrary import
+  collection.nml LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE
+  --from interop:traktor --grant FOLDER --option collection=FILE`), see [From
   Traktor](other-software.md#from-traktor).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see

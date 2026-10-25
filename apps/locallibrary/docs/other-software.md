@@ -102,20 +102,22 @@ locallibrary export Home --format serato -o ~/Desktop/for-serato                
 locallibrary export Home --format serato -o ~/Music/for-serato --option write_tags=true   # and cues, in copies of the audio
 locallibrary export Home --format engine -o ~/Desktop/for-engine                # a new Engine Library
 locallibrary export Home --format engine -o out --option paths=drive            # one to copy onto the drive
+locallibrary export Home --format rekordbox -o ~/Desktop/Home.xml               # rekordbox XML
 ```
 These formats are the interop plugin's (see [Plugins](plugins.md)). `export --format` with
 another DJ program's name reads the drive and writes that program's files into a folder on this
-computer (`-o`); nothing is written to the drive, and an output folder on the drive is refused. A
-playlist or folder given after the drive limits the export to it and its tracks. On a drive with
+computer (`-o`), or for rekordbox one XML file; nothing is written to the drive, and an output
+on the drive is refused. A playlist or folder given after the drive limits the export to it and
+its tracks. On a drive with
 both databases, playlists and tracks only OneLibrary has (a CDJ-3000X makes its playlists there
 alone) come across too. Tracks point at their audio on the drive where it's mounted now, or, with
 `--option location_root=DIR`, in a folder holding a copy of the drive's `Contents/`. Overwriting
-files the folder already holds is asked about first unless `--replace` (the folder could be the
-program's own), and they're replaced only once every new file is written beside them;
-`--option skip_analysis=true` leaves beat grids and cues out (Traktor, and Serato's tags), and
+files already there is asked about first unless `--replace` (the folder could be the program's
+own), and they're replaced only once every new file is written beside them; `--option
+skip_analysis=true` leaves beat grids and cues out (Traktor, rekordbox, and Serato's tags), and
 `--dry-run` lists each file with its size, what goes in and what the format leaves out, without
-writing. In the player, "export for traktor…" (serato, engine) in the palette does the same,
-for the marked playlists or the whole drive (see [the player](player.md)). RPC:
+writing. In the player, "export for traktor…" (serato, engine, rekordbox) in the palette does the
+same, for the marked playlists or the whole drive (see [the player](player.md)). RPC:
 `plugins.export.plan` and `plugins.export.apply` with `plugin: "interop"`, the format as
 `exporter` and the options as `options` (see [Building a GUI](sidecar.md)).
 
@@ -150,6 +152,14 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
   artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+- **rekordbox** (XML, `DJ_PLAYLISTS`): tracks with their details, the beat grid (a tempo per
+  tempo change), hot cues with their colours, memory cues, loops and the playlist tree, the way to
+  take a drive's library back into rekordbox: to recover a library from a drive, or move it to a
+  computer without the original. `locallibrary xml [LIBRARY] -o FILE` writes the same file
+  (`--only PLAYLIST`, `--location-root DIR` and `--no-analysis` for the options). In rekordbox,
+  pick the file in Preferences > Advanced > rekordbox xml > Imported Library; its tracks and
+  playlists show under rekordbox xml in the tree, to import from there. History lists, My Tags,
+  artwork and waveforms don't come across.
 
 ### Sets and mixes
 
@@ -160,8 +170,9 @@ locallibrary mix "Live at the Warehouse.wav" --drive Home --format engine --expo
 ```
 
 A set you played (see [Sets](sets.md)), or the tracklist `mix` found in a recording, goes across
-as one playlist of its tracks in the order played, with the same formats: `sets export
---format` and `mix --format` take `traktor`, `serato` and `engine`. The files point at the audio
+as one playlist of its tracks in the order played, in the same formats but rekordbox's: `sets
+export --format` and `mix --format` take `traktor`, `serato` and `engine` (for rekordbox, `sets
+playlist` puts a set on the drive itself). The files point at the audio
 on a drive, so a set's export needs one (`--drive`; a mix's is the drive `mix` matched it against),
 and it's written as that drive's export is, with the same options: the playlist, named for the
 day and the title (or the venue), holds the tracks found on the drive by their files, and only
