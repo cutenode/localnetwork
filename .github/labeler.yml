@@ -281,7 +281,7 @@ tooling:
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,lefthook.yml,sgconfig.yml,.node-version}"
-          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace}.toml"
+          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
           - "{.oxlintrc.json,.oxfmtrc.json,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
           - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"
           - "apps/*/{.oxlintrc.json,knip.json,.vscode/**}"
