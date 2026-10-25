@@ -1,0 +1,79 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.draft",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "One manager's unpublished changes to one press kit, in their repo in the project's backstage (computer.localnetwork.space.backstage). The record key is the press kit's: an existing one's, or for a new press kit, the key it will be published under, so a manager has at most one draft per press kit. Photos it adds are blobs in the manager's repo until publishing copies them to the Local Network root account's.",
+			"record": {
+				"type": "object",
+				"required": ["changes", "createdAt", "updatedAt"],
+				"properties": {
+					"base": {
+						"type": "ref",
+						"ref": "com.atproto.repo.strongRef",
+						"description": "The published press kit (a computer.localnetwork.epk record) at the version this draft started from. Absent for a press kit that isn't published yet."
+					},
+					"changes": {
+						"type": "ref",
+						"ref": "#fields",
+						"description": "The fields this draft changes, with their new values. A field left out is unchanged; an empty string, list or object clears it."
+					},
+					"previous": {
+						"type": "ref",
+						"ref": "#fields",
+						"description": "What each changed field held in the published press kit when the draft changed it; a changed field missing here was empty. Publishing compares these with the current values to find fields someone else published since. Absent for a press kit that isn't published yet."
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"fields": {
+			"type": "object",
+			"description": "Some fields of a press kit: the public record's at the top level, the private part's under content.",
+			"properties": {
+				"title": { "type": "string", "minLength": 1, "maxLength": 1000, "maxGraphemes": 100 },
+				"headline": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+				"bio": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+				"mixes": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#mix" }
+				},
+				"photos": {
+					"type": "array",
+					"maxLength": 10,
+					"items": { "type": "ref", "ref": "computer.localnetwork.epk.defs#photo" }
+				},
+				"access": { "type": "ref", "ref": "computer.localnetwork.epk.defs#access" },
+				"content": { "type": "ref", "ref": "#contentFields" }
+			}
+		},
+		"contentFields": {
+			"type": "object",
+			"description": "Some fields of a press kit's computer.localnetwork.epk.content record.",
+			"properties": {
+				"bio": { "type": "string", "maxLength": 50000, "maxGraphemes": 5000 },
+				"mixes": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "ref", "ref": "computer.localnetwork.defs#mix" }
+				},
+				"photos": {
+					"type": "array",
+					"maxLength": 20,
+					"items": { "type": "ref", "ref": "computer.localnetwork.epk.defs#photo" }
+				},
+				"quotes": {
+					"type": "array",
+					"maxLength": 10,
+					"items": { "type": "ref", "ref": "computer.localnetwork.epk.defs#quote" }
+				},
+				"contact": { "type": "ref", "ref": "computer.localnetwork.epk.defs#contact" },
+				"techRider": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 }
+			}
+		}
+	}
+}
