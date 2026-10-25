@@ -15,6 +15,11 @@
 						"maxLength": 32,
 						"knownValues": ["open", "negotiating", "confirmed", "declined", "cancelled"]
 					},
+					"project": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The project the thread is with. Set on the root account's opening record, which the app trusts over the project the inquiry names."
+					},
 					"note": {
 						"type": "string",
 						"maxLength": 5000,

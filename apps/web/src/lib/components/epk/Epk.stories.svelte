@@ -8,7 +8,7 @@
 
 	const { Story } = defineMeta({ title: 'Press kits/Press kit', component: EpkAccessCard, tags: ['autodocs'] });
 
-	const card = { name: 'Neon Tide', loginHref: '/login' };
+	const card = { name: 'Neon Tide', askHref: '/dashboard/access/did:plc:neon/3k' };
 
 	const mixes = [
 		{ title: 'Tidal Hours 004', url: 'https://soundcloud.com/example-neon-tide/tidal-hours-004', durationMinutes: 62, year: 2026 },
@@ -35,6 +35,10 @@
 
 <Story name="Can ask, straight in" args={{ ...card, access: { kind: 'canAsk', rule: 'auto' } }} />
 
+<Story name="Asking, on the dashboard" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' } }} />
+
+<Story name="Asking, straight in" args={{ name: card.name, access: { kind: 'canAsk', rule: 'auto' } }} />
+
 <Story name="Asked" args={{ ...card, access: { kind: 'pending', since: '2026-10-13T12:00:00Z', approved: false } }} />
 
 <Story name="Approved, waiting on the owner" args={{ ...card, access: { kind: 'pending', since: '2026-10-13T12:00:00Z', approved: true } }} />
@@ -43,7 +47,7 @@
 
 <Story name="Not taking requests" args={{ ...card, access: { kind: 'closed' } }} />
 
-<Story name="Error asking" args={{ ...card, access: { kind: 'canAsk', rule: 'review' }, error: "This press kit isn't taking requests" }} />
+<Story name="Error asking" args={{ name: card.name, access: { kind: 'canAsk', rule: 'review' }, error: "This press kit isn't taking requests" }} />
 
 <Story name="Access rules" asChild>
 	<AccessMatrix access={ACCESS_PRESETS[2].access} preset={ACCESS_PRESETS[2].id} />
@@ -58,9 +62,9 @@
 </Story>
 
 <Story name="Form" asChild>
-	<EpkForm {values} photoBase={null} editHref="/projects/neon-tide/edit" submitLabel="Publish press kit" />
+	<EpkForm {values} photoBase={null} editHref="/dashboard/projects/neon-tide/profile" submitLabel="Publish press kit" />
 </Story>
 
 <Story name="Form, nothing yet" asChild>
-	<EpkForm values={epkFormDefaults} photoBase={null} editHref="/projects/neon-tide/edit" submitLabel="Publish press kit" />
+	<EpkForm values={epkFormDefaults} photoBase={null} editHref="/dashboard/projects/neon-tide/profile" submitLabel="Publish press kit" />
 </Story>

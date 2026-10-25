@@ -244,11 +244,13 @@ local DJS = [[djs AS MATERIALIZED (
 -- the artist it counts for. A track is its recording MBID, else its ISRC, else its credit and title; an artist is
 -- their MBID, else their name. A play without an ID takes the one other plays have when only one fits (an ISRC's
 -- recording, a title's recording or ISRC, a name's artist), so sets published before their writer filled in IDs
--- count with the ones after. It reads every set each time, which is why each query builds it once (MATERIALIZED)
--- and keeps only scalars in it, going back to a set's record for the few tracks it shows. playsArgs() gives its
--- placeholders.
+-- count with the ones after. It reads every set each time, which is why each query builds it once (MATERIALIZED).
+-- Each set's named tracks are pulled out of its record once, and each play keeps its track's JSON (`track`), since
+-- going back to a record for a track means SQLite parsing the whole record, tracklist and all, again: dozens of
+-- times slower over long sets. playsArgs() gives its placeholders.
 local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
-	SELECT s.uri, s.did, d.act, s.record, json_extract(s.record, '$.date') AS date,
+	SELECT s.uri, s.did, d.act, json_extract(s.record, '$.namedTracks') AS named,
+		json_extract(s.record, '$.date') AS date,
 		json_extract(s.record, '$.location.locality') AS city, upper(json_extract(s.record, '$.location.country')) AS country
 	FROM happyview_records AS s JOIN djs AS d ON d.did = s.did WHERE s.collection = ?
 ), credits AS MATERIALIZED (
@@ -256,8 +258,8 @@ local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
 		json_extract(t.value, '$.startSeconds') AS startSeconds, json_extract(t.value, '$.recordingMbId') AS mbid,
 		json_extract(t.value, '$.isrc') AS isrc, json_extract(t.value, '$.key') AS name,
 		json_extract(a.value, '$.artistMbId') AS artistMbid, json_extract(a.value, '$.key') AS artistKey,
-		json_extract(a.value, '$.artistName') AS artistName
-	FROM sets AS s, json_each(s.record, '$.namedTracks') AS t, json_each(t.value, '$.artists') AS a
+		json_extract(a.value, '$.artistName') AS artistName, t.value AS track
+	FROM sets AS s, json_each(s.named) AS t, json_each(t.value, '$.artists') AS a
 ), isrcMbids AS (
 	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
 	GROUP BY isrc HAVING count(DISTINCT mbid) = 1
@@ -270,6 +272,7 @@ local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
 	GROUP BY artistKey HAVING count(DISTINCT artistMbid) = 1
 ), plays AS MATERIALIZED (
 	SELECT c.setUri, c.position, c.did, c.act, c.date, c.city, c.country, c.startSeconds, c.artistKey, c.artistName,
+		c.track,
 		coalesce(
 			'mbid:' || coalesce(c.mbid, i.mbid, CASE WHEN c.isrc IS NULL OR ni.isrc = c.isrc THEN n.mbid END),
 			'isrc:' || coalesce(c.isrc, ni.isrc),
@@ -288,11 +291,6 @@ local function playsArgs(...)
 	local args = { PROJECT, ROOT_DID, SET }
 	for _, arg in ipairs({ ... }) do args[#args + 1] = arg end
 	return args
-end
-
--- SQL for a play's track as its set's record script keeps it, from a happyview_records row `set` and a plays row `play`.
-local function playedTrack(set, play)
-	return 'json_extract(' .. set .. ".record, '$.namedTracks[' || " .. play .. ".position || ']')"
 end
 
 -- Continues PLAYS, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it by supports:

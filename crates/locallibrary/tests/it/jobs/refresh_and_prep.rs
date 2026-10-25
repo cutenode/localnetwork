@@ -47,7 +47,8 @@ fn a_refresh_copies_the_drive_onto_its_librarys_others() {
     let (store, main, backup) = two_drives(dir.path());
     let ctx = Ctx::silent();
     common::export_new_track(&main, "Artist", "Fresh");
-    let refresh = |skip: Vec<StepKind>| api::RefreshRequest { drive: Some(path(&main)), skip, sync: true };
+    let refresh =
+        |skip: Vec<StepKind>| api::RefreshRequest { drive: Some(path(&main)), skip, sync: true, ..Default::default() };
 
     let skipped = api::refresh_plan(&store, &refresh(vec![StepKind::Pull, StepKind::Sync]), &ctx).unwrap();
     assert_eq!(reason(&skipped, StepKind::Pull).as_deref(), Some("skipped"));

@@ -1,6 +1,7 @@
 name: Feature request
 description: Something you'd like Local Network, locallibrary or localtoolbox to do
 labels: ["enhancement"]
+type: Feature
 body:
   - type: dropdown
     id: tool
