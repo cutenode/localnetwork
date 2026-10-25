@@ -177,11 +177,21 @@ token, once it's checked, and never on to another server a redirect leads to. A 
 account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
 methods: it's the SDK's own.
 
-- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url`, `scopes`, `client_id`
-  (a public client, without a secret), `pkce = true` (the default; nothing else is taken) and
-  `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. Each endpoint
-  is an https address without a user name or password. A plugin with an account needs a `net:`
-  capability, for the requests its token goes into.
+- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` or `token_exchange`
+  (one of them), `scopes`, `client_id` (a public client, without a secret), `pkce = true` (the
+  default; nothing else is taken) and `revoke_url` (RFC 7009, optional), where the tokens are
+  revoked at signing out. Each endpoint is an https address without a user name or password. A
+  plugin with an account needs a `net:` capability, for the requests its token goes into.
+- `token_exchange`, for a service whose token endpoint wants a client secret (SoundCloud, Mixcloud,
+  Google), is Local Network's token exchange for it:
+  `https://localnetwork.computer/api/token-exchange/<service>`, nowhere else, since it's sent the
+  user's codes and refresh tokens. The host posts it what it would have sent the token endpoint
+  (`grant_type`, `code`, `code_verifier` and `redirect_uri`, or `refresh_token`) as a JSON object,
+  and the website adds its client id and secret for the service, sends the request on the way the
+  service takes it and answers what the service answered. `client_id` is then Local Network's
+  client at the service. The services it knows are in
+  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 
 ### analysis
 

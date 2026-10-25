@@ -86,6 +86,14 @@ and refreshed a minute before they expire. The plugin never sees them: a request
 the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
 once it has checked the request, never sending it on to another server a redirect leads to.
 
+Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+on one of those is signed in to through Local Network's token exchange
+(`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
+tokens back. The website never keeps them, and the exchange is the only server besides the
+service that a sign-in's code goes to. Until the website is set up for a service, signing in
+says so.
+
 ## Analysis
 
 An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,

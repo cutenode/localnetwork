@@ -351,7 +351,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
   locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
   player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
-  never sees one. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
+  Google) is signed in to through Local Network's token exchange, which holds the secret, so
+  none ships with locallibrary. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The sidecar has both as `plugins.account*`,
