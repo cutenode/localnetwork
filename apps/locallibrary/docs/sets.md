@@ -151,7 +151,8 @@ it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see 
 software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
 publishing: a track marked unnamed or one your profile hides (`profile hide`) is `ID - ID` there.
 `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as a
-`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
+`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks,
+looking up its tracks' MusicBrainz IDs first when a plugin works them out (`--no-lookup` doesn't).
 
 ## Mixes
 

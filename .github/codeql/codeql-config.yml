@@ -1,0 +1,17 @@
+# CodeQL's configuration (see .github/workflows/codeql.yml).
+name: CodeQL config
+
+# The Rust tests, which no release builds: the `#[cfg(test)]` modules' files and the tests/
+# folders. test_util.rs also builds with the test-util feature, which only dev-dependencies turn
+# on. CodeQL's cleartext-logging query takes names like `account` for secrets and assert messages
+# for logs, so the tests raised dozens of high alerts, and the ruleset's code scanning rule holds
+# a pull request on any new one. Rust and TypeScript are extracted without a build, which is what
+# lets these globs leave files out. tools/ast-grep/rules/test-module-name.yml keeps new test
+# modules to these names. `**/tests/**` also leaves out the website's apps/web/tests.
+paths-ignore:
+  - "**/tests.rs"
+  - "**/tests/**"
+  - "**/props.rs"
+  - "**/testing.rs"
+  - "**/test_util.rs"
+  - apps/locallibrary/src/tui/screens.rs

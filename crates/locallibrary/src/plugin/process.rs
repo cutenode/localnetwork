@@ -15,6 +15,7 @@ use loclib_plugin::{
     Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Partial, Peer, ProgressReport,
     Progressed, RpcError, check_protocol, code, method,
 };
+use rustc_hash::FxHashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -44,6 +45,8 @@ thread_local! {
 pub(crate) struct Host {
     pub(crate) reads: Arc<dyn Reads>,
     pub(crate) options: Options,
+    /// When each host a `[[net]]` limit names lets a request go next, whichever plugin sends it.
+    pub(crate) turns: Mutex<FxHashMap<String, Instant>>,
 }
 
 impl Host {
@@ -58,7 +61,7 @@ impl Host {
 pub(crate) struct Plugin {
     pub(crate) manifest: Manifest,
     pub(crate) host: Arc<Host>,
-    /// Its `net/fetch` requests' turns, client and secrets, whichever process makes them.
+    /// Its `net/fetch` requests' client and secrets, whichever process makes them.
     pub(crate) net: Arc<net::State>,
 }
 

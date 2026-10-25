@@ -108,7 +108,7 @@ pub fn match_entries(lib: &Library, entries: &[Entry]) -> Vec<Matched> {
 }
 
 /// Durations this close (seconds) count as the same.
-pub(crate) const DURATION_SLACK: u32 = 2;
+pub const DURATION_SLACK: u32 = 2;
 /// Fuzzy scores (0-1): at least `FOUND` with no runner-up within `CLOSE` is a match; down to
 /// `WEAK` the candidates are offered as ambiguous.
 const FOUND: f32 = 0.8;

@@ -8,7 +8,8 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
 - `model`: `Library`, `Track`, `Playlist` and `TrackColor`, finding playlists by path, searching
   tracks, the part of a library an export of some playlists writes, numbering tracks only
   OneLibrary has for files (`ONELIBRARY_ONLY`), `LibraryDiff` between two exports of one library,
-  and `untangle` for a playlist tree read from a damaged file.
+  `untangle` for a playlist tree read from a damaged file, `artist_credits`, the artists a
+  credit names, one by one (as a published set lists them), and `isrc`, a tag as an ISRC.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).

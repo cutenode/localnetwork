@@ -135,8 +135,7 @@ fn an_operations_question_is_asked_then_it_is_planned() {
     key(&mut app, KeyCode::Enter);
     say_yes(&mut app);
     let lib = locallibrary::Device::open_export(&root).unwrap().library().unwrap();
-    // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
-    assert!(lib.playlists.iter().any(|p| p.name == "Peak"));
+    assert!(lib.playlists.iter().any(|p| p.name == "Peak"), "{}", last_message(&app));
     // Planned without a drive that's still there: said, and not asked.
     app.loaded.as_mut().unwrap().stale = true;
     app.run_plugin(hook(&app, &root, "playlist"), json!({ "ask": question("name", false, &names) }));
@@ -164,7 +163,7 @@ fn fetch_details(app: &mut App, root: &Path) {
     app.fetch_form(ProviderKind::Metadata, Some(root.to_path_buf()), target.as_ref());
     let s = screen(app, 120, 40);
     for needle in ["Fetch track details", "from", "replace", "Only from this provider", "‹ none ›"] {
-        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}\n{}", last_message(app));
     }
     // The third provider (after none, coverart's, which would go online, and echo's own), and
     // over what they have.
