@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, DIRECTORY, NS } from '#lib/nsid.ts';
+import { USERINPUT } from '#lib/bug-report.ts';
+import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY, NS, VERIFICATION } from '#lib/nsid.ts';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
@@ -14,13 +15,19 @@ describe('happyViewBundle', () => {
 			COLLECTION.epk,
 			COLLECTION.show,
 			COLLECTION.follow,
-			`${NS}.locallibrary.settings`
+			`${NS}.locallibrary.settings`,
+			CALENDAR_EVENT,
+			VERIFICATION,
+			BSKY_PROFILE,
+			BSKY_FOLLOW,
+			USERINPUT.space
 		];
 
 		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
 			[
 				'com.atproto.repo.strongRef',
-				'community.lexicon.location.address',
+				'com.atproto.label.defs',
+				...['address', 'fsq', 'geo', 'hthree'].map((name) => `community.lexicon.location.${name}`),
 				`${NS}.defs`,
 				`${NS}.dj.defs`,
 				`${NS}.epk.defs`,
@@ -36,7 +43,7 @@ describe('happyViewBundle', () => {
 			].sort()
 		);
 
-		// The record gates carry nothing but the root DID, so no shared code can break them.
+		// The record gates carry nothing but the root DID and the bug report space, so no shared code can break them.
 		for (const gate of scripts.filter((script) => script.id.startsWith('record.')))
 			expect(gate.body).not.toMatch(/TAXONOMY|local function list/);
 		expect(scripts.find((script) => script.id.startsWith('xrpc.'))?.body).toMatch(/TAXONOMY[^]*local function list/);
@@ -53,6 +60,19 @@ describe('happyViewBundle', () => {
 			for (const ref of refs.filter((nsid) => nsid !== doc.id))
 				expect(lexicons.slice(0, index).map((earlier) => earlier.id)).toContain(ref);
 		}
+	});
+
+	it('gives the record gates the bug report space, or nil without one', () => {
+		const space = `at://did:plc:userinput/${USERINPUT.space}/3kspace`;
+
+		const gate = (bundle: ReturnType<typeof happyViewBundle>) =>
+			bundle.scripts.find((script) => script.id === `record.index:${USERINPUT.space}`)?.body;
+
+		expect(gate(happyViewBundle('did:plc:root', space))).toContain(`local USERINPUT_SPACE = [[\n${space}]]`);
+		expect(gate(happyViewBundle('did:plc:root'))).toContain('local USERINPUT_SPACE = nil');
+		expect(
+			happyViewBundle('did:plc:root', space).scripts.find((script) => script.id.startsWith('xrpc.'))?.body
+		).not.toContain('USERINPUT_SPACE');
 	});
 
 	it('quotes the root DID so nothing in it can end the string early', async () => {

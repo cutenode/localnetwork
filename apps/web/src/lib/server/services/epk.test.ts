@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ACCESS_PRESETS, type EpkAccess } from '#lib/epk.ts';
-import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
+import { followSchema } from '#lib/epk-schema.ts';
+import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
 import { recordCid } from '../atproto/repo-client';
 import { ForbiddenError, ReauthError, UserError } from '../core';
@@ -150,9 +151,26 @@ describe('EpkService', () => {
 		expect((await t.epks.accessState(epk, await t.viewer(STRANGER))).kind).toBe('granted');
 	});
 
+	/** A Bluesky follow of `subject` in the DJ's repo, which Jetstream brings HappyView. */
+	const follow = (subject: string) =>
+		t.net.client(DJ).createRecord({
+			collection: BSKY_FOLLOW,
+			record: { $type: BSKY_FOLLOW, subject, createdAt: '2026-01-01T00:00:00Z' }
+		});
+
+	const followed = async () =>
+		(await t.indexedRepo.listAll(DJ, BSKY_FOLLOW))
+			.map(({ value }) => followSchema.parse(value).subject)
+			.toSorted((a, b) => a.localeCompare(b));
+
 	it('reads each audience from bookings and follows', async () => {
 		const access: EpkAccess = { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'none' };
+		// Made before any of the DJ's press kits read follows, so HappyView turned it away then.
+		await follow(NO_SPACES);
+		expect(await followed()).toEqual([]);
 		const epk = await publish({ access });
+		// Publishing the first press kit that reads them has HappyView re-read the DJ's follows.
+		await vi.waitFor(async () => expect(await followed()).toEqual([NO_SPACES]));
 
 		const other = await t.projectAdmin.create({
 			actor: await t.viewer(ADMIN),
@@ -167,17 +185,30 @@ describe('EpkService', () => {
 
 		await book(PROMOTER, claimed.uri);
 		await book(FRIEND, project.uri);
-		t.net.records.set(`${DJ}|app.bsky.graph.follow|3follow`, {
-			uri: `at://${DJ}/app.bsky.graph.follow/3follow`,
-			cid: 'c',
-			value: { $type: 'app.bsky.graph.follow', subject: NO_SPACES, createdAt: '2026-01-01T00:00:00Z' }
-		});
 
 		expect(await t.epks.ruleForViewer(epk, FRIEND)).toBe('auto');
 		expect(await t.epks.ruleForViewer(epk, NO_SPACES)).toBe('auto');
 		expect(await t.epks.ruleForViewer(epk, PROMOTER)).toBe('review');
 		expect(await t.epks.accessState(epk, await t.viewer(STRANGER))).toEqual({ kind: 'closed' });
 		await expect(t.epks.request(await t.viewer(STRANGER), epk, {})).rejects.toBeInstanceOf(UserError);
+	});
+
+	it('keeps only the follows of owners whose press kits read them', async () => {
+		await publish({ access: preset('review') });
+		await follow(FRIEND);
+		await t.net.client(CODJ).createRecord({
+			collection: BSKY_FOLLOW,
+			record: { $type: BSKY_FOLLOW, subject: FRIEND, createdAt: '2026-01-01T00:00:00Z' }
+		});
+		expect(await followed()).toEqual([]);
+
+		const epk = await publish({ access: { ...preset('review'), following: 'auto' } });
+		await vi.waitFor(async () => expect(await followed()).toEqual([FRIEND]));
+		await follow(STRANGER);
+		expect(await followed()).toEqual([FRIEND, STRANGER]);
+		expect(await t.indexedRepo.listAll(CODJ, BSKY_FOLLOW)).toEqual([]);
+		expect(await t.epks.ruleForViewer(epk, STRANGER)).toBe('auto');
+		expect(await t.epks.ruleForViewer(epk, PROMOTER)).toBe('review');
 	});
 
 	it('takes no requests when nobody can ask, but the owner can still add people', async () => {
@@ -257,13 +288,7 @@ describe('EpkService', () => {
 			}
 		});
 
-		const epks = new EpkService(
-			t.core,
-			t.projects,
-			new IndexedRepo(admin, silentLogger, 0),
-			t.publicRepo,
-			async (id) => id
-		);
+		const epks = new EpkService(t.core, t.projects, new IndexedRepo(admin, silentLogger, 0), async (id) => id);
 
 		const owner = await t.viewer(DJ);
 		const changed = new UserError('This press kit changed since you opened it. Reload and try again.', 409);
@@ -307,7 +332,6 @@ describe('EpkService', () => {
 				silentLogger,
 				0
 			),
-			t.publicRepo,
 			async (id) => id
 		);
 

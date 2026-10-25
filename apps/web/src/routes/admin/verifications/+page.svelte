@@ -20,7 +20,7 @@
 			<div>
 				<label class="label" for="subject">Handle or DID</label>
 				<input id="subject" name="subject" class="input" required placeholder="alice.bsky.social" value={data.subject} />
-				<p class="hint">Uses their handle and display name as they are now. A rename turns the badge off until you re-issue it.</p>
+				<p class="hint">For project managers. Uses their handle and display name as they are now. A rename turns the badge off until you re-issue it.</p>
 			</div>
 			<button class="btn-primary w-full">Verify</button>
 		</form>

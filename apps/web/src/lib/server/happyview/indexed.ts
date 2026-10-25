@@ -35,23 +35,26 @@ export async function awaitIndexed(served: () => Promise<boolean>, waitMs: numbe
 
 /**
  * Has HappyView re-read one account's records of `collection` from its PDS, for a write it didn't serve in time, in
- * case Jetstream never brought it. Only with an API key; the job runs on in HappyView, and a failure is only logged.
+ * case Jetstream never brought it. Only with an API key. It waits up to `waitMs` for the job to finish, which then runs
+ * on in HappyView; a failure is only logged.
  */
-export async function reindex(directory: HappyViewClient, logger: Logger, collection: string, did: string) {
+export async function reindex(directory: HappyViewClient, logger: Logger, collection: string, did: string, waitMs = 0) {
 	if (!directory.admin) return;
 
 	try {
-		await directory.backfill(collection, did);
+		const job = await directory.backfill(collection, did);
+
+		if (waitMs) await directory.awaitBackfill(job, waitMs);
 	} catch (error) {
 		logger.warn({ err: error, collection, did }, 'could not have HappyView re-read a repo');
 	}
 }
 
 /**
- * Reads public records the way PublicRepo reads them from a PDS, from what HappyView indexed instead
- * (`directory.getRecords` and `directory.listRecords`), so only collections it has a record script for have any. A
- * HappyView that's down reads as having nothing, never as an error (unless the read is `strict`), so a page that shows
- * someone's records still renders; callers parse what comes back.
+ * Reads public records the way `com.atproto.repo.getRecord` and `listRecords` read them from a PDS, from what HappyView
+ * indexed instead (`directory.getRecords` and `directory.listRecords`), so only collections it has a record script for
+ * have any. A HappyView that's down reads as having nothing, never as an error (unless the read is `strict`), so a page
+ * that shows someone's records still renders; callers parse what comes back.
  */
 export class IndexedRepo {
 	constructor(
@@ -69,6 +72,24 @@ export class IndexedRepo {
 		const uri = `at://${did}/${collection}/${rkey}`;
 
 		return (await this.getRecords([uri], options)).get(uri) ?? null;
+	}
+
+	/**
+	 * A record HappyView may not have yet, since it only reads an account's older records when asked to: when it doesn't,
+	 * it re-reads the account's `collection` first, waiting as long as a write would.
+	 */
+	async getRecordOrReindex(
+		did: string,
+		collection: string,
+		rkey: string,
+		options: ReadOptions = {}
+	): Promise<DirectoryRecord | null> {
+		const found = await this.getRecord(did, collection, rkey, options);
+
+		if (found) return found;
+		await this.reindex(did, collection, this.indexWaitMs);
+
+		return this.getRecord(did, collection, rkey, options);
 	}
 
 	/** The records HappyView has of `uris`, by URI, in as few lookups as it takes. */
@@ -98,6 +119,26 @@ export class IndexedRepo {
 		return (await this.read(options, () => this.directory.query('listRecords', params))) ?? { records: [] };
 	}
 
+	/** One account's records of `collection`, a page of 100 at a time, up to `pages` pages. */
+	async listAll(
+		did: string,
+		collection: string,
+		options: ReadOptions & { pages?: number } = {}
+	): Promise<DirectoryRecord[]> {
+		const records: DirectoryRecord[] = [];
+		let cursor: string | undefined;
+
+		for (let page = 0; page < (options.pages ?? Infinity); page++) {
+			const result = await this.listRecords(did, collection, { strict: options.strict, cursor });
+			records.push(...result.records);
+			cursor = result.cursor;
+
+			if (!cursor) break;
+		}
+
+		return records;
+	}
+
 	/**
 	 * Waits for HappyView to serve the record as version `cid`, or not at all for null (a delete), so the next page load
 	 * reads the write. When it doesn't in time, HappyView re-reads that collection from the account's repo.
@@ -113,9 +154,9 @@ export class IndexedRepo {
 		await this.reindex(did, collection);
 	}
 
-	/** Has HappyView re-read one account's records of `collection` from its PDS (see reindex). */
-	reindex(did: string, collection: string): Promise<void> {
-		return reindex(this.directory, this.logger, collection, did);
+	/** Has HappyView re-read one account's records of `collection` from its PDS, waiting up to `waitMs` (see reindex). */
+	reindex(did: string, collection: string, waitMs = 0): Promise<void> {
+		return reindex(this.directory, this.logger, collection, did, waitMs);
 	}
 
 	private read<T>({ strict }: ReadOptions, query: () => Promise<T>): Promise<T | null> {

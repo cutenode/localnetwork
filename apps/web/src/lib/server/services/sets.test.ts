@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import type { ProjectProfile, ProjectView, StrongRef } from '#lib/types.ts';
 import { UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
@@ -179,7 +179,7 @@ describe('linked sets', () => {
 		expect(calls).toEqual(['/admin/backfill', '/admin/backfill/status', `/xrpc/${DIRECTORY.listSets}`]);
 	});
 
-	it("has HappyView read a project's new managers' sets, stats, and press kits once it's published", async () => {
+	it("has HappyView read a project's new managers' sets, stats, press kits, calendar events and Bluesky profiles once it's published", async () => {
 		const backfilled: string[] = [];
 
 		// Reads go to the test's HappyView; only the backfills are watched.
@@ -213,7 +213,9 @@ describe('linked sets', () => {
 		await expect
 			.poll(() => backfilled.toSorted())
 			.toEqual(
-				[COLLECTION.djProfile, COLLECTION.djSet, COLLECTION.epk].map((collection) => `${collection} ${STRANGER}`)
+				[BSKY_PROFILE, CALENDAR_EVENT, COLLECTION.djProfile, COLLECTION.djSet, COLLECTION.epk].map(
+					(collection) => `${collection} ${STRANGER}`
+				)
 			);
 	});
 

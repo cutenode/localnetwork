@@ -27,10 +27,14 @@ function longString(text: string): string {
 /** A lexicon's `ref` and `refs` fields, as JSON: a quoted ref, or an array of them. */
 const REF_FIELD = /"refs?":("[^"]*"|\[[^\]]*\])/g;
 
-/** The NSIDs of the other lexicons `doc` refers to, read from its JSON (local `#def` refs left out). */
+/** The NSIDs of the other lexicons `doc` refers to, read from its JSON (refs to its own defs left out, local or not). */
 function refsOf(doc: LexiconDoc): string[] {
 	return [...JSON.stringify(doc.defs).matchAll(REF_FIELD)].flatMap(([, field]) =>
-		[...field.matchAll(/"([^"]*)"/g)].flatMap(([, ref]) => (ref.startsWith('#') ? [] : [ref.split('#')[0]]))
+		[...field.matchAll(/"([^"]*)"/g)].flatMap(([, ref]) => {
+			const nsid = ref.split('#')[0];
+
+			return nsid === '' || nsid === doc.id ? [] : [nsid];
+		})
 	);
 }
 
@@ -65,12 +69,13 @@ function withRefs(docs: LexiconDoc[], available: Map<string, LexiconDoc>): Lexic
  * query script has it serve that query. The bundle holds their lexicons and the ones those refer to, and no others.
  * Each script is one chunk that starts by defining the root DID. Queries then get the genre and
  * fee taxonomies (from the TypeScript, so they can't drift) and every `lua/lib` file before their own code. Record
- * scripts stand alone: HappyView stores a record when its script errors, so a gate shouldn't depend on anything else
- * loading.
+ * scripts get the userinput.app space bug reports post to (`USERINPUT_SPACE`, nil without one) and otherwise stand
+ * alone: HappyView stores a record when its script errors, so a gate shouldn't depend on anything else loading.
  */
-export function happyViewBundle(rootDid: string): HappyViewBundle {
+export function happyViewBundle(rootDid: string, userinputSpace?: string): HappyViewBundle {
 	const taxonomy = { families: GENRE_FAMILIES, aliases: Object.fromEntries(GENRE_ALIASES), feeTiers: FEE_TIER_ORDER };
 	const root = `local ROOT_DID = ${longString(rootDid)}`;
+	const recordPrelude = [root, `local USERINPUT_SPACE = ${userinputSpace ? longString(userinputSpace) : 'nil'}`];
 	const files = Object.entries(LUA).sort(([a], [b]) => a.localeCompare(b));
 	const library = files.filter(([path]) => path.startsWith(LIBRARY)).map(([, body]) => body);
 	const queryPrelude = [root, `local TAXONOMY = json.decode(${longString(JSON.stringify(taxonomy))})`, ...library];
@@ -97,7 +102,7 @@ export function happyViewBundle(rootDid: string): HappyViewBundle {
 		),
 		scripts: handlers.map(({ id, body }) => ({
 			id,
-			body: [...(id.startsWith('record.') ? [root] : queryPrelude), body].join('\n')
+			body: [...(id.startsWith('record.') ? recordPrelude : queryPrelude), body].join('\n')
 		}))
 	};
 }

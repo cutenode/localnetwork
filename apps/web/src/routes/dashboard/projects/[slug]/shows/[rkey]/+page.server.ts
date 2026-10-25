@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { bookingValues, showFormDefaults } from '#lib/shows.ts';
 import type { ShowFormValues } from '#lib/shows.ts';
-import { parseAnnouncement } from '#lib/server/forms/announce.ts';
+import { parseAnnouncement, parseEdit } from '#lib/server/forms/announce.ts';
 import { act, requireViewer, stringValues } from '#lib/server/http.ts';
 import { requireManager } from '#lib/server/manage.ts';
 import type { Viewer } from '#lib/types.ts';
@@ -44,7 +44,7 @@ export const actions: Actions = {
 					viewer,
 					project,
 					parseAnnouncement(form),
-					params.rkey === 'new' ? undefined : params.rkey
+					params.rkey === 'new' ? undefined : parseEdit(form, params.rkey)
 				);
 
 				return { saved: true };
