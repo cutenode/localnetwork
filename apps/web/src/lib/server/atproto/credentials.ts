@@ -1,18 +1,35 @@
 import { P256Keypair } from '@atproto/crypto';
-import { type JsonValue, lexParse } from '@atproto/lex-json';
+import { isLexMap } from '@atproto/lex-data';
+import { type JsonValue, jsonToLex, lexParse } from '@atproto/lex-json';
 import { isDidString } from '@atproto/oauth-scopes';
-import { createSpaceSigHeaders, parseSpaceToken } from '@atproto/space';
+import {
+	createSpaceSigHeaders,
+	encapsulate,
+	formatWantMacHeader,
+	MAC_HEADER,
+	type MacType,
+	parseMacHeader,
+	parseSpaceToken,
+	RECORD_MAC_TYPE,
+	RepoVerificationError,
+	SpaceMacError,
+	verifyRecord,
+	WANT_MAC_HEADER
+} from '@atproto/space';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { IdentityResolver } from './identity';
-import { parseSpaceUri } from './spaces';
+import { type IdentityResolver, type ResolvedIdentity, requireKemKey } from './identity';
+import type { StoredRecord } from './repo-client';
+import { parseSpaceUri, spaceRecordUri } from './spaces';
 
 /** An XRPC error response from a PDS or space host. */
 export class XrpcResponseError extends Error {
 	constructor(
 		readonly status: number,
 		readonly error: string,
-		message?: string
+		message?: string,
+		/** The method that answered with it, which says who sent it: a space's authority or a writer's repo host. */
+		readonly nsid?: string
 	) {
 		super(message ? `${error}: ${message}` : error);
 		this.name = 'XrpcResponseError';
@@ -30,6 +47,28 @@ const CREDENTIAL_REJECTED = new Set([
 export function isCredentialRejected(cause: unknown): boolean {
 	return cause instanceof XrpcResponseError && (cause.status === 401 || CREDENTIAL_REJECTED.has(cause.error));
 }
+
+/** Whether a response's MAC didn't verify. `verifyRepoStar` reports a commit that fails its MAC as a RepoVerificationError. */
+export function isMacFailure(cause: unknown): boolean {
+	return cause instanceof SpaceMacError || cause instanceof RepoVerificationError;
+}
+
+type RequestInput = {
+	space: string;
+	service: string;
+	audience: string;
+	nsid: string;
+	params: Record<string, string | number | boolean | undefined>;
+};
+
+/** Asks the repo host for a MAC of `type`, keyed to the author's `#atproto_kem` key. */
+type MacRequest = { type: MacType; kemKey: string };
+
+/**
+ * What a response's MAC is checked with: this request's shared secret and the MAC the response carried.
+ * Throws a SpaceMacError if it carried none, as a listRepoOps page without a commit doesn't.
+ */
+type MacParams = () => { sharedSecret: Uint8Array; mac: Uint8Array };
 
 /**
  * A space credential bound (RFC 9421 / RFC 7800 `cnf.kid`) to a fresh P-256
@@ -59,7 +98,7 @@ export class SpaceCredential {
 	async headers(audience: string): Promise<Record<string, string>> {
 		if (!isDidString(audience)) throw new Error(`Space audience is not a DID: ${audience}`);
 
-		return createSpaceSigHeaders(this.key, { authorization: `Atproto-Space ${this.token}`, audience });
+		return createSpaceSigHeaders(this.key, { authorization: `Atproto-Space-Credential ${this.token}`, audience });
 	}
 }
 
@@ -121,22 +160,34 @@ export class SpaceCredentialManager {
 			throw error;
 		}
 
-		const host = (await this.deps.identity.resolve(ref.authority)).spaceHost;
+		// An authority's PDS is its space host.
+		const host = (await this.deps.identity.resolve(ref.authority)).pds;
 		await this.deps.identity.assertSafeEndpoint(host);
+		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
-		const headers = await createSpaceSigHeaders(key, { authorization: `Bearer ${delegationToken}` });
 
 		const response = await (this.deps.fetch ?? fetch)(new URL('/xrpc/com.atproto.space.getSpaceCredential', host), {
 			method: 'POST',
 			redirect: 'error',
-			headers: { ...headers, 'content-type': 'application/json', accept: 'application/json' },
-			body: JSON.stringify({ space }),
+			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
 			signal: AbortSignal.timeout(15_000)
 		});
 
 		const body = await readBody(response);
 
-		if (!response.ok) throw toXrpcError(response.status, body);
+		if (!response.ok) {
+			const error = toXrpcError(response.status, body, 'com.atproto.space.getSpaceCredential');
+
+			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
+			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
+			if (error.error === 'InvalidDelegationToken') {
+				this.deps.logger.warn({ err: error, space, host }, 'space authority rejected the delegation token');
+			}
+
+			throw error;
+		}
+
 		const output = spaceCredentialOutput.safeParse(body);
 
 		if (!output.success) throw new XrpcResponseError(502, 'InvalidResponse', 'No credential returned');
@@ -151,62 +202,150 @@ export class SpaceCredentialManager {
 	 * decoded), and parses it with the method's output `schema`. Retries once
 	 * with a fresh credential if it was rejected.
 	 */
-	async query<T>(input: {
-		space: string;
-		service: string;
-		audience: string;
-		nsid: string;
-		params: Record<string, string | number | boolean | undefined>;
-		schema: z.ZodType<T>;
-	}): Promise<T> {
+	async query<T>(input: RequestInput & { schema: z.ZodType<T> }): Promise<T> {
 		const response = await this.request(input);
 		const text = await response.text();
 
 		return input.schema.parse(lexParse(text));
 	}
 
-	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
-	async procedure<T>(
-		input: { space: string; service: string; audience: string; nsid: string; body: unknown; schema: z.ZodType<T> },
-		retry = true
-	): Promise<T> {
-		await this.deps.identity.assertSafeEndpoint(input.service);
-		const credential = await this.get(input.space);
+	/** Like {@link query}, for a method that answers with a MAC (see {@link macRequest}). */
+	async macQuery<T>(
+		input: RequestInput & { schema: z.ZodType<T>; mac: MacRequest }
+	): Promise<{ body: T; macParams: MacParams }> {
+		const { response, macParams } = await this.macRequest(input);
+		const text = await response.text();
 
-		const response = await (this.deps.fetch ?? fetch)(new URL(`/xrpc/${input.nsid}`, input.service), {
-			method: 'POST',
-			redirect: 'error',
-			headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
-			body: JSON.stringify(input.body),
-			signal: AbortSignal.timeout(15_000)
-		});
-
-		const body = await readBody(response);
-
-		if (response.ok) return input.schema.parse(body ?? {});
-		const error = toXrpcError(response.status, body);
-
-		if (retry && isCredentialRejected(error)) {
-			this.invalidate(input.space);
-
-			return this.procedure(input, false);
-		}
-
-		throw error;
+		return { body: input.schema.parse(lexParse(text)), macParams };
 	}
 
-	/** Like {@link query} but returns the raw response (for CAR and blob downloads). */
-	async request(
-		input: {
-			space: string;
-			service: string;
-			audience: string;
-			nsid: string;
-			params: Record<string, string | number | boolean | undefined>;
-		},
-		retry = true
-	): Promise<Response> {
+	/** Calls a credential-authenticated space procedure (e.g. registerNotify) with a JSON body and parses the response with `schema`. */
+	async procedure<T>(input: {
+		space: string;
+		service: string;
+		audience: string;
+		nsid: string;
+		body: unknown;
+		schema: z.ZodType<T>;
+	}): Promise<T> {
 		await this.deps.identity.assertSafeEndpoint(input.service);
+
+		return this.retryRejected(input.space, async () => {
+			const credential = await this.get(input.space);
+
+			const response = await (this.deps.fetch ?? fetch)(new URL(`/xrpc/${input.nsid}`, input.service), {
+				method: 'POST',
+				redirect: 'error',
+				headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
+				body: JSON.stringify(input.body),
+				signal: AbortSignal.timeout(15_000)
+			});
+
+			const body = await readBody(response);
+
+			if (!response.ok) throw toXrpcError(response.status, body, input.nsid);
+
+			return input.schema.parse(body ?? {});
+		});
+	}
+
+	/** Like {@link query} but returns the raw response (for blob downloads). */
+	async request(input: RequestInput): Promise<Response> {
+		await this.deps.identity.assertSafeEndpoint(input.service);
+
+		return this.retryRejected(input.space, () => this.send(input, {}));
+	}
+
+	/**
+	 * Like {@link request}, for the methods that answer a space credential with a MAC (getRecord, getRepo,
+	 * listRepoOps, getLatestCommit): asks for one keyed to a secret shared with the author's repo host,
+	 * and returns what checking it needs.
+	 */
+	async macRequest(input: RequestInput & { mac: MacRequest }): Promise<{ response: Response; macParams: MacParams }> {
+		await this.deps.identity.assertSafeEndpoint(input.service);
+
+		return this.retryRejected(input.space, async () => {
+			// A fresh ephemeral key for every request, retries included, so no two responses share a secret.
+			const { keyShare, sharedSecret } = await encapsulate(input.mac.kemKey);
+			const response = await this.send(input, { [WANT_MAC_HEADER]: formatWantMacHeader(input.mac.type, keyShare) });
+			const header = response.headers.get(MAC_HEADER) ?? undefined;
+
+			return { response, macParams: () => ({ sharedSecret, mac: parseMacHeader(header, input.mac.type) }) };
+		});
+	}
+
+	/**
+	 * Runs a MAC-checked read of `did`'s space repos with its identity and KEM key. A MAC that doesn't verify
+	 * may mean the author's KEM key rotated since its DID document was cached, so it refreshes the document
+	 * and reads once more; a second failure stands.
+	 */
+	async readVerified<T>(did: string, read: (identity: ResolvedIdentity, kemKey: string) => Promise<T>): Promise<T> {
+		const attempt = async (forceRefresh: boolean) => {
+			const identity = await this.deps.identity.resolve(did, forceRefresh);
+
+			return read(identity, requireKemKey(identity));
+		};
+
+		try {
+			return await attempt(false);
+		} catch (error) {
+			if (!isMacFailure(error)) throw error;
+			this.deps.logger.info({ err: error, did }, 'MAC did not verify; retrying with a refreshed KEM key');
+
+			return attempt(true);
+		}
+	}
+
+	/** Reads a record from a space the root account can read, checked against its MAC; null if there's none. */
+	async readRecord(input: {
+		space: string;
+		repo: string;
+		collection: string;
+		rkey: string;
+	}): Promise<StoredRecord | null> {
+		const uri = spaceRecordUri(input.space, input.repo, input.collection, input.rkey);
+
+		try {
+			return await this.readVerified(input.repo, async ({ pds }, kemKey) => {
+				const { response, macParams } = await this.macRequest({
+					space: input.space,
+					service: pds,
+					audience: input.repo,
+					nsid: 'com.atproto.space.getRecord',
+					params: input,
+					mac: { type: RECORD_MAC_TYPE, kemKey }
+				});
+
+				const record = spaceRecordOutput.parse(await response.json());
+				// verifyRecord re-encodes the value to check its CID, so it needs the CIDs and bytes decoded.
+				const value = jsonToLex(record.value);
+
+				if (!isLexMap(value) || !(await verifyRecord({ ...record, value }, { uri, ...macParams() }))) {
+					throw new SpaceMacError(`${uri} does not match its MAC`);
+				}
+
+				return record;
+			});
+		} catch (error) {
+			// A record that isn't there comes back as 400 RecordNotFound.
+			if (error instanceof XrpcResponseError && error.error === 'RecordNotFound') return null;
+			throw error;
+		}
+	}
+
+	/** Runs `call` once more with a fresh credential if the space host rejected the one it used. */
+	private async retryRejected<T>(space: string, call: () => Promise<T>): Promise<T> {
+		try {
+			return await call();
+		} catch (error) {
+			if (!isCredentialRejected(error)) throw error;
+			this.invalidate(space);
+
+			return call();
+		}
+	}
+
+	private async send(input: RequestInput, headers: Record<string, string>): Promise<Response> {
 		const credential = await this.get(input.space);
 		const url = new URL(`/xrpc/${input.nsid}`, input.service);
 
@@ -216,24 +355,20 @@ export class SpaceCredentialManager {
 
 		const response = await (this.deps.fetch ?? fetch)(url, {
 			redirect: 'error',
-			headers: await credential.headers(input.audience),
+			headers: { ...(await credential.headers(input.audience)), ...headers },
 			signal: AbortSignal.timeout(30_000)
 		});
 
-		if (response.ok) return response;
-		const error = toXrpcError(response.status, await readBody(response));
+		if (!response.ok) throw toXrpcError(response.status, await readBody(response), input.nsid);
 
-		if (retry && isCredentialRejected(error)) {
-			this.invalidate(input.space);
-
-			return this.request(input, false);
-		}
-
-		throw error;
+		return response;
 	}
 }
 
 const spaceCredentialOutput = z.object({ credential: z.string() });
+
+/** What com.atproto.space.getRecord answers, kept as JSON for validateRecord. */
+const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.record(z.string(), z.json()) });
 
 /** An XRPC error body. Fields of the wrong type are dropped, and a body that isn't an object reads as empty. */
 const xrpcErrorBody = z
@@ -248,8 +383,8 @@ async function readBody(response: Response): Promise<JsonValue | undefined> {
 	}
 }
 
-function toXrpcError(status: number, body: JsonValue | undefined): XrpcResponseError {
+function toXrpcError(status: number, body: JsonValue | undefined, nsid: string): XrpcResponseError {
 	const { error, message } = xrpcErrorBody.parse(body);
 
-	return new XrpcResponseError(status, error ?? (status >= 500 ? 'UpstreamFailure' : 'InvalidRequest'), message);
+	return new XrpcResponseError(status, error ?? (status >= 500 ? 'UpstreamFailure' : 'InvalidRequest'), message, nsid);
 }

@@ -3,7 +3,7 @@ import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
-import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/core.ts';
+import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
@@ -734,5 +734,71 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.projects.details(projectUri)).toMatchObject({ bookingEmail: 'bookings@staticbloom.test' });
 		const { events } = await net.app.bookings.thread(await net.viewer('lee'), bookingSpace);
 		expect(events).toHaveLength(3);
+	});
+
+	it('drops a deleted space however often it hears, and syncs it from scratch once it is back', async () => {
+		const root = await net.app.core.root();
+		const lee = await net.viewer('lee');
+
+		const space = await net.app.bookings.start({
+			actor: lee,
+			projectUri,
+			show: { title: 'Basement', date: '2027-03-01T22:00:00.000Z', capacity: 120, budgetTier: 'emerging' },
+			message: 'Free in March?'
+		});
+
+		await net.settle();
+		const status = await net.app.syncer.status();
+		const errors = status.flatMap((watched) => [watched.lastError, ...watched.repos.map((repo) => repo.lastError)]);
+		// Every repo was checked against MACs from the PDS.
+		expect(errors.filter(Boolean)).toEqual([]);
+
+		const writers = async () =>
+			(await net.app.db.selectFrom('spaceRecord').select('repoDid').where('spaceUri', '=', space).execute())
+				.map((row) => row.repoDid)
+				.sort();
+
+		expect(await writers()).toEqual([net.rootDid, lee.did].sort());
+
+		// The root's credential reads a record, checked against the MAC the PDS sends with it.
+		const { records } = await net.user('lee').client.listSpaceRecords({ space, repo: lee.did });
+		const [inquiry] = records;
+
+		await expect(
+			net.app.core.readSpaceRecord!({ space, repo: lee.did, collection: inquiry.collection, rkey: inquiry.rkey })
+		).resolves.toMatchObject({ cid: inquiry.cid });
+
+		await root.deleteSpace(space);
+		await net.app.syncer.onSpaceDeleted(space);
+		await net.app.syncer.onSpaceDeleted(space);
+		expect(await writers()).toEqual([]);
+		await expect(net.app.bookings.thread(lee, space)).rejects.toThrow(NotFoundError);
+
+		// Watched again before it's recreated, the authority answers SpaceDeleted, so it's dropped once more.
+		await net.app.syncer.watch(space);
+		await net.app.syncer.sync(space);
+		expect((await net.app.syncer.status()).map((watched) => watched.space)).not.toContain(space);
+
+		await root.createSpace({
+			spaceType: SPACE_TYPE.booking,
+			skey: space.split('/').at(-1)!,
+			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
+			writePolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
+			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+		});
+		await root.putMember({ space, did: lee.did, read: true, write: true });
+		// The authority learns of a writer from its writes, so the promoter's old repo reappears with a new one.
+		await net.user('lee').client.createSpaceRecord({
+			space,
+			collection: COLLECTION.bookingMessage,
+			record: { text: 'Still on?', createdAt: new Date().toISOString() }
+		});
+		await net.pds.processAll();
+		await net.app.syncer.watch(space);
+		await net.app.syncer.sync(space);
+		// The root's repo went with the space; the promoter's, inquiry and all, comes back under the new one.
+		expect(await writers()).toEqual([lee.did, lee.did]);
+		const { events } = await net.app.bookings.thread(lee, space);
+		expect(events.map((event) => event.kind)).toEqual(['inquiry', 'message']);
 	});
 });
