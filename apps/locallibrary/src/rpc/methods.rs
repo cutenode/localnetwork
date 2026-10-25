@@ -751,6 +751,9 @@ fn build() -> Registry {
         })
         .long()
         .destructive();
+        r.immediate("sets.lookup", |c, req| Ok(crate::plugins::roles::set_lookup(c.root, &req, c.ctx)?))
+            .long()
+            .keeps_cache();
         r.plan("sets.publish.plan", |c, req| Ok(api::set_publish_plan(c.root, &req)?)).destructive();
         r.apply("sets.publish.apply", PlanStore::None, |c, req| Ok(api::set_publish_apply(c.root, &req)?))
             .destructive();

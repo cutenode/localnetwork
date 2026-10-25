@@ -74,8 +74,9 @@ enum PluginCommand {
     /// in in the browser, or out
     Account(account::AccountArgs),
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
-    /// check before a set, ordering a set and `analyze --apply`): show them, choose one (ROLE
-    /// PLUGIN.ANALYZER), or put one back to its default (ROLE --reset)
+    /// check before a set, ordering a set and `analyze --apply`; a published set's MusicBrainz
+    /// IDs): show them, choose one (ROLE PLUGIN.ANALYZER), read one from none (ROLE --none), or
+    /// put one back to its default (ROLE --reset)
     Roles {
         /// The role (`key`, `bpm`, `loudness`...) [default: every one]
         role: Option<String>,
@@ -85,6 +86,10 @@ enum PluginCommand {
         /// Put it back to its default: the only analyzer with it, else the first plugin's
         #[arg(long, requires = "role")]
         reset: bool,
+        /// Read it from no analyzer (`recording --none`: `sets publish` looks up no MusicBrainz
+        /// IDs)
+        #[arg(long, requires = "role", conflicts_with_all = ["analyzer", "reset"])]
+        none: bool,
     },
     /// The plugins' checks (run with `check` and `doctor`) and guards (run before changes are
     /// made): show them, turn one on or off (CHECK --on, --off), have a guard stop changes it finds
@@ -154,8 +159,8 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ct
             return listing::settings(plugins, plugin, key, change, store_path, out);
         }
         PluginCommand::Account(args) => return account::account(plugins, args, store_path, out, ctx),
-        PluginCommand::Roles { role, analyzer, reset } => {
-            return listing::roles(role, analyzer, reset, store_path, out);
+        PluginCommand::Roles { role, analyzer, reset, none } => {
+            return listing::roles(role, analyzer, reset, none, store_path, out);
         }
         PluginCommand::Checks { check, on, off, blocking, no_blocking, timeout, reset } => {
             let either = |yes: bool, no: bool| (yes || no).then_some(yes);
