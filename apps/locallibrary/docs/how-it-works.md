@@ -46,6 +46,8 @@ plugins/coverart/           the coverart plugin: front covers and track details 
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
+plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
+                            and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform

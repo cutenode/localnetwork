@@ -68,6 +68,26 @@ impl Fixture {
 use locallibrary::edit::EditPlan;
 use locallibrary::op::Planned;
 
+/// Analysing again works a track out over what was kept for it, as when the library said
+/// something else of it before (its audio file, which values are kept by, the same); analysing
+/// leaves what was kept.
+#[test]
+fn analysing_again_works_out_over_what_was_kept() {
+    let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());
+    let tracks = f.hear(&[json!({ "tone": "8A" })]);
+    let ids = [tracks[0].id];
+    f.plugins.analyze("echo", "heard", "USB", Some(&ids), &f.store, &Ctx::silent()).unwrap();
+    let audio = paths::to_fs(&f.drive, &paths::key(&tracks[0].file_path));
+    let heard = locallibrary::fields::Analyzer { plugin: "echo".into(), analyzer: "heard".into(), version: "1".into() };
+    let fields = locallibrary::fields::FieldStore::in_store(&f.store);
+    fields.put(&audio, &heard, &[("tone".into(), FieldValue::String("1A".into()))].into_iter().collect()).unwrap();
+    let tone = || fields.get(&audio, std::slice::from_ref(&heard))["echo"]["heard"]["tone"].clone();
+    let kept = f.plugins.analyze("echo", "heard", "USB", Some(&ids), &f.store, &Ctx::silent()).unwrap();
+    assert_eq!((kept.analyzed, kept.kept, tone()), (0, 1, FieldValue::String("1A".into())));
+    let again = f.plugins.analyze_again("echo", "heard", "USB", &ids, &f.store, &Ctx::silent()).unwrap();
+    assert_eq!((again.analyzed, again.kept, tone()), (1, 0, FieldValue::String("8A".into())));
+}
+
 /// What an analyzer heard is written to the tracks as an edit plan, journaled: a key as rekordbox
 /// names it, a BPM to hundredths, only where a track has none unless overwriting, never one it has
 /// in another notation, and none the analyzer is less sure of than asked.

@@ -189,18 +189,13 @@ describe('form values', () => {
 	});
 
 	it('shows where each saved mix and photo is, and keeps mixes the project no longer has', () => {
-		const values = epkFormValues(
-			projectMixes,
-			{
-				project: 'at://x',
-				title: 'Clubs',
-				access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
-				mixes: [{ title: 'Tidal Hours 004', url: projectMixes[0].url }],
-				photos: [photo('bafyone')],
-				createdAt: '2026-10-01T00:00:00Z'
-			},
-			{ mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }], updatedAt: '2026-10-01T00:00:00Z' }
-		);
+		const values = epkFormValues(projectMixes, {
+			title: 'Clubs',
+			access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
+			mixes: [{ title: 'Tidal Hours 004', url: projectMixes[0].url }],
+			photos: [photo('bafyone')],
+			content: { mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }] }
+		});
 
 		expect(values.mixes.map((mix) => mix.visibility)).toEqual(['public', 'hidden', 'hidden']);
 		expect(values.extraMixes).toEqual([

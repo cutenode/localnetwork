@@ -12,6 +12,7 @@ use locallibrary::fields::roles;
 use locallibrary::fields::{PluginsFields, Role};
 use locallibrary::plugin::{AnalysisPart, Analyzed, ApplyAnalysis, ApplyFields};
 use locallibrary::progress::Ctx;
+use loclib_plugin::Capability;
 use serde::Serialize;
 
 use crate::jobs_cmd::usage;
@@ -90,6 +91,17 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
     let parts: Vec<AnalysisPart> =
         AnalysisPart::ALL.into_iter().filter(|p| parts.iter().any(|f| f.as_str() == p.name())).collect();
     let apply: Vec<Role> = roles.iter().map(|r| r.parse().map_err(usage)).collect::<Result<_>>()?;
+    // A plugin that goes online for its analyzers (asking MusicBrainz about every track, say) runs
+    // them only when it's named: `analyze` alone stays on this computer.
+    let online: Vec<&str> = match (&args.plugin, &args.analyzer) {
+        (None, None) => plugins
+            .manifests()
+            .filter(|m| !m.contributes.analyzers.is_empty())
+            .filter(|m| m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))))
+            .map(|m| m.id.as_str())
+            .collect(),
+        _ => Vec::new(),
+    };
     let mut selected: Vec<(&str, &str)> = plugins
         .manifests()
         .filter(|m| args.plugin.as_ref().is_none_or(|p| *p == m.id))
@@ -98,7 +110,14 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
         .filter(|(_, a)| apply.iter().all(|r| a.roles.contains_key(r)))
         .filter(|(_, a)| parts.iter().all(|p| a.fields.values().any(|t| *t == p.kind())))
         .map(|(m, a)| (m.id.as_str(), a.name.as_str()))
+        .filter(|(p, _)| !online.contains(p))
         .collect();
+    if let Some(first) = online.first() {
+        output::diag(format!(
+            "left out what goes online ({}): name it to run it, as in --plugin {first}",
+            online.join(", ")
+        ));
+    }
     let fields: Vec<&str> = apply.iter().map(|r| r.name()).chain(parts.iter().map(|p| p.name())).collect();
     if selected.is_empty() {
         return Err(usage(match (&args.analyzer, &args.plugin) {

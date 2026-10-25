@@ -282,3 +282,100 @@ fn musicbrainz_ids_read_back_as_tagged(tc: TestCase) {
     std::fs::write(&path, tc.draw(gs::binary().max_size(64))).unwrap();
     assert!(MusicBrainzIds::read(&path).is_empty());
 }
+
+/// Whatever an analyzer answers for the MusicBrainz roles (a UUID or not, null, another type, or
+/// nothing), reading them for a track gives the recording and release that are UUIDs, and the
+/// artists only when every one is and there's one for each name the track's credit splits into;
+/// none of them when the analyzer says it worked from another ISRC, and no artists when from
+/// another credit. Exactly those answers are stale.
+#[hegel::test(test_cases = 300)]
+fn musicbrainz_ids_are_read_from_the_roles(tc: TestCase) {
+    use crate::fields::FieldValue;
+    use crate::fields::roles::{Role, RoleValues};
+    let names = tc.draw(gs::integers::<usize>().max_value(3));
+    let joined = tc.draw(gs::sampled_from(vec![", ", " feat. ", "; "]));
+    let artist = (0..names).map(|i| format!("Artist {i}")).collect::<Vec<_>>().join(joined);
+    let credits = crate::model::artist_credits(&artist);
+    let isrc = tc.draw(gs::sampled_from(vec!["GBCFB1700586", "gb-cfb-17-00586", "", "not one"]));
+    let e = SetEntry { isrc: isrc.into(), ..SetEntry::added(&format!("{artist} - Title")) };
+    let mut values = RoleValues::new();
+    let mut want = MusicBrainzIds::default();
+    for role in [Role::Recording, Role::Release, Role::Artists] {
+        let value = match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => continue,
+            1 => FieldValue::Null,
+            2 => FieldValue::Integer(1),
+            _ if role == Role::Artists => {
+                let n = match tc.draw(gs::weighted_booleans(0.7)) {
+                    true => names,
+                    false => tc.draw(gs::integers::<usize>().max_value(4)),
+                };
+                let ids: Vec<String> = (0..n).map(|_| mb_value(&tc)).collect();
+                let parsed: Option<Vec<Uuid>> = ids.iter().map(|v| Uuid::parse_str(v.trim()).ok()).collect();
+                want.artists = parsed.filter(|p| p.len() == names).unwrap_or_default();
+                FieldValue::Strings(ids)
+            }
+            _ => {
+                let v = mb_value(&tc);
+                let id = Uuid::parse_str(v.trim()).ok();
+                match role {
+                    Role::Recording => want.recording = id,
+                    _ => want.release = id,
+                }
+                FieldValue::String(v)
+            }
+        };
+        values.insert(role, value);
+    }
+    // What the analyzer says it worked from: nothing, this track's ISRC (spelt any way) or
+    // credit, or another.
+    let has_isrc = crate::model::isrc(isrc).is_some();
+    let same_isrc = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => true,
+        1 => {
+            values.insert(Role::Isrc, FieldValue::Null);
+            !has_isrc
+        }
+        2 => {
+            values.insert(Role::Isrc, FieldValue::String(" GBCFB-1700586 ".into()));
+            crate::model::isrc(isrc).as_deref() == Some("GBCFB1700586")
+        }
+        _ => {
+            values.insert(Role::Isrc, FieldValue::String("USRC17607840".into()));
+            false
+        }
+    };
+    let same_credits = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => true,
+        1 => {
+            values.insert(Role::Credits, FieldValue::Strings(credits.clone()));
+            true
+        }
+        _ => {
+            values.insert(Role::Credits, FieldValue::Strings(vec!["Someone Else".into()]));
+            false
+        }
+    };
+    if !same_credits {
+        want.artists.clear();
+    }
+    if !same_isrc {
+        want = MusicBrainzIds::default();
+    }
+    assert_eq!(MusicBrainzIds::from_roles(&values, &e), want, "{values:?} for {e:?}");
+    assert_eq!(MusicBrainzIds::stale(&values, &e), !(same_isrc && same_credits), "{values:?} for {e:?}");
+}
+
+/// Tags come first, and roles fill in what they lack: the recording and the release each, the
+/// artists only all together.
+#[test]
+fn tags_come_first_and_roles_fill_in_the_rest() {
+    let id = |n| Some(Uuid::from_u128(n));
+    let tagged = MusicBrainzIds { recording: id(1), release: None, artists: vec![Uuid::from_u128(2)] };
+    let heard =
+        MusicBrainzIds { recording: id(3), release: id(4), artists: vec![Uuid::from_u128(5), Uuid::from_u128(6)] };
+    let both = MusicBrainzIds { recording: id(1), release: id(4), artists: vec![Uuid::from_u128(2)] };
+    assert_eq!(tagged.clone().or(heard.clone()), both);
+    let untagged = MusicBrainzIds { artists: vec![], ..tagged };
+    assert_eq!(untagged.or(heard.clone()).artists, heard.artists);
+}

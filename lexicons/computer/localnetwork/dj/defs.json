@@ -34,13 +34,11 @@
 				},
 				"recordingMbId": {
 					"type": "string",
-					"format": "uri",
-					"description": "The MusicBrainz recording ID URI, formatted as mbid:<uuid>."
+					"description": "The MusicBrainz recording ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
 				},
 				"releaseMbId": {
 					"type": "string",
-					"format": "uri",
-					"description": "The MusicBrainz release ID URI, formatted as mbid:<uuid>."
+					"description": "The MusicBrainz release ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
 				},
 				"bpmCentis": {
 					"type": "integer",
@@ -75,8 +73,7 @@
 				"artistName": { "type": "string", "minLength": 1, "maxLength": 2560, "maxGraphemes": 256 },
 				"artistMbId": {
 					"type": "string",
-					"format": "uri",
-					"description": "The MusicBrainz artist ID URI, formatted as mbid:<uuid>."
+					"description": "The MusicBrainz artist ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
 				}
 			}
 		},

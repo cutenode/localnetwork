@@ -54,13 +54,19 @@ fn a_role_is_read_from_the_analyzer_chosen_else_the_first() {
     let kept: Value = serde_json::from_slice(&fs::read(store.root().join("plugins/settings.json")).unwrap()).unwrap();
     assert_eq!(kept, serde_json::json!({ "analysis.roles.key": "other.keys" }));
 
+    // Turned off: read from none, until chosen or put back.
+    let off = turn_off(&store, Role::Key).unwrap().remove(0);
+    assert_eq!((off.chosen, off.set, off.off), (None, false, true));
+    assert_eq!(chosen(Some(&store), Role::Key), None);
+    assert_eq!(name(Some(&store), Role::Bpm).as_deref(), Some("other.keys"), "only that role");
+
     // Put back, or no longer offered: the default.
     choose(&store, Role::Key, None).unwrap();
     assert_eq!(name(Some(&store), Role::Key).as_deref(), Some("sound.tkl"));
     choose(&store, Role::Key, Some("other.keys")).unwrap();
     crate::testing::roles_on_this_thread(Some([(Role::Key, vec![field("sound", "tkl", "key")])].into_iter().collect()));
     let key = choices(Some(&store)).remove(0);
-    assert_eq!((key.chosen.as_deref(), key.set), (Some("sound.tkl"), false));
+    assert_eq!((key.chosen.as_deref(), key.set, key.off), (Some("sound.tkl"), false, false));
     crate::testing::roles_on_this_thread(None);
 }
 
