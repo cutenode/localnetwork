@@ -1,0 +1,189 @@
+# Advisories osv-scanner (https://google.github.io/osv-scanner/) reports in Cargo.lock and
+# pnpm-lock.yaml that don't reach anyone using the tools, or have no fix in range, each with why.
+# OpenSSF Scorecard's Vulnerabilities check runs osv-scanner and reads this file; it applies to
+# this directory's lockfiles only, so fuzz/osv-scanner.toml covers fuzz/Cargo.lock. A package
+# override names one version, so it stops matching once that version changes.
+
+# Shipped with the website, and no zod 3.x release has the fix. pnpm audit skips it too
+# (auditConfig in pnpm-workspace.yaml).
+[[IgnoredVulns]]
+id = "GHSA-mrhx-c7xc-m3w5"
+ignoreUntil = 2027-01-31
+reason = "zod 3.x comes in through @atproto/* (^3.23.8), and only 4.6.6 has the fix; the app's own zod 4 is fixed"
+
+# Rust (Cargo.lock)
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "atomic-polyfill"
+version = "1.0.3"
+vulnerability.ignore = true
+reason = "unmaintained, no vulnerability; heapless 0.7 (under postcard) only uses it on avr, riscv32, thumbv6m and xtensa targets, and none is built"
+
+# Also ignored in deny.toml, with the same reason.
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "crypto-bigint"
+version = "0.5.5"
+vulnerability.ignore = true
+reason = "fixed only in 0.7.6, and k256/p256/p384 0.13 under jacquard 0.12.2 (the latest) need 0.5; the secret it touches is the per-session ES256 DPoP key, and reading it needs timing measurements on this machine"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "paste"
+version = "1.0.15"
+vulnerability.ignore = true
+reason = "unmaintained, no vulnerability; a proc-macro under lofty 0.25.4 (the latest) and netlink-packet-core, so it only runs at compile time"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "quick-xml"
+version = "0.37.5"
+vulnerability.ignore = true
+reason = "only rekordcrate 0.3.0 (the latest, needs ^0.37) uses it, a dev-dependency whose tests only read XML locallibrary wrote; locallibrary itself uses the fixed 0.42"
+
+# Also ignored in deny.toml, with the same reason.
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "rsa"
+version = "0.9.10"
+vulnerability.ignore = true
+reason = "no fixed release; jacquard-oauth's jose-jwk pulls it in for JWK types, and sign-in signs with an ES256 DPoP key and never holds an RSA private key"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zbus_names"
+version = "4.3.4"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zvariant"
+version = "5.15.0"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zvariant_derive"
+version = "5.15.0"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; a proc-macro, Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
+
+# npm (pnpm-lock.yaml). Except for zod above, none of these ships: they're dev tooling, mostly
+# the atproto dev network (@atproto/dev-env) and Lighthouse CI.
+
+# GHSA-qqmp-wf37-98f9 (database user name on spans). @atproto-labs/opentelemetry-node only starts
+# the SDK once an OTLP endpoint is set, and the dev network sets none.
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-cassandra-driver"
+version = "0.64.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-knex"
+version = "0.63.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-mongoose"
+version = "0.65.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-mysql"
+version = "0.65.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-mysql2"
+version = "0.65.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-oracledb"
+version = "0.44.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-pg"
+version = "0.71.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-pg"
+version = "0.72.0"
+vulnerability.ignore = true
+reason = "dev only, @atproto/ozone's own instrumentation under @atproto/dev-env; the dev network never starts Ozone or sets an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "@opentelemetry/instrumentation-tedious"
+version = "0.38.0"
+vulnerability.ignore = true
+reason = "dev only, under @atproto/dev-env's auto-instrumentations-node 0.77.0, which never starts without an OTLP endpoint"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "basic-ftp"
+version = "5.3.1"
+vulnerability.ignore = true
+reason = "dev only (Lighthouse CI); proxy-agent's get-uri 6 only uses it to fetch a PAC file from an ftp:// URL, which nothing here sets; the fix is in 6.2.1, outside get-uri's ^5"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "extract-zip"
+version = "2.0.1"
+vulnerability.ignore = true
+reason = "dev only; @puppeteer/browsers (under Lighthouse) unzips browsers it downloads, and Lighthouse CI here runs Playwright's Chromium (apps/web/lighthouserc.cjs); 2.0.1 is the latest"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "kysely"
+version = "0.23.5"
+vulnerability.ignore = true
+reason = "dev only; the injection is MySQL-only, and @did-plc/server 0.0.1 (the latest, ^0.23.4) speaks Postgres and runs on its in-memory mock in the dev network; the app's kysely 0.29.6 is fixed"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "nodemailer"
+version = "6.10.1"
+vulnerability.ignore = true
+reason = "dev only; the @atproto/pds in the dev network (^6.8.0) has no SMTP URL, so it uses nodemailer's jsonTransport and sends nothing; the fixes are in 7 to 10"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "postcss-selector-parser"
+version = "6.0.10"
+vulnerability.ignore = true
+reason = "build time only; @tailwindcss/typography 0.5.20 (the latest) pins it to parse its own selectors while building the site's CSS; the fix is in 7.1.6"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "sharp"
+version = "0.33.5"
+vulnerability.ignore = true
+reason = "dev only; @atproto/bsky (^0.33.5) under @atproto/dev-env, and the dev network starts only a PLC and a PDS, never bsky; the fixes are in 0.35"
+
+[[PackageOverrides]]
+ecosystem = "npm"
+name = "uuid"
+version = "8.3.2"
+vulnerability.ignore = true
+reason = "dev only; @lhci/cli 0.15.1 (the latest, ^8.3.1) only calls uuid.v4() without a buffer, and the bug needs one passed to v3, v5 or v6"

@@ -365,8 +365,7 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # The dist version locallibrary-release.yml installs (see dist-workspace.toml).
-      - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.33.0/cargo-dist-installer.sh | sh
+      - uses: ./.github/actions/install-dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cargo-dist-cache
@@ -391,10 +390,9 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # The installer for the runner's shell, and the apt packages dist-workspace.toml lists.
-      # Both come from `dist plan` over this checkout's own configuration, with no input from a
-      # pull request (this workflow doesn't run on them).
-      - run: ${{ matrix.install_dist.run }} # zizmor: ignore[template-injection]
+      - uses: ./.github/actions/install-dist
+      # The apt packages dist-workspace.toml lists. They come from `dist plan` over this checkout's
+      # own configuration, with no input from a pull request (this workflow doesn't run on them).
       - if: matrix.packages_install
         run: ${{ matrix.packages_install }} # zizmor: ignore[template-injection]
       # dist only signs the macOS binaries when the CODESIGN_* variables are set, which they
