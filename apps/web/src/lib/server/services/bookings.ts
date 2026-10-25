@@ -1,4 +1,5 @@
 import { TID } from '@atproto/common-web';
+import { sql } from 'kysely';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import { BOOKING_STATUSES, isOneOf } from '#lib/taxonomy/options.ts';
 import type { BookingEventView, BookingThreadView, ShowDetails, Viewer } from '#lib/types.ts';
@@ -33,6 +34,38 @@ export type BookingRecord = {
 	createdAt: string;
 };
 
+const OPENED_PROJECT = sql<string>`json_extract(record, '$.project')`;
+
+/**
+ * The project each thread's opening record names, or only threads it names `project` for. The root writes that record
+ * into its own repo in the space, so unlike the promoter's inquiry, nobody else can rewrite it. Threads opened before
+ * it named the project have none.
+ */
+export const openedProjects = (core: Pick<Core, 'db' | 'rootDid'>, project?: string) =>
+	core.db
+		.selectFrom('bookingEvent')
+		.select(['spaceUri', OPENED_PROJECT.as('project')])
+		.where('authorDid', '=', core.rootDid)
+		.where('kind', '=', 'status')
+		.where(OPENED_PROJECT, project ? '=' : 'is not', project ?? null);
+
+const AUDITED_PROJECT = sql<string>`json_extract(details, '$.project')`;
+
+/**
+ * The project each thread's `booking.create` audit entry names, or only threads it names `project` for. The server
+ * writes that entry when the thread opens, and a lost one is rebuilt only from the root's chained copy, never from the
+ * promoter's own (AuditLog.onSyncedCopy), so it vouches for threads opened before the opening record named a project.
+ */
+export const auditedProjects = (core: Pick<Core, 'db'>, project?: string) =>
+	core.db
+		.selectFrom('auditEntry')
+		.select(['subject as spaceUri', AUDITED_PROJECT.as('project')])
+		.where('action', '=', 'booking.create')
+		.where('outcome', '=', 'success')
+		.where('subject', 'is not', null)
+		.where(AUDITED_PROJECT, project ? '=' : 'is not', project ?? null)
+		.$narrowType<{ spaceUri: string }>();
+
 /**
  * Booking threads. Each thread is its own space under the root authority
  * whose member list is the promoter plus the project's managers; each party
@@ -56,7 +89,8 @@ export class BookingService {
 
 	async start(input: { actor: Viewer; projectUri: string; show: ShowDetails; message: string }): Promise<string> {
 		const { actor } = input;
-		const project = await this.projects.byUri(input.projectUri);
+		// The root's repo, not the directory, so a manager change that's still being indexed is already in the thread.
+		const project = await this.projects.current(input.projectUri);
 
 		if (!project || project.status !== 'active') throw new NotFoundError('That project is not available');
 
@@ -111,7 +145,13 @@ export class BookingService {
 				.execute();
 		});
 
-		const opened = validateRecord(COLLECTION.bookingStatus, { status: 'open', note: 'Thread opened', createdAt: now });
+		const opened = validateRecord(COLLECTION.bookingStatus, {
+			status: 'open',
+			note: 'Thread opened',
+			project: project.uri,
+			createdAt: now
+		});
+
 		const openedRef = await root.createSpaceRecord({ space, collection: COLLECTION.bookingStatus, record: opened });
 		await this.indexEvent({
 			space,
@@ -308,12 +348,15 @@ export class BookingService {
 			.executeTakeFirst();
 
 		if (!thread && kind === 'inquiry' && value.project) {
+			// The promoter can rewrite their inquiry, so the root's opening record names the project when it's in.
+			const opened = await openedProjects(this.core).where('spaceUri', '=', input.space).executeTakeFirst();
+			const projectUri = opened?.project ?? value.project;
 			await db
 				.insertInto('bookingThread')
 				.values({
 					spaceUri: input.space,
 					skey: ref.skey,
-					projectUri: value.project,
+					projectUri,
 					promoterDid: author,
 					status: 'open',
 					title: value.show?.title ?? null,
@@ -324,7 +367,7 @@ export class BookingService {
 				})
 				.onConflict((oc) => oc.doNothing())
 				.execute();
-			const project = await this.projects.byUri(value.project);
+			const project = await this.projects.byUri(projectUri);
 
 			const members = [
 				{ did: author, role: 'promoter' as const },
@@ -359,6 +402,9 @@ export class BookingService {
 		const update: Partial<BookingThreadRow> = { lastActivityAt: latest, updatedAt: nowIso() };
 
 		if (kind === 'status' && value.status && createdAt >= thread.lastActivityAt) update.status = value.status;
+
+		// Whatever project the inquiry named, the root's opening record decides it.
+		if (kind === 'status' && author === this.core.rootDid && value.project) update.projectUri = value.project;
 		await db.updateTable('bookingThread').set(update).where('spaceUri', '=', input.space).execute();
 	}
 

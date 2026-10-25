@@ -782,4 +782,48 @@ describe('Local Network on a real atproto spaces network', () => {
 		const { events } = await net.app.bookings.thread(await net.viewer('lee'), bookingSpace);
 		expect(events).toHaveLength(3);
 	});
+
+	it("moves a project's booking threads with its managers, leaving the promoter in them", async () => {
+		const ada = await net.viewer('ada');
+		const lee = await net.viewer('lee');
+		const [pat, neon] = [net.user('pat'), net.user('neon')];
+		const root = await net.app.core.root();
+
+		let project = await net.app.projectAdmin.create({
+			actor: ada,
+			profile: profile('Night Shift'),
+			managers: [pat.did]
+		});
+
+		const show = { title: 'Warehouse' };
+		const open = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'Free?' });
+		const settled = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'And now?' });
+		await net.app.bookings.setStatus({ actor: lee, space: settled, status: 'declined' });
+
+		const members = async (space: string) => (await root.listMembers(space)).map((member) => member.did).sort();
+		const threads = async (did: string) => (await net.app.bookings.threadsFor(did)).map((thread) => thread.space);
+
+		const setManagers = async (dids: string[]) => {
+			project = await net.app.projectAdmin.setManagers({ actor: ada, project, managers: dids });
+		};
+
+		await setManagers([pat.did, neon.did]);
+		expect(await members(open)).toEqual([lee.did, neon.did, pat.did].sort());
+		expect(await members(settled)).toEqual([lee.did, pat.did].sort());
+		await net.app.bookings.message({ actor: await net.viewer('neon'), space: open, text: 'Joining in.' });
+
+		await setManagers([neon.did]);
+		await net.app.projects.reconcileManagerSpaces();
+		expect(await members(open)).toEqual([lee.did, neon.did].sort());
+		expect(await members(settled)).toEqual([lee.did]);
+		expect(await threads(pat.did)).not.toContain(open);
+		await expect(
+			net.app.bookings.message({ actor: await net.viewer('pat'), space: open, text: 'Still here?' })
+		).rejects.toBeInstanceOf(ForbiddenError);
+
+		await net.settle();
+		expect(await threads(neon.did)).toContain(open);
+		const { events } = await net.app.bookings.thread(lee, open);
+		expect(events.map((event) => event.text)).toEqual(['Free?', 'Joining in.']);
+	});
 });
