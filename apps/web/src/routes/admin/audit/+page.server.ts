@@ -3,6 +3,7 @@ import { requireStaff } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
+	requireStaff(locals, url);
 	const { app } = locals;
 	const actorParam = url.searchParams.get('actor')?.trim() ?? '';
 	let actor: string | undefined;

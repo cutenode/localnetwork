@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 	}
 
 	let did: string;
-	let next = '/me';
+	let next = '/dashboard';
 
 	try {
 		const { session, state, scope } = await app.oauth.callback(url.searchParams);
@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 		try {
 			next = safeNext(loginState.safeParse(JSON.parse(state ?? '{}')).data?.next);
 		} catch {
-			next = '/me';
+			next = '/dashboard';
 		}
 
 		// Only a grant of every space write the app asks for lets it write there as the user. Anything less (no

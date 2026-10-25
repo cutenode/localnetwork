@@ -65,9 +65,9 @@ impl App {
     }
 
     /// Export the drive at `root` in a plugin's format (the playlists marked in the tree only, when
-    /// it's the drive open and some are, as rekordbox XML is), or the set open (`from`): a form
-    /// asks where (a file or folder on this computer, named after the drive or the set) and for
-    /// the format's options first.
+    /// it's the drive open and some are), or the set open (`from`): a form asks where (a file or
+    /// folder on this computer, named after the drive or the set) and for the format's options
+    /// first.
     pub(in crate::tui) fn plugin_export(
         &mut self,
         plugin: &'static str,

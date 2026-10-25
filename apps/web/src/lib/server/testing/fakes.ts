@@ -251,10 +251,12 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.owned(input.space).members.set(input.did, { read: input.read, write: input.write });
 	}
 
 	async removeMember(input: { space: string; did: string }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.owned(input.space).members.delete(input.did);
 	}
 

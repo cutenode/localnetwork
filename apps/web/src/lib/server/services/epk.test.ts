@@ -270,7 +270,7 @@ describe('EpkService', () => {
 		expect(await t.epks.forProject(project)).toHaveLength(20);
 	});
 
-	it('saves over the version HappyView serves, and asks to reload when the PDS has another', async () => {
+	it('saves only on the version it was opened on, and asks to reload otherwise', async () => {
 		const backfilled: string[] = [];
 
 		// The app's own HappyView, with an API key, so a stale press kit is re-read.
@@ -291,23 +291,34 @@ describe('EpkService', () => {
 		const epks = new EpkService(t.core, t.projects, new IndexedRepo(admin, silentLogger, 0), async (id) => id);
 
 		const owner = await t.viewer(DJ);
+		const changed = new UserError('This press kit changed since you opened it. Reload and try again.', 409);
 		const epk = await epks.save(owner, project, input());
 		const key = `${DJ}|${COLLECTION.epk}|${epk.rkey}`;
+		const content = `${epk.space}|${DJ}|${COLLECTION.epkContent}|${EPK_CONTENT_KEY}`;
 
-		await epks.save(owner, project, input({ title: 'Clubs, edited' }), epk.rkey);
-		expect((await epks.get(DJ, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
+		// Saved on the version it was opened on, it lands, as a new version.
+		const edited = await epks.save(owner, project, input({ title: 'Clubs, edited' }), epk);
+		expect((await epks.get(DJ, epk.rkey))?.epk).toMatchObject({ cid: edited.cid, record: { title: 'Clubs, edited' } });
+		expect(edited.cid).not.toBe(epk.cid);
+
+		// A form still open on the first version is refused before it writes anything, the private part included.
+		const privatePart = t.net.spaceRecords.get(content);
+		await expect(epks.save(owner, project, input({ title: 'Stale', bio: 'Stale bio' }), epk)).rejects.toEqual(changed);
+		await expect(epks.save(owner, project, input(), { rkey: epk.rkey, cid: '' })).rejects.toEqual(changed);
+		expect(t.net.records.get(key)?.value.title).toBe('Clubs, edited');
+		expect(t.net.spaceRecords.get(content)).toEqual(privatePart);
 		expect(backfilled).toEqual([]);
 
-		// Another app changes it in the owner's repo, and HappyView hasn't heard yet.
+		// Another app changes it in the owner's repo, and HappyView hasn't heard yet: the PDS refuses the swap.
 		const elsewhere = { ...t.net.records.get(key)!.value, title: 'Changed elsewhere' };
 		t.net.records.set(key, { uri: epk.uri, cid: await recordCid(elsewhere), value: elsewhere });
 
-		await expect(epks.save(owner, project, input({ title: 'Mine' }), epk.rkey)).rejects.toEqual(
-			new UserError('This press kit changed since you opened it. Reload and try again.', 409)
-		);
+		await expect(epks.save(owner, project, input({ title: 'Mine' }), edited)).rejects.toEqual(changed);
 		expect(t.net.records.get(key)?.value.title).toBe('Changed elsewhere');
 		expect(backfilled).toEqual([`${COLLECTION.epk} ${DJ}`]);
-		await expect(epks.save(owner, project, input(), 'missing')).rejects.toThrow(/does not exist/);
+		await expect(epks.save(owner, project, input(), { rkey: 'missing', cid: edited.cid })).rejects.toThrow(
+			/does not exist/
+		);
 	});
 
 	it("won't save while HappyView is down, rather than taking a press kit for missing or counting none", async () => {
@@ -328,9 +339,7 @@ describe('EpkService', () => {
 		const before = t.net.records.get(`${DJ}|${COLLECTION.epk}|${epk.rkey}`);
 		const written = t.net.records.size;
 
-		await expect(down.save(owner, project, input({ title: 'Edited' }), epk.rkey)).rejects.toBeInstanceOf(
-			HappyViewError
-		);
+		await expect(down.save(owner, project, input({ title: 'Edited' }), epk)).rejects.toBeInstanceOf(HappyViewError);
 		await expect(down.save(owner, project, input())).rejects.toBeInstanceOf(HappyViewError);
 		await expect(down.get(DJ, epk.rkey)).rejects.toBeInstanceOf(HappyViewError);
 		expect(t.net.records.get(`${DJ}|${COLLECTION.epk}|${epk.rkey}`)).toEqual(before);

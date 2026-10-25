@@ -140,7 +140,7 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
         std::fs::write(&journal, "\"not a journal\"").unwrap();
     }
 
-    let req = api::RefreshRequest { drive: Some(path(&main)), skip: skip.clone(), sync };
+    let req = api::RefreshRequest { drive: Some(path(&main)), skip: skip.clone(), sync, ..Default::default() };
     let skipped = |k: StepKind| skip.contains(&k);
     let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
     let mut want = Vec::new();

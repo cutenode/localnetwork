@@ -69,7 +69,7 @@ export const actions: Actions = {
 			return { rkey };
 		});
 
-		if ('rkey' in result) redirect(303, `/planner/shows/${result.rkey}`);
+		if ('rkey' in result) redirect(303, `/dashboard/planner/shows/${result.rkey}`);
 
 		return result;
 	}

@@ -1,3 +1,4 @@
+import { requireStaff } from '#lib/server/http.ts';
 import type { JsonObject } from '@atproto/lex-json';
 import { error } from '@sveltejs/kit';
 import { parseJson } from '#lib/server/db/index.ts';
@@ -6,7 +7,8 @@ import { entryContent } from '#lib/server/audit/log.ts';
 import type { FieldChange } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const { app } = locals;
 	const entry = await app.audit.get(params.id);
 
