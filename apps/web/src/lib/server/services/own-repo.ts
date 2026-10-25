@@ -1,6 +1,21 @@
 import { XRPCError } from '@atproto/api';
+import type { Viewer } from '#lib/types.ts';
 import type { RepoClient } from '../atproto/repo-client';
 import { type Core, ReauthError, UserError } from '../core';
+
+/**
+ * Who writes `actor`'s records into a shared space: their own session, or the root on their behalf (the record then
+ * names them in `onBehalfOf`) when their PDS can't write to spaces or their session lapsed.
+ */
+export async function spaceWriter(core: Core, actor: Viewer): Promise<{ client: RepoClient; onBehalf: boolean }> {
+	if (actor.spacesCapable) {
+		const client = await core.userClient(actor.did);
+
+		if (client) return { client, onBehalf: false };
+	}
+
+	return { client: await core.root(), onBehalf: true };
+}
 
 /**
  * Runs `write` with `did`'s own repo client. These records (follows, shows, calendar events) live in the account's

@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "One manager's unpublished changes to one press kit, in their repo in the project's backstage (computer.localnetwork.space.backstage). The record key is the press kit's: an existing one's, or for a new press kit, the key it will be published under, so a manager has at most one draft per press kit. Photos it adds are blobs in the manager's repo until publishing copies them to the Local Network root account's.",
+			"description": "One manager's unpublished changes to one press kit, in their repo in the project's backstage (computer.localnetwork.space.backstage). The record key is the press kit's: an existing one's, or for a new press kit, the key it will be published under, so a manager has at most one draft per press kit. A draft the Local Network root account writes on someone's behalf has a key of its own, since the root can hold several managers' drafts of one press kit; its base names the press kit, or for a new one, its key is the one the press kit will get. Photos it adds are blobs in the writer's repo until publishing copies them to the root's.",
 			"record": {
 				"type": "object",
 				"required": ["changes", "createdAt", "updatedAt"],
@@ -24,6 +24,11 @@
 						"type": "ref",
 						"ref": "#fields",
 						"description": "What each changed field held in the published press kit when the draft changed it; a changed field missing here was empty. Publishing compares these with the current values to find fields someone else published since. Absent for a press kit that isn't published yet."
+					},
+					"onBehalfOf": {
+						"type": "string",
+						"format": "did",
+						"description": "Set when the Local Network root account wrote this for a manager whose PDS can't write to spaces."
 					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"updatedAt": { "type": "string", "format": "datetime" }
