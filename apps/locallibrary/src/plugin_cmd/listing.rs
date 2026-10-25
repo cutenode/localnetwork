@@ -318,10 +318,19 @@ pub(super) fn roles(
     role: Option<String>,
     analyzer: Option<String>,
     reset: bool,
+    none: bool,
     store_path: &Option<PathBuf>,
     out: Output,
 ) -> Result<ExitCode> {
     let role: Option<Role> = role.map(|r| r.parse().map_err(usage)).transpose()?;
+    if let Some(role) = role.filter(|_| none) {
+        return out.one_step(
+            &format!("read {} from no analyzer", role.name()),
+            "Change it?",
+            || Ok(fields::roles::turn_off(&crate::open_store(store_path)?, role)?),
+            |all| show_roles(&all.iter().filter(|c| c.role == role).cloned().collect::<Vec<_>>()),
+        );
+    }
     let change = match (role, analyzer) {
         (Some(r), Some(a)) => Some((r, Some(a))),
         (Some(r), None) if reset => Some((r, None)),
@@ -359,6 +368,7 @@ fn show_roles(all: &[RoleChoice]) {
         };
         match &c.chosen {
             Some(a) => say!("{}  {a}  {}", output::fit(c.role.name(), width), dim(how)),
+            None if c.off => say!("{}  {}", output::fit(c.role.name(), width), dim("none, as chosen")),
             None => say!("{}  {}", output::fit(c.role.name(), width), dim("no analyzer works it out")),
         }
     }

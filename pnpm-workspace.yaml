@@ -52,8 +52,25 @@ overrides:
   '@atproto/syntax': 0.0.0-spaces-alpha-20261001173819
   '@atproto/xrpc': 0.0.0-spaces-alpha-20261001173819
   '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261001173819
+  # Dev-only paths whose own ranges keep a version with known advisories.
+  # connect-node 1.7.0 (atproto dev network) only takes Headers from undici, and only on Node < 18.
+  '@connectrpc/connect-node>undici': ^6.29.1
+  # typed-rest-client 2.3.1 (Stryker's dashboard reporter and init) pins qs 6.15.1, and only calls
+  # qs.stringify.
+  'typed-rest-client>qs': ^6.16.1
+  # sdk-node 0.219.0 (atproto dev network) pins propagator-jaeger 2.8.0; 2.9.0 has the fix.
+  '@opentelemetry/sdk-node>@opentelemetry/propagator-jaeger': 2.9.0
+  # @lhci/cli and the external-editor under it (through inquirer) only call tmp.fileSync and
+  # tmp.tmpNameSync, which 0.2 keeps.
+  '@lhci/cli>tmp': ^0.2.6
+  'external-editor>tmp': ^0.2.6
 # Stryker's vitest runner 10.0.0 names tests the way Vitest 4 did, so on Vitest 5 it runs no tests
 # for a mutant and every mutant survives (stryker-mutator/stryker-js#6210). Drop the patch once a
 # release has the fix (#6214).
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
+# zod 3.x reaches prod only through @atproto/* (^3.23.8), and no 3.x release has the fix (4.6.6
+# does). Drop this once @atproto moves to zod 4.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mrhx-c7xc-m3w5

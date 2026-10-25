@@ -621,7 +621,8 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let said = super::scrub(&file.display().to_string(), &super::known_roots(None));
     let ((entered_tx, entered), (release, release_rx)) = (mpsc::channel(), mpsc::channel());
     let reads = Held { entered: Mutex::new(entered_tx), release: Mutex::new(release_rx), file };
-    let host = Arc::new(Host { reads: Arc::new(reads), options: Options { callbacks: quota, ..Options::default() } });
+    let options = Options { callbacks: quota, ..Options::default() };
+    let host = Arc::new(Host { reads: Arc::new(reads), options, turns: Mutex::default() });
     let launch = Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() };
     let (host_in, plugin_out) = pipe().unwrap();
     let (plugin_in, host_out) = pipe().unwrap();
