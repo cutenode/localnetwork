@@ -50,7 +50,7 @@ export class LegacyEpks {
 		// Making a press kit needed spaces, so an account without them has none to move.
 		if (!viewer.spacesCapable) return result;
 		this.epks.forget(viewer.did);
-		const kits = await this.epks.publishedBy(viewer.did);
+		const kits = await this.epks.publishedBy(viewer.did, true);
 
 		if (kits.length === 0) return result;
 		const owner = await this.core.userClient(viewer.did);
@@ -110,7 +110,7 @@ export class LegacyEpks {
 			// Another manager's legacy press kit under the same key means one copied the other's key. Moving either would make
 			// the other look moved, and its maker's next visit would delete it, so both stay where they are.
 			const others = project.managers.filter((did) => did !== viewer.did);
-			const lists = await Promise.all(others.map((did) => this.epks.publishedBy(did)));
+			const lists = await Promise.all(others.map((did) => this.epks.publishedBy(did, true)));
 
 			if (lists.flat().some((other) => other.rkey === epk.rkey)) {
 				this.core.logger.warn(log, "leaving a legacy press kit another manager's press kit has the key of");
@@ -146,12 +146,14 @@ export class LegacyEpks {
 				"copied a legacy press kit's private part, requests and grants"
 			);
 
-			await root.putRecord({
+			const ref = await root.putRecord({
 				collection: COLLECTION.epk,
 				rkey: epk.rkey,
 				record: validateRecord(COLLECTION.epk, toJson(epk.record)),
 				swapRecord: null
 			});
+
+			await this.epks.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, ref.cid);
 			this.core.logger.info(log, 'moved a legacy press kit to the root');
 			await this.core.audit.record({
 				actor: viewer.did,
@@ -167,6 +169,7 @@ export class LegacyEpks {
 		// The old copy goes last. Only the space's authority, its maker, can delete it.
 		if (await owner.getSpace(epk.space)) await owner.deleteSpace(epk.space);
 		await owner.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await this.epks.indexed.awaitWrite(owner.did, COLLECTION.epk, epk.rkey, null);
 		await this.epks.forgetIndex(epk.space);
 		this.core.logger.info(log, "deleted a moved press kit's old record and space");
 

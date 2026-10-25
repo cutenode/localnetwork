@@ -93,6 +93,7 @@ describe('press kit pages', () => {
 
 		await f.t.epks.drafts.save(await f.t.viewer(CODJ), f.project, {
 			rkey: epk.rkey,
+			cid: epk.cid,
 			values: values({ title: 'Clubs 2027' })
 		});
 
@@ -122,6 +123,7 @@ describe('press kit pages', () => {
 	it("saves the form as the viewer's draft, uploading new photos to their repo, without publishing", async () => {
 		const epk = await f.publish(DJ);
 		const form = new FormData();
+		form.set('cid', epk.cid);
 		form.set('title', 'Clubs 2027');
 		form.append('newPhotos', png(3200, 1800, 'wide.png'));
 		form.set('newPhotoVisibility', 'private');

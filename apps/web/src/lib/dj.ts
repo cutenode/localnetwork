@@ -2,14 +2,10 @@ import type { z } from 'zod';
 import type { djProfileSchema, djSetSchema } from './dj-schema.ts';
 
 /**
- * What locallibrary publishes about a DJ, read from their own repo: `computer.localnetwork.dj.profile`
+ * What locallibrary publishes about a DJ to their own repo, as HappyView serves it: `computer.localnetwork.dj.profile`
  * (one per account, their playing stats) and `computer.localnetwork.dj.set` (one per set played).
  * The schemas live in dj-schema.ts, for the server; this module is what pages need to show them.
  */
-export const DJ_PROFILE = 'computer.localnetwork.dj.profile';
-
-export const DJ_SET = 'computer.localnetwork.dj.set';
-
 export type DjProfile = z.infer<typeof djProfileSchema>;
 
 export type DjSet = z.infer<typeof djSetSchema> & { uri: string };

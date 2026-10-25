@@ -14,6 +14,9 @@ export const QUERY_BYTES = 100;
 /** A published project as the directory serves it (`computer.localnetwork.directory.defs#projectView`). */
 export type DirectoryProject = { uri: string; cid: string; record: JsonObject; distanceM?: number };
 
+/** A record as the directory indexed it (`computer.localnetwork.directory.defs#recordView`), as its record script kept it. */
+export type DirectoryRecord = { uri: string; cid: string; value: JsonObject };
+
 type Facet = { value: string; count: number };
 
 /** A show as the directory serves it (`computer.localnetwork.directory.defs#showView`). */
@@ -56,6 +59,8 @@ export type DirectoryOutputs = {
 	getCharts: Charts;
 	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
 	searchArtists: { artists: SupportedArtist[] };
+	getRecords: { records: DirectoryRecord[] };
+	listRecords: { records: DirectoryRecord[]; cursor?: string };
 };
 
 export type DirectoryStats = DirectoryOutputs['getStats'];
@@ -96,8 +101,8 @@ export class HappyViewError extends Error {
 }
 
 /**
- * Talks to the HappyView instance that indexes published projects, their managers' sets and shows, and follows: directory
- * queries over XRPC, plus the admin calls that keep its lexicons and scripts in step with this app.
+ * Talks to the HappyView instance that indexes published projects, their managers' DJ records, press kits and shows,
+ * and follows: directory queries over XRPC, plus the admin calls that keep its lexicons and scripts in step with this app.
  */
 export class HappyViewClient {
 	readonly url: string;

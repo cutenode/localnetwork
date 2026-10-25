@@ -4,9 +4,18 @@ import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
 describe('happyViewBundle', () => {
-	it('ships the project, set, show, and follow records, the defs they use, and the directory queries, with a script for each', () => {
+	it('ships the records and queries lua/ has a script for, and the defs they use', () => {
 		const { lexicons, scripts } = happyViewBundle('did:plc:root');
-		const records = [COLLECTION.project, COLLECTION.djSet, COLLECTION.show, COLLECTION.follow];
+
+		const records = [
+			COLLECTION.project,
+			COLLECTION.djProfile,
+			COLLECTION.djSet,
+			COLLECTION.epk,
+			COLLECTION.show,
+			COLLECTION.follow,
+			`${NS}.locallibrary.settings`
+		];
 
 		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
 			[
@@ -14,6 +23,7 @@ describe('happyViewBundle', () => {
 				'community.lexicon.location.address',
 				`${NS}.defs`,
 				`${NS}.dj.defs`,
+				`${NS}.epk.defs`,
 				`${NS}.directory.defs`,
 				...records,
 				...Object.values(DIRECTORY)

@@ -62,10 +62,16 @@ export async function pressKitServices() {
 		/** The press kit with the project as it is now. */
 		kit: (epk: EpkView) => ({ epk, project: fixture.project }),
 
+		/** The published version of the press kit `rkey` (none for a new one), as its editor opens on it. */
+		async opened(rkey?: string): Promise<string | undefined> {
+			return rkey && (await t.epks.get(fixture.project, rkey))?.epk.cid;
+		},
+
 		/** `did` saves a draft of the press kit `rkey` (a new one without it) from the whole form, and publishes it. */
 		async publish(did: string, overrides: EpkFields = {}, rkey?: string): Promise<EpkView> {
 			const actor = await t.viewer(did);
-			const draft = await t.epks.drafts.save(actor, fixture.project, { rkey, values: values(overrides) });
+			const cid = await fixture.opened(rkey);
+			const draft = await t.epks.drafts.save(actor, fixture.project, { rkey, cid, values: values(overrides) });
 			const result = await t.epks.drafts.publish(actor, fixture.project, draft!.rkey);
 
 			if (result.kind === 'conflict')

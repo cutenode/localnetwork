@@ -2,6 +2,7 @@ import { COLLECTION } from '#lib/nsid.ts';
 import type { RootRepoClient } from '../atproto/repo-client';
 import { backstageSpace, epkSpace, parsePublicRecordUri } from '../atproto/spaces';
 import type { Core } from '../core';
+import type { IndexedRepo } from '../happyview/indexed';
 import { auditedProjects, openedProjects } from './bookings';
 
 /**
@@ -37,7 +38,11 @@ type ManagerSpace = {
  * failed part way is finished by the next one.
  */
 export class ManagerSpaces {
-	constructor(private readonly core: Core) {}
+	constructor(
+		private readonly core: Core,
+		/** Where the root's press kits are read; a HappyView that's down fails the sync, which runs again later. */
+		private readonly indexed: IndexedRepo
+	) {}
 
 	async sync(projectUri: string, managers: string[]): Promise<void> {
 		for (const space of await this.spaces(projectUri)) await this.syncSpace(space, managers);
@@ -61,7 +66,7 @@ export class ManagerSpaces {
 
 		if (await root.getSpace(backstage)) spaces.push({ uri: backstage, joinable: true, write: true, others: [] });
 
-		for (const { uri, value } of await root.listRecords(COLLECTION.epk)) {
+		for (const { uri, value } of await this.indexed.listAll(root.did, COLLECTION.epk, { strict: true })) {
 			if (value.project !== projectUri) continue;
 			const space = epkSpace(root.did, uri.split('/').at(-1)!);
 

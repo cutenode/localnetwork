@@ -1,13 +1,10 @@
--- Runs before HappyView stores a computer.localnetwork.dj.set event. Jetstream sends every account's sets, but this
--- site only shows sets by the DJs behind the root's projects (a mix links one, the charts and artist pages count
--- their tracks), so only sets by accounts that manage one of those projects get in. Of those, only what the site
--- shows is kept: when and where it was played, and the title, artists, IDs and start of each track it names, with
--- the key the support queries group a track by when it has no IDs. Tempo, keys, transitions and unnamed tracks stay
--- in the DJ's repo. A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView keeps the event's CID either
--- way.
+-- Runs before HappyView stores a computer.localnetwork.dj.set event. Jetstream sends every account's sets, and all of
+-- them are kept, since anyone can come to manage a project; the queries read only managers' sets. What's kept is what
+-- the site shows: when and where the set was played, who with, where to listen, and its tracklist as written (tempo,
+-- keys and transitions included), plus each named track's title, artists, IDs and start, with the key the support
+-- queries group a track by when it has no IDs. A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView
+-- keeps the event's CID either way.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
-
-local PROJECT = 'computer.localnetwork.project'
 
 local ADDRESS = 'community.lexicon.location.address'
 
@@ -50,15 +47,6 @@ local function isrc(value)
 	value = text(value)
 	value = value and value:upper()
 	return value and #value == 12 and value:match('^%w+$') or nil
-end
-
-local function manages(account)
-	local rows = db.raw(
-		"SELECT 1 AS found FROM happyview_records WHERE collection = ? AND did = ?"
-			.. " AND EXISTS (SELECT 1 FROM json_each(record, '$.managers') WHERE value = ?) LIMIT 1",
-		{ PROJECT, ROOT_DID, account }
-	)
-	return #rows > 0
 end
 
 -- The artists a track credits: one by one when the writer told them apart, otherwise its whole credit as one.
@@ -110,22 +98,27 @@ local function track(value)
 	}
 end
 
--- The directory's setView of the record with its named tracks, minus its URI and CID, or nil with why it can't be
--- one.
+-- The directory's setView of the record, minus its URI and CID, with what the DJ sets block shows besides and its
+-- named tracks, or nil with why it can't be one.
 local function view(value)
 	local date = text(value.date)
 	if not (date and date:match('^%d%d%d%d%-%d%d%-%d%d$') and type(value.tracks) == 'table') then
 		return nil, 'bad date or tracks'
 	end
-	local tracks = {}
-	for _, item in ipairs(value.tracks) do tracks[#tracks + 1] = track(item) end
+	local named = {}
+	for _, item in ipairs(value.tracks) do named[#named + 1] = track(item) end
 	local out = {
 		date = value.date,
 		title = text(value.title),
 		kind = text(value.kind),
 		venue = text(value.venue),
 		trackCount = #value.tracks,
-		tracks = toarray(tracks)
+		-- The app reads these leniently, a section at a time, so they're kept as written.
+		tracks = toarray(value.tracks),
+		playedWith = type(value.playedWith) == 'table' and toarray(value.playedWith) or nil,
+		links = type(value.links) == 'table' and toarray(value.links) or nil,
+		event = text(value.event),
+		namedTracks = toarray(named)
 	}
 	local place = value.location
 	if type(place) == 'table' and place['$type'] == ADDRESS and text(place.country) then
@@ -141,7 +134,6 @@ end
 
 local function gate()
 	if action == 'delete' then return true end
-	if not manages(did) then return nil end
 	local out, why = view(record)
 	if not out then log('skipped ' .. uri .. ': ' .. why) end
 	return out

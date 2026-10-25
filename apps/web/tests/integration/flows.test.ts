@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
+import { ACCESS_PRESETS, type EpkFields } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
@@ -379,7 +381,7 @@ describe('Local Network on a real atproto spaces network', () => {
 	it("links a DJ's published set to a mix, through HappyView, the form, and a moderator's approval", async () => {
 		const sol = net.user('sol');
 
-		// What locallibrary's `sets publish` writes. Sol manages nothing yet, so HappyView's gate turns it away.
+		// What locallibrary's `sets publish` writes. Sol manages nothing yet, so HappyView keeps it without listing it.
 		const write = (title: string) =>
 			sol.agent.com.atproto.repo.putRecord({
 				repo: sol.did,
@@ -487,6 +489,85 @@ describe('Local Network on a real atproto spaces network', () => {
 		await net.app.follows.unfollow(pat, project);
 		expect(await net.app.shows.forProject(project)).toEqual([]);
 		expect(await net.app.follows.state(project, pat.did)).toEqual({ followers: 0, following: false });
+	});
+
+	it("shows a manager's DJ stats and sets, and their press kits, read through HappyView", async () => {
+		const neon = net.user('neon');
+		const viewer = await net.viewer('neon');
+		const project = (await net.app.projects.byUri(projectUri))!;
+
+		const write = (collection: string, rkey: string, record: typeof DEMO_DJ_PROFILE | (typeof DEMO_DJ_SETS)[number]) =>
+			neon.agent.com.atproto.repo.putRecord({
+				repo: neon.did,
+				collection,
+				rkey,
+				record: { $type: collection, ...record }
+			});
+
+		// What locallibrary publishes, which reaches HappyView over Jetstream.
+		const stats = (await write(COLLECTION.djProfile, 'self', DEMO_DJ_PROFILE)).data;
+
+		const set = (
+			await write(COLLECTION.djSet, '3djsetflow2', { ...DEMO_DJ_SETS[0], createdAt: new Date().toISOString() })
+		).data;
+
+		const indexed = async () =>
+			(await net.app.happyView.query('getRecords', { uris: [stats.uri, set.uri] })).records.map((record) => record.cid);
+
+		await expect.poll(indexed, { timeout: 10_000 }).toEqual([stats.cid, set.cid]);
+
+		const [activity] = await net.app.dj.activity([{ did: neon.did, handle: neon.handle }]);
+		expect(activity.profile?.tempo).toEqual(DEMO_DJ_PROFILE.tempo);
+		expect(activity.sets.map((played) => [played.uri, played.title, played.tracks.length])).toEqual([
+			[set.uri, DEMO_DJ_SETS[0].title, DEMO_DJ_SETS[0].tracks.length]
+		]);
+		expect(activity.sets[0].tracks[0]).toMatchObject({ bpmCentis: 12400, key: '8A', startSeconds: 0 });
+
+		const fields: EpkFields = { title: 'Clubs', access: ACCESS_PRESETS[0].access, content: { bio: 'The long bio' } };
+
+		/** Neon saves the form as a draft over version `cid` of the press kit `rkey` (a new one without it), and publishes. */
+		const publish = async (values: EpkFields, rkey?: string, cid?: string) => {
+			const draft = await net.app.epks.drafts.save(viewer, project, { rkey, cid, values });
+			const result = await net.app.epks.drafts.publish(viewer, project, draft!.rkey);
+
+			if (result.kind === 'conflict') throw new Error('the draft conflicts');
+
+			return result.epk;
+		};
+
+		// Each publish waits until HappyView serves it, and a draft saves only over the version its form was opened on.
+		const epk = await publish(fields);
+		expect((await net.app.epks.forProject(project)).map((kit) => kit.uri)).toEqual([epk.uri]);
+		const edited = await publish({ ...fields, title: 'Clubs, edited' }, epk.rkey, epk.cid);
+		expect((await net.app.epks.get(project, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
+
+		// Another app edits it in the root's repo while the form is open on `edited`. Once HappyView has that change, the
+		// form's save is refused; reloaded, it saves.
+		const root = await net.app.core.root();
+		const current = await root.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await root.putRecord({
+			collection: COLLECTION.epk,
+			rkey: epk.rkey,
+			record: { ...current!.value, headline: 'Elsewhere' }
+		});
+		await expect
+			.poll(async () => (await net.app.epks.get(project, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
+			.toBe('Elsewhere');
+		await expect(
+			net.app.epks.drafts.save(viewer, project, {
+				rkey: epk.rkey,
+				cid: edited.cid,
+				values: { ...fields, title: 'Stale' }
+			})
+		).rejects.toMatchObject({ status: 409 });
+		const reloaded = (await net.app.epks.get(project, epk.rkey))!.epk;
+		expect(reloaded.record).toMatchObject({ title: 'Clubs, edited', headline: 'Elsewhere' });
+		await publish({ ...fields, title: 'Clubs, again', headline: 'Elsewhere' }, epk.rkey, reloaded.cid);
+		expect((await net.app.epks.get(project, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
+
+		await net.app.epks.remove(viewer, (await net.app.epks.get(project, epk.rkey))!);
+		expect(await net.app.epks.get(project, epk.rkey)).toBeNull();
+		expect(await net.app.epks.forProject(project)).toEqual([]);
 	});
 
 	it('asks an account whose grant predates follows to sign in again, then follows with or without spaces', async () => {
