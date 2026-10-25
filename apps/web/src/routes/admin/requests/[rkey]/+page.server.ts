@@ -4,7 +4,8 @@ import { DECISION_OUTCOMES } from '#lib/server/services/requests.ts';
 import { act, requireStaff, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const { app } = locals;
 	const request = await app.requests.byRkey(params.rkey);
 

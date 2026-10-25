@@ -95,6 +95,30 @@ fails_on_failure(job) if {
 	contains(step["if"], "contains(needs.*.result, 'cancelled')")
 }
 
+# A draft's run skips the work, and skipped jobs pass the passed check, so a draft marked ready
+# that got no run after it could merge untested, as #211 did. Its push's event still said draft
+# (and a re-run gets the same event), so the changes job reads the draft state from the API, and
+# the passed job fails on the draft output.
+deny contains msg if {
+	some path, wf in gated
+	some name, value in object.get(wf.jobs.changes, "outputs", {})
+	contains(value, "github.event.pull_request.draft")
+	msg := sprintf("%s: the changes job's %q output reads draft from the event, which can be stale; read it from the API (see locallibrary-ci.yml)", [path, name])
+}
+
+deny contains msg if {
+	some path, wf in gated
+	some _, value in object.get(wf.jobs.changes, "outputs", {})
+	contains(value, "draft")
+	not fails_on_draft(wf.jobs.passed)
+	msg := sprintf("%s: the passed job should exit 1 when the changes job's draft output is true, or a draft's skipped jobs pass it", [path])
+}
+
+fails_on_draft(job) if {
+	some step in job.steps
+	step["if"] == "needs.changes.outputs.draft == 'true'"
+}
+
 deny contains msg if {
 	some path, wf in gated
 	wf.jobs.changes

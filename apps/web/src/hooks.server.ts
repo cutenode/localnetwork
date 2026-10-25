@@ -4,6 +4,7 @@ import { getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
+import { guardArea } from '#lib/server/http.ts';
 import { createLogger } from '#lib/server/logger.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
 
@@ -83,6 +84,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 			event.cookies.delete(SESSION_COOKIE, { path: '/' });
 		}
 	}
+
+	guardArea(event.locals, event.url, event.route.id);
 
 	// The two typefaces set every line and differ in width from the system fallbacks, so arriving after
 	// the first paint they moved the whole page (Lighthouse's CLS). Their Latin files are preloaded with

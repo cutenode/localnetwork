@@ -38,8 +38,7 @@ const data = {
 	isManager: false,
 	dj: Promise.resolve([]),
 	profileUrl: 'https://localnetwork.computer/projects/neon-tide',
-	epks: Promise.resolve([]),
-	deleted: false
+	epks: Promise.resolve([])
 };
 
 it('lays out the press kit from the profile', async () => {
@@ -71,10 +70,10 @@ it('lets a signed-in member send an inquiry', async () => {
 
 	await expect
 		.element(page.getByRole('link', { name: 'Send inquiry' }))
-		.toHaveAttribute('href', '/bookings/new?project=neon-tide');
+		.toHaveAttribute('href', '/dashboard/bookings/new?project=neon-tide');
 });
 
-it('lists the press kits its managers publish, and lets a manager start one', async () => {
+it('lists the press kits its managers publish, and links a manager to manage them', async () => {
 	const epk = {
 		uri: 'at://did:plc:neon/computer.localnetwork.epk/3k',
 		cid: 'bafyepk',
@@ -93,14 +92,27 @@ it('lists the press kits its managers publish, and lets a manager start one', as
 
 	await render(Page, {
 		params: { slug: 'neon-tide' },
-		data: { ...data, isManager: true, epks: Promise.resolve([epk]) },
+		data: {
+			...data,
+			viewer: {
+				did: 'did:plc:neon',
+				handle: 'neon.test',
+				roles: [],
+				isAdmin: false,
+				isStaff: false,
+				spacesCapable: true
+			},
+			isManager: true,
+			epks: Promise.resolve([epk])
+		},
 		form: null
 	});
 
 	await expect.element(page.getByRole('link', { name: /Festivals/ })).toHaveAttribute('href', '/epk/did:plc:neon/3k');
 	await expect.element(page.getByText(/Open · Updated/)).toBeVisible();
 	await expect
-		.element(page.getByRole('link', { name: 'New press kit' }))
-		.toHaveAttribute('href', '/epk/new?project=neon-tide');
+		.element(page.getByRole('link', { name: 'Manage', exact: true }))
+		.toHaveAttribute('href', '/dashboard/projects/neon-tide/press-kits');
+	await expect.element(page.getByRole('link', { name: 'New press kit' })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Send inquiry' })).not.toBeInTheDocument();
 });

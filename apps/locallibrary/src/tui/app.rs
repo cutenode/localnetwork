@@ -3374,7 +3374,6 @@ impl App {
             Act::SmartApply => self.smart_apply(),
             Act::SmartNew => self.smart_from_search(),
             Act::ExportList => self.export_list(),
-            Act::ExportXml => self.export_xml(),
             Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive(), None),
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),

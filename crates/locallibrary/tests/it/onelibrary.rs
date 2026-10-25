@@ -1,7 +1,7 @@
 //! OneLibrary (`exportLibrary.db`): reading SQLCipher files and their WAL, OneLibrary-only drives,
 //! and keeping the database and its WAL together through syncs, edits and restores.
 
-use crate::common::{self, media::png, media::set_artwork};
+use crate::common::{self, XmlOptions, media::png, media::set_artwork};
 
 use rustc_hash::FxHashMap;
 use std::fs;
@@ -16,7 +16,6 @@ use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Library, backup, paths};
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -124,7 +123,7 @@ fn onelibrary_only_drives_are_exports() {
     assert_eq!(compare::compare_devices(&a, &b, &Ctx::silent()).unwrap().relation, Relation::Identical);
 
     // And exported as rekordbox XML.
-    let (text, report) = xml::export(&a, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&a, &XmlOptions::default()).unwrap();
     assert_eq!(report.tracks, 12);
     assert!(text.contains("aab"));
 }

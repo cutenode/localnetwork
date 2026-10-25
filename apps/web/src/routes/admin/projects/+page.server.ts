@@ -1,7 +1,9 @@
+import { requireStaff } from '#lib/server/http.ts';
 import { isProjectStatus } from '#lib/server/services/projects.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
+	requireStaff(locals, url);
 	const q = url.searchParams.get('q')?.slice(0, 100) ?? '';
 	const statusParam = url.searchParams.get('status') ?? '';
 	const status = isProjectStatus(statusParam) ? statusParam : undefined;

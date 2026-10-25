@@ -1,6 +1,7 @@
 <script lang="ts">
 	import LinkedSet from '#lib/components/LinkedSet.svelte';
 	import MixReport from '#lib/components/mix/MixReport.svelte';
+	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
 	import { pluralize } from '#lib/format.ts';
 	import Monogram from '#lib/ui/Monogram.svelte';
 	import type { PageProps } from './$types';
@@ -17,7 +18,8 @@
 	<meta name="description" content={description} />
 </svelte:head>
 
-<div class="container-page py-10 sm:py-14">
+<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
+	<PreviewBanner status={data.project.status} />
 	<MixReport report={data.report} title={data.mix.title} listen={data.mix.url}>
 		{#snippet details()}
 			{#if data.mix.set && data.sets}<LinkedSet linked={data.mix.set} sets={data.sets} />{/if}
