@@ -1,6 +1,6 @@
 import { createRawSnippet } from 'svelte';
 import { page, userEvent } from 'vitest/browser';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { Disc3, Globe, LayoutDashboard, NotebookPen } from '@lucide/svelte';
 import { colors } from '#lib/mix/report.ts';
@@ -264,18 +264,31 @@ describe('Waveform', () => {
 
 describe('SiteHeader', () => {
 	const links = [
-		{ href: '/projects', label: 'DJs' },
-		{ href: '/mixes', label: 'Mixes' }
+		{ href: '/projects', label: 'Find DJs', also: ['/match'] },
+		{ href: '/shows', label: 'Shows' }
 	];
 
-	it('folds the links and the account into a menu on a phone', async () => {
-		await render(SiteHeader, {
-			links,
-			current: '/mixes',
-			account: { href: '/login', label: 'Sign in' },
-			cta: { href: '/dashboard/projects/new', label: 'List your project' }
-		});
-		await expect.element(page.getByRole('link', { name: 'List your project' })).toBeInTheDocument();
+	const signedOut = [
+		{ href: '/for-djs', label: 'For DJs' },
+		{ href: '/login', label: 'Sign in' }
+	];
+
+	const account = {
+		handle: '@ada.test',
+		name: 'ada',
+		links: [{ href: '/admin', label: 'Staff console', badge: 3 }],
+		alert: '3 requests waiting',
+		signOut: '/logout'
+	};
+
+	const wide = () => page.viewport(1280, 800);
+
+	// Back to the size the other tests expect.
+	afterEach(() => page.viewport(414, 896));
+
+	it('folds the links and the actions into a menu on a phone, which Escape closes', async () => {
+		await page.viewport(390, 800);
+		await render(SiteHeader, { links, actions: signedOut, current: '/shows' });
 		const toggle = page.getByRole('button', { name: 'Menu' });
 
 		await expect.element(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -283,9 +296,94 @@ describe('SiteHeader', () => {
 		const menu = page.getByRole('navigation', { name: 'Menu' });
 
 		await expect.element(menu.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
-		await expect.element(menu.getByRole('link', { name: 'Mixes' })).toHaveAttribute('aria-current', 'page');
-		await page.getByRole('button', { name: 'Close menu' }).click();
+		await expect.element(menu.getByRole('link', { name: 'For DJs' })).toHaveAttribute('href', '/for-djs');
+		await expect.element(menu.getByRole('link', { name: 'Shows' })).toHaveAttribute('aria-current', 'page');
+		await userEvent.keyboard('{Escape}');
 		await expect.element(menu).not.toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Menu' })).toHaveFocus();
+	});
+
+	it("puts the account's items in the phone menu, and a dot on its button while something waits", async () => {
+		await page.viewport(390, 800);
+		await render(SiteHeader, { links, actions: [{ href: '/dashboard', label: 'Dashboard' }], account });
+		await page.getByRole('button', { name: 'Menu, 3 requests waiting' }).click();
+		const menu = page.getByRole('navigation', { name: 'Menu' });
+
+		await expect.element(menu.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
+		await expect.element(menu.getByText('@ada.test')).toBeInTheDocument();
+		await expect.element(menu.getByRole('link', { name: 'Staff console 3' })).toHaveAttribute('href', '/admin');
+		await expect.element(menu.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+	});
+
+	it('marks a link current on its own pages and its other paths, and nothing else', async () => {
+		await wide();
+		const { rerender } = await render(SiteHeader, { links, actions: signedOut, current: '/match' });
+		const nav = page.getByRole('navigation', { name: 'Main' });
+
+		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).toHaveAttribute('aria-current', 'page');
+		await expect.element(nav.getByRole('link', { name: 'Shows' })).not.toHaveAttribute('aria-current');
+
+		await rerender({ current: '/for-djs' });
+		await expect.element(page.getByRole('link', { name: 'For DJs' })).toHaveAttribute('aria-current', 'page');
+		await expect.element(nav.getByRole('link', { name: 'Find DJs' })).not.toHaveAttribute('aria-current');
+	});
+
+	it('marks only Dashboard current anywhere under it', async () => {
+		await wide();
+		await render(SiteHeader, {
+			links,
+			actions: [{ href: '/dashboard', label: 'Dashboard' }],
+			account,
+			current: '/dashboard/bookings'
+		});
+
+		await expect.element(page.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
+		expect(document.querySelectorAll('[aria-current]')).toHaveLength(1);
+	});
+
+	it('opens the account menu from the keyboard, and Escape closes it and returns focus', async () => {
+		await wide();
+		await render(SiteHeader, { links, actions: [{ href: '/dashboard', label: 'Dashboard' }], account });
+		const button = page.getByRole('button', { name: 'Account, @ada.test, 3 requests waiting' });
+
+		await expect.element(button).toHaveAttribute('aria-expanded', 'false');
+		button.element().focus();
+		await userEvent.keyboard('{Enter}');
+		await expect.element(button).toHaveAttribute('aria-expanded', 'true');
+		await expect.element(page.getByText('@ada.test')).toBeVisible();
+		await expect.element(page.getByRole('link', { name: 'Staff console 3' })).toHaveAttribute('href', '/admin');
+		await expect.element(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+		expect(page.getByRole('button', { name: 'Sign out' }).element().closest('form')?.getAttribute('action')).toBe(
+			'/logout'
+		);
+
+		await userEvent.tab();
+		await expect.element(page.getByRole('link', { name: 'Staff console 3' })).toHaveFocus();
+		await userEvent.keyboard('{Escape}');
+		await expect.element(page.getByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+		await expect.element(button).toHaveFocus();
+	});
+
+	it('closes the account menu on a click outside it or tabbing past it', async () => {
+		await wide();
+		await render(SiteHeader, {
+			links,
+			actions: [{ href: '/dashboard', label: 'Dashboard' }],
+			account: { ...account, links: [], alert: undefined }
+		});
+		const button = page.getByRole('button', { name: 'Account, @ada.test' });
+
+		await button.click();
+		await expect.element(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+		// A press that lands on nothing focusable, which moves no focus.
+		document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+		await expect.element(button).toHaveAttribute('aria-expanded', 'false');
+
+		await button.click();
+		await userEvent.tab();
+		await expect.element(page.getByRole('button', { name: 'Sign out' })).toHaveFocus();
+		await userEvent.tab();
+		await expect.element(button).toHaveAttribute('aria-expanded', 'false');
 	});
 });
 
