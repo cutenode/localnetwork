@@ -19,7 +19,7 @@ describe('verifyServiceJwt', () => {
 
 	it('accepts a valid token and strips the issuer fragment', async () => {
 		const key = await Secp256k1Keypair.create();
-		const jwt = await makeJwt(key, { iss: 'did:plc:authority#atproto_space_host', aud: audience, lxm, exp: now + 60 });
+		const jwt = await makeJwt(key, { iss: 'did:plc:authority#atproto_pds', aud: audience, lxm, exp: now + 60 });
 		const payload = await verifyServiceJwt(jwt, { audience, lxm, getSigningKey: async () => key.did() });
 		expect(payload.iss).toBe('did:plc:authority');
 	});

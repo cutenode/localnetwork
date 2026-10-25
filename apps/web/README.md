@@ -4,7 +4,7 @@ Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ,
 
 All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, and the DJ stats, sets, press kits, shows and follows their managers and fans publish, are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network.
 
-> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261001173819` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
+> Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261022141228` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
 
@@ -133,7 +133,7 @@ A mix can also link a set (`set`, a `com.atproto.repo.strongRef` to a `computer.
 
 ### Sync
 
-The app is a space syncer. For each watched space it mints a space credential (delegation token from the root's PDS, exchanged at the space host with an RFC 9421 HTTP message signature bound to a fresh P-256 key), enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and verifies the result against the author's signed LtHash commit, falling back to a full verified CAR download (`getRepo`) when needed. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, and booking records from non-participants are ignored.
+The app is a space syncer. For each watched space it asks the space host (the authority's PDS) for a space credential, sending a delegation token from the root's PDS and a fresh P-256 key the credential is bound to, and signs every request with that key (RFC 9421). It enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and checks the result against the repo's LtHash commit, falling back to a full download (`getRepo`, a STAR archive) when needed. Commits and records aren't signed: the repo host MACs each response with a secret shared for that one request, derived from the author's `#atproto_kem` key. When a MAC fails, the app refetches the author's DID document once, in case the key rotated. Accounts whose DID document has no KEM key can't be synced, and the system page says so. A deleted space is dropped with everything derived from it, however often the authority says so, and a space recreated under the same URI syncs from scratch. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, and booking records from non-participants are ignored.
 
 ### Directory
 

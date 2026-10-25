@@ -1,7 +1,7 @@
 import type { LexiconDoc } from '@atproto/lexicon';
 import { GENRE_ALIASES, GENRE_FAMILIES } from '#lib/taxonomy/genres.ts';
 import { FEE_TIER_ORDER } from '#lib/taxonomy/options.ts';
-import { LEXICON_DOCS, referencedLexicons } from '../atproto/lexicons';
+import { LEXICON_DOCS, REFERENCED_DOCS } from '../atproto/lexicons';
 
 /** A HappyView script, keyed by its trigger, e.g. `xrpc.query:computer.localnetwork.directory.searchProjects`. */
 export type HappyViewScript = { id: string; body: string };
@@ -74,7 +74,7 @@ export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const files = Object.entries(LUA).sort(([a], [b]) => a.localeCompare(b));
 	const library = files.filter(([path]) => path.startsWith(LIBRARY)).map(([, body]) => body);
 	const queryPrelude = [root, `local TAXONOMY = json.decode(${longString(JSON.stringify(taxonomy))})`, ...library];
-	const available = new Map<string, LexiconDoc>([...referencedLexicons(), ...LEXICON_DOCS].map((doc) => [doc.id, doc]));
+	const available = new Map<string, LexiconDoc>([...REFERENCED_DOCS, ...LEXICON_DOCS].map((doc) => [doc.id, doc]));
 
 	// `lua/<nsid path>.lua` handles the lexicon at that NSID: an index script for a record, the handler for a query.
 	const handlers = files

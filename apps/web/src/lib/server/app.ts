@@ -1,7 +1,5 @@
 import type { Viewer } from '#lib/types.ts';
-import { loadReferencedLexicons, REFERENCED_NSIDS } from './atproto/lexicons';
-import { z } from 'zod';
-import { SpaceCredentialManager, XrpcResponseError } from './atproto/credentials';
+import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
 import { PublicRepo } from './atproto/public-repo';
@@ -52,9 +50,6 @@ export type CreateAppOptions = {
 	background?: boolean;
 };
 
-/** What com.atproto.space.getRecord answers, kept as JSON for validateRecord. */
-const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.record(z.string(), z.json()) });
-
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
 export async function createApp(options: CreateAppOptions) {
 	const { config } = options;
@@ -63,10 +58,6 @@ export async function createApp(options: CreateAppOptions) {
 		options.logger ?? createLogger({ level: config.logLevel, pretty: config.dev && config.env !== 'test' });
 
 	const db = options.db ?? (await openDatabase(config.databasePath));
-
-	// Before anything validates a record or uploads lexicons to HappyView: both need the ones ours reference.
-	await loadReferencedLexicons();
-	logger.debug({ lexicons: REFERENCED_NSIDS }, 'fetched the lexicons ours reference');
 
 	const identity = new IdentityResolver({
 		plcUrl: config.plcUrl,
@@ -131,25 +122,7 @@ export async function createApp(options: CreateAppOptions) {
 
 			return { bytes, mimeType: response.headers.get('content-type') ?? 'application/octet-stream' };
 		},
-		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
-			const host = await identity.resolve(repo);
-
-			try {
-				const response = await credentials.request({
-					space,
-					service: host.pds,
-					audience: repo,
-					nsid: 'com.atproto.space.getRecord',
-					params: { space, repo, collection, rkey }
-				});
-
-				return spaceRecordOutput.parse(await response.json());
-			} catch (error) {
-				// A record that isn't there comes back as 400 RecordNotFound.
-				if (error instanceof XrpcResponseError && error.error === 'RecordNotFound') return null;
-				throw error;
-			}
-		},
+		readSpaceRecord: (input) => credentials.readRecord(input),
 		fetchBlob: async (did, cid, maxBytes) => {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
@@ -202,6 +175,7 @@ export async function createApp(options: CreateAppOptions) {
 		identity,
 		credentials,
 		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks }),
+		onSpaceDropped: (space) => bookings.forget(space),
 		notifyService: config.syncNotify ? config.syncService : null
 	});
 

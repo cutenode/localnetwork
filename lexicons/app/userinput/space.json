@@ -1,72 +1,72 @@
 {
-    "lexicon": 1,
-    "id": "app.userinput.space",
-    "defs": {
-        "tag": {
-            "type": "object",
-            "required": [
-                "value",
-                "label"
+  "defs": {
+    "main": {
+      "description": "A feedback space created by an organization. Lives in the owner's repo; the owner DID is the repo it is stored in.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "createdAt": {
+            "format": "datetime",
+            "type": "string"
+          },
+          "description": {
+            "maxGraphemes": 1500,
+            "maxLength": 3000,
+            "type": "string"
+          },
+          "icon": {
+            "accept": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
             ],
-            "properties": {
-                "label": {
-                    "type": "string",
-                    "maxLength": 64,
-                    "description": "Human-readable display label."
-                },
-                "value": {
-                    "type": "string",
-                    "maxLength": 64,
-                    "description": "Stable machine value stored on discussions."
-                }
-            }
-        },
-        "main": {
-            "key": "tid",
-            "type": "record",
-            "record": {
-                "type": "object",
-                "required": [
-                    "name",
-                    "createdAt"
-                ],
-                "properties": {
-                    "icon": {
-                        "type": "blob",
-                        "accept": [
-                            "image/png",
-                            "image/jpeg",
-                            "image/webp"
-                        ],
-                        "maxSize": 1000000,
-                        "description": "Optional space icon/logo."
-                    },
-                    "name": {
-                        "type": "string",
-                        "maxLength": 200,
-                        "maxGraphemes": 100
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {
-                            "ref": "#tag",
-                            "type": "ref"
-                        },
-                        "maxLength": 24,
-                        "description": "The set of categories feedback in this space may be filed under."
-                    },
-                    "createdAt": {
-                        "type": "string",
-                        "format": "datetime"
-                    },
-                    "description": {
-                        "type": "string",
-                        "maxLength": 3000,
-                        "maxGraphemes": 1500
-                    }
-                }
+            "description": "Optional space icon/logo.",
+            "maxSize": 1000000,
+            "type": "blob"
+          },
+          "name": {
+            "maxGraphemes": 100,
+            "maxLength": 200,
+            "type": "string"
+          },
+          "tags": {
+            "description": "The set of categories feedback in this space may be filed under.",
+            "items": {
+              "ref": "#tag",
+              "type": "ref"
             },
-            "description": "A feedback space created by an organization. Lives in the owner's repo; the owner DID is the repo it is stored in."
+            "maxLength": 24,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    },
+    "tag": {
+      "properties": {
+        "label": {
+          "description": "Human-readable display label.",
+          "maxLength": 64,
+          "type": "string"
+        },
+        "value": {
+          "description": "Stable machine value stored on discussions.",
+          "maxLength": 64,
+          "type": "string"
         }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
     }
+  },
+  "id": "app.userinput.space",
+  "lexicon": 1
 }
