@@ -145,7 +145,7 @@ pub enum ProgressReport {
 
 /// The RPC sidecar's progress event: what happened, the drive (`target`) and step it's about, and
 /// for a coalesced `item`, how many items it stands for (count `items ?? 1`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProgressEvent {
     #[serde(flatten)]
     pub event: Progressed,
@@ -155,6 +155,24 @@ pub struct ProgressEvent {
     pub step: Option<StepInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<u64>,
+}
+
+/// Read by hand: a phase's start has `items` of its own (how many there are), which a derived
+/// reader would take for the event's count and leave the start without.
+impl<'de> Deserialize<'de> for ProgressEvent {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Scope {
+            target: Option<String>,
+            step: Option<StepInfo>,
+            items: Option<u64>,
+        }
+        let v = Value::deserialize(d)?;
+        let Scope { target, step, items } = Scope::deserialize(&v).map_err(serde::de::Error::custom)?;
+        let event = Progressed::deserialize(&v).map_err(serde::de::Error::custom)?;
+        let items = items.filter(|_| matches!(event, Progressed::Event(loclib_progress::Event::Item { .. })));
+        Ok(ProgressEvent { event, target, step, items })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
