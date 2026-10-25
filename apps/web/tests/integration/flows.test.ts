@@ -3,7 +3,7 @@ import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
 import { ACCESS_PRESETS } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
-import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
+import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
@@ -74,29 +74,6 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(role?.value).toMatchObject({ subject: net.user('milo').did, role: 'moderator', grantedBy: ada.did });
 		const members = await root.listMembers(net.app.spaces.moderation);
 		expect(members).toContainEqual({ did: net.user('milo').did, read: true, write: true });
-	});
-
-	it("lets an admin verify an account on Bluesky from the root's repo, and remove it", async () => {
-		const ada = await net.viewer('ada');
-		const milo = net.user('milo');
-		await expect(net.app.verifications.grant(ada, milo.did)).rejects.toThrow('@milo.test has no display name');
-
-		await milo.agent.com.atproto.repo.putRecord({
-			repo: milo.did,
-			collection: BSKY_PROFILE,
-			rkey: 'self',
-			record: { $type: BSKY_PROFILE, displayName: 'Milo' }
-		});
-
-		await net.app.verifications.grant(ada, milo.did);
-		const root = await net.app.core.root();
-		const [record] = await root.listRecords(VERIFICATION);
-		expect(record.uri).toMatch(new RegExp(`^at://${net.rootDid}/${VERIFICATION}/`));
-		expect(record.value).toMatchObject({ subject: milo.did, handle: 'milo.test', displayName: 'Milo' });
-		expect(await net.app.verifications.statuses([milo.did])).toEqual({ [milo.did]: 'verified' });
-
-		await net.app.verifications.revoke(ada, milo.did);
-		expect(await root.listRecords(VERIFICATION)).toEqual([]);
 	});
 
 	let createRequestUri = '';
@@ -508,6 +485,98 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.epks.forProject(project)).toEqual([]);
 	});
 
+	it("reads a press kit owner's Bluesky follows through HappyView", async () => {
+		const neon = net.user('neon');
+		const project = (await net.app.projects.byUri(projectUri))!;
+
+		const follow = async (subject: string) =>
+			(
+				await neon.agent.com.atproto.repo.createRecord({
+					repo: neon.did,
+					collection: BSKY_FOLLOW,
+					record: { $type: BSKY_FOLLOW, subject, createdAt: new Date().toISOString() }
+				})
+			).data;
+
+		const followed = async () =>
+			(await net.app.happyView.query('listRecords', { actor: neon.did, collection: BSKY_FOLLOW })).records.map(
+				(record) => record.value.subject
+			);
+
+		// Before any of Neon's press kits reads follows, HappyView turns them away.
+		const before = await follow(net.user('pat').did);
+		await expect
+			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [before.uri] })).records)
+			.toEqual([]);
+
+		// People Neon follows get in at once; promoters and anyone else ask.
+		const { access } = ACCESS_PRESETS.find(
+			(preset) => preset.access.following !== preset.access.anyone && preset.access.promoters === preset.access.anyone
+		)!;
+
+		const input = { title: 'Followers', access, mixes: [], photos: [], content: { bio: 'Bio' } };
+		const epk = await net.app.epks.save(await net.viewer('neon'), project, input);
+
+		// Its first one does, so HappyView re-reads the follows from before, and keeps the ones after.
+		await expect.poll(followed, { timeout: 10_000 }).toEqual([net.user('pat').did]);
+		expect(await net.app.epks.ruleForViewer(epk, net.user('pat').did)).toBe(access.following);
+		expect(await net.app.epks.ruleForViewer(epk, net.user('kai').did)).toBe(access.anyone);
+		await follow(net.user('kai').did);
+		await expect.poll(followed, { timeout: 10_000 }).toContain(net.user('kai').did);
+
+		await net.app.epks.remove(await net.viewer('neon'), epk);
+	});
+
+	it("lets an admin verify a manager on Bluesky from the root's repo, and remove it, read through HappyView", async () => {
+		const ada = await net.viewer('ada');
+		const neon = net.user('neon');
+		const milo = net.user('milo');
+		const root = await net.app.core.root();
+		await expect(net.app.verifications.grant(ada, milo.did)).rejects.toThrow('Only project managers can be verified');
+		await expect(net.app.verifications.grant(ada, neon.did)).rejects.toThrow(`@${neon.handle} has no display name`);
+
+		const name = async (displayName: string) =>
+			(
+				await neon.agent.com.atproto.repo.putRecord({
+					repo: neon.did,
+					collection: BSKY_PROFILE,
+					rkey: 'self',
+					record: { $type: BSKY_PROFILE, displayName, description: 'Not kept' }
+				})
+			).data;
+
+		// A manager's Bluesky profile reaches HappyView over Jetstream, keeping only the display name.
+		const named = await name('Neon');
+		await expect
+			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [named.uri] })).records, {
+				timeout: 10_000
+			})
+			.toEqual([{ uri: named.uri, cid: named.cid, value: { $type: BSKY_PROFILE, displayName: 'Neon' } }]);
+
+		await net.app.verifications.grant(ada, neon.did);
+		const [record] = await root.listRecords(VERIFICATION);
+		expect(record.uri).toMatch(new RegExp(`^at://${net.rootDid}/${VERIFICATION}/`));
+		expect(record.value).toMatchObject({ subject: neon.did, handle: neon.handle, displayName: 'Neon' });
+		expect((await net.app.verifications.list()).map((item) => item.cid)).toEqual([record.cid]);
+		expect(await net.app.verifications.statuses([neon.did, milo.did])).toEqual({
+			[neon.did]: 'verified',
+			[milo.did]: 'unverified'
+		});
+
+		// A rename shows as out of date, and re-verifying swaps on the version HappyView serves.
+		await name('Neon Tide');
+		await expect
+			.poll(() => net.app.verifications.statuses([neon.did]), { timeout: 10_000 })
+			.toEqual({ [neon.did]: 'outdated' });
+		await net.app.verifications.grant(ada, neon.did);
+		expect(await net.app.verifications.statuses([neon.did])).toEqual({ [neon.did]: 'verified' });
+		expect((await root.listRecords(VERIFICATION)).map((item) => item.value.displayName)).toEqual(['Neon Tide']);
+
+		await net.app.verifications.revoke(ada, neon.did);
+		expect(await root.listRecords(VERIFICATION)).toEqual([]);
+		expect(await net.app.verifications.list()).toEqual([]);
+	});
+
 	it('asks an account whose grant predates follows to sign in again, then follows with or without spaces', async () => {
 		const project = (await net.app.projects.byUri(projectUri))!;
 
@@ -703,6 +772,7 @@ describe('Local Network on a real atproto spaces network', () => {
 			sol.agent.com.atproto.repo.getRecord({ repo, collection, rkey: key });
 
 		const { data } = await read(sol.did, USERINPUT.discussion, rkey);
+		// The report pinned the version HappyView serves, which it read from the root's PDS (the space predates it).
 		const { data: space } = await read(net.rootDid, USERINPUT.space, net.app.config.userinputSpace!.split('/').at(-1)!);
 
 		expect(data.value).toMatchObject({ ...report, tags: ['bug', 'web'], space: { uri: space.uri, cid: space.cid } });

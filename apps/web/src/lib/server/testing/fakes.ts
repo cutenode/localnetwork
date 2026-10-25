@@ -41,6 +41,15 @@ export class FakeNetwork {
 		this.failures.set(did, { count, error });
 	}
 
+	/** An account's public records of `collection`, as HappyView reads them in a backfill. */
+	listed(did: string, collection: string): RecordEvent[] {
+		return this.records
+			.entries()
+			.filter(([key]) => key.startsWith(`${did}|${collection}|`))
+			.map(([, { uri, cid, value }]) => ({ did, collection, rkey: uri.split('/').at(-1)!, cid, record: value }))
+			.toArray();
+	}
+
 	spaceRecordsIn(space: string, repo?: string): StoredRecord[] {
 		return this.spaceRecords
 			.entries()

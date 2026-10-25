@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BSKY_PROFILE, VERIFICATION } from '#lib/nsid.ts';
 import { isCurrent } from '#lib/verification.ts';
+import { recordCid } from '../atproto/repo-client';
 import { ForbiddenError, UserError } from '../core';
+import { HappyViewClient, HappyViewError } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
+import { silentLogger } from '../logger';
 import { createTestServices, ROOT } from '../testing/core';
-import { FakeRootClient } from '../testing/fakes';
+import { VerificationService } from './verifications';
 
 const ADMIN = 'did:plc:admin';
 
@@ -26,7 +30,15 @@ describe('VerificationService', () => {
 
 	beforeEach(async () => {
 		t = await createTestServices({ admins: [ADMIN], capable: [ADMIN, MOD] });
-		await t.staff.grant(await t.viewer(ADMIN), MOD, 'moderator');
+		const admin = await t.viewer(ADMIN);
+		await t.staff.grant(admin, MOD, 'moderator');
+
+		const project = await t.projectAdmin.create({
+			actor: admin,
+			profile: { name: 'Neon Tide', kind: 'solo', genres: ['techno'], location: { city: 'Berlin', country: 'DE' } }
+		});
+
+		await t.projectAdmin.setManagers({ actor: admin, project, managers: [DJ] });
 	});
 	afterEach(async () => {
 		vi.restoreAllMocks();
@@ -75,6 +87,19 @@ describe('VerificationService', () => {
 		expect(records[0].value).toMatchObject({ displayName: 'NEON TIDE' });
 		expect(await t.verifications.statuses([DJ])).toEqual({ [DJ]: 'verified' });
 		await expect(t.verifications.grant(admin, DJ)).rejects.toThrow('@neon.example is already verified');
+	});
+
+	it('verifies only project managers, the only accounts whose display names HappyView keeps', async () => {
+		t.handles.set(MOD, 'mod.example');
+		await t.net
+			.client(MOD)
+			.putRecord({ collection: BSKY_PROFILE, rkey: 'self', record: { $type: BSKY_PROFILE, displayName: 'Mod' } });
+
+		await expect(t.verifications.grant(await t.viewer(ADMIN), MOD)).rejects.toEqual(
+			new UserError('Only project managers can be verified')
+		);
+		expect(rootRecords()).toEqual([]);
+		expect(await t.verifications.live(MOD)).toEqual({ handle: 'mod.example', displayName: null });
 	});
 
 	it("refuses an account Bluesky wouldn't show a badge on", async () => {
@@ -136,9 +161,45 @@ describe('VerificationService', () => {
 		expect(await t.verifications.statuses([])).toEqual({});
 	});
 
-	it("reports no statuses when the root's records can't be read, so pages leave the shortcut out", async () => {
-		vi.spyOn(FakeRootClient.prototype, 'listRecords').mockRejectedValueOnce(new Error('PDS unavailable'));
-		expect(await t.verifications.statuses([DJ])).toBeNull();
+	it('asks to reload when the verification changed somewhere HappyView has not caught up with', async () => {
+		const admin = await t.viewer(ADMIN);
+		await identify('neon.example', 'Neon Tide');
+		await t.verifications.grant(admin, DJ);
+		const [record] = rootRecords();
+		const key = `${ROOT}|${VERIFICATION}|${record.uri.split('/').at(-1)}`;
+
+		// Another app re-issues it in the root's repo, and HappyView hasn't heard yet.
+		const elsewhere = { ...record.value, displayName: 'Changed elsewhere' };
+		t.net.records.set(key, { uri: record.uri, cid: await recordCid(elsewhere), value: elsewhere });
+		await identify('neon.example', 'NEON TIDE');
+
+		await expect(t.verifications.grant(admin, DJ)).rejects.toEqual(
+			new UserError("@neon.example's verification changed since this page loaded. Reload and try again.", 409)
+		);
+		expect(t.net.records.get(key)?.value.displayName).toBe('Changed elsewhere');
+		// HappyView re-read the root's verifications, so a reload shows the one that's there.
+		expect((await t.verifications.list()).map((item) => item.displayName)).toEqual(['Changed elsewhere']);
+	});
+
+	it('reports no statuses and grants nothing while HappyView is down, rather than reading as unverified', async () => {
+		await identify('neon.example', 'Neon Tide');
+
+		const down = new VerificationService(
+			t.core,
+			new IndexedRepo(
+				new HappyViewClient({ url: 'http://happyview.test', fetch: async () => new Response('down', { status: 503 }) }),
+				silentLogger,
+				0
+			),
+			t.projects,
+			{ resolve: async () => ({ handle: 'neon.example' }) }
+		);
+
+		expect(await down.statuses([DJ])).toBeNull();
+		await expect(down.grant(await t.viewer(ADMIN), DJ)).rejects.toBeInstanceOf(HappyViewError);
+		await expect(down.revoke(await t.viewer(ADMIN), DJ)).rejects.toBeInstanceOf(HappyViewError);
+		expect(await down.live(DJ)).toEqual({ handle: 'neon.example', displayName: null });
+		expect(rootRecords()).toEqual([]);
 	});
 });
 

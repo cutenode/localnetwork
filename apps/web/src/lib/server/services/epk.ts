@@ -18,10 +18,9 @@ import {
 	type RequestRole,
 	ruleFor
 } from '#lib/epk.ts';
-import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import type { PublicRepo } from '../atproto/public-repo';
 import { createSpaceIfMissing, type RecordRef, type RepoClient, xrpcErrorName } from '../atproto/repo-client';
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
@@ -35,13 +34,20 @@ const FRESH_MS = 60_000;
 
 const FOLLOWS_FRESH_MS = 10 * 60_000;
 
+/** How long HappyView gets to re-read an owner's follows before the cached ones are dropped anyway. */
+const FOLLOWS_REINDEX_MS = 60_000;
+
 /** Pages of 100 follows read before giving up on finding someone; 5,000 follows. */
 const FOLLOW_PAGES = 50;
 
-const FOLLOW = 'app.bsky.graph.follow';
-
 /** A project's mixes and press kits are kept to the same size. */
 const MAX_EPKS_PER_PROJECT = 20;
+
+/**
+ * Whether a press kit's "people you follow" rule can differ from anyone's, the only case its owner's follows are read
+ * in, and so the only owners HappyView keeps follows for (lua/app/bsky/graph/follow.lua checks the same).
+ */
+const readsFollows = (record: EpkRecord) => record.access.following !== record.access.anyone;
 
 export type EpkInput = {
 	title: string;
@@ -69,10 +75,11 @@ export class EpkService {
 	constructor(
 		private readonly core: Core,
 		private readonly projects: ProjectService,
-		/** Where press kits are read: HappyView keeps them (lua/computer/localnetwork/epk.lua). */
+		/**
+		 * Where press kits and their owners' Bluesky follows are read: HappyView keeps them
+		 * (lua/computer/localnetwork/epk.lua and lua/app/bsky/graph/follow.lua).
+		 */
 		private readonly indexed: IndexedRepo,
-		/** Where owners' Bluesky follows are read. */
-		private readonly repos: PublicRepo,
 		private readonly resolveIdentifier: (identifier: string) => Promise<string>,
 		private readonly now: () => number = Date.now
 	) {}
@@ -88,6 +95,14 @@ export class EpkService {
 				(b.record.updatedAt ?? b.record.createdAt).localeCompare(a.record.updatedAt ?? a.record.createdAt)
 			)
 			.slice(0, MAX_EPKS_PER_PROJECT);
+	}
+
+	/** The managers with a press kit that reads their follows, whose follows HappyView keeps. */
+	async followReaders(): Promise<string[]> {
+		const managers = await this.projects.managers();
+		const kits = await Promise.all(managers.map((did) => this.publishedBy(did, true)));
+
+		return managers.filter((_, index) => kits[index].some((epk) => readsFollows(epk.record)));
 	}
 
 	/**
@@ -170,8 +185,7 @@ export class EpkService {
 
 		if (threads.some((thread) => thread.projectUri === epk.record.project)) audiences.add('bookedWith');
 
-		if (epk.record.access.following !== epk.record.access.anyone && (await this.ownerFollows(epk.did, did)))
-			audiences.add('following');
+		if (readsFollows(epk.record) && (await this.ownerFollows(epk.did, did))) audiences.add('following');
 
 		return audiences;
 	}
@@ -184,12 +198,9 @@ export class EpkService {
 	async save(actor: Viewer, project: ProjectView, input: EpkInput, rkey?: string): Promise<EpkView> {
 		if (!project.managers.includes(actor.did))
 			throw new ForbiddenError('Only managers of this project can publish press kits');
+		const published = await this.publishedBy(actor.did, true);
 
-		if (
-			!rkey &&
-			(await this.publishedBy(actor.did, true)).filter((epk) => epk.record.project === project.uri).length >=
-				MAX_EPKS_PER_PROJECT
-		)
+		if (!rkey && published.filter((epk) => epk.record.project === project.uri).length >= MAX_EPKS_PER_PROJECT)
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
 		const client = await this.ownerClient(actor);
 		const key = rkey ?? TID.nextStr();
@@ -238,6 +249,12 @@ export class EpkService {
 
 		this.lists.delete(actor.did);
 		await this.indexed.awaitWrite(actor.did, COLLECTION.epk, key, ref.cid);
+
+		// HappyView only keeps an owner's follows while one of their press kits reads them, so when the first one does,
+		// it re-reads the follows they made before. Any cached until it's done may be missing those.
+		if (readsFollows(record) && !published.some((epk) => readsFollows(epk.record)))
+			void this.indexed.reindex(actor.did, BSKY_FOLLOW, FOLLOWS_REINDEX_MS).then(() => this.follows.delete(actor.did));
+
 		await this.core.audit.record(
 			{
 				actor: actor.did,
@@ -729,27 +746,16 @@ export class EpkService {
 		}
 	}
 
-	/** Whether `owner` follows `did` on Bluesky, from the follow records in the owner's repo. */
+	/**
+	 * Whether `owner` follows `did` on Bluesky, from the follows HappyView keeps of theirs. A HappyView that's down fails
+	 * this rather than caching that they follow no one.
+	 */
 	private async ownerFollows(owner: string, did: string): Promise<boolean> {
 		const cached = this.follows.get(owner);
 
 		if (cached && this.now() - cached.at < FOLLOWS_FRESH_MS) return cached.value.has(did);
-		const value = new Set<string>();
-		let cursor: string | undefined;
-
-		for (let page = 0; page < FOLLOW_PAGES; page++) {
-			const result = await this.repos.listRecords(owner, FOLLOW, { cursor });
-
-			for (const record of result.records) {
-				const follow = followSchema.safeParse(record.value);
-
-				if (follow.success) value.add(follow.data.subject);
-			}
-
-			cursor = result.cursor;
-
-			if (!cursor) break;
-		}
+		const records = await this.indexed.listAll(owner, BSKY_FOLLOW, { strict: true, pages: FOLLOW_PAGES });
+		const value = new Set(records.flatMap((record) => followSchema.safeParse(record.value).data?.subject ?? []));
 
 		this.follows.set(owner, { at: this.now(), value });
 

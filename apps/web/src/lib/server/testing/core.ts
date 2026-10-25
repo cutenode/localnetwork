@@ -33,7 +33,9 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const happyView = new FakeHappyView(ROOT);
 	// HappyView hears of every public-repo write over Jetstream, and its record script keeps the root's projects.
 	net.onRecord = (event) => happyView.ingest(event);
-	const directory = new HappyViewClient({ url: 'http://happyview.test', fetch: happyView.fetch });
+	happyView.repo = (did, collection) => net.listed(did, collection);
+	// With an API key, as the app runs, so its re-reads go through the record scripts.
+	const directory = new HappyViewClient({ url: 'http://happyview.test', apiKey: 'hv_test', fetch: happyView.fetch });
 	const spaces = rootSpaces(ROOT);
 	const accounts = new AccountService(db, silentLogger);
 	const capable = new Set(options.capable ?? []);
@@ -105,7 +107,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	// Writes are indexed in-process here, so a write that isn't served at once never will be.
 	const indexedRepo = new IndexedRepo(directory, silentLogger, 0);
 
-	const epks = new EpkService(core, projects, indexedRepo, publicRepo, async (identifier) => {
+	const epks = new EpkService(core, projects, indexedRepo, async (identifier) => {
 		if (identifier.startsWith('did:')) return identifier;
 		throw new Error(`no such handle ${identifier}`);
 	});
@@ -116,7 +118,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
 	const handles = new Map<string, string>();
 
-	const verifications = new VerificationService(core, publicRepo, {
+	const verifications = new VerificationService(core, indexedRepo, projects, {
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 

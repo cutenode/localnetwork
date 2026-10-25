@@ -2,8 +2,8 @@ import Bowser from 'bowser';
 import { discussionUrl, USERINPUT } from '#lib/bug-report.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { grantsAll, SCOPES } from '../atproto/oauth';
-import type { PublicRepo } from '../atproto/public-repo';
 import type { RepoClient } from '../atproto/repo-client';
+import type { IndexedRepo } from '../happyview/indexed';
 import type { Logger } from '../logger';
 import type { AccountService } from './accounts';
 
@@ -32,7 +32,8 @@ export class BugReportService {
 		private readonly deps: {
 			/** The space's at:// URI. */
 			space: string | undefined;
-			repos: PublicRepo;
+			/** Where the space is read: HappyView keeps it (lua/app/userinput/space.lua). */
+			indexed: IndexedRepo;
 			userClient: (did: string) => Promise<RepoClient | null>;
 			accounts: AccountService;
 			logger: Logger;
@@ -50,12 +51,12 @@ export class BugReportService {
 
 	/** Posts a report as `did` and returns where userinput.app shows it. */
 	async post(did: string, report: { title: string; body: string }): Promise<string> {
-		const { space, repos, userClient, logger } = this.deps;
+		const { space, indexed, userClient, logger } = this.deps;
 
 		if (!space) throw new Error('no userinput.app space is configured');
 		const [owner, , rkey] = space.replace('at://', '').split('/');
 		// A post points at one version of the space, so its CID is looked up each time.
-		const found = await repos.getRecord(owner, USERINPUT.space, rkey);
+		const found = await indexed.getRecordOrReindex(owner, USERINPUT.space, rkey, { strict: true });
 
 		if (!found?.cid) throw new Error(`userinput.app space ${space} is missing`);
 		const client = await userClient(did);
