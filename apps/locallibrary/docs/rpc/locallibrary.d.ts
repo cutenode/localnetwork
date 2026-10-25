@@ -2469,7 +2469,8 @@ export type ApplyFields = {
 /**
  * What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
  * (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
- * BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
+ * BPMs to tracks, a published set's MusicBrainz IDs) from the analyzer chosen for it. A closed
+ * list, each with one type.
  */
 export type FieldRole =
   /** A Camelot code (`8A`): a string. */
@@ -2487,7 +2488,29 @@ export type FieldRole =
   /** Runs of samples at full scale: an integer. */
   | "clipped_runs"
   /** Equal values are the same recording: a string. */
-  | "identity";
+  | "identity"
+  /**
+   * The MusicBrainz recording's ID, a bare lowercase UUID
+   * (`8dfae998-efd4-4ebe-a482-1523ff687362`): a string.
+   */
+  | "recording"
+  /** The MusicBrainz release's ID, a bare lowercase UUID: a string. */
+  | "release"
+  /**
+   * The MusicBrainz IDs of the artists the track credits, a bare lowercase UUID for each name
+   * loclib-model's `artist_credits` splits its artist into, in that order: a list of strings.
+   */
+  | "artists"
+  /**
+   * The ISRC the MusicBrainz IDs were looked up by, as loclib-model's `isrc` spells it (null:
+   * the track had none): a string. The host takes them only for a track with that ISRC.
+   */
+  | "isrc"
+  /**
+   * The names its artists' IDs go with, as loclib-model's `artist_credits` split the artist it
+   * worked from: a list of strings. The host takes them only for a track credited the same.
+   */
+  | "credits";
 
 /** A change to a check's settings. */
 export type SetCheck = {
@@ -2601,6 +2624,8 @@ export type ChooseRole = {
    * out) puts it back to its default.
    */
   analyzer?: string | null;
+  /** Read it from no analyzer instead (`recording`: `sets publish` looks up no MusicBrainz IDs). */
+  none?: boolean;
 };
 
 /** Building a drive from a plugin's library source. */
@@ -6291,6 +6316,24 @@ export type Published = {
   record: unknown;
 };
 
+/**
+ * What looking up the MusicBrainz IDs of a set's tracks did (`sets.lookup`), counting the tracks
+ * the record names without IDs by file, once however often the set plays them.
+ */
+export type SetLookup = {
+  /**
+   * Tracks the analyzers ran on (or had worked out already): those on a plugged-in drive that
+   * lists them.
+   */
+  asked: number;
+  /** Of those, tracks that got MusicBrainz IDs, now kept in the set. */
+  found: number;
+  /** Of those, tracks an analyzer failed on. Each failure was a warning. */
+  failed: number;
+  /** Tracks whose files are on no plugged-in drive: not looked up. */
+  unmounted: number;
+};
+
 /** Someone's published My Settings, and how importing them changes the settings profile. */
 export type SettingsImportPlan = {
   from: Resolved;
@@ -6399,8 +6442,8 @@ export type SetEntry = {
   /** Seconds from the start of the set (from a recording or a timed log). */
   start_seconds?: number | null;
   /**
-   * MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made
-   * or edited.
+   * MusicBrainz IDs from the audio file's tags, else from what the analyzers chosen for their
+   * roles worked out for it, read from a mounted drive when the set is made, edited or published.
    */
   musicbrainz?: MusicBrainzIds;
   /** Published without naming it: only its place in the set. */
@@ -6412,7 +6455,8 @@ export type SetEntry = {
 
 /**
  * MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
- * recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.
+ * recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist. An
+ * analyzer answers them as the roles `recording`, `release` and `artists`.
  */
 export type MusicBrainzIds = {
   recording?: string | null;
@@ -8661,10 +8705,15 @@ export type ListedProvider = {
 /** A role, and the analyzers answering it. */
 export type RoleChoice = {
   role: FieldRole;
-  /** The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it). */
+  /**
+   * The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's
+   * turned off).
+   */
   chosen: string | null;
   /** Chosen in the settings, rather than by default. */
   set: boolean;
+  /** Read from no analyzer, as the settings say ([`turn_off`]). */
+  off: boolean;
   /** Every analyzer with it, `<plugin>.<analyzer>`, in the order the app has its plugins. */
   offered: string[];
 };
@@ -9484,6 +9533,8 @@ export interface Methods {
   "profile.publish.plan": { params: ProfileRequest & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `profile.publish.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "profile.publish.apply": { params: ApplyPlan | (ProfileRequest & WriteOptions); result: Published };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "sets.lookup": { params: SetPublishRequest & WriteOptions; result: SetLookup };
   /** plan method; paired with `sets.publish.apply`; can delete or overwrite something */
   "sets.publish.plan": { params: SetPublishRequest & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `sets.publish.plan`; can delete or overwrite something */

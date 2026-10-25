@@ -167,8 +167,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   union, a Lexicon Community address for now), `event`, `playedWith`, `links` and `sources` (for
   `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
   `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
-  teal.fm's and skaists' records so readers can map them. `recordingMbId` is `mbid:<uuid>`, as
-  teal.fm writes it, and locallibrary fills the MusicBrainz IDs from files Picard tagged. The
+  teal.fm's and skaists' records so readers can map them. MusicBrainz IDs are bare UUIDs, as
+  teal.fm writes them. locallibrary fills them from files Picard tagged, else from a plugin
+  analyzer's `recording`, `release` and `artists` roles when its `isrc` and `credits` say they're
+  for the track as the set has it, which `sets publish` runs first on the tracks it names, once
+  it's signed in and confirmed, and keeps in the set (`--no-lookup` doesn't; over RPC
+  `sets.lookup`). The
   profile's `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
   now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
@@ -246,10 +250,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   checks` turns each on or off, makes guards blocking and sets how long a check has (the sidecar
   `plugins.checks`, `plugins.checks.set` and `plugins.checks.timeout.set`; the player a "check
   settings…" form, a check's findings in its results and their fixes in the palette).
-  An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
-  `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
-  has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
-  `plugins.roles.set` and `plugins.apply_fields.plan/apply`. Plugins may listen for drives
+  An analyzer's fields may have roles (a track's key, tempo, loudness, MusicBrainz IDs...), which
+  doctor, `check`, `playlist order` and `sets publish` read from the analyzer `plugin roles`
+  chooses (the sound plugin's and the musicbrainz plugin's unless another has them), and `analyze
+  --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
+  `plugins.apply_fields.plan/apply`; `plugin roles ROLE --none` reads one from no analyzer. Plain
+  `analyze` leaves out the analyzers of plugins that go online. Plugins limiting one server take
+  its turns between them. Plugins may listen for drives
   plugged in, unplugged, changed, pulled and back from a set, the sidecar's requests finishing and
   plans applied (capabilities `events:drives`, `events:jobs`, `events:plans`), told by the player,
   the sidecar, `watch` and any command applying a plan, through a bounded queue for each plugin
@@ -312,10 +319,18 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     album that could be several release groups offered as each of them, and from the same
     MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
     label when it was found by name, and a track's title and artist when its ISRC found it (a
-    track without an album only from a single of its title). It's the only one that goes online,
-    and only when it's run.
+    track without an album only from a single of its title).
   - `demos`: `clean` removes rekordbox's demo tracks with their files, and its check lists them
     in `check` and doctor, with `clean` as the fix.
+  - `musicbrainz`: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
+    for `sets publish` to publish: the recording only when it's the track's (its length, or
+    without one its title; of several, both), the earliest release named as the album, and the
+    artists when each name the track credits is one of the recording's, answered with the ISRC
+    and credits they're for (the `isrc` and `credits` roles). It and `coverart` are the only ones
+    that go online, a request a second to MusicBrainz between them, and only for `art fetch`,
+    `track fetch`, `analyze --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets
+    publish` about to publish (signed in and confirmed), unless `--no-lookup` or `plugin roles
+    recording --none`.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable

@@ -60,7 +60,7 @@
 		</form>
 	{:else if access.kind === 'pending'}
 		<p role="status" class="notice notice-info m-0">
-			{#if access.approved}You're approved. The rest shows as soon as {name}'s PDS records it, usually the next time they sign in.{:else}You asked on {formatDate(access.since)}. You'll see the rest once {name} lets you in.{/if}
+			{#if access.approved}You're approved. The rest shows once this press kit moves to {name}, the next time the manager who made it signs in.{:else}You asked on {formatDate(access.since)}. You'll see the rest once {name} lets you in.{/if}
 		</p>
 	{:else if access.kind === 'declined'}
 		<p class="notice notice-info m-0">{name} isn't sharing the rest of this press kit with you.</p>

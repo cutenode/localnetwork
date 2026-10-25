@@ -56,6 +56,35 @@ impl Plugins {
         store: &Store,
         ctx: &Ctx<'_>,
     ) -> Result<Analyzed> {
+        self.analyzing(plugin, analyzer, drive, tracks, false, store, ctx)
+    }
+
+    /// [`Plugins::analyze`] on the tracks with ids `tracks`, over what it kept for them: for
+    /// values worked out from what the library said of a track then, which it has changed since
+    /// (its audio file, which they're kept by, unchanged).
+    pub fn analyze_again(
+        &self,
+        plugin: &str,
+        analyzer: &str,
+        drive: &str,
+        tracks: &[u32],
+        store: &Store,
+        ctx: &Ctx<'_>,
+    ) -> Result<Analyzed> {
+        self.analyzing(plugin, analyzer, drive, Some(tracks), true, store, ctx)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn analyzing(
+        &self,
+        plugin: &str,
+        analyzer: &str,
+        drive: &str,
+        tracks: Option<&[u32]>,
+        again: bool,
+        store: &Store,
+        ctx: &Ctx<'_>,
+    ) -> Result<Analyzed> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("analyzer", analyzer, &slot.manifest.contributes.analyzers, |a| &a.name)?;
         let (context, device) =
@@ -79,7 +108,7 @@ impl Plugins {
                     ctx.warn(format!("{}: its audio file isn't on the drive", t.file_path));
                     done.failed += 1;
                 }
-                Some(audio) if !fields.get(&audio, std::slice::from_ref(&key)).is_empty() => done.kept += 1,
+                Some(audio) if !again && !fields.get(&audio, std::slice::from_ref(&key)).is_empty() => done.kept += 1,
                 Some(audio) => {
                     let analyze_path = device.checked_path(&paths::key(&t.analyze_path)).ok().filter(|a| a.is_file());
                     let track = Track { id: t.id, file_path: t.file_path.clone(), audio_path: audio, analyze_path };

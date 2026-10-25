@@ -3174,6 +3174,26 @@
       }
     },
     {
+      "name": "sets.lookup",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetPublishRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetLookup"
+      }
+    },
+    {
       "name": "sets.publish.plan",
       "aliases": [],
       "kind": "plan",
@@ -12401,9 +12421,34 @@
           "type": "string",
           "const": "identity",
           "description": "Equal values are the same recording: a string."
+        },
+        {
+          "type": "string",
+          "const": "recording",
+          "description": "The MusicBrainz recording's ID, a bare lowercase UUID\n(`8dfae998-efd4-4ebe-a482-1523ff687362`): a string."
+        },
+        {
+          "type": "string",
+          "const": "release",
+          "description": "The MusicBrainz release's ID, a bare lowercase UUID: a string."
+        },
+        {
+          "type": "string",
+          "const": "artists",
+          "description": "The MusicBrainz IDs of the artists the track credits, a bare lowercase UUID for each name\nloclib-model's `artist_credits` splits its artist into, in that order: a list of strings."
+        },
+        {
+          "type": "string",
+          "const": "isrc",
+          "description": "The ISRC the MusicBrainz IDs were looked up by, as loclib-model's `isrc` spells it (null:\nthe track had none): a string. The host takes them only for a track with that ISRC."
+        },
+        {
+          "type": "string",
+          "const": "credits",
+          "description": "The names its artists' IDs go with, as loclib-model's `artist_credits` split the artist it\nworked from: a list of strings. The host takes them only for a track credited the same."
         }
       ],
-      "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
+      "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks, a published set's MusicBrainz IDs) from the analyzer chosen for it. A closed\nlist, each with one type."
     },
     "SetCheck": {
       "type": "object",
@@ -12689,6 +12734,11 @@
           ],
           "description": "The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left\nout) puts it back to its default.",
           "default": null
+        },
+        "none": {
+          "type": "boolean",
+          "description": "Read it from no analyzer instead (`recording`: `sets publish` looks up no MusicBrainz IDs).",
+          "default": false
         }
       },
       "required": [
@@ -25214,6 +25264,42 @@
       ],
       "description": "A record published."
     },
+    "SetLookup": {
+      "type": "object",
+      "properties": {
+        "asked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Tracks the analyzers ran on (or had worked out already): those on a plugged-in drive that\nlists them."
+        },
+        "found": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Of those, tracks that got MusicBrainz IDs, now kept in the set."
+        },
+        "failed": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Of those, tracks an analyzer failed on. Each failure was a warning."
+        },
+        "unmounted": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Tracks whose files are on no plugged-in drive: not looked up."
+        }
+      },
+      "required": [
+        "asked",
+        "found",
+        "failed",
+        "unmounted"
+      ],
+      "description": "What looking up the MusicBrainz IDs of a set's tracks did (`sets.lookup`), counting the tracks\nthe record names without IDs by file, once however often the set plays them."
+    },
     "SettingsImportPlan": {
       "type": "object",
       "properties": {
@@ -25524,7 +25610,7 @@
         },
         "musicbrainz": {
           "$ref": "#/$defs/MusicBrainzIds",
-          "description": "MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made\nor edited."
+          "description": "MusicBrainz IDs from the audio file's tags, else from what the analyzers chosen for their\nroles worked out for it, read from a mounted drive when the set is made, edited or published."
         },
         "unnamed": {
           "type": "boolean",
@@ -25577,7 +25663,7 @@
           "description": "In the credit's order."
         }
       },
-      "description": "MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the\nrecording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist."
+      "description": "MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the\nrecording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist. An\nanalyzer answers them as the roles `recording`, `release` and `artists`."
     },
     "EntryOrigin": {
       "oneOf": [
@@ -32575,11 +32661,15 @@
             "string",
             "null"
           ],
-          "description": "The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it)."
+          "description": "The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's\nturned off)."
         },
         "set": {
           "type": "boolean",
           "description": "Chosen in the settings, rather than by default."
+        },
+        "off": {
+          "type": "boolean",
+          "description": "Read from no analyzer, as the settings say ([`turn_off`])."
         },
         "offered": {
           "type": "array",
@@ -32593,6 +32683,7 @@
         "role",
         "chosen",
         "set",
+        "off",
         "offered"
       ],
       "description": "A role, and the analyzers answering it."

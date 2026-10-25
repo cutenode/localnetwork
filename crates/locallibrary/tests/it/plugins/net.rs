@@ -313,6 +313,44 @@ fn requests_to_a_limited_host_wait_their_turns() {
     assert_eq!(server.got().len(), 4, "the second never went");
 }
 
+/// Plugins limiting one host take its turns between them: two plugins asking one server keep to
+/// its limit together.
+#[test]
+fn plugins_limiting_one_host_share_its_turns() {
+    let server = Server::new(|_, _| ok("x"));
+    let second = talking(2.0).replace("id = \"echo\"", "id = \"second\"");
+    let options = Options { test_loopback: true, secrets: Storage::File, ..Options::default() };
+    let f = Fixture::new(|dir| vec![spec(dir, &talking(2.0), &[]), spec(dir, &second, &[])], options);
+    let run = |plugin: &str, params: Value| {
+        let ctx = Ctx::silent();
+        match f.plugins.run_command(plugin, "echo", params, f.context(), Some(&f.store), &ctx, &|_| {}).unwrap() {
+            CommandOutput::Headless(v) => v,
+            view => panic!("a headless command answers JSON: {view:?}"),
+        }
+    };
+    // Both running first, so only the turns take time.
+    run("echo", json!({}));
+    run("second", json!({}));
+    let started = Instant::now();
+    for plugin in ["echo", "second"] {
+        assert_eq!(run(plugin, json!({ "fetch": { "url": server.url.clone() } }))["result"]["status"], 200);
+    }
+    assert!(started.elapsed() >= Duration::from_millis(500), "{:?}", started.elapsed());
+}
+
+/// Tests kept offline (`Options::test_offline`) reach nothing but this computer, whatever the
+/// plugin may reach.
+#[test]
+fn tests_kept_offline_reach_only_this_computer() {
+    let server = Server::new(|_, _| ok("here"));
+    let manifest = talking(100.0).replacen("\"net:127.0.0.1\"", "\"net:127.0.0.1\", \"net:example.org\"", 1);
+    let f = fixture(&manifest, &[], Options { test_offline: true, ..Options::default() });
+    assert_eq!(f.fetch(json!({ "url": server.url.clone() }))["result"]["body"], "here");
+    let answer = f.fetch(json!({ "url": "https://example.org/" }));
+    assert_eq!(answer["error"]["data"]["kind"], "denied", "{answer}");
+    assert_eq!(answer["error"]["message"], "example.org isn't on this computer, and tests stay offline");
+}
+
 /// A plugin that doesn't say it has the `net` feature can't fetch, and one whose manifest limits
 /// what it fetches isn't hosted without it.
 #[test]

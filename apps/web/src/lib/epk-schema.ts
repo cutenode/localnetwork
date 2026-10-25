@@ -53,6 +53,21 @@ export const epkContentSchema = z.object({
 	updatedAt: z.string()
 });
 
+/** Some fields of a press kit, as a draft holds them: the public record's at the top level, the private part's under content. */
+export const epkFieldsSchema = epkRecordSchema
+	.pick({ title: true, headline: true, bio: true, mixes: true, photos: true, access: true })
+	.partial()
+	.extend({ content: epkContentSchema.omit({ updatedAt: true }).optional() });
+
+export const epkDraftSchema = z.object({
+	base: z.object({ uri: z.string(), cid: z.string() }).optional(),
+	changes: epkFieldsSchema,
+	previous: epkFieldsSchema.optional(),
+	onBehalfOf: z.string().optional(),
+	createdAt: z.string(),
+	updatedAt: z.string()
+});
+
 export const epkRequestSchema = z.object({
 	epk: z.string(),
 	role: z.string().optional(),
