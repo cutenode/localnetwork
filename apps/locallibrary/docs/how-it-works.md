@@ -40,6 +40,8 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
+plugins/archive/            the archive plugin: the `item` set destination, a set's recording uploaded to the
+                            Internet Archive in one PUT as an item, its tracklist the description, its page the link
 plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of

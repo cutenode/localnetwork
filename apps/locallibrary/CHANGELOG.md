@@ -324,11 +324,17 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     for `sets publish` to publish: the recording only when it's the track's (its length, or
     without one its title; of several, both), the earliest release named as the album, and the
     artists when each name the track credits is one of the recording's, answered with the ISRC
-    and credits they're for (the `isrc` and `credits` roles). It and `coverart` are the only ones
-    that go online, a request a second to MusicBrainz between them, and only for `art fetch`,
-    `track fetch`, `analyze --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets
-    publish` about to publish (signed in and confirmed), unless `--no-lookup` or `plugin roles
-    recording --none`.
+    and credits they're for (the `isrc` and `credits` roles). It and `coverart` go online, a
+    request a second to MusicBrainz between them, only for `art fetch`, `track fetch`, `analyze
+    --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets publish` about to publish
+    (signed in and confirmed), unless `--no-lookup` or `plugin roles recording --none`.
+  - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
+    recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
+    no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
+    by the `creator` setting, its tracklist as the description and tagged `dj mix`, sent again a
+    few times when it doesn't arrive or the Archive says to slow down, and keeping the item's page
+    as the set's link. It signs in with the account's S3 keys, kept as secret settings, goes
+    online only to publish, and never waits for the Archive to process the item.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
