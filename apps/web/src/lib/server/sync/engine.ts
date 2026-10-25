@@ -80,6 +80,19 @@ const toJson = (record: LexMap) => lexToJson(record) as JsonObject;
 const asCid = (value: string | null): Cid | null => (value ? parseCid(value) : null);
 
 /**
+ * Whether the space's authority said the space is gone: getSpaceCredential and listRepos only go to the
+ * authority. A writer's repo host answering SpaceDeleted says nothing about the space, and neither does a
+ * credential renewal that fails any other way.
+ */
+function authoritySaysGone(error: XrpcResponseError): boolean {
+	if (error.nsid === 'com.atproto.space.getSpaceCredential') return error.error === 'SpaceDeleted';
+
+	return (
+		error.nsid === 'com.atproto.space.listRepos' && (error.error === 'SpaceDeleted' || error.error === 'SpaceNotFound')
+	);
+}
+
+/**
  * Keeps a local copy of every watched space: enumerates writers with
  * `listRepos` on the space host, pulls each repo's oplog with
  * `listRepoOps`, checks the result against the LtHash commit (authenticated
@@ -229,7 +242,7 @@ export class SpaceSyncer {
 				.where('spaceUri', '=', space)
 				.execute();
 
-			if (error instanceof XrpcResponseError && (error.error === 'SpaceDeleted' || error.error === 'SpaceNotFound')) {
+			if (error instanceof XrpcResponseError && authoritySaysGone(error)) {
 				logger.warn({ space }, 'space is gone; dropping local copy');
 				await this.dropSpace(space);
 

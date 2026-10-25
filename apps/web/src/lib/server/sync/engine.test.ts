@@ -86,7 +86,7 @@ describe('SpaceSyncer', () => {
 	});
 
 	it('drops the local copy when the host says the space is gone', async () => {
-		const s = syncer(new XrpcResponseError(400, 'SpaceNotFound'));
+		const s = syncer(new XrpcResponseError(400, 'SpaceNotFound', undefined, 'com.atproto.space.listRepos'));
 
 		await s.watch(SPACE);
 		await db
@@ -272,6 +272,19 @@ describe('SpaceSyncer against a repo host', () => {
 		await running;
 		expect(await records()).toEqual([]);
 		expect(await db.selectFrom('syncedRepo').selectAll().execute()).toEqual([]);
+	});
+
+	it("keeps a space a writer's repo host says was deleted, since only the authority can say so", async () => {
+		const s = await syncer();
+		await host.put(DJ, NOTE, 'a', note('one'));
+		await s.sync(SPACE);
+		host.repoError = 'SpaceDeleted';
+		await host.put(DJ, NOTE, 'b', note('two'));
+		await expect(s.sync(SPACE)).rejects.toThrow('SpaceDeleted');
+		expect(dropped).toEqual([]);
+		expect(await records()).toEqual([['a', 'one']]);
+		expect((await repoRow())?.lastError).toBe('SpaceDeleted');
+		expect(await db.selectFrom('spaceWatch').select('lastError').execute()).toEqual([{ lastError: 'SpaceDeleted' }]);
 	});
 
 	it('drops a space its authority says was deleted, and keeps one whose delegation token it refused', async () => {

@@ -90,6 +90,8 @@ export class FakeSpaceHost {
 	readonly revoked = new Set<string>();
 	/** Every credential it issued, in order. */
 	readonly issued: string[] = [];
+	/** An error the repo host answers its writers' repo reads with, as a hostile or broken PDS could. */
+	repoError: string | null = null;
 	/** MACs responses with a secret of its own instead of the one it shares with the syncer. */
 	forgeMacs = false;
 	readonly identity = new HostIdentity(this);
@@ -174,6 +176,7 @@ export class FakeSpaceHost {
 			return Response.json({ repos: repos.map(([did, { rev }]) => ({ did, repoRev: rev, spaceRev: rev })) });
 		}
 
+		if (this.repoError) return xrpcError(400, this.repoError);
 		const repo = this.repos.get(params.repo);
 
 		if (!repo || !isDidString(params.repo)) return xrpcError(400, 'RepoNotFound');

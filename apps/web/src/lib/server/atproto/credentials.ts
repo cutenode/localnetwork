@@ -27,7 +27,9 @@ export class XrpcResponseError extends Error {
 	constructor(
 		readonly status: number,
 		readonly error: string,
-		message?: string
+		message?: string,
+		/** The method that answered with it, which says who sent it: a space's authority or a writer's repo host. */
+		readonly nsid?: string
 	) {
 		super(message ? `${error}: ${message}` : error);
 		this.name = 'XrpcResponseError';
@@ -175,7 +177,7 @@ export class SpaceCredentialManager {
 		const body = await readBody(response);
 
 		if (!response.ok) {
-			const error = toXrpcError(response.status, body);
+			const error = toXrpcError(response.status, body, 'com.atproto.space.getSpaceCredential');
 
 			// The authority refused the token the root's PDS minted (its audience, subject, or lifetime). Unlike
 			// SpaceDeleted, which the syncer drops the space for, this says nothing about the space itself.
@@ -241,7 +243,7 @@ export class SpaceCredentialManager {
 
 			const body = await readBody(response);
 
-			if (!response.ok) throw toXrpcError(response.status, body);
+			if (!response.ok) throw toXrpcError(response.status, body, input.nsid);
 
 			return input.schema.parse(body ?? {});
 		});
@@ -357,7 +359,7 @@ export class SpaceCredentialManager {
 			signal: AbortSignal.timeout(30_000)
 		});
 
-		if (!response.ok) throw toXrpcError(response.status, await readBody(response));
+		if (!response.ok) throw toXrpcError(response.status, await readBody(response), input.nsid);
 
 		return response;
 	}
@@ -381,8 +383,8 @@ async function readBody(response: Response): Promise<JsonValue | undefined> {
 	}
 }
 
-function toXrpcError(status: number, body: JsonValue | undefined): XrpcResponseError {
+function toXrpcError(status: number, body: JsonValue | undefined, nsid: string): XrpcResponseError {
 	const { error, message } = xrpcErrorBody.parse(body);
 
-	return new XrpcResponseError(status, error ?? (status >= 500 ? 'UpstreamFailure' : 'InvalidRequest'), message);
+	return new XrpcResponseError(status, error ?? (status >= 500 ? 'UpstreamFailure' : 'InvalidRequest'), message, nsid);
 }
