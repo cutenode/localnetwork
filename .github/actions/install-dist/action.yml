@@ -1,0 +1,49 @@
+name: Install dist
+description: >-
+  dist (https://axodotdev.github.io/cargo-dist/) 0.33.0, the version dist-workspace.toml sets, in
+  $CARGO_HOME/bin, which the runners have on PATH. It downloads the release archive for the
+  runner's platform and checks it against the checksum below, in place of dist's installer script
+  piped to a shell, which runs whatever the release serves. Covers the runners `dist plan` picks:
+  Linux x64, macOS arm64 and x64, Windows x64.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        # GitHub's digests of the v0.33.0 release assets: change them with the version.
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) asset=x86_64-unknown-linux-gnu.tar.xz sha=4b3f0a5f0ebbdb798f6db649d01b32ba1518376b6f7a0502b7d92b75cc2c8293 ;;
+          macOS-ARM64) asset=aarch64-apple-darwin.tar.xz sha=7b3cbe25511de01d74c0f5fcb7909edabd379bea9cfa284d93af5a3cdfa3247c ;;
+          macOS-X64) asset=x86_64-apple-darwin.tar.xz sha=6a49bfb61bd86770d79c27f3d2b40c6b2e71cde940d3d31a6ccaaffc124d7a29 ;;
+          Windows-X64) asset=x86_64-pc-windows-msvc.zip sha=9a36d70795e14326a5ec4bf17aee085df00ab85a322739291ea5d4b1b5f693cd ;;
+          *) echo "::error::No dist archive for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+        esac
+        asset=cargo-dist-$asset
+        bin=${CARGO_HOME:-$HOME/.cargo}/bin
+        work=$(mktemp -d)
+        cd "$work"
+        curl --proto '=https' --tlsv1.2 -fsSLo "$asset" "https://github.com/axodotdev/cargo-dist/releases/download/v0.33.0/$asset"
+        # sha256sum on Linux and in Git Bash, shasum on macOS.
+        if command -v sha256sum > /dev/null; then
+          echo "$sha  $asset" | sha256sum -c -
+        else
+          echo "$sha  $asset" | shasum -a 256 -c -
+        fi
+        mkdir -p "$bin"
+        case "$asset" in
+          # The zip holds dist.exe at its root. The Windows runners have 7-Zip.
+          *.zip)
+            7z e -y "$asset" dist.exe > /dev/null
+            mv dist.exe "$bin/"
+            ;;
+          # The tarballs hold cargo-dist-<target>/dist.
+          *)
+            tar -xJf "$asset"
+            mv "${asset%.tar.xz}/dist" "$bin/"
+            ;;
+        esac
+        cd - > /dev/null
+        rm -rf "$work"
+        "$bin/dist" --version

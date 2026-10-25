@@ -331,10 +331,6 @@ pub enum PromptFor {
     ExportList {
         list: super::drives::ExportOf,
     },
-    /// Where to write rekordbox XML (of these playlists, all when empty).
-    ExportXml {
-        only: Vec<String>,
-    },
     /// Where the playlist a rule fills goes.
     SmartRule {
         filter: String,
@@ -913,13 +909,7 @@ impl App {
                 None => None,
             },
             PromptFor::ExportList { list } => {
-                let what = super::drives::Export::List(list.clone());
-                self.write_export(p.root, &p.text, what);
-                return;
-            }
-            PromptFor::ExportXml { only } => {
-                let what = super::drives::Export::Xml(only.clone());
-                self.write_export(p.root, &p.text, what);
+                self.write_export(p.root, &p.text, list.clone());
                 return;
             }
             PromptFor::NewTag { tracks } => {

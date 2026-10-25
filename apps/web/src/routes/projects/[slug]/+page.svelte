@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, FileText, Flag, Lock, MapPin, Megaphone, Pencil, Users } from '@lucide/svelte';
+	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, FileText, Flag, Lock, MapPin, Users } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
@@ -9,7 +9,9 @@
 	import FollowButton from '#lib/components/FollowButton.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
+	import ManageLink from '#lib/components/ManageLink.svelte';
 	import MixList from '#lib/components/MixList.svelte';
+	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
 	import ShowList from '#lib/components/ShowList.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
@@ -32,8 +34,6 @@
 	const loginHref = $derived(`/login?next=/projects/${project.slug}`);
 
 	const followLogin = $derived(viewer ? undefined : loginHref);
-
-	const editable = $derived(viewer && data.isManager ? (show: { did: string; rkey: string }) => (show.did === viewer.did ? `/projects/${project.slug}/shows/${show.rkey}` : null) : undefined);
 </script>
 
 <svelte:head>
@@ -43,6 +43,7 @@
 
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
+		<PreviewBanner status={project.status} />
 		<div class="flex flex-col gap-5 sm:flex-row sm:items-end">
 			<Avatar src={project.avatarUrl} name={profile.name} size="xl" />
 			<div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -69,7 +70,7 @@
 			{#if !viewer}
 				<a href={loginHref} class="btn-primary"><CalendarPlus class="size-4" />Sign in to book</a>
 			{:else if claimed && !data.isManager}
-				<a href="/bookings/new?project={project.slug}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>
+				<a href="/dashboard/bookings/new?project={project.slug}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>
 			{/if}
 			{#if data.follow}
 				{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}
@@ -80,12 +81,10 @@
 				</form>
 			{/if}
 			<a href="/projects/{project.slug}/epk" class="btn-secondary"><FileText class="size-4" />Press kit</a>
-			{#if data.isManager}
-				<a href="/projects/{project.slug}/edit" class="btn-secondary"><Pencil class="size-4" />Propose changes</a>
-			{:else if viewer && !data.pendingClaim && project.status !== 'archived'}
-				<a href="/projects/{project.slug}/claim" class="btn-ghost"><Flag class="size-4" />{claimed ? 'Request to co-manage' : 'Claim this project'}</a>
+			<ManageLink {viewer} {project} />
+			{#if viewer && !data.isManager && !data.pendingClaim && project.status !== 'archived'}
+				<a href="/dashboard/claim/{project.slug}" class="btn-ghost"><Flag class="size-4" />{claimed ? 'Request to co-manage' : 'Claim this project'}</a>
 			{/if}
-			{#if viewer?.isAdmin}<a href="/admin/projects/{project.slug}" class="btn-ghost">Admin</a>{/if}
 		</div>
 	</div>
 </div>
@@ -93,8 +92,8 @@
 {#if form || data.pendingClaim || data.pendingUpdate}
 	<div class="container-page mt-6 flex flex-col gap-3">
 		{#if form?.reauth && form.error && viewer}<SignInAgain did={viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
-		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/me/requests/{data.pendingClaim.rkey}">View request</a></p>{/if}
-		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/me/requests/{data.pendingUpdate.rkey}">View request</a></p>{/if}
+		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/dashboard/requests/{data.pendingClaim.rkey}">View request</a></p>{/if}
+		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/dashboard/requests/{data.pendingUpdate.rkey}">View request</a></p>{/if}
 	</div>
 {/if}
 
@@ -114,14 +113,11 @@
 		{/if}
 
 		<section id="shows" aria-labelledby="shows-title" class="flex scroll-mt-20 flex-col gap-4">
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
-				{#if data.isManager && project.status === 'active'}<a href="/projects/{project.slug}/shows/new" class="btn-secondary btn-sm"><Megaphone class="size-4" />Announce a show</a>{/if}
-			</div>
-			{#await Promise.all([data.shows, data.edited])}
+			<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
+			{#await data.shows}
 				<ShowList shows={undefined} project={project.uri} empty={{ title: '' }} />
-			{:then [shows, edited]}
-				<ShowList {shows} project={project.uri} {editable} {edited} retryHref={page.url.pathname} empty={data.isManager ? { title: 'No upcoming shows', body: 'Announce one and it shows here and to your followers.' } : { title: 'No upcoming shows', body: `Follow ${profile.name} to see new ones under Shows.` }} />
+			{:then shows}
+				<ShowList {shows} project={project.uri} retryHref={page.url.pathname} empty={{ title: 'No upcoming shows', body: `Follow ${profile.name} to see new ones under Shows.` }} />
 			{/await}
 		</section>
 
@@ -152,13 +148,6 @@
 					<section aria-labelledby="sets-{account.did}" class="flex flex-col gap-4">
 						<h2 id="sets-{account.did}" class="m-0 text-heading font-semibold">Recent sets</h2>
 						<DjSets sets={account.sets} />
-					</section>
-				{/if}
-			{:else}
-				{#if data.isManager}
-					<section aria-labelledby="stats-empty" class="card flex flex-col gap-2 p-5">
-						<h2 id="stats-empty" class="m-0 text-emphasis font-semibold">Show how you play</h2>
-						<p class="m-0 text-small text-fg-muted">Publish your playing stats and sets from <a class="link" href="/tools/locallibrary">locallibrary</a> and they appear here and in your press kit.</p>
 					</section>
 				{/if}
 			{/each}
@@ -199,7 +188,7 @@
 			{#if data.managers.length}
 				<ul class="m-0 flex list-none flex-col gap-1.5 p-0">{#each data.managers as manager (manager.did)}<li><Handle account={manager} /></li>{/each}</ul>
 			{:else}
-				<p class="m-0 text-fg-muted">Nobody yet. Listed by Local Network staff.{#if viewer && project.status !== 'archived'}{' '}<a class="link" href="/projects/{project.slug}/claim">Is this you?</a>{/if}</p>
+				<p class="m-0 text-fg-muted">Nobody yet. Listed by Local Network staff.{#if viewer && project.status !== 'archived'}{' '}<a class="link" href="/dashboard/claim/{project.slug}">Is this you?</a>{/if}</p>
 			{/if}
 		</section>
 		<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">

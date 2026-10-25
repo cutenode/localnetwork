@@ -39,7 +39,6 @@ pub use crate::settings::BaseChange;
 use crate::settings::{self, DriveSettings, FlatSettings, SettingsProfile};
 use crate::store::{LibraryRecord, SnapshotInfo, Store, StoreStats};
 use crate::sync::{self, PullOptions, PullReport, PushOptions, SyncOptions, SyncPlan, SyncReport};
-use crate::xml::{self, XmlOptions, XmlReport};
 use crate::{Error, Result, fsutil};
 
 // ---------------------------------------------------------------------------------------------
@@ -2076,39 +2075,6 @@ pub fn format_apply(store_root: &Path, req: &FormatApply, ctx: &Ctx<'_>) -> Resu
         &protected_paths(Some(store_root)),
         ctx,
     )
-}
-
-// ---------------------------------------------------------------------------------------------
-// XML
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct ExportXml {
-    pub drive: String,
-    pub output: PathBuf,
-    #[serde(default)]
-    pub location_root: Option<PathBuf>,
-    #[serde(default)]
-    pub skip_analysis: bool,
-    /// Only these playlists and folders, and their tracks.
-    #[serde(default)]
-    pub only: Vec<String>,
-    /// Replace a file already at `output` (refused otherwise).
-    #[serde(default)]
-    pub replace: bool,
-}
-
-pub fn export_xml(req: &ExportXml, ctx: &Ctx<'_>) -> Result<XmlReport> {
-    fsutil::refuse_to_replace(&[&req.output], req.replace)?;
-    let d = resolve_drive(&req.drive)?;
-    let opts = XmlOptions {
-        location_root: req.location_root.clone(),
-        skip_analysis: req.skip_analysis,
-        only: req.only.clone(),
-    };
-    let (text, report) = xml::export(&d, &opts, ctx)?;
-    fsutil::write_atomic(&req.output, text.as_bytes())?;
-    Ok(report)
 }
 
 mod drives;

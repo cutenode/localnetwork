@@ -83,9 +83,6 @@ fn a_drives_commands_need_a_drive() {
     assert_eq!(last_message(&app), "open the drive to pack from in the library first");
     app.perform(Act::ExportList, None);
     assert_eq!(last_message(&app), "open a drive first");
-    app.toast = None;
-    app.perform(Act::ExportXml, None);
-    assert_eq!(last_message(&app), "open a drive first");
 }
 
 /// Set prep checks the other drives of the drive's library plugged in with it, in one report.
@@ -230,13 +227,10 @@ fn exporting_asks_where() {
         Some(Modal::Prompt(p)) => (p.label, p.text),
         _ => panic!("no prompt: {}", last_message(app)),
     };
-    app.export_xml();
-    assert_eq!(asked(&mut app), ("rekordbox XML of the drive to".into(), "~/Music/DEMO.xml".into()));
-    app.list_marks = vec!["A".into(), "B".into()];
-    app.export_xml();
-    assert_eq!(asked(&mut app).0, "rekordbox XML of the 2 marked playlists to");
+    app.export_list();
+    assert_eq!(asked(&mut app), ("Export to (.m3u8, .csv or .txt)".into(), "~/Music/DEMO.m3u8".into()));
 
-    app.write_export(root, "  ", Export::List(ExportOf::Everything));
+    app.write_export(root, "  ", ExportOf::Everything);
     assert_eq!(last_message(&app), "say where: a file name");
 }
 
@@ -590,7 +584,7 @@ fn exports_the_list_shown(
     if blocked.is_file() {
         wait(app, |a| a.job.is_none());
         assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(app));
-        return assert!(last_message(app).contains(&blocked.display().to_string()));
+        return assert!(last_message(app).contains(&blocked.display().to_string()), "{}", last_message(app));
     }
     if typed.starts_with(&root.display().to_string()) {
         assert_eq!(last_message(app), "not onto the drive: somewhere on this computer");
@@ -617,8 +611,8 @@ fn exports_the_list_shown(
 /// in the tree; the crate's tracks from this drive; what went on last time), then asks onto which
 /// drive (not this one, and only when one's plugged in) unless it was picked; the crate is saved
 /// as a playlist first, named. A drive's other commands need a drive, a playlist to bring back
-/// is guessed from the one shown, rekordbox XML of the marked playlists says how many, and a
-/// session is exported by its name.
+/// is guessed from the one shown, rekordbox XML (the interop plugin's) takes the marked
+/// playlists, and a session is exported by its name.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     use super::super::app::testing::{key, press};
@@ -684,15 +678,11 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     // those), and a playlist to bring back guessed from the tree.
     let xml_of = |app: &mut App, marks: &[String]| {
         app.list_marks = marks.to_vec();
-        app.perform(Act::ExportXml, None);
-        let Some(Modal::Prompt(p)) = app.modal.take() else { panic!("no prompt") };
-        let n = marks.len();
-        let want = if n == 0 {
-            "rekordbox XML of the drive to".to_string()
-        } else {
-            format!("rekordbox XML of the {n} marked playlist{} to", if n == 1 { "" } else { "s" })
-        };
-        assert_eq!(p.label, want);
+        app.perform(Act::Export("interop", "rekordbox", loclib_plugin::ExportFrom::Drive), None);
+        let Some(Modal::Form(f)) = app.modal.take() else { panic!("no form: {}", last_message(app)) };
+        assert!(f.fields[0].text.ends_with(".xml"), "{}", f.fields[0].text);
+        let super::super::form::For::Export { playlists, .. } = f.then else { panic!("not an export") };
+        assert_eq!(playlists, marks);
     };
     xml_of(&mut app, &marks);
     let (mut more, _more_dir) = app_with(library());
@@ -723,11 +713,9 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
 
     // With no drive: each says one's needed.
     let (mut none, _store) = blank(View::Library);
-    for (act, says) in [
-        (Act::Check, "no drive: plug one in, or open one in the library"),
-        (Act::ExportList, "open a drive first"),
-        (Act::ExportXml, "open a drive first"),
-    ] {
+    for (act, says) in
+        [(Act::Check, "no drive: plug one in, or open one in the library"), (Act::ExportList, "open a drive first")]
+    {
         none.toast = None;
         none.perform(act, None);
         assert_eq!(last_message(&none), says);
@@ -825,5 +813,5 @@ fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(&app));
-    assert!(last_message(&app).contains("OTHER"));
+    assert!(last_message(&app).contains("OTHER"), "{}", last_message(&app));
 }

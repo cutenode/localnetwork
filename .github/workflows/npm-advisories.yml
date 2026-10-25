@@ -1,10 +1,10 @@
 name: npm advisories
 
 # Known vulnerabilities in the npm packages the website and the extension ship, the npm side of
-# what `cargo deny` checks for Rust. Pull requests that change the lockfile, and weekly for
-# advisories published between them. Only production dependencies: the dev tooling's advisories
-# (Lighthouse, the atproto dev network) don't reach anyone using the tools, and Dependabot updates
-# them monthly.
+# what `cargo deny` checks for Rust. Pull requests that change the lockfile or the ignore list
+# (auditConfig in pnpm-workspace.yaml), and weekly for advisories published between them. Only
+# production dependencies: the dev tooling's advisories (Lighthouse, the atproto dev network) don't
+# reach anyone using the tools, and Dependabot updates them monthly.
 on:
   push:
     branches: [main]
@@ -52,6 +52,7 @@ jobs:
           filters: |
             run:
               - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
               - '.github/workflows/npm-advisories.yml'
 
   audit:

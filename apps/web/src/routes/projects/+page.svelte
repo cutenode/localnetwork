@@ -2,6 +2,7 @@
 	import { SlidersHorizontal } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import FindDjsSwitch from '#lib/components/FindDjsSwitch.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
@@ -34,9 +35,10 @@
 {/snippet}
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
-	<SectionHeader level={1} eyebrow="Directory" title="Find DJs" align="split" lede="Search by sound, place, fee and slot. A search for house finds deep house and afro house too.">
-		{#snippet actions()}<Button variant="secondary" href="/match">Match a specific show</Button>{/snippet}
-	</SectionHeader>
+	<div class="flex flex-col gap-6">
+		<FindDjsSwitch current="/projects" />
+		<SectionHeader level={1} eyebrow="Directory" title="Find DJs" align="split" lede="Search by sound, place, fee and slot. A search for house finds deep house and afro house too." />
+	</div>
 
 	<div class="grid items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-10">
 		<!-- Folded above the results on a phone, always open beside them on a wide screen. -->
