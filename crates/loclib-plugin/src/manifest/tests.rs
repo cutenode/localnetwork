@@ -2016,9 +2016,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
             }
             let i = index(&tc, c.accounts.len());
-            // Not indexed: CodeQL takes `accounts[i]` for an account's secrets, and changing its
-            // scopes for logging them.
-            let x = c.accounts.get_mut(i).expect("one at i");
+            let x = &mut c.accounts[i];
             let at = format!("contributes.accounts[{i}]");
             match mistake {
                 "account endpoint" => {
@@ -2311,9 +2309,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
     };
     let problem = problem_with(&m, first_party);
     match prefix {
-        // Not echoed on failure (hegel shows what it drew): CodeQL takes a count of accounts in
-        // it for an account's secrets.
-        true => assert!(problem.starts_with(&said)),
+        true => assert!(problem.starts_with(&said), "{problem:?} doesn't start with {said:?}"),
         false => assert_eq!(problem, said),
     }
 }
