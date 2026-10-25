@@ -2,6 +2,7 @@
 	import { ArrowLeft } from '@lucide/svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import EpkAccessCard from '#lib/components/epk/EpkAccessCard.svelte';
+	import { pressKitPath } from '#lib/epk.ts';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -10,7 +11,7 @@
 
 	const name = $derived(data.project.profile.name);
 
-	const kit = $derived(`/epk/${data.epk.did}/${data.epk.rkey}`);
+	const kit = $derived(pressKitPath(data.project.slug, data.epk.rkey));
 </script>
 
 <svelte:head><title>Ask for {record.title} · Local Network</title></svelte:head>
