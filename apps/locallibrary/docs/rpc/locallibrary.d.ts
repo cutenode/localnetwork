@@ -592,7 +592,9 @@ export type Edit =
   }
   /**
    * Delete tracks with their playlist and history entries, and (unless `keep_files`) their
-   * audio, analysis and artwork files when no other track uses them.
+   * audio, analysis and artwork files when no other track uses them. A track goes with every
+   * row of its audio file, in each database; a path may name one only the drive's other
+   * database lists (OneLibrary, drifted from `export.pdb`), which is deleted there.
    */
   | {
     op: "delete_tracks";
@@ -3848,37 +3850,6 @@ export type MergeReport = {
   fingerprint: Hash | null;
 };
 
-export type CleanPlan = {
-  drive: string;
-  root: string;
-  tracks: TrackRef[];
-  /** Files to delete (audio, analysis, artwork), as drive keys. */
-  files: string[];
-  /** Total size of `files`. */
-  bytes: number;
-  playlists: AffectedPlaylist[];
-  /** Artist/album/genre/label/key/artwork rows left unused by the removal. */
-  lookup_rows: number;
-  /** Space needed for the backup of the database and the deleted files. */
-  needed_bytes: number;
-  free_space: number | null;
-  fits: boolean;
-  warnings: string[];
-};
-
-export type AffectedPlaylist = {
-  path: string;
-  entries_removed: number;
-};
-
-export type CleanReport = {
-  tracks_removed: number;
-  files_deleted: number;
-  freed_bytes: number;
-  backup: string | null;
-  fingerprint: Hash | null;
-};
-
 export type ConvertPlan = {
   drive: string;
   root: string;
@@ -4471,7 +4442,9 @@ export type EditOutput =
   }
   /**
    * Delete tracks with their playlist and history entries, and (unless `keep_files`) their
-   * audio, analysis and artwork files when no other track uses them.
+   * audio, analysis and artwork files when no other track uses them. A track goes with every
+   * row of its audio file, in each database; a path may name one only the drive's other
+   * database lists (OneLibrary, drifted from `export.pdb`), which is deleted there.
    */
   | {
     op: "delete_tracks";
@@ -9338,10 +9311,6 @@ export interface Methods {
   "merge.plan": { params: MergeRequest & WriteOptions; result: MergePlan & PlanFields };
   /** apply method; paired with `merge.plan`; long running: sends `progress`, can be cancelled */
   "merge.apply": { params: ApplyPlan | (MergeRequest & WriteOptions); result: MergeReport };
-  /** plan method; paired with `clean.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "clean.plan": { params: DriveRef & WriteOptions; result: CleanPlan & PlanFields };
-  /** apply method; paired with `clean.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "clean.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: CleanReport };
   /** plan method; paired with `convert.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "convert.plan": { params: ConvertRequest & WriteOptions; result: ConvertPlan & PlanFields };
   /** apply method; paired with `convert.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

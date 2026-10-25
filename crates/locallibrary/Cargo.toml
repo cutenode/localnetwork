@@ -115,6 +115,8 @@ loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
 # The interop plugin's rekordbox XML writer, which tests read fixture drives' libraries through.
 loclib-interop.workspace = true
+# The demos plugin, served in the tests that apply its plans to drives (`props_demos`).
+locallibrary-plugin-demos = { path = "../../plugins/demos" }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

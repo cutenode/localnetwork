@@ -3888,6 +3888,7 @@ dependencies = [
  "keyring",
  "keyring-core",
  "libc",
+ "locallibrary-plugin-demos",
  "loclib-analysis",
  "loclib-equipment",
  "loclib-interop",
@@ -3949,6 +3950,7 @@ dependencies = [
  "libc",
  "locallibrary",
  "locallibrary-plugin-coverart",
+ "locallibrary-plugin-demos",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-musicbrainz",
  "locallibrary-plugin-sound",
@@ -3994,6 +3996,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-demos"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-model",
+ "loclib-plugin",
+ "rustc-hash",
+ "serde_json",
 ]
 
 [[package]]
