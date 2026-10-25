@@ -1,0 +1,23 @@
+[package]
+name = "locallibrary-plugin-plyr"
+description = "locallibrary's plyr.fm plugin: a set's recording uploaded to plyr.fm as a track, with its tracklist"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+form_urlencoded = "1.2.2"
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

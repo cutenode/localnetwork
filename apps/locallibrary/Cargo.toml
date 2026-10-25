@@ -92,6 +92,7 @@ base64.workspace = true
 # Splits each `refresh --then` into words the way a shell does (the hints' tests check their
 # quoting with it too).
 shlex = "2.0.1"
+locallibrary-plugin-plyr = { version = "0.1.0", path = "../../plugins/plyr" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
