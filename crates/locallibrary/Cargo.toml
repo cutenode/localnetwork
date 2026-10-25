@@ -96,8 +96,6 @@ ring = "0.17.14"
 unicode-segmentation = { version = "1.13.3", optional = true }
 # The plugin protocol the plugin host speaks (`plugin`).
 loclib-plugin.workspace = true
-# Escaping text for rekordbox XML (`xml`): other DJ software's exports are the interop plugin's.
-loclib-interop.workspace = true
 # How a URL's query spells a plugin's secret, to leave that out of what the plugin is told too.
 form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
@@ -113,6 +111,8 @@ fatfs = "0.3"
 loclib-model = { workspace = true, features = ["test-util"] }
 loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
+# The interop plugin's rekordbox XML writer, which tests read fixture drives' libraries through.
+loclib-interop.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

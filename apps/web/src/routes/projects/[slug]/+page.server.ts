@@ -24,16 +24,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 
 	const linked = (project.profile.mixes ?? []).flatMap((mix) => mix.set ?? []);
-	const shows = unlessOffline(locals.log, () => app.shows.forProject(project));
 
 	return {
 		...shared,
 		// Streamed, so the page shows while the directory looks up the mixes' sets, the shows, and the followers.
 		sets: linked.length ? app.sets.linked(linked) : undefined,
-		shows,
-		// Which of the viewer's own shows another calendar app changed since, as HappyView has the events.
-		edited:
-			shared.isManager && viewer ? shows.then((list) => (list ? app.shows.edited(viewer.did, list) : [])) : undefined,
+		shows: unlessOffline(locals.log, () => app.shows.forProject(project)),
 		follow:
 			project.status === 'active'
 				? unlessOffline(locals.log, () => app.follows.state(project, viewer?.did))

@@ -331,8 +331,8 @@ export class ShowService {
 
 			// applyWrites can't swap single records, so an edit writes them one at a time, the event first: other calendar
 			// apps change only the event and this app's edits change both, so either trips the first swap, before anything
-			// is written. A show that changed alone stops the edit with its copy behind the new event, which the project
-			// page marks for the manager to review.
+			// is written. A show that changed alone stops the edit with its copy behind the new event, which the project's
+			// dashboard marks for the manager to review.
 			try {
 				await client.putRecord({
 					collection: CALENDAR_EVENT,

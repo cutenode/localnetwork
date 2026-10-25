@@ -11,6 +11,14 @@ import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
+import { load as adminAudit } from '../../src/routes/admin/audit/+page.server.ts';
+import { load as adminAuditEntry } from '../../src/routes/admin/audit/[id]/+page.server.ts';
+import { load as adminOverview } from '../../src/routes/admin/+page.server.ts';
+import { load as adminProject } from '../../src/routes/admin/projects/[slug]/+page.server.ts';
+import { load as adminProjects } from '../../src/routes/admin/projects/+page.server.ts';
+import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+page.server.ts';
+import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
+import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
@@ -148,6 +156,29 @@ describe('Local Network on a real atproto spaces network', () => {
 		).rejects.toBeInstanceOf(UserError);
 	});
 
+	it("refuses the staff console's page data to non-staff in each load, not only in the layout", async () => {
+		// A data request still runs page loads when the layout refuses, so each load checks for itself.
+		const pat = await net.viewer('pat');
+		const url = new URL('http://localhost/admin');
+
+		const event = {
+			params: { id: '1', slug: 'x', rkey: 'x' },
+			url,
+			locals: { app: net.app, viewer: pat, log: silentLogger }
+		};
+
+		for (const load of [
+			adminOverview,
+			adminAudit,
+			adminAuditEntry,
+			adminProjects,
+			adminProject,
+			adminRequests,
+			adminRequest
+		])
+			await expect(load(event)).rejects.toMatchObject({ status: 403 });
+	});
+
 	it('publishes the project from the root account when a moderator approves', async () => {
 		const milo = await net.viewer('milo');
 
@@ -255,6 +286,22 @@ describe('Local Network on a real atproto spaces network', () => {
 				profile: profile('Hijack')
 			})
 		).rejects.toBeInstanceOf(ForbiddenError);
+		// The dashboard's form turns someone who doesn't manage the project away before it reads what they sent.
+		const { slug } = (await net.app.projects.byUri(projectUri))!;
+		const url = new URL(`http://127.0.0.1/dashboard/projects/${slug}/profile`);
+		const form = new FormData();
+		form.set('name', 'Hijack');
+		const lee = await net.viewer('lee');
+
+		await expect(
+			proposeChanges.default({
+				params: { slug },
+				url,
+				request: new Request(url, { method: 'POST', body: form }),
+				locals: { app: net.app, viewer: lee, log: silentLogger }
+			})
+		).rejects.toMatchObject({ status: 403 });
+		expect(await net.app.requests.list({ requester: lee.did })).toEqual([]);
 		await net.app.requests.decide({ actor: ada, uri: update.uri, outcome: 'approved' });
 		const updated = await net.app.projects.byUri(projectUri);
 		expect(updated).toMatchObject({
@@ -541,13 +588,14 @@ describe('Local Network on a real atproto spaces network', () => {
 			content: { bio: 'The long bio' }
 		};
 
-		// Each save waits until HappyView serves it, and an edit swaps on the version HappyView has.
+		// Each save waits until HappyView serves it, and an edit swaps on the version it was opened on.
 		const epk = await net.app.epks.save(viewer, project, input);
 		expect((await net.app.epks.forProject(project)).map((kit) => kit.uri)).toEqual([epk.uri]);
-		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk.rkey);
+		const edited = await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk);
 		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
 
-		// Another app edits it; once HappyView has that version, saving over it works again.
+		// Another app edits it while the form is open on `edited`. Once HappyView has that change, the form's save is
+		// refused; reloaded, it saves.
 		const current = await neon.client.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
 		await neon.client.putRecord({
 			collection: COLLECTION.epk,
@@ -557,7 +605,12 @@ describe('Local Network on a real atproto spaces network', () => {
 		await expect
 			.poll(async () => (await net.app.epks.get(neon.did, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
 			.toBe('Elsewhere');
-		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, epk.rkey);
+		await expect(net.app.epks.save(viewer, project, { ...input, title: 'Stale' }, edited)).rejects.toMatchObject({
+			status: 409
+		});
+		const reloaded = (await net.app.epks.get(neon.did, epk.rkey))!.epk;
+		expect(reloaded.record).toMatchObject({ title: 'Clubs, edited', headline: 'Elsewhere' });
+		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, reloaded);
 		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
 
 		await net.app.epks.remove(viewer, (await net.app.epks.get(neon.did, epk.rkey))!.epk);
@@ -923,5 +976,49 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await writers()).toEqual([lee.did, lee.did]);
 		const { events } = await net.app.bookings.thread(lee, space);
 		expect(events.map((event) => event.kind)).toEqual(['inquiry', 'message']);
+	});
+
+	it("moves a project's booking threads with its managers, leaving the promoter in them", async () => {
+		const ada = await net.viewer('ada');
+		const lee = await net.viewer('lee');
+		const [pat, neon] = [net.user('pat'), net.user('neon')];
+		const root = await net.app.core.root();
+
+		let project = await net.app.projectAdmin.create({
+			actor: ada,
+			profile: profile('Night Shift'),
+			managers: [pat.did]
+		});
+
+		const show = { title: 'Warehouse' };
+		const open = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'Free?' });
+		const settled = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'And now?' });
+		await net.app.bookings.setStatus({ actor: lee, space: settled, status: 'declined' });
+
+		const members = async (space: string) => (await root.listMembers(space)).map((member) => member.did).sort();
+		const threads = async (did: string) => (await net.app.bookings.threadsFor(did)).map((thread) => thread.space);
+
+		const setManagers = async (dids: string[]) => {
+			project = await net.app.projectAdmin.setManagers({ actor: ada, project, managers: dids });
+		};
+
+		await setManagers([pat.did, neon.did]);
+		expect(await members(open)).toEqual([lee.did, neon.did, pat.did].sort());
+		expect(await members(settled)).toEqual([lee.did, pat.did].sort());
+		await net.app.bookings.message({ actor: await net.viewer('neon'), space: open, text: 'Joining in.' });
+
+		await setManagers([neon.did]);
+		await net.app.projects.reconcileManagerSpaces();
+		expect(await members(open)).toEqual([lee.did, neon.did].sort());
+		expect(await members(settled)).toEqual([lee.did]);
+		expect(await threads(pat.did)).not.toContain(open);
+		await expect(
+			net.app.bookings.message({ actor: await net.viewer('pat'), space: open, text: 'Still here?' })
+		).rejects.toBeInstanceOf(ForbiddenError);
+
+		await net.settle();
+		expect(await threads(neon.did)).toContain(open);
+		const { events } = await net.app.bookings.thread(lee, open);
+		expect(events.map((event) => event.text)).toEqual(['Free?', 'Joining in.']);
 	});
 });

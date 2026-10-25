@@ -48,7 +48,7 @@ The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Do
 tools/policy.sh
 ```
 
-CI runs a tool's checks only when its files (or the shared ones) change. Each workflow ends with a "… passed" check that reports either way, and those are the checks `main` requires before a merge. On a draft pull request, the Rust workspace's and the website's checks wait until you mark it ready for review, so open a pull request as a draft while it isn't next to merge (a stacked one, say). The slow suites run weekly in the `*-scheduled.yml` workflows, and you can start them on any branch from the Actions tab. A weekly run that fails opens an issue labelled `scheduled-failure`, and the next weekly run that passes closes it.
+CI runs a tool's checks only when its files (or the shared ones) change. Each workflow ends with a "… passed" check that reports either way, and those are the checks `main` requires before a merge. On a draft pull request, the Rust workspace's and the website's checks wait until you mark it ready for review, so open a pull request as a draft while it isn't next to merge (a stacked one, say). Their "… passed" checks fail on a draft that has something for them to check, since none of it ran. Marking it ready starts a new run, and if one doesn't show up, re-run the workflow. The slow suites run weekly in the `*-scheduled.yml` workflows, and you can start them on any branch from the Actions tab. A weekly run that fails opens an issue labelled `scheduled-failure`, and the next weekly run that passes closes it.
 
 On a pull request, each tool's workflow keeps one comment up to date with its coverage: the Rust workspace's, with the Hegel property tests' alone beside it, and the website's and the extension's against `main`, with each changed file's. The website's and the extension's comments also show how the change moves what they ship against `main`: the website's client JavaScript and CSS, and the extension's zip. A pull request from a fork can't be commented on, so it finds the same in the run's summary. The website's Lighthouse scores are in the run's summary too, when the change touches what its pages are built from.
 
@@ -65,12 +65,12 @@ Labels are added automatically from the files a pull request changes ([labeler.y
 
 ## Issues and the project
 
-Every open issue is on the organization's [Local Network project](https://github.com/orgs/cutenode/projects/9). The [Project workflow](workflows/project.yml) adds each new issue and fills in its Status and Product.
+Every open issue is on the organization's [Local Network project](https://github.com/orgs/cutenode/projects/9), and each tool's issues are also on its own: [web](https://github.com/orgs/cutenode/projects/3), [locallibrary](https://github.com/orgs/cutenode/projects/4) and [localtoolbox](https://github.com/orgs/cutenode/projects/5), plus [locallibrary-desktop](https://github.com/orgs/cutenode/projects/8) for the sidecar until there's a desktop app. The [Project workflow](workflows/project.yml) keeps them in step from the issues' labels.
 
-- Status: Inbox (new), Todo (triaged), In Progress, Done. Closing an issue, or merging the pull request that closes it, moves it to Done.
-- Product: the tool, from the issue's labels (`locallibrary`, or any `locallibrary: <area>` label). An issue with no tool's label gets `repo`. To move an issue, change its label, not the field.
-- Type: Bug, Feature or Task.
+- Status: Inbox (new), Todo (triaged), In Progress, Done, the same on every project: change it on any of them and the others follow within a few hours. An issue leaves Inbox once it has a Priority, a milestone or an assignee, is In Progress while an open pull request closes it, and is Done once it's closed. Reopening it brings it back to Todo.
+- Product (on Local Network) and Area (on a tool's project): from the issue's labels, `locallibrary` and `locallibrary: <area>`. An issue with no tool's label gets the Product `repo`. To move an issue, change its label, not the field.
+- Type: Bug, Feature or Task. The issue forms set it, and an issue without one gets it from its labels (`bug` and `scheduled-failure` are Bugs, `enhancement` a Feature, anything else a Task).
 - Priority and Effort: set while triaging. Features can also get a Start date and Target date, which place them on the roadmap.
 - A release is a milestone, like `locallibrary v0.1.0`. Big work gets sub-issues, and work that has to wait gets a "blocked by" link.
 
-The views: Board (a column per Status, a row per Product), Inbox to triage, Backlog, Bugs, Releases (by milestone) and Roadmap (features by date).
+The views: Board (a column per Status, a row per Product), Inbox to triage, Backlog, Bugs, Tooling (CI, tests and dependencies), Releases (by milestone) and Roadmap (features by date). Each tool's project has a Board and Backlog by Area, and Bugs.

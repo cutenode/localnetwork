@@ -22,6 +22,7 @@ import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
+import { ManagerSpaces } from './manager-spaces';
 import { SetService } from './sets';
 
 export type ProjectSearch = {
@@ -109,6 +110,8 @@ function projectView(rootDid: string, ref: RecordRef & { rkey: string }, record:
 export class ProjectService {
 	/** The DJ sets mixes link, which `publish` checks. */
 	readonly sets: SetService;
+	/** The spaces whose members follow each project's managers, which `publish` updates. */
+	private readonly managerSpaces: ManagerSpaces;
 
 	constructor(
 		private readonly core: Core,
@@ -116,6 +119,22 @@ export class ProjectService {
 		private readonly indexWaitMs = INDEX_WAIT_MS
 	) {
 		this.sets = new SetService(core, directory);
+		this.managerSpaces = new ManagerSpaces(core);
+	}
+
+	/**
+	 * Brings every project's spaces in line with its managers (run at startup and every hour), finishing any sync that
+	 * failed part way. It reads the projects from the root's own repo, since a directory that's behind would undo a
+	 * recent change.
+	 */
+	async reconcileManagerSpaces(): Promise<void> {
+		const records = await (await this.core.root()).listRecords(COLLECTION.project);
+
+		for (const { uri, cid, value } of records) {
+			const project = this.toView({ uri, cid, record: value });
+
+			if (project) await this.managerSpaces.sync(project.uri, project.managers);
+		}
 	}
 
 	async indexDetails(projectUri: string, uri: string, cid: string, details: ProjectDetails, updatedAt: string) {
@@ -149,6 +168,16 @@ export class ProjectService {
 		const { project } = await this.directory.query('getProject', { uri });
 
 		return project ? this.toView(project) : null;
+	}
+
+	/** A project as the root's own repo has it now, for a read that a directory still indexing a change would get wrong. */
+	async current(uri: string): Promise<ProjectView | null> {
+		const rkey = this.projectRkey(uri);
+
+		if (!rkey) return null;
+		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.project, rkey });
+
+		return stored && this.toView({ uri: stored.uri, cid: stored.cid, record: stored.value });
 	}
 
 	async byUris(uris: string[]): Promise<Map<string, ProjectView>> {
@@ -270,9 +299,10 @@ export class ProjectService {
 
 	/**
 	 * Writes a project to the root account's public repo (compare-and-swap on
-	 * the previous CID) once the sets its mixes newly link check out,
-	 * optionally updates its private details in the industry space, and waits
-	 * for the directory to serve it. Returns field-level changes.
+	 * the previous CID) once the sets its mixes newly link check out, moves its
+	 * spaces' members along when its managers change, optionally updates its
+	 * private details in the industry space, and waits for the directory to
+	 * serve it. Returns field-level changes.
 	 */
 	async publish(input: {
 		existing?: ProjectView | null;
@@ -324,6 +354,9 @@ export class ProjectService {
 			existing ? { profile: existing.profile, managers: existing.managers, status: existing.status } : {},
 			{ profile: record.profile, managers: record.managers, status: record.status }
 		);
+
+		if (existing && changes.some((change) => change.field === 'managers'))
+			await this.managerSpaces.sync(ref.uri, managers);
 
 		if (input.details !== undefined) {
 			const before = existing ? await this.details(existing.uri) : null;
@@ -399,7 +432,7 @@ export class ProjectService {
 			assertProjectRecord(record);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ err: error, uri }, 'skipping an invalid project record from the directory');
+			this.core.logger.warn({ err: error, uri }, 'skipping an invalid project record');
 
 			return null;
 		}

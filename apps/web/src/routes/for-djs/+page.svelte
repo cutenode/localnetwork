@@ -18,7 +18,7 @@
 <svelte:head><title>For DJs · Local Network</title></svelte:head>
 
 {#snippet calls()}
-	<Button size="lg" href="/projects/new">List your project</Button>
+	<Button size="lg" href="/dashboard/projects/new">List your project</Button>
 	<Button size="lg" variant="secondary" href="/projects?unclaimed=1">Find and claim yours</Button>
 {/snippet}
 

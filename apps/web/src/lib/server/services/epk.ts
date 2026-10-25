@@ -26,6 +26,7 @@ import { createSpaceIfMissing, type RecordRef, type RepoClient, xrpcErrorName } 
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
 import { nowIso } from '../db';
+import type { DirectoryRecord } from '../happyview/client';
 import type { IndexedRepo } from '../happyview/indexed';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
@@ -42,6 +43,9 @@ const FOLLOW = 'app.bsky.graph.follow';
 
 /** A project's mixes and press kits are kept to the same size. */
 const MAX_EPKS_PER_PROJECT = 20;
+
+/** A save only lands on the version the owner opened. */
+const changed = () => new UserError('This press kit changed since you opened it. Reload and try again.', 409);
 
 export type EpkInput = {
 	title: string;
@@ -97,7 +101,7 @@ export class EpkService {
 	 */
 	async get(did: string, rkey: string): Promise<{ epk: EpkView; project: ProjectView } | null> {
 		const found = await this.indexed.getRecord(did, COLLECTION.epk, rkey, { strict: true });
-		const epk = found && (await this.view(did, rkey, found.value));
+		const epk = found && (await this.view(did, rkey, found));
 
 		if (!epk) return null;
 		const project = await this.projects.byUri(epk.record.project);
@@ -180,8 +184,18 @@ export class EpkService {
 		return ruleFor(epk.record.access, await this.audiences(epk, did));
 	}
 
-	/** Creates or updates a press kit: its space, the private part, then the public record. */
-	async save(actor: Viewer, project: ProjectView, input: EpkInput, rkey?: string): Promise<EpkView> {
+	/**
+	 * Creates a press kit, or updates the one at `edit.rkey` as long as it's still the version (`edit.cid`) the owner
+	 * opened: its space, the private part, then the public record.
+	 */
+	async save(
+		actor: Viewer,
+		project: ProjectView,
+		input: EpkInput,
+		edit?: { rkey: string; cid: string }
+	): Promise<EpkView> {
+		const rkey = edit?.rkey;
+
 		if (!project.managers.includes(actor.did))
 			throw new ForbiddenError('Only managers of this project can publish press kits');
 
@@ -193,10 +207,12 @@ export class EpkService {
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
 		const client = await this.ownerClient(actor);
 		const key = rkey ?? TID.nextStr();
-		// The write below swaps on the version HappyView serves, so it can't overwrite one the site hasn't shown.
 		const existing = rkey ? await this.indexed.getRecord(actor.did, COLLECTION.epk, rkey, { strict: true }) : null;
 
 		if (rkey && !existing) throw new NotFoundError('That press kit does not exist');
+
+		// Checked before anything is written; the swap below also holds against a change HappyView hasn't seen.
+		if (existing && existing.cid !== edit?.cid) throw changed();
 		const space = await this.ensureSpace(client, key);
 		const now = nowIso();
 
@@ -227,13 +243,13 @@ export class EpkService {
 				collection: COLLECTION.epk,
 				rkey: key,
 				record: validated,
-				swapRecord: existing?.cid ?? null
+				swapRecord: edit?.cid ?? null
 			});
 		} catch (error) {
 			if (xrpcErrorName(error) !== 'InvalidSwap') throw error;
 			// Changed somewhere HappyView hasn't caught up with yet, so a reload would show the same old version.
 			await this.indexed.reindex(actor.did, COLLECTION.epk);
-			throw new UserError('This press kit changed since you opened it. Reload and try again.', 409);
+			throw changed();
 		}
 
 		this.lists.delete(actor.did);
@@ -251,7 +267,9 @@ export class EpkService {
 			{ actorClient: client }
 		);
 
-		return { uri: ref.uri, did: actor.did, rkey: key, space, owner: { did: actor.did, handle: actor.handle }, record };
+		const owner = { did: actor.did, handle: actor.handle };
+
+		return { uri: ref.uri, cid: ref.cid, did: actor.did, rkey: key, space, owner, record };
 	}
 
 	/** Uploads a photo to the owner's repo, for either part of a press kit. */
@@ -687,9 +705,7 @@ export class EpkService {
 		if (!strict && cached && this.now() - cached.at < FRESH_MS) return cached.value;
 		const { records } = await this.indexed.listRecords(did, COLLECTION.epk, { strict });
 
-		const views = await Promise.all(
-			records.map((record) => this.view(did, record.uri.split('/').at(-1)!, record.value))
-		);
+		const views = await Promise.all(records.map((record) => this.view(did, record.uri.split('/').at(-1)!, record)));
 
 		const value = views.filter((view) => view !== null);
 
@@ -698,7 +714,7 @@ export class EpkService {
 		return value;
 	}
 
-	private async view(did: string, rkey: string, value: JsonObject): Promise<EpkView | null> {
+	private async view(did: string, rkey: string, { cid, value }: DirectoryRecord): Promise<EpkView | null> {
 		const record = this.parse(COLLECTION.epk, epkRecordSchema, value);
 
 		if (!record) {
@@ -709,6 +725,7 @@ export class EpkService {
 
 		return {
 			uri: `at://${did}/${COLLECTION.epk}/${rkey}`,
+			cid,
 			did,
 			rkey,
 			space: epkSpace(did, rkey),

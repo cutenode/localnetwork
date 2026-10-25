@@ -29,7 +29,7 @@
 <Story name="Hero" args={{ level: 1, size: 'display', align: 'center', eyebrow: undefined, title: 'The home for local DJs and the nights they play.', lede: 'Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their mixes and their nights on it.' }}>
 	{#snippet template(args)}
 		<SectionHeader {...args}>
-			{#snippet actions()}<Button size="lg" href="/projects">Find DJs near you</Button><Button size="lg" variant="secondary" href="/projects/new">List your project</Button>{/snippet}
+			{#snippet actions()}<Button size="lg" href="/projects">Find DJs near you</Button><Button size="lg" variant="secondary" href="/dashboard/projects/new">List your project</Button>{/snippet}
 		</SectionHeader>
 	{/snippet}
 </Story>
