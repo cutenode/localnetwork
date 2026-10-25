@@ -129,6 +129,8 @@ export const ROLE_LABELS: Record<RequestRole, string> = {
 
 export type EpkView = {
 	uri: string;
+	/** The public record's version. */
+	cid: string;
 	did: string;
 	rkey: string;
 	space: string;
@@ -180,6 +182,8 @@ export type EpkFormPhoto = {
 
 /** What the press kit form shows, from saved records or from a submission that failed. */
 export type EpkFormValues = {
+	/** The version of the public record the form was opened on, which a save swaps on; empty for a new press kit. */
+	cid: string;
 	title: string;
 	headline: string;
 	bio: string;
@@ -237,6 +241,7 @@ export function pressChecks(photos: { width?: number; height?: number; credit?: 
 
 /** An empty press kit form: no mixes on the project yet, and the default rules. */
 export const epkFormDefaults: EpkFormValues = {
+	cid: '',
 	title: '',
 	headline: '',
 	bio: '',

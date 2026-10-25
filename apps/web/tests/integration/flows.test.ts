@@ -484,13 +484,14 @@ describe('Local Network on a real atproto spaces network', () => {
 			content: { bio: 'The long bio' }
 		};
 
-		// Each save waits until HappyView serves it, and an edit swaps on the version HappyView has.
+		// Each save waits until HappyView serves it, and an edit swaps on the version it was opened on.
 		const epk = await net.app.epks.save(viewer, project, input);
 		expect((await net.app.epks.forProject(project)).map((kit) => kit.uri)).toEqual([epk.uri]);
-		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk.rkey);
+		const edited = await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk);
 		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
 
-		// Another app edits it; once HappyView has that version, saving over it works again.
+		// Another app edits it while the form is open on `edited`. Once HappyView has that change, the form's save is
+		// refused; reloaded, it saves.
 		const current = await neon.client.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
 		await neon.client.putRecord({
 			collection: COLLECTION.epk,
@@ -500,7 +501,12 @@ describe('Local Network on a real atproto spaces network', () => {
 		await expect
 			.poll(async () => (await net.app.epks.get(neon.did, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
 			.toBe('Elsewhere');
-		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, epk.rkey);
+		await expect(net.app.epks.save(viewer, project, { ...input, title: 'Stale' }, edited)).rejects.toMatchObject({
+			status: 409
+		});
+		const reloaded = (await net.app.epks.get(neon.did, epk.rkey))!.epk;
+		expect(reloaded.record).toMatchObject({ title: 'Clubs, edited', headline: 'Elsewhere' });
+		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, reloaded);
 		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
 
 		await net.app.epks.remove(viewer, (await net.app.epks.get(neon.did, epk.rkey))!.epk);

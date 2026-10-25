@@ -54,15 +54,16 @@ describe('press kit pages', () => {
 	});
 
 	it('uploads new photos to the owner and files each where the form says', async () => {
-		const save = async (visibility: string, file: File, rkey?: string) => {
+		const save = async (visibility: string, file: File, opened?: { rkey: string; cid: string }) => {
 			const form = new FormData();
 			form.set('title', 'Clubs');
+			form.set('cid', opened?.cid ?? '');
 			form.set(`mixVisibility.${project.profile.mixes![0].url}`, 'private');
 			form.append('newPhotos', file);
 			form.set('newPhotoVisibility', visibility);
 			form.set('newPhotoCredit', 'Mara Okafor');
 
-			return saveEpkForm(t.epks, await t.viewer(DJ), project, form, [], rkey);
+			return saveEpkForm(t.epks, await t.viewer(DJ), project, form, [], opened?.rkey);
 		};
 
 		const epk = await save('public', png(3200, 1800, 'wide.png'));
@@ -76,7 +77,7 @@ describe('press kit pages', () => {
 		expect(t.net.blobHolders.get(photo.image.ref.$link)?.has(DJ)).toBe(true);
 		expect(epk.record.mixes).toBeUndefined();
 
-		await save('private', png(1600, 1600, 'square.png'), epk.rkey);
+		await save('private', png(1600, 1600, 'square.png'), epk);
 		const content = t.net.spaceRecords.get(`${epk.space}|${DJ}|${COLLECTION.epkContent}|${EPK_CONTENT_KEY}`)!.value;
 		expect(content).toMatchObject({
 			mixes: [{ title: 'Tidal Hours 004' }],

@@ -50,6 +50,6 @@ export async function saveEpkForm(
 			photos: publicPhotos,
 			content: { ...parsed.content, mixes: parsed.privateMixes, photos: privatePhotos }
 		},
-		rkey
+		rkey ? { rkey, cid: parsed.cid } : undefined
 	);
 }

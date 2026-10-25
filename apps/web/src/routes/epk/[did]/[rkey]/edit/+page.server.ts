@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 	return {
 		epk,
 		project,
-		values: epkFormValues(project.profile.mixes ?? [], epk.record, content),
+		values: epkFormValues(project.profile.mixes ?? [], epk, content),
 		spacesCapable: viewer.spacesCapable
 	};
 };

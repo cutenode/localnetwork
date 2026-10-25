@@ -77,6 +77,7 @@ it('lets a signed-in member send an inquiry', async () => {
 it('lists the press kits its managers publish, and lets a manager start one', async () => {
 	const epk = {
 		uri: 'at://did:plc:neon/computer.localnetwork.epk/3k',
+		cid: 'bafyepk',
 		did: 'did:plc:neon',
 		rkey: '3k',
 		space: 'at://did:plc:neon/space/computer.localnetwork.space.epk/3k',
