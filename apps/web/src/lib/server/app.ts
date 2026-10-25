@@ -13,9 +13,10 @@ import { type Config, getConfig } from './config';
 import type { Core } from './core';
 import { type Db, nowIso, openDatabase } from './db';
 import { Geocoder } from './geocode';
+import { Backfills } from './happyview/backfills';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
-import { IndexedRepo } from './happyview/indexed';
+import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
@@ -141,7 +142,8 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const happyView = new HappyViewClient(config.happyView);
-	const projects = new ProjectService(core, happyView);
+	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
 	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
@@ -223,6 +225,7 @@ export async function createApp(options: CreateAppOptions) {
 		credentials,
 		syncer,
 		happyView,
+		backfills,
 		audit,
 		accounts,
 		projects,

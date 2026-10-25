@@ -34,6 +34,7 @@ import getStats from '../../../../../../lexicons/computer/localnetwork/directory
 import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
 import listRecords from '../../../../../../lexicons/computer/localnetwork/directory/listRecords.json' with { type: 'json' };
 import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
+import requestIndex from '../../../../../../lexicons/computer/localnetwork/directory/requestIndex.json' with { type: 'json' };
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
 import djProfile from '../../../../../../lexicons/computer/localnetwork/dj/profile.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
@@ -101,6 +102,7 @@ export const LEXICON_DOCS = [
 	searchArtists,
 	getRecords,
 	listRecords,
+	requestIndex,
 	djDefs,
 	djProfile,
 	djSet,

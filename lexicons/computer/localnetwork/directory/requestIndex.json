@@ -1,0 +1,24 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.requestIndex",
+	"defs": {
+		"main": {
+			"type": "procedure",
+			"description": "Have the directory read the caller's own locallibrary records (computer.localnetwork.dj.set, computer.localnetwork.dj.profile and computer.localnetwork.locallibrary.settings) again from their repo, for records it hasn't indexed yet. Requires inter-service auth; the caller is the issuer. An account's records are read at most every ten minutes, and a call in between answers from the last read.",
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["indexed"],
+					"properties": {
+						"indexed": {
+							"type": "boolean",
+							"description": "Whether the directory finished reading them in time. When it didn't, it carries on, and the records show up once it's done."
+						}
+					}
+				}
+			},
+			"errors": [{ "name": "AuthenticationRequired" }]
+		}
+	}
+}

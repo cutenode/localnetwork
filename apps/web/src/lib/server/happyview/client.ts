@@ -78,7 +78,7 @@ const BACKFILL_POLL_MS = 250;
 
 const BACKFILL_DONE = new Set(['completed', 'failed', 'cancelled']);
 
-/** The admin permissions `syncHappyView` and the set picker's backfills use, so HAPPYVIEW_API_KEY needs exactly these. */
+/** The admin permissions `syncHappyView` and the re-reads (Backfills, reindex) use, so HAPPYVIEW_API_KEY needs exactly these. */
 export const HAPPYVIEW_PERMISSIONS = [
 	'lexicons:read',
 	'lexicons:create',
