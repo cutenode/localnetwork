@@ -341,6 +341,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The sidecar has both as `plugins.account*`,
   `plugins.store.*` and `plugins.publish.*`.
+- **Where a set's recording plays.** A set destination may name the link it answers (`plyr.fm`)
+  and give the Atmosphere record holding the recording (a plyr.fm track, as a
+  `com.atproto.repo.strongRef`). The set keeps both, and its record names the link and points to
+  that record as `recording`, a field the set Lexicon gains. Signed in, `sets publish SET --to`
+  offers to publish the set's record next, in the same run (`--dry-run`, `--yes` and `--json`
+  cover both).
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

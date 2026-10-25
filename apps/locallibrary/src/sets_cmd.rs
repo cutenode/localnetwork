@@ -16,7 +16,7 @@ use locallibrary::sets::{EntryOrigin, Session, Set, SetEntry, describe};
 use loclib_plugin::{ExportFrom, ExportSource};
 
 use crate::jobs_cmd::usage;
-use crate::output::{Output, clock, dim, duration, fit, heading, ok, plural, warn};
+use crate::output::{Outcome, Output, clock, dim, duration, fit, heading, ok, plural, warn};
 
 /// `sets`: with no subcommand, the list.
 #[derive(Args)]
@@ -119,7 +119,7 @@ enum SetsCommand {
         #[arg(value_name = "SET")]
         set: String,
         /// Publish it with its recording at a plugin's set destination (`plugin info PLUGIN` lists
-        /// them): asked first, and its link kept
+        /// them): asked first, and its link kept (signed in, its record is offered next)
         #[arg(long, value_name = "PLUGIN:DESTINATION")]
         #[cfg_attr(not(feature = "account"), arg(required = true))]
         to: Option<String>,
@@ -502,12 +502,17 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             browser,
         } => {
             if let Some(spec) = to {
-                return publish_to(&store()?, &spec, &set, &all(hide), dry_run, out, ctx);
+                let (store, hide) = (store()?, all(hide));
+                #[cfg(feature = "account")]
+                let then = then(&store, store_path, &hide, browser, out, ctx)?;
+                #[cfg(not(feature = "account"))]
+                let then = None;
+                return publish_to(&store, &spec, &set, &hide, dry_run, then, out, ctx);
             }
             #[cfg(feature = "account")]
             {
                 let req = api::SetPublishRequest { set, hide: all(hide) };
-                return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+                return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx)?.print(out));
             }
             #[cfg(not(feature = "account"))]
             unreachable!("clap requires --to without the Atmosphere account");
@@ -516,34 +521,96 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
     Ok(ExitCode::SUCCESS)
 }
 
+/// Publishing the set's record once a plugin has published the set (`sets publish SET --to`),
+/// offered when signed in: the account it goes to, and publishing it as `sets publish SET` does,
+/// into the command's JSON envelope as `record`.
+struct Then<'a> {
+    account: String,
+    publish: PublishRecord<'a>,
+}
+
+/// Publishes the record of the set by this id, into this JSON envelope.
+type PublishRecord<'a> = Box<dyn FnOnce(&str, &mut serde_json::Value) -> Outcome + 'a>;
+
+/// [`Then`], when someone's signed in. The set is published at the plugin's destination either
+/// way: declining leaves its record for later, and a record that fails to publish says so (exit
+/// status 5) without undoing that.
+#[cfg(feature = "account")]
+fn then<'a>(
+    store: &locallibrary::Store,
+    store_path: &'a Option<PathBuf>,
+    hide: &'a [usize],
+    browser: crate::browser::BrowserArgs,
+    out: Output,
+    ctx: &'a Ctx<'_>,
+) -> Result<Option<Then<'a>>> {
+    let Some(account) = locallibrary::atmosphere::status(store.root())? else { return Ok(None) };
+    let publish = move |set: &str, done: &mut serde_json::Value| {
+        let later = format!("`locallibrary sets publish {set}` publishes its record later");
+        let req = api::SetPublishRequest { set: set.to_string(), hide: hide.to_vec() };
+        match crate::publish_cmd::set_publish(store_path, &req, false, browser, out, ctx) {
+            Ok(record) => {
+                if !out.json && record.outcome == Outcome::Declined {
+                    crate::output::hint(later);
+                }
+                done["record"] = record.envelope;
+                Outcome::Applied
+            }
+            Err(e) => {
+                let e = format!("{e:#}");
+                if !out.json {
+                    warn(format!("its record wasn't published: {e}"));
+                    crate::output::hint(later);
+                }
+                done["record"] = serde_json::json!({ "error": { "message": e }, "outcome": "error" });
+                Outcome::Partial
+            }
+        }
+    };
+    Ok(Some(Then { account: account.name(), publish: Box::new(publish) }))
+}
+
 /// `sets publish SET --to PLUGIN:DESTINATION`: the plugin's dry run shown, and publishing always
-/// asked about, since it reaches outside this computer.
+/// asked about, since it reaches outside this computer; then, signed in, the set's record with
+/// what the plugin answered (see [`Then`]).
+#[allow(clippy::too_many_arguments)]
 fn publish_to(
     store: &locallibrary::Store,
     spec: &str,
     set: &str,
     hide: &[usize],
     dry_run: bool,
+    then: Option<Then<'_>>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let plan = crate::plugins::host()?.publish_plan(spec, set, hide, store, ctx)?;
     if !out.json {
         crate::output::summary(&plan.summary, &plan.warnings);
+        if let Some(then) = &then {
+            crate::output::hint(format!("then publishing its record as {} is offered", then.account));
+        }
     }
     if let Some(o) = out.decide(dry_run, "Publish it?") {
         return Ok(out.not_applied(&plan, o));
     }
     let r = plan.apply(Some(store), ctx)?;
-    Ok(out.applied(&plan, &r, crate::output::Outcome::Applied, || {
-        match &r.url {
-            Some(url) => ok(format!("published: {url}")),
-            None => ok("published"),
+    if !out.json {
+        match (&r.url, &r.name) {
+            (Some(url), Some(name)) => ok(format!("published at {name}: {url}")),
+            (Some(url), None) => ok(format!("published: {url}")),
+            _ => ok("published"),
         }
         for w in &r.warnings {
             warn(w);
         }
-    }))
+    }
+    let mut done = crate::output::envelope(&plan, &r, true, Outcome::Applied);
+    let outcome = then.map_or(Outcome::Applied, |then| (then.publish)(&r.set, &mut done));
+    if out.json {
+        crate::output::print_json(done);
+    }
+    Ok(outcome.exit())
 }
 
 fn list(sets: &[Set]) {

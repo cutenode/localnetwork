@@ -68,6 +68,13 @@ pub struct Set {
     /// Where people can listen to it (Mixcloud, SoundCloud, YouTube...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// What the link is, as the plugin that published the set there named it (`plyr.fm`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_name: Option<String>,
+    /// The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin
+    /// that published it there said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording_record: Option<loclib_plugin::StrongRef>,
     /// The recording on this computer the tracklist was found in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,

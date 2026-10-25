@@ -342,8 +342,15 @@ fn a_destination_answers_for_its_kind() {
         let req = json!({ "destination": "nowhere", "set": set, "recording": recording, "tracklist": [{}, {}], "dry_run": dry_run });
         s.host.request::<_, Published>(method::SET_PUBLISH, &req)
     };
-    assert_eq!(publish(true).unwrap(), Published { url: None, warnings: vec!["2 tracks would be published".into()] });
-    assert_eq!(publish(false).unwrap().url.as_deref(), Some("https://sets.example/3m4n"));
+    assert_eq!(
+        publish(true).unwrap(),
+        Published { warnings: vec!["2 tracks would be published".into()], ..Published::default() }
+    );
+    let published = publish(false).unwrap();
+    assert_eq!(
+        (published.url.as_deref(), published.name.as_deref()),
+        (Some("https://sets.example/3m4n"), Some("Nowhere"))
+    );
     let e = s.call(method::BLOBS_HAS, json!({ "destination": "nowhere", "hashes": [] })).unwrap_err();
     assert_eq!(
         (e.code, e.message.as_str()),
@@ -768,7 +775,7 @@ fn answers() -> Hooks {
     };
     let has_blobs = |req: HasBlobs, _: &Host| Ok(Missing { missing: req.hashes });
     let get_blob = |req: GetBlob, _: &Host| Ok(Got { blob: Blob { blob: req.hash } });
-    let publish_set = |req: PublishSet, _: &Host| Ok(Published { url: Some(req.set.id), warnings: Vec::new() });
+    let publish_set = |req: PublishSet, _: &Host| Ok(Published { url: Some(req.set.id), ..Published::default() });
     // A track found by the file's name, its importer's name a tag.
     let read_import = |req: ReadImport, _: &Host| {
         let find = TrackMatch { path: Some(req.file.display().to_string()), ..TrackMatch::default() };

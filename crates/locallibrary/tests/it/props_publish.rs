@@ -31,11 +31,14 @@ use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, S
 use locallibrary::settings::{self, Category, SCHEMA, SettingDef};
 use locallibrary::store::Store;
 use loclib_model::test_util::keys;
+use loclib_plugin::StrongRef;
 use serde_json::{Map, Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
+/// A record's CID.
+const CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
 
 /// A pretend data server, which Local Network's directory and website are at too for this test.
 fn network() -> MockPds {
@@ -582,6 +585,22 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
             gs::from_regex("[a-z0-9-]{1,12}").fullmatch(true).map(|s| format!("https://www.mixcloud.com/dj/{s}/")),
         ))
     };
+    // The link's name goes out only with the link.
+    let link_name = if link.is_some() && breaks("the link's name") {
+        Some("n".repeat(65))
+    } else {
+        tc.draw(gs::optional(gs::text().max_size(64)))
+    };
+    let recording_record = if breaks("the recording's record") {
+        Some(tc.draw(gs::sampled_from(vec![
+            StrongRef { uri: "https://plyr.fm/track/1".into(), cid: CID.into() },
+            StrongRef { uri: repo::at_uri("did:plc:dj", "fm.plyr.track", "3m4n5o6p7q8r9"), cid: "bafy".into() },
+        ])))
+    } else {
+        tc.draw(gs::optional(
+            tid().map(|k| StrongRef { uri: repo::at_uri("did:plc:dj", "fm.plyr.track", &k), cid: CID.into() }),
+        ))
+    };
     let n = tc.draw(gs::integers::<usize>().max_value(6));
     let (mut tracks, mut out) = (Vec::new(), Vec::new());
     for i in 0..n {
@@ -605,6 +624,8 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
         event,
         with,
         link,
+        link_name,
+        recording_record,
         recording: tc.draw(gs::booleans()).then(|| Recording {
             path: format!("/Users/dj/{PRIVATE}-REC.wav").into(),
             report: Some(format!("{PRIVATE}-REPORT")),
@@ -652,7 +673,15 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         })
         .collect();
     assert_eq!(r.get("playedWith"), (!with.is_empty()).then(|| json!(with)).as_ref());
-    assert_eq!(r.get("links"), trimmed(&set.link).map(|l| json!([{ "uri": l }])).as_ref());
+    let link = |uri| match trimmed(&set.link_name) {
+        Some(name) => json!([{ "uri": uri, "name": name }]),
+        None => json!([{ "uri": uri }]),
+    };
+    assert_eq!(r.get("links"), trimmed(&set.link).map(link).as_ref());
+    assert_eq!(
+        r.get("recording"),
+        set.recording_record.as_ref().map(|rec| json!({ "uri": rec.uri, "cid": rec.cid })).as_ref()
+    );
     let sources: Vec<Value> =
         [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
             .into_iter()
@@ -717,7 +746,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
     }
     let text = r.to_string();
     assert!(!text.contains(PRIVATE), "{text}");
-    for field in ["updatedAt", "unnamed", "origin", "notes", "recording", "sessions", "musicbrainz"] {
+    for field in ["updatedAt", "unnamed", "origin", "notes", "path", "report", "sessions", "musicbrainz"] {
         assert!(!text.contains(&format!("\"{field}\"")), "{field}: {text}");
     }
 }
@@ -756,7 +785,7 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
     let mut r = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let n = s.tracks.len();
     let track = || tc.draw(gs::integers::<usize>().max_value(n.max(1) - 1));
-    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(17)) {
+    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(18)) {
         0 => {
             let f = tc.draw(gs::sampled_from(vec!["date", "tracks", "createdAt"]));
             r.as_object_mut().unwrap().remove(f);
@@ -841,6 +870,14 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             r["tracks"][i]["recordingMbId"] = "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
             Some(format!("tracks[{i}].recordingMbId isn't a URI"))
         }
+        17 => {
+            let (uri, cid, why) = tc.draw(gs::sampled_from(vec![
+                ("https://plyr.fm/track/1", CID, "recording.uri isn't an at:// URI"),
+                ("at://did:plc:dj/fm.plyr.track/3m4n5o6p7q8r9", "bafy", "recording.cid isn't a CID"),
+            ]));
+            r["recording"] = json!({ "uri": uri, "cid": cid });
+            Some(why.into())
+        }
         _ => {
             let f = tc.draw(gs::sampled_from(vec![
                 "title",
@@ -850,6 +887,7 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
                 "event",
                 "playedWith",
                 "links",
+                "recording",
                 "sources",
             ]));
             r.as_object_mut().unwrap().remove(f);

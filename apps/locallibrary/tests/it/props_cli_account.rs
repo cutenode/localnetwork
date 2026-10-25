@@ -606,21 +606,6 @@ fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
     }
 }
 
-/// `args` run in `fx` with a terminal for stdin, on which `typed` was typed ahead (stdout and
-/// stderr piped, so it isn't a terminal for output).
-#[cfg(unix)]
-fn typed_ahead(fx: &Env, args: &[&str], typed: &str) -> crate::support::Run {
-    use std::io::Write;
-    let (mut keyboard, stdin) = crate::support::terminal();
-    keyboard.write_all(typed.as_bytes()).unwrap();
-    let out = fx.command().args(args).stdin(std::process::Stdio::from(stdin)).output().unwrap();
-    crate::support::Run {
-        out: String::from_utf8(out.stdout).unwrap(),
-        err: String::from_utf8(out.stderr).unwrap(),
-        code: out.status.code().unwrap(),
-    }
-}
-
 /// A client document on this computer, which sign-in refuses before fetching anything.
 #[cfg(unix)]
 const LOCAL_CLIENT: &str = "https://localhost/c.json";
@@ -646,7 +631,7 @@ fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
     let hosted = tc.draw(gs::booleans());
     let client: &[&str] = if hosted { &["--client-id", LOCAL_CLIENT] } else { &["--dev-client"] };
     let args = [&["account", "login", "--session-file", "--no-browser"], client].concat();
-    let r = typed_ahead(&fx, &args, &format!("{typed}\n"));
+    let r = fx.typed_ahead(&args, &format!("{typed}\n"));
     let said = format!("{args:?} typed {typed:?} exited {}\n{}\n{}", r.code, r.out, r.err);
     let offered = if remembered { " [dj.example.com]" } else { "" };
     assert!(r.err.contains(&format!("Your Atmosphere handle, or your account's server{offered}: ")), "{said}");
@@ -686,7 +671,7 @@ fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     let words: &[&str] = tc
         .draw(gs::sampled_from(&[&["settings", "publish"][..], &["profile", "publish", "A", "--no-analysis"][..]][..]));
     let yes = tc.draw(gs::booleans());
-    let r = typed_ahead(&fx, words, if yes { "y\n" } else { "n\n" });
+    let r = fx.typed_ahead(words, if yes { "y\n" } else { "n\n" });
     let said = format!("{words:?} answered {yes} exited {}\n{}\n{}", r.code, r.out, r.err);
     assert!(r.err.contains("Publishing needs your permission"), "{said}");
     assert!(r.err.contains("? Sign in again to allow publishing? [y/N] "), "{said}");

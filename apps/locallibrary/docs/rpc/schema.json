@@ -25550,6 +25550,24 @@
           ],
           "description": "Where people can listen to it (Mixcloud, SoundCloud, YouTube...)."
         },
+        "link_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the link is, as the plugin that published the set there named it (`plyr.fm`)."
+        },
+        "recording_record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StrongRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin\nthat published it there said."
+        },
         "recording": {
           "anyOf": [
             {
@@ -25618,6 +25636,24 @@
         "name"
       ],
       "description": "Someone the DJ played with."
+    },
+    "StrongRef": {
+      "type": "object",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "Its at:// URI."
+        },
+        "cid": {
+          "type": "string",
+          "description": "Its CID."
+        }
+      },
+      "required": [
+        "uri",
+        "cid"
+      ],
+      "description": "An Atmosphere record and the version of it meant, as `com.atproto.repo.strongRef` has them."
     },
     "SetRecording": {
       "type": "object",
@@ -32243,6 +32279,24 @@
             "null"
           ],
           "description": "Where it can be heard, which is the set's link now; none when the plugin didn't say."
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the link is (`plyr.fm`), when the plugin named it."
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StrongRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Atmosphere record holding the recording, when the plugin keeps it as one."
         },
         "warnings": {
           "type": "array",

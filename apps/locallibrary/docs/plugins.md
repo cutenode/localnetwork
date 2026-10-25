@@ -161,7 +161,10 @@ A set destination publishes a set's recording with its tracklist (tracks marked 
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):
 `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
 shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
-there), and keeps where the set can be heard as its link.
+there), and keeps where the set can be heard as its link, with the name the plugin gives it
+(`plyr.fm`) and the Atmosphere record holding the recording when it keeps one (a plyr.fm track).
+Signed in to your account, it then offers to publish the set's record with them (see
+[Sets](sets.md)).
 
 ## Events
 
