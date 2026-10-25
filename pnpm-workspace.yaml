@@ -57,3 +57,8 @@ overrides:
 # release has the fix (#6214).
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
+# zod 3.x reaches prod only through @atproto/* (^3.23.8), and no 3.x release has the fix (4.6.6
+# does). Drop this once @atproto moves to zod 4.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mrhx-c7xc-m3w5
