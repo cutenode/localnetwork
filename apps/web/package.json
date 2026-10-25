@@ -46,7 +46,6 @@
 		"@atproto/lex-cbor": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/lex-data": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/lex-json": "0.0.0-spaces-alpha-20261022141228",
-		"@atproto/lex-resolver": "^0.3.2",
 		"@atproto/lexicon": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20261022141228",

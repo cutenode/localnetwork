@@ -16,12 +16,7 @@ import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { USERINPUT } from '../src/lib/bug-report.ts';
-import {
-	LEXICON_DOCS,
-	loadReferencedLexicons,
-	publishLexicons,
-	validateRecord
-} from '../src/lib/server/atproto/lexicons.ts';
+import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
@@ -100,10 +95,6 @@ async function main() {
 		console.error(error instanceof Error ? error.message : error);
 		process.exit(1);
 	});
-
-	// The seed records use other authorities' lexicons (a set's venue is an address, and a show is a calendar event),
-	// fetched as published.
-	await loadReferencedLexicons();
 
 	rmSync(DB_PATH, { force: true });
 	rmSync(`${DB_PATH}-wal`, { force: true });

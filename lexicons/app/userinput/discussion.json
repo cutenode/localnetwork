@@ -1,80 +1,80 @@
 {
-    "lexicon": 1,
-    "id": "app.userinput.discussion",
-    "defs": {
-        "main": {
-            "key": "tid",
-            "type": "record",
-            "record": {
-                "type": "object",
-                "required": [
-                    "space",
-                    "title",
-                    "createdAt"
-                ],
-                "properties": {
-                    "body": {
-                        "type": "string",
-                        "maxLength": 20000,
-                        "maxGraphemes": 10000
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "maxLength": 64
-                        },
-                        "maxLength": 8,
-                        "description": "Tag values drawn from the space's tag list."
-                    },
-                    "space": {
-                        "ref": "com.atproto.repo.strongRef",
-                        "type": "ref",
-                        "description": "Strong reference to the app.userinput.space this belongs to. Indexed by constellation at space.uri."
-                    },
-                    "title": {
-                        "type": "string",
-                        "maxLength": 600,
-                        "maxGraphemes": 300
-                    },
-                    "images": {
-                        "type": "array",
-                        "items": {
-                            "ref": "#image",
-                            "type": "ref"
-                        },
-                        "maxLength": 4,
-                        "description": "Optional image attachments."
-                    },
-                    "createdAt": {
-                        "type": "string",
-                        "format": "datetime"
-                    }
-                }
-            },
-            "description": "A piece of feedback posted into a space. Lives in the author's repo and points at the space."
+  "defs": {
+    "image": {
+      "properties": {
+        "alt": {
+          "maxLength": 2000,
+          "type": "string"
         },
         "image": {
-            "type": "object",
-            "required": [
-                "image"
-            ],
-            "properties": {
-                "alt": {
-                    "type": "string",
-                    "maxLength": 2000
-                },
-                "image": {
-                    "type": "blob",
-                    "accept": [
-                        "image/png",
-                        "image/jpeg",
-                        "image/webp",
-                        "image/gif"
-                    ],
-                    "maxSize": 1000000
-                }
-            }
+          "accept": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif"
+          ],
+          "maxSize": 1000000,
+          "type": "blob"
         }
+      },
+      "required": [
+        "image"
+      ],
+      "type": "object"
+    },
+    "main": {
+      "description": "A piece of feedback posted into a space. Lives in the author's repo and points at the space.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "body": {
+            "maxGraphemes": 10000,
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "datetime",
+            "type": "string"
+          },
+          "images": {
+            "description": "Optional image attachments.",
+            "items": {
+              "ref": "#image",
+              "type": "ref"
+            },
+            "maxLength": 4,
+            "type": "array"
+          },
+          "space": {
+            "description": "Strong reference to the app.userinput.space this belongs to. Indexed by constellation at space.uri.",
+            "ref": "com.atproto.repo.strongRef",
+            "type": "ref"
+          },
+          "tags": {
+            "description": "Tag values drawn from the space's tag list.",
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxLength": 8,
+            "type": "array"
+          },
+          "title": {
+            "maxGraphemes": 300,
+            "maxLength": 600,
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "title",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "record"
     }
+  },
+  "id": "app.userinput.discussion",
+  "lexicon": 1
 }

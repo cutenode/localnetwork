@@ -1,9 +1,8 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
-import { standInLexicons } from '../testing/lexicons.ts';
-import { LEXICON_DOCS, RecordValidationError, validateRecord } from './lexicons.ts';
+import { LEXICON_DOCS, RecordValidationError, REFERENCED_DOCS, validateRecord } from './lexicons.ts';
 
 describe('LEXICON_DOCS', () => {
 	it('keeps the refs as written, so published schemas match lexicons/', () => {
@@ -47,48 +46,23 @@ describe('validateRecord', () => {
 	});
 });
 
-describe('loadReferencedLexicons', () => {
-	/** lexicons.ts as a process that hasn't loaded them yet has it. */
-	const fresh = async () => {
-		vi.resetModules();
+describe('REFERENCED_DOCS', () => {
+	it("holds every other authority's lexicon ours refer to", () => {
+		const ids = new Set<string>(REFERENCED_DOCS.map((doc) => doc.id));
+		const refs = [...JSON.stringify(LEXICON_DOCS).matchAll(/"((?:com|community)\.[\w.]+?)(?:#\w+)?"/g)];
 
-		return import('./lexicons.ts');
-	};
-
-	const venue = { ...DEMO_DJ_SETS[0], createdAt: '2026-10-17T12:00:00.000Z' };
-
-	it('fetches each one once, after which records that use them validate', async () => {
-		const loader = await fresh();
-		const asked: string[] = [];
-
-		const source = async (nsid: string) => {
-			asked.push(nsid);
-
-			return standInLexicons(nsid);
-		};
-
-		expect(venue.location).toMatchObject({ $type: 'community.lexicon.location.address' });
-		expect(() => loader.referencedLexicons()).toThrow('not loaded yet');
-		expect(() => loader.validateRecord(COLLECTION.djSet, venue)).toThrow('community.lexicon.location.address');
-
-		const docs = await loader.loadReferencedLexicons(source);
-		await loader.loadReferencedLexicons(source);
-
-		expect(asked).toEqual(loader.REFERENCED_NSIDS);
-		expect(docs.map((doc) => doc.id)).toEqual([...loader.REFERENCED_NSIDS, 'com.atproto.repo.strongRef']);
-		expect(loader.referencedLexicons()).toBe(docs);
-		expect(loader.validateRecord(COLLECTION.djSet, venue)).toMatchObject({ $type: COLLECTION.djSet });
+		expect(refs.length).toBeGreaterThan(0);
+		expect(refs.flatMap(([, nsid]) => (ids.has(nsid) ? [] : [nsid]))).toEqual([]);
 	});
 
-	it('tries again after a fetch fails', async () => {
-		const loader = await fresh();
+	it('validates the records that use them as their authorities define them', () => {
+		const set = { ...DEMO_DJ_SETS[0], createdAt: '2026-10-17T12:00:00.000Z' };
+		const noCountry = { $type: 'community.lexicon.location.address', locality: 'Berlin' };
 
-		await expect(loader.loadReferencedLexicons(async () => Promise.reject(new Error('offline')))).rejects.toThrow(
-			'offline'
-		);
-		expect(() => loader.referencedLexicons()).toThrow('not loaded yet');
-		await expect(loader.loadReferencedLexicons(standInLexicons)).resolves.toHaveLength(
-			loader.REFERENCED_NSIDS.length + 1
+		expect(set.location).toMatchObject({ $type: 'community.lexicon.location.address' });
+		expect(validateRecord(COLLECTION.djSet, set)).toMatchObject({ $type: COLLECTION.djSet });
+		expect(() => validateRecord(COLLECTION.djSet, { ...set, location: noCountry })).toThrow(
+			'location must have the property "country"'
 		);
 	});
 });
