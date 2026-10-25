@@ -70,7 +70,7 @@ describe('HeroHeadline', () => {
 			.poll(
 				() => {
 					for (const slot of slots) {
-						const home = slot.firstElementChild!.getBoundingClientRect().top;
+						const home = slot.getBoundingClientRect().top;
 
 						for (const word of slot.querySelectorAll(':scope > :not(.invisible)')) {
 							if (met.has(word)) continue;

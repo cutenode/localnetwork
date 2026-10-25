@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { cubicOut } from 'svelte/easing';
-	import { fly } from 'svelte/transition';
 	import headline from '#lib/headline.json' with { type: 'json' };
 
 	/**
@@ -22,8 +20,11 @@
 
 	const index = $state([0, 0]);
 
-	// 1 when the new word drops in from above, -1 when it rises from below.
-	const fall = $state([1, 1]);
+	const cells: HTMLElement[] = [];
+
+	// The animations are played by hand rather than with svelte/transition, whose runtime alone would
+	// put the client bundle over its budget (tests/build.test.ts).
+	const shift = (by: number) => `translateY(${by * 0.3}em)`;
 
 	$effect(() => {
 		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -34,13 +35,22 @@
 
 		const swap = (s: number) => {
 			const { length } = slots[s].words;
-			// Any word but the one showing. A one-word list lands back on its word, which Svelte leaves be.
-			index[s] = (index[s] + 1 + Math.floor(Math.random() * (length - 1))) % length;
-			fall[s] = Math.random() < 0.5 ? 1 : -1;
+			// Any word but the one showing.
+			const next = (index[s] + 1 + Math.floor(Math.random() * (length - 1))) % length;
+			// 1 drops the new word in from above, -1 raises it from below.
+			const fall = Math.random() < 0.5 ? 1 : -1;
+
+			// The old word leaves the way the new one is heading before the new one comes in, so the two
+			// never blur together.
+			cells[s].children[index[s]].animate([{ visibility: 'visible' }, { visibility: 'visible', opacity: 0, transform: shift(fall) }], { duration: 200 });
+			cells[s].children[next].animate([{ opacity: 0, transform: shift(-fall) }, { opacity: 1, transform: 'none' }], { delay: 200, duration: 300, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'backwards' });
+			index[s] = next;
 			timers[s] = setTimeout(() => swap(s), wait());
 		};
 
-		slots.forEach((_, s) => (timers[s] = setTimeout(() => swap(s), wait())));
+		slots.forEach((slot, s) => {
+			if (slot.words.length > 1) timers[s] = setTimeout(() => swap(s), wait());
+		});
 
 		return () => timers.forEach(clearTimeout);
 	});
@@ -48,13 +58,9 @@
 
 {#snippet slot(s: number)}
 	{@const { words, align } = slots[s]}
-	<!-- Every word sits hidden in the same cell, so the slot is always its longest word's size. -->
-	<span class={['inline-grid max-sm:grid max-sm:text-center', align]}>
-		{#each words as word (word)}<span class="invisible col-start-1 row-start-1">{word}</span>{/each}
-		<!-- The old word leaves the way the new one is heading before the new one comes in, so the two never blur together. -->
-		{#key index[s]}
-			<span class="col-start-1 row-start-1" in:fly={{ y: `${-0.3 * fall[s]}em`, delay: 200, duration: 300, easing: cubicOut }} out:fly={{ y: `${0.3 * fall[s]}em`, duration: 200 }}>{words[index[s]]}</span>
-		{/key}
+	<!-- Every word sits in the same cell, so the slot is always its longest word's size. -->
+	<span bind:this={cells[s]} class={['inline-grid max-sm:grid max-sm:text-center', align]}>
+		{#each words as word, i (word)}<span class={['col-start-1 row-start-1', i !== index[s] && 'invisible']}>{word}</span>{/each}
 	</span>
 {/snippet}
 
