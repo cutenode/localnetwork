@@ -79,7 +79,7 @@
 			{#if error}<p class="notice notice-error m-0" role="alert">{error}</p>{/if}
 			<p class="m-0 text-small text-fg-muted">
 				No export yet? <button type="button" class="link inline-flex cursor-pointer items-center gap-1" onclick={loadSample}><Sparkles class="size-3.5" />See a sample</button>. To show a report on your profile, add the file to a mix
-				when you <a class="link" href="/projects/new">list</a> or edit your project.
+				when you <a class="link" href="/dashboard/projects/new">list</a> or edit your project.
 			</p>
 		</div>
 	{/if}

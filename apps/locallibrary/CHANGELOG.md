@@ -297,12 +297,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     --option file=rekordbox.xml` builds a drive from one, with its tags, cues, beat grids and
     playlists. Values out of range in the file are left out, counted in the plan's warnings.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
-    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`;
-    and a set or a recorded mix as one playlist of the tracks played, in order, from a drive
-    (`sets export SET --format traktor --drive DRIVE -o DIR`, `mix RECORDING --drive DRIVE
-    --format serato --export DIR`); and Traktor's `collection.nml` read back, `import` adding
-    the keys, BPMs and cues it has for a drive's tracks, and `collection export --from
-    interop:traktor` building a drive from it (tracks, cues, beat grids and playlists).
+    tags of copies of the audio), Engine DJ (a new Engine Library) and rekordbox (XML), with
+    `export --format`; and a set or a recorded mix as one playlist of the tracks played, in order,
+    from a drive, for all but rekordbox (`sets export SET --format traktor --drive DRIVE -o DIR`,
+    `mix RECORDING --drive DRIVE --format serato --export DIR`); and Traktor's `collection.nml`
+    read back, `import` adding the keys, BPMs and cues it has for a drive's tracks, and
+    `collection export --from interop:traktor` building a drive from it (tracks, cues, beat grids
+    and playlists).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
     percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
@@ -429,9 +430,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     the timing kept to the sample, TPDF-dithered, with tags and artwork; recipes to store with a
     master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
-    `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
-    format, so a build for NML alone needs no SQLite; and reading a `collection.nml` back (tracks,
-    markers, playlists, and a beat grid laid out from its grid markers).
+    `Serato Markers2` cue tag in copies of the audio), a new Engine DJ library and rekordbox XML,
+    a feature per format, so a build for NML alone needs no SQLite; and reading a `collection.nml`
+    back (tracks, markers, playlists, and a beat grid laid out from its grid markers).
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes, a theme's (`Palette::of`).
@@ -570,6 +571,14 @@ their old names.
   copying the audio: `--dry-run` lists each copy and its size first. Over RPC, `interop.plan`
   and `interop.apply` are gone: use `plugins.export.plan {plugin: "interop", exporter, drive,
   playlists?, output, options}` and `plugins.export.apply`.
+- rekordbox XML is the interop plugin's too, as `export --format rekordbox`; `xml` runs it, with
+  `--only` as the playlists, `--location-root` and `--no-analysis` as its options (a relative
+  location root is taken from where you are). Overwriting a file there is asked about first
+  (exit status 3 without a terminal or `--yes`) unless `--replace`, a warning names tracks whose
+  audio isn't where the file says, and `--json` gives the plugin export's plan and report. As
+  with every plugin export, the drive has to be mounted: a copy of one in a folder isn't read. In the player, "export for rekordbox…" replaces "xml".
+  Over RPC, `xml.export` is gone: use `plugins.export.plan {plugin: "interop", exporter:
+  "rekordbox", ...}` and `plugins.export.apply`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library, files

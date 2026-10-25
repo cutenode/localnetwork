@@ -3,7 +3,8 @@
 //! replacing makes the target the source exactly, a conversion run again has nothing to add, and
 //! undoing it gives the drive back. The XML holds every track and playlist the drive does.
 
-use crate::{common, drawn};
+use crate::common::{self, XmlOptions};
+use crate::drawn;
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -16,7 +17,6 @@ use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift};
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Library, backup, paths, pdb};
 use rekordbox_pdb::PdbEditor;
 
@@ -283,10 +283,10 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     };
     if only.iter().any(|q| lib.find_playlist(q).is_none()) {
         // A name two playlists share picks neither.
-        assert!(xml::export(&d, &opts, &Ctx::silent()).is_err());
+        assert!(common::rekordbox_xml(&d, &opts).is_err());
         return;
     }
-    let (text, report) = xml::export(&d, &opts, &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &opts).unwrap();
     let x = read_xml(&text);
 
     // Which playlists, and so which tracks, the XML should hold.
@@ -323,7 +323,7 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     got.sort();
     assert_eq!(got, want);
     if opts.skip_analysis {
-        assert_eq!((report.tracks_with_beatgrid, report.cues), (0, 0));
+        assert_eq!((report.beat_grids, report.cues), (0, 0));
     }
     assert_eq!(text.matches("<POSITION_MARK").count(), report.cues);
 }
@@ -553,7 +553,7 @@ fn xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
     }
     let d = Device::open_export(&root).unwrap();
     let lib = d.library().unwrap();
-    let (text, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &XmlOptions::default()).unwrap();
     let marks = xml_marks(&text);
     let mut hexes: IndexMap<String, String> = IndexMap::new();
     for t in &lib.tracks {

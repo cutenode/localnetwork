@@ -302,11 +302,13 @@ The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-`rust-toolchain.toml` or the workflow itself, it only runs `dist plan`, which checks the
-configuration. `locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written
-additions listed at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing
-the dist configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
-`allow-dirty` removed for the run) and carry the additions over.
+`rust-toolchain.toml`, `.github/actions/install-dist` or the workflow itself, it only runs
+`dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
+generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
+`allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
+file (`dist generate --mode=ci`, with `allow-dirty` removed for the run) and carry the additions
+over. Upgrading dist also takes the new version and its archives' checksums in
+`.github/actions/install-dist/action.yml`.
 
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):

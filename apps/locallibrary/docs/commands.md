@@ -138,11 +138,11 @@ its drives.
 | `locallibrary collection export <drive or folder> [--playlist P]...` | Write the collection to a drive or folder as rekordbox's Export does, Cloud Library Sync tracks included, see [Exporting it without rekordbox](other-software.md#exporting-it-without-rekordbox) |
 | `locallibrary collection export <drive or folder> --from PLUGIN:SOURCE --grant FOLDER...` | Build it from a plugin's library source instead, copying only audio files in the folders granted, see [Library sources](plugins.md#library-sources) |
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
-| `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
+| `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine\|rekordbox -o PATH [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer: a folder, or for `rekordbox` an XML file, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
 | `locallibrary import FILE [<library>] [--format FORMAT] [--option KEY=VALUE]... [--dry-run]` | Read another program's file with a plugin's importer: keys, BPMs, cues and My Tags added to the tracks it finds where they have none, plays kept as sessions, see [Plugins](plugins.md#import-formats) |
 | `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]... [--apply key,bpm\|grid,phrases,waveform [--overwrite] [--min-confidence N] [--dry-run]]` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`); `--apply` then writes the analyzer's keys and BPMs to the tracks, or its beat grids, phrases and waveforms into their analysis files, as an edit, see [Plugins](plugins.md) |
-| `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |
+| `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML, the same as `export --format rekordbox` (`--only`: just those playlists or folders and their tracks) |
 
 **Editing**
 
