@@ -205,7 +205,8 @@ fn zero(shown: &str) -> bool {
 
 /// What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
 /// (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
-/// BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
+/// BPMs to tracks, a published set's MusicBrainz IDs) from the analyzer chosen for it. A closed
+/// list, each with one type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "FieldRole")]
 #[serde(rename_all = "snake_case")]
@@ -226,10 +227,24 @@ pub enum Role {
     ClippedRuns,
     /// Equal values are the same recording: a string.
     Identity,
+    /// The MusicBrainz recording's ID, a bare lowercase UUID
+    /// (`8dfae998-efd4-4ebe-a482-1523ff687362`): a string.
+    Recording,
+    /// The MusicBrainz release's ID, a bare lowercase UUID: a string.
+    Release,
+    /// The MusicBrainz IDs of the artists the track credits, a bare lowercase UUID for each name
+    /// loclib-model's `artist_credits` splits its artist into, in that order: a list of strings.
+    Artists,
+    /// The ISRC the MusicBrainz IDs were looked up by, as loclib-model's `isrc` spells it (null:
+    /// the track had none): a string. The host takes them only for a track with that ISRC.
+    Isrc,
+    /// The names its artists' IDs go with, as loclib-model's `artist_credits` split the artist it
+    /// worked from: a list of strings. The host takes them only for a track credited the same.
+    Credits,
 }
 
 impl Role {
-    pub const ALL: [Role; 8] = [
+    pub const ALL: [Role; 13] = [
         Role::Key,
         Role::Bpm,
         Role::KeyConfidence,
@@ -238,12 +253,18 @@ impl Role {
         Role::TruePeak,
         Role::ClippedRuns,
         Role::Identity,
+        Role::Recording,
+        Role::Release,
+        Role::Artists,
+        Role::Isrc,
+        Role::Credits,
     ];
 
     /// The type of a field with it.
     pub fn kind(self) -> FieldType {
         match self {
-            Role::Key | Role::Identity => FieldType::String,
+            Role::Key | Role::Identity | Role::Recording | Role::Release | Role::Isrc => FieldType::String,
+            Role::Artists | Role::Credits => FieldType::Strings,
             Role::ClippedRuns => FieldType::Integer,
             _ => FieldType::Number,
         }
@@ -260,6 +281,11 @@ impl Role {
             Role::TruePeak => "true_peak",
             Role::ClippedRuns => "clipped_runs",
             Role::Identity => "identity",
+            Role::Recording => "recording",
+            Role::Release => "release",
+            Role::Artists => "artists",
+            Role::Isrc => "isrc",
+            Role::Credits => "credits",
         }
     }
 }
