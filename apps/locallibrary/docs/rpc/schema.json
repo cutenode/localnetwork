@@ -33101,6 +33101,11 @@
           "type": "string",
           "const": "analyze",
           "description": "Decoding library tracks to estimate their tempo, key and loudness."
+        },
+        {
+          "type": "string",
+          "const": "upload",
+          "description": "Sending files to a server (a set's recording, by a plugin's `net/fetch`)."
         }
       ]
     },
