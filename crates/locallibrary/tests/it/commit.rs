@@ -16,7 +16,7 @@ use locallibrary::query::TrackSelector;
 use locallibrary::recordings::{self, CollectOptions, Tracklist};
 use locallibrary::scrub::{self, ScrubOptions};
 use locallibrary::sync::{self, PullOptions};
-use locallibrary::{Device, Result, Store, clean, doctor, firmware, paths, player, settings, tags};
+use locallibrary::{Device, Result, Store, doctor, firmware, paths, player, settings, tags};
 
 /// Every file and folder below `root` but locallibrary's lock file and hash cache, by path.
 fn snapshot(root: &Path) -> IndexMap<String, Option<Vec<u8>>> {
@@ -134,29 +134,18 @@ fn cues() {
 }
 
 #[test]
-fn clean() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    common::export_new_track(&root, "rekordbox", "House 1");
-    let mut d = Device::open_export(&root).unwrap();
-    let plan = clean::plan(&d, &Ctx::silent()).unwrap();
-    assert_eq!(plan.tracks.len(), 1);
-    let report = fails_cleanly_and_undoes(&root, || clean::apply(&plan, &mut d, &Ctx::silent()));
-    assert_eq!(report.tracks_removed, 1);
-}
-
-#[test]
 fn putting_a_backup_back() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
-    common::export_new_track(&root, "rekordbox", "House 1");
+    let house = common::export_new_track(&root, "rekordbox", "House 1");
     let mut d = Device::open_export(&root).unwrap();
-    let plan = clean::plan(&d, &Ctx::silent()).unwrap();
-    clean::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let edits = [Edit::DeleteTracks { tracks: ids(&[house]), keep_files: false }];
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent()).unwrap();
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     // The restore itself stages the backup's files and swaps them in through the same routine.
     let info = fails_cleanly(&root, || locallibrary::backup::restore(&mut d, None, false));
-    assert_eq!(info.reason, "before cleaning");
+    assert_eq!(info.reason, "before editing");
     assert!(d.library().unwrap().tracks.iter().any(|t| t.title == "House 1"));
 }
 

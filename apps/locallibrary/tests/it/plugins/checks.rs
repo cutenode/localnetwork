@@ -152,7 +152,7 @@ fn plugin_checks_lists_and_changes_them() {
     let names: Vec<(&str, bool)> = (listed["checks"].as_array().unwrap().iter())
         .map(|c| (c["name"].as_str().unwrap(), c["on"].as_bool().unwrap()))
         .collect();
-    assert_eq!(names, [("untitled", true), ("edits", false), ("found", true), ("guard", true)]);
+    assert_eq!(names, [("tracks", true), ("untitled", true), ("edits", false), ("found", true), ("guard", true)]);
     assert_eq!(listed["timeout"], 10.0);
     let shown = env.ok(&["plugin", "checks"]);
     assert!(
@@ -176,7 +176,7 @@ fn plugin_checks_lists_and_changes_them() {
 
     let mut s = Rpc::start(env.command());
     let checks = s.call(1, "plugins.checks", Value::Null);
-    assert_eq!(checks["result"]["checks"].as_array().unwrap().len(), 4, "{checks}");
+    assert_eq!(checks["result"]["checks"].as_array().unwrap().len(), 5, "demos' and echo's: {checks}");
     let set = s.call(2, "plugins.checks.timeout.set", json!({ "timeout": 2 }));
     assert_eq!(set["result"]["timeout"], 2.0, "{set}");
     let set = s.call(3, "plugins.checks.set", json!({ "plugin": "echo", "check": "found", "on": false }));
@@ -239,7 +239,9 @@ fn plugin_checks_lists_every_change_made(tc: TestCase) {
         assert_eq!(r.code != 0, refused, "{args:?}\n{}", r.err);
 
         let listed = env.json(&["plugin", "checks"]);
+        // The echo plugin's, not the demos plugin's.
         let listed_settings: Vec<(bool, bool)> = (listed["checks"].as_array().unwrap().iter())
+            .filter(|c| c["plugin"] == "echo")
             .map(|c| (c["on"].as_bool().unwrap(), c["blocking"].as_bool().unwrap()))
             .collect();
         assert_eq!((listed_settings, &listed["timeout"]), (settings.clone(), &json!(timeout)), "{args:?}");

@@ -124,7 +124,8 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     let (out, err, code) = env.run(&["--yes", "refresh"]);
     assert_eq!(code, 0, "{out}\n{err}");
     assert!(err.contains("[1/3] Remove rekordbox's demo samples"), "{err}");
-    assert!(out.contains("✓ remove 1 track(s)"), "{out}");
+    assert!(out.contains("✓ remove 1 of rekordbox's demo track(s) and their files"), "{out}");
+    assert!(!out.contains("skipped an edit"), "the replay finds the sample gone: {out}");
     assert!(!main.join(SAMPLE.trim_start_matches('/')).exists());
     let (v, _) = env.json(&["playlists", "Main"]);
     assert!(v.to_string().contains("Friday"), "{v}");
