@@ -58,6 +58,9 @@ pub struct LibraryPage {
     /// The cursor of the page after this one; none on the last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
+    /// What it couldn't read, in a line each, which the plan's warnings say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// A track of a source's library: its audio file and what's known of it, each left out when

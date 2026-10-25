@@ -1,6 +1,7 @@
 name: Local Network bug
 description: Something the Local Network website got wrong
 labels: ["bug", "web"]
+type: Bug
 body:
   - type: textarea
     id: what-happened

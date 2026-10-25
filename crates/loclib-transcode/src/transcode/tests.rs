@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
+use loclib_mixid::audio::aiff_frames;
 use loclib_mixid::test_util::wav_of;
 use loclib_progress::CancelToken;
 use lofty::config::WriteOptions;
@@ -40,12 +41,7 @@ fn decode(path: &Path) -> Decoded {
         Ok(ControlFlow::Continue(()))
     })
     .unwrap();
-    let mut out = Decoded { rate: format.sample_rate, channels: usize::from(format.channels), samples };
-    // As `transcode` reads AIFF, past symphonia's misreading of SSND's length.
-    if let Some(frames) = aiff_frames(path) {
-        out.samples.truncate(frames as usize * out.channels);
-    }
-    out
+    Decoded { rate: format.sample_rate, channels: usize::from(format.channels), samples }
 }
 
 /// Tones between the octaves, so no lag but 0 lines them all up, at `rate` for `secs`.
@@ -656,38 +652,11 @@ fn copies_dont_need_the_length_in_the_header(tc: TestCase) {
     }
 }
 
-/// [`aiff_frames`] reads the frame count from the COMM chunk wherever it is among the chunks
-/// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
-/// it and a file that isn't there have none.
-#[hegel::test(test_cases = 200)]
-fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
-    let frames = tc.draw(gs::integers::<u32>());
-    let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
-    let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
-    for len in tc.draw(gs::vecs(gs::integers::<u32>().max_value(9)).max_size(4)) {
-        bytes.extend_from_slice(b"FVER");
-        bytes.extend_from_slice(&len.to_be_bytes());
-        bytes.extend(std::iter::repeat_n(0x55, (len + len % 2) as usize));
-    }
-    let comm_end = bytes.len() + 14;
-    bytes.extend_from_slice(b"COMM");
-    bytes.extend_from_slice(&18u32.to_be_bytes());
-    bytes.extend_from_slice(&2u16.to_be_bytes());
-    bytes.extend_from_slice(&frames.to_be_bytes());
-    bytes.extend_from_slice(&[0, 16, 0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0]);
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("x.aiff");
-    let cut = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
-    std::fs::write(&path, &bytes[..cut]).unwrap();
-    let found = aiff_frames(&path);
-    assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
-    assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
-}
-
 /// A source lofty can't tell the format of by its name (symphonia goes by its content) is
 /// copied all the same, sample for sample, without its tags and with a warning saying so;
 /// one it can is copied with them, and no warning.
 #[hegel::test(test_cases = 20)]
+#[hegel::explicit_test_case(name = "master.bin", frames = 1151usize, container = Container::Aiff)]
 fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["master.wav", "master.bin", "master", "master.wav.part"]));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
@@ -699,7 +668,8 @@ fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
     tag.save_to_path(&wav, WriteOptions::default()).unwrap();
     let source = dir.path().join(name);
     std::fs::rename(&wav, &source).unwrap();
-    let r = recipe(tc.draw(gs::sampled_from(Container::ALL.to_vec())), 44_100, 16, Dither::None);
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let r = recipe(container, 44_100, 16, Dither::None);
     let out = dir.path().join(format!("copy.{}", r.container.extension()));
     let recorder = Recorder::default();
     transcode(&source, &r, &out, &Ctx::new(&recorder, CancelToken::new())).unwrap();

@@ -205,10 +205,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
-  `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
-  previews), `xml.export`, `store.*`, `disks.list`,
-  `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
-  the one erased).
+  `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG previews), `store.*`,
+  `disks.list`, `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the
+  user confirmed is the one erased).
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
@@ -330,7 +329,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `player.show`, `player.set.plan/apply`, `drive.contact.plan/apply`, `provision.plan/apply`
   (`provision.apply` with the request takes the plan's `format.identity` as `format_identity` when
   formatting), and the jobs `refresh.plan/apply` and `prep.plan/apply` (what `locallibrary refresh`
-  and `prep` do, as one plan of steps; its plans' `operation` is still `set`). `sync.many.apply`
+  and `prep` do, as one plan of steps; its plans' `operation` is still `set`). `refresh.plan` takes
+  `operations`, plugins' operations to run as its `operations` step (`[{operation:
+  "<plugin>.<name>", params}]`); one that can't be planned fails the plan, its error's
+  `fields.operation` naming it. `sync.many.apply`
   returns one result per target: a target that fails carries an `error` and doesn't stop the others.
 - Writes that had no plan step have one: `drive.adopt.plan`, `drive.adopt_as.plan`,
   `drive.rename.plan`, `drive.contact.plan`, `player.set.plan`, `edits.clear.plan`,
@@ -434,10 +436,12 @@ may ask the user something first: `plugins.run` answers a view `{kind: "choose",
 multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing
 kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
-one that asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
-playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks in
-turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and `null`
-leaves the entry out.
+one that asks. A question may carry `more`, further questions of the same shape (at most 64 in
+all, each about a param of its own): ask them all, then call it again once with every param
+set. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
+playlist?, append?}`, `file` absolute), which asks about the entries that could be several tracks
+64 at a time, the first as the question and the rest in its `more`: `param` is the entry's number,
+counting from 1, each item's `value` a track id, and `null` leaves the entry out.
 
 ### Destinations
 
@@ -459,17 +463,34 @@ then `url`): always confirm it, as it reaches outside the computer.
 Plugins listening for them are told of drives coming and going, changing and pulled, sets coming
 back, requests finishing and plans applied while the sidecar runs, whether or not the client
 subscribed (it polls drives for them when a plugin listens). What a plugin tells the user is an
-`event` notification, `{"event": "plugin.notice", plugin, message, operation?: {name, params}}`
-(subscribe to `plugin`): show `message`, and offer to review `operation`, one of the plugin's own,
-with `plugins.op.plan {plugin, operation: name, params}`. Never plan or apply it unless the user
-chooses to.
+`event` notification, `{"event": "plugin.notice", plugin, message, operation?: {name, params},
+action?: {name, params}}` (subscribe to `plugin`), with one of `operation` and `action` at most:
+show `message`, and offer to review what it suggests. An `operation` is one of the plugin's own:
+plan it with `plugins.op.plan {plugin, operation: name, params}`. An `action` is one of
+locallibrary's own flows on the plugin's own contributions (`HostAction`). Its `drive` is one the
+sidecar found among the drives and libraries it knows (never a path or a folder; a plugin naming
+one it doesn't know has its suggestion left out), named by its id, else its name, and its
+`tracks` are those that drive had, each once. Start it as the user would, filled in, and let them
+change it before it goes on as it does when they start it.
+
+- `art.fetch` and `track.fetch` `{drive, tracks?, provider?}`: `plugins.provide {kind: "artwork" |
+  "metadata", drive, tracks: {ids: tracks}, from}`, `from` being `<plugin>.<provider>`, or
+  `<plugin>` without one, then `plugins.provide.plan` with what the user picks.
+- `export` `{format, drive?, set?, mix?, options?}`: `plugins.export.plan {plugin, exporter:
+  format, drive, set, mix, options, output}`, `output` being where the user picks (never from the
+  plugin).
+- `analyze` `{analyzer, drive, tracks?}`: `plugins.analyze {plugin, analyzer, drive, tracks}`,
+  once the user says so.
+
+Never plan or apply either unless the user chooses to.
 
 ### Export formats
 
 `plugins.export.plan {plugin, exporter, drive, playlists?, history?, set?, mix?, output, options}`
-(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` is
-`set` takes `set`, as `sets.get` names one, and `mix` the id of a report kept in the store,
-`mix.reports.list`, either with a `drive` or not, and no playlists) answers `{plugin, exporter,
+(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` lists
+`set` takes `set`, as `sets.get` names one, one listing `mix` takes `mix`, the id of a report kept
+in the store, `mix.reports.list`, either with a `drive` or not, and no playlists; it writes out
+whichever of a set, a mix or the drive the request names) answers `{plugin, exporter,
 output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what
 goes in, in order; `notes`: what the format can't hold and what to do with the files; the library's
 problems are the plan's `warnings`), destructive when a file `exists` already, applied by

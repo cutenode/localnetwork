@@ -197,7 +197,7 @@ fn queued_tracks_follow_without_a_gap() {
 /// Made-up outputs for tests (which never open the machine's): the default, and "Phones".
 /// What plays through them goes nowhere.
 pub const OUTPUTS: Outputs = Outputs {
-    list: || (vec!["Phones".into()], None),
+    list: || Ok((vec!["Phones".into()], None)),
     open: |name| match name {
         Some("Phones") | None => {
             let (mut a, _) = Audio::offline(8000);
@@ -218,7 +218,7 @@ fn outputs_by_name_fall_back_to_the_default() {
     assert_eq!(audio.unwrap().device(), None, "the default");
     let (audio, why) = outputs.open_preferring(Some("Phones"));
     assert_eq!((audio.unwrap().device(), why), (Some("Phones"), None));
-    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().0.is_empty());
+    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().unwrap().0.is_empty());
 }
 
 /// The silent output plays to no one, at the pace a device would: half a second on, the track
@@ -228,7 +228,7 @@ fn the_silent_output_plays_in_real_time() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ten-seconds.wav");
     std::fs::write(&path, wav(8000, 80_000, 1000)).unwrap();
-    assert!((Outputs::SILENT.list)().0.is_empty());
+    assert!((Outputs::SILENT.list)().unwrap().0.is_empty());
     let mut audio = (Outputs::SILENT.open)(None).unwrap();
     audio.play(open_file(&path).unwrap(), false);
     std::thread::sleep(ms(500));
@@ -567,6 +567,36 @@ fn a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
         }
         assert_eq!(*errors.lock().unwrap(), kept);
     }
+}
+
+/// Paused, a track stands still at once, though rodio only looks at its pause every 5 ms of the
+/// track (40 samples here): one queued behind a track that ended starts after the queue's 512
+/// samples of silence, so rodio next looks 32 samples into the output's next read, and none of
+/// those play.
+#[test]
+fn a_pause_stops_the_playhead_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = |name: &str, frames: i16| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, wav_of(8000, &(1..=frames).collect::<Vec<i16>>())).unwrap();
+        open_file(&path).unwrap()
+    };
+    let (mut audio, mut out) = Audio::offline(8000);
+    audio.play(file("a.wav", 800), false);
+    (&mut out).take(1200).for_each(drop);
+    assert!(audio.finished());
+    assert!(audio.queue(file("b.wav", 400)).is_ok());
+    (&mut out).take(400).for_each(drop);
+    assert!(audio.advanced());
+    let at = audio.position();
+    assert_eq!(at, ms(36), "the rest of the silence, then 288 frames");
+    audio.toggle_pause();
+    let heard: Vec<f32> = (&mut out).take(80).collect();
+    assert_eq!(audio.position(), at, "paused, time stands still");
+    assert!(heard.iter().all(|&s| s == 0.0), "{heard:?}");
+    audio.toggle_pause();
+    (&mut out).take(80).for_each(drop);
+    assert!(audio.position() > at, "on again");
 }
 
 /// An output plays what it's given as asked: a file from its start (or where it's to start),

@@ -320,10 +320,7 @@ pub fn groups(
                 .map(|s| {
                     let tracks: Vec<usize> =
                         s.tracks.iter().filter_map(|e| by_file.get(&e.file_key()?).copied()).collect();
-                    let label = match s.name() {
-                        Some(name) => format!("{} {name}", s.date),
-                        None => s.date.to_string(),
-                    };
+                    let label = set_label(s);
                     Group { key: s.id.clone(), label, left_out: s.tracks.len() - tracks.len(), tracks }
                 })
                 .collect()
@@ -353,6 +350,14 @@ pub fn groups(
             }
             v
         }
+    }
+}
+
+/// How Browse › Sets names a set: its day, and its name when it has one.
+pub fn set_label(s: &Set) -> String {
+    match s.name() {
+        Some(name) => format!("{} {name}", s.date),
+        None => s.date.to_string(),
     }
 }
 

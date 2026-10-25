@@ -1,6 +1,7 @@
 //! The plugin served over pipes to a host that answers its reads as locallibrary does, its files
 //! compared with what loclib-interop writes for the same library, root and analysis (the core
-//! exports' `Source`), as `locallibrary export --format traktor|serato|engine` writes them.
+//! exports' `Source`), as `locallibrary export --format traktor|serato|engine|rekordbox` writes
+//! them.
 
 use std::io::pipe;
 use std::path::Path;
@@ -13,7 +14,7 @@ use loclib_interop::{Content, File};
 use loclib_model::analysis::{Beat, Cue};
 use loclib_model::model::{ONELIBRARY_ONLY, Playlist};
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
+use loclib_plugin::{Capability, ExportFrom, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
 use loclib_progress::Ctx;
 use serde_json::json;
 use tempfile::TempDir;
@@ -27,12 +28,14 @@ const PAGE: usize = 500;
 const PLUS: u32 = ONELIBRARY_ONLY | 1;
 
 /// A drive `USB`: its folder, holding the audio (an MP3 Serato's tag can go into for each track,
-/// but a FLAC file for the third), the library exports read and each track's beat grid and cues.
+/// but a FLAC file for the third), the library exports read and each track's beat grid and cues;
+/// and the sets and mixes the store keeps, by id (none unless a test adds them).
 struct Drive {
     dir: TempDir,
     root: PathBuf,
     library: Library,
     analysis: FxHashMap<u32, TrackAnalysis>,
+    kept: FxHashMap<String, Value>,
 }
 
 /// An MP3 lofty reads: an ID3v2.3 tag with a title, then MPEG-1 layer III frames of silence.
@@ -124,7 +127,7 @@ fn drive() -> Drive {
             TrackAnalysis { beats: grid(126.0), cues: vec![cue(Some(1), 1_000, None, "Drop")], ..Default::default() },
         ),
     ]);
-    Drive { dir, root, library, analysis }
+    Drive { dir, root, library, analysis, kept: FxHashMap::default() }
 }
 
 /// A read callback: its method and params.
@@ -153,7 +156,7 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
     let (host, incoming) = Peer::new(from_plugin, to_plugin);
     let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
     let (to, log) = (host.clone(), calls.clone());
-    let (library, analysis) = (drive.library.clone(), drive.analysis.clone());
+    let (library, analysis, kept) = (drive.library.clone(), drive.analysis.clone(), drive.kept.clone());
     let answering = std::thread::spawn(move || {
         for msg in incoming {
             let Incoming::Request(req) = msg else { continue };
@@ -162,7 +165,7 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
                 // The export: the host's second request, after `hello`.
                 to.notify(method::CANCEL, &json!({ "id": 2 }));
             }
-            to.respond(&req.id, read(&library, &analysis, &req.method, req.params));
+            to.respond(&req.id, read(&library, &analysis, &kept, &req.method, req.params));
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
@@ -172,10 +175,11 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
 
 /// A read as the host answers a plugin: the reads the manifest's capabilities grant, only with
 /// the params a plugin may give each, of the drive `USB`, `drive.library`'s tracks a page at a
-/// time and at most 100 tracks' analysis at once.
+/// time and at most 100 tracks' analysis at once; and the sets and mixes `kept`, by id.
 fn read(
     lib: &Library,
     analysis: &FxHashMap<u32, TrackAnalysis>,
+    kept: &FxHashMap<String, Value>,
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
@@ -183,12 +187,18 @@ fn read(
     let (capability, allowed): (Capability, &[&str]) = match method {
         "drive.library" => (Capability::LibraryRead, &["drive", "combined", "offset", "limit"]),
         "tracks.analysis" => (Capability::AnalysisRead, &["drive", "combined", "ids", "waveform", "encoding"]),
+        "sets.get" => (Capability::SetsRead, &["set", "venue"]),
+        "mix.reports.get" => (Capability::SetsRead, &["id"]),
         _ => return Err(RpcError::failed("denied", format!("{method:?} isn't a read a plugin can call"))),
     };
     assert!(manifest.capabilities.contains(&capability), "{method} needs {capability}");
     let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
     if let Some(name) = params.keys().find(|k| !allowed.contains(&k.as_str())) {
         return Err(RpcError::invalid_params(format!("a plugin doesn't give {method} `{name}`")));
+    }
+    if capability == Capability::SetsRead {
+        let id = params.get("set").or(params.get("id")).and_then(Value::as_str).unwrap_or_default();
+        return kept.get(id).cloned().ok_or_else(|| RpcError::failed("not_found", format!("not found: {id:?}")));
     }
     if params["drive"] != "USB" {
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
@@ -356,11 +366,11 @@ fn contents(export: &Export, out: &Path, output: &Path) -> Vec<(PathBuf, String)
     files
 }
 
-/// A file's bytes as compared: NML as text, an Engine Library as its rows, anything else as it
+/// A file's bytes as compared: NML and XML as text, an Engine Library as its rows, anything else as it
 /// is.
 fn readable(path: &Path, bytes: &[u8]) -> String {
     match path.extension().and_then(|e| e.to_str()) {
-        Some("nml") => String::from_utf8(bytes.to_vec()).unwrap(),
+        Some("nml" | "xml") => String::from_utf8(bytes.to_vec()).unwrap(),
         Some("db") => {
             let dir = tempfile::tempdir().unwrap();
             let db = dir.path().join("m.db");
@@ -385,11 +395,20 @@ fn paths(e: &Exported) -> Vec<PathBuf> {
 fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
-    let formats: Vec<(&str, bool)> =
-        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder)).collect();
-    assert_eq!(formats, [("traktor", true), ("serato", true), ("engine", true)]);
-    // Where the drive is mounted comes with the export: no drive:info.
-    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead];
+    // Each folder format writes out a drive's library, a set or a mix; rekordbox's file a drive's.
+    let all = [ExportFrom::Drive, ExportFrom::Set, ExportFrom::Mix];
+    let formats: Vec<(&str, bool, &[ExportFrom])> =
+        manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder, e.sources())).collect();
+    let want: [(&str, bool, &[ExportFrom]); 4] = [
+        ("traktor", true, &all),
+        ("serato", true, &all),
+        ("engine", true, &all),
+        ("rekordbox", false, &[ExportFrom::Drive]),
+    ];
+    assert_eq!(formats, want);
+    // Where the drive is mounted comes with the export: no drive:info. The Traktor source reads
+    // the folders it's granted.
+    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead, Capability::SetsRead, Capability::FsRead];
     assert_eq!(manifest.capabilities, capabilities);
 }
 
@@ -544,6 +563,31 @@ fn an_engine_library_is_what_loclib_interop_writes() {
     session.stop();
 }
 
+/// rekordbox XML is the file loclib-interop writes, with every track's beat grid and cues,
+/// answered and written at the path asked for, whether it has links to resolve or not.
+#[test]
+fn rekordbox_xml_is_what_loclib_interop_writes() {
+    let drive = drive();
+    let session = start(&drive);
+    let real = dunce::canonicalize(drive.dir.path()).unwrap();
+    for output in [drive.dir.path().join("library.xml"), real.join("resolved.xml")] {
+        let planned = session.export("rekordbox", &output, json!({}), true).unwrap();
+        // As spelled: paths compare equal with a separator at the end, which names no file.
+        let said: Vec<&std::ffi::OsStr> = planned.files.iter().map(|f| f.path.as_os_str()).collect();
+        assert_eq!(said, [output.as_os_str()]);
+        assert!(!output.exists(), "a dry run writes nothing");
+        let done = session.export("rekordbox", &output, json!({}), false).unwrap();
+        assert_eq!(done, planned);
+        let export =
+            expected(&drive, &[]).build(&drive.root, false, |s| rekordbox::build(s, &output, &Ctx::silent()).unwrap());
+        assert_eq!((export.tracks, export.playlists, export.folders, export.beat_grids, export.cues), (4, 3, 1, 3, 5));
+        let Content::Bytes(xml) = &export.files[0].content else { panic!("the XML is written out") };
+        assert_eq!(&std::fs::read(&output).unwrap(), xml);
+        assert_eq!((&done.notes, &done.warnings), (&export.notes, &export.warnings));
+    }
+    session.stop();
+}
+
 /// More tracks than a page holds are read a page at a time, and their analysis a hundred tracks
 /// at a time.
 #[test]
@@ -673,7 +717,7 @@ fn loclib_interops_errors_keep_their_kinds() {
     assert_eq!(cancelled, RpcError::cancelled());
 }
 
-/// For any of the three formats, any choice of playlists, any options its schema takes, the audio
+/// For any of the four formats, any choice of playlists, any options its schema takes, the audio
 /// of any tracks gone from the drive and (for Engine) an old library's WAL in the way: what
 /// can't be exported is refused, saying why, before anything is written; otherwise the dry run
 /// names exactly the files the export then writes (and writes nothing, removing nothing), and
@@ -682,7 +726,7 @@ fn loclib_interops_errors_keep_their_kinds() {
 #[hegel::test(test_cases = 60)]
 fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     let mut drive = drive();
-    let format = tc.draw(gs::sampled_from(vec!["traktor", "serato", "engine"]));
+    let format = tc.draw(gs::sampled_from(vec!["traktor", "serato", "engine", "rekordbox"]));
     for t in &drive.library.tracks {
         if tc.draw(gs::weighted_booleans(0.2)) {
             std::fs::remove_file(drive.root.join(paths::key(&t.file_path))).unwrap();
@@ -756,7 +800,12 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     // The schema takes every option drawn, but a relative root, which the plugin refuses too.
     let relative = root.as_deref() == Some("Music");
     assert_eq!(check_params(schema.as_ref(), &options).is_ok(), !relative, "{options}");
-    let output = drive.dir.path().join("out");
+    // A folder, or for rekordbox the file, in `dir`.
+    let dir = drive.dir.path().join("out");
+    let output = match format {
+        "rekordbox" => dir.join("library.xml"),
+        _ => dir.clone(),
+    };
     let wal = output.join("Engine Library/Database2/m.db-wal");
     if format == "engine" && tc.draw(gs::booleans()) {
         std::fs::create_dir_all(wal.parent().unwrap()).unwrap();
@@ -764,9 +813,9 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     }
 
     let session = start_cancelling(&drive, cancel_at);
-    let before = files(&output);
+    let before = files(&dir);
     let planned = session.export_of(format, source.clone(), &output, options.clone(), true);
-    assert_eq!(files(&output), before, "a dry run writes and removes nothing");
+    assert_eq!(files(&dir), before, "a dry run writes and removes nothing");
     let (skip, tags, on_drive) =
         (options["skip_analysis"] == true, options["write_tags"] == true, options["paths"] == "drive");
     let software: Software = serde_json::from_value(json!(format)).unwrap();
@@ -776,7 +825,7 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     // finds: an export that failed.
     let want = (!lists.contains(&"Sunday")).then(|| expected(&drive, &lists));
     let carried = match software {
-        Software::Traktor => true,
+        Software::Traktor | Software::Rekordbox => true,
         Software::Serato => tags,
         _ => false,
     };
@@ -801,7 +850,7 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     let planned = match stopped(cancel_at) {
         Some(None) => {
             assert_eq!(planned.unwrap_err().kind(), Some("cancelled"));
-            assert_eq!(files(&output), before, "nothing is written");
+            assert_eq!(files(&dir), before, "nothing is written");
             session.export_of(format, source.clone(), &output, options.clone(), true)
         }
         _ => planned,
@@ -811,7 +860,7 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
         assert_eq!((e.code, e.kind(), e.message.as_str()), (said, Some("invalid"), why.as_str()));
         let e = session.export_of(format, source, &output, options, false).unwrap_err();
         assert_eq!(e.message, why);
-        assert_eq!(files(&output), before, "nothing is written");
+        assert_eq!(files(&dir), before, "nothing is written");
         session.stop();
         return;
     }
@@ -823,29 +872,51 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     assert!(asked.iter().all(|&n| n <= 100), "{asked:?}");
     session.stop();
     assert_eq!(done, planned);
-    let written_paths: Vec<PathBuf> = files(&output).into_iter().map(|(path, _)| path).collect();
+    let written_paths: Vec<PathBuf> = files(&dir).into_iter().map(|(path, _)| path).collect();
     let mut named = paths(&done);
     named.sort();
     assert_eq!(written_paths, named, "the dry run named what's written, and only that");
     assert!(!wal.exists());
 
     let root = root.map_or(drive.root.clone(), PathBuf::from);
-    let out = resolved(&output);
-    let want = want.unwrap();
-    let export = want.build(&root, skip, |s| match software {
-        Software::Traktor => traktor::build(s, &output, &Ctx::silent()).unwrap(),
+    is_built(&want.unwrap(), &Asked { software, root, skip, tags, on_drive }, &drive, &output, &done, Vec::new());
+}
+
+/// An export's format and options, as the plugin was asked for it: the folder its tracks' audio
+/// will be in, and whether it skips analysis, writes Serato's tags or Engine's paths from the
+/// drive's root.
+struct Asked {
+    software: Software,
+    root: PathBuf,
+    skip: bool,
+    tags: bool,
+    on_drive: bool,
+}
+
+/// What `done` wrote below `output` and said of it is what loclib-interop builds of `want` as
+/// `asked` (Serato's copies made of `drive`'s audio): the files and their sizes, the counts, the
+/// notes (naming the plugin's options), and the warnings: `left_out` first, then
+/// loclib-interop's, then one naming the tracks whose audio isn't where the files say.
+fn is_built(want: &Expected, asked: &Asked, drive: &Drive, output: &Path, done: &Exported, left_out: Vec<String>) {
+    let Asked { software, ref root, skip, tags, on_drive } = *asked;
+    let out = resolved(output);
+    let export = want.build(root, skip, |s| match software {
+        Software::Traktor => traktor::build(s, output, &Ctx::silent()).unwrap(),
         Software::Serato if tags => {
             let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(&drive.root, &paths::key(&t.file_path)));
             let copies = serato::Copies { root: out.clone(), audio: &audio };
-            serato::build(s, &output, Some(&copies), &Ctx::silent()).unwrap()
+            serato::build(s, output, Some(&copies), &Ctx::silent()).unwrap()
         }
-        Software::Serato => serato::build::<Error>(s, &output, None, &Ctx::silent()).unwrap(),
+        Software::Serato => serato::build::<Error>(s, output, None, &Ctx::silent()).unwrap(),
+        Software::Rekordbox => rekordbox::build(s, output, &Ctx::silent()).unwrap(),
         _ => {
             let style = if on_drive { PathStyle::Drive } else { PathStyle::Relative };
             engine::build(s, &out, style, &Ctx::silent()).unwrap()
         }
     });
-    assert_eq!(written(&output), contents(&export, &out, &output));
+    // rekordbox's file is `output` itself, compared with the folder it's in.
+    let dir = if software == Software::Rekordbox { output.parent().unwrap() } else { output };
+    assert_eq!(written(dir), contents(&export, &resolved(dir), dir));
     let described: Vec<(&str, u64)> = done.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect();
     assert_eq!(described, export.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect::<Vec<_>>());
     let counts: Vec<(&str, u64)> = done.counts.iter().map(|(label, n)| (label.as_str(), *n)).collect();
@@ -863,12 +934,13 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     assert!(done.notes.iter().all(|n| !n.contains('`')), "{:?}", done.notes);
     let missing: Vec<&Track> =
         want.library.tracks.iter().filter(|t| !root.join(paths::key(&t.file_path)).is_file()).collect();
-    let mut warnings = export.warnings.clone();
+    let mut warnings = left_out;
+    warnings.extend(export.warnings.iter().cloned());
     if let Some(first) = missing.first() {
         warnings.push(format!(
             "{} track(s) have no audio under {} (e.g. {}); they're listed anyway",
             missing.len(),
-            resolved(&root).display(),
+            resolved(root).display(),
             first.file_path
         ));
     }
@@ -891,3 +963,6 @@ fn the_part_that_exists_is_resolved() {
         assert_eq!(resolved(&real.join("new/../up/x")), real.join("deep/er/x"));
     }
 }
+
+/// The set and mix exporters.
+mod sets;

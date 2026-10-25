@@ -10,8 +10,6 @@ use hegel::{HealthCheck, TestCase};
 use locallibrary::Library;
 use locallibrary::device::Device;
 use locallibrary::import::{self, Status};
-use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use serde_json::{Value, json};
 
 use crate::support::{Env, path};
@@ -31,7 +29,7 @@ fn refused(env: &Env, args: &[&str]) -> Value {
 /// tracks answered with any of them or none (`--choose N=ID`, `N=null`): `playlist import` fills
 /// the playlist with the tracks loclib-tracklist finds in the drive's library and those chosen, in
 /// the list's order (after its entries, appending), or changes nothing when there are none. A
-/// choice for an entry the list doesn't have, or of a track the drive lacks, is refused.
+/// choice for an entry the list doesn't have is refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     let env = Env::new();
@@ -92,7 +90,6 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
         refused(&env, &["playlist", "import", d, path(&file), "--into", &into, "--choose", &choice])
     };
     assert_eq!(choose(n + 1, lib.tracks[0].id), "invalid");
-    assert_eq!(choose(1, 9999), "not_found");
 }
 
 /// The twelve-track drive's playlist, and the rekordbox XML of its library: importing that
@@ -114,9 +111,8 @@ fn an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
     let lib = library(&root);
     let list = lib.playlists.iter().find(|p| !p.is_folder && !p.track_ids.is_empty()).expect("a playlist");
     let name = lib.playlist_path(list.id);
-    let (text, _) = xml::export(&Device::open(&root).unwrap(), &XmlOptions::default(), &Ctx::silent()).unwrap();
     let file = env.outside("collection.xml");
-    std::fs::write(&file, text).unwrap();
+    env.ok(&["xml", d, "-o", path(&file)]);
     let into = if onto_itself { name.clone() } else { "Imported".to_string() };
     // A choice of another track for an entry the list has.
     let chosen = choice.filter(|i| *i < list.track_ids.len()).map(|i| {

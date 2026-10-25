@@ -1,0 +1,7 @@
+# ast-grep's rules over the Rust workspace, one a file in tools/ast-grep/rules, each with its cases in
+# tools/ast-grep/tests (`pnpm exec ast-grep test` and `pnpm exec ast-grep scan`, as CI's
+# repo-checks.yml runs them).
+ruleDirs:
+  - tools/ast-grep/rules
+testConfigs:
+  - testDir: tools/ast-grep/tests

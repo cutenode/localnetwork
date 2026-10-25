@@ -1,6 +1,7 @@
 name: locallibrary bug
 description: Something locallibrary got wrong, or a drive it couldn't read or write
 labels: ["bug", "locallibrary"]
+type: Bug
 body:
   - type: markdown
     attributes:

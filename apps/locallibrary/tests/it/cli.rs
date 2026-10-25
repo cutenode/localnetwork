@@ -162,8 +162,15 @@ fn store_settings_and_names() {
     assert_eq!(v["current"]["values"]["quantize"], "off");
 
     let v = env.json(&["xml", "Main", "-o", path(&env.root.join("out.xml"))]);
-    assert_eq!(v["report"]["tracks"], 2);
+    assert_eq!(
+        (&v["outcome"], &v["plan"]["counts"]["tracks"]),
+        (&serde_json::json!("applied"), &serde_json::json!(2)),
+        "{v}"
+    );
     assert!(std::fs::read_to_string(env.root.join("out.xml")).unwrap().contains("DJ_PLAYLISTS"));
+    // `--only` names the export's playlists.
+    let v = env.json(&["xml", "Main", "-o", path(&env.root.join("nope.xml")), "--only", "Nope"]);
+    assert_eq!(v["error"]["message"], "not found: playlist \"Nope\" (the Other DJ software plugin)", "{v}");
 }
 
 #[test]
@@ -506,7 +513,7 @@ fn tracks_search_is_free_text_in_the_filter() {
 }
 
 /// Output meant for reading, piped: TSV and CSV keep every value whole, report lines go to stdout,
-/// `--ascii` swaps the symbols, and `--quiet` leaves out the tips.
+/// `--ascii` swaps the symbols, and `--quiet` keeps what an export says of its format.
 #[test]
 fn output_you_can_pipe() {
     let env = Env::new();
@@ -532,9 +539,9 @@ fn output_you_can_pipe() {
 
     let xml = env.root.join("out.xml");
     let (loud, _) = text(&["xml", path(&a), "-o", path(&xml)]);
-    assert!(loud.contains("Import in rekordbox"), "{loud}");
+    assert!(loud.contains("In rekordbox, pick the file"), "{loud}");
     let (quiet, _) = text(&["--quiet", "xml", path(&a), "-o", path(&xml), "--replace"]);
-    assert!(quiet.contains("wrote") && !quiet.contains("Import in rekordbox"), "{quiet}");
+    assert!(quiet.contains("wrote") && quiet.contains("In rekordbox, pick the file"), "{quiet}");
 }
 
 /// Every command that writes prints one JSON envelope, `{schema, plan, report, applied, outcome}`;

@@ -426,26 +426,7 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     /// Read another program's file with a plugin: keys, BPMs, cues and My Tags added to a drive's tracks, plays kept as sessions
     Import(plugin_cmd::ImportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
-    Xml {
-        #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
-rekordbox drive, or the one library plugged in]")]
-        drive: Option<String>,
-        /// The file to write
-        #[arg(long, short, default_value = "rekordbox.xml")]
-        output: PathBuf,
-        /// Where the audio will live when importing [default: the drive's mount point]
-        #[arg(long)]
-        location_root: Option<PathBuf>,
-        /// Metadata and playlists only (no beat grids or cues)
-        #[arg(long)]
-        no_analysis: bool,
-        /// Only this playlist or folder and its tracks (repeatable)
-        #[arg(long = "only", value_name = "PLAYLIST")]
-        only: Vec<String>,
-        /// Replace the file if it's there already
-        #[arg(long)]
-        replace: bool,
-    },
+    Xml(export_cmd::XmlArgs),
     /// Shell completion: the script to load in bash, zsh, fish, elvish or PowerShell
     Completions(completion::CompletionsArgs),
     /// Man pages for every command
@@ -1184,7 +1165,8 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         });
     }
     api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
-    // The check before a set, doctor and edit plans run the plugins' checks.
+    // The check before a set, doctor and edit plans run the plugins' checks, and refresh their
+    // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
     let ctx = Ctx::new(&progress, cancel);
@@ -1460,29 +1442,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Undo { drive, list: false, force, dry_run } => {
             return restore_cmd::undo(api::UndoRequest { drive, backup: None, force }, dry_run, out, &ctx);
         }
-        Command::Xml { drive, output: path, location_root, no_analysis, only, replace } => {
-            let drive = jobs_cmd::drive_or_default(drive, &cli.store, "export")?;
-            let req = api::ExportXml {
-                drive,
-                output: path.clone(),
-                location_root,
-                skip_analysis: no_analysis,
-                only,
-                replace,
-            };
-            let r = api::export_xml(&req, &ctx)?;
-            out.done(&r, |r| {
-                output::ok(format!(
-                    "wrote {} ({} tracks, {} playlists, {} beat grids, {} cues)",
-                    path.display(),
-                    r.tracks,
-                    r.playlists,
-                    r.tracks_with_beatgrid,
-                    r.cues
-                ));
-                crate::output::hint("Import in rekordbox: Preferences > Advanced > rekordbox xml > Imported Library");
-            });
-        }
+        Command::Xml(args) => return export_cmd::xml(args, &cli.store, out, &ctx),
         Command::Doctor(args) => return doctor_cmd::run(args, &cli.store, out, &ctx),
         Command::Plays(a) => return plays_cmd::run(a, &cli.store, out, &ctx),
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),

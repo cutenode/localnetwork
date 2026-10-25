@@ -89,12 +89,15 @@ pub struct CheckChange {
     pub reset: bool,
 }
 
-/// What the check before a set, doctor and edit plans find plugins in: the app's host.
+/// What the check before a set, doctor, edit plans and `refresh` find plugins in: the app's host.
 static HOSTED: OnceLock<fn() -> Option<&'static Plugins>> = OnceLock::new();
 
-/// Has the check before a set and doctor run the checks of the plugins `host` answers, and plans
-/// that edit a library their guards (see [`Plugins::run_checks`], [`Plugins::guard`]): set once, by the app.
-/// Until it is, they run none.
+/// Has the check before a set and doctor run the checks of the plugins `host` answers, plans
+/// that edit a library their guards (see [`Plugins::run_checks`], [`Plugins::guard`]), and
+/// `refresh` their operations (see [`crate::api::refresh_plan`]); the check before a set also
+/// names `art fetch` for tracks without artwork when one of them finds cover art. Set once, by
+/// the app. Until it is, they run none, `art fetch` isn't named, and a refresh asked to run an
+/// operation is refused.
 pub fn set_hosted(host: fn() -> Option<&'static Plugins>) {
     let _ = HOSTED.set(host);
 }

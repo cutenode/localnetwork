@@ -210,7 +210,7 @@ fn a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
     let dest = dir.path().join("copy");
     offsite::copy(&store, &dest, &opts, &silent).unwrap();
     let rotted: Vec<Hash> =
-        objects(&store).into_iter().filter(|_| tc.draw(gs::booleans())).take(2).map(|(h, _)| h).collect();
+        tc.draw(gs::subsequences(objects(&store).into_iter().map(|(h, _)| h).collect::<Vec<_>>()).max_size(2));
     let copy = Store::open(&dest).unwrap();
     for h in &rotted {
         common::rot(&copy.object_path(h));

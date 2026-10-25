@@ -11,10 +11,11 @@ use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
 use locallibrary::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
 use locallibrary::onelibrary::{self, CueRow, OneLibrary, wal};
 use locallibrary::{paths, pdb};
+use loclib_model::test_util::tracks_like;
 
 fn fixture(name: &str) -> &'static [u8] {
     static FILES: OnceLock<IndexMap<&'static str, Vec<u8>>> = OnceLock::new();
@@ -719,56 +720,48 @@ pub(crate) fn new_library() -> &'static [u8] {
 
 /// Text for a track's fields: often empty (no row is made for an empty name), often shared,
 /// so that lookup rows are reused and outlive some of the tracks using them.
-#[hegel::test_helper]
-pub(crate) fn field(tc: &TestCase) -> String {
-    tc.draw(hegel::one_of!(
+pub(crate) fn field() -> impl PrintableGenerator<String> {
+    hegel::one_of!(
         gs::sampled_from(vec!["", "", "Daft Punk", "Ünïcödé", "a'b\"c"]).map(String::from),
         gs::text().max_size(10).exclude_characters("\0"),
-    ))
+    )
 }
 
 /// A track as `export.pdb` knows it, with what OneLibrary stores of it.
-#[hegel::test_helper]
-pub(crate) fn any_track(tc: &TestCase, n: usize, artwork: Option<String>) -> locallibrary::Track {
-    let s = |tc: &TestCase| field(tc);
-    locallibrary::Track {
-        id: 0,
-        title: s(tc),
-        artist: s(tc),
-        album: s(tc),
-        album_artist: s(tc),
-        genre: s(tc),
-        label: s(tc),
-        key: tc.draw(gs::sampled_from(vec!["", "8A", "Abm"])).into(),
-        remixer: s(tc),
-        original_artist: s(tc),
-        composer: s(tc),
-        comment: s(tc),
-        mix_name: s(tc),
-        isrc: tc.draw(gs::sampled_from(vec!["", "GBDUW0000059"])).into(),
-        bpm: f64::from(tc.draw(gs::integers::<u32>().max_value(30_000))) / 100.0,
-        duration_secs: tc.draw(gs::integers::<u32>()),
-        year: tc.draw(gs::integers::<u16>()),
-        track_number: tc.draw(gs::integers::<u32>()),
-        disc_number: tc.draw(gs::integers::<u16>()),
-        rating: tc.draw(gs::integers::<u8>().max_value(5)),
-        color: locallibrary::model::TrackColor::from_id(tc.draw(gs::integers::<u8>().max_value(8))),
-        play_count: tc.draw(gs::integers::<u16>()),
-        bitrate: tc.draw(gs::integers::<u32>()),
-        sample_rate: tc.draw(gs::sampled_from(vec![44_100u32, 48_000, 96_000])),
-        sample_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
-        file_size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
-        file_path: format!("/Contents/{n}.mp3"),
-        analyze_path: if tc.draw(gs::booleans()) {
-            format!("/PIONEER/USBANLZ/P000/{n:08X}/ANLZ0000.DAT")
-        } else {
-            String::new()
-        },
-        date_added: tc.draw(gs::sampled_from(vec!["", "2026-10-11"])).into(),
-        release_date: tc.draw(gs::sampled_from(vec!["", "2001-03-12"])).into(),
-        artwork_id: None,
-        artwork_path: artwork,
-    }
+pub(crate) fn any_track(n: usize, artwork: Option<String>) -> impl PrintableGenerator<locallibrary::Track> {
+    let text = |values: Vec<&'static str>| gs::sampled_from(values).map(String::from);
+    let analysis = format!("/PIONEER/USBANLZ/P000/{n:08X}/ANLZ0000.DAT");
+    let base =
+        locallibrary::Track { file_path: format!("/Contents/{n}.mp3"), artwork_path: artwork, ..Default::default() };
+    tracks_like(base)
+        .title(field())
+        .artist(field())
+        .album(field())
+        .album_artist(field())
+        .genre(field())
+        .label(field())
+        .key(text(vec!["", "8A", "Abm"]))
+        .remixer(field())
+        .original_artist(field())
+        .composer(field())
+        .comment(field())
+        .mix_name(field())
+        .isrc(text(vec!["", "GBDUW0000059"]))
+        .bpm(gs::integers::<u32>().max_value(30_000).map(|b| f64::from(b) / 100.0))
+        .duration_secs(gs::integers::<u32>())
+        .year(gs::integers::<u16>())
+        .track_number(gs::integers::<u32>())
+        .disc_number(gs::integers::<u16>())
+        .rating(gs::integers::<u8>().max_value(5))
+        .color(gs::integers::<u8>().max_value(8).map(locallibrary::model::TrackColor::from_id))
+        .play_count(gs::integers::<u16>())
+        .bitrate(gs::integers::<u32>())
+        .sample_rate(gs::sampled_from(vec![44_100u32, 48_000, 96_000]))
+        .sample_depth(gs::sampled_from(vec![16u16, 24]))
+        .file_size(gs::integers::<u64>().max_value(1 << 40))
+        .analyze_path(gs::sampled_from(vec![String::new(), analysis]))
+        .date_added(text(vec!["", "2026-10-11"]))
+        .release_date(text(vec!["", "2001-03-12"]))
 }
 
 /// Rows of the tables tracks look names up in.
@@ -840,7 +833,7 @@ fn built_libraries_read_back(tc: TestCase) {
                     assert_eq!(id, next);
                     id
                 });
-                let mut t = any_track(&tc, made, artwork);
+                let mut t = tc.draw(any_track(made, artwork));
                 let rec = onelibrary::ContentRecord::from_track(&t, !t.analyze_path.is_empty(), &defaults);
                 t.id = one.add_track(&rec, &t.file_path, &t.analyze_path, image).unwrap();
                 t.artwork_id = image;
@@ -868,7 +861,7 @@ fn built_libraries_read_back(tc: TestCase) {
                 } else {
                     Some(tc.draw(gs::sampled_from(folders)))
                 };
-                let (name, folder) = (field(&tc), tc.draw(gs::booleans()));
+                let (name, folder) = (tc.draw(field()), tc.draw(gs::booleans()));
                 let id = one.create_playlist(&name, parent.unwrap_or(0), folder).unwrap();
                 model.playlists.insert(id, (parent, name, folder, Vec::new()));
             }
@@ -878,7 +871,7 @@ fn built_libraries_read_back(tc: TestCase) {
                 model.playlists[&list].3.push(track);
             }
             6 => {
-                let name = field(&tc);
+                let name = tc.draw(field());
                 let id = one.create_history(&name, 0, false).unwrap();
                 let played: Vec<u32> =
                     if ids.is_empty() { Vec::new() } else { tc.draw(gs::vecs(gs::sampled_from(ids)).max_size(4)) };
@@ -916,8 +909,7 @@ fn built_libraries_read_back(tc: TestCase) {
                 assert!(matches!(one.set_track_image(&[u32::MAX], image), Err(locallibrary::Error::NotFound(_))));
             }
             9 => {
-                let tree = [onelibrary::Tree::Playlist, onelibrary::Tree::History]
-                    [tc.draw(gs::integers::<usize>().max_value(1))];
+                let tree = tc.draw(gs::sampled_from(&[onelibrary::Tree::Playlist, onelibrary::Tree::History]));
                 let known: Vec<u32> = match tree {
                     onelibrary::Tree::Playlist => model.playlists.keys().copied().collect(),
                     onelibrary::Tree::History => model.history.keys().copied().collect(),
@@ -926,7 +918,7 @@ fn built_libraries_read_back(tc: TestCase) {
                     gs::sampled_from(if known.is_empty() { vec![1] } else { known.clone() }),
                     gs::integers::<u32>().min_value(1).max_value(9)
                 ));
-                let name = field(&tc);
+                let name = tc.draw(field());
                 match one.rename_node(tree, id, &name) {
                     Ok(()) if tree == onelibrary::Tree::Playlist => model.playlists[&id].1 = name,
                     Ok(()) => model.history[&id].0 = name,
@@ -1177,7 +1169,7 @@ fn content_hashes_name_the_library(tc: TestCase) {
     assert_eq!(renamed.0, hashes.0, "the drive's name isn't the library");
     assert_ne!(renamed.1, hashes.1);
 
-    let t = loclib_model::test_util::track(0, &field(&tc), &field(&tc), "/Contents/a.mp3");
+    let t = loclib_model::test_util::track(0, &tc.draw(field()), &tc.draw(field()), "/Contents/a.mp3");
     let mut edited = OneLibrary::from_encrypted(&one.to_encrypted().unwrap(), None).unwrap();
     let defaults = edited.content_defaults().unwrap();
     edited.add_track(&onelibrary::ContentRecord::from_track(&t, false, &defaults), &t.file_path, "", None).unwrap();

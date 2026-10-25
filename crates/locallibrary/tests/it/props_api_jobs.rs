@@ -24,7 +24,7 @@ use uuid::Uuid;
 /// refused, naming every step.
 #[hegel::test(test_cases = 300)]
 fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
-    let kind = StepKind::ALL[tc.draw(gs::integers::<usize>().max_value(StepKind::ALL.len() - 1))];
+    let kind = tc.draw(gs::sampled_from(&StepKind::ALL));
     let id: String =
         kind.id().chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", "  "]));
@@ -34,7 +34,7 @@ fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
         Some(k) => assert_eq!(StepKind::parse(&other).unwrap(), *k),
         None => {
             let e = StepKind::parse(&other).unwrap_err().to_string();
-            assert!(e.contains("clean, replay, smart, player, settings, pull, sync, check, eject"), "{e}");
+            assert!(e.contains("clean, replay, smart, player, settings, operations, pull, sync, check, eject"), "{e}");
         }
     }
 }
@@ -142,7 +142,7 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
     let mut volumes = common::isolate(dir.path(), None);
     let mut club: Option<Uuid> = None;
     for i in 0..n {
-        let kind = [Kind::Loose, Kind::Main, Kind::Club][tc.draw(gs::integers::<usize>().max_value(2))];
+        let kind = tc.draw(gs::sampled_from(&[Kind::Loose, Kind::Main, Kind::Club]));
         if store.is_none() {
             // The store holding the saved demo, with any drive: its own folder goes, each clone is
             // written where it's mounted.
@@ -542,7 +542,7 @@ fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
         assert_eq!(api::refresh_drive(Some(&p.store)).unwrap().root(), p.main);
     }
     let drive = (!unnamed).then(|| path(&p.main));
-    let req = api::RefreshRequest { drive, skip: skip.clone(), sync };
+    let req = api::RefreshRequest { drive, skip: skip.clone(), sync, ..Default::default() };
     let plan = api::refresh_plan(&p.store, &req, &ctx).unwrap();
     let skipped = |k: StepKind| skip.contains(&k);
     let mut want = Vec::new();

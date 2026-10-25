@@ -139,10 +139,7 @@ fn tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
     before.untouched(&root).unwrap();
 
     // Tracks both databases list, and the one only export.pdb does.
-    let mut tracks: Vec<u32> = [1, 2].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    if tracks.is_empty() {
-        tracks.push(1);
-    }
+    let mut tracks: Vec<u32> = tc.draw(gs::subsequences(&[1, 2]).min_size(1));
     tracks.push(only_ext);
     let venue = tc.draw(gs::sampled_from(vec!["Club", "Rooftop", "Ünï Hall"])).to_string();
     let spelled = tc.draw(gs::sampled_from(vec!["Situation", "situation", "SITUATION"])).to_string();
@@ -206,8 +203,7 @@ fn tags_one_database_lacks_take_the_other_ones_ids(tc: TestCase) {
     ));
 
     // exportExt.pdb has four categories now. Taking a tag off where it is, in both.
-    let off: Vec<u32> = tracks.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
-    let off = if off.is_empty() { vec![tracks[0]] } else { off };
+    let off: Vec<u32> = tc.draw(gs::subsequences(&tracks).min_size(1));
     let plan = tags::plan(&d, &Edit::Remove { tag: format!("Venue/{venue}"), tracks: off.clone() }).unwrap();
     assert_eq!(plan.tracks.len(), off.len());
     tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
@@ -453,8 +449,7 @@ fn an_edit_exportext_pdb_cant_take_leaves_the_drive_alone(tc: TestCase) {
     bytes[links + 4..links + 8].fill(0);
     fs::write(&path, bytes).unwrap();
     let tag = tc.draw(gs::sampled_from(vec!["Genre/Techno", "Genre/New One", "Situation/Ünï"])).to_string();
-    let tracks: Vec<u32> = [1, 2].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
-    let tracks = if tracks.is_empty() { vec![2] } else { tracks };
+    let tracks: Vec<u32> = tc.draw(gs::subsequences(&[1, 2]).min_size(1));
     let before = common::Before::take(&root);
     let mut d = Device::open_export(&root).unwrap();
     let plan = tags::plan(&d, &Edit::Add { tag, tracks }).unwrap();

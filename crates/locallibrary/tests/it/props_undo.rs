@@ -77,7 +77,7 @@ fn undo_after(tc: &TestCase, kind: u8) {
         // The audio of a track the backed-up library holds is gone from the drive.
         _ => {
             let lib = common::library(&root);
-            let gone = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+            let gone = &tc.draw(gs::sampled_from(&lib.tracks));
             fs::remove_file(paths::to_fs(&root, &paths::key(&gone.file_path))).unwrap();
             let err = backup::restore(&mut Device::open_export(&root).unwrap(), None, false).unwrap_err();
             assert_eq!(err.reason(), Some(Reason::MissingAudio), "{err}");

@@ -139,7 +139,7 @@ pub(super) fn info(d: &Described) {
         (ExportFrom::Mix, "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
     ];
     for (source, title) in of {
-        let exporters = c.exporters.iter().filter(|e| e.source == source).map(|e| {
+        let exporters = c.exporters.iter().filter(|e| e.takes(source)).map(|e| {
             let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
             (e.format.clone(), format!("{}, {writes}", e.title))
         });

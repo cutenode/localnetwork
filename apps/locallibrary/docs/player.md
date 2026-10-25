@@ -27,8 +27,8 @@ listening to your library the way the players see it:
   crate, save it to the drive as a playlist, or pack it onto another drive for a set.
 - **Commands** (`:`): every action by name, with its key; type a few of its letters (in order:
   `fsp` finds "fill the smart playlists") and enter. It also has the commands with no key of their
-  own: pull, check, set prep, sync, pack, restore, replay, export, xml, smart, smart apply, smart
-  new and eject.
+  own: pull, check, set prep, sync, pack, restore, replay, export, smart, smart apply, smart new
+  and eject.
 - **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
   them, and where the plugin offers them: at the end of a drive's `e` menu in the Drives view, and
   of the actions menu (`e`) for those that work on tracks or a playlist. One that takes params
@@ -78,8 +78,11 @@ listening to your library the way the players see it:
   empty, it stays as it was. A plugin's services are switches there too: turned on, they run
   while the player does.
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
-  drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; what
-  `watch` kept while the player was closed is offered as it opens.
+  drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; when it
+  suggests fetching from its providers, exporting in its format or running its analyzer, "review:
+  …" opens that form (or asks first, for an analyzer) filled in, as if you'd started it, saying
+  which drive and how many tracks (a mix's export is refused: the player doesn't export mixes).
+  What `watch` kept while the player was closed is offered as it opens.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you
@@ -178,9 +181,8 @@ listening to your library the way the players see it:
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
-  M3U8, CSV or text, and "xml" writes rekordbox XML of the drive (just the marked playlists when
-  some are), asking where first. A plugin's format ("export for traktor…", in a drive's `e` menu
-  too) asks where and for the format's options in a form, then shows what it would write (each
+  M3U8, CSV or text, asking where first. A plugin's format ("export for traktor…", or "export for
+  rekordbox…" for rekordbox XML, in a drive's `e` menu too) asks where and for the format's options in a form, then shows what it would write (each
   file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
   overwrites files there already; it takes the marked playlists too. A set's format ("export the
   set for …") writes out the set open in Browse › Sets.

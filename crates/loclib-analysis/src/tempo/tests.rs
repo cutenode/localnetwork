@@ -47,7 +47,7 @@ fn relations_are_symmetric(tc: hegel::TestCase) {
 fn factors_are_recognised(tc: hegel::TestCase) {
     let estimate = tc.draw(gs::floats::<f64>().min_value(40.0).max_value(250.0));
     let jitter = tc.draw(gs::floats::<f64>().min_value(-0.035).max_value(0.035));
-    let (relation, factor) = FACTORS[tc.draw(gs::integers::<usize>().max_value(FACTORS.len() - 1))];
+    let (relation, factor) = tc.draw(gs::sampled_from(&FACTORS));
     let stored = estimate * factor * (1.0 + jitter);
     assert_eq!(TempoRelation::between(stored, estimate), Some(relation));
 }

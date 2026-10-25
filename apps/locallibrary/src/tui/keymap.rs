@@ -164,7 +164,6 @@ pub enum Act {
     SmartApply,
     SmartNew,
     ExportList,
-    ExportXml,
     // Profile
     ProfileInclude,
     ProfilePin,
@@ -210,8 +209,9 @@ pub enum Act {
     Fix(usize),
     /// Draw in a theme, by its key (`<plugin>.<name>`; empty for the default).
     Theme(&'static str),
-    /// Export the drive in a plugin's format (the plugin's id, the format).
-    Export(&'static str, &'static str),
+    /// Export the drive, or the set open, in a plugin's format (the plugin's id, the format, and
+    /// which of the two).
+    Export(&'static str, &'static str, loclib_plugin::ExportFrom),
     /// Import a file into the drive with a plugin's importer (the plugin's id, the format).
     Import(&'static str, &'static str),
     /// Build the drive from a plugin's library source (the plugin's id, the source).
@@ -550,7 +550,6 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "smart apply", A::SmartApply, "fill the smart playlists on the drive", "fill the rule-based playlists on the drive from its own library (shows what changes first)", G::Commands),
     key(S::Global, &[], "smart new", A::SmartNew, "smart playlist from the search", "a rule-based playlist from the search box's filter and the list's sort", G::Commands),
     key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, set, session or all tracks shown to a file on this computer", G::Commands),
-    key(S::Global, &[], "xml", A::ExportXml, "export rekordbox XML", "rekordbox XML of the drive (the marked playlists only, when some are), to take back into rekordbox", G::Commands),
     key(S::Global, &[], "eject", A::Eject, "eject the drive", "unmount the drive and power it off (playing from it stops first)", G::Commands),
     key(S::Global, &[K::Ch('q'), K::Ctrl('c'), K::Ctrl('q')], "q", A::Quit, "quit", "quit (a write to the drive finishes first)", G::Player).hint("quit", 1),
 ];

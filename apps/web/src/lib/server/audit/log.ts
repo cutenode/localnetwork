@@ -11,43 +11,62 @@ import type { AuditEntryRow, CopyStatus } from '../db/schema';
 import type { Logger } from '../logger';
 import { type AuditDetails, canonicalJson, chainHash, clip, sanitizeDetails } from './chain';
 
-export type AuditAction =
-	| 'auth.login'
-	| 'auth.logout'
-	| 'project.create'
-	| 'project.update'
-	| 'project.status'
-	| 'project.managers'
-	| 'request.submit'
-	| 'request.update'
-	| 'request.withdraw'
-	| 'request.approve'
-	| 'request.reject'
-	| 'request.changesRequested'
-	| 'role.grant'
-	| 'role.revoke'
-	| 'booking.create'
-	| 'booking.message'
-	| 'booking.status'
-	| 'planner.save'
-	| 'planner.unsave'
-	| 'planner.show'
-	| 'epk.save'
-	| 'epk.delete'
-	| 'epk.request'
-	| 'epk.grant'
-	| 'epk.decline'
-	| 'epk.revoke'
-	| 'show.save'
-	| 'show.delete'
-	| 'follow.create'
-	| 'follow.delete'
-	| 'system.bootstrap'
-	| 'system.space';
+/** Every action the log records. The audit entry lexicon lists the same ones as its knownValues. */
+export const AUDIT_ACTIONS = [
+	'auth.login',
+	'auth.logout',
+	'project.create',
+	'project.update',
+	'project.status',
+	'project.managers',
+	'request.submit',
+	'request.update',
+	'request.withdraw',
+	'request.approve',
+	'request.reject',
+	'request.changesRequested',
+	'role.grant',
+	'role.revoke',
+	'verification.grant',
+	'verification.revoke',
+	'booking.create',
+	'booking.message',
+	'booking.status',
+	'planner.save',
+	'planner.unsave',
+	'planner.show',
+	'epk.save',
+	'epk.delete',
+	'epk.request',
+	'epk.grant',
+	'epk.decline',
+	'epk.revoke',
+	'show.save',
+	'show.delete',
+	'follow.create',
+	'follow.delete',
+	'system.bootstrap',
+	'system.space'
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 
-export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space' | 'epk' | 'show';
+/** What an entry's subject is. The audit entry lexicon lists the same ones as its knownValues. */
+export const SUBJECT_KINDS = [
+	'account',
+	'project',
+	'request',
+	'role',
+	'booking',
+	'planner',
+	'space',
+	'epk',
+	'show'
+] as const;
+
+export type SubjectKind = (typeof SUBJECT_KINDS)[number];
 
 export type AuditChange = { field: string; before?: string; after?: string };
 

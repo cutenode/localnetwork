@@ -1,7 +1,7 @@
 //! `locallibrary export`: playlists, folders, history lists or a whole library as M3U8, CSV or
 //! text, or in a format a plugin adds (the interop plugin's for other DJ software: `--format
-//! traktor|serato|engine`). A plugin's formats for sets and mixes are `sets export`'s and `mix`'s,
-//! written out the same way ([`plugin_export`]).
+//! traktor|serato|engine|rekordbox`, which `locallibrary xml` writes too). A plugin's formats for
+//! sets and mixes are `sets export`'s and `mix`'s, written out the same way ([`plugin_export`]).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -108,7 +108,7 @@ fn formats() -> PossibleValuesParser {
 /// The formats plugins add for what `source` is, as a `--format` takes them.
 pub(crate) fn plugin_formats(source: ExportFrom) -> Vec<PossibleValue> {
     let plugins = crate::plugins::checked().into_iter().flat_map(|p| p.manifests());
-    let added = plugins.flat_map(|m| &m.contributes.exporters).filter(|e| e.source == source);
+    let added = plugins.flat_map(|m| &m.contributes.exporters).filter(|e| e.takes(source));
     added.map(|e| PossibleValue::new(&e.format).help(&e.title)).collect()
 }
 
@@ -171,6 +171,46 @@ fn run_plugin(
     plugin_export(&format, source, written, store.as_ref(), out, ctx)
 }
 
+#[derive(Args)]
+#[command(after_long_help = "The interop plugin writes it, as `export --format rekordbox` does.
+
+Examples:
+  locallibrary xml Home -o ~/Desktop/Home.xml
+  locallibrary xml Home --only \"Sets/2026\" -o sets.xml")]
+pub struct XmlArgs {
+    #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
+rekordbox drive, or the one library plugged in]")]
+    drive: Option<String>,
+    /// The file to write
+    #[arg(long, short, default_value = "rekordbox.xml")]
+    output: PathBuf,
+    /// Where the audio will live when importing [default: the drive's mount point]
+    #[arg(long)]
+    location_root: Option<PathBuf>,
+    /// Metadata and playlists only (no beat grids or cues)
+    #[arg(long)]
+    no_analysis: bool,
+    /// Only this playlist or folder and its tracks (repeatable)
+    #[arg(long = "only", value_name = "PLAYLIST")]
+    only: Vec<String>,
+    /// Replace the file if it's there already, without asking
+    #[arg(long)]
+    replace: bool,
+}
+
+/// `locallibrary xml`: the interop plugin's rekordbox XML (`export --format rekordbox`), its
+/// flags as the exporter's playlists and options.
+pub fn xml(args: XmlArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    let drive = crate::jobs_cmd::drive_or_default(args.drive, store, "export")?;
+    let root = args.location_root.map(|r| format!("location_root={}", r.display()));
+    let skip = args.no_analysis.then(|| "skip_analysis=true".to_string());
+    let options: Vec<String> = root.into_iter().chain(skip).collect();
+    let source = ExportSource { drive, playlists: args.only, ..ExportSource::default() };
+    let store = crate::diff_cmd::existing_store(store)?;
+    let written = Written { output: &args.output, options: &options, dry_run: false, replace: args.replace };
+    plugin_export("rekordbox", source, written, store.as_ref(), out, ctx)
+}
+
 /// Where a plugin's export goes and how: its `-o`, its `--option`s, `--dry-run` and `--replace`.
 pub(crate) struct Written<'a> {
     pub output: &'a Path,
@@ -190,10 +230,11 @@ pub(crate) fn plugin_export(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let plugins = crate::plugins::host()?;
-    let (plugin, exporter) = plugins
+    let found = plugins
         .manifests()
-        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
-        .expect("--format takes the formats there are");
+        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)));
+    // `--format` takes the formats there are; `xml` names one, whose plugin could be left out.
+    let Some((plugin, exporter)) = found else { bail!("no plugin exports {format}") };
     let options = crate::plugin_cmd::options("format", exporter.options.as_ref(), w.options)?;
     let output = std::path::absolute(w.output)?;
     let plan = plugins.export_plan(plugin, format, source, &output, options, store, ctx)?;

@@ -749,6 +749,8 @@ pub enum Msg {
     Sets(u64, Result<Vec<Set>, String>),
     /// A track's audio file opened (or not), for the play with this id.
     Opened(u64, Result<audio::OpenedFile, String>),
+    /// The output devices and the system's default, for the listing with this id (`d`).
+    Outputs(u64, Result<audio::Listed, String>),
     /// Something background work has to say (a report written, say).
     Note(String, Level),
     /// A line of a plugin's log, for the messages (`!`) alone.
@@ -1692,6 +1694,7 @@ impl App {
                 && !self.details_lookup_failed())
             || self.now.as_ref().is_some_and(|n| n.loading)
             || self.loaded.as_ref().is_some_and(Loaded::reading_set)
+            || self.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some())
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
@@ -1857,6 +1860,7 @@ impl App {
                 }
             }
             Msg::Opened(id, r) => self.opened(id, r),
+            Msg::Outputs(id, r) => super::deck::listed_outputs(self, id, r),
             Msg::Note(msg, level) => self.toast(msg, level),
             Msg::Log(line) => self.remember(line, Level::Info),
             Msg::Notice(notice) => self.told(notice),
@@ -3370,9 +3374,8 @@ impl App {
             Act::SmartApply => self.smart_apply(),
             Act::SmartNew => self.smart_from_search(),
             Act::ExportList => self.export_list(),
-            Act::ExportXml => self.export_xml(),
             Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
-            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive()),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive(), None),
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
@@ -3384,7 +3387,7 @@ impl App {
             Act::CheckSettings => self.check_settings(),
             Act::Fix(i) => self.fix(i),
             Act::Theme(key) => self.use_theme(key),
-            Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
+            Act::Export(plugin, format, from) => self.plugin_export(plugin, format, from, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
             Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {

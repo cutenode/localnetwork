@@ -1,6 +1,6 @@
 [package]
 name = "loclib-interop"
-description = "Write a DJ library for other DJ software: Traktor's collection.nml, Serato crates and cue tags, an Engine DJ library"
+description = "Write a DJ library for other DJ software (Traktor's collection.nml, Serato crates and cue tags, an Engine DJ library, rekordbox XML), and read Traktor's back"
 readme = "README.md"
 keywords = ["dj", "traktor", "serato", "engine-dj", "rekordbox"]
 categories = ["multimedia::audio", "encoding"]
@@ -25,20 +25,26 @@ serde.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 uuid = { workspace = true, optional = true }
+percent-encoding = { workspace = true, optional = true }
+quick-xml = { version = "0.42", optional = true }
 
 [features]
-default = ["traktor", "serato", "engine"]
-# Traktor's collection.nml.
-traktor = ["dep:blake3", "dep:chrono"]
+default = ["traktor", "serato", "engine", "rekordbox"]
+# Traktor's collection.nml, written and read.
+traktor = ["dep:blake3", "dep:chrono", "dep:quick-xml"]
 # Serato's crates, and its cue tag written into copies of the audio.
 serato = ["dep:base64", "dep:lofty"]
 # A new Engine DJ library: an SQLite database (SQLite is built in).
 engine = ["dep:chrono", "dep:getrandom", "dep:rusqlite", "dep:tempfile", "dep:uuid"]
+# rekordbox XML, with its tracks' locations as file URLs.
+rekordbox = ["dep:percent-encoding"]
 # `JsonSchema` for `Software`.
 schemars = ["dep:schemars"]
 
 [dev-dependencies]
 hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+loclib-tracklist.workspace = true
 quick-xml = "0.42"
 tempfile.workspace = true
 

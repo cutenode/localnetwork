@@ -122,12 +122,12 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     for step in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => {
-                let r = reasons[tc.draw(gs::integers::<usize>().max_value(reasons.len() - 1))];
+                let r = tc.draw(gs::sampled_from(&reasons));
                 e = e.because(r);
                 reason = Some(r);
             }
             1 => {
-                let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+                let key = tc.draw(gs::sampled_from(&keys));
                 e = e.with(key, step);
                 fields.insert(key.into(), step.into());
             }
@@ -224,7 +224,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
     // (the error, its code, whether its message (or path) comes through)
-    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(8)) {
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
         1 => {
             let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -267,8 +267,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
         }
         4 => (loclib_progress::Cancelled.into(), "cancelled", false),
         5 => (loclib_equipment::UnknownModels(vec![message.clone()]).into(), "invalid", true),
-        6 => (loclib_tracklist::Error::NoTitleColumn { found: message.clone() }.into(), "invalid", true),
-        7 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
+        6 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
         _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
     };
     let detailed = e.to_string();

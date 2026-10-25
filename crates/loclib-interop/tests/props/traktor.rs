@@ -16,7 +16,7 @@ use crate::common::{self, El, KEYS};
 /// Where the audio is: a Mac volume, a Windows drive, or the startup disk, whose name Traktor
 /// takes from this computer.
 #[hegel::test_helper]
-fn root(tc: &TestCase) -> (PathBuf, Option<&'static str>) {
+pub fn root(tc: &TestCase) -> (PathBuf, Option<&'static str>) {
     let (root, volume) =
         tc.draw(gs::sampled_from(vec![("/Volumes/USB", Some("USB")), ("e:\\", Some("E:")), ("/Users/me/Music", None)]));
     (PathBuf::from(root), volume)
@@ -38,7 +38,7 @@ fn nml(export: &Export) -> El {
 
 /// A track's `LOCATION` as the module docs describe it: the volume, `/:name` per folder and a
 /// final `/:`, the file; `volume` is `None` for the startup disk.
-fn location(src: &Source<'_>, t: &Track, volume: Option<&str>) -> (Option<String>, String, String) {
+pub fn location(src: &Source<'_>, t: &Track, volume: Option<&str>) -> (Option<String>, String, String) {
     let audio = src.audio(t).to_string_lossy().replace('\\', "/");
     let rest = match volume {
         Some("USB") => audio.strip_prefix("/Volumes/USB").unwrap(),
@@ -131,7 +131,7 @@ fn traktor_day(d: &str) -> (i32, u32, u32) {
 }
 
 /// A rekordbox date that's a day on the calendar.
-fn calendar_day(s: &str) -> Option<(i32, u32, u32)> {
+pub fn calendar_day(s: &str) -> Option<(i32, u32, u32)> {
     let (y, m, d) = common::ymd(s)?;
     (y > 0 && chrono::NaiveDate::from_ymd_opt(y, m, d).is_some()).then_some((y, m, d))
 }

@@ -34,15 +34,9 @@ use params::properties;
 type Serve = fn(std::io::Stdin, std::io::Stdout);
 
 /// The plugins linked into locallibrary: each one's manifest (its crate's
-/// `locallibrary-plugin.toml`) and how it serves. Adding one is a line here and a dependency on
-/// its crate.
-const FIRST_PARTY: &[(&str, Serve)] = &[
-    (locallibrary_plugin_coverart::MANIFEST, locallibrary_plugin_coverart::serve),
-    (locallibrary_plugin_demos::MANIFEST, locallibrary_plugin_demos::serve),
-    (locallibrary_plugin_interop::MANIFEST, locallibrary_plugin_interop::serve),
-    (locallibrary_plugin_sound::MANIFEST, locallibrary_plugin_sound::serve),
-    (locallibrary_plugin_tracklist::MANIFEST, locallibrary_plugin_tracklist::serve),
-];
+/// `locallibrary-plugin.toml`) and how it serves. build.rs writes it from the folders in
+/// `plugins/`, so adding one is its folder and a dependency on its crate.
+const FIRST_PARTY: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/first_party.rs"));
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):
@@ -102,6 +96,8 @@ pub fn left_out() -> &'static [(Manifest, String)] {
 }
 
 fn load() -> Result<Loaded> {
+    // Only the test plugins are added to it, and a release has none.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut found: Vec<(String, Serves)> =
         FIRST_PARTY.iter().map(|&(m, serve)| (m.into(), Serves::Linked(serve))).collect();
     #[cfg(debug_assertions)]
@@ -266,8 +262,10 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
         }
         for e in &m.contributes.exporters {
             let what = format!("the {id} plugin's export format {:?}", e.format);
-            let ours = &formats.iter().find(|(of, _)| *of == e.source).expect("every kind has its formats").1;
-            claim(&mut exports, ours, &e.format, format!("the {id} plugin's"), what)?;
+            // Taken on each command line it's given on.
+            let ours: FxHashMap<String, String> =
+                formats.iter().filter(|(of, _)| e.takes(*of)).flat_map(|(_, names)| names.clone()).collect();
+            claim(&mut exports, &ours, &e.format, format!("the {id} plugin's"), what)?;
         }
         for format in m.contributes.importers.iter().map(|i| i.format.as_str()) {
             let what = format!("the {id} plugin's import format {format:?}");

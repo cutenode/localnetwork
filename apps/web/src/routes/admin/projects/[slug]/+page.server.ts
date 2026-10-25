@@ -12,6 +12,7 @@ import { isProjectStatus } from '#lib/server/services/projects.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const project = await locals.app.projects.bySlug(params.slug);
 
 	if (!project) error(404, 'Project not found');
@@ -32,7 +33,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		created: url.searchParams.has('created'),
 		geocoder: locals.app.geocoder.enabled,
 		// Streamed, so the form shows while HappyView reads the managers' sets.
-		sets: locals.app.sets.published(project.managers)
+		sets: locals.app.sets.published(project.managers),
+		// Admins see where each manager stands with the root's Bluesky verifications, streamed for the same reason.
+		verifications: locals.viewer?.isAdmin ? locals.app.verifications.statuses(project.managers) : null
 	};
 };
 

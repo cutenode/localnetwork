@@ -134,18 +134,6 @@ fn browses_by_category() {
     assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"], "in the order they were played");
 }
 
-/// Handle the app's background messages until the store's sets are read.
-fn read_sets(app: &mut App) {
-    loop {
-        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
-        let sets = matches!(msg, Msg::Sets(..));
-        app.handle_msg(msg);
-        if sets {
-            return;
-        }
-    }
-}
-
 /// Sets in the store at `store_root`: Friday (track 3, one typed in by hand, track 2), an
 /// older one at Corsica Studios (track 1), and one with nothing on the drive.
 fn save_sets(store_root: &Path, lib: &Library) {
@@ -883,9 +871,10 @@ fn makes_a_smart_playlist_from_the_search() {
     assert!(app.modal.is_none() && last_message(&app).starts_with("nothing to change"), "{}", last_message(&app));
 }
 
-/// The list shown and rekordbox XML, written where asked (never onto the drive).
+/// The list shown, written where asked (never onto the drive), replacing a file there only once
+/// that's asked about.
 #[test]
-fn exports_the_list_shown_and_rekordbox_xml() {
+fn exports_the_list_shown() {
     let (dir, root) = demo_drive();
     let device = Device::open_export(&root).unwrap();
     let lib = device.library().unwrap();
@@ -904,29 +893,24 @@ fn exports_the_list_shown_and_rekordbox_xml() {
     let csv = std::fs::read_to_string(out.join("all.csv")).unwrap();
     assert!(csv.contains("Demo Track 1"), "{csv}");
 
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
-    assert!(last_message(&app).contains("2 tracks"), "{}", last_message(&app));
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
-
     // A file that's there is replaced only once that's asked about.
-    std::fs::write(out.join("demo.xml"), "mine").unwrap();
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    std::fs::write(out.join("all.csv"), "mine").unwrap();
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if q.contains("Replace it?")));
     press(&mut app, "n");
-    assert_eq!(std::fs::read_to_string(out.join("demo.xml")).unwrap(), "mine");
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    assert_eq!(std::fs::read_to_string(out.join("all.csv")).unwrap(), "mine");
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     press(&mut app, "y");
     wait(&mut app, |a| a.job.is_none());
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
+    assert!(std::fs::read_to_string(out.join("all.csv")).unwrap().contains("Demo Track 1"));
 
     // Not onto the drive itself.
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &root.join("x.xml"));
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &root.join("x.m3u8"));
     assert!(last_message(&app).starts_with("not onto the drive"));
-    assert!(!root.join("x.xml").exists());
+    assert!(!root.join("x.m3u8").exists());
 }
 
 /// The set shown last run, on starting: said to be reading until the sets are in. Read again
@@ -1502,6 +1486,7 @@ fn switching_outputs_keeps_the_track_as_it_was() {
     app.outputs = super::super::audio::tests::OUTPUTS;
     let switch = |app: &mut App, down: usize| {
         press(app, "d");
+        outputs_listed(app);
         for _ in 0..down {
             key(app, KeyCode::Down);
         }
@@ -3017,7 +3002,7 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     }
     // Plugins' columns, shown from the palette.
     let shown = ["sound.bpm", "sound.key"].map(locallibrary::query::FieldName::new);
-    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(2))].to_vec();
+    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(shown.len()))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
     let read = state::load(&app.store_root);
@@ -3048,9 +3033,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let cues: Vec<locallibrary::anlz::Cue> = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|_| {
             let start = tc.draw(gs::integers::<u32>().max_value(310_000));
-            let end =
-                tc.draw(gs::booleans()).then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(20_000)));
-            cue(tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(7))), start, end)
+            let end = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(20_000))).map(|d| start + d);
+            cue(tc.draw(gs::optional(gs::integers::<u8>().max_value(7))), start, end)
         })
         .collect();
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Down, PhraseKind::Chorus, PhraseKind::Outro];
@@ -3063,7 +3047,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
                 true => start_beat + tc.draw(gs::integers::<u16>().min_value(1).max_value(40)),
                 false => tc.draw(gs::integers::<u16>().max_value(start_beat)),
             };
-            Phrase { kind: kinds[tc.draw(gs::integers::<usize>().max_value(4))], start_beat, end_beat, fill_beat: None }
+            Phrase { kind: tc.draw(gs::sampled_from(&kinds[..])), start_beat, end_beat, fill_beat: None }
         })
         .collect();
     let analysis = TrackAnalysis {

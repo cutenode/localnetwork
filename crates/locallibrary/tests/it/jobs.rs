@@ -24,7 +24,7 @@ use rekordbox_pdb::{NewTrack, PdbEditor};
 const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
 
 /// rekordbox's demo sample, as an export brings it back.
-fn add_demo_sample(root: &Path) {
+pub(crate) fn add_demo_sample(root: &Path) {
     let pdb = root.join(paths::EXPORT_PDB);
     let mut ed = PdbEditor::from_file(&pdb).unwrap();
     ed.add_track(&NewTrack { artist: Some("rekordbox".into()), ..NewTrack::new("House 1", SAMPLE) }).unwrap();

@@ -79,7 +79,8 @@ indexmap.workspace = true
 loclib-plugin.workspace = true
 # The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
 loclib-progress.workspace = true
-# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`.
+# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`: one
+# for every folder in plugins/, which build.rs checks.
 locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
 locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
 locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
@@ -88,6 +89,9 @@ locallibrary-plugin-demos = { version = "0.1.0", path = "../../plugins/demos" }
 os_info = { version = "3.15.0", default-features = false }
 percent-encoding.workspace = true
 base64.workspace = true
+# Splits each `refresh --then` into words the way a shell does (the hints' tests check their
+# quoting with it too).
+shlex = "2.0.1"
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
@@ -113,8 +117,13 @@ walkdir.workspace = true
 filetime.workspace = true
 jacquard-oauth.workspace = true
 tokio.workspace = true
-# Splits hints into words the way a shell does, to check their quoting.
-shlex = "2.0.1"
+loclib-model = { workspace = true, features = ["test-util"] }
+# Writes the Traktor collections the interop plugin's library source is tested on.
+loclib-interop.workspace = true
 
 [lints]
 workspace = true
+
+[build-dependencies]
+# Reads this manifest's dependencies, to check there's one for every plugin (build.rs).
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse"] }

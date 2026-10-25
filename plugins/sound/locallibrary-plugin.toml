@@ -8,11 +8,11 @@ name = "tempo-key-loudness"
 title = "Tempo, key and loudness"
 # The host keeps the fields by the analyzer's version: loclib-analysis's VERSION, so tracks
 # measured the old way are measured again once it changes.
-version = "4"
+version = "5"
 
 # As doctor's `--analyze` reports them. A field with nothing to show is null: no tempo or key for
-# silence, no tempo for a blip too short for one, no key where the best keys tie, no loudness or
-# true peak for silence.
+# silence, no tempo for a blip too short for one, no key where the best keys tie, no loudness,
+# true peak or waveform for silence.
 [contributes.analyzers.fields]
 bpm = "number"
 bpm_confidence = "number"
@@ -23,6 +23,18 @@ key_confidence = "number"
 integrated_lufs = "number"
 true_peak_dbtp = "number"
 clipped_runs = "integer"
+# Lows, mids and highs, a column every 23 ms.
+waveform = "waveform"
+
+# The columns' names (`sound.integrated_lufs`) are wider than any of these values, so the columns
+# keep those widths.
+[contributes.analyzers.display]
+bpm = { precision = 1 }
+bpm_confidence = { format = "percent" }
+key = { format = "key" }
+key_confidence = { format = "percent" }
+integrated_lufs = { unit = "LUFS", precision = 1 }
+true_peak_dbtp = { format = "db", unit = "dBTP", precision = 1 }
 
 # What locallibrary reads them as: doctor's tempos, keys and levels, the check before a set,
 # ordering a set, and `analyze --apply key,bpm`.

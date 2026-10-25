@@ -4,7 +4,8 @@ import { DECISION_OUTCOMES } from '#lib/server/services/requests.ts';
 import { act, requireStaff, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const { app } = locals;
 	const request = await app.requests.byRkey(params.rkey);
 
@@ -26,6 +27,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		app.audit.list({ subject: request.uri, limit: 50 })
 	]);
 
+	// A verification vouches for the account itself, so only a claim from the act's own account (or a member's) leads
+	// to one: a manager's or agent's account belongs to someone else.
+	const relationship = request.record.claim?.relationship;
+
+	const verifiable =
+		locals.viewer?.isAdmin &&
+		request.kind === 'claim' &&
+		request.status === 'approved' &&
+		(relationship === 'self' || relationship === 'member');
+
 	const stale =
 		request.kind === 'update' &&
 		project &&
@@ -40,6 +51,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		history: history.filter((item) => item.uri !== request.uri),
 		trail,
 		stale,
+		// Streamed, so the page shows while the root's verifications and the requester's profile are read.
+		verification: verifiable
+			? app.verifications
+					.statuses([request.requester.did])
+					.then((statuses) => statuses?.[request.requester.did] ?? null)
+			: null,
 		hasAvatar: !!request.record.profile?.avatar,
 		tracklists: (request.record.profile?.mixes ?? []).flatMap((mix, index) =>
 			mix.tracklist ? [{ n: index + 1, title: mix.title }] : []

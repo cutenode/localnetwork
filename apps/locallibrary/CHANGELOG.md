@@ -227,14 +227,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   locallibrary reads itself, in a folder for each request that `store gc` removes if a crash
   left it. A view command's
   rows show as they come. A command or an operation may ask you something first (which track a
-  tracklist's entry is): picked from a list in a terminal and in the player, or answered with
+  tracklist's entry is), or several things in one round (a `Choice`'s `more`, up to 64): picked
+  from a list each in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
-  the kind is asked, what they find is offered best first (each image held and sent once, and
-  what's kept bounded), one alone scoring `plugin providers --auto-pick` (0.9) or more chosen for
-  you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
-  has both, and its palette the auto-pick; the sidecar `plugins.provide`,
-  `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  the kind is asked, what they find is offered best first (tags only when they'd change a track,
+  each image held and sent once, and what's kept bounded), one alone scoring `plugin providers
+  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed
+  as any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
+  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
   Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
   drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
   problem counting as one, with the command line of the plugin's operation that fixes it when
@@ -255,9 +256,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   that never holds them up; and run services, turned on with `plugin settings ID services.NAME on`
   and run by the player, the sidecar and `watch` (never a command run once), started again when
   they fail and left off after five failures in a row. What a plugin tells you back is a message
-  in the player (its suggested operation reviewed from the palette, planned and confirmed as any,
-  or dismissed, and kept until it is), a `plugin.notice` event in the sidecar and a line of
-  `watch`, which keeps the suggestion for the player. In the player, plugins' commands,
+  in the player (what it suggests reviewed from the palette or dismissed, and kept until it is:
+  one of its operations, planned and confirmed as any, or one of locallibrary's own flows on its
+  own contributions, fetching from its providers, exporting in its format or running its
+  analyzer, opened filled in for you to confirm), a `plugin.notice` event in the sidecar and a
+  line of `watch`, which keeps the suggestion for the player. In the player, plugins' commands,
   operations and export formats are in the palette, and commands and operations in the menus their
   manifests name (`where`: the actions menu for the tracks selected or a playlist, a drive's menu),
   asking for their params or options in a form drawn from their schemas, a param from the selection
@@ -272,9 +275,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   they lack (a key and a BPM where a track has none, cues in slots it has none in, My Tags) as one
   edit, confirmed and undone as any is, and keeps the plays the file logged as sessions (the
   player's drive menu has it, the sidecar `plugins.import.plan/apply`). An exporter may write out
-  a set or a mix instead of a drive's library: `sets export --format` and `mix --format FORMAT
-  --export PATH` take those formats, the player offers a set's while the set is open, and the
-  sidecar's `plugins.export.plan` takes `set` and `mix`.
+  a set or a mix instead of a drive's library, or any of them with one format (its `source` a
+  list): `sets export --format` and `mix --format FORMAT --export PATH` take those formats, the
+  player offers a set's while the set is open, and the sidecar's `plugins.export.plan` takes `set`
+  and `mix`.
   A view is a list, a table (its columns tracks, durations, keys or numbers with a unit, or plain),
   labelled values, text, a tree, a chart, a picture or sections of those, each drawn in the
   player and as plain text on the command line. Panels show what a plugin has to say about a
@@ -287,14 +291,29 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   See docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
-    entry is when it could be several.
+    entry is when it could be several. It reads rekordbox XML collections whole too: `import
+    rekordbox.xml LIBRARY` adds their keys, tempos, hot cues, memory cues and loops to the
+    drive's tracks, and `collection export DRIVE --from tracklist:rekordbox-xml --grant FOLDER
+    --option file=rekordbox.xml` builds a drive from one, with its tags, cues, beat grids and
+    playlists. Values out of range in the file are left out, counted in the plan's warnings.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
-    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
+    tags of copies of the audio), Engine DJ (a new Engine Library) and rekordbox (XML), with
+    `export --format`; and a set or a recorded mix as one playlist of the tracks played, in order,
+    from a drive, for all but rekordbox (`sets export SET --format traktor --drive DRIVE -o DIR`,
+    `mix RECORDING --drive DRIVE --format serato --export DIR`); and Traktor's `collection.nml`
+    read back, `import` adding the keys, BPMs and cues it has for a drive's tracks, and
+    `collection export --from interop:traktor` building a drive from it (tracks, cues, beat grids
+    and playlists).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
-    `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
+    `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
+    percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
+    drawn where a drive has none and written with `analyze --apply waveform`.
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
-    album that could be several release groups offered as each of them. It's the only one that
-    goes online, and only when it's run.
+    album that could be several release groups offered as each of them, and from the same
+    MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
+    label when it was found by name, and a track's title and artist when its ISRC found it (a
+    track without an album only from a single of its title). It's the only one that goes online,
+    and only when it's run.
   - `demos`: `clean` removes rekordbox's demo tracks with their files, and its check lists them
     in `check` and doctor, with `clean` as the fix.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
@@ -311,9 +330,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   --grant FOLDER` builds a drive from a library a plugin reads (feature `sources`, capability
   `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
   and only audio files players play in them (links resolved) are copied, each read and hashed by
-  locallibrary itself and checked as it's copied; the rest is left out with a warning. Cues, beat
-  grids and waveforms a track brings go into analysis files made for it, read back first. The
-  player has "build from …" in the palette and a drive's menu, the sidecar
+  locallibrary itself and checked as it's copied; the rest is left out with a warning, as is what
+  the plugin says it couldn't read, and a read past 64 million beats and cues is stopped. Cues,
+  beat grids and waveforms a track brings go into analysis files made for it, read back first.
+  The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
 - **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
   locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
@@ -350,7 +370,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   needed: demo samples out, recorded edits made again, rule-based playlists filled, the name and
   colour players show (which `drive player` now remembers on the drive) and My Settings; then it
   saves the drive in the store and, with `--sync`, copies it onto its library's other mounted
-  drives. `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
+  drives. `--then 'PLUGIN.OPERATION KEY=VALUE...'` (repeatable) runs plugins' operations in the
+  same plan, before the drive is saved (`operations` over RPC). `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
 - **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
   first), copies the newest library onto the others, checks them against your player models and
@@ -400,7 +421,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     patch single bytes and recompute the checksum.
   - `loclib-tracklist`: reading M3U, CSV and other tables, rekordbox's text export and XML, and
     plain "Artist - Title" text, and finding the tracks in a library by path, ISRC, artist and
-    title, then fuzzily.
+    title, then fuzzily; and reading a rekordbox XML collection as a library, with each track's
+    tags, key, tempo, beat grid and cues.
   - `loclib-mixid`: which known tracks a recording plays, when, at what speed and with or without
     key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher),
     and how two files of one recording line up, to a fraction of a sample (`refine`).
@@ -410,8 +432,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     the timing kept to the sample, TPDF-dithered, with tags and artwork; recipes to store with a
     master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
-    `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
-    format, so a build for NML alone needs no SQLite.
+    `Serato Markers2` cue tag in copies of the audio), a new Engine DJ library and rekordbox XML,
+    a feature per format, so a build for NML alone needs no SQLite; and reading a `collection.nml`
+    back (tracks, markers, playlists, and a beat grid laid out from its grid markers).
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes, a theme's (`Palette::of`).
@@ -468,7 +491,8 @@ their old names.
 - Messages say what to run: a sync that can't tell which drive is newer names `sync --from` with
   the drives, a drive left mid-operation names the command that finishes it, `doctor` points
   duplicates to `track dedupe`, unfiled tracks to `playlist unfiled` and missing artwork to `art
-  auto`, and a freshly formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
+  auto` (`check` and `doctor` to `art fetch` too, while a plugin finds cover art), and a freshly
+  formatted drive to `provision`. Every `<DRIVE>` argument and flag says what
   it takes, `--json` mentions `--yes` only on commands that write, and the commands people run
   most have examples in their `--help`.
 - Output can be piped: what a command reports (lists, plans, the problems a check finds) goes to
@@ -538,10 +562,13 @@ their old names.
   and `clean.apply` are gone: use `plugins.op.plan {plugin: "demos", operation: "clean", context:
   {drive}}` and `plugins.op.apply`. A `delete_tracks` edit removes every row of a track's audio
   file, and may name a track only the drive's other database lists.
-- `playlist import` is the tracklist plugin's now. An entry that could be several tracks is asked
-  about (in a terminal; otherwise it stops, exit status 2, saying how to answer): `--choose 3=812`
-  answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves
-  it out. `--json` gives the plan alone. Over RPC, `import.plan` and `import.apply` are gone: plan
+- `playlist import` is the tracklist plugin's now. The entries that could be several tracks are
+  asked about 64 at a time (all at once for most lists), so the list and the drive's library are
+  read once a round rather than once an entry (in a terminal; otherwise it stops, exit status 2,
+  saying how to answer that round's): `--choose 3=812` answers for entry 3, numbered from 1 as
+  the warnings number them, and `--choose 3=null` leaves it out. A track chosen that isn't on the
+  drive (removed since it was asked about) is warned of and left out. `--json` gives the plan
+  alone. Over RPC, `import.plan` and `import.apply` are gone: plan
   with `plugins.op.plan {plugin: "tracklist", operation: "import", params: {file, into, ...},
   context: {drive}}`, which may answer `{"choose": ...}` first, and apply with `plugins.op.apply`.
 - `export --format traktor|serato|engine` is the interop plugin's now. Its options are
@@ -552,6 +579,14 @@ their old names.
   copying the audio: `--dry-run` lists each copy and its size first. Over RPC, `interop.plan`
   and `interop.apply` are gone: use `plugins.export.plan {plugin: "interop", exporter, drive,
   playlists?, output, options}` and `plugins.export.apply`.
+- rekordbox XML is the interop plugin's too, as `export --format rekordbox`; `xml` runs it, with
+  `--only` as the playlists, `--location-root` and `--no-analysis` as its options (a relative
+  location root is taken from where you are). Overwriting a file there is asked about first
+  (exit status 3 without a terminal or `--yes`) unless `--replace`, a warning names tracks whose
+  audio isn't where the file says, and `--json` gives the plugin export's plan and report. As
+  with every plugin export, the drive has to be mounted: a copy of one in a folder isn't read. In the player, "export for rekordbox…" replaces "xml".
+  Over RPC, `xml.export` is gone: use `plugins.export.plan {plugin: "interop", exporter:
+  "rekordbox", ...}` and `plugins.export.apply`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library, files
@@ -637,6 +672,10 @@ their old names.
 
 ### Fixed
 
+- Tracks your profile hides (`profile hide`) are no longer named when a set is published at a
+  plugin's set destination (`sets publish --to`) or written out in a format for publishing (`sets
+  export` text, Mixcloud, CUE, YouTube, 1001Tracklists). `sets publish --to` takes `--hide` too,
+  and its dry run says which tracks go unnamed and why.
 - A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
   was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
@@ -657,6 +696,12 @@ their old names.
   error making a temp file names its folder, without the random name it tried.
 - When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
   which folder each is about.
+- What other code writes to stderr while the player runs goes to its messages (`!`) instead of
+  over the screen. On Linux with no sound card, pressing space printed ALSA's errors over the
+  player before it said there's no audio output.
+- The player's outputs list (`d`) opens at once and lists the devices in the background, where
+  the player froze until every one was found (a while with ALSA). Devices that can't be listed
+  say why in the list, which used to show only the system's default.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
 - A drive holding a state the library's latest snapshot went through, though no snapshot holds

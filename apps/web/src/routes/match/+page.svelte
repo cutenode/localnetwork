@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import FindDjsSwitch from '#lib/components/FindDjsSwitch.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
@@ -37,7 +38,10 @@
 <svelte:head><title>Match a show · Local Network</title></svelte:head>
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
-	<SectionHeader level={1} eyebrow="For promoters" tone="aqua" title="Who fits your show?" lede="Describe the night. We score every listed DJ on sound (40%), distance (25%), budget (15%), room size, slot and setup, and tell you why." />
+	<div class="flex flex-col gap-6">
+		<FindDjsSwitch current="/match" />
+		<SectionHeader level={1} eyebrow="For promoters" tone="aqua" title="Who fits your show?" lede="Describe the night. We score every listed DJ on sound (40%), distance (25%), budget (15%), room size, slot and setup, and tell you why." />
+	</div>
 
 	<div class="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)] lg:gap-10">
 		<form method="GET" class="card flex flex-col gap-4 p-5 lg:sticky lg:top-20">
@@ -151,7 +155,7 @@
 								{#if data.viewer?.spacesCapable}
 									<label class="flex items-center gap-2 text-small text-fg-soft"><input type="checkbox" class="checkbox" value={project.uri} bind:group={selected} />Add to lineup</label>
 								{/if}
-								{#if project.managers.length}<Button size="sm" variant="secondary" href="/bookings/new?project={project.slug}{c.date ? `&date=${c.date}` : ''}">Inquire</Button>{/if}
+								{#if project.managers.length}<Button size="sm" variant="secondary" href="/dashboard/bookings/new?project={project.slug}{c.date ? `&date=${c.date}` : ''}">Inquire</Button>{/if}
 							</div>
 						</Card>
 					{/each}

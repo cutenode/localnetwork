@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::super::super::app::testing::{
     app_on, confirming, demo_drive, echo_plugin, key, last_message, mounted, plugged, plugins_once_with, press,
-    say_yes, settle, wait,
+    read_sets, say_yes, settle, wait,
 };
 use super::super::super::app::{App, Focus};
 use super::super::super::browse::{Category, NodeId};
@@ -72,6 +72,7 @@ fn a_sets_format_writes_out_the_set_open() {
     mounted(dir.path());
     // The store the plugin reads the set from: the player's.
     let mut app = app_on(&root);
+    read_sets(&mut app);
     app.store_root = dir.path().join("store");
     let friday = Set { id: "3m2friday2222".into(), title: Some("Friday".into()), ..Set::default() };
     SetBook { sets: vec![friday], ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
@@ -91,7 +92,7 @@ fn a_sets_format_writes_out_the_set_open() {
     assert_eq!(app.open_set().as_deref(), Some("3m2friday2222"));
     // A list marked in the tree is the drive's, not the set's.
     app.list_marks = vec!["Warmup".into()];
-    press(&mut app, ":export the set\n");
+    press(&mut app, ":export the set for sheet\n");
     let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form") };
     assert!(f.fields[0].text.ends_with("Friday.txt"), "named after the set: {}", f.fields[0].text);
     let out = dir.path().join("friday.txt");
@@ -122,6 +123,7 @@ fn given(manifest: String) -> String {
 /// `app` on the store every case of a property shares, without sets: a plugin's reads are of the
 /// store the host started it in, which the first case's is.
 fn shared_store(mut app: App) -> App {
+    read_sets(&mut app);
     app.store_root = plugins_once_with(given).join("store");
     let _ = std::fs::remove_file(app.store_root.join("sets.json"));
     app
@@ -249,7 +251,7 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     SetBook { sets: sets.clone(), ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
     app.list_marks = tc.draw(gs::subsequences(vec!["Warmup".to_string()]));
     let Some(open) = tc.draw(gs::optional(gs::sampled_from(sets.clone()))) else {
-        app.plugin_export("echo", "sheet", Some(drive.0.clone()));
+        app.plugin_export("echo", "sheet", loclib_plugin::ExportFrom::Set, Some(drive.0.clone()));
         assert_eq!((app.modal.is_none(), last_message(&app)), (true, "open a set first"));
         return;
     };
@@ -265,7 +267,7 @@ fn a_sets_format_writes_out_whichever_set_is_open(tc: TestCase) {
     go(&mut app, NodeId::Category(Category::Sets));
     go(&mut app, NodeId::Group(Category::Sets, open.id.clone()));
     assert_eq!(app.open_set(), Some(open.id.clone()));
-    let f = form(&mut app, "export the set");
+    let f = form(&mut app, "export the set for sheet");
     let named = format!("{} {}.txt", open.date, open.title.as_deref().unwrap());
     assert!(f.fields[0].text.ends_with(&named), "named after the set: {}", f.fields[0].text);
     let out = dir.path().join("out.txt");

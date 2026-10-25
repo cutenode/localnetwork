@@ -70,7 +70,7 @@
 				<Card as="section">
 					<div class="mb-3 flex items-center justify-between gap-4">
 						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : 'Proposed changes'}</h2>
-						{#if data.hasAvatar}<img src="/me/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
+						{#if data.hasAvatar}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
 					</div>
 					<DiffTable changes={data.changes} />
 					{#if data.tracklists.length}
@@ -130,6 +130,23 @@
 						<p class="hint mt-0">Recorded as a decision record by the root account and written to the audit log under your account.</p>
 					</form>
 				{/if}
+			{/if}
+			{#if data.verification}
+				<Card as="section" class="flex flex-col items-start gap-3 text-small">
+					<h2 class="section-title">Bluesky verification</h2>
+					{#await data.verification}
+						<span class="inline-block h-6 w-24 animate-pulse rounded-full bg-raised" aria-hidden="true"></span><span class="sr-only">Checking</span>
+					{:then status}
+						{#if !status}
+							<p class="text-fg-muted">Couldn't check right now.</p>
+						{:else}
+							<StatusPill {status} />
+						{/if}
+						{#if status && status !== 'verified'}
+							<a class="btn-secondary w-full" href="/admin/verifications?subject={encodeURIComponent(request.requester.handle ?? request.requester.did)}">{status === 'outdated' ? 'Re-issue verification' : 'Verify on Bluesky'}</a>
+						{/if}
+					{/await}
+				</Card>
 			{/if}
 			<Card as="section" class="text-small">
 				<h2 class="section-title">Requester history</h2>

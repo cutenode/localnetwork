@@ -242,10 +242,12 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.owned(input.space).members.set(input.did, { read: input.read, write: input.write });
 	}
 
 	async removeMember(input: { space: string; did: string }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.owned(input.space).members.delete(input.did);
 	}
 
@@ -257,6 +259,16 @@ export class FakeRootClient implements RootRepoClient {
 
 	async getDelegationToken(): Promise<string> {
 		return 'fake-delegation-token';
+	}
+
+	async listRecords(collection: string): Promise<StoredRecord[]> {
+		const prefix = `${this.did}|${collection}|`;
+
+		return this.net.records
+			.entries()
+			.filter(([key]) => key.startsWith(prefix))
+			.map(([, value]) => value)
+			.toArray();
 	}
 
 	async listSpaces(spaceType: string): Promise<string[]> {

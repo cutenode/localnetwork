@@ -281,7 +281,7 @@ fn initialize_says_whether_the_account_is_there() {
 fn paths_to_write_to_are_absolute_and_fsck_says_it_can_destroy() {
     let mut s = Sidecar::start();
     for (id, method, params) in [
-        (1, "xml.export", json!({ "drive": "A", "output": "rekordbox.xml" })),
+        (1, "export", json!({ "drive": "A", "output": "list.m3u8" })),
         (2, "recordings.collect.plan", json!({ "drive": "A", "to": "recordings" })),
         (3, "store.copy", json!({ "path": "copy" })),
     ] {

@@ -584,7 +584,8 @@ fn verification_names_the_first_difference_it_finds(tc: hegel::TestCase) {
     let want = match kind {
         0 => None,
         1 => {
-            actual.tracks[tc.draw(gs::integers::<usize>().max_value(5))].title.push_str(" (edit)");
+            let last = actual.tracks.len() - 1;
+            actual.tracks[tc.draw(gs::integers::<usize>().max_value(last))].title.push_str(" (edit)");
             Some("track ")
         }
         2 => {
@@ -687,7 +688,7 @@ fn playlists_nest_no_deeper_than_a_drive_reads_and_moves_make_no_namesakes(tc: h
 fn a_fill_takes_exactly_its_path_or_says_which_ones_it_could_mean(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut start = lib();
-    let folders: Vec<&str> = ["GIGS", "Gigs", "gIGS"].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let folders: Vec<&str> = tc.draw(gs::subsequences(&["GIGS", "Gigs", "gIGS"]));
     for (i, name) in folders.iter().enumerate() {
         let id = 10 + 2 * u32::try_from(i).unwrap();
         start.playlists.push(Playlist {
@@ -747,7 +748,7 @@ fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
         .map(|_| match start.history.is_empty() || tc.draw(gs::weighted_booleans(0.3)) {
             true => HistoryList { name: "HISTORY 009".into(), tracks: files(&[1]) },
             false => {
-                let h = &start.history[tc.draw(gs::integers::<usize>().max_value(start.history.len() - 1))];
+                let h = &tc.draw(gs::sampled_from(&start.history));
                 HistoryList { name: h.name.clone(), tracks: files(&h.track_ids) }
             }
         })

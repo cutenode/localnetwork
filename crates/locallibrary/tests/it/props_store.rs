@@ -43,8 +43,8 @@ fn json(s: &Snapshot) -> serde_json::Value {
 fn draw_snapshot_extras(tc: &TestCase, s: &mut Snapshot) {
     s.summary = LibrarySummary { tracks: tc.draw(gs::integers::<usize>().max_value(3)), ..Default::default() };
     s.source = tc
-        .draw(gs::booleans())
-        .then(|| SnapshotSource { drive_id: None, drive_name: tc.draw(gs::sampled_from(&["A", "B"][..])).into() });
+        .draw(gs::optional(gs::sampled_from(&["A", "B"][..])))
+        .map(|name| SnapshotSource { drive_id: None, drive_name: name.into() });
     s.lineage = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|i| LineageEntry {
             fingerprint: Hash::of(&[i as u8]),
@@ -106,8 +106,8 @@ impl StoreMachine {
         self.store.root().join("snapshots").join(format!("{}.json", id.to_hex()))
     }
 
-    fn pick<T: Clone>(tc: &TestCase, items: &[T]) -> Option<T> {
-        (!items.is_empty()).then(|| items[tc.draw(gs::integers::<usize>().max_value(items.len() - 1))].clone())
+    fn pick<T: Clone + Send + Sync + std::fmt::Debug>(tc: &TestCase, items: &[T]) -> Option<T> {
+        (!items.is_empty()).then(|| tc.draw(gs::sampled_from(items)))
     }
 
     /// The snapshots gc keeps, as the model knows them: every snapshot of a library the store

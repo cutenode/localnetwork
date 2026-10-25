@@ -30,7 +30,6 @@
 //! * [`mix`]: find which library tracks a recorded DJ mix plays, when, and how (the fingerprints
 //!   and the matcher are loclib-mixid's).
 //! * [`query`]: the track filter and sort language, and track selectors.
-//! * [`xml`]: export a drive's library as rekordbox XML (to import it back into rekordbox).
 //! * [`masterdb`]: read rekordbox's own collection (`master.db`) on this computer, and compare a
 //!   drive with it.
 //! * [`op`]: planned operations: what a change will do, confirmed and then applied exactly as
@@ -132,7 +131,6 @@ mod track_files;
 pub mod tree;
 pub mod upgrade;
 pub mod watch;
-pub mod xml;
 
 /// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
 /// that take no room.

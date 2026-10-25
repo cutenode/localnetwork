@@ -13,6 +13,7 @@ locallibrary refresh                          # the drive exported over your edi
 locallibrary refresh --dry-run                # the plan only
 locallibrary refresh --sync                   # then copy it onto the library's other drives plugged in
 locallibrary refresh REKORDBOX --skip clean,settings
+locallibrary refresh REKORDBOX --then 'tracklist.import file=friday.m3u into=Friday'
 ```
 
 rekordbox's Export replaces a drive's databases, and with them what you did since the last one:
@@ -20,13 +21,14 @@ playlist and track edits, My Tags and cues, rule-based playlists, the name playe
 brings its demo samples back too. `refresh` puts the drive right in one plan, each step only when
 it's needed:
 
-1. remove rekordbox's demo samples (`clean`);
+1. remove rekordbox's demo samples (`clean`, the demos plugin's operation, as `--then` runs one);
 2. make the recorded edits again (`edits replay`), when the export replaced them;
 3. fill the rule-based playlists that apply to the drive (`smart apply`);
 4. put back the Device Name and colour `drive player` last set, which it remembers on the drive;
 5. write My Settings (`settings apply`), when the drive's differ from the profile;
-6. save the drive in the store (`pull`);
-7. with `--sync`, copy it onto the other mounted drives of its library, when it's the newest of
+6. run the plugins' operations `--then` names (`operations`), in the order given;
+7. save the drive in the store (`pull`);
+8. with `--sync`, copy it onto the other mounted drives of its library, when it's the newest of
    them.
 
 The plan lists every step, with the reason for each one that won't run, and asks once. Each step
@@ -36,6 +38,15 @@ planned on the drive as it was is planned again on the drive as the step before 
 another drive is mounted there by then). The first step that fails stops the rest: what was done
 stays done, and the exit status is 5 (1 when nothing was done). `--skip STEP` (repeatable, or
 comma-separated) leaves steps out.
+
+`--then 'PLUGIN.OPERATION KEY=VALUE...'` (repeatable) adds a plugin's
+[operation](plugins.md#commands-and-operations) to the refresh, its params as `KEY=VALUE`
+(`locallibrary PLUGIN OPERATION --help` lists them; a param filled from what's selected is the
+drive refreshed, if that's what it takes). Each `--then` is one quoted value, split into words as a
+shell would, so a param with a space is quoted inside it:
+`--then "tracklist.import file='/Volumes/My Drive/friday.m3u'"`. Each is planned with the rest, so
+one whose plugin or operation is missing, whose params don't fit, or that would ask you something
+first stops the plan before anything is written.
 
 `status` flags a drive rekordbox exported over recorded edits ("rekordbox exported over 3 recorded
 edit(s): run `locallibrary refresh "REKORDBOX"`"): rekordbox exported to it after its last recorded
@@ -62,7 +73,7 @@ locallibrary playlist unfiled Home                   # tracks in no playlist, so
 locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
 locallibrary track set Home --track 12 --bpm 126.5 --isrc GBDUW0000059 --release-date 2019-05-01
-locallibrary track fetch Home --playlist "Sets/2026/Friday"  # details missing, found online
+locallibrary track fetch Home --playlist "Sets/2026/Friday"  # details missing, found on MusicBrainz
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
 locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
@@ -412,7 +423,10 @@ no drive takes each library plugged in (and each rekordbox drive of none) but ar
 drives: it shows each plan and asks once. `art fetch` asks the plugins' providers (the coverart
 plugin's: MusicBrainz and the Cover Art Archive) for tracks without artwork (`--replace`: any), and
 asks you which cover when an album could be several; it's an edit like `art set` (see
-[Providers](plugins.md#providers)).
+[Providers](plugins.md#providers)). `track fetch` asks the same plugin, from the same MusicBrainz
+lookups, for the details tracks lack: the album's title, year and genre, its label when it was
+found by name, and a track's own title and artist when its ISRC found it. `check` and `doctor`
+name `art fetch` beside `art auto` for tracks without artwork while a plugin finds cover art.
 
 ## Clean
 

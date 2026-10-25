@@ -5,6 +5,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
+// The browser test projects inherit the dev server's strictPort, which makes Vitest fail on a taken
+// port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
+const BROWSER_TEST_SERVER = { strictPort: false };
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -79,7 +83,7 @@ export default defineConfig({
 			],
 			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
 			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
-			thresholds: { lines: 91, functions: 90, statements: 89, branches: 77 }
+			thresholds: { lines: 92, functions: 91, statements: 90, branches: 78 }
 		},
 		projects: [
 			{
@@ -96,6 +100,7 @@ export default defineConfig({
 				extends: './vite.config.ts',
 				// Pre-bundled up front so a test importing it doesn't trigger a mid-run reload.
 				optimizeDeps: { include: ['zod'] },
+				server: BROWSER_TEST_SERVER,
 				test: {
 					name: 'client',
 					browser: {
@@ -129,6 +134,7 @@ export default defineConfig({
 				extends: './vite.config.ts',
 				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
 				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
+				server: BROWSER_TEST_SERVER,
 				test: {
 					name: 'storybook',
 					browser: {

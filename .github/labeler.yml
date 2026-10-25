@@ -42,6 +42,8 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/projects/*/**"
+          - "apps/web/src/routes/dashboard/{claim,projects}/**"
+          - "apps/web/src/lib/server/manage.*"
           - "apps/web/src/lib/{dj,dj-schema}.*"
           - "apps/web/src/lib/server/services/{projects,dj,sets}.*"
           - "apps/web/src/lib/server/project-page.*"
@@ -67,6 +69,8 @@ atstore:
       - any-glob-to-any-file:
           - "apps/web/src/routes/epk/**"
           - "apps/web/src/routes/projects/*/epk/**"
+          - "apps/web/src/routes/dashboard/projects/*/press-kits/**"
+          - "apps/web/src/routes/dashboard/access/**"
           - "apps/web/src/lib/{epk,epk-schema}.*"
           - "apps/web/src/lib/components/epk/**"
           - "apps/web/src/lib/server/{epk-page,services/epk,forms/epk}.*"
@@ -75,7 +79,7 @@ atstore:
 "web: bookings":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/routes/bookings/**"
+          - "apps/web/src/routes/dashboard/bookings/**"
           - "apps/web/src/lib/server/services/bookings.*"
           - "apps/web/src/lib/components/BookingDetails.svelte"
           - "lexicons/computer/localnetwork/booking/**"
@@ -83,7 +87,7 @@ atstore:
 "web: planner":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/routes/planner/**"
+          - "apps/web/src/routes/dashboard/planner/**"
           - "apps/web/src/lib/server/services/planner.*"
           - "lexicons/computer/localnetwork/planner/**"
 
@@ -91,7 +95,7 @@ atstore:
   - changed-files:
       - any-glob-to-any-file:
           - "apps/web/src/routes/admin/**"
-          - "apps/web/src/routes/me/requests/**"
+          - "apps/web/src/routes/dashboard/requests/**"
           - "apps/web/src/lib/server/services/{staff,project-admin,requests,diff}.*"
           - "apps/web/src/lib/server/audit/**"
           - "apps/web/src/lib/components/DiffTable.svelte"
@@ -100,7 +104,9 @@ atstore:
 "web: accounts":
   - changed-files:
       - any-glob-to-any-file:
-          - "apps/web/src/routes/{login,logout,oauth,me,oauth-client-metadata.json}/**"
+          - "apps/web/src/routes/{login,logout,oauth,oauth-client-metadata.json}/**"
+          - "apps/web/src/routes/dashboard/{+layout,+page}.*"
+          - "apps/web/src/routes/dashboard/activity/**"
           - "apps/web/src/lib/server/auth/**"
           - "apps/web/src/lib/server/atproto/oauth.*"
           - "apps/web/src/lib/server/services/accounts.*"
@@ -129,7 +135,7 @@ atstore:
           - "apps/web/src/lib/{ui,components,assets}/**"
           - "apps/web/src/routes/{+layout.svelte,+error.svelte,layout.css}"
           - "apps/web/src/routes/{about,for-djs,privacy}/**"
-          - "apps/web/src/{app.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
+          - "apps/web/src/{app.html,error.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
           - "apps/web/{.storybook,static}/**"
           - "packages/tokens/**"
 
@@ -277,10 +283,10 @@ tooling:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/*"
-          - ".github/rulesets/**"
+          - ".github/{rulesets,projects}/**"
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,.railway,tools,patches}/**"
-          - "{package.json,pnpm-workspace.yaml,lefthook.yml,.node-version}"
+          - "{package.json,pnpm-workspace.yaml,lefthook.yml,sgconfig.yml,.node-version}"
           - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace}.toml"
           - "{.oxlintrc.json,.oxfmtrc.json,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
           - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"

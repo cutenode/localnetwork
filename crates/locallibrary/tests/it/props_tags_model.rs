@@ -155,8 +155,7 @@ fn draw_edit(tc: &TestCase, m: &Model, tracks: &[u32]) -> Edit {
         }
     }
     let tag = tc.draw(gs::sampled_from(paths));
-    let ids: Vec<u32> = tracks.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
-    let ids = if ids.is_empty() { tracks[..1].to_vec() } else { ids };
+    let ids: Vec<u32> = tc.draw(gs::subsequences(tracks).min_size(1));
     match tc.draw(gs::integers::<u8>().max_value(6)) {
         0..=2 => Edit::Add { tag, tracks: ids },
         3 => Edit::Remove { tag, tracks: ids },
