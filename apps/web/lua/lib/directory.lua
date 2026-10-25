@@ -132,23 +132,35 @@ local function projects(where, args, order)
 	return rows
 end
 
--- A stored set's view fields (its record without the tracks, as JSON) as a setView, with `uri` and `cid`.
+-- A happyview_records row (uri, cid, and record JSON) as a recordView, its value as its record script stored it.
+local function recordView(row)
+	return { uri = row.uri, cid = row.cid, value = json.decode(row.record) }
+end
+
+-- A stored set's view fields (as JSON) as a setView, with `uri` and `cid`.
 local function setView(record, uri, cid)
 	local set = json.decode(record)
 	set.uri, set.cid = uri, cid
 	return set
 end
 
--- SQL for a stored set's record without its tracks, which only the support queries read.
-local SET_FIELDS = "json_remove(record, '$.tracks') AS record"
+-- SQL for a stored set's view fields: its record without the tracklist, who it was played with, where to listen and
+-- its event, which only the DJ sets block reads, or the named tracks the support queries count.
+local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '$.event', '$.namedTracks')"
+	.. ' AS record'
 
--- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields and named
--- tracks. Narrowed and sorted like projects(), with `order` required.
+-- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, tracklist,
+-- and named tracks. It keeps every account's, so only sets by accounts that manage one of the root's projects, in any
+-- status, are read here. Narrowed and sorted like projects(), with `order` required.
 local function sets(where, args, order)
-	local values = { SET }
+	local values = { SET, PROJECT, ROOT_DID }
 	for _, arg in ipairs(args) do values[#values + 1] = arg end
 	local rows = db.raw(
-		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records WHERE collection = ?' .. where .. order,
+		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records AS s WHERE s.collection = ?'
+			.. " AND s.did IN (SELECT m.value FROM happyview_records AS p, json_each(p.record, '$.managers') AS m"
+			.. ' WHERE p.collection = ? AND p.did = ?)'
+			.. where
+			.. order,
 		values
 	)
 	local out = {}
@@ -244,7 +256,7 @@ local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
 		json_extract(t.value, '$.isrc') AS isrc, json_extract(t.value, '$.key') AS name,
 		json_extract(a.value, '$.artistMbId') AS artistMbid, json_extract(a.value, '$.key') AS artistKey,
 		json_extract(a.value, '$.artistName') AS artistName
-	FROM sets AS s, json_each(s.record, '$.tracks') AS t, json_each(t.value, '$.artists') AS a
+	FROM sets AS s, json_each(s.record, '$.namedTracks') AS t, json_each(t.value, '$.artists') AS a
 ), isrcMbids AS (
 	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
 	GROUP BY isrc HAVING count(DISTINCT mbid) = 1
@@ -277,9 +289,9 @@ local function playsArgs(...)
 	return args
 end
 
--- SQL for a play's track as its set has it, from a happyview_records row `set` and a plays row `play`.
+-- SQL for a play's track as its set's record script keeps it, from a happyview_records row `set` and a plays row `play`.
 local function playedTrack(set, play)
-	return 'json_extract(' .. set .. ".record, '$.tracks[' || " .. play .. ".position || ']')"
+	return 'json_extract(' .. set .. ".record, '$.namedTracks[' || " .. play .. ".position || ']')"
 end
 
 -- Continues PLAYS, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it by supports:

@@ -22,10 +22,11 @@ import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectView, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import type { PublicRepo } from '../atproto/public-repo';
-import { createSpaceIfMissing, type RepoClient } from '../atproto/repo-client';
+import { createSpaceIfMissing, type RecordRef, type RepoClient, xrpcErrorName } from '../atproto/repo-client';
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
 import { nowIso } from '../db';
+import type { IndexedRepo } from '../happyview/indexed';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
 
@@ -68,6 +69,9 @@ export class EpkService {
 	constructor(
 		private readonly core: Core,
 		private readonly projects: ProjectService,
+		/** Where press kits are read: HappyView keeps them (lua/computer/localnetwork/epk.lua). */
+		private readonly indexed: IndexedRepo,
+		/** Where owners' Bluesky follows are read. */
 		private readonly repos: PublicRepo,
 		private readonly resolveIdentifier: (identifier: string) => Promise<string>,
 		private readonly now: () => number = Date.now
@@ -86,9 +90,13 @@ export class EpkService {
 			.slice(0, MAX_EPKS_PER_PROJECT);
 	}
 
-	/** A press kit and its project, when the project still lists the press kit's owner as a manager. */
+	/**
+	 * A press kit and its project, when the project still lists the press kit's owner as a manager. Its page and every
+	 * change to it start here, and the project lookup needs HappyView anyway, so a HappyView that's down fails this
+	 * rather than reading as a press kit that isn't there.
+	 */
 	async get(did: string, rkey: string): Promise<{ epk: EpkView; project: ProjectView } | null> {
-		const found = await this.repos.getRecord(did, COLLECTION.epk, rkey);
+		const found = await this.indexed.getRecord(did, COLLECTION.epk, rkey, { strict: true });
 		const epk = found && (await this.view(did, rkey, found.value));
 
 		if (!epk) return null;
@@ -179,13 +187,14 @@ export class EpkService {
 
 		if (
 			!rkey &&
-			(await this.publishedBy(actor.did)).filter((epk) => epk.record.project === project.uri).length >=
+			(await this.publishedBy(actor.did, true)).filter((epk) => epk.record.project === project.uri).length >=
 				MAX_EPKS_PER_PROJECT
 		)
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
 		const client = await this.ownerClient(actor);
 		const key = rkey ?? TID.nextStr();
-		const existing = rkey ? await client.getRecord({ collection: COLLECTION.epk, rkey }) : null;
+		// The write below swaps on the version HappyView serves, so it can't overwrite one the site hasn't shown.
+		const existing = rkey ? await this.indexed.getRecord(actor.did, COLLECTION.epk, rkey, { strict: true }) : null;
 
 		if (rkey && !existing) throw new NotFoundError('That press kit does not exist');
 		const space = await this.ensureSpace(client, key);
@@ -211,14 +220,24 @@ export class EpkService {
 		if (input.photos?.length) record.photos = input.photos;
 		const validated = validateRecord(COLLECTION.epk, this.json(record));
 
-		const ref = await client.putRecord({
-			collection: COLLECTION.epk,
-			rkey: key,
-			record: validated,
-			swapRecord: existing?.cid ?? null
-		});
+		let ref: RecordRef;
+
+		try {
+			ref = await client.putRecord({
+				collection: COLLECTION.epk,
+				rkey: key,
+				record: validated,
+				swapRecord: existing?.cid ?? null
+			});
+		} catch (error) {
+			if (xrpcErrorName(error) !== 'InvalidSwap') throw error;
+			// Changed somewhere HappyView hasn't caught up with yet, so a reload would show the same old version.
+			await this.indexed.reindex(actor.did, COLLECTION.epk);
+			throw new UserError('This press kit changed since you opened it. Reload and try again.', 409);
+		}
 
 		this.lists.delete(actor.did);
+		await this.indexed.awaitWrite(actor.did, COLLECTION.epk, key, ref.cid);
 		await this.core.audit.record(
 			{
 				actor: actor.did,
@@ -245,6 +264,7 @@ export class EpkService {
 		this.assertOwner(actor, epk);
 		const client = await this.ownerClient(actor);
 		await client.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await this.indexed.awaitWrite(actor.did, COLLECTION.epk, epk.rkey, null);
 		await client.deleteSpace(epk.space);
 		await this.core.db.deleteFrom('epkGrant').where('spaceUri', '=', epk.space).execute();
 		await this.core.db.deleteFrom('epkRequest').where('spaceUri', '=', epk.space).execute();
@@ -657,12 +677,15 @@ export class EpkService {
 		if (actor.did !== epk.did) throw new ForbiddenError('Only the owner of this press kit can do that');
 	}
 
-	/** A manager's press kits, from their own repo. */
-	private async publishedBy(did: string): Promise<EpkView[]> {
+	/**
+	 * A manager's press kits. `strict` is for a write that counts them: it reads them fresh, and fails when HappyView
+	 * can't answer instead of counting none.
+	 */
+	private async publishedBy(did: string, strict = false): Promise<EpkView[]> {
 		const cached = this.lists.get(did);
 
-		if (cached && this.now() - cached.at < FRESH_MS) return cached.value;
-		const { records } = await this.repos.listRecords(did, COLLECTION.epk);
+		if (!strict && cached && this.now() - cached.at < FRESH_MS) return cached.value;
+		const { records } = await this.indexed.listRecords(did, COLLECTION.epk, { strict });
 
 		const views = await Promise.all(
 			records.map((record) => this.view(did, record.uri.split('/').at(-1)!, record.value))

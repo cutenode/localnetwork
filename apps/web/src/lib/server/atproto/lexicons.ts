@@ -16,17 +16,21 @@ import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.j
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
 import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
+import locallibrarySettings from '../../../../../../lexicons/computer/localnetwork/locallibrary/settings.json' with { type: 'json' };
 import getArtist from '../../../../../../lexicons/computer/localnetwork/directory/getArtist.json' with { type: 'json' };
 import getCharts from '../../../../../../lexicons/computer/localnetwork/directory/getCharts.json' with { type: 'json' };
 import getFollowStatus from '../../../../../../lexicons/computer/localnetwork/directory/getFollowStatus.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
+import getRecords from '../../../../../../lexicons/computer/localnetwork/directory/getRecords.json' with { type: 'json' };
 import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
 import getShows from '../../../../../../lexicons/computer/localnetwork/directory/getShows.json' with { type: 'json' };
 import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
 import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
+import listRecords from '../../../../../../lexicons/computer/localnetwork/directory/listRecords.json' with { type: 'json' };
 import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
+import djProfile from '../../../../../../lexicons/computer/localnetwork/dj/profile.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
 import searchArtists from '../../../../../../lexicons/computer/localnetwork/directory/searchArtists.json' with { type: 'json' };
@@ -90,10 +94,14 @@ export const LEXICON_DOCS = [
 	getCharts,
 	getArtist,
 	searchArtists,
+	getRecords,
+	listRecords,
 	djDefs,
+	djProfile,
 	djSet,
 	show,
-	follow
+	follow,
+	locallibrarySettings
 ].map((doc) => parseLexiconDoc(doc));
 
 /** The permission set as PDSes read it to expand `include:computer.localnetwork.permissions` at sign-in. */

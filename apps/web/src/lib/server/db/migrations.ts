@@ -215,6 +215,12 @@ const migrations = {
 		async up(db) {
 			await sql.raw('ALTER TABLE account ADD COLUMN public_writes INTEGER').execute(db);
 		}
+	},
+	// The set script's re-read version now sits under a key per collection (happyview/refresh.ts).
+	'004_refresh_keys': {
+		async up(db) {
+			await sql.raw("DELETE FROM kv WHERE key = 'happyview_set_script_refreshed'").execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

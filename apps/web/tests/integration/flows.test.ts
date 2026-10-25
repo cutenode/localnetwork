@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
+import { ACCESS_PRESETS } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
@@ -332,7 +334,7 @@ describe('Local Network on a real atproto spaces network', () => {
 	it("links a DJ's published set to a mix, through HappyView, the form, and a moderator's approval", async () => {
 		const sol = net.user('sol');
 
-		// What locallibrary's `sets publish` writes. Sol manages nothing yet, so HappyView's gate turns it away.
+		// What locallibrary's `sets publish` writes. Sol manages nothing yet, so HappyView keeps it without listing it.
 		const write = (title: string) =>
 			sol.agent.com.atproto.repo.putRecord({
 				repo: sol.did,
@@ -440,6 +442,70 @@ describe('Local Network on a real atproto spaces network', () => {
 		await net.app.follows.unfollow(pat, project);
 		expect(await net.app.shows.forProject(project)).toEqual([]);
 		expect(await net.app.follows.state(project, pat.did)).toEqual({ followers: 0, following: false });
+	});
+
+	it("shows a manager's DJ stats and sets, and their press kits, read through HappyView", async () => {
+		const neon = net.user('neon');
+		const viewer = await net.viewer('neon');
+		const project = (await net.app.projects.byUri(projectUri))!;
+
+		const write = (collection: string, rkey: string, record: typeof DEMO_DJ_PROFILE | (typeof DEMO_DJ_SETS)[number]) =>
+			neon.agent.com.atproto.repo.putRecord({
+				repo: neon.did,
+				collection,
+				rkey,
+				record: { $type: collection, ...record }
+			});
+
+		// What locallibrary publishes, which reaches HappyView over Jetstream.
+		const stats = (await write(COLLECTION.djProfile, 'self', DEMO_DJ_PROFILE)).data;
+
+		const set = (
+			await write(COLLECTION.djSet, '3djsetflow2', { ...DEMO_DJ_SETS[0], createdAt: new Date().toISOString() })
+		).data;
+
+		const indexed = async () =>
+			(await net.app.happyView.query('getRecords', { uris: [stats.uri, set.uri] })).records.map((record) => record.cid);
+
+		await expect.poll(indexed, { timeout: 10_000 }).toEqual([stats.cid, set.cid]);
+
+		const [activity] = await net.app.dj.activity([{ did: neon.did, handle: neon.handle }]);
+		expect(activity.profile?.tempo).toEqual(DEMO_DJ_PROFILE.tempo);
+		expect(activity.sets.map((played) => [played.uri, played.title, played.tracks.length])).toEqual([
+			[set.uri, DEMO_DJ_SETS[0].title, DEMO_DJ_SETS[0].tracks.length]
+		]);
+		expect(activity.sets[0].tracks[0]).toMatchObject({ bpmCentis: 12400, key: '8A', startSeconds: 0 });
+
+		const input = {
+			title: 'Clubs',
+			access: ACCESS_PRESETS[0].access,
+			mixes: [],
+			photos: [],
+			content: { bio: 'The long bio' }
+		};
+
+		// Each save waits until HappyView serves it, and an edit swaps on the version HappyView has.
+		const epk = await net.app.epks.save(viewer, project, input);
+		expect((await net.app.epks.forProject(project)).map((kit) => kit.uri)).toEqual([epk.uri]);
+		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk.rkey);
+		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
+
+		// Another app edits it; once HappyView has that version, saving over it works again.
+		const current = await neon.client.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await neon.client.putRecord({
+			collection: COLLECTION.epk,
+			rkey: epk.rkey,
+			record: { ...current!.value, headline: 'Elsewhere' }
+		});
+		await expect
+			.poll(async () => (await net.app.epks.get(neon.did, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
+			.toBe('Elsewhere');
+		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, epk.rkey);
+		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
+
+		await net.app.epks.remove(viewer, (await net.app.epks.get(neon.did, epk.rkey))!.epk);
+		expect(await net.app.epks.get(neon.did, epk.rkey)).toBeNull();
+		expect(await net.app.epks.forProject(project)).toEqual([]);
 	});
 
 	it('asks an account whose grant predates follows to sign in again, then follows with or without spaces', async () => {

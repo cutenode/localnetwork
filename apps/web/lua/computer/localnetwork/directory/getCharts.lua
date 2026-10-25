@@ -61,7 +61,7 @@ function handle()
 			.. ' FROM happyview_records WHERE collection = ? AND did IN (SELECT did FROM djs)'
 			.. " AND json_extract(record, '$.location.locality') IS NOT NULL"
 			.. " AND json_extract(record, '$.location.country') IS NOT NULL"
-			.. " AND json_array_length(record, '$.tracks') > 0"
+			.. " AND json_array_length(record, '$.namedTracks') > 0"
 			.. ' GROUP BY lower(city), country ORDER BY count DESC, lower(city), country LIMIT 100',
 		playsArgs()
 	)

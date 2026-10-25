@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { ACCESS_PRESETS, type EpkAccess } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
+import { recordCid } from '../atproto/repo-client';
 import { ForbiddenError, ReauthError, UserError } from '../core';
+import { HappyViewClient, HappyViewError } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
+import { silentLogger } from '../logger';
 import { createTestServices, ROOT } from '../testing/core';
-import type { EpkInput } from './epk';
+import { EpkService, type EpkInput } from './epk';
 
 const ADMIN = 'did:plc:admin';
 
@@ -225,6 +230,89 @@ describe('EpkService', () => {
 		expect(t.net.spaces.has(epk.space)).toBe(false);
 		expect(await t.epks.forProject(project)).toEqual([]);
 		expect(await t.epks.grants(epk)).toEqual([]);
+	});
+
+	it('counts the press kits a project has from HappyView, up to 20', async () => {
+		for (let i = 0; i < 20; i++) await publish({ title: `Kit ${i}` });
+
+		await expect(publish()).rejects.toEqual(new UserError('A project can have at most 20 press kits'));
+		expect(await t.epks.forProject(project)).toHaveLength(20);
+	});
+
+	it('saves over the version HappyView serves, and asks to reload when the PDS has another', async () => {
+		const backfilled: string[] = [];
+
+		// The app's own HappyView, with an API key, so a stale press kit is re-read.
+		const admin = new HappyViewClient({
+			url: 'http://happyview.test',
+			apiKey: 'hv_test',
+			fetch: async (url, init) => {
+				const request = new Request(url, init);
+
+				if (new URL(request.url).pathname !== '/admin/backfill') return t.happyView.fetch(request);
+				const { collection, did } = z.object({ collection: z.string(), did: z.string() }).parse(await request.json());
+				backfilled.push(`${collection} ${did}`);
+
+				return Response.json({ id: 'job', status: 'running' });
+			}
+		});
+
+		const epks = new EpkService(
+			t.core,
+			t.projects,
+			new IndexedRepo(admin, silentLogger, 0),
+			t.publicRepo,
+			async (id) => id
+		);
+
+		const owner = await t.viewer(DJ);
+		const epk = await epks.save(owner, project, input());
+		const key = `${DJ}|${COLLECTION.epk}|${epk.rkey}`;
+
+		await epks.save(owner, project, input({ title: 'Clubs, edited' }), epk.rkey);
+		expect((await epks.get(DJ, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
+		expect(backfilled).toEqual([]);
+
+		// Another app changes it in the owner's repo, and HappyView hasn't heard yet.
+		const elsewhere = { ...t.net.records.get(key)!.value, title: 'Changed elsewhere' };
+		t.net.records.set(key, { uri: epk.uri, cid: await recordCid(elsewhere), value: elsewhere });
+
+		await expect(epks.save(owner, project, input({ title: 'Mine' }), epk.rkey)).rejects.toEqual(
+			new UserError('This press kit changed since you opened it. Reload and try again.', 409)
+		);
+		expect(t.net.records.get(key)?.value.title).toBe('Changed elsewhere');
+		expect(backfilled).toEqual([`${COLLECTION.epk} ${DJ}`]);
+		await expect(epks.save(owner, project, input(), 'missing')).rejects.toThrow(/does not exist/);
+	});
+
+	it("won't save while HappyView is down, rather than taking a press kit for missing or counting none", async () => {
+		const epk = await publish();
+
+		const down = new EpkService(
+			t.core,
+			t.projects,
+			new IndexedRepo(
+				new HappyViewClient({ url: 'http://happyview.test', fetch: async () => new Response('down', { status: 503 }) }),
+				silentLogger,
+				0
+			),
+			t.publicRepo,
+			async (id) => id
+		);
+
+		const owner = await t.viewer(DJ);
+		const before = t.net.records.get(`${DJ}|${COLLECTION.epk}|${epk.rkey}`);
+		const written = t.net.records.size;
+
+		await expect(down.save(owner, project, input({ title: 'Edited' }), epk.rkey)).rejects.toBeInstanceOf(
+			HappyViewError
+		);
+		await expect(down.save(owner, project, input())).rejects.toBeInstanceOf(HappyViewError);
+		await expect(down.get(DJ, epk.rkey)).rejects.toBeInstanceOf(HappyViewError);
+		expect(t.net.records.get(`${DJ}|${COLLECTION.epk}|${epk.rkey}`)).toEqual(before);
+		expect(t.net.records.size).toBe(written);
+		// Lists still render without it.
+		expect(await down.forProject(project)).toEqual([]);
 	});
 
 	it("won't publish from a PDS without spaces", async () => {

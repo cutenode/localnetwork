@@ -18,7 +18,8 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
-import { awaitIndexed } from '../happyview/indexed';
+import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
+import { MANAGER_COLLECTIONS } from '../happyview/refresh';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
 import { SetService } from './sets';
@@ -75,9 +76,6 @@ export function slugify(input: string): string {
 
 	return slug.length >= 2 ? slug : `project-${slug || 'x'}`;
 }
-
-/** How long a write waits for the directory to serve it before answering without it. */
-export const INDEX_WAIT_MS = 5_000;
 
 /** The most URIs one getProjects call takes (its lexicon's maxLength). */
 const URIS_PER_LOOKUP = 25;
@@ -350,10 +348,17 @@ export class ProjectService {
 		}
 
 		const indexed = await this.awaitIndexed(ref);
+		const added = managers.filter((did) => !existing?.managers.includes(did));
 
-		// HappyView keeps a new manager's sets from now on; their older ones are read in the background, once it serves
-		// the project that lets them in. Until then a re-read would be turned away, so the set picker reads them later.
-		if (indexed) void this.sets.refresh(managers.filter((did) => !existing?.managers.includes(did)));
+		// A new manager's older records are read in the background, once HappyView serves the project that lets their
+		// press kits in; until then that re-read would be turned away, so the set picker reads their sets later. Sets go
+		// through the picker's own re-reads, which it waits for.
+		if (indexed) {
+			void this.sets.refresh(added);
+
+			for (const collection of MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet))
+				for (const did of added) void reindex(this.directory, this.core.logger, collection, did);
+		}
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };
 	}

@@ -2,7 +2,7 @@
 
 Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ, a b2b duo, a group, or a collective) get a profile built around what promoters book on: sound, distance, slot, room size, and budget. Fans follow DJs and see where they play next.
 
-All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, and the sets their managers publish, are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher. The app keeps its own SQLite index only for space data, and can rebuild it from the network.
+All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, and the DJ stats, sets, press kits, shows and follows their managers and fans publish, are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network.
 
 > Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261001173819` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
@@ -22,7 +22,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
-- A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
+- A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from HappyView when the page loads and streamed in, so a slow answer never holds the page up. The app stores none of it; a few minutes' cache in memory keeps busy pages from asking again.
 - Press kits as records. A manager publishes as many as they like for a project (`/epk/new?project=<slug>`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in their own repo, holding the mixes and photos they choose to show everyone, plus a space of their own holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. People ask for access at `/epk/<did>/<rkey>`; the owner's rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people they follow on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Every approval writes a grant record to the owner's PDS and adds the person to the space; automatic ones are written as soon as the owner's session allows. The owner sees and answers requests, adds and removes people at `/epk/<did>/<rkey>/access`, and gets a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
 - `/projects/<slug>/epk` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for members) booking details. Both print or save as a PDF on white.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
@@ -60,22 +60,23 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ## How data is stored
 
-| Data                                                                      | Where                                                             | Who writes                           | Who reads             |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------ | --------------------- |
-| Published projects (`computer.localnetwork.project`)                      | Root account's public repo                                        | Root, after admin action or approval | Everyone              |
-| DJ sets (`computer.localnetwork.dj.set`)                                  | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone              |
-| Requests (`computer.localnetwork.moderation.request`)                     | Requester's repo in the root's moderation space                   | The requester                        | Staff (via the app)   |
-| Decisions                                                                 | Root's repo in the moderation space                               | Root                                 | Staff                 |
-| Staff roles (`computer.localnetwork.staff.role`)                          | Root's repo in the staff space                                    | Root                                 | Staff                 |
-| Verifications (`app.bsky.graph.verification`)                             | Root account's public repo                                        | Root, after admin action             | Everyone              |
-| Private booking details                                                   | Root's repo in the industry space                                 | Root                                 | Any signed-in account |
-| Audit entries (`computer.localnetwork.audit.entry`)                       | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                 |
-| Booking threads                                                           | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only   |
-| Planner                                                                   | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only     |
-| Press kits (`computer.localnetwork.epk`)                                  | The manager's public repo                                         | The manager                          | Everyone              |
-| Shows (`community.lexicon.calendar.event` + `computer.localnetwork.show`) | The announcing manager's public repo                              | The manager                          | Everyone              |
-| Follows (`computer.localnetwork.follow`)                                  | The follower's public repo                                        | The follower                         | Everyone              |
-| Press kits' private part, requests and grants                             | One space per press kit under the manager's DID                   | Owner (content, grants), askers      | Owner, root, granted  |
+| Data                                                                      | Where                                                             | Who writes                           | Who reads               |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------ | ----------------------- |
+| Published projects (`computer.localnetwork.project`)                      | Root account's public repo                                        | Root, after admin action or approval | Everyone, via HappyView |
+| DJ stats and sets (`computer.localnetwork.dj.profile`, `dj.set`)          | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone, via HappyView |
+| rekordbox settings (`computer.localnetwork.locallibrary.settings`)        | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone, via HappyView |
+| Requests (`computer.localnetwork.moderation.request`)                     | Requester's repo in the root's moderation space                   | The requester                        | Staff (via the app)     |
+| Decisions                                                                 | Root's repo in the moderation space                               | Root                                 | Staff                   |
+| Staff roles (`computer.localnetwork.staff.role`)                          | Root's repo in the staff space                                    | Root                                 | Staff                   |
+| Verifications (`app.bsky.graph.verification`)                             | Root account's public repo                                        | Root, after admin action             | Everyone                |
+| Private booking details                                                   | Root's repo in the industry space                                 | Root                                 | Any signed-in account   |
+| Audit entries (`computer.localnetwork.audit.entry`)                       | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                   |
+| Booking threads                                                           | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only     |
+| Planner                                                                   | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only       |
+| Press kits (`computer.localnetwork.epk`)                                  | The manager's public repo                                         | The manager                          | Everyone, via HappyView |
+| Shows (`community.lexicon.calendar.event` + `computer.localnetwork.show`) | The announcing manager's public repo                              | The manager                          | Everyone, via HappyView |
+| Follows (`computer.localnetwork.follow`)                                  | The follower's public repo                                        | The follower                         | Everyone, via HappyView |
+| Press kits' private part, requests and grants                             | One space per press kit under the manager's DID                   | Owner (content, grants), askers      | Owner, root, granted    |
 
 Space policies (`com.atproto.simplespace`):
 
@@ -107,9 +108,9 @@ flowchart LR
   SH -- notifyWrite --> App
   App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
   PUB -- relay + Jetstream --> HV[(HappyView)]
-  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill --> HV
+  SETS[(DJs' repos: stats, sets, press kits, settings)] -- Jetstream, or a backfill of one repo --> HV
   FANS[(managers' and fans' repos: shows, follows)] -- Jetstream, or a backfill of one repo --> HV
-  App -- directory queries --> HV
+  App -- directory queries and record reads --> HV
 ```
 
 ### The audit log
@@ -136,17 +137,20 @@ The app is a space syncer. For each watched space it mints a space credential (d
 
 ### Directory
 
-Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project`, `computer.localnetwork.dj.set`, `computer.localnetwork.show`, and `computer.localnetwork.follow` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
+Published projects, and the DJ stats, sets, press kits, shows and follows the site reads from other repos, are served by [HappyView](https://happyview.dev) 2.16, not the app. Each `lua/<nsid path>.lua` script is collected: a record script has HappyView follow Jetstream for that collection and decides what it keeps, and a query script answers that `computer.localnetwork.directory.*` query ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)). Indexing another collection is one record script there, with its lexicon in `src/lib/server/atproto/lexicons.ts`. The scripts today:
 
 - `project.lua` runs on every incoming project record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
-- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count) plus each named track's title, artists, IDs and start, which the support queries count. MusicBrainz IDs are stored as bare lowercase UUIDs whether a set writes `mbid:<uuid>` or the UUID; placeholder credits (ID, Unknown Artist, Various Artists) aren't, and a set whose date isn't YYYY-MM-DD isn't kept. Jetstream only brings new sets, so the app has HappyView re-read each manager's sets from their PDS: when the edit form's set picker opens (one backfill per account, at most every ten minutes), when a project gains a manager and HappyView serves it, and for every manager once per version of `dj/set.lua` (four at a time, retried until all start, the version kept in the app database).
+- `dj/set.lua` keeps every account's sets (anyone can come to manage a project), and stores what the site shows (title, date, kind, venue, address, who it was played with, links, and the tracklist as written, with tempo, keys and transitions) plus each named track's title, artists, IDs and start, which the support queries count. The queries only read sets by accounts that manage one of the root's projects. MusicBrainz IDs are stored as bare lowercase UUIDs whether a set writes `mbid:<uuid>` or the UUID; placeholder credits (ID, Unknown Artist, Various Artists) aren't, and a set whose date isn't YYYY-MM-DD isn't kept.
+- `dj/profile.lua` and `locallibrary/settings.lua` keep every account's DJ stats and rekordbox settings as written, at the key `self`. `epk.lua` keeps press kits by an account that manages the root project they name.
+- Jetstream only brings records written after HappyView started keeping them, so the app has HappyView re-read the managers' sets, stats and press kits from their PDS: for every manager once per version of each one's record script (four at a time, retried until all start, the version kept in the app database), and when a project gains a manager and HappyView serves it. The edit form's set picker also re-reads its accounts' sets when it opens (one backfill per account, at most every ten minutes).
 - `show.lua` keeps only shows with coordinates by an account that manages the project they name, and only http(s) ticket links; `follow.lua` keeps only follows of the root's projects. HappyView never indexes `community.lexicon.calendar.event` itself, which would take in every account's events: each show carries its own copy, and its strongRef to the event says when the event changed since.
 - `listShows` lists upcoming shows by project, near a place, or by the projects an account follows, and checks again that each show's announcer still manages its active project. `getShows` looks shows up by URI, and `getFollowStatus` counts a project's followers and finds an account's follow.
 - `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account, without their tracks.
+- `getRecords` (up to 25 URIs) and `listRecords` (one account's records of one collection, last record key first, with a cursor) read any record HappyView keeps, as its record script stored it, the way `com.atproto.repo.getRecord` and `listRecords` read a PDS. The app's `IndexedRepo` (`src/lib/server/happyview/indexed.ts`) wraps them for the DJ stats and sets on project pages and for press kits; a HappyView that's down reads as nothing there. Saving a press kit swaps on the version HappyView serves, so a change made elsewhere that the site hasn't shown yet isn't overwritten: the owner is asked to reload.
 - `getCharts`, `getArtist`, and `searchArtists` count supports. They group every stored play by track and artist in SQL on each request (about a third of a second for 2,000 sets of 25 tracks on a laptop), so no counts are kept anywhere; the app reuses an answer for a minute, and the pages may be cached for as long.
 - The genre taxonomy and fee tiers are generated into the scripts from `src/lib/taxonomy/`, so TypeScript stays the source of truth.
 
-With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish, and then each manager's shows, one repo at a time. After publishing a project, a show, or a follow it waits (up to 5 seconds) for HappyView to index it, so the next page shows it; when a show or follow doesn't show up in time, HappyView re-reads that collection from that one account's repo.
+With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish, and then each manager's shows, one repo at a time. After publishing a project, a show, a follow, or a press kit it waits (up to 5 seconds) for HappyView to index it, so the next page shows it; when a show, follow, or press kit doesn't show up in time, HappyView re-reads that collection from that one account's repo. The directory queries are lexicons too, so `pnpm lexicons:publish` publishes a new one with the rest (see [Deploying](#deploying)).
 
 ## Getting started
 
@@ -265,7 +269,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 ## Project layout
 
 ```
-lua/                            HappyView scripts: the project and set record gates and the directory queries
+lua/                            HappyView scripts: the record gates and the directory queries, one file per NSID
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
