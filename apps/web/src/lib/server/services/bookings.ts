@@ -271,6 +271,12 @@ export class BookingService {
 		}
 	}
 
+	/** Forgets a thread whose space is gone. Its participants go with it (ON DELETE CASCADE). */
+	async forget(space: string): Promise<void> {
+		await this.core.db.deleteFrom('bookingEvent').where('spaceUri', '=', space).execute();
+		await this.core.db.deleteFrom('bookingThread').where('spaceUri', '=', space).execute();
+	}
+
 	/** Indexes a booking record from our own write or from sync, ignoring records by non-participants. */
 	async indexEvent(input: {
 		space: string;
