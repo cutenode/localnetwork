@@ -239,8 +239,8 @@ export async function parseEpkForm(
 	const publicPhotos: EpkPhoto[] = [];
 	const privatePhotos: EpkPhoto[] = [];
 
-	for (const [index, cid] of all(form, 'photoCid').entries()) {
-		const found = byCid.get(cid);
+	for (const [index, photoCid] of all(form, 'photoCid').entries()) {
+		const found = byCid.get(photoCid);
 		const place = visibility(text(form, `photoVisibility.${index}`, 16));
 
 		if (!found || place === 'hidden') continue;
