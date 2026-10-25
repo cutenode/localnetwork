@@ -2,6 +2,7 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { clock, colors } from '#lib/mix/report.ts';
 	import { sampleReport } from '#lib/mix/sample.ts';
+	import { siteNav } from '#lib/nav.ts';
 	import Badge from './Badge.svelte';
 	import BrowserFrame from './BrowserFrame.svelte';
 	import Button from './Button.svelte';
@@ -99,14 +100,6 @@
 
 	const session = ['$ locallibrary check', '✓ USB-A     up to date', '! USB-B     2 playlists behind, syncing', '✓ Ready for Tidal Hours, Fri 16 Oct'].join('\n');
 
-	const nav = [
-		{ href: '/projects', label: 'DJs' },
-		{ href: '/mixes', label: 'Mixes' },
-		{ href: '/events', label: 'Events' },
-		{ href: '/match', label: 'For promoters' },
-		{ href: '/tools', label: 'Tools' }
-	];
-
 	const queue = [
 		{ title: 'Night Bus', artist: 'Ferrule', status: 'free download', tone: 'text-good' },
 		{ title: 'Halogen', artist: 'Two Rooms', status: 'gate: follow', tone: 'text-warning' },
@@ -116,7 +109,7 @@
 </script>
 
 {#snippet header()}
-	<SiteHeader links={nav} account={{ href: '/login', label: 'Sign in' }} cta={{ href: '/dashboard/projects/new', label: 'List your project' }} />
+	<SiteHeader {...siteNav(null, 0)} />
 {/snippet}
 
 {#snippet hero()}
