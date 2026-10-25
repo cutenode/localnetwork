@@ -1,6 +1,8 @@
+import { requireStaff } from '#lib/server/http.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
+	requireStaff(locals, url);
 	const { app } = locals;
 
 	const [requests, projects, audit, recent, sync, pending] = await Promise.all([

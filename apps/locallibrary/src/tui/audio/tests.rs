@@ -569,6 +569,36 @@ fn a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
     }
 }
 
+/// Paused, a track stands still at once, though rodio only looks at its pause every 5 ms of the
+/// track (40 samples here): one queued behind a track that ended starts after the queue's 512
+/// samples of silence, so rodio next looks 32 samples into the output's next read, and none of
+/// those play.
+#[test]
+fn a_pause_stops_the_playhead_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = |name: &str, frames: i16| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, wav_of(8000, &(1..=frames).collect::<Vec<i16>>())).unwrap();
+        open_file(&path).unwrap()
+    };
+    let (mut audio, mut out) = Audio::offline(8000);
+    audio.play(file("a.wav", 800), false);
+    (&mut out).take(1200).for_each(drop);
+    assert!(audio.finished());
+    assert!(audio.queue(file("b.wav", 400)).is_ok());
+    (&mut out).take(400).for_each(drop);
+    assert!(audio.advanced());
+    let at = audio.position();
+    assert_eq!(at, ms(36), "the rest of the silence, then 288 frames");
+    audio.toggle_pause();
+    let heard: Vec<f32> = (&mut out).take(80).collect();
+    assert_eq!(audio.position(), at, "paused, time stands still");
+    assert!(heard.iter().all(|&s| s == 0.0), "{heard:?}");
+    audio.toggle_pause();
+    (&mut out).take(80).for_each(drop);
+    assert!(audio.position() > at, "on again");
+}
+
 /// An output plays what it's given as asked: a file from its start (or where it's to start),
 /// paused or playing, its time passing only while it plays; a seek is where it is at once; space
 /// pauses and plays; the volume stays within bounds; only a track of the same format queues

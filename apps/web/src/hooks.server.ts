@@ -85,7 +85,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	guardArea(event.locals, event.url);
+	guardArea(event.locals, event.url, event.route.id);
 
 	// The two typefaces set every line and differ in width from the system fallbacks, so arriving after
 	// the first paint they moved the whole page (Lighthouse's CLS). Their Latin files are preloaded with

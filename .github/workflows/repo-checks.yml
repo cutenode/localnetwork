@@ -1,8 +1,9 @@
 name: Repo checks
 
 # The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
-# config files, ast-grep's rules (sgconfig.yml) over the Rust code, goat over the lexicons, and on
-# main, that GitHub's "Protect Main" ruleset is .github/rulesets/protect-main.json.
+# config files, tools/project.sh's planner tests, ast-grep's rules (sgconfig.yml) over the Rust
+# code, goat over the lexicons, and on main, that GitHub's "Protect Main" ruleset is
+# .github/rulesets/protect-main.json.
 on:
   push:
     branches: [main]
@@ -71,6 +72,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo
       - run: tools/policy.sh
+      - run: jq -L tools/project --run-tests tools/project/plan.test
       - run: pnpm exec ast-grep test --skip-snapshot-tests
       - run: pnpm exec ast-grep scan
 

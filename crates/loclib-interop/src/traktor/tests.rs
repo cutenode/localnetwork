@@ -117,3 +117,38 @@ fn keys_dates_and_colours() {
     assert_eq!(uuid("Shows/Friday"), uuid("Shows/Friday"));
     assert_eq!(uuid("Shows/Friday").len(), 32);
 }
+
+/// A location read back is a path on this computer, in its separator throughout (`\` on
+/// Windows): below `/Volumes`, `/` for the startup disk, and below a drive letter.
+#[test]
+fn locations_are_paths_again() {
+    let loc = |volume: &str, dir: &str| Location { volume: volume.into(), dir: dir.into(), file: "x.mp3".into() };
+    let native = |p: &str| p.replace('/', MAIN_SEPARATOR_STR);
+    let path = |l: Location, startup: &str| l.path(startup).to_string_lossy().into_owned();
+    let usb = loc("USB", "/:Contents/:Daft Punk/:");
+    assert_eq!(path(usb, "Macintosh HD"), native("/Volumes/USB/Contents/Daft Punk/x.mp3"));
+    let home = loc("Macintosh HD", "/:Users/:me/:");
+    assert_eq!(path(home.clone(), "Macintosh HD"), native("/Users/me/x.mp3"));
+    let elsewhere = path(home, "Studio SSD");
+    assert_eq!(elsewhere, native("/Volumes/Macintosh HD/Users/me/x.mp3"), "not this computer's startup disk");
+    assert_eq!(path(loc("E:", "/:Music/:"), "E:"), native("E:/Music/x.mp3"));
+    assert_eq!(path(loc("USB", "/:"), "Macintosh HD"), native("/Volumes/USB/x.mp3"));
+}
+
+/// The startup disk is this Mac's, or the name `build` gives it elsewhere.
+#[test]
+fn the_startup_disk_is_named_as_build_names_it() {
+    assert_eq!(startup_disk(), startup_volume(Path::new("/Volumes")).unwrap_or_else(|| STARTUP_VOLUME.into()));
+    assert!(!startup_disk().is_empty());
+}
+
+/// Every `MUSICAL_KEY VALUE` is a key that's written as that value again.
+#[test]
+fn key_values_read_back() {
+    for v in 0..24 {
+        let key = key_of(v).unwrap();
+        assert_eq!((key_value(&key.code()), key.major), (Some(v), v < 12));
+    }
+    assert_eq!(key_of(21).map(Camelot::code).as_deref(), Some("8A"));
+    assert_eq!(key_of(24), None);
+}

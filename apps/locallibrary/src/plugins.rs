@@ -34,14 +34,9 @@ use params::properties;
 type Serve = fn(std::io::Stdin, std::io::Stdout);
 
 /// The plugins linked into locallibrary: each one's manifest (its crate's
-/// `locallibrary-plugin.toml`) and how it serves. Adding one is a line here and a dependency on
-/// its crate.
-const FIRST_PARTY: &[(&str, Serve)] = &[
-    (locallibrary_plugin_coverart::MANIFEST, locallibrary_plugin_coverart::serve),
-    (locallibrary_plugin_interop::MANIFEST, locallibrary_plugin_interop::serve),
-    (locallibrary_plugin_sound::MANIFEST, locallibrary_plugin_sound::serve),
-    (locallibrary_plugin_tracklist::MANIFEST, locallibrary_plugin_tracklist::serve),
-];
+/// `locallibrary-plugin.toml`) and how it serves. build.rs writes it from the folders in
+/// `plugins/`, so adding one is its folder and a dependency on its crate.
+const FIRST_PARTY: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/first_party.rs"));
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):

@@ -6,7 +6,7 @@ Most of the steps are checked, so a missed one fails CI with a message that says
 
 - `tools/policy.sh` (the Repo checks workflow) runs Rego policies in `tools/policy/` over the config files with [conftest](https://www.conftest.dev). They check each TypeScript app's scripts, `package.json` fields and git hooks; that every workflow on pull requests (but the benchmarks, the release plan and dependency review) has the `changes`, work and `passed` jobs and no `paths` in its trigger, and that one of them runs when each app, package, crate or plugin changes; that `.github/rulesets/protect-main.json` requires every `passed` check; that the labels, labeler and issue forms know every app and every file gets a label; that Rust packages share the workspace's settings; that lexicons are filed by NSID; and that an app with a Dockerfile has a Railway service in `.railway/railway.ts`. It needs Docker, and Node with the root's dev dependencies locally. The policies' own tests have to cover every line.
 - The website's tests check that every folder in `apps/` has a tool page and is named in the root README, CONTRIBUTING, SECURITY, the website's README and the `web: tools` label (`apps/web/src/lib/tools/docs.test.ts`).
-- locallibrary's tests check that every folder in `plugins/` ships and is in its docs (`apps/locallibrary/tests/it/plugins.rs`).
+- locallibrary's build fails while a folder in `plugins/` isn't one of its dependencies (`apps/locallibrary/build.rs`), and its tests check that every one ships and is in its docs (`apps/locallibrary/tests/it/plugins.rs`).
 - clippy's `cargo_common_metadata` wants full metadata on every crate that isn't `publish = false`, and the release workflow's plan fails while it would release anything but locallibrary.
 - `tools/lexicons.sh` lints the lexicons with [goat](https://github.com/bluesky-social/goat) and compares them with the published ones. It runs goat's pinned version with `go run`, so it needs Go 1.27 or newer.
 
@@ -84,10 +84,11 @@ Repository-wide checks: `npm-advisories.yml` runs `pnpm audit --prod` over the l
 
 Labels: `pr-labels.yml` labels pull requests from `labeler.yml`, and `labels.yml` (the workflow) syncs `.github/labels.yml` to GitHub. Each tool has a label, and its areas are `"<tool>: <area>"` labels in a lighter shade of its colour.
 
-The project: `tools/project.sh apply` creates or updates the organization's Local Network project from `.github/project.json` (Status options, the organization's issue fields, views) and `.github/labels.yml` (a Product option for each tool's label), then adds every open issue. `project.yml` runs it on `main` when those files change, and `tools/project.sh sync <number>` on each issue that's opened or relabelled, with the `PROJECT_TOKEN` secret (a fine-grained token with the organization's Projects permission, read and write, and this repository's Issues, read). The API can't set views' grouping, sorting, slicing or column order, the Type column, or the project's workflows, so these are set once in the project on GitHub:
+The projects: each file in `.github/projects/` is one of the organization's projects (`schema.json` says what goes in it): its views, the labels whose issues belong on it (`scope`), and a single select filled in from those labels (`field`: Product, a tool's label, on the Local Network project; Area, the `"<tool>: <area>"` labels, on each tool's). `.github/project.json` has what they share: the Status options, the organization's issue fields, and the issue type each label stands for. `tools/project.sh apply` makes the projects match the files, then syncs. `tools/project.sh sync` adds each open issue to every project whose scope it's in and takes it off the ones it has left, fills in the field, and keeps its Status the same on every project, with the newest Status someone set winning and the rules in `tools/project/plan.jq` moving it along (an issue with a Priority, milestone or assignee leaves Inbox, an open pull request that closes it makes it In Progress, and reopening it brings it back to Todo). `tools/project.sh types` gives an open issue with no type the one its labels stand for (Bug, Feature, otherwise Task). `project.yml` runs `apply` on `main` when those files change, `sync` on issue events and every three hours, and `types` after each, with the `PROJECT_TOKEN` secret (a fine-grained token for the organization with its Projects permission, read and write, and this repository's Issues and Pull requests, read). `tools/project/plan.test` tests the rules (`jq -L tools/project --run-tests tools/project/plan.test`, in the Repo checks workflow). The API can't set views' grouping, sorting, slicing or order, the Type column, or the built-in workflows' settings, so these are set once on GitHub:
 
-- Board: group by Product. Inbox and Backlog: show Type. Backlog: group by Product, sort by Priority. Releases: group by Milestone. Roadmap: Start date and Target date as its dates, with milestones as markers.
-- Workflows: Item added to project sets Inbox, Item closed and Pull request merged set Done (on by default), Item reopened sets Todo, and Auto-archive items archives `is:closed updated:<@today-2w`.
+- Local Network: Board grouped by Product. Inbox and Backlog show Type. Backlog grouped by Product, sorted by Priority. Releases grouped by Milestone. Roadmap with Start date and Target date as its dates and milestones as markers.
+- Each tool's project: Board and Backlog grouped by Area, Backlog sorted by Priority, and Board first.
+- Workflows: Item closed and Pull request merged set Done, which is GitHub's default, and Auto-archive items archives `is:closed updated:<@today-2w`. Sync sets Status itself, so Item added to project and Pull request linked to issue can stay off.
 
 ### Production and releases
 
@@ -133,9 +134,10 @@ Then do the steps every app shares, below.
 3. Its lexicons, if it writes records, under `lexicons/computer/localnetwork/<tool>/`.
 4. If it signs people in with their Atmosphere account, as locallibrary does: a permission-set lexicon (`<tool>Publishing.json`), `hosts` and `clientMetadata` in its tool entry, and DNS for its own host (see [Tools' pages and hosts](../apps/web/README.md#tools-pages-and-hosts)).
 5. A label for it in `.github/labels.yml`, its paths under that label in `.github/labeler.yml`, and any areas as `"<tool>: <area>"` labels in both. The `web: tools` label's description names every tool.
-6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
-7. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
-8. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
+6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
+7. A project for its issues: create it with `gh project create --owner cutenode --title apps/<tool>` and link it to the repository with `gh project link <number> --owner cutenode --repo cutenode/localnetwork`, then copy `.github/projects/web.json` to `.github/projects/<tool>.json` with the new project's number, its label as the scope and `"<tool>: "` as the Area prefix. `project.yml` applies it once it's on `main`.
+8. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
+9. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
 
 ## A locallibrary plugin
 
@@ -145,10 +147,9 @@ Then do the steps every app shares, below.
 2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
 4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
-5. Add it as a dependency in `apps/locallibrary/Cargo.toml` (`{ version = "0.1.0", path = "../../plugins/<id>" }`), and as a line in `FIRST_PARTY` in `apps/locallibrary/src/plugins.rs`.
-6. Add its id to `SHIPPED` in `apps/locallibrary/tests/it/plugins.rs`. Keep `FIRST_PARTY` and `SHIPPED` in alphabetical order, since the tests compare them with `plugin list` and the folder names.
-7. List it in `apps/locallibrary/docs/plugins.md` and in `apps/locallibrary/docs/how-it-works.md` (the layout and the plugins linked in), and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
-8. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.
+5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
+6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
+7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.
 
 A new capability is a change to loclib-plugin, and also needs a case in `means()` in `apps/locallibrary/src/plugins.rs`, which says it in plain words. A plugin that changes what an analyzer computes bumps that analyzer's `version`, since stored values are keyed by it.
 
