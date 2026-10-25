@@ -5,6 +5,9 @@ import { ReauthError, UserError } from './core';
 
 type LocalsLike = { viewer: Viewer | null };
 
+/** The CIDs records are written with: base32 CIDv1, as the lexicon's `cid` format accepts. */
+export const CID = /^b[a-z2-7]{20,100}$/;
+
 export function requireViewer(locals: LocalsLike, url: URL): Viewer {
 	if (!locals.viewer) redirect(303, `/login?next=${encodeURIComponent(url.pathname + url.search)}`);
 

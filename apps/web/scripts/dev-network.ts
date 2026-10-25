@@ -321,6 +321,7 @@ async function main() {
 		...djs.map(({ handle }) => ({ collection: COLLECTION.djSet, did: dids[handle] })),
 		{ collection: COLLECTION.epk, did: dids['neon.test'] },
 		{ collection: COLLECTION.show, did: dids['neon.test'] },
+		{ collection: CALENDAR_EVENT, did: dids['neon.test'] },
 		...DEMO_FOLLOWS.map(({ handle }) => ({ collection: COLLECTION.follow, did: dids[handle] }))
 	]);
 
@@ -396,10 +397,10 @@ async function main() {
 }
 
 /**
- * HappyView hears of the seeded DJ records, press kits, shows and follows only through a backfill, and keeps them only
- * once the app has uploaded their lexicons and scripts and HappyView has the projects they name, which happens when
- * the app boots (maybe later, with `pnpm dev:app`). So this waits for that in the background, then has HappyView read
- * them, DJ records first since project pages show them.
+ * HappyView hears of the seeded DJ records, press kits, shows, calendar events and follows only through a backfill,
+ * and keeps them only once the app has uploaded their lexicons and scripts and HappyView has the projects they name or
+ * their authors manage, which happens when the app boots (maybe later, with `pnpm dev:app`). So this waits for that in
+ * the background, then has HappyView read them, DJ records first since project pages show them.
  */
 async function backfillSeeds(
 	client: HappyViewClient,
@@ -414,7 +415,7 @@ async function backfillSeeds(
 
 	for (const { collection, did } of new Map(repos.map((repo) => [`${repo.collection} ${repo.did}`, repo])).values())
 		await client.awaitBackfill(await client.backfill(collection, did), 30_000);
-	log('HappyView has the demo DJ records, press kits, shows and follows');
+	log('HappyView has the demo DJ records, press kits, shows, calendar events and follows');
 }
 
 main().catch((error) => {

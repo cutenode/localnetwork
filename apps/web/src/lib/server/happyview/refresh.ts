@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import PQueue from 'p-queue';
-import { COLLECTION } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import type { Core } from '../core';
 import type { HappyViewClient } from './client';
 
@@ -9,7 +9,7 @@ import type { HappyViewClient } from './client';
  * after HappyView started keeping them, so each manager's older ones are re-read: once per version of the collection's
  * record script, and when they become a manager.
  */
-export const MANAGER_COLLECTIONS = [COLLECTION.djSet, COLLECTION.djProfile, COLLECTION.epk];
+export const MANAGER_COLLECTIONS = [COLLECTION.djSet, COLLECTION.djProfile, COLLECTION.epk, CALENDAR_EVENT];
 
 /** How many accounts' re-reads start at once after a new record script. */
 const CONCURRENCY = 4;

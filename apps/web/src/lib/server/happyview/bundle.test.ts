@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, DIRECTORY, NS } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, DIRECTORY, NS } from '#lib/nsid.ts';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
@@ -14,13 +14,14 @@ describe('happyViewBundle', () => {
 			COLLECTION.epk,
 			COLLECTION.show,
 			COLLECTION.follow,
-			`${NS}.locallibrary.settings`
+			`${NS}.locallibrary.settings`,
+			CALENDAR_EVENT
 		];
 
 		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
 			[
 				'com.atproto.repo.strongRef',
-				'community.lexicon.location.address',
+				...['address', 'fsq', 'geo', 'hthree'].map((name) => `community.lexicon.location.${name}`),
 				`${NS}.defs`,
 				`${NS}.dj.defs`,
 				`${NS}.epk.defs`,

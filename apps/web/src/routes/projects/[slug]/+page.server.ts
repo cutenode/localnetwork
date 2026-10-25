@@ -31,7 +31,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		// Streamed, so the page shows while the directory looks up the mixes' sets, the shows, and the followers.
 		sets: linked.length ? app.sets.linked(linked) : undefined,
 		shows,
-		// Which of the viewer's own shows another calendar app changed since, read from their repo.
+		// Which of the viewer's own shows another calendar app changed since, as HappyView has the events.
 		edited:
 			shared.isManager && viewer ? shows.then((list) => (list ? app.shows.edited(viewer.did, list) : [])) : undefined,
 		follow:

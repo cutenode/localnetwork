@@ -27,10 +27,14 @@ function longString(text: string): string {
 /** A lexicon's `ref` and `refs` fields, as JSON: a quoted ref, or an array of them. */
 const REF_FIELD = /"refs?":("[^"]*"|\[[^\]]*\])/g;
 
-/** The NSIDs of the other lexicons `doc` refers to, read from its JSON (local `#def` refs left out). */
+/** The NSIDs of the other lexicons `doc` refers to, read from its JSON (refs to its own defs left out, local or not). */
 function refsOf(doc: LexiconDoc): string[] {
 	return [...JSON.stringify(doc.defs).matchAll(REF_FIELD)].flatMap(([, field]) =>
-		[...field.matchAll(/"([^"]*)"/g)].flatMap(([, ref]) => (ref.startsWith('#') ? [] : [ref.split('#')[0]]))
+		[...field.matchAll(/"([^"]*)"/g)].flatMap(([, ref]) => {
+			const nsid = ref.split('#')[0];
+
+			return nsid === '' || nsid === doc.id ? [] : [nsid];
+		})
 	);
 }
 
