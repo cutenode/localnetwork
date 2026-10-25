@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { ArrowLeft, Check, Copy, ExternalLink, Lock, Plus, Printer } from '@lucide/svelte';
+	import { ArrowLeft, Check, Copy, ExternalLink, Lock, Printer } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
+	import ManageLink from '#lib/components/ManageLink.svelte';
+	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
 	import { presetFor } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
@@ -51,19 +53,17 @@
 <div class="container-page flex flex-wrap items-center justify-between gap-3 pt-6 print:hidden">
 	<a href="/projects/{project.slug}" class="menu-link inline-flex items-center gap-1.5 text-small"><ArrowLeft class="size-4" />{profile.name}</a>
 	<div class="flex flex-wrap gap-2">
+		<ManageLink viewer={data.viewer} {project} section="press-kits" size="sm" />
 		<button type="button" class="btn-secondary btn-sm" onclick={copyLink}>{#if copied}<Check class="size-4" />Copied{:else}<Copy class="size-4" />Copy link{/if}</button>
 		<button type="button" class="btn-primary btn-sm" onclick={() => window.print()}><Printer class="size-4" />Print or save as PDF</button>
 	</div>
 </div>
 
 <section aria-labelledby="press-kits" class="mx-auto flex w-full max-w-208 flex-col gap-4 px-4 pt-8 sm:px-8 print:hidden">
-	{#if data.deleted}<p role="status" class="notice notice-ok m-0">Press kit deleted.</p>{/if}
-	<div class="flex flex-wrap items-end justify-between gap-3">
-		<div class="flex flex-col gap-1">
-			<h2 id="press-kits" class="m-0 text-heading font-semibold">Press kits</h2>
-			<p class="m-0 text-small text-fg-muted">Published by {profile.name}'s managers, each for a different kind of booking.</p>
-		</div>
-		{#if data.isManager}<a class="btn-primary btn-sm" href="/epk/new?project={project.slug}"><Plus class="size-4" />New press kit</a>{/if}
+	<PreviewBanner status={project.status} />
+	<div class="flex flex-col gap-1">
+		<h2 id="press-kits" class="m-0 text-heading font-semibold">Press kits</h2>
+		<p class="m-0 text-small text-fg-muted">Published by {profile.name}'s managers, each for a different kind of booking.</p>
 	</div>
 	{#await data.epks}
 		<div aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
@@ -82,7 +82,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="m-0 text-small text-fg-muted">{data.isManager ? 'None yet. Make one to choose which mixes and photos everyone sees, and who gets the rest.' : 'None published yet. Below is one put together from the profile.'}</p>
+			<p class="m-0 text-small text-fg-muted">None published yet. Below is one put together from the profile.</p>
 		{/if}
 	{/await}
 </section>
@@ -106,8 +106,6 @@
 			<h2 id="epk-bio" class="m-0 text-heading font-semibold">Bio</h2>
 			{#if profile.bio}
 				<p class="m-0 whitespace-pre-line text-fg-soft">{profile.bio}</p>
-			{:else if data.isManager}
-				<p class="m-0 text-small text-fg-muted">No bio yet. <a class="link" href="/projects/{project.slug}/edit">Add one to your profile</a> and it shows here.</p>
 			{:else}
 				<p class="m-0 text-fg-soft">{profile.tagline ?? `${kindLabel(profile.kind)} from ${placeLabel(profile)}.`}</p>
 			{/if}
@@ -143,13 +141,6 @@
 					<DjSets sets={account.sets} limit={6} />
 				</section>
 			{/if}
-		{:else}
-			{#if data.isManager}
-				<section aria-labelledby="epk-sound-empty" class="card flex flex-col gap-2 p-5 print:hidden">
-					<h2 id="epk-sound-empty" class="m-0 text-emphasis font-semibold">Add how you play</h2>
-					<p class="m-0 text-small text-fg-muted">Publish your playing stats and sets from <a class="link" href="/tools/locallibrary">locallibrary</a> and the press kit shows your tempo, keys, energy and recent sets.</p>
-				</section>
-			{/if}
 		{/each}
 	{/await}
 
@@ -171,7 +162,7 @@
 		<h2 id="epk-booking" class="m-0 text-heading font-semibold">Booking</h2>
 		<BookingDetails details={data.details} signedIn={!!data.viewer} claimed={project.managers.length > 0} loginHref="/login?next=/projects/{project.slug}/epk" />
 		<div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-small">
-			{#if data.viewer && project.managers.length && !data.isManager}<a class="btn-primary btn-sm print:hidden" href="/bookings/new?project={project.slug}">Send inquiry</a>{/if}
+			{#if data.viewer && project.managers.length && !data.isManager}<a class="btn-primary btn-sm print:hidden" href="/dashboard/bookings/new?project={project.slug}">Send inquiry</a>{/if}
 			<span class="text-fg-muted">Profile: <a class="link break-all" href={data.profileUrl}>{data.profileUrl}</a></span>
 		</div>
 		{#if profile.links?.length}

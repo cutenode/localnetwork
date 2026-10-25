@@ -43,10 +43,11 @@ jobs:
       pull-requests: read
     # The API lists at most 3000 of a pull request's files, so one that size runs everything. A
     # draft skips the work until it's marked ready for review, which leaves the runners to the
-    # pull requests about to merge.
+    # pull requests about to merge. `draft` says it skipped work there was to do, for passed.
     outputs:
-      run: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
-      semver: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
+      run: ${{ steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
+      draft: ${{ steps.pr.outputs.draft == 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
+      semver: ${{ github.event_name == 'pull_request' && steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
       # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
@@ -88,6 +89,17 @@ jobs:
               - '!crates/*/tests/**'
               - '!crates/*/examples/**'
               - '!**/*.md'
+      # Whether the pull request is a draft now, from the API. The event has the pull request as it
+      # was when the event was made: #211 was marked ready a second after a push, GitHub started a
+      # run for the push and none for ready_for_review, and the push's event still said draft. A
+      # re-run gets the same event, so only this lets one see that the pull request is ready.
+      - if: github.event_name == 'pull_request'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
 
   # Every OS runs the same jobs: lint, and build, then test in 3 shards, then coverage. The build
   # job compiles the tests once, instrumented for coverage, into a nextest archive that the shards
@@ -539,3 +551,9 @@ jobs:
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
+      # A draft's skipped jobs would pass too, and this check would stay green if marking it ready
+      # started no run, as with #211, which merged without its tests running.
+      - if: needs.changes.outputs.draft == 'true'
+        run: |
+          echo "::error title=Draft::Nothing ran because the pull request was a draft. Marking it ready for review starts a new run; if none started, re-run this one."
+          exit 1

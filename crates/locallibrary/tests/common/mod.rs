@@ -504,3 +504,29 @@ pub fn isrc_len(s: &str) -> usize {
 pub fn rekordcrate_reads_as_isrc(s: &str) -> bool {
     !s.is_ascii() && s.encode_utf16().next().is_some_and(|u| u & 0xff == 3)
 }
+
+/// What the interop plugin's `rekordbox` exporter is asked for: the audio where a copy of the
+/// drive's `Contents/` will be (its mount point when `None`), no beat grids or cues, only some
+/// playlists and folders and their tracks (all when empty).
+#[derive(Debug, Clone, Default)]
+pub struct XmlOptions {
+    pub location_root: Option<PathBuf>,
+    pub skip_analysis: bool,
+    pub only: Vec<String>,
+}
+
+/// rekordbox XML of the drive `d`, as the interop plugin writes it from what the host reads it:
+/// the library exports are made from (OneLibrary's own tracks numbered for files) and each
+/// track's analysis, written by loclib-interop. Err names a playlist the drive doesn't have.
+pub fn rekordbox_xml(d: &Device, opts: &XmlOptions) -> Result<(String, loclib_interop::Export), String> {
+    use loclib_interop::{Content, Source, rekordbox};
+    use loclib_model::analysis::TrackAnalysis;
+    let library = locallibrary::convert::export_library(d).unwrap().subset(&opts.only).map_err(String::from)?;
+    let load = |t: &locallibrary::Track| locallibrary::anlz::load_grid(d, t);
+    let analysis: &dyn Fn(&locallibrary::Track) -> TrackAnalysis = &load;
+    let root = opts.location_root.clone().unwrap_or_else(|| d.root().to_path_buf());
+    let source = Source { library: &library, root, analysis: (!opts.skip_analysis).then_some(analysis) };
+    let export = rekordbox::build(&source, Path::new("rekordbox.xml"), &Ctx::silent()).unwrap();
+    let Content::Bytes(bytes) = &export.files[0].content else { panic!("the XML is written out") };
+    Ok((String::from_utf8(bytes.clone()).unwrap(), export))
+}

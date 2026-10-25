@@ -494,8 +494,8 @@ fn exports_number_onelibrary_only_tracks_in_range() {
     let booth = exported.playlists.iter().find(|p| p.name == "Booth").unwrap();
     assert_eq!(booth.track_ids, [only.id]);
 
-    let opts = locallibrary::xml::XmlOptions { skip_analysis: true, ..Default::default() };
-    let (xml, _) = locallibrary::xml::export(&d, &opts, &locallibrary::progress::Ctx::silent()).unwrap();
+    let opts = common::XmlOptions { skip_analysis: true, ..Default::default() };
+    let (xml, _) = common::rekordbox_xml(&d, &opts).unwrap();
     let numbers = |attr: &str| -> Vec<u64> {
         xml.split(attr).skip(1).map(|rest| rest.split('"').next().unwrap().parse().unwrap()).collect()
     };

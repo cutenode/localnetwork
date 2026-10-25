@@ -312,6 +312,7 @@ export async function createApp(options: CreateAppOptions) {
 
 			for (const space of watched) await syncer.watch(space);
 			await staff.reconcileMembership();
+			await projects.reconcileManagerSpaces();
 			bootstrapped = true;
 			await syncer.syncAll();
 		},
@@ -337,6 +338,9 @@ export async function createApp(options: CreateAppOptions) {
 				},
 				'oauth-state-cleanup'
 			);
+			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
+			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
+			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
 		},
 
 		async stop() {
