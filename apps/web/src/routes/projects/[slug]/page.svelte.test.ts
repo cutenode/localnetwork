@@ -49,7 +49,6 @@ it('renders a record that repeats genres, highlights, links, and mixes', async (
 			pendingClaim: null,
 			pendingUpdate: null,
 			shows: Promise.resolve([]),
-			edited: undefined,
 			follow: Promise.resolve({ followers: 0, following: false })
 		},
 		form: null
@@ -87,7 +86,6 @@ const base = {
 	pendingClaim: null,
 	pendingUpdate: null,
 	shows: Promise.resolve([]),
-	edited: undefined,
 	follow: Promise.resolve({ followers: 0, following: false }),
 	dj: Promise.resolve([])
 };
@@ -145,49 +143,72 @@ it("shows the managers' playing stats and sets once they arrive", async () => {
 		.toHaveAttribute('href', '/projects/neon-tide/epk');
 });
 
-it('asks a manager with nothing on file to publish from locallibrary', async () => {
-	await render(Page, {
-		params: { slug: 'neon-tide' },
-		data: { ...base, isManager: true, dj: Promise.resolve([]) },
-		form: null
-	});
-
-	await expect.element(page.getByRole('heading', { name: 'Show how you play' })).toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'locallibrary' })).toHaveAttribute('href', '/tools/locallibrary');
-});
-
-it("lists upcoming shows, with edit links on the manager's own and a note on ones another app changed", async () => {
+it('shows managers what visitors see: no edit links, no announce button, no nudges', async () => {
 	const own = show('did:plc:neon', 'a', 'Tidal Hours');
 	const theirs = show('did:plc:co', 'b', 'Closing Party', { status: EVENT_STATUS.cancelled, tickets: undefined });
 
 	await render(Page, {
 		params: { slug: 'neon-tide' },
-		data: {
-			...base,
-			viewer: neonViewer,
-			isManager: true,
-			shows: Promise.resolve([own, theirs]),
-			edited: Promise.resolve([own.uri])
-		},
+		data: { ...base, viewer: neonViewer, isManager: true, shows: Promise.resolve([own, theirs]) },
 		form: null
 	});
 
 	await expect.element(page.getByRole('heading', { name: 'Upcoming shows' })).toBeInTheDocument();
 	await expect.element(page.getByText('23:00 to 06:00').first()).toBeInTheDocument();
-	await expect
-		.element(page.getByRole('link', { name: 'Edit Tidal Hours' }))
-		.toHaveAttribute('href', '/projects/neon-tide/shows/a');
-	await expect.element(page.getByRole('link', { name: 'Edit Closing Party' })).not.toBeInTheDocument();
-	await expect.element(page.getByText(/Changed in another calendar app/)).toBeInTheDocument();
 	await expect.element(page.getByText('Cancelled')).toBeInTheDocument();
 	// These are the page's own project's shows, so they don't link back to it.
 	await expect.element(page.getByRole('link', { name: 'Neon Tide' })).not.toBeInTheDocument();
 	await expect
 		.element(page.getByRole('link', { name: 'Tickets' }))
 		.toHaveAttribute('href', 'https://tickets.example/tidal');
+	await expect.element(page.getByRole('link', { name: 'Edit Tidal Hours' })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Announce a show' })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Propose changes' })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('heading', { name: 'Show how you play' })).not.toBeInTheDocument();
 	await expect
-		.element(page.getByRole('link', { name: 'Announce a show' }))
-		.toHaveAttribute('href', '/projects/neon-tide/shows/new');
+		.element(page.getByRole('link', { name: 'Manage', exact: true }))
+		.toHaveAttribute('href', '/dashboard/projects/neon-tide');
+});
+
+it("links staff who don't manage it to the staff console, and nobody else", async () => {
+	const moderator: Viewer = { ...neonViewer, did: 'did:plc:mod', roles: ['moderator'], isStaff: true };
+
+	const { rerender } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...base, viewer: moderator },
+		form: null
+	});
+
+	await expect
+		.element(page.getByRole('link', { name: 'Manage', exact: true }))
+		.toHaveAttribute('href', '/admin/projects/neon-tide');
+
+	await rerender({ data: { ...base, viewer: { ...neonViewer, did: 'did:plc:pat' } } });
+	await expect
+		.element(page.getByRole('link', { name: 'Send inquiry' }))
+		.toHaveAttribute('href', '/dashboard/bookings/new?project=neon-tide');
+	await expect
+		.element(page.getByRole('link', { name: 'Request to co-manage' }))
+		.toHaveAttribute('href', '/dashboard/claim/neon-tide');
+	await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
+
+	await rerender({ data: base });
+	await expect.element(page.getByRole('link', { name: 'Sign in to book' })).toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
+});
+
+it("tells managers and staff when visitors can't see the page yet", async () => {
+	const { rerender } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...base, viewer: neonViewer, isManager: true, project: { ...neon, status: 'hidden' } },
+		form: null
+	});
+
+	await expect.element(page.getByText('Not public yet.')).toBeInTheDocument();
+	await expect.element(page.getByText(/Only its managers and staff can see this page/)).toBeInTheDocument();
+
+	await rerender({ data: { ...base, viewer: neonViewer, isManager: true } });
+	await expect.element(page.getByText('Not public yet.')).not.toBeInTheDocument();
 });
 
 it('says when there are no shows, and that following brings new ones', async () => {
@@ -195,7 +216,6 @@ it('says when there are no shows, and that following brings new ones', async () 
 
 	await expect.element(page.getByText('No upcoming shows')).toBeInTheDocument();
 	await expect.element(page.getByText('Follow Neon Tide to see new ones under Shows.')).toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'Announce a show' })).not.toBeInTheDocument();
 });
 
 it('shows the follower count, and links to sign-in to follow when signed out', async () => {

@@ -689,7 +689,6 @@ fn build() -> Registry {
     .destructive();
 
     // Exports, health and history.
-    r.immediate("xml.export", |c, req| Ok(api::export_xml(&req, c.ctx)?)).long().keeps_cache().writes_to("output");
     r.immediate("export", |c, req| Ok(api::export_playlist(c.existing()?.as_ref(), &req, c.ctx)?))
         .long()
         .keeps_cache()
