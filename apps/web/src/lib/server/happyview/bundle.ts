@@ -2,7 +2,7 @@ import type { LexiconDoc } from '@atproto/lexicon';
 import { COLLECTION, NS } from '#lib/nsid.ts';
 import { GENRE_ALIASES, GENRE_FAMILIES } from '#lib/taxonomy/genres.ts';
 import { FEE_TIER_ORDER } from '#lib/taxonomy/options.ts';
-import { LEXICON_DOCS, referencedLexicons } from '../atproto/lexicons';
+import { LEXICON_DOCS, REFERENCED_DOCS } from '../atproto/lexicons';
 
 /** A HappyView script, keyed by its trigger, e.g. `xrpc.query:computer.localnetwork.directory.searchProjects`. */
 export type HappyViewScript = { id: string; body: string };
@@ -70,7 +70,7 @@ export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const queryPrelude = [root, `local TAXONOMY = json.decode(${longString(JSON.stringify(taxonomy))})`, ...library];
 
 	return {
-		lexicons: [...referencedLexicons().filter((doc) => REFERENCED.has(doc.id)), ...LEXICONS],
+		lexicons: [...REFERENCED_DOCS.filter((doc) => REFERENCED.has(doc.id)), ...LEXICONS],
 		scripts: files
 			.filter(([path]) => !path.startsWith(LIBRARY))
 			.map(([path, body]) => {
