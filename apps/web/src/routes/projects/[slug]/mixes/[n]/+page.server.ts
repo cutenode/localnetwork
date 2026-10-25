@@ -27,6 +27,8 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			mix: { title: mix.title, url: mix.url, set: mix.set },
 			// Streamed, so the report shows while the directory looks up the set.
 			sets: mix.set ? app.sets.linked([mix.set]) : undefined,
+			// What the player plays, streamed too: the linked set's recording may be asked of plyr.fm.
+			source: app.recordings.forMix(mix),
 			n,
 			report
 		};

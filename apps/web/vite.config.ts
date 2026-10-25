@@ -22,17 +22,28 @@ export default defineConfig({
 				mode: 'auto',
 				directives: {
 					'default-src': ['self'],
-					'script-src': ['self'],
+					// Mixcloud's and SoundCloud's widget APIs, loaded when someone opens one of their players.
+					'script-src': ['self', 'https://widget.mixcloud.com', 'https://w.soundcloud.com'],
 					'style-src': ['self', 'unsafe-inline'],
 					'img-src': ['self', 'data:', 'blob:'],
 					'font-src': ['self'],
 					'connect-src': ['self'],
+					// Recordings the set player plays: DJs' own (/media/audio), plyr.fm's CDN, and archive.org downloads,
+					// which redirect to a numbered host in its US or Canadian data centre (dn721502.ca.archive.org).
+					'media-src': [
+						'self',
+						'https://audio.plyr.fm',
+						'https://archive.org',
+						'https://*.us.archive.org',
+						'https://*.ca.archive.org'
+					],
 					'frame-src': [
 						'https://w.soundcloud.com',
 						'https://www.mixcloud.com',
 						'https://player-widget.mixcloud.com',
 						'https://bandcamp.com',
-						'https://www.youtube-nocookie.com'
+						'https://www.youtube-nocookie.com',
+						'https://plyr.fm'
 					],
 					'frame-ancestors': ['none'],
 					'form-action': ['self', 'http:', 'https:'],
