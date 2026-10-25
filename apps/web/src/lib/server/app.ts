@@ -298,9 +298,10 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
-		 * got), the older records the site reads from other repos: the managers' records of each of MANAGER_COLLECTIONS,
-		 * the follows of owners whose press kits read them, the root's verifications, and the bug report space. A failure
-		 * is logged and tried again on the next round, without marking the directory sync failed.
+		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
+		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
+		 * root's verifications, and the bug report space. A failure is logged and tried again on the next round, without
+		 * marking the directory sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
@@ -311,7 +312,7 @@ export async function createApp(options: CreateAppOptions) {
 			const refreshes = [
 				...MANAGER_COLLECTIONS.map((collection) => ({
 					collection,
-					accounts: () => (managers ??= projects.managers())
+					accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
 				})),
 				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
 				{ collection: VERIFICATION, accounts: async () => [rootDid] },

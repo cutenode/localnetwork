@@ -107,25 +107,27 @@ describe('follow record script', () => {
 		createdAt: '2026-01-01T00:00:00.000Z'
 	});
 
-	it('keeps the follows of press kit owners whose kit reads them, with just the subject and when', async () => {
+	it('keeps the follows of the managers of a project with a press kit that reads them, with just the subject and when', async () => {
 		const hv = new FakeHappyView(ROOT);
-		const harbour = await project(hv, 'harbour', [DJ, 'did:plc:codj', 'did:plc:same']);
+		const harbour = await project(hv, 'harbour', [DJ, 'did:plc:codj']);
+		const quiet = await project(hv, 'quiet', ['did:plc:same']);
 		const reads = { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'review' };
-		await ingest(hv, DJ, COLLECTION.epk, 'reads', epk(harbour, reads));
+		// The root holds press kits; any of the project's managers' follows count, not just one maker's.
+		await ingest(hv, ROOT, COLLECTION.epk, 'reads', epk(harbour, reads));
 		// The rule only matters where it differs from anyone's.
-		await ingest(hv, 'did:plc:same', COLLECTION.epk, 'same', epk(harbour, { ...reads, anyone: 'auto' }));
+		await ingest(hv, ROOT, COLLECTION.epk, 'same', epk(quiet, { ...reads, anyone: 'auto' }));
 
 		const uris = [];
 
-		for (const did of [DJ, 'did:plc:same', 'did:plc:codj', 'did:plc:stranger'])
+		for (const did of [DJ, 'did:plc:codj', 'did:plc:same', 'did:plc:stranger'])
 			uris.push(await ingest(hv, did, BSKY_FOLLOW, '3kfollow', follow('did:plc:friend')));
 		uris.push(await ingest(hv, DJ, BSKY_FOLLOW, '3kodd', { subject: 7, createdAt: '2026-01-01' }));
 
-		expect((await stored(hv, uris)).map((record) => record.uri)).toEqual([uris[0]]);
+		expect((await stored(hv, uris)).map((record) => record.uri)).toEqual(uris.slice(0, 2));
 		expect(await values(hv, [uris[0]])).toEqual([{ subject: 'did:plc:friend', createdAt: '2026-01-01T00:00:00.000Z' }]);
 
 		await hv.ingest({ did: DJ, collection: BSKY_FOLLOW, rkey: '3kfollow', cid: '', record: null });
-		expect(await stored(hv, uris)).toEqual([]);
+		expect((await stored(hv, uris)).map((record) => record.uri)).toEqual([uris[1]]);
 	});
 });
 

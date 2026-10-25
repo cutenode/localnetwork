@@ -26,6 +26,7 @@ export interface Database {
 	bookingEvent: BookingEventTable;
 	epkRequest: EpkRequestTable;
 	epkGrant: EpkGrantTable;
+	epkDraft: EpkDraftTable;
 	geocodeCache: GeocodeCacheTable;
 }
 
@@ -225,6 +226,27 @@ export interface EpkGrantTable {
 	via: string;
 	requestUri: string | null;
 	createdAt: string;
+}
+
+export interface EpkDraftTable {
+	uri: string;
+	/** The project's backstage. */
+	spaceUri: string;
+	repoDid: string;
+	rkey: string;
+	/** The manager whose draft it is: the repo's owner, or who the root wrote it for. */
+	authorDid: string;
+	/** The press kit it changes, or the key a new press kit gets. */
+	epkRkey: string;
+	cid: string;
+	/** The draft record as JSON. */
+	record: string;
+	updatedAt: string;
+	/**
+	 * The key the root chose for the new press kit a draft without a base publishes, kept from before the first write so
+	 * a publish that failed part way finishes under the same key.
+	 */
+	publishedRkey: string | null;
 }
 
 export interface GeocodeCacheTable {

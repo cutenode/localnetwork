@@ -1,0 +1,53 @@
+name: CodeQL
+
+# CodeQL's code scanning of the workflows, the TypeScript and the Rust, with the paths in
+# .github/codeql/codeql-config.yml left out (the Rust tests). Default setup ran the same languages
+# and suite but can't take a config file. Each language uploads under the category default setup
+# used, so its alerts carry over.
+#
+# Every pull request, with no paths filter: the "Protect Main" ruleset's code scanning rule waits
+# for an analysis of the pull request's commit, and CodeQL's own result is the check, so there's
+# no passed job. Weekly too, for queries added since the last push.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    # Default setup's Rust analysis took 15 to 19 minutes with the tests in.
+    timeout-minutes: 40
+    permissions:
+      # Uploading the results to code scanning.
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, rust]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is built: Rust and TypeScript are read from the source, which is also what lets
+      # paths-ignore leave files out.
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}

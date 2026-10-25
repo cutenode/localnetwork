@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "any",
-			"description": "Access to the private part of a press kit, keyed by the subject's DID. Written by the press kit's owner into its space, which also lists the subject as a reader. Deleting it, and removing the member, takes access away.",
+			"description": "Access to the private part of a press kit, keyed by the subject's DID. Written by the Local Network root account into the press kit's space, which also lists the subject as a reader. Deleting it, and removing the member, takes access away.",
 			"record": {
 				"type": "object",
 				"required": ["subject", "via", "createdAt"],
@@ -15,7 +15,7 @@
 						"type": "string",
 						"maxLength": 32,
 						"knownValues": ["auto", "approved", "invited"],
-						"description": "auto: the request matched a rule that approves at once. approved: the owner approved the request. invited: the owner added the subject without a request."
+						"description": "auto: the request matched a rule that approves at once. approved: a manager approved the request. invited: a manager added the subject without a request."
 					},
 					"request": { "type": "string", "format": "at-uri" },
 					"createdAt": { "type": "string", "format": "datetime" }

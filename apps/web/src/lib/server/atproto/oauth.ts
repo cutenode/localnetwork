@@ -37,7 +37,7 @@ const PUBLIC_RECORDS = [
 
 /**
  * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
- * grants write access to the user's own repos in the audit, moderation, and booking spaces, a
+ * grants write access to the user's own repos in the audit, moderation, booking, and backstage spaces, a
  * personal planner space under the user's own DID, and the records it writes to the user's public
  * repo (press kits, shows, follows). The set leaves the shared spaces' authority open, since one
  * published document serves every network and each has its own root DID. Blob uploads and calendar

@@ -12,7 +12,9 @@ use rustc_hash::FxHashSet;
 
 use super::{EntryOrigin, MusicBrainzIds, Session, SetEntry};
 use crate::device::Device;
+use crate::fields::roles;
 use crate::mix::{MixReport, Play};
+use crate::store::Store;
 
 /// A tracklist, and what's worth telling the DJ about it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -85,15 +87,24 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
     out
 }
 
-/// Read the MusicBrainz IDs of the `tracks` that have none yet from their files' tags, on the
-/// first of `drives` that holds the file. rekordbox keeps no MusicBrainz IDs, so only tagged
-/// files on a mounted drive have them.
-pub(crate) fn read_musicbrainz(tracks: &mut [SetEntry], drives: &[Device]) {
-    for e in tracks.iter_mut().filter(|e| e.musicbrainz.is_empty()) {
+/// Fill in the MusicBrainz IDs of the `tracks` that have none yet from their files, on the first
+/// of `drives` that holds each: the file's tags first, and what they lack from the analyzers
+/// chosen for [`MusicBrainzIds::ROLES`] (`sets publish` runs them), as they kept it in `store`
+/// for the file, when it was worked out for the track as the set has it. rekordbox keeps no
+/// MusicBrainz IDs, so only files on a mounted drive have them.
+pub(crate) fn read_musicbrainz<'e>(
+    store: &Store,
+    tracks: impl IntoIterator<Item = &'e mut SetEntry>,
+    drives: &[Device],
+) {
+    let roles = roles::reader(store, &MusicBrainzIds::ROLES);
+    for e in tracks.into_iter().filter(|e| e.musicbrainz.is_empty()) {
         let Some(key) = e.file.as_deref().map(crate::paths::key) else { continue };
-        if let Some(path) = drives.iter().filter_map(|d| d.checked_path(&key).ok()).find(|p| p.is_file()) {
-            e.musicbrainz = MusicBrainzIds::read(&path);
-        }
+        let Some(path) = drives.iter().filter_map(|d| d.checked_path(&key).ok()).find(|p| p.is_file()) else {
+            continue;
+        };
+        let heard = roles.as_ref().map(|read| MusicBrainzIds::from_roles(&read(&path), e)).unwrap_or_default();
+        e.musicbrainz = MusicBrainzIds::read(&path).or(heard);
     }
 }
 

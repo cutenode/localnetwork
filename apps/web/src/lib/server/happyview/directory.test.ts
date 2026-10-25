@@ -421,7 +421,7 @@ describe('DJ profile, rekordbox settings, and press kit record scripts', () => {
 		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual(kept.slice(0, 1));
 	});
 
-	it('keeps press kits as written, by an account that manages the root project they name', async () => {
+	it("keeps press kits of the root's projects as written: the root's, and legacy ones by the project's managers", async () => {
 		const hv = new FakeHappyView(ROOT);
 		const project = await publish(hv, {}, { managers: ['did:plc:dj'] });
 		// A project in someone else's repo doesn't make its managers count.
@@ -436,20 +436,24 @@ describe('DJ profile, rekordbox settings, and press kit record scripts', () => {
 		});
 
 		const kept = await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'kept', epk());
+		const held = await ingest(hv, ROOT, COLLECTION.epk, 'held', epk());
 
 		const uris = [
 			kept.uri,
+			held.uri,
+			(await ingest(hv, ROOT, COLLECTION.epk, 'elsewhere', epk({ project: fake }))).uri,
 			(await ingest(hv, 'did:plc:nobody', COLLECTION.epk, 'theirs', epk())).uri,
 			(await ingest(hv, 'did:plc:faker', COLLECTION.epk, 'fake', epk({ project: fake }))).uri,
 			(await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'odd', epk({ project: 7 }))).uri
 		];
 
 		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
-			{ ...kept, value: { $type: COLLECTION.epk, ...epk() } }
+			{ ...kept, value: { $type: COLLECTION.epk, ...epk() } },
+			{ ...held, value: { $type: COLLECTION.epk, ...epk() } }
 		]);
 
 		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.epk, rkey: 'kept', cid: '', record: null });
-		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([]);
+		expect((await query<Records>(hv, 'getRecords', { uris })).records.map((record) => record.uri)).toEqual([held.uri]);
 	});
 });
 

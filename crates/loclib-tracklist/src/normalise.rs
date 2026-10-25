@@ -53,7 +53,7 @@ fn is_generic(w: &str) -> bool {
 
 /// [`normalize`] plus: accents dropped, apostrophes and dots removed ("Don't", "Mr."), "&" as
 /// "and", other punctuation as spaces.
-fn fold(s: &str) -> String {
+pub fn fold(s: &str) -> String {
     let lower = normalize(s);
     let mut out = String::with_capacity(lower.len());
     for c in lower.nfd() {

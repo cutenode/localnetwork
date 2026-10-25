@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
+import { z } from 'zod';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -92,8 +93,8 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kit' }).click();
-		await expect(page).toHaveURL(/\/projects\/neon-tide\/epk$/);
+		await page.getByRole('link', { name: 'Press kits' }).click();
+		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible();
@@ -280,17 +281,32 @@ test.describe('signed in', () => {
 		await expect(row).toHaveCount(0);
 	});
 
-	test('someone asks to see a press kit, and its owner lets them in', async ({ page }) => {
-		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/epk');
+	test('someone asks to see a press kit, and a manager lets them in', async ({ page }) => {
+		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/press-kits');
+		// The old list address, from links in emails, still lands on the list.
+		await page.goto('/projects/neon-tide/epk');
+		await expect(page).toHaveURL('/projects/neon-tide/press-kits');
 		await page.getByRole('link', { name: /Clubs/ }).click();
 		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
 		await expect(page.getByText('bookings@neon-tide.test')).toHaveCount(0);
 		await expectAccessible(page);
 		const kit = new URL(page.url()).pathname;
-		const access = `${kit.replace('/epk/', '/dashboard/projects/neon-tide/press-kits/')}/access`;
+		const rkey = kit.split('/').at(-1)!;
+		expect(kit).toBe(`/projects/neon-tide/press-kits/${rkey}`);
+		const access = `/dashboard/projects/neon-tide/press-kits/${rkey}/access`;
+
+		// An old link named the repo that held the press kit, here its maker's; it still opens the press kit.
+		const resolved = await page.request.get(
+			'http://localhost:2683/xrpc/com.atproto.identity.resolveHandle?handle=neon.test'
+		);
+
+		const { did } = z.object({ did: z.string() }).parse(await resolved.json());
+		await page.goto(`/epk/${did}/${rkey}`);
+		await expect(page).toHaveURL(kit);
+
 		// The public page only links to the form, which is on the dashboard.
 		await page.getByRole('link', { name: 'Ask for access' }).click();
-		await expect(page).toHaveURL(`/dashboard/access${kit.slice('/epk'.length)}`);
+		await expect(page).toHaveURL(`/dashboard/access/neon-tide/${rkey}`);
 		await expectAccessible(page);
 		await page.getByLabel("You're a").selectOption('press');
 		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
@@ -316,7 +332,7 @@ test.describe('signed in', () => {
 		await expectAccessible(page);
 		await signOut(page);
 
-		// Each browser runs against the same network, so the owner takes access away again.
+		// Each browser runs against the same network, so the manager takes access away again.
 		await signIn(page, 'neon.test', 'neon-pass', access);
 		await page.getByRole('listitem').filter({ hasText: '@milo.test' }).getByRole('button', { name: 'Remove' }).click();
 		await expect(page.getByText('Access removed.')).toBeVisible();

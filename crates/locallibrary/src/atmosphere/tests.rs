@@ -1093,7 +1093,7 @@ fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
     let kept = did.clone().unwrap_or_else(|| "did:plc:abc".into());
     assert_eq!(status(root).unwrap().map(|i| i.did), Some(kept), "kept until signing out");
     let out = logout(root).unwrap();
-    assert!(out.account.is_some() && !out.revoked);
+    assert!(out.account.is_some() && !out.revoked, "{out:?}");
     assert_eq!(status(root).unwrap(), None);
 }
 

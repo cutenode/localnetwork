@@ -273,8 +273,7 @@ fn an_account_goes_only_in_the_authorization_header_and_never_to_another_origin(
     // Redirected to another origin (another port), the token stays behind; within its origin, it
     // goes along.
     let away = f.as_account(&redirecting, "/away", "{account:main}");
-    // Not echoed on failure: CodeQL takes a fetch made as an account for its token.
-    assert_eq!(away["result"]["status"], 200);
+    assert_eq!(away["result"]["status"], 200, "{away}");
     assert!(elsewhere.got().iter().all(|g| !g.headers.contains_key("authorization")), "the other origin got no token");
     assert!(sent_token(&f.as_account(&server, "/home", "{account:main}"), "/here", 1), "lost within its origin");
 }
