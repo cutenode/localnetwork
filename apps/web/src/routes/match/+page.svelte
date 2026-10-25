@@ -151,7 +151,7 @@
 								{#if data.viewer?.spacesCapable}
 									<label class="flex items-center gap-2 text-small text-fg-soft"><input type="checkbox" class="checkbox" value={project.uri} bind:group={selected} />Add to lineup</label>
 								{/if}
-								{#if project.managers.length}<Button size="sm" variant="secondary" href="/bookings/new?project={project.slug}{c.date ? `&date=${c.date}` : ''}">Inquire</Button>{/if}
+								{#if project.managers.length}<Button size="sm" variant="secondary" href="/dashboard/bookings/new?project={project.slug}{c.date ? `&date=${c.date}` : ''}">Inquire</Button>{/if}
 							</div>
 						</Card>
 					{/each}

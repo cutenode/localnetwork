@@ -29,7 +29,7 @@ function keepPdsCookies(page: Page) {
 test.beforeEach(({ page }) => keepPdsCookies(page));
 
 /** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/me') {
+async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
 	await page.goto(`/login?next=${encodeURIComponent(next)}`);
 	await page.waitForLoadState('networkidle');
 	await page.getByPlaceholder('alice.bsky.social').fill(handle);
@@ -43,11 +43,11 @@ async function signIn(page: Page, handle: string, password: string, next = '/me'
 }
 
 /**
- * Signs out from /me and waits for the redirect home: /logout records the audit entry and revokes
- * the OAuth session first, and a sign-in started before it finishes would find the old session.
+ * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
+ * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
  */
 async function signOut(page: Page) {
-	await page.goto('/me');
+	await page.goto('/dashboard');
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
@@ -172,10 +172,17 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
-	test('staff pages require sign-in', async ({ page }) => {
+	test('staff pages and the dashboard require sign-in', async ({ page }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
 		await expectAccessible(page);
+		await page.goto('/dashboard/bookings?tab=open');
+		await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%2Fbookings%3Ftab%3Dopen$/);
+		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too.
+		await page.goto('/%64ashboard/bookings');
+		await expect(page).toHaveURL(/\/login\?next=%2F%2564ashboard%2Fbookings$/);
+		await page.goto('/%61dmin');
+		await expect(page).toHaveURL(/\/login\?next=%2F%2561dmin$/);
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
@@ -194,7 +201,7 @@ test.describe('signed in', () => {
 		// Every project runs against the same network, so each proposes a tagline of its own: the same
 		// one again would be no change at all.
 		const tagline = `Disco and boogie for sunny afternoons (${testInfo.project.name})`;
-		await signIn(page, 'neon.test', 'neon-pass', '/projects/saffron-social/edit');
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/projects/saffron-social/profile');
 		await expectAccessible(page);
 		await page.locator('#tagline').fill(tagline);
 		await page.getByRole('button', { name: 'Send for review' }).click();
@@ -220,6 +227,34 @@ test.describe('signed in', () => {
 		await page.goto('/projects/saffron-social');
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test("a project's manager goes from its public page to its dashboard, and others can't", async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide');
+		await page.getByRole('link', { name: 'Manage', exact: true }).click();
+		await expect(page).toHaveURL('/dashboard/projects/neon-tide');
+		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
+		await expectAccessible(page);
+		await signOut(page);
+
+		await signIn(page, 'pat.test', 'pat-pass', '/projects/neon-tide');
+		await expect(page.getByRole('link', { name: 'Manage', exact: true })).toHaveCount(0);
+		await page.goto('/dashboard/projects/neon-tide');
+		await expect(page.getByText("Only this project's managers can manage it")).toBeVisible();
+		// The staff console turns non-staff away before any of its pages load.
+		const admin = await page.goto('/admin/requests');
+		expect(admin?.status()).toBe(403);
+		await expect(page.getByText('Only moderators and admins can see this page')).toBeVisible();
+
+		// SvelteKit routes an encoded path to the same pages, so it's turned away just the same. A data
+		// request shows it: past a refusing layout, it would still carry the page's own data.
+		for (const path of ['/%61dmin/__data.json', '/adm%69n/requests/__data.json', '/%61dmin/audit/__data.json']) {
+			const response = await page.request.get(path, { maxRedirects: 0 });
+			expect(response.status(), path).toBe(403);
+			expect(await response.text(), path).not.toContain('"type":"data"');
+		}
+
+		await signOut(page);
 	});
 
 	test("an admin verifies a project's manager on Bluesky, then removes it", async ({ page }) => {
@@ -251,14 +286,21 @@ test.describe('signed in', () => {
 		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
 		await expect(page.getByText('bookings@neon-tide.test')).toHaveCount(0);
 		await expectAccessible(page);
+		const kit = new URL(page.url()).pathname;
+		const access = `${kit.replace('/epk/', '/dashboard/projects/neon-tide/press-kits/')}/access`;
+		// The public page only links to the form, which is on the dashboard.
+		await page.getByRole('link', { name: 'Ask for access' }).click();
+		await expect(page).toHaveURL(`/dashboard/access${kit.slice('/epk'.length)}`);
+		await expectAccessible(page);
 		await page.getByLabel("You're a").selectOption('press');
 		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
 		await page.getByRole('button', { name: 'Ask for access' }).click();
 		await expect(page.getByText(/You asked on/)).toBeVisible();
-		const kit = new URL(page.url()).pathname;
+		await page.goto(kit);
+		await expect(page.getByText(/You asked on/)).toBeVisible();
 		await signOut(page);
 
-		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await signIn(page, 'neon.test', 'neon-pass', access);
 		await expectAccessible(page);
 		await page
 			.getByRole('listitem')
@@ -275,7 +317,7 @@ test.describe('signed in', () => {
 		await signOut(page);
 
 		// Each browser runs against the same network, so the owner takes access away again.
-		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await signIn(page, 'neon.test', 'neon-pass', access);
 		await page.getByRole('listitem').filter({ hasText: '@milo.test' }).getByRole('button', { name: 'Remove' }).click();
 		await expect(page.getByText('Access removed.')).toBeVisible();
 	});
@@ -301,7 +343,7 @@ test.describe('signed in', () => {
 	test('a DJ announces a show, cancels it, and deletes it', async ({ page }, testInfo) => {
 		const name = `Basement rave (${testInfo.project.name})`;
 		const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
-		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide/shows/new');
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/projects/neon-tide/shows/new');
 		await expectAccessible(page);
 		await page.locator('#name').fill(name);
 		await page.locator('#date').fill(date);
@@ -333,7 +375,7 @@ test.describe('signed in', () => {
 	});
 
 	test('a promoter sends a booking inquiry', async ({ page }) => {
-		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
+		await signIn(page, 'pat.test', 'pat-pass', '/dashboard/bookings/new?project=neon-tide');
 		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();
 		await expectAccessible(page);
 		await page.locator('#title').fill('Basement Sessions');
@@ -419,13 +461,13 @@ test.describe('keeps what people entered', () => {
 	);
 
 	test('a DJ with changes waiting goes back to them and sees the proposed photo', async ({ page }) => {
-		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide/edit');
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/projects/neon-tide/profile');
 		await page.locator('#avatar').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		const request = new URL(page.url()).pathname;
 
-		await page.goto('/projects/neon-tide/edit');
+		await page.goto('/dashboard/projects/neon-tide/profile');
 		await expect(page).toHaveURL(request);
 		await page.waitForLoadState('networkidle');
 		await page.getByRole('button', { name: 'Edit request' }).click();
@@ -445,7 +487,7 @@ test.describe('keeps what people entered', () => {
 	});
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {
-		await signIn(page, 'pat.test', 'pat-pass', '/projects/halflight/claim');
+		await signIn(page, 'pat.test', 'pat-pass', '/dashboard/claim/halflight');
 		await expectAccessible(page);
 		await page.getByLabel("I'm their booking agent").check();
 		await page.locator('#evidence').fill('I book them; see the bio link');
@@ -470,7 +512,7 @@ test.describe('keeps what people entered', () => {
 	});
 
 	test('the planner keeps a show that could not be saved, within the record limits', async ({ page }) => {
-		await signIn(page, 'pat.test', 'pat-pass', '/planner/shows/new');
+		await signIn(page, 'pat.test', 'pat-pass', '/dashboard/planner/shows/new');
 		await expect(page.locator('#title')).toHaveAttribute('maxlength', '120');
 		await expect(page.locator('#venue')).toHaveAttribute('maxlength', '120');
 		await expect(page.locator('#notes')).toHaveAttribute('maxlength', '2000');
@@ -488,7 +530,7 @@ test.describe('keeps what people entered', () => {
 
 	test('a failed save from the matcher keeps the search and the lineup picks', async ({ page }) => {
 		const place = `${'Long venue name '.repeat(8)}Berlin`;
-		await signIn(page, 'pat.test', 'pat-pass', '/me');
+		await signIn(page, 'pat.test', 'pat-pass');
 		await page.goto(`/match?go=1&place=${encodeURIComponent(place)}&lat=52.52&lng=13.405&radius=50&genres=techno`);
 		await page.waitForLoadState('networkidle');
 		const first = page.locator('ol > li').first();

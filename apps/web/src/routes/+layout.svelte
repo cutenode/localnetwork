@@ -27,13 +27,13 @@
 		{ key: 'D', href: '/for-djs', label: 'For DJs' },
 		{ key: 'O', href: '/tools', label: 'Tools' },
 		...(data.viewer
-			? [{ key: 'B', href: '/bookings', label: 'Bookings' }, ...(data.viewer.isStaff ? [{ key: 'T', href: '/admin', label: 'Staff', badge: data.pendingRequests }] : [])]
+			? [{ key: 'B', href: '/dashboard/bookings', label: 'Bookings' }, ...(data.viewer.isStaff ? [{ key: 'T', href: '/admin', label: 'Staff', badge: data.pendingRequests }] : [])]
 			: [])
 	]);
 
 	const menu = $derived(items.map((item) => ({ ...item, shortcut: shortcut(item.key) })));
 
-	const account = $derived(data.viewer ? { href: '/me', label: accountLabel(data.viewer), shortcut: shortcut('U') } : { href: '/login', label: 'Sign in', shortcut: shortcut('S') });
+	const account = $derived(data.viewer ? { href: '/dashboard', label: accountLabel(data.viewer), shortcut: shortcut('U') } : { href: '/login', label: 'Sign in', shortcut: shortcut('S') });
 
 	let menuOpen = $state(false);
 
@@ -45,7 +45,7 @@
 		h: '/',
 		a: '/about',
 		p: '/privacy',
-		n: '/projects/new',
+		n: '/dashboard/projects/new',
 		c: '/projects?unclaimed=on',
 		[data.viewer ? 'u' : 's']: account.href,
 		...Object.fromEntries(items.map((item) => [item.key.toLowerCase(), item.href]))
@@ -73,7 +73,7 @@
 
 <a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">Skip to content</a>
 
-<SiteHeader links={menu} {account} cta={{ href: '/projects/new', label: 'List your project', shortcut: shortcut('N') }} current={page.url.pathname} bind:open={menuOpen} />
+<SiteHeader links={menu} {account} cta={{ href: '/dashboard/projects/new', label: 'List your project', shortcut: shortcut('N') }} current={page.url.pathname} bind:open={menuOpen} />
 
 <main id="main" class="min-h-[60vh]">
 	{@render children()}

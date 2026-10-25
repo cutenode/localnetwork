@@ -2,6 +2,7 @@ import { createRawSnippet } from 'svelte';
 import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { Disc3, Globe, LayoutDashboard, NotebookPen } from '@lucide/svelte';
 import { colors } from '#lib/mix/report.ts';
 import { sampleReport } from '#lib/mix/sample.ts';
 import Badge from './Badge.svelte';
@@ -15,6 +16,7 @@ import Monogram from './Monogram.svelte';
 import Section from './Section.svelte';
 import SectionHeader from './SectionHeader.svelte';
 import SelectField from './SelectField.svelte';
+import SidebarLayout from './SidebarLayout.svelte';
 import SiteHeader from './SiteHeader.svelte';
 import Tag from './Tag.svelte';
 import TextField from './TextField.svelte';
@@ -271,7 +273,7 @@ describe('SiteHeader', () => {
 			links,
 			current: '/mixes',
 			account: { href: '/login', label: 'Sign in' },
-			cta: { href: '/projects/new', label: 'List your project' }
+			cta: { href: '/dashboard/projects/new', label: 'List your project' }
 		});
 		await expect.element(page.getByRole('link', { name: 'List your project' })).toBeInTheDocument();
 		const toggle = page.getByRole('button', { name: 'Menu' });
@@ -284,5 +286,82 @@ describe('SiteHeader', () => {
 		await expect.element(menu.getByRole('link', { name: 'Mixes' })).toHaveAttribute('aria-current', 'page');
 		await page.getByRole('button', { name: 'Close menu' }).click();
 		await expect.element(menu).not.toBeInTheDocument();
+	});
+});
+
+describe('SidebarLayout', () => {
+	const groups = [
+		{
+			items: [
+				{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
+				{ href: '/dashboard/planner', label: 'Planner', icon: NotebookPen, badge: 2 }
+			]
+		},
+		{
+			label: 'Projects',
+			items: Promise.resolve([{ href: '/dashboard/projects/neon-tide', label: 'Neon Tide', icon: Disc3 }])
+		}
+	];
+
+	const footer = [{ href: '/', label: 'View site', icon: Globe, exact: true }];
+
+	it('folds into a menu named for the current section on a phone, and closes once one is picked', async () => {
+		await render(SidebarLayout, {
+			label: 'Dashboard',
+			title: 'Dashboard',
+			groups,
+			footer,
+			current: '/dashboard/planner/shows/new',
+			children: text('Page')
+		});
+
+		await expect.element(page.getByText('Page')).toBeInTheDocument();
+		const toggle = page.getByRole('button', { name: 'Dashboard menu: Planner' });
+		await expect.element(toggle).toHaveAttribute('aria-expanded', 'false');
+
+		await toggle.click();
+		const nav = page.getByRole('navigation', { name: 'Dashboard' });
+		await expect.element(nav.getByRole('link', { name: 'Planner 2' })).toHaveAttribute('aria-current', 'page');
+		// An overview is current only on its own page.
+		await expect.element(nav.getByRole('link', { name: 'Overview' })).not.toHaveAttribute('aria-current');
+		await expect
+			.element(nav.getByRole('list', { name: 'Projects' }).getByRole('link', { name: 'Neon Tide' }))
+			.toHaveAttribute('href', '/dashboard/projects/neon-tide');
+		await expect.element(nav.getByRole('link', { name: 'View site' })).toHaveAttribute('href', '/');
+
+		nav
+			.getByRole('link', { name: 'View site' })
+			.element()
+			.addEventListener('click', (event) => event.preventDefault());
+		await nav.getByRole('link', { name: 'View site' }).click();
+		await expect.element(toggle).toHaveAttribute('aria-expanded', 'false');
+	});
+
+	it('names a page among the items that arrive later once they do', async () => {
+		await render(SidebarLayout, {
+			label: 'Dashboard',
+			title: 'Dashboard',
+			groups,
+			current: '/dashboard/projects/neon-tide/press-kits',
+			children: text('Page')
+		});
+
+		await expect.element(page.getByRole('button', { name: 'Dashboard menu: Neon Tide' })).toBeInTheDocument();
+	});
+
+	it('shows placeholders while a group is on its way, then names the area when no item is current', async () => {
+		await render(SidebarLayout, {
+			label: 'Dashboard',
+			title: 'Dashboard',
+			groups: [{ label: 'Projects', items: new Promise<never>(() => {}) }],
+			current: '/dashboard/projects/neon-tide',
+			children: text('Page')
+		});
+
+		await page.getByRole('button', { name: 'Dashboard menu: Dashboard' }).click();
+		const projects = page.getByRole('list', { name: 'Projects' });
+		await expect.element(projects).toHaveAttribute('aria-busy', 'true');
+		await expect.element(projects.getByRole('listitem').nth(1)).toBeInTheDocument();
+		await expect.element(projects.getByRole('link')).not.toBeInTheDocument();
 	});
 });
