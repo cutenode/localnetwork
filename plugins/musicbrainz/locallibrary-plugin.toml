@@ -1,0 +1,50 @@
+id = "musicbrainz"
+name = "MusicBrainz IDs"
+version = "0.1.0"
+protocol = "^0.2"
+# It reads the track it's asked about (its ISRC, title, artist, album and length), which takes
+# library:read, and asks MusicBrainz which recording that ISRC is.
+capabilities = ["library:read", "net:musicbrainz.org"]
+
+# MusicBrainz's limit: a request a second from each address, on average.
+[[net]]
+host = "musicbrainz.org"
+per_second = 1
+
+[[contributes.analyzers]]
+name = "ids"
+title = "MusicBrainz IDs, by ISRC"
+# The host keeps the IDs by this version: bump it when the matching changes, so tracks are looked
+# up again.
+version = "2"
+
+# Each ID a bare lowercase UUID, or null where MusicBrainz's answer leaves doubt (or the track has
+# no ISRC): the recording when only one of the ISRC's has the track's length (or without one its
+# title), of several its title too; the earliest release of it named as the track's album; an
+# artist for each name the track credits. Then the ISRC they were looked up by (null: none) and the
+# names the artists' go with.
+[contributes.analyzers.fields]
+recording = "string"
+release = "string"
+artists = "string[]"
+isrc = "string"
+credits = "string[]"
+
+# What `sets publish` reads a set's MusicBrainz IDs from, taking them only for a track still tagged
+# with that ISRC (and the artists' only for those credits). One recording is one recording,
+# whichever file it's in.
+[contributes.analyzers.roles]
+recording = "recording"
+release = "release"
+artists = "artists"
+isrc = "isrc"
+credits = "credits"
+identity = "recording"
+
+# MusicBrainz asks every program to say how to reach whoever runs it: the host sends this in the
+# User-Agent of the plugin's requests.
+[[contributes.settings]]
+key = "contact"
+title = "Contact for MusicBrainz (a web page or email address)"
+type = "string"
+default = "https://localnetwork.computer"

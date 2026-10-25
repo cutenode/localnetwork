@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "space",
-			"description": "The private part of one press kit, owned by the manager who published it. Anyone signed in can write a request into it; only its members (the owner, Local Network, and the people granted access) can read it.",
+			"description": "The private part of one press kit, owned by the Local Network root account, which alone writes its content and grants. Anyone signed in can write a request into it; only its members (the project's managers and the people granted access) can read it. Spaces made before the root held press kits are owned by the manager who made them, until that manager's next visit moves them.",
 			"key": "tid",
 			"name": "Local Network press kit",
 			"collections": [

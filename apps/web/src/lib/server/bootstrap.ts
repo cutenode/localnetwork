@@ -87,10 +87,13 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		watched.push(space);
 	}
 
-	try {
-		watched.push(...(await root.listSpaces(SPACE_TYPE.booking)));
-	} catch (error) {
-		core.logger.debug({ err: error }, 'could not list booking spaces');
+	// The root's spaces per booking thread, press kit and project backstage, which it creates as they're needed.
+	for (const type of [SPACE_TYPE.booking, SPACE_TYPE.epk, SPACE_TYPE.backstage]) {
+		try {
+			watched.push(...(await root.listSpaces(type)));
+		} catch (error) {
+			core.logger.debug({ err: error, type }, "could not list the root's spaces");
+		}
 	}
 
 	const first = await core.db.selectFrom('kv').select('value').where('key', '=', 'bootstrapped_at').executeTakeFirst();

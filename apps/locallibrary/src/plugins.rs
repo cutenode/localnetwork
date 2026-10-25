@@ -44,6 +44,11 @@ const FIRST_PARTY: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/first_
 #[cfg(debug_assertions)]
 const TEST_PLUGINS: &str = "LOCALLIBRARY_TEST_PLUGINS";
 
+/// Set by the CLI's tests: plugins reach no server but this computer's
+/// ([`locallibrary::plugin::Options::test_offline`]). Only in builds with debug assertions.
+#[cfg(debug_assertions)]
+const TEST_OFFLINE: &str = "LOCALLIBRARY_TEST_OFFLINE";
+
 #[cfg(debug_assertions)]
 #[path = "../../../crates/locallibrary/src/bin/test-plugin/plugin.rs"]
 mod test_plugin;
@@ -132,7 +137,12 @@ fn load() -> Result<Loaded> {
         Some(log) => log(id, line),
         None => stderr(id, line),
     });
-    let options = Options { notices: events::notices(log.clone()), log, ..Options::default() };
+    let mut options = Options { notices: events::notices(log.clone()), log, ..Options::default() };
+    // The CLI's tests: no plugin they run goes online (to MusicBrainz, say).
+    #[cfg(debug_assertions)]
+    {
+        options.test_offline = std::env::var_os(TEST_OFFLINE).is_some();
+    }
     let plugins = Plugins::new(specs, Arc::new(SidecarReads), options)?;
     events::tell_applied();
     // What core reads tracks' keys, tempos and levels from.

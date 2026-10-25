@@ -272,9 +272,9 @@ const BLEND_SECS: f64 = 8.0;
 /// The longest transition the Lexicon takes, in milliseconds.
 const TRANSITION_LIMIT_MS: f64 = 600_000.0;
 
-/// `mbid:<uuid>`, as teal.fm writes a MusicBrainz ID.
+/// A MusicBrainz ID as teal.fm writes one: the bare UUID, lowercase and hyphenated.
 fn mbid(id: Uuid) -> String {
-    format!("mbid:{id}")
+    id.to_string()
 }
 
 /// Whether the Lexicon takes `s` as an artist's or a release's name: a longer one is left out
@@ -284,10 +284,11 @@ fn fits_name(s: &str) -> bool {
 }
 
 /// The artists `e` credits, one by one, as the profile counts them, with their MusicBrainz IDs
-/// when the tags have as many as the credit names (Picard tags them in the credit's order).
+/// when the set has as many as the credit names (Picard tags them in the credit's order, and an
+/// analyzer's `artists` role answers them in the names').
 /// `None` when that says no more than the credit line: one artist, and no ID.
 fn artists(e: &SetEntry) -> Option<Vec<Value>> {
-    let names = crate::profile::artist_credits(&e.artist);
+    let names = crate::model::artist_credits(&e.artist);
     let ids = &e.musicbrainz.artists;
     let paired = ids.len() == names.len();
     let known = names.len() > 1 || (paired && !ids.is_empty());
@@ -352,12 +353,11 @@ fn set_track(e: &SetEntry, unidentified: bool, transition_in: Option<Value>) -> 
         return Value::Object(m);
     }
     let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
-    let isrc = e.isrc.trim().replace('-', "").to_ascii_uppercase();
     put(&mut m, "title", text(&e.title));
     put(&mut m, "artist", text(&e.artist));
     put(&mut m, "artists", artists(e));
     put(&mut m, "releaseName", text(&e.album).filter(|a| fits_name(a)));
-    put(&mut m, "isrc", (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc));
+    put(&mut m, "isrc", crate::model::isrc(&e.isrc));
     put(&mut m, "recordingMbId", e.musicbrainz.recording.map(mbid));
     put(&mut m, "releaseMbId", e.musicbrainz.release.map(mbid));
     // An infinite tempo is unknown, as `sets.json` keeps it.

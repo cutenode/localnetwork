@@ -18,6 +18,7 @@ exclude-dev = true
 # workspace depends on them directly; deeper ones are for the crates that pull them in.
 unmaintained = "workspace"
 yanked = "warn"
+# osv-scanner.toml ignores the same two for Scorecard, with the same reasons.
 ignore = [
     # rsa's Marvin attack (timing side channel in RSA decryption; no fixed release). It comes
     # in through jacquard-oauth's jose-jwk, for JWK types. Sign-in signs with an ES256 DPoP key

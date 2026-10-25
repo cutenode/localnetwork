@@ -27,7 +27,7 @@
 		},
 		"access": {
 			"type": "object",
-			"description": "Who can ask to see the private part of a press kit, and whether they get it straight away. Each audience is auto (approved at once), review (the owner decides) or none (can't ask). Someone in several audiences gets the most open of their answers. The owner can always add people directly.",
+			"description": "Who can ask to see the private part of a press kit, and whether they get it straight away. Each audience is auto (approved at once), review (a manager decides) or none (can't ask). Someone in several audiences gets the most open of their answers. Managers can always add people directly.",
 			"required": ["anyone", "promoters", "following", "bookedWith"],
 			"properties": {
 				"anyone": { "type": "ref", "ref": "#accessRule", "description": "Anyone signed in." },
@@ -36,7 +36,11 @@
 					"ref": "#accessRule",
 					"description": "Accounts that have sent a booking inquiry on Local Network."
 				},
-				"following": { "type": "ref", "ref": "#accessRule", "description": "Accounts the owner follows on Bluesky." },
+				"following": {
+					"type": "ref",
+					"ref": "#accessRule",
+					"description": "Accounts one of the project's managers follows on Bluesky."
+				},
 				"bookedWith": {
 					"type": "ref",
 					"ref": "#accessRule",

@@ -9,7 +9,7 @@ import {
 	type EpkQuote,
 	type EpkFormPhoto,
 	type EpkFormValues,
-	type EpkRecord,
+	type EpkFields,
 	presetFor,
 	readRule,
 	type Visibility
@@ -40,12 +40,10 @@ const visibility = (value: string): Visibility => (value === 'private' || value 
 const all = (form: FormData, name: string) =>
 	form.getAll(name).map((value) => (value instanceof File ? '' : value.trim()));
 
-/** The form's starting values: a new press kit shows every project mix publicly. */
-export function epkFormValues(
-	projectMixes: ProjectMix[],
-	record?: EpkRecord,
-	content?: EpkContent | null
-): EpkFormValues {
+/** The form's starting values, from a press kit's fields: a new press kit shows every project mix publicly. */
+export function epkFormValues(projectMixes: ProjectMix[], record?: EpkFields): EpkFormValues {
+	const content = record?.content;
+
 	const where = (url: string): Visibility => {
 		if (!record) return 'public';
 

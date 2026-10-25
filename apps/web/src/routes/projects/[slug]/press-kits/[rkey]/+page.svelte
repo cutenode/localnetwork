@@ -9,11 +9,12 @@
 	import EpkPhotos from '#lib/components/epk/EpkPhotos.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import { pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
 
 	/**
-	 * A press kit published as records: the public part for everyone, and the rest for its owner and
+	 * A press kit published as records: the public part for everyone, and the rest for its project's managers and
 	 * the people they let in. It reads like a document and prints on white.
 	 */
 	let { data }: PageProps = $props();
@@ -26,13 +27,13 @@
 
 	const content = $derived(data.content);
 
-	const base = $derived(`/epk/${epk.did}/${epk.rkey}`);
+	const base = $derived(pressKitPath(data.project.slug, epk.rkey));
 
 	const mixes = $derived([...(record.mixes ?? []), ...(content?.mixes ?? []).map((mix) => ({ ...mix, onRequest: true }))]);
 
 	const photos = $derived([...(record.photos ?? []), ...(content?.photos ?? []).map((photo) => ({ ...photo, onRequest: true }))]);
 
-	const isOwner = $derived(data.access.kind === 'owner');
+	const isManager = $derived(data.access.kind === 'manager');
 
 	let copied = $state(false);
 
@@ -53,9 +54,9 @@
 </svelte:head>
 
 <div class="container-page flex flex-wrap items-center justify-between gap-3 pt-6 print:hidden">
-	<a href="/projects/{data.project.slug}/epk" class="menu-link inline-flex items-center gap-1.5 text-small"><ArrowLeft class="size-4" />{profile.name}'s press kits</a>
+	<a href="/projects/{data.project.slug}/press-kits" class="menu-link inline-flex items-center gap-1.5 text-small"><ArrowLeft class="size-4" />{profile.name}'s press kits</a>
 	<div class="flex flex-wrap gap-2">
-		<ManageLink viewer={data.viewer} project={data.project} section={isOwner ? `press-kits/${epk.did}/${epk.rkey}` : 'press-kits'} size="sm" />
+		<ManageLink viewer={data.viewer} project={data.project} section={isManager ? `press-kits/${epk.rkey}` : 'press-kits'} size="sm" />
 		<button type="button" class="btn-secondary btn-sm" onclick={copyLink}>{#if copied}<Check class="size-4" />Copied{:else}<Copy class="size-4" />Copy link{/if}</button>
 		<button type="button" class="btn-primary btn-sm" onclick={() => window.print()}><Printer class="size-4" />Print or save as PDF</button>
 	</div>
@@ -151,14 +152,14 @@
 					{#if content.techRider}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Tech rider</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.techRider}</dd></div>{/if}
 				</dl>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isOwner}{' '}<a class="link" href="/dashboard/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
+				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isManager}{' '}<a class="link" href="/dashboard/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
 			{/if}
 		</section>
-	{:else if data.access.kind !== 'owner' && data.access.kind !== 'granted'}
-		<EpkAccessCard access={data.access} name={profile.name} askHref="/dashboard/access/{epk.did}/{epk.rkey}" />
+	{:else if data.access.kind !== 'manager' && data.access.kind !== 'granted'}
+		<EpkAccessCard access={data.access} name={profile.name} askHref="/dashboard/access/{data.project.slug}/{epk.rkey}" />
 	{/if}
 
 	<footer class="border-t border-line pt-4 text-caption text-fg-subtle">
-		Published by {epk.owner.handle ? `@${epk.owner.handle}` : epk.did} on the AT Protocol: <span class="font-mono break-all">{epk.uri}</span>
+		Published on the AT Protocol: <span class="font-mono break-all">{epk.uri}</span>
 	</footer>
 </article>

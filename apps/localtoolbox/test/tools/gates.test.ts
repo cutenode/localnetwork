@@ -1371,7 +1371,7 @@ describe('Laylo', () => {
 		});
 
 		expect(await laylo.unlock(DROP, ME)).toMatchObject({ kind: 'file' });
-		expect(calls.some((call) => call.url.includes('events.laylo.com'))).toBe(false);
+		expect(calls.some((call) => new URL(call.url).hostname === 'events.laylo.com')).toBe(false);
 
 		net({
 			'//laylo.com/': () => res(page()),
