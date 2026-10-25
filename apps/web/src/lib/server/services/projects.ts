@@ -125,8 +125,9 @@ export class ProjectService {
 	}
 
 	/**
-	 * Brings every project's spaces in line with its managers (run at startup), finishing any sync that failed part
-	 * way. It reads the projects from the root's own repo, since a directory that's behind would undo a recent change.
+	 * Brings every project's spaces in line with its managers (run at startup and every hour), finishing any sync that
+	 * failed part way. It reads the projects from the root's own repo, since a directory that's behind would undo a
+	 * recent change.
 	 */
 	async reconcileManagerSpaces(): Promise<void> {
 		const records = await (await this.core.root()).listRecords(COLLECTION.project);
@@ -169,6 +170,16 @@ export class ProjectService {
 		const { project } = await this.directory.query('getProject', { uri });
 
 		return project ? this.toView(project) : null;
+	}
+
+	/** A project as the root's own repo has it now, for a read that a directory still indexing a change would get wrong. */
+	async current(uri: string): Promise<ProjectView | null> {
+		const rkey = this.projectRkey(uri);
+
+		if (!rkey) return null;
+		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.project, rkey });
+
+		return stored && this.toView({ uri: stored.uri, cid: stored.cid, record: stored.value });
 	}
 
 	async byUris(uris: string[]): Promise<Map<string, ProjectView>> {

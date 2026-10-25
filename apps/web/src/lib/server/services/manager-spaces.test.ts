@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
+import type { JsonRecord } from '../atproto/repo-client';
 import type { ProjectView } from '#lib/types.ts';
 import { spaceRecordUri } from '../atproto/spaces';
 import { ForbiddenError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
+import type { BookingRecord } from './bookings';
 import { FakeRootClient } from '../testing/fakes';
 
 const ADMIN = 'did:plc:admin';
@@ -169,14 +171,144 @@ describe('ManagerSpaces', () => {
 		expect(await threadsOf(NEW)).toEqual([open]);
 	});
 
-	it("leaves a space whose members it can't read for the next reconcile", async () => {
+	it("fails closed on a space whose members it can't read, and finishes it on the next reconcile", async () => {
 		const open = await thread('open');
 		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValueOnce(new Error('space host is down'));
 
-		await setManagers([OLD, NEW]);
+		await setManagers([NEW]);
+
+		expect(await threadsOf(OLD)).toEqual([]);
+		expect(await threadsOf(NEW)).toEqual([]);
 		expect(members(open)).toEqual([OLD, PROMOTER].sort());
 
 		await t.projects.reconcileManagerSpaces();
+		expect(members(open)).toEqual([NEW, PROMOTER].sort());
+		expect(await threadsOf(NEW)).toEqual([open]);
+	});
+
+	describe('a promoter who points their inquiry at another project', () => {
+		let open: string;
+		let other: ProjectView;
+
+		beforeEach(async () => {
+			open = await thread('open');
+
+			other = await t.projectAdmin.create({
+				actor: await t.viewer(ADMIN),
+				profile: { ...project.profile, name: 'Other' },
+				managers: [NEW]
+			});
+
+			const [key, inquiry] = t.net.spaceRecords
+				.entries()
+				.find(([stored]) => stored.startsWith(`${open}|${PROMOTER}|${COLLECTION.bookingInquiry}|`))!;
+
+			t.net.spaceRecords.set(key, { ...inquiry, value: { ...inquiry.value, project: other.uri } });
+		});
+
+		/**
+		 * Loses the local index of the thread and reads it back from the space, `first` repo's records first, with
+		 * `opening` rewriting the root's.
+		 */
+		const rebuild = async (first: string, opening?: (value: JsonRecord) => JsonRecord) => {
+			for (const table of ['bookingEvent', 'bookingParticipant', 'bookingThread'] as const)
+				await t.db.deleteFrom(table).execute();
+
+			for (const repo of [first, first === ROOT ? PROMOTER : ROOT]) {
+				for (const record of t.net.spaceRecordsIn(open, repo)) {
+					const collection = record.uri.split('/').at(-2)!;
+					// SAFETY: the app wrote these records, each a booking record its lexicon checked.
+					const value = (repo === ROOT && opening ? opening(record.value) : record.value) as BookingRecord;
+					await t.bookings.indexEvent({ space: open, uri: record.uri, repoDid: repo, collection, value });
+				}
+			}
+		};
+
+		it.each([PROMOTER, ROOT])('keeps the project the root opened the thread with (%s indexed first)', async (first) => {
+			await rebuild(first);
+
+			const { thread: view } = await t.bookings.thread(await t.viewer(PROMOTER), open);
+			expect(view.project?.uri).toBe(project.uri);
+			await t.projects.reconcileManagerSpaces();
+			expect(members(open)).toEqual([OLD, PROMOTER].sort());
+			expect(await threadsOf(OLD)).toEqual([open]);
+		});
+
+		/** Drops the opening record's project, as a thread opened before it named one has none. */
+		const legacy = ({ project: _project, ...value }: JsonRecord) => value;
+
+		/** Loses the local audit log and reads back `repo`'s copies of it from the audit space. */
+		const rebuildAudit = async (repo: string) => {
+			await t.audit.idle();
+			await t.db.deleteFrom('auditEntry').execute();
+
+			for (const { uri, cid, value } of t.net.spaceRecordsIn(t.spaces.audit, repo))
+				await t.audit.onSyncedCopy({ uri, repoDid: repo, rkey: uri.split('/').at(-1)!, cid, value });
+		};
+
+		it("vouches for a thread opened before the opening record named a project with the root's audit copy", async () => {
+			await rebuild(PROMOTER, legacy);
+			await rebuildAudit(ROOT);
+
+			await setManagers([NEW]);
+			expect(members(open)).toEqual([NEW, PROMOTER].sort());
+			expect(await threadsOf(NEW)).toEqual([open]);
+			expect(await threadsOf(OLD)).toEqual([]);
+		});
+
+		it("doesn't take a project from the promoter's own audit copy, even one with a chain", async () => {
+			await rebuild(PROMOTER, legacy);
+			await t.audit.idle();
+
+			const [key, copy] = t.net.spaceRecords
+				.entries()
+				.find(
+					([stored, { value }]) =>
+						stored.startsWith(`${t.spaces.audit}|${PROMOTER}|`) && value.action === 'booking.create'
+				)!;
+
+			const forged = { ...copy.value, details: { project: other.uri }, chain: { seq: 1, prev: '', hash: 'forged' } };
+			t.net.spaceRecords.set(key, { ...copy, value: forged });
+			await rebuildAudit(PROMOTER);
+			expect(await t.audit.list({ action: 'booking.create' })).toEqual([]);
+
+			await t.projects.reconcileManagerSpaces();
+			expect(members(open)).toEqual([OLD, PROMOTER].sort());
+			expect(await threadsOf(NEW)).toEqual([]);
+		});
+
+		it('leaves a thread alone when its opening record and audit entry name different projects', async () => {
+			await t.audit.idle();
+
+			await t.db
+				.updateTable('auditEntry')
+				.set({ details: JSON.stringify({ project: other.uri }) })
+				.where('action', '=', 'booking.create')
+				.where('subject', '=', open)
+				.execute();
+
+			await setManagers([NEW]);
+			expect(members(open)).toEqual([OLD, PROMOTER].sort());
+			expect(await threadsOf(NEW)).toEqual([]);
+		});
+	});
+
+	it("opens a thread with the managers in the root's repo while the directory is still behind", async () => {
+		const { value } = t.net.records.get(`${ROOT}|${COLLECTION.project}|${project.rkey}`)!;
+		const ingest = t.net.onRecord;
+		// HappyView hasn't heard of the change yet.
+		t.net.onRecord = async () => {};
+
+		await t.net.client(ROOT).putRecord({
+			collection: COLLECTION.project,
+			rkey: project.rkey,
+			record: { ...value, managers: [OLD, NEW] }
+		});
+
+		t.net.onRecord = ingest;
+		expect((await t.projects.byUri(project.uri))?.managers).toEqual([OLD]);
+		const open = await thread('open');
 		expect(members(open)).toEqual([NEW, OLD, PROMOTER].sort());
+		expect(await threadsOf(NEW)).toEqual([open]);
 	});
 });

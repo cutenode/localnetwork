@@ -1,4 +1,5 @@
 import type { Core } from '../core';
+import { auditedProjects, openedProjects } from './bookings';
 
 /**
  * Whether a manager who joins the project now has a part in a booking: it's still being worked out, or it's confirmed
@@ -18,7 +19,9 @@ type ManagerSpace = {
 	joinable: boolean;
 	/** Members who aren't there as managers, like a booking's promoter, so the sync never adds or removes them. */
 	others: string[];
-	/** Keeps the app's own record of which managers are members, which its access checks read. */
+	/** The managers the app's own record has as members, which its access checks read. */
+	recorded(): Promise<string[]>;
+	/** Keeps that record. */
 	record(managers: string[]): Promise<void>;
 };
 
@@ -34,20 +37,69 @@ export class ManagerSpaces {
 		for (const space of await this.spaces(projectUri)) await this.syncSpace(space, managers);
 	}
 
-	/** The project's booking threads: the promoter stays in each, and only live ones take new managers. */
+	/**
+	 * The project's booking threads: the promoter stays in each, and only live ones take new managers. The promoter can
+	 * rewrite their inquiry to point anywhere, so a thread counts only when a record the root wrote ties it to the
+	 * project: its opening record, or for a thread opened before that named one, its audit entry.
+	 */
 	private async spaces(projectUri: string): Promise<ManagerSpace[]> {
-		const threads = await this.core.db
-			.selectFrom('bookingThread')
-			.select(['spaceUri', 'promoterDid', 'status', 'showDate'])
-			.where('projectUri', '=', projectUri)
-			.execute();
+		const { db } = this.core;
 
-		return threads.map((thread) => ({
-			uri: thread.spaceUri,
-			joinable: isLiveBooking(thread.status, thread.showDate),
-			others: [thread.promoterDid],
-			record: (managers) => this.recordBookingManagers(thread.spaceUri, managers)
-		}));
+		const named = await Promise.all([
+			db.selectFrom('bookingThread').select('spaceUri').where('projectUri', '=', projectUri).execute(),
+			openedProjects(this.core, projectUri).execute(),
+			auditedProjects(this.core, projectUri).execute()
+		]);
+
+		const spaces = [...new Set(named.flat().map((row) => row.spaceUri))];
+
+		if (spaces.length === 0) return [];
+
+		const [threads, opened, audited] = await Promise.all([
+			db
+				.selectFrom('bookingThread')
+				.select(['spaceUri', 'promoterDid', 'status', 'showDate'])
+				.where('spaceUri', 'in', spaces)
+				.execute(),
+			openedProjects(this.core).where('spaceUri', 'in', spaces).execute(),
+			auditedProjects(this.core).where('subject', 'in', spaces).execute()
+		]);
+
+		const openedBy = new Map(opened.map((row) => [row.spaceUri, row.project]));
+		const auditedBy = new Map(audited.map((row) => [row.spaceUri, row.project]));
+
+		return threads.flatMap((thread) => {
+			const space = thread.spaceUri;
+			const [fromOpening, fromAudit] = [openedBy.get(space), auditedBy.get(space)];
+
+			if (fromOpening && fromAudit && fromOpening !== fromAudit) {
+				this.core.logger.warn(
+					{ space, opening: fromOpening, audit: fromAudit },
+					'skipping a booking thread whose opening record and audit entry name different projects'
+				);
+
+				return [];
+			}
+
+			if ((fromOpening ?? fromAudit) !== projectUri) {
+				this.core.logger.info(
+					{ space, project: projectUri },
+					'skipping a booking thread no root record ties to the project'
+				);
+
+				return [];
+			}
+
+			return [
+				{
+					uri: space,
+					joinable: isLiveBooking(thread.status, thread.showDate),
+					others: [thread.promoterDid],
+					recorded: () => this.recordedBookingManagers(space),
+					record: (managers) => this.recordBookingManagers(space, managers)
+				}
+			];
+		});
 	}
 
 	private async syncSpace(space: ManagerSpace, managers: string[]): Promise<void> {
@@ -57,7 +109,10 @@ export class ManagerSpaces {
 		try {
 			members = new Set((await root.listMembers(space.uri)).map((member) => member.did));
 		} catch (error) {
+			// Fail closed: a manager who left still loses access in the app, and nobody joins until the space can be read.
 			this.core.logger.warn({ err: error, space: space.uri }, "could not read a space's members");
+			const recorded = new Set(await space.recorded());
+			await space.record(managers.filter((did) => recorded.has(did)));
 
 			return;
 		}
@@ -92,6 +147,17 @@ export class ManagerSpaces {
 
 		if (joined.length > 0 || left.length > 0)
 			this.core.logger.info({ space: space.uri, joined, left }, "updated a space's managers");
+	}
+
+	private async recordedBookingManagers(space: string): Promise<string[]> {
+		const rows = await this.core.db
+			.selectFrom('bookingParticipant')
+			.select('did')
+			.where('spaceUri', '=', space)
+			.where('role', '=', 'manager')
+			.execute();
+
+		return rows.map((row) => row.did);
 	}
 
 	private async recordBookingManagers(space: string, managers: string[]): Promise<void> {
