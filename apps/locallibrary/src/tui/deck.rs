@@ -9,19 +9,25 @@ use locallibrary::anlz::{Beat, Cue, TrackAnalysis};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
-use super::app::{App, Level, View};
+use super::app::{App, Level, Msg, View};
+use super::audio::Listed;
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
 pub const PADS: u8 = 8;
 
 /// The outputs listed to pick from (`d`).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Outputs {
     /// The devices' names; the list shows "the system's default" before them.
     pub names: Vec<String>,
     /// Which of them is the default.
     pub default: Option<String>,
+    /// The listing of the devices still running (see `Msg::Outputs`), so one that comes back
+    /// after the list was closed or opened again is dropped.
+    pub listing: Option<u64>,
+    /// Why the devices couldn't be listed.
+    pub failed: Option<String>,
     pub state: ListState,
 }
 
@@ -326,12 +332,29 @@ impl App {
 // The output
 // ---------------------------------------------------------------------------------------------
 
-/// `d`: list the outputs, the one playing selected.
+/// `d`: list the outputs. The list opens at once with the system's default, and the devices are
+/// listed in the background: that can take a while, and keys pressed meanwhile mustn't go astray.
 pub fn list_outputs(app: &mut App) {
-    let (names, default) = (app.outputs.list)();
+    let (id, list) = (app.next_id(), app.outputs.list);
+    let state = ListState::default().with_selected(Some(0));
+    app.deck.outputs = Some(Outputs { listing: Some(id), state, ..Default::default() });
+    app.spawn_or(move || Msg::Outputs(id, list().map_err(|e| format!("{e:#}"))), move |e| Msg::Outputs(id, Err(e)));
+}
+
+/// The devices listed for listing `id`, the one playing selected; dropped when the list has been
+/// closed or opened again since.
+pub fn listed_outputs(app: &mut App, id: u64, listed: Result<Listed, String>) {
     let playing = app.audio.as_ref().and_then(|a| a.device().map(str::to_string));
-    let at = playing.and_then(|p| names.iter().position(|n| *n == p)).map_or(0, |i| i + 1);
-    app.deck.outputs = Some(Outputs { names, default, state: ListState::default().with_selected(Some(at)) });
+    let Some(o) = app.deck.outputs.as_mut().filter(|o| o.listing == Some(id)) else { return };
+    o.listing = None;
+    match listed {
+        Ok((names, default)) => {
+            let at = playing.and_then(|p| names.iter().position(|n| *n == p)).map_or(0, |i| i + 1);
+            o.state.select(Some(at));
+            (o.names, o.default) = (names, default);
+        }
+        Err(e) => o.failed = Some(e),
+    }
 }
 
 /// Keys while the outputs are listed: move, pick one, or close the list.

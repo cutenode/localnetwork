@@ -259,6 +259,16 @@ export class FakeRootClient implements RootRepoClient {
 		return 'fake-delegation-token';
 	}
 
+	async listRecords(collection: string): Promise<StoredRecord[]> {
+		const prefix = `${this.did}|${collection}|`;
+
+		return this.net.records
+			.entries()
+			.filter(([key]) => key.startsWith(prefix))
+			.map(([, value]) => value)
+			.toArray();
+	}
+
 	async listSpaces(spaceType: string): Promise<string[]> {
 		const spaces = new Set<string>();
 

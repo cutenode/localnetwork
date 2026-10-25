@@ -12219,6 +12219,16 @@
         "set": {
           "type": "string",
           "description": "The set: its id (or the start of it), title or day, or `last`."
+        },
+        "hide": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "description": "Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed\nand tracks the profile hides (`profile hide`) are never named either.",
+          "default": []
         }
       },
       "required": [
@@ -31313,8 +31323,8 @@
           "description": "A JSON Schema for its options (an object)."
         },
         "source": {
-          "$ref": "#/$defs/ExportFrom",
-          "description": "What it writes out [default: a drive's library]."
+          "$ref": "#/$defs/ExportSources",
+          "description": "What it writes out [default: a drive's library]: one source (`\"set\"`), or a list of them\n(`[\"drive\", \"set\", \"mix\"]`) for an exporter that writes each out the same way."
         }
       },
       "required": [
@@ -31323,6 +31333,20 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "ExportSources": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExportFrom"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportFrom"
+          }
+        }
+      ],
+      "description": "What an exporter writes out, as its manifest says it: one source, or a list."
     },
     "ExportFrom": {
       "oneOf": [
@@ -32119,6 +32143,13 @@
           "items": {
             "$ref": "#/$defs/ChoiceItem"
           }
+        },
+        "more": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginChoice"
+          },
+          "description": "Questions asked after this one before the hook runs again, each about a param of its own\n(and asking none of its own). A host that doesn't know them asks this one alone, so a hook\nstill asks what's left when it's run again."
         }
       },
       "required": [
@@ -32416,7 +32447,7 @@
           ]
         }
       ],
-      "description": "What planning a plugin's operation comes to: its plan, or a question for the user first, after\nwhich it's planned again with the param set ([`Choice::answered`])."
+      "description": "What planning a plugin's operation comes to: its plan, or a question for the user first, after\nwhich it's planned again with each of its params set ([`Choice::answered`])."
     },
     "PluginExport": {
       "type": "object",
@@ -32768,7 +32799,7 @@
           "items": {
             "$ref": "#/$defs/Offer"
           },
-          "description": "Each track something was found for, in the library's order."
+          "description": "Each track something was found for (tags only when they'd change it), in the library's\norder."
         },
         "images": {
           "type": "object",
@@ -33723,7 +33754,7 @@
           "required": [
             "event"
           ],
-          "description": "It tells the user something (`host/notify`), and may suggest one of its operations, which\na front end offers to plan (`plugins.op.plan`): never planned or applied unless the user\nchooses to."
+          "description": "It tells the user something (`host/notify`), and may suggest one of its operations, which\na front end offers to plan (`plugins.op.plan`), or one of the host's actions on its own\ncontributions, which a front end offers to start as the user would: never planned or\napplied unless the user chooses to."
         }
       ],
       "description": "What a plugin did."
@@ -33742,7 +33773,178 @@
         "name",
         "params"
       ],
-      "description": "One of the plugin's operations, with its params, suggested to the user."
+      "description": "What a plugin suggests (`host/notify`): an operation's or an action's name, and its params."
+    },
+    "HostAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "art.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "track.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "export"
+            },
+            "params": {
+              "$ref": "#/$defs/ExportAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Export in one of its formats, to where the user picks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "analyze"
+            },
+            "params": {
+              "$ref": "#/$defs/AnalyzeAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
+        }
+      ],
+      "description": "One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it\nwith these params filled in, and it's planned and confirmed as when the user starts it. Each is\non the plugin's own contributions alone, so it never starts another plugin's work."
+    },
+    "FetchAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name (as events name it)."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this provider of the plugin's [default: each of its providers of the kind]."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`art.fetch`'s and `track.fetch`'s params."
+    },
+    "ExportAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "One of the plugin's exporters, by format."
+        },
+        "drive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set exporter's set."
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix exporter's mix."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "As the exporter's `options` schema says."
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
+    },
+    "AnalyzeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analyzer": {
+          "type": "string",
+          "description": "One of the plugin's analyzers."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        }
+      },
+      "required": [
+        "analyzer",
+        "drive"
+      ],
+      "description": "`analyze`'s params."
     },
     "PluginNotice": {
       "type": "object",
@@ -33755,21 +33957,17 @@
           "type": "string"
         },
         "operation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Suggested"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/$defs/Suggested"
+        },
+        "action": {
+          "$ref": "#/$defs/HostAction"
         }
       },
       "required": [
         "plugin",
         "message"
       ],
-      "description": "A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with\nits params: the front end offers to plan it, and the user confirms it as any plan."
+      "description": "A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of\nits operations (`operation`) or one of the host's actions (`action`) on its own contributions.\nThe front end offers to start it, and the user confirms it as when they start it themselves."
     },
     "ErrorData": {
       "type": "object",

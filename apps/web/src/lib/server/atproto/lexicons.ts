@@ -47,6 +47,7 @@ import spaceModeration from '../../../../../../lexicons/computer/localnetwork/sp
 import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space/planner.json' with { type: 'json' };
 import spaceStaff from '../../../../../../lexicons/computer/localnetwork/space/staff.json' with { type: 'json' };
 import staffRole from '../../../../../../lexicons/computer/localnetwork/staff/role.json' with { type: 'json' };
+import { VERIFICATION } from '#lib/nsid.ts';
 
 /** Every Local Network lexicon this app uses, for validation and publishing. */
 export const LEXICON_DOCS = [
@@ -113,8 +114,13 @@ export const REFERENCED_NSIDS = [
 /** strongRef, as the AT Protocol's own client library ships it. */
 const STRONG_REF = schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef').map((doc) => parseLexiconDoc(doc));
 
-/** Other apps' records this app writes for its users: bug reports on userinput.app. Only validated, never published or indexed. */
-const WRITTEN_DOCS = [discussion].map((doc) => parseLexiconDoc(doc));
+/**
+ * Other apps' records this app writes: bug reports on userinput.app for its users, and Bluesky verifications from the
+ * root account, as the AT Protocol's client library ships that lexicon. Only validated, never published or indexed.
+ */
+const WRITTEN_DOCS = [discussion, ...schemas.filter((doc) => doc.id === VERIFICATION)].map((doc) =>
+	parseLexiconDoc(doc)
+);
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
 export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...STRONG_REF, ...WRITTEN_DOCS]));

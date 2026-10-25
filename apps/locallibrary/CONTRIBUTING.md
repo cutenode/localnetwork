@@ -38,9 +38,9 @@ skips changes to Markdown alone.
 The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrary-plugin-<id>`),
 written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
-them into its binary (`apps/locallibrary/src/plugins.rs`). Their tests sit beside their code,
-driving the plugin over in-memory pipes with a fake host; the CLI's tests run them through the
-real one.
+every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
+Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host; the
+CLI's tests run them through the real one.
 
 **Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
 clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
@@ -281,7 +281,7 @@ working folder of its own, so files it writes stay in the run's folder; it lets 
 edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --seed 7`).
+print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
 
 ## Releasing
 

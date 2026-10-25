@@ -197,7 +197,7 @@ fn queued_tracks_follow_without_a_gap() {
 /// Made-up outputs for tests (which never open the machine's): the default, and "Phones".
 /// What plays through them goes nowhere.
 pub const OUTPUTS: Outputs = Outputs {
-    list: || (vec!["Phones".into()], None),
+    list: || Ok((vec!["Phones".into()], None)),
     open: |name| match name {
         Some("Phones") | None => {
             let (mut a, _) = Audio::offline(8000);
@@ -218,7 +218,7 @@ fn outputs_by_name_fall_back_to_the_default() {
     assert_eq!(audio.unwrap().device(), None, "the default");
     let (audio, why) = outputs.open_preferring(Some("Phones"));
     assert_eq!((audio.unwrap().device(), why), (Some("Phones"), None));
-    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().0.is_empty());
+    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().unwrap().0.is_empty());
 }
 
 /// The silent output plays to no one, at the pace a device would: half a second on, the track
@@ -228,7 +228,7 @@ fn the_silent_output_plays_in_real_time() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ten-seconds.wav");
     std::fs::write(&path, wav(8000, 80_000, 1000)).unwrap();
-    assert!((Outputs::SILENT.list)().0.is_empty());
+    assert!((Outputs::SILENT.list)().unwrap().0.is_empty());
     let mut audio = (Outputs::SILENT.open)(None).unwrap();
     audio.play(open_file(&path).unwrap(), false);
     std::thread::sleep(ms(500));

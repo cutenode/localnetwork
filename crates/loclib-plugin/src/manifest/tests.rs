@@ -5,9 +5,9 @@ use serde_json::{Map, json};
 
 use super::*;
 use crate::{
-    Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, Exporter, FieldDisplay,
-    FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation, Panel,
-    Provider, ProviderKind, Role, Service, Theme, When, code,
+    Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources, Exporter,
+    FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation,
+    Panel, Provider, ProviderKind, Role, Service, Theme, When, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -422,22 +422,30 @@ fn exporters_write_a_file_or_a_folder() {
 
 #[test]
 fn an_exporter_of_sets_or_mixes_reads_sets() {
+    // `source` as TOML has it: one name, or a list.
     let exporter = |source: &str, grants: &str| {
         problem(&format!(
             "capabilities = [{grants}]\n[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nfolder = true\n\
-             source = \"{source}\"\n"
+             source = {source}\n"
         ))
     };
-    assert_eq!(exporter("drive", ""), "");
-    assert_eq!(exporter("set", "\"sets:read\""), "");
+    assert_eq!(exporter("\"drive\"", ""), "");
+    assert_eq!(exporter("\"set\"", "\"sets:read\""), "");
+    assert_eq!(exporter("[\"drive\", \"set\", \"mix\"]", "\"sets:read\""), "");
+    assert_eq!(exporter("[\"drive\"]", ""), "");
     let m =
         Manifest::parse(&format!("{HEAD}[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nfolder = true\n"));
-    assert_eq!(m.unwrap().contributes.exporters[0].source, ExportFrom::Drive, "unless it says");
+    assert_eq!(m.unwrap().contributes.exporters[0].sources(), [ExportFrom::Drive], "unless it says");
     let said =
         |what: &str| format!("contributes.exporters[0].source: reads {what}s, which needs the sets:read capability");
-    assert_eq!(exporter("set", ""), said("set"));
-    assert_eq!(exporter("mix", "\"library:read\""), said("mix"));
-    assert!(exporter("playlist", "").contains("unknown variant `playlist`"));
+    assert_eq!(exporter("\"set\"", ""), said("set"));
+    assert_eq!(exporter("\"mix\"", "\"library:read\""), said("mix"));
+    assert_eq!(exporter("[\"drive\", \"mix\"]", ""), said("mix"));
+    let wrong = |why: &str| format!("contributes.exporters[0].source: {why}");
+    assert_eq!(exporter("[]", ""), wrong("an exporter writes out a drive, a set or a mix"));
+    assert_eq!(exporter("[\"set\", \"drive\", \"set\"]", "\"sets:read\""), wrong("set is listed twice"));
+    assert!(!exporter("\"playlist\"", "").is_empty());
+    assert!(!exporter("[\"drive\", \"playlist\"]", "").is_empty());
 }
 
 #[test]
@@ -1266,7 +1274,17 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .map(|format| {
             let extension = tc.draw(gs::optional(gs::from_regex("[a-z0-9]{1,16}")));
             let (title, folder, options) = (title(tc), extension.is_none(), maybe_schema(tc));
-            Exporter { format, title, folder, extension, options, source: tc.draw(gs::sampled_from(sources.clone())) }
+            // One source as a name, or a list of any of them.
+            let source = match tc.draw(gs::booleans()) {
+                true => ExportSources::One(tc.draw(gs::sampled_from(sources.clone()))),
+                false => ExportSources::Several(
+                    tc.draw(gs::permutations(sources.clone()))
+                        .into_iter()
+                        .take(tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+                        .collect(),
+                ),
+            };
+            Exporter { format, title, folder, extension, options, source }
         })
         .collect();
     let kinds = vec![ImportKind::Fields, ImportKind::Cues, ImportKind::Tags, ImportKind::Sessions];
@@ -1295,7 +1313,8 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     let themes = drawn_names(tc, 3).into_iter().map(|name| Theme { name, title: title(tc), tokens: tokens(tc) });
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
     // Granted reading the sets and mixes they write out.
-    if exporters.iter().any(|x| x.source != ExportFrom::Drive) && !capabilities.contains(&Capability::SetsRead) {
+    let reads_sets = exporters.iter().flat_map(Exporter::sources).any(|s| *s != ExportFrom::Drive);
+    if reads_sets && !capabilities.contains(&Capability::SetsRead) {
         capabilities.push(Capability::SetsRead);
     }
     let kinds = vec![ProviderKind::Artwork, ProviderKind::Metadata];
@@ -1512,7 +1531,7 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             }
             "checks" => c.checks.push(Check { name, title, default_on: true, when: vec![When::Check] }),
             "exporters" => {
-                let source = ExportFrom::Drive;
+                let source = ExportSources::default();
                 c.exporters.push(Exporter {
                     format: name,
                     title,
@@ -2195,10 +2214,14 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "export grant" => {
             add(c, "exporters", 1);
             let i = index(&tc, c.exporters.len());
-            c.exporters[i].source = tc.draw(gs::sampled_from(vec![ExportFrom::Set, ExportFrom::Mix]));
+            let read = tc.draw(gs::sampled_from(vec![ExportFrom::Set, ExportFrom::Mix]));
+            c.exporters[i].source = match tc.draw(gs::booleans()) {
+                true => ExportSources::One(read),
+                false => ExportSources::Several(vec![ExportFrom::Drive, read]),
+            };
             m.capabilities.retain(|g| *g != Capability::SetsRead);
-            let (i, x) = c.exporters.iter().enumerate().find(|(_, x)| x.source != ExportFrom::Drive).unwrap();
-            let what = x.source.name();
+            let reads = |x: &Exporter| x.sources().iter().copied().find(|s| *s != ExportFrom::Drive);
+            let (i, what) = c.exporters.iter().enumerate().find_map(|(i, x)| Some((i, reads(x)?.name()))).unwrap();
             (format!("contributes.exporters[{i}].source: reads {what}s, which needs the sets:read capability"), false)
         }
         "import extension" => {

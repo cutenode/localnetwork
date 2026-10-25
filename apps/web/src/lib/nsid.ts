@@ -30,6 +30,12 @@ export const COLLECTION = {
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
 
+/** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
+export const VERIFICATION = 'app.bsky.graph.verification' as const;
+
+/** Bluesky's profile record, where an account's display name lives. */
+export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;
+
 /** Queries served by the directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows. */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,

@@ -83,7 +83,9 @@ pub use checks::{
 };
 pub use commands::CommandOutput;
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
-pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
+pub use events::{
+    Event, MAX_SUGGESTED, PluginNotice, Suggestions, forget_suggested, keep_suggested, suggested, tracks_on,
+};
 pub use exports::{ExportFile, PluginExport};
 pub use imports::{PluginImport, PluginImported};
 pub use operations::OpPlanned;

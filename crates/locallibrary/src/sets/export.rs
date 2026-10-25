@@ -1,9 +1,10 @@
 //! Writing a set out: text, Mixcloud, CUE, YouTube chapters, 1001Tracklists, CSV and M3U8, with
 //! the checks each needs.
 //!
-//! Every format but CSV and M3U8 is for publishing, and names a track marked unnamed `ID - ID`,
-//! as tracklists write a track nobody's named. CSV and M3U8 are for the DJ: they name every
-//! track, and CSV says which are unnamed in its last column. M3U8 only lists the files.
+//! Every format but CSV and M3U8 is for publishing, and names a track marked unnamed or hidden by
+//! the DJ's profile `ID - ID` (see [`SetEntry::may_name`]), as tracklists write a track nobody's
+//! named. CSV and M3U8 are for the DJ: they name every track, and CSV says which the set marks
+//! unnamed in its last column. M3U8 only lists the files.
 
 use loclib_model::audio::Format;
 use rustc_hash::FxHashMap;
@@ -15,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use super::{Set, SetEntry};
 use crate::export::{Locator, csv_line, numbered, one_line};
 use crate::mix::export::UNNAMED;
-use crate::model::artist_credits;
-use crate::model::{Library, Track, normalize};
+use crate::model::{Library, Track, artist_credits, normalize};
+use crate::profile::ProfilePrefs;
 use crate::{Error, Result};
 
 /// How a set is written out.
@@ -50,29 +51,35 @@ pub(crate) struct Rendered {
     pub warnings: Vec<String>,
 }
 
-/// `set` as `format`. An M3U8 lists the set's tracks found on a drive: its library, and where
-/// the file goes.
-pub(crate) fn render(set: &Set, format: SetFormat, drive: Option<(&Library, &Locator)>) -> Result<Rendered> {
+/// `set` as `format`, naming in a format for publishing only the tracks `prefs`, the DJ's
+/// profile, lets it. An M3U8 lists the set's tracks found on a drive: its library, and where the
+/// file goes.
+pub(crate) fn render(
+    set: &Set,
+    format: SetFormat,
+    prefs: &ProfilePrefs,
+    drive: Option<(&Library, &Locator)>,
+) -> Result<Rendered> {
     let tracks = set.tracks.len();
     let lines = |line: &dyn Fn(&SetEntry) -> String| set.tracks.iter().map(|e| line(e) + "\n").collect::<String>();
     let (text, warnings) = match format {
-        SetFormat::Text => (numbered(set.tracks.iter().map(public_name)), Vec::new()),
+        SetFormat::Text => (numbered(set.tracks.iter().map(|e| public_name(e, prefs))), Vec::new()),
         SetFormat::Mixcloud => (
             lines(&|e| match e.start_seconds {
                 Some(s) => {
                     let (h, m, s) = hms(s);
-                    format!("{} - {h:02}:{m:02}:{s:02}", public_name(e))
+                    format!("{} - {h:02}:{m:02}:{s:02}", public_name(e, prefs))
                 }
-                None => public_name(e),
+                None => public_name(e, prefs),
             }),
             mixcloud_check(set),
         ),
-        SetFormat::Cue => cue(set)?,
-        SetFormat::Youtube => youtube(set)?,
+        SetFormat::Cue => cue(set, prefs)?,
+        SetFormat::Youtube => youtube(set, prefs)?,
         SetFormat::Tracklists => (
             lines(&|e| match e.start_seconds {
-                Some(s) => format!("[{}] {}", clock(s), public_name(e)),
-                None => public_name(e),
+                Some(s) => format!("[{}] {}", clock(s), public_name(e, prefs)),
+                None => public_name(e, prefs),
             }),
             Vec::new(),
         ),
@@ -103,10 +110,10 @@ pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, 
 }
 
 /// What a published tracklist calls `e`.
-fn public_name(e: &SetEntry) -> String {
-    match e.unnamed {
-        true => format!("{UNNAMED} - {UNNAMED}"),
-        false => one_line(&e.name()),
+fn public_name(e: &SetEntry, prefs: &ProfilePrefs) -> String {
+    match e.may_name(prefs) {
+        true => one_line(&e.name()),
+        false => format!("{UNNAMED} - {UNNAMED}"),
     }
 }
 
@@ -150,7 +157,7 @@ fn out_of_order(starts: &[u32]) -> Vec<String> {
 }
 
 /// A CUE sheet indexing the recording. Starts are whole seconds, so frames (75 a second) are 0.
-fn cue(set: &Set) -> Result<(String, Vec<String>)> {
+fn cue(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
     let file = set
         .recording
         .as_ref()
@@ -166,9 +173,9 @@ fn cue(set: &Set) -> Result<(String, Vec<String>)> {
     };
     let mut out = format!("TITLE {}\nFILE {} {kind}\n", quoted(&set.heading()), quoted(&file));
     for (i, (e, start)) in set.tracks.iter().zip(&starts).enumerate() {
-        let (title, artist) = match e.unnamed {
-            true => (UNNAMED, UNNAMED),
-            false => (e.title.as_str(), e.artist.as_str()),
+        let (title, artist) = match e.may_name(prefs) {
+            true => (e.title.as_str(), e.artist.as_str()),
+            false => (UNNAMED, UNNAMED),
         };
         let _ = writeln!(out, "  TRACK {:02} AUDIO\n    TITLE {}", i + 1, quoted(title));
         if !artist.is_empty() {
@@ -181,7 +188,7 @@ fn cue(set: &Set) -> Result<(String, Vec<String>)> {
 
 /// YouTube chapters: the first at 00:00 (YouTube insists), with a warning for each of its other
 /// rules broken (at least three, in order, each 10 seconds or longer).
-fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
+fn youtube(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
     let mut starts = starts(set, "YouTube")?;
     if let Some(first) = starts.first_mut() {
         *first = 0;
@@ -192,7 +199,7 @@ fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
             (0, m, s) => format!("{m:02}:{s:02}"),
             _ => clock(start),
         };
-        let _ = writeln!(out, "{at} {}", public_name(e));
+        let _ = writeln!(out, "{at} {}", public_name(e, prefs));
     }
     let mut warnings = Vec::new();
     if starts.len() < 3 {
@@ -205,7 +212,7 @@ fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
     Ok((out, warnings))
 }
 
-/// CSV for the DJ: every track named, `yes` in the last column for those published unnamed.
+/// CSV for the DJ: every track named, `yes` in the last column for those the set marks unnamed.
 fn csv(set: &Set) -> String {
     let mut out = String::new();
     csv_line(

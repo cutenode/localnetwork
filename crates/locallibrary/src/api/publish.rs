@@ -9,7 +9,6 @@
 //! plan needs no sign-in, so a record can be looked at before signing in. Everything published
 //! is public.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -32,7 +31,7 @@ use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
 use crate::publish;
 pub use crate::publish::{PublishPlan, Published, PublishedSettings, SettingsImportPlan};
-use crate::sets::{MusicBrainzIds, SETS_FILE, Set, SetBook, SetEntry, build};
+use crate::sets::{MusicBrainzIds, SETS_FILE, Set, SetBook, SetEntry, Unnamed, build};
 use crate::settings::SettingsProfile;
 use crate::store::Store;
 use crate::{Error, Result, paths};
@@ -278,41 +277,17 @@ pub struct SetPublishRequest {
     pub hide: Vec<usize>,
 }
 
-/// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
-fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
-    let list: Vec<String> = positions.iter().map(usize::to_string).collect();
-    match list.as_slice() {
-        [] => None,
-        [one] => Some(format!("track {one} isn't named: {why}")),
-        many => Some(format!("tracks {} aren't named: {why}", many.join(", "))),
-    }
-}
-
 /// The set `req` publishes, refused as publishing it is (a position to hide it hasn't, more tracks
-/// than a record holds), and the positions (from 1) of its tracks that go out unnamed, by why:
-/// marked unnamed, hidden as asked, hidden by the profile.
-fn to_publish<'b>(store: &Store, book: &'b SetBook, req: &SetPublishRequest) -> Result<(&'b Set, [Vec<usize>; 3])> {
+/// than a record holds), and which of its tracks go out unnamed ([`Set::unnamed`]).
+fn to_publish<'b>(store: &Store, book: &'b SetBook, req: &SetPublishRequest) -> Result<(&'b Set, Unnamed)> {
     let set = book.find(&req.set)?;
-    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
-        return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
-    }
+    let unnamed = set.unnamed(&req.hide, &ProfilePrefs::load(store)?)?;
     if set.tracks.len() > publish::SET_TRACK_LIMIT {
         return Err(Error::invalid(format!(
             "the set has {} tracks, more than a set record holds ({}): drop some first (`sets edit --drop`)",
             set.tracks.len(),
             publish::SET_TRACK_LIMIT
         )));
-    }
-    let prefs = ProfilePrefs::load(store)?;
-    let mut unnamed: [Vec<usize>; 3] = Default::default();
-    for (n, e) in (1..).zip(&set.tracks) {
-        if e.unnamed {
-            unnamed[0].push(n);
-        } else if req.hide.contains(&n) {
-            unnamed[1].push(n);
-        } else if !prefs.may_name(&e.name(), &e.artist) {
-            unnamed[2].push(n);
-        }
     }
     Ok((set, unnamed))
 }
@@ -330,20 +305,12 @@ fn to_publish<'b>(store: &Store, book: &'b SetBook, req: &SetPublishRequest) -> 
 pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<PlannedPublish> {
     let store = Store::open(store_root)?;
     let book = SetBook::load(&store)?;
-    let (set, [marked, asked, profile]) = to_publish(&store, &book, req)?;
-    let mut notes: Vec<String> = [
-        unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
-        unnamed_note(&asked, "hidden as asked"),
-        unnamed_note(&profile, "hidden by your profile (`profile unhide`)"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
+    let (set, unnamed) = to_publish(&store, &book, req)?;
+    let mut notes = unnamed.notes;
     // How tracks came in is in the recording's report: without it (gone from the store), it's left out.
     let report =
         set.recording.as_ref().and_then(|r| r.report.as_deref()).and_then(|id| report::load(store_root, id).ok());
-    let mut record = publish::set_record(set, &hidden, report.as_ref(), Utc::now());
+    let mut record = publish::set_record(set, &unnamed.positions, report.as_ref(), Utc::now());
     if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
         notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
     }
@@ -416,7 +383,8 @@ pub struct SetLookup {
 /// [`crate::sets::MusicBrainzIds::ROLES`] on a plugged-in drive's tracks (by id) holding their
 /// files, over what they kept (`true`) for the tracks whose values were worked out from what the
 /// library said of them before, and what they work out is read into the set from that drive (as
-/// [`build::read_musicbrainz`] reads it), so every later publish has it. Nothing is looked up
+/// making or editing a set reads it: the files' tags first), so every later publish has it.
+/// Nothing is looked up
 /// without an analyzer for the `recording` role. An analyzer failing is a warning: the set
 /// publishes all the same, without those IDs.
 pub fn set_lookup(
@@ -432,10 +400,9 @@ pub fn set_lookup(
     if roles::chosen(Some(&store), Role::Recording).is_none() {
         return Ok(out);
     }
-    let unnamed: FxHashSet<usize> = unnamed.into_iter().flatten().collect();
     // The first track of each file the record names without IDs.
     let mut wanted: IndexMap<String, &SetEntry> = IndexMap::new();
-    for (_, e) in (1..).zip(&set.tracks).filter(|(n, e)| !unnamed.contains(n) && e.musicbrainz.is_empty()) {
+    for (_, e) in (1..).zip(&set.tracks).filter(|(n, e)| !unnamed.positions.contains(n) && e.musicbrainz.is_empty()) {
         if let Some(key) = e.file_key() {
             wanted.entry(key).or_insert(e);
         }

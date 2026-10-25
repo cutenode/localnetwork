@@ -540,6 +540,29 @@ pub fn clip(s: &str, max: usize, ellipsis: &str) -> String {
     format!("{}{ellipsis}", &s[..end])
 }
 
+/// A cell filled from the bottom, an eighth at a time (`▁` to `█`).
+pub const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// A horizontal bar `frac` of `width` cells long, in eighths.
+pub fn bar(frac: f64, width: usize) -> String {
+    let eighths = (frac.clamp(0.0, 1.0) * width as f64 * 8.0).round() as usize;
+    let mut s = "█".repeat(eighths / 8);
+    if !eighths.is_multiple_of(8) {
+        s.push(['▏', '▎', '▍', '▌', '▋', '▊', '▉'][eighths % 8 - 1]);
+    }
+    s
+}
+
+/// A share as a whole percentage: `0.42` is `42%`.
+pub fn pct(x: f64) -> String {
+    format!("{:.0}%", x * 100.0)
+}
+
+/// [`pct`], or `–` when there's no share to give.
+pub fn opt_pct(x: Option<f64>) -> String {
+    x.map_or_else(|| "–".to_string(), pct)
+}
+
 pub fn dim(s: impl std::fmt::Display) -> console::StyledObject<String> {
     style(s.to_string()).dim()
 }

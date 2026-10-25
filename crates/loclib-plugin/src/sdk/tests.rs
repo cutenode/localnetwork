@@ -281,7 +281,13 @@ fn an_import_is_read_or_a_blob() {
 fn an_operation_may_ask_first() {
     let ask = |req: PlanOp, host: &Host| -> Result<OpAnswer, RpcError> {
         let item = crate::ChoiceItem { label: "Warm up".into(), detail: None, value: json!("Warm up") };
-        let choice = crate::Choice { title: "Which?".into(), param: "name".into(), multi: false, items: vec![item] };
+        let choice = crate::Choice {
+            title: "Which?".into(),
+            param: "name".into(),
+            multi: false,
+            items: vec![item],
+            more: Vec::new(),
+        };
         match req.params.get("name") {
             Some(name) => echo::plan_op(PlanOp { params: json!({ "name": name }), ..req }, host).map(OpAnswer::from),
             None => Ok(choice.into()),
@@ -294,7 +300,7 @@ fn an_operation_may_ask_first() {
         json!({ "choose": { "title": "Which?", "param": "name", "items": [{ "label": "Warm up", "value": "Warm up" }] } })
     );
     let OpAnswer::Choose { choose } = serde_json::from_value(asked).unwrap() else { panic!("a question") };
-    let answered = choose.answered(json!({}), vec![choose.items[0].value.clone()]);
+    let answered = choose.answered(json!({}), vec![vec![choose.items[0].value.clone()]]);
     let planned: OpAnswer =
         s.host.request(method::PLAN_OP, &json!({ "operation": "playlist", "params": answered })).unwrap();
     let OpAnswer::Plan(plan) = planned else { panic!("a plan") };

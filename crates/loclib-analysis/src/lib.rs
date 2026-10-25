@@ -5,6 +5,7 @@ mod error;
 mod estimate;
 mod loudness;
 pub mod tempo;
+mod waveform;
 
 use std::path::Path;
 
@@ -18,22 +19,24 @@ pub use error::{Error, Result};
 pub use estimate::Estimate;
 use estimate::RATE;
 pub use loudness::Loudness;
+pub use waveform::{COLUMNS_PER_SEC, Waveform};
 
 /// Changes whenever [`analyze`] would give different results for the same audio (a new
 /// stratum-dsp or ebur128, different settings, a fix here), so cached analyses made with another
 /// version can be thrown away.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
-/// What [`analyze`] measures. One decode feeds both.
+/// What [`analyze`] measures. One decode feeds them all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Want {
     /// Tempo and key.
     pub estimate: bool,
     pub loudness: bool,
+    pub waveform: bool,
 }
 
 impl Want {
-    pub const ALL: Want = Want { estimate: true, loudness: true };
+    pub const ALL: Want = Want { estimate: true, loudness: true, waveform: true };
 }
 
 /// One track's analysis, for caching by the audio's content hash and [`VERSION`].
@@ -48,6 +51,8 @@ pub struct Analysis {
     pub estimate: Option<Estimate>,
     /// When asked for.
     pub loudness: Option<Loudness>,
+    /// When asked for.
+    pub waveform: Option<Waveform>,
 }
 
 /// Decode the track at `path` once and measure what `want` asks for.
@@ -57,23 +62,32 @@ pub struct Analysis {
 /// caller, which knows how many tracks it has, as with loclib-mixid's `fingerprint_file`.
 pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
     let mut meter = want.loudness.then(loudness::Meter::default);
+    let mut bands = want.waveform.then(waveform::Bands::new);
     let mut resampler: Option<Resampler> = None;
     let (mut frame_means, mut mono) = (Vec::new(), Vec::new());
+    // The mono mix at RATE: kept whole for the estimate, and measured as it comes for the waveform.
+    let mut take = |s: &[f32]| {
+        if want.estimate {
+            mono.extend_from_slice(s);
+        }
+        if let Some(bands) = &mut bands {
+            bands.push(s);
+        }
+    };
     let format =
         audio::decode_native(path, Damaged::Skip, ctx, |samples: &[f32], rate, channels| -> Result<ControlFlow<()>> {
             if let Some(meter) = &mut meter {
                 meter.push(samples, rate, channels).map_err(|e| Error::analyzer(path, e))?;
             }
-            if want.estimate {
+            if want.estimate || want.waveform {
                 frame_means.clear();
                 frame_means.extend(samples.chunks_exact(channels).map(|f| f.iter().sum::<f32>() / channels as f32));
-                let resampler = resampler.get_or_insert_with(|| Resampler::new(rate, RATE));
-                resampler.push(&frame_means, &mut |s| mono.extend_from_slice(s));
+                resampler.get_or_insert_with(|| Resampler::new(rate, RATE)).push(&frame_means, &mut take);
             }
             Ok(ControlFlow::Continue(()))
         })?;
     if let Some(r) = &mut resampler {
-        r.finish(&mut |s| mono.extend_from_slice(s));
+        r.finish(&mut take);
     }
     ctx.check()?;
     Ok(Analysis {
@@ -81,6 +95,7 @@ pub fn analyze(path: &Path, want: Want, ctx: &Ctx<'_>) -> Result<Analysis> {
         duration_secs: format.duration_secs,
         estimate: want.estimate.then(|| estimate::estimate(&mono)).flatten(),
         loudness: meter.map(loudness::Meter::finish).transpose().map_err(|e| Error::analyzer(path, e))?,
+        waveform: bands.map(waveform::Bands::finish),
     })
 }
 

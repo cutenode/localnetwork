@@ -166,9 +166,13 @@ fn fetch_details(app: &mut App, root: &Path) {
     for needle in ["Fetch track details", "from", "replace", "Only from this provider", "‹ none ›"] {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
-    // The second provider (after none and echo's own), and over what they have.
+    // The third provider (after none, coverart's, which would go online, and echo's own), and
+    // over what they have.
     key(app, KeyCode::Right);
     key(app, KeyCode::Right);
+    key(app, KeyCode::Right);
+    let s = screen(app, 120, 40);
+    assert!(s.contains("‹ echo.found ›"), "not echo's found:\n{s}");
     key(app, KeyCode::Tab);
     press(app, " \n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Fetching track details"));
@@ -360,6 +364,81 @@ fn any_question_runs_again_with_exactly_what_was_chosen(tc: TestCase) {
         false => answer[0].clone(),
     };
     assert_eq!(panel(&app), expected.to_string());
+}
+
+/// Questions asked together are asked one after another, each saying how far along it is; esc on
+/// any of them cancels them all, and once the last is answered the command runs once with every
+/// answer.
+#[test]
+fn questions_asked_together_are_asked_in_turn_then_it_runs_once() {
+    let (root, mut app) = opened();
+    let mut asked = question("pick", false, &[json!(1), json!(2)]);
+    asked["more"] = json!([question("picks", true, &[json!("a"), json!("b")])]);
+    app.run_plugin(hook(&app, &root, "titles"), json!({ "ask": asked }));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(picker(&app).title, "Which one? (1 of 2)");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.job.is_none(), "nothing runs until the last is answered");
+    for (w, h) in [(40, 16), (120, 40)] {
+        let s = screen(&mut app, w, h);
+        for needle in ["(2 of 2)", "item \"a\"", "item \"b\""] {
+            assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+        }
+    }
+    press(&mut app, " ");
+    key(&mut app, KeyCode::Enter);
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(panel(&app), "2 [\"a\"]");
+    // Esc on the second asks nothing more, and runs nothing.
+    app.modal = None;
+    app.run_plugin(hook(&app, &root, "titles"), json!({ "ask": asked }));
+    wait(&mut app, |a| a.job.is_none());
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(picker(&app).title, "Which one? (2 of 2)");
+    press(&mut app, "\u{1b}");
+    assert!(app.modal.is_none() && app.job.is_none());
+}
+
+/// Any questions asked together, each of one or several of any number of items, answered with
+/// any of them by the keys: each says how far along it is, and the command runs once, with
+/// exactly the values chosen for each.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn any_questions_together_run_once_with_exactly_what_was_chosen(tc: TestCase) {
+    let (root, mut app) = opened();
+    let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+    let asked: Vec<(bool, Vec<Value>)> = (0..k)
+        .map(|q| {
+            let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
+            (tc.draw(gs::booleans()), (0..n).map(|i| json!(q * 10 + i)).collect())
+        })
+        .collect();
+    let questions: Vec<Value> =
+        (asked.iter().enumerate()).map(|(q, (multi, values))| question(&format!("p{q}"), *multi, values)).collect();
+    let mut first = questions[0].clone();
+    first["more"] = json!(questions[1..]);
+    app.run_plugin(hook(&app, &root, "titles"), json!({ "ask": first }));
+    wait(&mut app, |a| a.job.is_none());
+    let mut answers = Vec::new();
+    for (q, (multi, values)) in asked.iter().enumerate() {
+        let title = match k {
+            1 => "Which one?".to_string(),
+            _ => format!("Which one? ({} of {k})", q + 1),
+        };
+        assert_eq!(picker(&app).title, title);
+        let picks = chosen(&tc, values.len(), *multi);
+        for &i in &picks {
+            to_item(&mut app, i, *multi);
+        }
+        key(&mut app, KeyCode::Enter);
+        let answer: Vec<Value> = picks.iter().map(|&i| values[i].clone()).collect();
+        answers.push(match multi {
+            true => Value::Array(answer).to_string(),
+            false => answer[0].to_string(),
+        });
+    }
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(panel(&app), answers.join(" "));
 }
 
 /// Whatever the providers find for the tracks, scored anyhow: the player asks about exactly the

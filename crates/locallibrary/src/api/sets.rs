@@ -15,6 +15,7 @@ use crate::mix::index::Cache;
 use crate::mix::{Identifier, MixReport, Options, report};
 use crate::model::Library;
 use crate::op::{Planned, Touched};
+use crate::profile::ProfilePrefs;
 use crate::progress::Ctx;
 use crate::query::TrackSelector;
 pub use crate::sets::edit::SetFields;
@@ -350,7 +351,8 @@ pub struct SetExportReport {
 }
 
 /// Write a set out for publishing (text, Mixcloud, CUE, YouTube chapters, 1001Tracklists; a track
-/// marked unnamed is `ID - ID` there) or for the DJ (CSV, and M3U8 of the tracks on a drive).
+/// marked unnamed or hidden by the profile is `ID - ID` there) or for the DJ (CSV, and M3U8 of the
+/// tracks on a drive).
 pub fn set_export(store: &Store, req: &SetExport) -> Result<SetExportReport> {
     let book = SetBook::load(store)?;
     let set = book.find(&req.set)?;
@@ -368,7 +370,7 @@ pub fn set_export(store: &Store, req: &SetExport) -> Result<SetExportReport> {
         }
         _ => None,
     };
-    let out = export::render(set, req.format, drive)?;
+    let out = export::render(set, req.format, &ProfilePrefs::load(store)?, drive)?;
     if let Some(path) = &req.output {
         fsutil::write_output(path, out.text.as_bytes(), req.replace)?;
     }

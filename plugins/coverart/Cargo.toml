@@ -1,6 +1,6 @@
 [package]
 name = "locallibrary-plugin-coverart"
-description = "locallibrary's online cover art, as a plugin: finds covers for tracks on MusicBrainz and the Cover Art Archive"
+description = "locallibrary's online cover art and track details, as a plugin: finds them for tracks on MusicBrainz and the Cover Art Archive"
 publish = false
 version.workspace = true
 edition.workspace = true

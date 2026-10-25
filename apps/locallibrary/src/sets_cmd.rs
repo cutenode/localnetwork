@@ -125,8 +125,7 @@ enum SetsCommand {
         to: Option<String>,
         /// Publish these tracks without naming them, by position: 3,7 or 1-2,30 (tracks the set
         /// marks unnamed and tracks your profile hides are never named)
-        #[cfg(feature = "account")]
-        #[arg(long, value_name = "POSITIONS", value_parser = positions, conflicts_with = "to")]
+        #[arg(long, value_name = "POSITIONS", value_parser = positions)]
         hide: Vec<Positions>,
         /// Show what would be published without publishing (or looking anything up)
         #[arg(long)]
@@ -172,7 +171,8 @@ const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
   locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
-Every format but csv and m3u8 is for publishing: a track marked unnamed is `ID - ID` there.";
+Every format but csv and m3u8 is for publishing: a track marked unnamed or hidden by your profile
+(`profile hide`) is `ID - ID` there.";
 
 /// `sets list`.
 #[derive(Args)]
@@ -501,7 +501,6 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             set,
             to,
             dry_run,
-            #[cfg(feature = "account")]
             hide,
             #[cfg(feature = "account")]
             no_lookup,
@@ -509,7 +508,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             browser,
         } => {
             if let Some(spec) = to {
-                return publish_to(&store()?, &spec, &set, dry_run, out, ctx);
+                return publish_to(&store()?, &spec, &set, &all(hide), dry_run, out, ctx);
             }
             #[cfg(feature = "account")]
             {
@@ -529,11 +528,12 @@ fn publish_to(
     store: &locallibrary::Store,
     spec: &str,
     set: &str,
+    hide: &[usize],
     dry_run: bool,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
-    let plan = crate::plugins::host()?.publish_plan(spec, set, store, ctx)?;
+    let plan = crate::plugins::host()?.publish_plan(spec, set, hide, store, ctx)?;
     if !out.json {
         crate::output::summary(&plan.summary, &plan.warnings);
     }

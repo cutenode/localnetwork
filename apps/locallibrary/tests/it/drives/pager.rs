@@ -2,26 +2,18 @@
 //! of its own (a pseudo-terminal), and a pager that writes what it's given to a file.
 #![cfg(unix)]
 
-use std::io::Read;
 use std::path::Path;
-use std::process::Stdio;
 
-use crate::support::{Env, terminal};
+use crate::support::{Env, shown_in_a_terminal};
 
 /// Runs `locallibrary players models` (a listing it pages) with stdout a terminal and the
 /// environment `env_vars`; returns what reached the terminal.
 fn models_in_a_terminal(env: &Env, args: &[&str], env_vars: &[(&str, &str)]) -> String {
-    let (mut screen_end, stdout) = terminal();
     let mut command = env.command();
     command.env_remove("LESS").envs(env_vars.iter().copied()).args(args).args(["players", "models"]);
-    let mut child = command.stdout(Stdio::from(stdout)).spawn().unwrap();
-    // The command (and its pager) hold the terminal now: reading ends when they're done.
-    drop(command);
-    let mut screen = Vec::new();
-    // Linux ends a terminal's output with an error rather than an end of file.
-    let _ = screen_end.read_to_end(&mut screen);
-    assert!(child.wait().unwrap().success());
-    String::from_utf8_lossy(&screen).into_owned()
+    let (status, screen) = shown_in_a_terminal(&mut command, None);
+    assert!(status.success());
+    screen
 }
 
 /// A pager that writes the `LESS` it was run with to `less` and what it was given to `paged`.

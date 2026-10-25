@@ -33,6 +33,7 @@ use crate::fields::FieldValue;
 use crate::fields::roles::{Role, RoleValues};
 use crate::local_time;
 use crate::model::{Track, artist_credits, isrc};
+use crate::profile::ProfilePrefs;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -108,6 +109,53 @@ impl Set {
     /// Newest first: by the day it was played, then the one declared last.
     pub fn newest_first(a: &Set, b: &Set) -> std::cmp::Ordering {
         b.date.cmp(&a.date).then(b.created_at.cmp(&a.created_at))
+    }
+
+    /// Which tracks go out without their names wherever the set is published: those it marks
+    /// unnamed, those at the positions (from 1) in `hide`, and those `prefs` hides (see
+    /// [`SetEntry::may_name`]). A position the set doesn't have is refused.
+    pub fn unnamed(&self, hide: &[usize], prefs: &ProfilePrefs) -> Result<Unnamed> {
+        if let Some(&bad) = hide.iter().find(|&&p| p == 0 || p > self.tracks.len()) {
+            return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", self.tracks.len())));
+        }
+        let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
+        for (n, e) in (1..).zip(&self.tracks) {
+            if e.unnamed {
+                marked.push(n);
+            } else if hide.contains(&n) {
+                asked.push(n);
+            } else if !e.may_name(prefs) {
+                profile.push(n);
+            }
+        }
+        let notes = [
+            unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
+            unnamed_note(&asked, "hidden as asked"),
+            unnamed_note(&profile, "hidden by your profile (`profile unhide`)"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Ok(Unnamed { positions: marked.into_iter().chain(asked).chain(profile).collect(), notes })
+    }
+}
+
+/// A set's tracks published without their names ([`Set::unnamed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unnamed {
+    /// Their positions, from 1.
+    pub positions: BTreeSet<usize>,
+    /// Why, for each reason one is: `tracks 3, 7 aren't named: hidden as asked`.
+    pub notes: Vec<String>,
+}
+
+/// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
+fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
+    let list: Vec<String> = positions.iter().map(usize::to_string).collect();
+    match list.as_slice() {
+        [] => None,
+        [one] => Some(format!("track {one} isn't named: {why}")),
+        many => Some(format!("tracks {} aren't named: {why}", many.join(", "))),
     }
 }
 
@@ -345,6 +393,12 @@ impl SetEntry {
             (true, _) => self.title.clone(),
             (false, true) => self.artist.clone(),
         }
+    }
+
+    /// Whether what's shared with others may name it: not when the set marks it unnamed, or
+    /// `prefs`, the DJ's profile, hides the track or its artist.
+    pub fn may_name(&self, prefs: &ProfilePrefs) -> bool {
+        !self.unnamed && prefs.may_name(&self.name(), &self.artist)
     }
 
     /// The file as [`crate::paths::file_key`] keys it, to match a library's tracks by.

@@ -1,15 +1,15 @@
 //! Plugins in the player: their commands and operations in the palette, and in the menus their
 //! manifests say (`where`: the actions menu, `e`, for the tracks selected or a playlist, and the
 //! drive menu), a form for their params (see [`super::form`]), and each run in the background as
-//! any task is (esc stops one). A command's answer shows in a panel;
-//! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
-//! either asks first is a list to choose from, after which it runs again with the answer. Each
-//! plugin's settings are a form, kept in the store, with a switch for each of its services, and
-//! its accounts are signed in to and out of beside them. What the other families of hooks add
-//! (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell the
-//! user and suggest) is in a module each. Nothing here tells one
-//! plugin from another: it's all drawn from their manifests, through the host the command line
-//! uses (see [`crate::plugins`]).
+//! any task is (esc stops one). A command's answer shows in a panel; an operation's plan is
+//! confirmed and applied as any edit is, and undone with `u`. A question either asks first is a
+//! list to choose from (several, one after another), after which it runs again with the answers.
+//! Each plugin's settings are a form, kept in the store, with a switch for each of its services,
+//! and its accounts are signed in to and out of beside them. What the other families of hooks
+//! add (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell
+//! the user and suggest) is in a module each. Nothing here tells one plugin from another: it's
+//! all drawn from their manifests, through the host the command line uses (see
+//! [`crate::plugins`]).
 
 mod accounts;
 mod analyzers;
@@ -69,16 +69,19 @@ impl Run {
 
 /// A plugin's question being asked, and what answering it goes on to.
 pub enum Asking {
-    /// A command's or an operation's: it runs again with the answer.
-    Hook { run: Run, params: Value, choice: Choice },
+    /// A command's or an operation's: its next question, until `answers` has one for each, then
+    /// it runs again with them.
+    Hook { run: Run, params: Value, choice: Choice, answers: Vec<Vec<Value>> },
     /// Which of the candidates providers found for a track: then the next track's, then the plan.
     Offer { offer: Offer, choice: Choice, fetching: providers::Fetching },
 }
 
 impl Asking {
+    /// The question being asked.
     pub fn choice(&self) -> &Choice {
         match self {
-            Asking::Hook { choice, .. } | Asking::Offer { choice, .. } => choice,
+            Asking::Hook { choice, answers, .. } => choice.questions().nth(answers.len()).expect("one left to ask"),
+            Asking::Offer { choice, .. } => choice,
         }
     }
 }
@@ -279,10 +282,12 @@ impl App {
         };
         // Each family's, in the order the palette lists them (a family's placed as loclib-plugin's
         // `hooks` says).
-        let set = self.open_set().is_some();
+        // A set's formats run on the set open: the palette names them anyway, saying so, and a
+        // drive's menu doesn't.
+        let (set, sets) = (self.open_set().is_some(), places.contains(&Where::Track));
         for m in plugins.manifests() {
             items.extend(analyzers::items(m, why));
-            items.extend(exporters::items(m, why, set));
+            items.extend(exporters::items(m, why, set, sets));
             items.extend(importers::items(m, why));
             items.extend(sources::items(m, why));
         }
@@ -375,11 +380,34 @@ impl App {
     /// param from the selection is filled in with, here as on the command line and in the
     /// sidecar.
     pub(super) fn plugin_drive(&self, root: &Path) -> Option<String> {
-        let listed = self.drives.iter().find(|d| d.root == root);
-        let listed = listed.map(|d| (d.id, d.name.clone().unwrap_or_else(|| d.volume_name.clone())));
-        let open = || self.loaded.as_ref().filter(|l| l.root() == root).map(|l| (l.device.id(), l.device.name()));
-        let (id, name) = listed.or_else(open)?;
+        let (_, id, name) = self.plugin_drives().find(|(r, ..)| *r == root)?;
         Some(id.map_or(name, |id| id.to_string()))
+    }
+
+    /// Where the drive a plugin names (by id, else by name) is mounted: one listed or open, never
+    /// a path ([`App::plugin_drive`] the other way round). Why not, when none is or several are.
+    pub(super) fn named_drive(&self, drive: &str) -> Result<PathBuf, String> {
+        let mut roots: Vec<&Path> = Vec::new();
+        for (root, id, name) in self.plugin_drives() {
+            let named = id.is_some_and(|id| id.to_string() == drive) || name == drive;
+            if named && !roots.contains(&root) {
+                roots.push(root);
+            }
+        }
+        match roots[..] {
+            [root] => Ok(root.to_path_buf()),
+            [] => Err(format!("{drive} isn't plugged in")),
+            _ => Err(format!("more than one drive is named {drive}")),
+        }
+    }
+
+    /// The drives listed, then the one open: where each is mounted, its id and its name.
+    fn plugin_drives(&self) -> impl Iterator<Item = (&Path, Option<uuid::Uuid>, String)> {
+        let listed = self
+            .drives
+            .iter()
+            .map(|d| (d.root.as_path(), d.id, d.name.clone().unwrap_or_else(|| d.volume_name.clone())));
+        listed.chain(self.loaded.as_ref().map(|l| (l.root(), l.device.id(), l.device.name())))
     }
 
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a
@@ -445,7 +473,7 @@ impl App {
                         plugins.run_command(plugin, name, params.clone(), context, store.as_ref(), ctx, &partial)?;
                     Ok(Box::new(move |app: &mut App| match answer {
                         CommandOutput::View(View::Choose(choice)) => {
-                            app.ask(Asking::Hook { run: again, params, choice })
+                            app.ask(Asking::Hook { run: again, params, choice, answers: Vec::new() })
                         }
                         answer => app.show_answer(title, answer),
                     }))
@@ -461,7 +489,7 @@ impl App {
                     let planned = plugins.plan_op(plugin, &op.name, params.clone(), context, store.as_ref(), ctx);
                     Ok(Box::new(move |app: &mut App| match planned {
                         Ok(OpPlanned::Choose { choose }) => {
-                            app.ask(Asking::Hook { run: again, params, choice: choose })
+                            app.ask(Asking::Hook { run: again, params, choice: choose, answers: Vec::new() })
                         }
                         other => {
                             let plan = other.and_then(OpPlanned::plan).map(|p| Box::new(p) as Box<dyn AnyPlanned>);
@@ -474,11 +502,17 @@ impl App {
     }
 
     /// Ask a plugin's question: a list of its items to choose from (any of them, marked with
-    /// space, when it takes several).
+    /// space, when it takes several), titled with how far along it is when it's one of several.
     pub(super) fn ask(&mut self, asking: Asking) {
         let c = asking.choice();
+        let title = match &asking {
+            Asking::Hook { choice, answers, .. } if !choice.more.is_empty() => {
+                format!("{} ({} of {})", c.title, answers.len() + 1, choice.more.len() + 1)
+            }
+            _ => c.title.clone(),
+        };
         let items = c.items.iter().map(|i| Item::new(i.label.clone(), i.detail.clone().unwrap_or_default()));
-        let (title, items, multi) = (c.title.clone(), items.collect::<Vec<_>>(), c.multi);
+        let (items, multi) = (items.collect::<Vec<_>>(), c.multi);
         let n = items.len();
         let mut p = Picker::new(title, items, Then::Choose(Box::new(asking)));
         if multi {
@@ -487,10 +521,17 @@ impl App {
         self.modal = Some(Modal::Pick(p));
     }
 
-    /// Go on with what was chosen for `asking`: the values of the items chosen.
+    /// Go on with what was chosen for `asking`: the values of the items chosen. A hook's next
+    /// question is asked, and once each has its answer the hook runs again.
     pub(super) fn answer(&mut self, asking: Asking, values: Vec<Value>) {
         match asking {
-            Asking::Hook { run, params, choice } => self.run_plugin(run, choice.answered(params, values)),
+            Asking::Hook { run, params, choice, mut answers } => {
+                answers.push(values);
+                match answers.len() > choice.more.len() {
+                    true => self.run_plugin(run, choice.answered(params, answers)),
+                    false => self.ask(Asking::Hook { run, params, choice, answers }),
+                }
+            }
             Asking::Offer { offer, fetching, .. } => self.answer_offer(offer, fetching, values),
         }
     }

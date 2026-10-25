@@ -2363,6 +2363,11 @@ export type PublishSetAt = {
   destination: string;
   /** The set: its id (or the start of it), title or day, or `last`. */
   set: string;
+  /**
+   * Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+   * and tracks the profile hides (`profile hide`) are never named either.
+   */
+  hide?: number[];
 };
 
 export type PlanPluginOp = {
@@ -8115,9 +8120,15 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
-  /** What it writes out [default: a drive's library]. */
-  source?: ExportFrom;
+  /**
+   * What it writes out [default: a drive's library]: one source (`"set"`), or a list of them
+   * (`["drive", "set", "mix"]`) for an exporter that writes each out the same way.
+   */
+  source?: ExportSources;
 };
+
+/** What an exporter writes out, as its manifest says it: one source, or a list. */
+export type ExportSources = ExportFrom | ExportFrom[];
 
 /** What an exporter writes out. */
 export type ExportFrom =
@@ -8426,6 +8437,12 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+  /**
+   * Questions asked after this one before the hook runs again, each about a param of its own
+   * (and asking none of its own). A host that doesn't know them asks this one alone, so a hook
+   * still asks what's left when it's run again.
+   */
+  more?: PluginChoice[];
 };
 
 export type TreeItem = {
@@ -8514,7 +8531,7 @@ export type SetPublished = {
 
 /**
  * What planning a plugin's operation comes to: its plan, or a question for the user first, after
- * which it's planned again with the param set ([`Choice::answered`]).
+ * which it's planned again with each of its params set ([`Choice::answered`]).
  */
 export type OpPlanned = {
   choose: PluginChoice;
@@ -8660,7 +8677,10 @@ export type Provided = {
   kind: ProviderKind;
   /** How many tracks they were asked about. */
   asked: number;
-  /** Each track something was found for, in the library's order. */
+  /**
+   * Each track something was found for (tags only when they'd change it), in the library's
+   * order.
+   */
   offers: Offer[];
   /** The images the candidates are of, each once, by id (its content's hash): in base64. */
   images: { [key: string]: string };
@@ -8966,21 +8986,87 @@ export type PluginEvent = PluginNotice & {
   event: "plugin.notice";
 };
 
-/** One of the plugin's operations, with its params, suggested to the user. */
+/** What a plugin suggests (`host/notify`): an operation's or an action's name, and its params. */
 export type Suggested = {
   name: string;
   params: unknown;
 };
 
 /**
- * A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with
- * its params: the front end offers to plan it, and the user confirms it as any plan.
+ * One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it
+ * with these params filled in, and it's planned and confirmed as when the user starts it. Each is
+ * on the plugin's own contributions alone, so it never starts another plugin's work.
+ */
+export type HostAction =
+  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
+  | {
+    name: "art.fetch";
+    params: FetchAction;
+  }
+  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
+  | {
+    name: "track.fetch";
+    params: FetchAction;
+  }
+  /** Export in one of its formats, to where the user picks. */
+  | {
+    name: "export";
+    params: ExportAction;
+  }
+  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
+  | {
+    name: "analyze";
+    params: AnalyzeAction;
+  };
+
+/** `art.fetch`'s and `track.fetch`'s params. */
+export type FetchAction = {
+  /** The drive, by id or name (as events name it). */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+  /** Only this provider of the plugin's [default: each of its providers of the kind]. */
+  provider?: string | null;
+};
+
+/**
+ * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
+ * `export/write`'s source names them) and its options. Where to is the user's to pick.
+ */
+export type ExportAction = {
+  /** One of the plugin's exporters, by format. */
+  format: string;
+  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
+  drive?: string | null;
+  /** A set exporter's set. */
+  set?: string | null;
+  /** A mix exporter's mix. */
+  mix?: string | null;
+  /** As the exporter's `options` schema says. */
+  options?: { [key: string]: unknown };
+};
+
+/** `analyze`'s params. */
+export type AnalyzeAction = {
+  /** One of the plugin's analyzers. */
+  analyzer: string;
+  /** The drive, by id or name. */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+};
+
+/**
+ * A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of
+ * its operations (`operation`) or one of the host's actions (`action`) on its own contributions.
+ * The front end offers to start it, and the user confirms it as when they start it themselves.
  */
 export type PluginNotice = {
   /** The plugin's id. */
   plugin: string;
   message: string;
-  operation?: Suggested | null;
+  operation?: Suggested;
+  action?: HostAction;
 };
 
 /** An error response's `error.data`: what a front end can act on without reading the message. */
