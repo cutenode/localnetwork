@@ -4,8 +4,10 @@ import { ACCESS_PRESETS } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
+import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
+import type { ShowEdit } from '../../src/lib/server/services/shows.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
@@ -452,19 +454,74 @@ describe('Local Network on a real atproto spaces network', () => {
 		// The show pins the event's CID, worked out by the app the way the PDS does.
 		expect(await net.app.shows.edited(neon.did, listed)).toEqual([]);
 
-		// Another calendar app changes the event in Neon's repo, and the project page can tell Neon.
+		// The edit form reads the show and its event back from HappyView, which got the event too, and carries the
+		// versions it shows for the save to swap on.
 		const rkey = ref.uri.split('/').at(-1)!;
-		const event = await net.user('neon').client.getRecord({ collection: CALENDAR_EVENT, rkey });
-		await net.user('neon').client.putRecord({
-			collection: CALENDAR_EVENT,
-			rkey,
-			record: { ...event!.value, description: 'Doors at 22:00' }
+
+		const open = async (): Promise<ShowEdit> => {
+			const values = await net.app.shows.values(neon, project, rkey);
+
+			return { rkey, showCid: values?.showCid ?? '', eventCid: values?.eventCid || null };
+		};
+
+		expect(await net.app.shows.values(neon, project, rkey)).toMatchObject({ name: 'Night Owls', venue: 'Tresor' });
+		const form = await open();
+		expect(form.showCid).toBe(ref.cid);
+
+		// Another calendar app changes the event in Neon's repo, and once HappyView has it the project page can tell Neon.
+		const user = net.user('neon');
+		const own = user.client;
+
+		const changeEvent = async (fields: Record<string, string>) => {
+			const event = await own.getRecord({ collection: CALENDAR_EVENT, rkey });
+			await own.putRecord({ collection: CALENDAR_EVENT, rkey, record: { ...event!.value, ...fields } });
+		};
+
+		await changeEvent({ name: 'Night Owls (sold out)' });
+		await expect.poll(() => net.app.shows.edited(neon.did, listed), { timeout: 10_000 }).toEqual([ref.uri]);
+		expect(await net.app.shows.values(neon, project, rkey)).toMatchObject({ name: 'Night Owls (sold out)' });
+
+		// The form opened before that change doesn't save over it, though HappyView has it now.
+		const edit = { ...input, name: 'Night Owls (sold out)', venue: 'Tresor', cancelled: false };
+		const sold = await own.getRecord({ collection: CALENDAR_EVENT, rkey });
+		await expect(net.app.shows.save(neon, project, edit, form)).rejects.toMatchObject({ status: 409 });
+		expect((await own.getRecord({ collection: CALENDAR_EVENT, rkey }))?.cid).toBe(sold?.cid);
+
+		/** Neon's PDS client, but the other app changes the event again just before the app's next write lands. */
+		class Raced extends AgentRepoClient {
+			override async putRecord(write: Parameters<RepoClient['putRecord']>[0]) {
+				user.client = own;
+				await changeEvent({ description: 'Doors at 22:00' });
+
+				return super.putRecord(write);
+			}
+		}
+
+		// The PDS checks the versions the form showed too, so a change HappyView hasn't heard of isn't written over.
+		const show = await own.getRecord({ collection: COLLECTION.show, rkey });
+		const reopened = await open();
+		user.client = new Raced(user.did, user.agent);
+		await expect(net.app.shows.save(neon, project, edit, reopened)).rejects.toMatchObject({ status: 409 });
+		expect((await own.getRecord({ collection: COLLECTION.show, rkey }))?.cid).toBe(show?.cid);
+		const raced = await own.getRecord({ collection: CALENDAR_EVENT, rkey });
+		expect(raced?.value).toMatchObject({ name: 'Night Owls (sold out)', description: 'Doors at 22:00' });
+
+		// Once HappyView has that version, the edit goes on it and keeps what the other app added.
+		const served = async () =>
+			(await net.app.happyView.query('getRecords', { uris: [raced!.uri] })).records.map((record) => record.cid);
+
+		await expect.poll(served, { timeout: 10_000 }).toEqual([raced?.cid]);
+		await net.app.shows.save(neon, project, edit, await open());
+		expect((await own.getRecord({ collection: CALENDAR_EVENT, rkey }))?.value).toMatchObject({
+			name: 'Night Owls (sold out)',
+			description: 'Doors at 22:00'
 		});
-		expect(await net.app.shows.edited(neon.did, listed)).toEqual([ref.uri]);
+		expect(await net.app.shows.edited(neon.did, await net.app.shows.forProject(project))).toEqual([]);
 
 		await net.app.shows.remove(neon, project, rkey);
 		await net.app.follows.unfollow(pat, project);
 		expect(await net.app.shows.forProject(project)).toEqual([]);
+		expect(await own.getRecord({ collection: CALENDAR_EVENT, rkey })).toBeNull();
 		expect(await net.app.follows.state(project, pat.did)).toEqual({ followers: 0, following: false });
 	});
 

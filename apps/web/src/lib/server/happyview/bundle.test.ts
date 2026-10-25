@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, BSKY_PROFILE, COLLECTION, DIRECTORY, NS, VERIFICATION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY, NS, VERIFICATION } from '#lib/nsid.ts';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
@@ -16,6 +16,7 @@ describe('happyViewBundle', () => {
 			COLLECTION.show,
 			COLLECTION.follow,
 			`${NS}.locallibrary.settings`,
+			CALENDAR_EVENT,
 			VERIFICATION,
 			BSKY_PROFILE,
 			BSKY_FOLLOW,
@@ -26,7 +27,7 @@ describe('happyViewBundle', () => {
 			[
 				'com.atproto.repo.strongRef',
 				'com.atproto.label.defs',
-				'community.lexicon.location.address',
+				...['address', 'fsq', 'geo', 'hthree'].map((name) => `community.lexicon.location.${name}`),
 				`${NS}.defs`,
 				`${NS}.dj.defs`,
 				`${NS}.epk.defs`,

@@ -16,8 +16,8 @@ import {
 } from '#lib/epk.ts';
 import type { ProjectMix } from '#lib/types.ts';
 import { UserError } from '../core';
-import { isWebUrl, text } from '../http';
-import { CID, sniffImage } from './project';
+import { CID, isWebUrl, text } from '../http';
+import { sniffImage } from './project';
 
 /** Big enough for a 3,000 px JPEG, the size press asks for, and under the 5 MiB some PDSes allow. */
 export const EPK_PHOTO_MAX_BYTES = 5_000_000;

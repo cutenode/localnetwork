@@ -7,7 +7,6 @@ import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { AccountService } from '../services/accounts';
-import { PublicRepo } from '../atproto/public-repo';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
 import { FollowService } from '../services/follows';
@@ -98,12 +97,6 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const tracklists = new TracklistService(core);
 	const supports = new SupportService(directory, accounts, silentLogger);
 
-	const publicRepo = new PublicRepo(
-		{ resolve: async () => ({ pds: 'https://pds.test' }) },
-		silentLogger,
-		net.publicFetch
-	);
-
 	// Writes are indexed in-process here, so a write that isn't served at once never will be.
 	const indexedRepo = new IndexedRepo(directory, silentLogger, 0);
 
@@ -112,7 +105,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		throw new Error(`no such handle ${identifier}`);
 	});
 
-	const shows = new ShowService(core, projects, directory, publicRepo, 0);
+	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -159,7 +152,6 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		follows,
 		verifications,
 		handles,
-		publicRepo,
 		indexedRepo,
 		viewer,
 		capable,

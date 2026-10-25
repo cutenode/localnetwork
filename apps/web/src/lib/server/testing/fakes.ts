@@ -58,28 +58,6 @@ export class FakeNetwork {
 			.toArray();
 	}
 
-	/** Answers public getRecord and listRecords from the public repos, as a PDS does for anyone. */
-	readonly publicFetch: typeof fetch = async (input) => {
-		const url = new URL(input instanceof Request ? input.url : String(input));
-		const repo = url.searchParams.get('repo');
-		const collection = url.searchParams.get('collection');
-		const prefix = `${repo}|${collection}|`;
-
-		if (url.pathname.endsWith('getRecord')) {
-			const found = this.records.get(`${prefix}${url.searchParams.get('rkey')}`);
-
-			return found ? Response.json(found) : Response.json({ error: 'RecordNotFound' }, { status: 400 });
-		}
-
-		const records = this.records
-			.entries()
-			.filter(([key]) => key.startsWith(prefix))
-			.map(([, value]) => value)
-			.toArray();
-
-		return Response.json({ records });
-	};
-
 	/** Throws BlobNotFound, as a PDS does, when `record` references a blob `did` doesn't hold. */
 	assertBlobsHeld(did: string, record: JsonRecord): void {
 		// Blob refs are the only `$link`s in the records these tests write.

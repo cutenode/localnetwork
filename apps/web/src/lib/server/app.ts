@@ -4,7 +4,6 @@ import type { Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
-import { PublicRepo } from './atproto/public-repo';
 import type { RepoClient } from './atproto/repo-client';
 import { RootAccount } from './atproto/root';
 import { rootSpaces } from './atproto/spaces';
@@ -151,14 +150,13 @@ export async function createApp(options: CreateAppOptions) {
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
-	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
 
-	const shows = new ShowService(core, projects, happyView, publicRepo);
+	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
 

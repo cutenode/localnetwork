@@ -51,10 +51,10 @@ export async function reindex(directory: HappyViewClient, logger: Logger, collec
 }
 
 /**
- * Reads public records the way PublicRepo reads them from a PDS, from what HappyView indexed instead
- * (`directory.getRecords` and `directory.listRecords`), so only collections it has a record script for have any. A
- * HappyView that's down reads as having nothing, never as an error (unless the read is `strict`), so a page that shows
- * someone's records still renders; callers parse what comes back.
+ * Reads public records the way `com.atproto.repo.getRecord` and `listRecords` read them from a PDS, from what HappyView
+ * indexed instead (`directory.getRecords` and `directory.listRecords`), so only collections it has a record script for
+ * have any. A HappyView that's down reads as having nothing, never as an error (unless the read is `strict`), so a page
+ * that shows someone's records still renders; callers parse what comes back.
  */
 export class IndexedRepo {
 	constructor(

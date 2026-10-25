@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		pendingUpdate,
 		// Streamed, so the page shows while the directory finds the shows.
 		shows,
-		// Which of the viewer's own shows another calendar app changed since, read from their repo.
+		// Which of the viewer's own shows another calendar app changed since, as HappyView has the events.
 		edited: shows.then((list) => (list ? app.shows.edited(viewer.did, list) : []))
 	};
 };
