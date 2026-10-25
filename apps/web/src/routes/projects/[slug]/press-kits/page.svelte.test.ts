@@ -75,11 +75,12 @@ it('lets a signed-in member send an inquiry', async () => {
 
 it('lists the press kits its managers publish, and links a manager to manage them', async () => {
 	const epk = {
-		uri: 'at://did:plc:neon/computer.localnetwork.epk/3k',
-		did: 'did:plc:neon',
+		uri: 'at://did:plc:root/computer.localnetwork.epk/3k',
+		did: 'did:plc:root',
 		rkey: '3k',
-		space: 'at://did:plc:neon/space/computer.localnetwork.space.epk/3k',
-		owner: { did: 'did:plc:neon', handle: 'neon.test' },
+		cid: 'bafyepk',
+		space: 'at://did:plc:root/space/computer.localnetwork.space.epk/3k',
+		legacy: false,
 		record: {
 			project: project.uri,
 			title: 'Festivals',
@@ -107,7 +108,9 @@ it('lists the press kits its managers publish, and links a manager to manage the
 		form: null
 	});
 
-	await expect.element(page.getByRole('link', { name: /Festivals/ })).toHaveAttribute('href', '/epk/did:plc:neon/3k');
+	await expect
+		.element(page.getByRole('link', { name: /Festivals/ }))
+		.toHaveAttribute('href', '/projects/neon-tide/press-kits/3k');
 	await expect.element(page.getByText(/Open · Updated/)).toBeVisible();
 	await expect
 		.element(page.getByRole('link', { name: 'Manage', exact: true }))
