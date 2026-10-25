@@ -83,9 +83,14 @@ export function plannerSpace(userDid: string): string {
 	return spaceUri(userDid, SPACE_TYPE.planner, SELF_SPACE_KEY);
 }
 
-/** A press kit's space: under its owner, with the press kit record's key. */
-export function epkSpace(ownerDid: string, rkey: string): string {
-	return spaceUri(ownerDid, SPACE_TYPE.epk, rkey);
+/** A press kit's space, with the press kit record's key: under the root, or for one made before the root held press kits, under the manager who made it. */
+export function epkSpace(authority: string, rkey: string): string {
+	return spaceUri(authority, SPACE_TYPE.epk, rkey);
+}
+
+/** A project's backstage: under the root, with the project record's key. */
+export function backstageSpace(rootDid: string, projectRkey: string): string {
+	return spaceUri(rootDid, SPACE_TYPE.backstage, projectRkey);
 }
 
 export function isSpaceType(value: string): value is SpaceType {

@@ -9,7 +9,7 @@
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
-	import { presetFor } from '#lib/epk.ts';
+	import { presetFor, pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import type { PageProps } from './$types';
@@ -63,7 +63,7 @@
 	<PreviewBanner status={project.status} />
 	<div class="flex flex-col gap-1">
 		<h2 id="press-kits" class="m-0 text-heading font-semibold">Press kits</h2>
-		<p class="m-0 text-small text-fg-muted">Published by {profile.name}'s managers, each for a different kind of booking.</p>
+		<p class="m-0 text-small text-fg-muted">One for each kind of booking.</p>
 	</div>
 	{#await data.epks}
 		<div aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
@@ -73,7 +73,7 @@
 				{#each epks as epk (epk.uri)}
 					{@const preset = presetFor(epk.record.access)}
 					<li>
-						<a href="/epk/{epk.did}/{epk.rkey}" class="card flex h-full flex-col gap-1.5 p-4 text-fg no-underline transition-colors hover:border-line-strong">
+						<a href={pressKitPath(project.slug, epk.rkey)} class="card flex h-full flex-col gap-1.5 p-4 text-fg no-underline transition-colors hover:border-line-strong">
 							<span class="text-emphasis font-semibold">{epk.record.title}</span>
 							{#if epk.record.headline}<span class="text-small text-fg-soft">{epk.record.headline}</span>{/if}
 							<span class="mt-auto inline-flex items-center gap-1.5 pt-1 text-caption text-fg-subtle"><Lock class="size-3" aria-hidden="true" />{preset?.label ?? 'Custom access'} · Updated {formatDate(epk.record.updatedAt ?? epk.record.createdAt)}</span>
@@ -160,7 +160,7 @@
 
 	<section aria-labelledby="epk-booking" class="card flex flex-col gap-4 p-5 print:break-inside-avoid">
 		<h2 id="epk-booking" class="m-0 text-heading font-semibold">Booking</h2>
-		<BookingDetails details={data.details} signedIn={!!data.viewer} claimed={project.managers.length > 0} loginHref="/login?next=/projects/{project.slug}/epk" />
+		<BookingDetails details={data.details} signedIn={!!data.viewer} claimed={project.managers.length > 0} loginHref="/login?next=/projects/{project.slug}/press-kits" />
 		<div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-small">
 			{#if data.viewer && project.managers.length && !data.isManager}<a class="btn-primary btn-sm print:hidden" href="/dashboard/bookings/new?project={project.slug}">Send inquiry</a>{/if}
 			<span class="text-fg-muted">Profile: <a class="link break-all" href={data.profileUrl}>{data.profileUrl}</a></span>

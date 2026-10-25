@@ -199,6 +199,22 @@ const epk = statements(
 	)`
 );
 
+/** Press kit drafts in projects' backstages, from the managers' repos (or the root's, on their behalf). */
+const epkDrafts = statements(
+	`CREATE TABLE epk_draft (
+		uri TEXT PRIMARY KEY,
+		space_uri TEXT NOT NULL,
+		repo_did TEXT NOT NULL,
+		rkey TEXT NOT NULL,
+		author_did TEXT NOT NULL,
+		epk_rkey TEXT NOT NULL,
+		cid TEXT NOT NULL,
+		record TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX epk_draft_space ON epk_draft (space_uri, epk_rkey)`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
@@ -214,6 +230,11 @@ const migrations = {
 	'003_public_writes': {
 		async up(db) {
 			await sql.raw('ALTER TABLE account ADD COLUMN public_writes INTEGER').execute(db);
+		}
+	},
+	'004_epk_drafts': {
+		async up(db) {
+			for (const statement of epkDrafts) await sql.raw(statement).execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;

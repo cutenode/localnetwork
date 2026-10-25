@@ -1,7 +1,7 @@
 import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
-import { bookingSpace, epkSpace } from '../atproto/spaces';
+import { backstageSpace, bookingSpace, epkSpace } from '../atproto/spaces';
 import { createTestServices, ROOT } from '../testing/core';
 import { createProjections } from './projections';
 
@@ -170,7 +170,7 @@ describe('createProjections', () => {
 		expect((await t.audit.get(entry.id))?.actorStatus).toBe('failed');
 	});
 
-	it("counts a press kit grant only from the press kit's owner, and drops it when deleted", async () => {
+	it("counts a press kit grant only from its space's authority, and drops it when deleted", async () => {
 		const space = epkSpace(ALICE, '3kit');
 		const grant = { subject: BOB, via: 'approved', createdAt: new Date().toISOString() };
 
@@ -191,5 +191,28 @@ describe('createProjections', () => {
 			uri: `${space}/${ALICE}/${COLLECTION.epkGrant}/${BOB}`
 		});
 		expect(await t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
+	});
+
+	it("indexes press kit drafts only from a backstage under the root, and drops them when they're deleted", async () => {
+		const space = backstageSpace(ROOT, '3proj');
+		const now = new Date().toISOString();
+		const draft = { changes: { title: 'Clubs 2027' }, createdAt: now, updatedAt: now };
+		const drafts = () => t.db.selectFrom('epkDraft').select(['authorDid', 'epkRkey']).execute();
+
+		await upsert(backstageSpace(ALICE, '3proj'), ALICE, COLLECTION.epkDraft, '3kit', draft);
+		expect(await drafts()).toEqual([]);
+
+		await upsert(space, ALICE, COLLECTION.epkDraft, '3kit', draft);
+		expect(await drafts()).toEqual([{ authorDid: ALICE, epkRkey: '3kit' }]);
+
+		await project({
+			kind: 'delete',
+			space,
+			repoDid: ALICE,
+			collection: COLLECTION.epkDraft,
+			rkey: '3kit',
+			uri: `${space}/${ALICE}/${COLLECTION.epkDraft}/3kit`
+		});
+		expect(await drafts()).toEqual([]);
 	});
 });
