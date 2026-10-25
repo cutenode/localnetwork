@@ -116,7 +116,7 @@
 </script>
 
 {#snippet header()}
-	<SiteHeader links={nav} account={{ href: '/login', label: 'Sign in' }} cta={{ href: '/projects/new', label: 'List your project' }} />
+	<SiteHeader links={nav} account={{ href: '/login', label: 'Sign in' }} cta={{ href: '/dashboard/projects/new', label: 'List your project' }} />
 {/snippet}
 
 {#snippet hero()}
@@ -124,7 +124,7 @@
 		<div class="container-page flex flex-col items-center gap-5 pt-10 sm:gap-6 sm:pt-24">
 			<Badge label="New" href="/mixes">Mixes now show every track and transition</Badge>
 			<SectionHeader id="hero-title" level={1} size="display" align="center" title="The home for local DJs and the nights they play." lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their mixes and their nights on it.">
-				{#snippet actions()}<Button size="lg" href="/projects">Find DJs near you</Button><Button size="lg" variant="secondary" href="/projects/new">List your project</Button>{/snippet}
+				{#snippet actions()}<Button size="lg" href="/projects">Find DJs near you</Button><Button size="lg" variant="secondary" href="/dashboard/projects/new">List your project</Button>{/snippet}
 			</SectionHeader>
 			<div class="mt-6 w-full sm:mt-14">
 				<BrowserFrame url="localnetwork.computer/projects/neon-tide" bleed>
@@ -138,7 +138,7 @@
 								<dt class="text-fg-subtle">Rooms</dt><dd class="m-0 font-mono text-label">150–1,500 cap</dd>
 								<dt class="text-fg-subtle">Next</dt><dd class="m-0">Tidal Hours, Fri 16 Oct, Halle Nord</dd>
 							</dl>
-							<div class="mt-auto flex gap-2 max-sm:hidden"><Button size="sm" href="/bookings/new">Send inquiry</Button><Button size="sm" variant="secondary">Save</Button></div>
+							<div class="mt-auto flex gap-2 max-sm:hidden"><Button size="sm" href="/dashboard/bookings/new">Send inquiry</Button><Button size="sm" variant="secondary">Save</Button></div>
 						</div>
 						<div class="flex min-w-0 flex-[2_1_30rem] flex-col gap-3.5 border-line p-5 max-sm:border-t sm:p-7">
 							<div class="flex flex-wrap items-baseline justify-between gap-2"><span class="font-semibold">{mix.mix.title}</span><span class="font-mono text-caption text-fg-subtle">{mix.plays.length} tracks · {clock(duration)} · 124–128 BPM</span></div>
@@ -279,9 +279,9 @@
 									<span class="flex">{#each event.lineup as name (name)}<span class="-mr-2 rounded-[11px] border-2 border-surface"><Monogram {name} size="sm" /></span>{/each}</span>
 									<span class="ml-2">{event.billing}</span>
 								</p>
-							<a href="/bookings/new" class="text-small font-semibold text-link no-underline sm:hidden">Book {event.lineup[0]} →</a>
+							<a href="/dashboard/bookings/new" class="text-small font-semibold text-link no-underline sm:hidden">Book {event.lineup[0]} →</a>
 </div>
-							<Button size="sm" variant="secondary" href="/bookings/new" class="ml-auto max-sm:hidden">Book {event.lineup[0]}</Button>
+							<Button size="sm" variant="secondary" href="/dashboard/bookings/new" class="ml-auto max-sm:hidden">Book {event.lineup[0]}</Button>
 						</Card>
 					{/each}
 				</ol>
@@ -356,7 +356,7 @@
 {#snippet closing()}
 	<Section tone="grid" labelledby="closing-title">
 		<SectionHeader id="closing-title" align="center" title="Your profile, your records, your scene." lede="Everything public is an AT Protocol record you can take anywhere. Booking details stay in private spaces only members can read.">
-			{#snippet actions()}<Button size="lg" href="/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects">Find DJs near you</Button>{/snippet}
+			{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects">Find DJs near you</Button>{/snippet}
 		</SectionHeader>
 	</Section>
 {/snippet}

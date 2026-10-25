@@ -1,0 +1,66 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "A GitHub project kept in step by tools/project.sh",
+	"type": "object",
+	"required": ["number", "title", "description", "readme", "views"],
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"number": { "type": "integer", "description": "The project's number in the organization" },
+		"title": { "type": "string" },
+		"description": { "type": "string" },
+		"readme": { "type": "string" },
+		"scope": {
+			"type": "array",
+			"description": "Labels whose issues belong here: an open issue with one of them, or with \"<label>: <area>\", is added, and an issue with none is taken off. Leave it out for every open issue.",
+			"items": { "type": "string" }
+		},
+		"field": {
+			"type": "object",
+			"description": "A single select set from each issue's labels, with an option per label.",
+			"required": ["name"],
+			"additionalProperties": false,
+			"properties": {
+				"name": { "type": "string" },
+				"prefix": {
+					"type": "string",
+					"description": "Options are the labels that start with this, without it (\"locallibrary: \" gives cli, core and so on). Without it, options are the tools' labels."
+				},
+				"other": {
+					"description": "An option for issues with none of the labels, set only while the field is empty.",
+					"$ref": "#/$defs/option"
+				}
+			}
+		},
+		"views": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["name", "layout", "filter"],
+				"additionalProperties": false,
+				"properties": {
+					"name": { "type": "string" },
+					"layout": { "enum": ["BOARD_LAYOUT", "TABLE_LAYOUT", "ROADMAP_LAYOUT"] },
+					"filter": { "type": "string" },
+					"fields": {
+						"type": "array",
+						"items": { "type": "string" },
+						"description": "Visible fields, by name. Roadmaps can't have them."
+					}
+				}
+			}
+		}
+	},
+	"$defs": {
+		"option": {
+			"type": "object",
+			"required": ["name", "color", "description"],
+			"additionalProperties": false,
+			"properties": {
+				"name": { "type": "string" },
+				"color": { "enum": ["GRAY", "BLUE", "GREEN", "YELLOW", "ORANGE", "RED", "PINK", "PURPLE"] },
+				"description": { "type": "string" }
+			}
+		}
+	}
+}

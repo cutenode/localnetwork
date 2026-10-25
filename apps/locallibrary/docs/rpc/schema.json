@@ -11644,13 +11644,20 @@
           "items": {
             "$ref": "#/$defs/StepKind"
           },
-          "description": "Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `pull`, `sync`).",
+          "description": "Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `operations`, `pull`,\n`sync`).",
           "default": []
         },
         "sync": {
           "type": "boolean",
           "description": "Then copy the drive onto the other mounted drives of its library, when it's the newest.",
           "default": false
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OperationStep"
+          },
+          "description": "Plugins' operations to run on the drive after the steps that put it right, in this order,\nbefore it's saved."
         }
       },
       "description": "After rekordbox exported to a drive: put back what the export replaced, then save it."
@@ -11684,6 +11691,11 @@
         },
         {
           "type": "string",
+          "const": "operations",
+          "description": "Run plugins' operations (`locallibrary PLUGIN OPERATION`)."
+        },
+        {
+          "type": "string",
           "const": "pull",
           "description": "Save drives in the store (`pull`)."
         },
@@ -11704,6 +11716,23 @@
         }
       ],
       "description": "A step of a job."
+    },
+    "OperationStep": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "description": "`<plugin>.<operation>`, as `plugins.describe` lists them."
+        },
+        "params": {
+          "description": "As the operation's `params` schema says; `null` is none. One filled from the selection\nthat isn't given is the drive refreshed, if that's what it takes.",
+          "default": null
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "description": "A plugin's operation a job runs."
     },
     "SetJobRequest": {
       "type": "object",

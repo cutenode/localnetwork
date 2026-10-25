@@ -33,7 +33,7 @@ crates/loclib-analysis/     a second opinion on a track's tempo and key (stratum
                             clipping (ebur128), its three-band waveform, half/double tempo checks, and
                             scoring analyzers against the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
-                            tags, an Engine DJ library (engine.sql)
+                            tags, an Engine DJ library (engine.sql); and Traktor's collection.nml read back
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
                             spectrum, scope and cover art, in the colours of a palette the caller passes
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
@@ -43,7 +43,8 @@ plugins/coverart/           the coverart plugin: front covers and track details 
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
 plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
-                            library with loclib-interop into a folder on this computer
+                            library with loclib-interop into a folder on this computer, and an importer
+                            and a library source reading Traktor's collection.nml back
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
@@ -147,10 +148,10 @@ crates/locallibrary/src/    the library, built on the crates above
                messages never name a CLI command or flag: the CLI's hints.rs words those)
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
-                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
-                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
-                            plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
-                            rodio, drawing with loclib-waveform, the `tui` and `playback` features;
+                            and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
+                            linked in from the table build.rs writes, each run as `locallibrary plugin serve
+                            <id>`; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)
 apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)

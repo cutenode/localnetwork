@@ -12,6 +12,7 @@ mod events;
 mod exports;
 mod hooks;
 mod imports;
+mod jobs;
 mod net;
 mod panels;
 mod props;

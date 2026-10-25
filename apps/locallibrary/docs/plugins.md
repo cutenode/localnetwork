@@ -24,7 +24,11 @@ are:
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`), and a set or a mix as a playlist there (`locallibrary sets export
   SET --format traktor --drive LIBRARY -o DIR`, see [Other DJ
-  software](other-software.md#other-dj-software)).
+  software](other-software.md#other-dj-software)); and Traktor's collection read back: the
+  keys, BPMs and cues it has for a drive's tracks (`locallibrary import collection.nml
+  LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE --from
+  interop:traktor --grant FOLDER --option collection=FILE`), see [From
+  Traktor](other-software.md#from-traktor).
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)). It's the only one that goes online, and only when you run it, through
@@ -134,7 +138,10 @@ PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the
 where the plugin offers them, and a question one asks is a list to pick from, several one after
 another (titled `2 of 5` and so on, esc cancelling them all). On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
-its flag gives it otherwise.
+its flag gives it otherwise. `refresh --then 'PLUGIN.OPERATION KEY=VALUE...'` runs an operation
+as a step of a refresh, after the steps that put the drive right and before it's saved (see
+[After rekordbox exports](editing.md#after-rekordbox-exports)); one that asks something first is
+refused there.
 
 ## Destinations
 
@@ -221,7 +228,8 @@ itself and needs no capability to: it only answers what it read.
 ## Library sources
 
 A library source is a library a plugin reads from somewhere on this computer (another DJ
-program's collection, a folder of tagged files), which locallibrary builds a drive from as it
+program's collection, such as Traktor's with the interop plugin's `interop:traktor`, or a folder
+of tagged files), which locallibrary builds a drive from as it
 writes rekordbox's collection: `locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant
 FOLDER` (`--grant` again for more folders, the source's options as `--option KEY=VALUE`,
 `--dry-run` to see the plan). The plugin is given only the folders you grant it, for that build,

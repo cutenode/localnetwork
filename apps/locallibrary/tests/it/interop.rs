@@ -14,7 +14,7 @@ use locallibrary::{convert, paths};
 use rekordbox_pdb::PdbEditor;
 use serde_json::{Value, json};
 
-use crate::support::{Env, PDB, Rpc, path};
+use crate::support::{Env, PDB, Rpc, path, recording};
 
 const TRACK_1: &str = "Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3";
 
@@ -280,6 +280,116 @@ fn analysis_and_what_only_onelibrary_has_are_read() {
     assert_eq!(cues(only), read, "OneLibrary's own track's grid and cues, read as before");
     let listed = nml.split("NAME=\"Booth\"").nth(1).unwrap();
     assert!(listed[..listed.find("</NODE>").unwrap()].contains("Demo Track 1.mp3"), "{nml}");
+}
+
+/// A Traktor collection made from a drive imports back onto it, by the importer for `.nml` files:
+/// every track found, nothing to add; a hot cue Traktor has on a pad the track has free is planned
+/// and written, and one past H is left out, saying so.
+#[test]
+fn a_traktor_collection_imports_back() {
+    let env = Env::new();
+    let main = env.drive("Main");
+    let (d, out) = (path(&main), env.outside("traktor"));
+    env.ok(&["--yes", "export", d, "--format", "traktor", "-o", path(&out)]);
+    let collection = out.join("collection.nml");
+    let nml = std::fs::read_to_string(&collection).unwrap();
+    let dry = ["import", path(&collection), d, "--dry-run"];
+    let planned = env.json(&dry);
+    assert_eq!(planned["plan"]["tracks"]["found"], planned["plan"]["tracks"]["entries"], "{planned}");
+    assert_eq!(planned["outcome"], "nothing_to_do", "what came from the drive is there: {planned}");
+
+    let pads = r#"<CUE_V2 NAME="Top" TYPE="0" START="1000" LEN="0" HOTCUE="7"/><CUE_V2 NAME="Far" TYPE="0" START="2000" LEN="0" HOTCUE="9"/>"#;
+    std::fs::write(&collection, nml.replacen("</ENTRY>", &format!("{pads}</ENTRY>"), 1)).unwrap();
+    let planned = env.json(&dry);
+    let changes = planned["plan"]["edits"]["changes"].as_array().unwrap();
+    assert_eq!(changes.len(), 1, "{planned}");
+    let warnings = planned["plan"]["warnings"].as_array().unwrap();
+    assert!(warnings.iter().any(|w| w.as_str().unwrap().ends_with("1 hot cue(s) past H left out")), "{planned}");
+    env.ok(&["--yes", "import", path(&collection), d]);
+    assert_eq!(env.json(&dry)["plan"]["edits"]["changes"], json!([]), "what it planned is there");
+}
+
+/// A drive is built from a Traktor collection through the interop plugin's source: the tracks
+/// whose audio is in the folder granted, with their tags, key, cues and the beat grid laid out
+/// from Traktor's grid marker, and the playlists in their folders; a track elsewhere is left out,
+/// saying so, and so is a grid with no length to end at, the plan says (with the source named).
+#[test]
+fn a_drive_is_built_from_a_traktor_collection() {
+    use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
+    use loclib_model::test_util::track;
+    use loclib_model::{Library, Playlist, Track};
+
+    let env = Env::new();
+    let music = env.outside("music");
+    std::fs::create_dir_all(&music).unwrap();
+    std::fs::write(music.join("a.wav"), recording(1, 10.0, 44_100, 16, 0)).unwrap();
+    std::fs::write(music.join("b.wav"), recording(2, 2.0, 44_100, 16, 0)).unwrap();
+    let list = |id, parent_id, name: &str, track_ids, is_folder| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder,
+        sort_order: id,
+        track_ids,
+    };
+    let library = Library {
+        tracks: vec![
+            Track { key: "Am".into(), duration_secs: 10, bpm: 120.0, ..track(1, "Art", "A", "/music/a.wav") },
+            Track { duration_secs: 0, ..track(2, "Art", "B", "/music/b.wav") },
+            track(3, "Art", "C", "/elsewhere/c.wav"),
+        ],
+        playlists: vec![list(1, None, "Sets", vec![], true), list(2, Some(1), "Friday", vec![1, 3, 2], false)],
+        ..Library::default()
+    };
+    let beats: Vec<Beat> =
+        (0..4).map(|i| Beat { beat_number: i + 1, bpm: 120.0, time_ms: 100 + u32::from(i) * 500 }).collect();
+    let cue = |hot_cue, start_ms, end_ms, comment: &str| Cue {
+        hot_cue,
+        start_ms,
+        end_ms,
+        comment: comment.into(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+    };
+    let cues = vec![cue(Some(0), 1000, None, "Drop"), cue(None, 2000, Some(4000), "")];
+    let analysis = |t: &Track| match t.id {
+        1 => TrackAnalysis { beats: beats.clone(), cues: cues.clone(), ..TrackAnalysis::default() },
+        2 => TrackAnalysis { beats: beats[..1].to_vec(), ..TrackAnalysis::default() },
+        _ => TrackAnalysis::default(),
+    };
+    let src = loclib_interop::Source { library: &library, root: env.outside(""), analysis: Some(&analysis) };
+    let export = loclib_interop::traktor::build(&src, Path::new("traktor"), &locallibrary::progress::Ctx::silent());
+    let loclib_interop::Content::Bytes(nml) = &export.unwrap().files[0].content else { panic!("the NML is bytes") };
+    let collection = env.outside("collection.nml");
+    std::fs::write(&collection, nml).unwrap();
+
+    let stick = env.outside("stick");
+    let option = format!("collection={}", path(&collection));
+    let from = ["collection", "export", path(&stick), "--from", "interop:traktor", "--grant", path(&music)];
+    let planned = env.ok(&[&from[..], &["--option", &option, "--dry-run"]].concat());
+    assert!(planned.contains("2 track(s), 1 playlist(s)"), "{planned}");
+    assert!(planned.contains("1 track(s) left out, e.g. ") && planned.contains("c.wav: isn't there"), "{planned}");
+    let unlaid = "Traktor Pro: a collection.nml's tracks, cues, beat grids and playlists: 1 beat grid(s) left out: the track's length isn't known, or is over a day";
+    assert!(planned.contains(unlaid), "{planned}");
+    env.ok(&[&["--yes"][..], &from, &["--option", &option]].concat());
+
+    let built = Device::open(&stick).unwrap();
+    let read = built.library().unwrap();
+    let a = read.tracks.iter().find(|t| t.title == "A").unwrap();
+    assert_eq!((a.artist.as_str(), a.key.as_str(), a.bpm, a.duration_secs), ("Art", "Am", 120.0, 10));
+    let analysis = anlz::load(&built, a);
+    let mut marked: Vec<(Option<u8>, u32, Option<u32>, &str)> =
+        analysis.cues.iter().map(|c| (c.hot_cue, c.start_ms, c.end_ms, c.comment.as_str())).collect();
+    marked.sort();
+    assert_eq!(marked, [(None, 2000, Some(4000), ""), (Some(0), 1000, None, "Drop")]);
+    // Ten seconds at 120 BPM from the downbeat at 100 ms.
+    let grid: Vec<(u16, u32)> = analysis.beats.iter().map(|b| (b.beat_number, b.time_ms)).collect();
+    assert_eq!(grid.len(), 20);
+    assert_eq!((grid[0], grid[19]), ((1, 100), (4, 9600)));
+    let friday = read.find_playlist("Sets/Friday").unwrap();
+    let titles: Vec<&str> = friday.track_ids.iter().map(|id| read.track(*id).unwrap().title.as_str()).collect();
+    assert_eq!(titles, ["A", "B"]);
 }
 
 /// A set goes to Traktor as a playlist of its tracks on the drive named, in the order played:

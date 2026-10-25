@@ -7,6 +7,14 @@ import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/cor
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
+import { load as adminAudit } from '../../src/routes/admin/audit/+page.server.ts';
+import { load as adminAuditEntry } from '../../src/routes/admin/audit/[id]/+page.server.ts';
+import { load as adminOverview } from '../../src/routes/admin/+page.server.ts';
+import { load as adminProject } from '../../src/routes/admin/projects/[slug]/+page.server.ts';
+import { load as adminProjects } from '../../src/routes/admin/projects/+page.server.ts';
+import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+page.server.ts';
+import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
+import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
@@ -144,6 +152,29 @@ describe('Local Network on a real atproto spaces network', () => {
 		).rejects.toBeInstanceOf(UserError);
 	});
 
+	it("refuses the staff console's page data to non-staff in each load, not only in the layout", async () => {
+		// A data request still runs page loads when the layout refuses, so each load checks for itself.
+		const pat = await net.viewer('pat');
+		const url = new URL('http://localhost/admin');
+
+		const event = {
+			params: { id: '1', slug: 'x', rkey: 'x' },
+			url,
+			locals: { app: net.app, viewer: pat, log: silentLogger }
+		};
+
+		for (const load of [
+			adminOverview,
+			adminAudit,
+			adminAuditEntry,
+			adminProjects,
+			adminProject,
+			adminRequests,
+			adminRequest
+		])
+			await expect(load(event)).rejects.toMatchObject({ status: 403 });
+	});
+
 	it('publishes the project from the root account when a moderator approves', async () => {
 		const milo = await net.viewer('milo');
 
@@ -251,6 +282,22 @@ describe('Local Network on a real atproto spaces network', () => {
 				profile: profile('Hijack')
 			})
 		).rejects.toBeInstanceOf(ForbiddenError);
+		// The dashboard's form turns someone who doesn't manage the project away before it reads what they sent.
+		const { slug } = (await net.app.projects.byUri(projectUri))!;
+		const url = new URL(`http://127.0.0.1/dashboard/projects/${slug}/profile`);
+		const form = new FormData();
+		form.set('name', 'Hijack');
+		const lee = await net.viewer('lee');
+
+		await expect(
+			proposeChanges.default({
+				params: { slug },
+				url,
+				request: new Request(url, { method: 'POST', body: form }),
+				locals: { app: net.app, viewer: lee, log: silentLogger }
+			})
+		).rejects.toMatchObject({ status: 403 });
+		expect(await net.app.requests.list({ requester: lee.did })).toEqual([]);
 		await net.app.requests.decide({ actor: ada, uri: update.uri, outcome: 'approved' });
 		const updated = await net.app.projects.byUri(projectUri);
 		expect(updated).toMatchObject({
@@ -734,5 +781,49 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.projects.details(projectUri)).toMatchObject({ bookingEmail: 'bookings@staticbloom.test' });
 		const { events } = await net.app.bookings.thread(await net.viewer('lee'), bookingSpace);
 		expect(events).toHaveLength(3);
+	});
+
+	it("moves a project's booking threads with its managers, leaving the promoter in them", async () => {
+		const ada = await net.viewer('ada');
+		const lee = await net.viewer('lee');
+		const [pat, neon] = [net.user('pat'), net.user('neon')];
+		const root = await net.app.core.root();
+
+		let project = await net.app.projectAdmin.create({
+			actor: ada,
+			profile: profile('Night Shift'),
+			managers: [pat.did]
+		});
+
+		const show = { title: 'Warehouse' };
+		const open = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'Free?' });
+		const settled = await net.app.bookings.start({ actor: lee, projectUri: project.uri, show, message: 'And now?' });
+		await net.app.bookings.setStatus({ actor: lee, space: settled, status: 'declined' });
+
+		const members = async (space: string) => (await root.listMembers(space)).map((member) => member.did).sort();
+		const threads = async (did: string) => (await net.app.bookings.threadsFor(did)).map((thread) => thread.space);
+
+		const setManagers = async (dids: string[]) => {
+			project = await net.app.projectAdmin.setManagers({ actor: ada, project, managers: dids });
+		};
+
+		await setManagers([pat.did, neon.did]);
+		expect(await members(open)).toEqual([lee.did, neon.did, pat.did].sort());
+		expect(await members(settled)).toEqual([lee.did, pat.did].sort());
+		await net.app.bookings.message({ actor: await net.viewer('neon'), space: open, text: 'Joining in.' });
+
+		await setManagers([neon.did]);
+		await net.app.projects.reconcileManagerSpaces();
+		expect(await members(open)).toEqual([lee.did, neon.did].sort());
+		expect(await members(settled)).toEqual([lee.did]);
+		expect(await threads(pat.did)).not.toContain(open);
+		await expect(
+			net.app.bookings.message({ actor: await net.viewer('pat'), space: open, text: 'Still here?' })
+		).rejects.toBeInstanceOf(ForbiddenError);
+
+		await net.settle();
+		expect(await threads(neon.did)).toContain(open);
+		const { events } = await net.app.bookings.thread(lee, open);
+		expect(events.map((event) => event.text)).toEqual(['Free?', 'Joining in.']);
 	});
 });

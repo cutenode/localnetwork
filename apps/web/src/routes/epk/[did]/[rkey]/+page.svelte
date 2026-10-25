@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, Check, Copy, KeyRound, Pencil, Printer, Quote } from '@lucide/svelte';
+	import { ArrowLeft, Check, Copy, Printer, Quote } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
@@ -7,6 +7,7 @@
 	import EpkAccessCard from '#lib/components/epk/EpkAccessCard.svelte';
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import EpkPhotos from '#lib/components/epk/EpkPhotos.svelte';
+	import ManageLink from '#lib/components/ManageLink.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
@@ -15,7 +16,7 @@
 	 * A press kit published as records: the public part for everyone, and the rest for its owner and
 	 * the people they let in. It reads like a document and prints on white.
 	 */
-	let { data, form }: PageProps = $props();
+	let { data }: PageProps = $props();
 
 	const epk = $derived(data.epk);
 
@@ -54,18 +55,11 @@
 <div class="container-page flex flex-wrap items-center justify-between gap-3 pt-6 print:hidden">
 	<a href="/projects/{data.project.slug}/epk" class="menu-link inline-flex items-center gap-1.5 text-small"><ArrowLeft class="size-4" />{profile.name}'s press kits</a>
 	<div class="flex flex-wrap gap-2">
-		{#if isOwner}
-			<a class="btn-secondary btn-sm" href="{base}/access"><KeyRound class="size-4" />Access{#if data.waiting}<span class="pill bg-link-wash text-link">{data.waiting}</span>{/if}</a>
-			<a class="btn-secondary btn-sm" href="{base}/edit"><Pencil class="size-4" />Edit</a>
-		{/if}
+		<ManageLink viewer={data.viewer} project={data.project} section={isOwner ? `press-kits/${epk.did}/${epk.rkey}` : 'press-kits'} size="sm" />
 		<button type="button" class="btn-secondary btn-sm" onclick={copyLink}>{#if copied}<Check class="size-4" />Copied{:else}<Copy class="size-4" />Copy link{/if}</button>
 		<button type="button" class="btn-primary btn-sm" onclick={() => window.print()}><Printer class="size-4" />Print or save as PDF</button>
 	</div>
 </div>
-
-{#if data.saved && isOwner}
-	<div class="container-page mt-4 print:hidden"><p role="status" class="notice notice-ok m-0">Saved to your PDS.</p></div>
-{/if}
 
 <article class="mx-auto flex w-full max-w-208 flex-col gap-12 px-4 py-10 sm:px-8 print:max-w-none print:gap-8 print:px-0 print:py-0">
 	<header class="flex flex-col gap-5 border-b border-line pb-10 print:pb-6">
@@ -157,11 +151,11 @@
 					{#if content.techRider}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Tech rider</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.techRider}</dd></div>{/if}
 				</dl>
 			{:else}
-				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isOwner}{' '}<a class="link" href="/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
+				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isOwner}{' '}<a class="link" href="/dashboard/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
 			{/if}
 		</section>
 	{:else if data.access.kind !== 'owner' && data.access.kind !== 'granted'}
-		<EpkAccessCard access={data.access} name={profile.name} loginHref="/login?next={base}" error={form?.error} />
+		<EpkAccessCard access={data.access} name={profile.name} askHref="/dashboard/access/{epk.did}/{epk.rkey}" />
 	{/if}
 
 	<footer class="border-t border-line pt-4 text-caption text-fg-subtle">

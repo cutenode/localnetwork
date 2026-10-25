@@ -16,7 +16,7 @@
 				{ href: '/tools', label: 'Tools' }
 			],
 			account: { href: '/login', label: 'Sign in' },
-			cta: { href: '/projects/new', label: 'List your project' }
+			cta: { href: '/dashboard/projects/new', label: 'List your project' }
 		}
 	});
 </script>
