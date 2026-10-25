@@ -80,7 +80,7 @@ Workflow conventions, which `workflow-lint.yml` checks with [actionlint](https:/
 
 Slow suites (mutation testing, fuzzing, every browser, release builds) run weekly in `<tool>-scheduled.yml`, on a Monday cron plus `workflow_dispatch` so they can run on any branch. They have no `passed` job and no path filter.
 
-Repository-wide checks: `npm-advisories.yml` runs `pnpm audit --prod` over the lockfile on pull requests and weekly, `cargo deny` (in `locallibrary-ci.yml`, with `deny.toml`) checks the Rust dependencies' advisories, licences and sources, and Dependabot updates the npm lockfile, Cargo (`/` and `/fuzz`) and Actions monthly. npm advisories and Dependabot cover a new app without changes; `cargo deny` runs when `locallibrary-ci.yml`'s paths change, which a new Rust app adds to.
+Repository-wide checks: `npm-advisories.yml` runs `pnpm audit --prod` over the lockfile on pull requests and weekly, `cargo deny` (in `locallibrary-ci.yml`, with `deny.toml`) checks the Rust dependencies' advisories, licences and sources, OpenSSF Scorecard (`scorecard.yml`) runs osv-scanner over every lockfile and skips what `osv-scanner.toml` lists (a lockfile in another directory needs its own, as `fuzz/` has), and Dependabot updates the npm lockfile, Cargo (`/` and `/fuzz`) and Actions monthly. npm advisories and Dependabot cover a new app without changes; `cargo deny` runs when `locallibrary-ci.yml`'s paths change, which a new Rust app adds to.
 
 Labels: `pr-labels.yml` labels pull requests from `labeler.yml`, and `labels.yml` (the workflow) syncs `.github/labels.yml` to GitHub. Each tool has a label, and its areas are `"<tool>: <area>"` labels in a lighter shade of its colour.
 
