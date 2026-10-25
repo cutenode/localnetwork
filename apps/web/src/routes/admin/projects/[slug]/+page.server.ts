@@ -12,6 +12,7 @@ import { isProjectStatus } from '#lib/server/services/projects.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const project = await locals.app.projects.bySlug(params.slug);
 
 	if (!project) error(404, 'Project not found');
