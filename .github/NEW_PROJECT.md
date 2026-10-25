@@ -71,6 +71,8 @@ Jobs that only report stay out of the `passed` job's needs, so they never block 
 
 The "Protect Main" ruleset requires the `passed` jobs, which report either way, so a path-filtered workflow never blocks a pull request that doesn't touch it. The ruleset is `.github/rulesets/protect-main.json`: an admin applies it with `tools/ruleset.sh apply`, and the Repo checks workflow fails on `main` while GitHub's copy differs. It requires Web CI passed, locallibrary CI passed, localtoolbox CI passed, Mix report passed, npm advisories passed, Workflow lint passed, Repo checks passed and atstore CI passed, and code scanning, which is CodeQL's default setup for Actions, JavaScript and TypeScript, and Rust.
 
+Changes reach `main` only through a pull request, merged as a merge commit. Each one needs an approval from a code owner (`.github/CODEOWNERS`) given after its last push, and a new push dismisses earlier approvals, so an agent's pull request waits for a person to approve it.
+
 Workflow conventions, which `workflow-lint.yml` checks with [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://zizmor.sh):
 
 - actions pinned to a commit SHA with the version in a comment;
