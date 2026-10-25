@@ -4,7 +4,7 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
-	import { accountLabel } from '#lib/format.ts';
+	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
 	import type { LayoutProps } from './$types';
@@ -17,23 +17,9 @@
 	/** A key for aria-keyshortcuts, only while keyboard shortcuts are on. */
 	const shortcut = (key: string) => (hotkeys.enabled ? key : undefined);
 
-	type MenuItem = { key: string; href: string; label: string; badge?: number };
+	const nav = $derived(siteNav(data.viewer, data.pendingRequests));
 
-	const items = $derived<MenuItem[]>([
-		{ key: 'F', href: '/projects', label: 'Find DJs' },
-		{ key: 'W', href: '/shows', label: 'Shows' },
-		{ key: 'M', href: '/match', label: 'Match a show' },
-		{ key: 'R', href: '/charts', label: 'Charts' },
-		{ key: 'D', href: '/for-djs', label: 'For DJs' },
-		{ key: 'O', href: '/tools', label: 'Tools' },
-		...(data.viewer
-			? [{ key: 'B', href: '/dashboard/bookings', label: 'Bookings' }, ...(data.viewer.isStaff ? [{ key: 'T', href: '/admin', label: 'Staff', badge: data.pendingRequests }] : [])]
-			: [])
-	]);
-
-	const menu = $derived(items.map((item) => ({ ...item, shortcut: shortcut(item.key) })));
-
-	const account = $derived(data.viewer ? { href: '/dashboard', label: accountLabel(data.viewer), shortcut: shortcut('U') } : { href: '/login', label: 'Sign in', shortcut: shortcut('S') });
+	const withShortcut = (link: NavLink) => ({ ...link, shortcut: shortcut(link.key) });
 
 	let menuOpen = $state(false);
 
@@ -41,14 +27,17 @@
 		menuOpen = false;
 	});
 
+	// The header's keys, plus a few for pages it doesn't link to. Signed out, the dashboard's go through sign-in.
 	const shortcuts = $derived<Record<string, string>>({
 		h: '/',
 		a: '/about',
 		p: '/privacy',
+		m: '/match',
+		d: '/for-djs',
+		b: '/dashboard/bookings',
 		n: '/dashboard/projects/new',
 		c: '/projects?unclaimed=on',
-		[data.viewer ? 'u' : 's']: account.href,
-		...Object.fromEntries(items.map((item) => [item.key.toLowerCase(), item.href]))
+		...Object.fromEntries([...nav.links, ...nav.actions, ...(nav.account?.links ?? [])].map((link) => [link.key.toLowerCase(), link.href]))
 	});
 
 	$effect(() => {
@@ -73,7 +62,13 @@
 
 <a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">Skip to content</a>
 
-<SiteHeader links={menu} {account} cta={{ href: '/dashboard/projects/new', label: 'List your project', shortcut: shortcut('N') }} current={page.url.pathname} bind:open={menuOpen} />
+<SiteHeader
+	links={nav.links.map(withShortcut)}
+	actions={nav.actions.map(withShortcut)}
+	account={nav.account && { ...nav.account, links: nav.account.links.map(withShortcut) }}
+	current={page.url.pathname}
+	bind:open={menuOpen}
+/>
 
 <main id="main" class="min-h-[60vh]">
 	{@render children()}
