@@ -1,0 +1,22 @@
+[package]
+name = "locallibrary-plugin-demos"
+description = "locallibrary's demo track cleanup, as a plugin: finds rekordbox's demo tracks on a drive and removes them with their files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+
+[dependencies]
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+rustc-hash.workspace = true
+serde_json.workspace = true

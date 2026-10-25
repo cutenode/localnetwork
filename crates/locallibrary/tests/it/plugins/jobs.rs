@@ -62,16 +62,15 @@ const ONLY_OPERATIONS: [StepKind; 6] =
     [StepKind::Clean, StepKind::Replay, StepKind::Smart, StepKind::Player, StepKind::Settings, StepKind::Pull];
 
 /// Operations run after the steps that put the drive right, each planned again on the drive as the
-/// step before left it (the clean, then the operation before), then the drive is saved; each is
-/// an edit, journaled.
+/// step before left it (the operation before), then the drive is saved; each is an edit,
+/// journaled. The clean is the demos plugin's, which isn't hosted here.
 #[test]
 fn a_refresh_runs_operations_on_the_drive_the_steps_before_left() {
     let f = Hosted::new(Fixture::echo());
-    crate::jobs::add_demo_sample(&f.drive);
     let ops = vec![op("echo.playlist", json!({ "name": "First" })), op("echo.playlist", json!({ "name": "Second" }))];
     let plan = f.refresh(ops, Vec::new()).unwrap();
     let kinds: Vec<StepKind> = plan.running().map(|s| s.step).collect();
-    assert_eq!(kinds, [StepKind::Clean, StepKind::Operations, StepKind::Pull]);
+    assert_eq!(kinds, [StepKind::Operations, StepKind::Pull]);
     let step = plan.steps.iter().find(|s| s.step == StepKind::Operations).unwrap();
     assert_eq!(step.title, "Run the plugins' operations");
     assert_eq!(step.plans.len(), 2);
@@ -83,7 +82,7 @@ fn a_refresh_runs_operations_on_the_drive_the_steps_before_left() {
     let report = plan.apply(Some(&f.store), &Ctx::silent()).unwrap();
     assert!(report.stopped.is_none(), "{:?}", report.stopped);
     let ran: Vec<(StepKind, usize)> = report.steps.iter().map(|s| (s.step, s.reports.len())).collect();
-    assert_eq!(ran, [(StepKind::Clean, 1), (StepKind::Operations, 2), (StepKind::Pull, 1)]);
+    assert_eq!(ran, [(StepKind::Operations, 2), (StepKind::Pull, 1)]);
     let playlists = f.playlists();
     assert!(playlists.ends_with(&["First".to_string(), "Second".to_string()]), "{playlists:?}");
     let journal = locallibrary::api::edits_list(&DriveRef { drive: common::path(&f.drive) }).unwrap();

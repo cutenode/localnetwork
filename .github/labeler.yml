@@ -206,7 +206,7 @@ atstore:
           - "crates/loclib-plugin/**"
           - "plugins/**"
           - "{apps,crates}/locallibrary/**/plugin{,s,_cmd}{.rs,.md,/**}"
-          - "crates/locallibrary/examples/test-plugin/**"
+          - "crates/locallibrary/src/bin/test-plugin/**"
 
 "locallibrary: publishing":
   - changed-files:

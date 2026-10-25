@@ -25,7 +25,6 @@ use rekordbox_pdb::{ExtDatabase, ExtEditor, ExtTableType};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::clean::open_plus;
 use crate::commit::{self, Changes, NewDatabases, Options};
 use crate::device::{Device, LineageOp};
 use crate::edit::Replayed;
@@ -33,6 +32,7 @@ use crate::error::IoContext;
 use crate::hash::Hash;
 use crate::model::{Library, TrackRef};
 use crate::onelibrary::OneLibrary;
+use crate::onelibrary::open_plus;
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
