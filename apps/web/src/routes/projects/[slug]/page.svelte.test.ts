@@ -139,8 +139,8 @@ it("shows the managers' playing stats and sets once they arrive", async () => {
 	await expect.element(page.getByRole('heading', { name: 'Recent sets' })).toBeInTheDocument();
 	await expect.element(page.getByText('Halle Nord, Berlin · with Halflight · 5 tracks')).toBeInTheDocument();
 	await expect
-		.element(page.getByRole('link', { name: 'Press kit' }))
-		.toHaveAttribute('href', '/projects/neon-tide/epk');
+		.element(page.getByRole('link', { name: 'Press kits' }))
+		.toHaveAttribute('href', '/projects/neon-tide/press-kits');
 });
 
 it('shows managers what visitors see: no edit links, no announce button, no nudges', async () => {

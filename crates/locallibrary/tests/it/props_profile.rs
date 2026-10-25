@@ -69,7 +69,7 @@ fn artist() -> impl hegel::PrintableGenerator<String> {
 #[hegel::explicit_test_case(a = "A (feat. B)".to_string())]
 fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
     let a = tc.draw(artist());
-    for credit in profile::artist_credits(&a) {
+    for credit in locallibrary::model::artist_credits(&a) {
         let prefs = ProfilePrefs { hidden_artists: vec![credit.clone()], ..Default::default() };
         assert!(prefs.is_hidden_artist(&a), "hiding {credit:?} doesn't hide {a:?}");
         assert!(!prefs.may_name("whatever", &a));
@@ -80,7 +80,7 @@ fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
 #[hegel::test(test_cases = 500)]
 fn credits_are_distinct_names(tc: TestCase) {
     let a = tc.draw(artist());
-    let credits = profile::artist_credits(&a);
+    let credits = locallibrary::model::artist_credits(&a);
     let distinct: BTreeSet<String> = credits.iter().map(|c| normalize(c)).collect();
     assert_eq!(distinct.len(), credits.len(), "{credits:?}");
     assert!(credits.iter().all(|c| !c.is_empty() && c.trim() == c), "{credits:?}");
@@ -133,7 +133,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
         gs::vecs(gs::tuples!(artist(), gs::sampled_from(vec!["Glue", "Saku", "Apricots"]).map(String::from)))
             .max_size(6),
     );
-    let credits: Vec<String> = tracks.iter().flat_map(|(a, _)| profile::artist_credits(a)).collect();
+    let credits: Vec<String> = tracks.iter().flat_map(|(a, _)| locallibrary::model::artist_credits(a)).collect();
     tc.assume(!credits.is_empty());
     let hidden_artists = tc.draw(gs::vecs(gs::sampled_from(credits.clone())).min_size(1).max_size(2));
     let names: Vec<String> = tracks.iter().map(|(a, t)| format!("{a} - {t}")).collect();
@@ -150,7 +150,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
     let d = profile::document(&report(&tracks, &credits), &prefs);
     let is_hidden_artist = |a: &str| {
         let named: Vec<String> =
-            profile::artist_credits(a).iter().chain([&a.to_string()]).map(|c| normalize(c)).collect();
+            locallibrary::model::artist_credits(a).iter().chain([&a.to_string()]).map(|c| normalize(c)).collect();
         hidden_artists.iter().any(|h| named.contains(&normalize(h)))
     };
     for t in d.signature.iter().flatten() {

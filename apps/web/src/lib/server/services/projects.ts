@@ -2,7 +2,7 @@ import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -18,7 +18,7 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
-import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
+import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
@@ -119,7 +119,7 @@ export class ProjectService {
 		private readonly indexWaitMs = INDEX_WAIT_MS
 	) {
 		this.sets = new SetService(core, directory);
-		this.managerSpaces = new ManagerSpaces(core);
+		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
 	}
 
 	/**
@@ -385,11 +385,12 @@ export class ProjectService {
 
 		// A new manager's older records are read in the background, once HappyView serves the project that lets their
 		// press kits in; until then that re-read would be turned away, so the set picker reads their sets later. Sets go
-		// through the picker's own re-reads, which it waits for.
+		// through the picker's own re-reads, which it waits for. Their Bluesky follows are re-read too, which HappyView
+		// keeps when one of the project's press kits reads follows.
 		if (indexed) {
 			void this.sets.refresh(added);
 
-			for (const collection of MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet))
+			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
 				for (const did of added) void reindex(this.directory, this.core.logger, collection, did);
 		}
 

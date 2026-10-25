@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "A request to see the private part of a press kit, written by the person asking into the press kit's space.",
+			"description": "A request to see the private part of a press kit, written by the person asking into the press kit's space, where the project's managers answer it.",
 			"record": {
 				"type": "object",
 				"required": ["epk", "createdAt"],

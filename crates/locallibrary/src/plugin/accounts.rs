@@ -176,7 +176,7 @@ impl Plugin {
     /// redirect, to a public https address (in tests, this computer too).
     fn send(&self, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
         let url = Url::parse(&request.uri().to_string()).map_err(|e| Unanswered(e.to_string()))?;
-        if let Some(why) = unreachable(&url, self.loopback()) {
+        if let Some(why) = unreachable(&url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(Unanswered(why));
         }
         let client = self.client().map_err(|e| Unanswered(e.message))?;

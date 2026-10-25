@@ -80,7 +80,7 @@
 					<button class="btn-secondary">{#if data.saved}<BookmarkCheck class="size-4" />Saved{:else}<Bookmark class="size-4" />Save{/if}</button>
 				</form>
 			{/if}
-			<a href="/projects/{project.slug}/epk" class="btn-secondary"><FileText class="size-4" />Press kit</a>
+			<a href="/projects/{project.slug}/press-kits" class="btn-secondary"><FileText class="size-4" />Press kits</a>
 			<ManageLink {viewer} {project} />
 			{#if viewer && !data.isManager && !data.pendingClaim && project.status !== 'archived'}
 				<a href="/dashboard/claim/{project.slug}" class="btn-ghost"><Flag class="size-4" />{claimed ? 'Request to co-manage' : 'Claim this project'}</a>

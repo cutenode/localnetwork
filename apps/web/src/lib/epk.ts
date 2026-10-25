@@ -1,11 +1,12 @@
 import type { z } from 'zod';
-import type { epkContentSchema, epkRecordSchema } from './epk-schema.ts';
+import type { epkContentSchema, epkFieldsSchema, epkRecordSchema } from './epk-schema.ts';
 import type { AccountView } from './types.ts';
 
 /**
- * Press kits (EPKs) as records: a public `computer.localnetwork.epk` in the owner's repo, and a
- * space per press kit for the rest, which people see once the owner grants them access. These are
- * the shapes the pages and the server share, and the access rules both sides read the same way.
+ * Press kits (EPKs) as records: a public `computer.localnetwork.epk` in the root account's repo, and a
+ * space per press kit for the rest, which people see once one of the project's managers grants them
+ * access. Managers change them through drafts. These are the shapes the pages and the server share,
+ * and the access rules both sides read the same way.
  */
 
 /** What happens when someone in an audience asks for access. */
@@ -129,14 +130,93 @@ export const ROLE_LABELS: Record<RequestRole, string> = {
 
 export type EpkView = {
 	uri: string;
-	/** The public record's version. */
-	cid: string;
+	/** The repo holding it: the root's, or for a legacy press kit, the manager's who made it. */
 	did: string;
 	rkey: string;
+	/** Changes on every publish, so it identifies the published version. */
+	cid: string;
 	space: string;
-	owner: AccountView;
+	/** Made before the root held press kits, and still in its maker's repo until their next visit to the dashboard. */
+	legacy: boolean;
 	record: EpkRecord;
 };
+
+/** A project's mixes and press kits are kept to the same size. */
+export const MAX_EPKS_PER_PROJECT = 20;
+
+/** What a manager is told when they try to change a press kit that hasn't moved to the root yet. */
+export const LEGACY_KIT =
+	'This press kit moves to the project the next time the manager who made it opens the dashboard';
+
+/** Some fields of a press kit: the public record's at the top level, the private part's under `content`. */
+export type EpkFields = z.infer<typeof epkFieldsSchema>;
+
+type PublicValues = Omit<EpkFields, 'content'>;
+
+type ContentValues = NonNullable<EpkFields['content']>;
+
+/** What one field of a press kit holds. */
+export type EpkFieldValue =
+	| NonNullable<PublicValues[keyof PublicValues]>
+	| NonNullable<ContentValues[keyof ContentValues]>;
+
+export const EPK_PUBLIC_FIELDS = ['title', 'headline', 'bio', 'mixes', 'photos', 'access'] as const;
+
+export const EPK_CONTENT_FIELDS = ['bio', 'mixes', 'photos', 'quotes', 'contact', 'techRider'] as const;
+
+/** One field of a press kit, as a draft changes it: `title`, or `content.bio` for the private part's. */
+export type EpkField = (typeof EPK_PUBLIC_FIELDS)[number] | `content.${(typeof EPK_CONTENT_FIELDS)[number]}`;
+
+/**
+ * Where a draft stands against the published press kit: a draft of one that isn't published yet, one
+ * made from the version published now, one made before someone published another, or one whose press
+ * kit was deleted since.
+ */
+export type EpkDraftStatus = 'new' | 'current' | 'behind' | 'deleted';
+
+export type EpkDraftView = {
+	uri: string;
+	/** The press kit's key: the published one's, or the one a new press kit gets. */
+	rkey: string;
+	author: AccountView;
+	/** The repo holding the draft, where its new photos are: the author's, or the root's on their behalf. */
+	repo: string;
+	base: { uri: string; cid: string } | null;
+	changes: EpkFields;
+	previous: EpkFields;
+	/** The fields it changes. */
+	fields: EpkField[];
+	status: EpkDraftStatus;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A project's press kits as its dashboard lists them, with the managers' drafts of each, then drafts of unpublished ones. */
+export type EpkDashboard = { kits: { epk: EpkView; drafts: EpkDraftView[] }[]; drafts: EpkDraftView[] };
+
+export const DRAFT_STATUS_LABELS: Record<EpkDraftStatus, string> = {
+	new: 'New',
+	current: 'Up to date',
+	behind: 'Behind',
+	deleted: 'Deleted'
+};
+
+/** A field someone else published since a draft changed it: its value now, when the draft changed it, and in the draft. */
+export type EpkConflict = {
+	field: EpkField;
+	published: EpkFieldValue | undefined;
+	previous: EpkFieldValue | undefined;
+	draft: EpkFieldValue | undefined;
+};
+
+/** A conflict as the dashboard shows it: the field's name, and each value written out. */
+export type EpkConflictView = { field: EpkField; label: string; published: string; previous: string; draft: string };
+
+/** A press kit's public page. */
+export const pressKitPath = (slug: string, rkey: string) => `/projects/${slug}/press-kits/${rkey}`;
+
+/** What publishing a draft did: published it, or found fields someone else published since, and wrote nothing. */
+export type EpkPublishResult = { kind: 'published'; epk: EpkView } | { kind: 'conflict'; conflicts: EpkConflict[] };
 
 export type EpkRequestStatus = 'pending' | 'approved' | 'declined' | 'withdrawn';
 
@@ -146,7 +226,7 @@ export type EpkRequestView = {
 	role: RequestRole | null;
 	message: string | null;
 	status: EpkRequestStatus;
-	/** What the press kit's rules say for this person: auto requests the owner's PDS hasn't recorded yet. */
+	/** What the press kit's rules say for this person: auto requests of a legacy press kit wait for it to move. */
 	rule: AccessRule;
 	createdAt: string;
 	decidedAt: string | null;
@@ -160,7 +240,7 @@ export type EpkGrantView = {
 
 /** Where the viewer stands with a press kit's private part. */
 export type EpkAccessState =
-	| { kind: 'owner' }
+	| { kind: 'manager' }
 	| { kind: 'granted'; since: string }
 	| { kind: 'signedOut'; rule: AccessRule }
 	| { kind: 'pending'; since: string; approved: boolean }

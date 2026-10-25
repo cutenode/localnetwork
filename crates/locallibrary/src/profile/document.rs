@@ -14,8 +14,8 @@ use chrono::{DateTime, Datelike, SecondsFormat, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{Basis, ProfileReport, artist_credits, credited_artists};
-use crate::model::normalize;
+use super::{Basis, ProfileReport, credited_artists};
+use crate::model::{artist_credits, normalize};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 

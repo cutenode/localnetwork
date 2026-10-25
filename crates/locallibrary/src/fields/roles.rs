@@ -8,6 +8,7 @@
 //! what those analyzers kept in the [`FieldStore`].
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
@@ -75,8 +76,17 @@ fn set_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: Ro
     offered.get(&role)?.iter().find(|f| f.name() == name)
 }
 
-/// The field `role` is read from: the one `settings` choose, else the first offered.
+/// Whether `settings` read `role` from no analyzer at all ([`turn_off`]).
+fn off_in(settings: &IndexMap<String, Value>, role: Role) -> bool {
+    settings.get(&setting(role)) == Some(&Value::Bool(false))
+}
+
+/// The field `role` is read from: the one `settings` choose, else the first offered, unless they
+/// turned it off.
 fn chosen_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role: Role) -> Option<&'o RoleField> {
+    if off_in(settings, role) {
+        return None;
+    }
     set_in(settings, offered, role).or_else(|| offered.get(&role)?.first())
 }
 
@@ -89,10 +99,13 @@ pub fn chosen(store: Option<&Store>, role: Role) -> Option<RoleField> {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct RoleChoice {
     pub role: Role,
-    /// The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it).
+    /// The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's
+    /// turned off).
     pub chosen: Option<String>,
     /// Chosen in the settings, rather than by default.
     pub set: bool,
+    /// Read from no analyzer, as the settings say ([`turn_off`]).
+    pub off: bool,
     /// Every analyzer with it, `<plugin>.<analyzer>`, in the order the app has its plugins.
     pub offered: Vec<String>,
 }
@@ -104,6 +117,7 @@ pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
         role,
         chosen: chosen_in(&settings, &offered, role).map(RoleField::name),
         set: set_in(&settings, &offered, role).is_some(),
+        off: off_in(&settings, role),
         offered: offered.get(&role).into_iter().flatten().map(RoleField::name).collect(),
     };
     Role::ALL.into_iter().map(choice).collect()
@@ -124,12 +138,20 @@ pub fn choose(store: &Store, role: Role, analyzer: Option<&str>) -> Result<Vec<R
     Ok(choices(Some(store)))
 }
 
-/// What the analyzers chosen for `roles` worked out for `tracks` (of `device`), kept in `store`:
-/// by track id, then role. A track with none is left out, as is a role no analyzer has.
-pub fn by_role(store: &Store, roles: &[Role], device: &Device, tracks: &[&Track]) -> FxHashMap<u32, RoleValues> {
+/// Read `role` from no analyzer at all, until [`choose`] says otherwise: `sets publish` looks up no
+/// MusicBrainz IDs once `recording` is. Answers every role then.
+pub fn turn_off(store: &Store, role: Role) -> Result<Vec<RoleChoice>> {
+    set_host_setting(store, &setting(role), Some(Value::Bool(false)))?;
+    Ok(choices(Some(store)))
+}
+
+/// What the analyzers chosen for `roles` kept in `store` for an audio file, by role, read with
+/// the function it answers: none when no analyzer has any of them. A role with nothing kept for
+/// the file is left out.
+pub(crate) fn reader(store: &Store, roles: &[Role]) -> Option<impl Fn(&Path) -> RoleValues> {
     let (settings, offered) = (host_settings(Some(store)), offered());
-    let chosen: Vec<(Role, &RoleField)> =
-        roles.iter().filter_map(|&r| Some((r, chosen_in(&settings, &offered, r)?))).collect();
+    let chosen: Vec<(Role, RoleField)> =
+        roles.iter().filter_map(|&r| Some((r, chosen_in(&settings, &offered, r)?.clone()))).collect();
     let mut analyzers: Vec<Analyzer> = Vec::new();
     for (_, f) in &chosen {
         if !analyzers.contains(&f.analyzer) {
@@ -137,14 +159,22 @@ pub fn by_role(store: &Store, roles: &[Role], device: &Device, tracks: &[&Track]
         }
     }
     if analyzers.is_empty() {
-        return FxHashMap::default();
+        return None;
     }
     let fields = FieldStore::in_store(store);
-    let values = |t: &&Track| {
-        let audio = device.checked_path(&paths::key(&t.file_path)).ok()?;
-        let kept = fields.get(&audio, &analyzers);
+    Some(move |audio: &Path| {
+        let kept = fields.get(audio, &analyzers);
         let field = |f: &RoleField| kept.get(&f.analyzer.plugin)?.get(&f.analyzer.analyzer)?.get(&f.field).cloned();
-        let values: RoleValues = chosen.iter().filter_map(|(r, f)| Some((*r, field(f)?))).collect();
+        chosen.iter().filter_map(|(r, f)| Some((*r, field(f)?))).collect()
+    })
+}
+
+/// What the analyzers chosen for `roles` worked out for `tracks` (of `device`), kept in `store`:
+/// by track id, then role. A track with none is left out, as is a role no analyzer has.
+pub fn by_role(store: &Store, roles: &[Role], device: &Device, tracks: &[&Track]) -> FxHashMap<u32, RoleValues> {
+    let Some(read) = reader(store, roles) else { return FxHashMap::default() };
+    let values = |t: &&Track| {
+        let values = read(&device.checked_path(&paths::key(&t.file_path)).ok()?);
         (!values.is_empty()).then_some((t.id, values))
     };
     tracks.iter().filter_map(values).collect()

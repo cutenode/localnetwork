@@ -41,7 +41,7 @@
 
 <Story name="Asked" args={{ ...card, access: { kind: 'pending', since: '2026-10-13T12:00:00Z', approved: false } }} />
 
-<Story name="Approved, waiting on the owner" args={{ ...card, access: { kind: 'pending', since: '2026-10-13T12:00:00Z', approved: true } }} />
+<Story name="Approved, waiting for the move" args={{ ...card, access: { kind: 'pending', since: '2026-10-13T12:00:00Z', approved: true } }} />
 
 <Story name="Declined" args={{ ...card, access: { kind: 'declined' } }} />
 

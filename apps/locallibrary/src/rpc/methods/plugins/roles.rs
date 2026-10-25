@@ -13,12 +13,19 @@ struct ChooseRole {
     /// out) puts it back to its default.
     #[serde(default)]
     analyzer: Option<String>,
+    /// Read it from no analyzer instead (`recording`: `sets publish` looks up no MusicBrainz IDs).
+    #[serde(default)]
+    none: bool,
 }
 
 pub(super) fn register(r: &mut Registry) {
     r.read("plugins.roles", |c, _: locallibrary::api::NoParams| Ok(roles::choices(c.existing()?.as_ref()))).quick();
     r.immediate("plugins.roles.set", |c, req: ChooseRole| {
-        Ok(roles::choose(&c.store()?, req.role, req.analyzer.as_deref())?)
+        let store = c.store()?;
+        Ok(match req.none {
+            true => roles::turn_off(&store, req.role)?,
+            false => roles::choose(&store, req.role, req.analyzer.as_deref())?,
+        })
     })
     .keeps_cache();
 }

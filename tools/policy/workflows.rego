@@ -4,13 +4,15 @@ package workflows
 
 import data.lib
 
-# Pull request workflows that don't gate merges: benchmarks report to CodSpeed, the release
-# workflow is dist's own, which only plans a release on pull requests, and dependency review is
-# GitHub's own check of what a pull request adds, which isn't a required check.
+# Pull request workflows with no passed check: benchmarks report to CodSpeed, the release workflow
+# is dist's own, which only plans a release on pull requests, dependency review is GitHub's own
+# check of what a pull request adds, which isn't a required check, and CodeQL holds merges through
+# the ruleset's code scanning rule, which reads its alerts.
 ungated := {
 	".github/workflows/locallibrary-bench.yml",
 	".github/workflows/locallibrary-release.yml",
 	".github/workflows/dependency-review.yml",
+	".github/workflows/codeql.yml",
 }
 
 # Jobs that stay out of the passed check's needs on purpose: `report` posts coverage on the pull
