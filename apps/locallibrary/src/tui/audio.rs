@@ -160,6 +160,9 @@ pub struct Playhead {
     since: AtomicU64,
     /// The last seek asked for couldn't be made.
     seek_failed: AtomicBool,
+    /// The player is paused. rodio only looks at its own pause every 5 ms of the track, so till it
+    /// does the audio thread plays silence in place of the track, and the playhead stops at once.
+    paused: AtomicBool,
     /// The player has moved on to this track (its first sample was asked for).
     started: AtomicBool,
     /// A sample of the track has played (a file with no audio in it ends without one).
@@ -186,6 +189,7 @@ impl Default for Playhead {
             seek: AtomicU64::new(NO_SEEK),
             since: AtomicU64::new(u64::MAX),
             seek_failed: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
             started: AtomicBool::new(false),
             played: AtomicBool::new(false),
             broke: Mutex::new(None),
@@ -263,6 +267,8 @@ pub struct Looper<S> {
     keeping: bool,
     /// Playing from `kept` (the next sample's index), while the track waits at the loop's end.
     replay: Option<usize>,
+    /// Paused: this frame is silence (see [`Playhead::paused`]).
+    silent: bool,
     /// A sample has been asked for.
     started: bool,
     /// Playing it panicked: it has ended (see [`Playhead::broke`]).
@@ -285,6 +291,7 @@ impl<S: Source> Looper<S> {
             kept: Vec::new(),
             keeping: false,
             replay: None,
+            silent: false,
             started: false,
             broken: false,
         }
@@ -462,7 +469,15 @@ impl<S: Source> Looper<S> {
                 self.head.ended.store(true, Ordering::Release);
                 return None;
             }
-            self.frame_start();
+            // A seek or loop asked for while paused is taken up once it plays on.
+            self.silent = self.head.paused.load(Ordering::Acquire);
+            if !self.silent {
+                self.frame_start();
+            }
+        }
+        if self.silent {
+            self.channel = (self.channel + 1) % self.channels;
+            return Some(0.0);
         }
         let s = match self.replay.and_then(|i| self.kept.get(i)) {
             Some(&s) => {
@@ -782,7 +797,8 @@ impl Audio {
 
     fn append(&mut self, file: OpenedFile) {
         let Some(p) = &self.player else { return };
-        let head = Arc::new(Playhead { format: file.format, ..Playhead::default() });
+        let paused = AtomicBool::new(p.is_paused());
+        let head = Arc::new(Playhead { format: file.format, paused, ..Playhead::default() });
         let mut looper = Looper::new(*file.decoder, head.clone());
         if let Some(at) = file.start {
             // Made by the audio thread before the first frame (from the start, if it can't be).
@@ -840,9 +856,18 @@ impl Audio {
         self.player.as_ref().is_none_or(Player::is_paused)
     }
 
+    /// Pause or play on. Paused, the playhead stands still from the next frame the audio thread
+    /// plays (see [`Playhead::paused`]).
     pub fn toggle_pause(&self) {
-        if let Some(p) = &self.player {
-            if p.is_paused() { p.play() } else { p.pause() }
+        let Some(p) = &self.player else { return };
+        let pause = !p.is_paused();
+        if pause {
+            p.pause()
+        } else {
+            p.play()
+        }
+        for h in &self.heads {
+            h.paused.store(pause, Ordering::Release);
         }
     }
 

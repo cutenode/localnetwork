@@ -370,6 +370,10 @@ from (absolute): it isn't applied once one changes. A `set_artwork` edit gives i
 - `[[contributes.operations]]`: `name`, `title`, `long_running`, `where`, `params` and `cli`.
   Whether one is destructive, the host works out from the edits it plans.
 
+A user can have `locallibrary refresh` run an operation too (`--then`), with only the drive in its
+`context`: it's planned with the refresh, and again on the drive as the steps before left it when
+it runs. A question it asks there is refused.
+
 ### panels
 
 `panel/render {panel, context}` -> a view (see [views](#views)) of the track in `context.tracks`

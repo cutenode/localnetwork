@@ -7,6 +7,13 @@ import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/cor
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
+import { load as adminAudit } from '../../src/routes/admin/audit/+page.server.ts';
+import { load as adminAuditEntry } from '../../src/routes/admin/audit/[id]/+page.server.ts';
+import { load as adminOverview } from '../../src/routes/admin/+page.server.ts';
+import { load as adminProject } from '../../src/routes/admin/projects/[slug]/+page.server.ts';
+import { load as adminProjects } from '../../src/routes/admin/projects/+page.server.ts';
+import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+page.server.ts';
+import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
 import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
@@ -143,6 +150,29 @@ describe('Local Network on a real atproto spaces network', () => {
 		await expect(
 			net.app.requests.decide({ actor: await net.viewer('milo'), uri: createRequestUri, outcome: 'rejected' })
 		).rejects.toBeInstanceOf(UserError);
+	});
+
+	it("refuses the staff console's page data to non-staff in each load, not only in the layout", async () => {
+		// A data request still runs page loads when the layout refuses, so each load checks for itself.
+		const pat = await net.viewer('pat');
+		const url = new URL('http://localhost/admin');
+
+		const event = {
+			params: { id: '1', slug: 'x', rkey: 'x' },
+			url,
+			locals: { app: net.app, viewer: pat, log: silentLogger }
+		};
+
+		for (const load of [
+			adminOverview,
+			adminAudit,
+			adminAuditEntry,
+			adminProjects,
+			adminProject,
+			adminRequests,
+			adminRequest
+		])
+			await expect(load(event)).rejects.toMatchObject({ status: 403 });
 	});
 
 	it('publishes the project from the root account when a moderator approves', async () => {

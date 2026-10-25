@@ -8,7 +8,9 @@ fn steps_are_parsed_by_their_ids() {
     assert!(StepKind::ALL.iter().all(|k| StepKind::parse(k.id()).ok() == Some(*k)));
     let err = StepKind::parse("dance").unwrap_err().to_string();
     assert!(
-        err.contains("unknown step \"dance\" (clean, replay, smart, player, settings, pull, sync, check, eject)"),
+        err.contains(
+            "unknown step \"dance\" (clean, replay, smart, player, settings, operations, pull, sync, check, eject)"
+        ),
         "{err}"
     );
 }
