@@ -11,7 +11,8 @@ mod testing;
 mod text;
 mod xml;
 
-pub use matching::{MatchKind, Matched, Matcher, Report, Status, Summary, match_entries};
+pub use matching::{DURATION_SLACK, MatchKind, Matched, Matcher, Report, Status, Summary, match_entries};
+pub use normalise::fold;
 pub use table::{Record, read_table};
 pub use text::text_of;
 pub use xml::{MAX_BEATS, MAX_PATH_BYTES, Mark, Tempo, XmlEntry, XmlLibrary, XmlPlaylist, XmlTrack};

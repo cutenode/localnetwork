@@ -12,7 +12,8 @@ XML collection with the tags, keys, tempos, beat grids and cues a library keeps 
 [below](#rekordbox-xml-as-a-library)). `match_entries`, or a `Matcher` built
 once for many lists, gives each entry a `Status`: found (and how), ambiguous (with the candidates,
 best first) or missing. `Report` wraps the results with their counts. Entries and results
-serialise with serde.
+serialise with serde. `fold` is how titles and names are compared (but for case, accents,
+punctuation and spacing), and `DURATION_SLACK` how far apart two lengths may be.
 
 ```rust
 use loclib_model::{Library, Track};

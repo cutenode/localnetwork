@@ -2,7 +2,7 @@
 //! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]), redirects
 //! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
 //! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
-//! say. Its secret settings go only where a request names them (`{secret:<key>}`), and its
+//! say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
 //! accounts' access tokens only into the `Authorization` header that names one (`{account:<id>}`,
 //! see [`super::accounts`]), filled in once it's checked, never on to another server a redirect
 //! leads to, and left out of its log and the errors it's told (see [`State::scrub`]); what a
@@ -24,7 +24,6 @@ use reqwest::header::{
     LOCATION, PROXY_AUTHORIZATION, TRANSFER_ENCODING, USER_AGENT, WWW_AUTHENTICATE,
 };
 use reqwest::{Method, Url};
-use rustc_hash::FxHashMap;
 use serde_json::Value;
 
 use super::blobs;
@@ -46,8 +45,6 @@ const SECRET: &str = "{secret:";
 /// A plugin's `net/fetch` state, whichever of its processes asks.
 #[derive(Default)]
 pub(crate) struct State {
-    /// When each `[[net]]` limit lets a request go next, by its host.
-    turns: Mutex<FxHashMap<String, Instant>>,
     client: OnceLock<Result<Client, String>>,
     /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
     /// them), while this host runs.
@@ -133,6 +130,14 @@ impl Plugin {
         cfg!(debug_assertions) && self.host.options.test_loopback
     }
 
+    /// Why the plugin doesn't reach `url` in tests kept offline ([`super::Options::test_offline`]),
+    /// if it doesn't: it isn't on this computer.
+    pub(super) fn offline(&self, url: &Url) -> Option<String> {
+        let offline = cfg!(debug_assertions) && self.host.options.test_offline && !this_computer(url);
+        offline
+            .then(|| format!("{} isn't on this computer, and tests stay offline", url.host_str().unwrap_or_default()))
+    }
+
     /// The plugin's client, which follows no redirect: [`Plugin::fetch`] does, checking each.
     pub(super) fn client(&self) -> Result<&Client, RpcError> {
         let made = self.net.client.get_or_init(|| {
@@ -143,7 +148,8 @@ impl Plugin {
     }
 
     /// Waits for the turn of a request to `url` under the `[[net]]` limit for its host, if it has
-    /// one, unless it's cancelled first.
+    /// one, unless it's cancelled first. Turns are the host's, shared by every plugin limiting
+    /// the same host: two plugins asking one server keep to its limit between them.
     fn wait_turn(&self, url: &Url, cancel: &CancelToken) -> Result<(), RpcError> {
         let host = url.host_str().unwrap_or_default();
         let Some(limit) = self.manifest.net.iter().find(|l| Capability::Net(l.host.clone()).reaches(host)) else {
@@ -154,7 +160,7 @@ impl Plugin {
             if cancel.is_cancelled() {
                 return Err(RpcError::cancelled());
             }
-            let mut turns = lock(&self.net.turns);
+            let mut turns = lock(&self.host.turns);
             let now = Instant::now();
             let next = turns.get(&limit.host).copied().unwrap_or(now);
             if next <= now {
@@ -215,7 +221,7 @@ impl Plugin {
         let req: Fetch = loclib_plugin::params(params)?;
         let mut url =
             Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
-        if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()) {
+        if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(denied(why));
         }
         let method = Method::from_bytes(req.method.as_bytes())
@@ -315,7 +321,9 @@ impl Plugin {
             let next = url
                 .join(location)
                 .map_err(|_| external(format!("redirected to {}, which isn't a web address", one_line(location))))?;
-            if let Some(why) = refused(&self.manifest.capabilities, &next, self.loopback()) {
+            if let Some(why) =
+                refused(&self.manifest.capabilities, &next, self.loopback()).or_else(|| self.offline(&next))
+            {
                 return Err(external(format!("redirected to where it may not go: {why}")));
             }
             // 301, 302 and 303 ask again without the body (with GET, but for HEAD).

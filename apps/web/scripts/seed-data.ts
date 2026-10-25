@@ -396,8 +396,10 @@ export const DEMO_DJS = [
 ];
 
 /**
- * Two press kits neon.test publishes for Neon Tide: one for clubs that people ask to see, and one
- * for festivals anyone signed in can open. Each is the public record and the private part.
+ * Neon Tide's press kits: one for clubs that people ask to see, and one for festivals anyone signed
+ * in can open, both held by the root, plus one for radio still in neon.test's own repo (`legacy`),
+ * as press kits were made before the root held them, so opening the dashboard as neon.test moves it.
+ * Each is the public record and the private part.
  */
 export const DEMO_EPKS = [
 	{
@@ -423,6 +425,15 @@ export const DEMO_EPKS = [
 		access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'auto' },
 		publicMixes: [0],
 		content: { contact: { email: 'festivals@neon-tide.test' } }
+	},
+	{
+		title: 'Radio',
+		headline: 'Two-hour guest mixes for late-night radio',
+		bio: 'Neon Tide records long-form guest mixes that drift from ambient dub into rolling techno.',
+		access: { bookedWith: 'auto', following: 'review', promoters: 'review', anyone: 'review' },
+		publicMixes: [0],
+		content: { contact: { email: 'radio@neon-tide.test' } },
+		legacy: true
 	}
 ];
 

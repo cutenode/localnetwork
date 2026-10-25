@@ -258,6 +258,7 @@ export class FakeRootClient implements RootRepoClient {
 			.toArray();
 	}
 
+	/** The spaces of a type this account created or holds records in, as a PDS lists them. */
 	async listSpaces(spaceType: string): Promise<string[]> {
 		const spaces = new Set<string>();
 
@@ -266,6 +267,9 @@ export class FakeRootClient implements RootRepoClient {
 
 			if (repo === this.did && space.includes(`/space/${spaceType}/`)) spaces.add(space);
 		}
+
+		for (const space of this.net.spaces.keys())
+			if (space.startsWith(`at://${this.did}/space/${spaceType}/`)) spaces.add(space);
 
 		return [...spaces];
 	}

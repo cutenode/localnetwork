@@ -26,6 +26,8 @@ export const COLLECTION = {
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
 	epkGrant: `${NS}.epk.grant`,
+	/** A manager's unpublished changes to a press kit, in their repo in the project's backstage. */
+	epkDraft: `${NS}.epk.draft`,
 	/** A show a manager announced, in their own repo beside its calendar event. */
 	show: `${NS}.show`,
 	follow: `${NS}.follow`
@@ -78,7 +80,8 @@ export const SPACE_TYPE = {
 	industry: `${NS}.space.industry`,
 	booking: `${NS}.space.booking`,
 	planner: `${NS}.space.planner`,
-	epk: `${NS}.space.epk`
+	epk: `${NS}.space.epk`,
+	backstage: `${NS}.space.backstage`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];

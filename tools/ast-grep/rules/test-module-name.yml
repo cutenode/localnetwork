@@ -1,0 +1,26 @@
+# CodeQL leaves the Rust tests out by file name (.github/codeql/codeql-config.yml), so a
+# `#[cfg(test)]` module in a file named anything else gets scanned, and its asserts can raise
+# alerts that hold up a merge. One read through `#[path]` from a tests/ folder is left out by
+# `**/tests/**`. The config lists a single screens.rs (apps/locallibrary/src/tui), which this
+# can't tell from another, so a new test module shouldn't be called screens.
+id: test-module-name
+language: rust
+severity: error
+message: CodeQL scans this test module, since paths-ignore doesn't cover its file name.
+note: Name it tests, props, testing or test_util, or add its file to paths-ignore in .github/codeql/codeql-config.yml and its name here.
+rule:
+  kind: mod_item
+  all:
+    # A declaration, so its code is in a file of its own.
+    - not: { has: { kind: declaration_list } }
+    - has: { field: name, not: { regex: "^(tests|testing|props|test_util|screens)$" } }
+    # Among the attributes (and doc comments) right before it.
+    - follows:
+        stopBy: { not: { any: [{ kind: attribute_item }, { kind: line_comment }, { kind: block_comment }] } }
+        kind: attribute_item
+        regex: '^#\[cfg\((any\()?test\b'
+    - not:
+        follows:
+          stopBy: { not: { any: [{ kind: attribute_item }, { kind: line_comment }, { kind: block_comment }] } }
+          kind: attribute_item
+          regex: '^#\[path = "[^"]*\btests/'

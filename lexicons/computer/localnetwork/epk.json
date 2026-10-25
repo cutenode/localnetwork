@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "An electronic press kit for a project, in the repo of one of its managers. A manager can publish several, one per audience. This record is the public part; the rest sits in the press kit's own space (computer.localnetwork.space.epk, with the same key), which people read once its owner grants them access.",
+			"description": "An electronic press kit for a project, in the Local Network root account's repo. A project can have several, one per audience, and all its managers edit them through drafts (computer.localnetwork.epk.draft), which the root publishes. The root rewrites this record on every publish, so its CID identifies the published version. This record is the public part; the rest sits in the press kit's own space (computer.localnetwork.space.epk, with the same key), which people read once a manager grants them access. Press kits made before the root held them are in the repo of the manager who made them, until that manager's next visit moves them here with the same key.",
 			"record": {
 				"type": "object",
 				"required": ["project", "title", "access", "createdAt"],

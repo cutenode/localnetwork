@@ -57,6 +57,8 @@ On a pull request, each tool's workflow keeps one comment up to date with its co
 
 Pull requests also get a dependency review (`dependency-review.yml`). It fails when a dependency the pull request adds or updates (dev tooling aside) has a known advisory or a licence `deny.toml` doesn't allow (fonts may also be OFL-1.1), and then comments on the pull request with what it found.
 
+CodeQL scans the workflows, the TypeScript and the Rust on every pull request (`codeql.yml`), and `main` won't take a pull request that adds a high or critical security alert, or an error. The Rust tests are left out (`.github/codeql/codeql-config.yml`), so a new `#[cfg(test)]` module needs one of the names listed there, which `ast-grep scan` checks.
+
 ## Pull requests
 
 - Keep each pull request to one concern.

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
-import { ACCESS_PRESETS } from '../../src/lib/epk.ts';
+import { ACCESS_PRESETS, type EpkFields } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import {
@@ -566,41 +566,50 @@ describe('Local Network on a real atproto spaces network', () => {
 		]);
 		expect(activity.sets[0].tracks[0]).toMatchObject({ bpmCentis: 12400, key: '8A', startSeconds: 0 });
 
-		const input = {
-			title: 'Clubs',
-			access: ACCESS_PRESETS[0].access,
-			mixes: [],
-			photos: [],
-			content: { bio: 'The long bio' }
+		const fields: EpkFields = { title: 'Clubs', access: ACCESS_PRESETS[0].access, content: { bio: 'The long bio' } };
+
+		/** Neon saves the form as a draft over version `cid` of the press kit `rkey` (a new one without it), and publishes. */
+		const publish = async (values: EpkFields, rkey?: string, cid?: string) => {
+			const draft = await net.app.epks.drafts.save(viewer, project, { rkey, cid, values });
+			const result = await net.app.epks.drafts.publish(viewer, project, draft!.rkey);
+
+			if (result.kind === 'conflict') throw new Error('the draft conflicts');
+
+			return result.epk;
 		};
 
-		// Each save waits until HappyView serves it, and an edit swaps on the version it was opened on.
-		const epk = await net.app.epks.save(viewer, project, input);
+		// Each publish waits until HappyView serves it, and a draft saves only over the version its form was opened on.
+		const epk = await publish(fields);
 		expect((await net.app.epks.forProject(project)).map((kit) => kit.uri)).toEqual([epk.uri]);
-		const edited = await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, edited' }, epk);
-		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
+		const edited = await publish({ ...fields, title: 'Clubs, edited' }, epk.rkey, epk.cid);
+		expect((await net.app.epks.get(project, epk.rkey))?.epk.record.title).toBe('Clubs, edited');
 
-		// Another app edits it while the form is open on `edited`. Once HappyView has that change, the form's save is
-		// refused; reloaded, it saves.
-		const current = await neon.client.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
-		await neon.client.putRecord({
+		// Another app edits it in the root's repo while the form is open on `edited`. Once HappyView has that change, the
+		// form's save is refused; reloaded, it saves.
+		const root = await net.app.core.root();
+		const current = await root.getRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await root.putRecord({
 			collection: COLLECTION.epk,
 			rkey: epk.rkey,
 			record: { ...current!.value, headline: 'Elsewhere' }
 		});
 		await expect
-			.poll(async () => (await net.app.epks.get(neon.did, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
+			.poll(async () => (await net.app.epks.get(project, epk.rkey))?.epk.record.headline, { timeout: 10_000 })
 			.toBe('Elsewhere');
-		await expect(net.app.epks.save(viewer, project, { ...input, title: 'Stale' }, edited)).rejects.toMatchObject({
-			status: 409
-		});
-		const reloaded = (await net.app.epks.get(neon.did, epk.rkey))!.epk;
+		await expect(
+			net.app.epks.drafts.save(viewer, project, {
+				rkey: epk.rkey,
+				cid: edited.cid,
+				values: { ...fields, title: 'Stale' }
+			})
+		).rejects.toMatchObject({ status: 409 });
+		const reloaded = (await net.app.epks.get(project, epk.rkey))!.epk;
 		expect(reloaded.record).toMatchObject({ title: 'Clubs, edited', headline: 'Elsewhere' });
-		await net.app.epks.save(viewer, project, { ...input, title: 'Clubs, again' }, reloaded);
-		expect((await net.app.epks.get(neon.did, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
+		await publish({ ...fields, title: 'Clubs, again', headline: 'Elsewhere' }, epk.rkey, reloaded.cid);
+		expect((await net.app.epks.get(project, epk.rkey))?.epk.record).toMatchObject({ title: 'Clubs, again' });
 
-		await net.app.epks.remove(viewer, (await net.app.epks.get(neon.did, epk.rkey))!.epk);
-		expect(await net.app.epks.get(neon.did, epk.rkey)).toBeNull();
+		await net.app.epks.remove(viewer, (await net.app.epks.get(project, epk.rkey))!);
+		expect(await net.app.epks.get(project, epk.rkey)).toBeNull();
 		expect(await net.app.epks.forProject(project)).toEqual([]);
 	});
 
@@ -631,8 +640,9 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect((await call(other.data.token)).status).toBe(401);
 	});
 
-	it("reads a press kit owner's Bluesky follows through HappyView", async () => {
+	it("reads a project's managers' Bluesky follows through HappyView, for its press kits", async () => {
 		const neon = net.user('neon');
+		const viewer = await net.viewer('neon');
 		const project = (await net.app.projects.byUri(projectUri))!;
 
 		const follow = async (subject: string) =>
@@ -649,7 +659,7 @@ describe('Local Network on a real atproto spaces network', () => {
 				(record) => record.value.subject
 			);
 
-		// Before any of Neon's press kits reads follows, HappyView turns them away.
+		// Before any of the project's press kits reads follows, HappyView turns Neon's away.
 		const before = await follow(net.user('pat').did);
 		await expect
 			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [before.uri] })).records)
@@ -660,17 +670,21 @@ describe('Local Network on a real atproto spaces network', () => {
 			(preset) => preset.access.following !== preset.access.anyone && preset.access.promoters === preset.access.anyone
 		)!;
 
-		const input = { title: 'Followers', access, mixes: [], photos: [], content: { bio: 'Bio' } };
-		const epk = await net.app.epks.save(await net.viewer('neon'), project, input);
+		const values: EpkFields = { title: 'Followers', access, content: { bio: 'Bio' } };
+		const draft = await net.app.epks.drafts.save(viewer, project, { values });
+		const published = await net.app.epks.drafts.publish(viewer, project, draft!.rkey);
 
-		// Its first one does, so HappyView re-reads the follows from before, and keeps the ones after.
+		if (published.kind === 'conflict') throw new Error('the draft conflicts');
+		const kit = { epk: published.epk, project };
+
+		// Its first one does, so HappyView re-reads the managers' follows from before, and keeps the ones after.
 		await expect.poll(followed, { timeout: 10_000 }).toEqual([net.user('pat').did]);
-		expect(await net.app.epks.ruleForViewer(epk, net.user('pat').did)).toBe(access.following);
-		expect(await net.app.epks.ruleForViewer(epk, net.user('kai').did)).toBe(access.anyone);
+		expect(await net.app.epks.ruleForViewer(kit, net.user('pat').did)).toBe(access.following);
+		expect(await net.app.epks.ruleForViewer(kit, net.user('kai').did)).toBe(access.anyone);
 		await follow(net.user('kai').did);
 		await expect.poll(followed, { timeout: 10_000 }).toContain(net.user('kai').did);
 
-		await net.app.epks.remove(await net.viewer('neon'), epk);
+		await net.app.epks.remove(viewer, kit);
 	});
 
 	it("lets an admin verify a manager on Bluesky from the root's repo, and remove it, read through HappyView", async () => {

@@ -214,11 +214,18 @@ worked out with nothing to show. A field left out wasn't worked out.
 - `roles` says which of an analyzer's fields locallibrary reads as what (`Role`), a role to a
   field: `key` (a Camelot code, `8A`: a string), `bpm`, `key_confidence` and `bpm_confidence`
   (0 to 1), `loudness` (integrated LUFS), `true_peak` (dBTP), each a number, `clipped_runs` (an
-  integer) and `identity` (a string, equal for one recording). A field of another type than its
-  role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set and
-  writing keys and BPMs to tracks read a role from the analyzer the user chose for it, else the
-  only one, else the first. Roles need no feature of their own: a host that doesn't know them
-  leaves them out.
+  integer), `identity` (a string, equal for one recording), `recording` and `release` (the
+  MusicBrainz recording's and release's IDs, each a string: a bare lowercase UUID) and `artists`
+  (a `string[]`: the MusicBrainz artist IDs, one for each name loclib-model's `artist_credits`
+  splits the track's artist into, in its order), and what they were worked out from: `isrc` (a
+  string, the ISRC as loclib-model's `isrc` spells it, null for none) and `credits` (a
+  `string[]`, the names the artists' IDs go with). The host keeps the values by audio file but a
+  track's tags can change without it, so it takes the IDs only for a track whose ISRC is `isrc`,
+  and the artists' only when its credit splits into `credits`, when the analyzer answers them. A
+  field of another type than its role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys
+  and BPMs to tracks and the MusicBrainz IDs of a set published to an Atmosphere account read a
+  role from the analyzer the user chose for it, else the only one, else the first. Roles need no
+  feature of their own: a host that doesn't know them leaves them out.
 
 ### checks
 
