@@ -314,8 +314,7 @@ fn a_secret_typed_in_the_form_is_kept_apart() {
     wait(&mut app, |a| a.job.is_none());
     let plugins = crate::plugins::host().unwrap();
     let store = locallibrary::Store::open(&app.store_root).unwrap();
-    // Not echoed on failure: CodeQL takes the app's toasts (a sign-in's names the account) for something secret.
-    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"]);
+    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"], "{}", last_message(&app));
     let settings = std::fs::read_to_string(app.store_root.join("plugins/echo/settings.json")).unwrap_or_default();
     assert!(!settings.contains("hunter2"), "{settings}");
     // Open again: not filled in; saved empty, kept.
@@ -435,8 +434,7 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
     let said = say_yes(&mut app);
-    // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
-    assert!(said.contains("u to undo"));
+    assert!(said.contains("u to undo"), "{said}");
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
@@ -1271,7 +1269,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             wait(app, |a| a.job.is_none());
             // The demo drive's two tracks: analysed now, or by an entry chosen before.
             let fresh = ["file size: 2 tracks analyzed, 0 already", "file size: 0 tracks analyzed, 2 already"];
-            assert!(fresh.contains(&last_message(app)));
+            assert!(fresh.contains(&last_message(app)), "{}", last_message(app));
         }
         Act::ApplyFields(p, a) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
