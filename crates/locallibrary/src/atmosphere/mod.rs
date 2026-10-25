@@ -20,8 +20,8 @@
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
 //! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and reading
-//!   anyone's without one.
+//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them). Reading anyone's
+//!   needs no session, and goes through Local Network's directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
 //!
@@ -29,6 +29,7 @@
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
 
 pub mod bug_report;
+pub mod directory;
 pub mod lexicon;
 mod net;
 pub mod repo;
@@ -60,7 +61,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::callback;
 pub use crate::callback::{CALLBACK_PATH, CallbackQuery, LONGEST_LOGIN_WAIT, span};
-pub(crate) use crate::net::this_computer;
 use net::Http;
 use store::{AccountFile, LocalStore};
 
@@ -87,14 +87,18 @@ pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
 
 /// What publishing needs besides `atproto`, and what [`PUBLISH_SET`] grants: to create and replace
 /// the record types locallibrary writes (see [`lexicon`]), and nothing else in the account (not
-/// even deleting them, which locallibrary doesn't do). The set lists each record type on its own
-/// because servers write a permission for several as `repo?collection=…`, which jacquard can't
-/// read. Signing in only asks for them when the DJ publishes (`account login --publish`, or a
-/// publish command that signs in again).
-pub const PUBLISH_SCOPES: [&str; 3] = [
+/// even deleting them, which locallibrary doesn't do), and to have Local Network's directory read
+/// them again ([`directory::request_index`], a service token for that one method). The set lists
+/// each record type on its own because servers write a permission for several as
+/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc`
+/// permission's audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
+/// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
+/// (`account login --publish`, or a publish command that signs in again).
+pub const PUBLISH_SCOPES: [&str; 4] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
     "repo:computer.localnetwork.dj.set?action=create&action=update",
+    "rpc:computer.localnetwork.directory.requestIndex",
 ];
 
 /// `atproto` and [`PUBLISH_SET`]: what a sign-in that allows publishing asks for. The hosted
@@ -293,10 +297,13 @@ fn client_config(
 }
 
 /// Finding an account's servers and talking to them; with `public_only` (signing in, where the
-/// servers are whatever the handle's DID document says), only at public https addresses.
+/// servers are whatever the handle's DID document says), only at public https addresses. A handle
+/// is resolved from its own DNS or `/.well-known/atproto-did`, never by asking Bluesky's AppView,
+/// which jacquard falls back to by default.
 fn resolver(public_only: bool) -> Result<JacquardResolver<Http>> {
     let _guard = runtime().enter();
-    Ok(JacquardResolver::new(Http::new(public_only)?, ResolverOptions::default()).with_system_dns())
+    let options = ResolverOptions { public_fallback_for_handle: false, ..ResolverOptions::default() };
+    Ok(JacquardResolver::new(Http::new(public_only)?, options).with_system_dns())
 }
 
 fn oauth(store: LocalStore, config: AtprotoClientMetadata<SmolStr>, public_only: bool) -> Result<Oauth> {

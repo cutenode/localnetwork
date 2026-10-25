@@ -816,10 +816,6 @@ enum SettingsCommand {
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "drive")]
         from_account: bool,
-        /// The account's data server, instead of finding it from the handle
-        #[cfg(feature = "account")]
-        #[arg(long, value_name = "URL")]
-        pds: Option<String>,
         /// Replace the whole base with the account's, unsetting what it didn't publish
         #[cfg(feature = "account")]
         #[arg(long)]
@@ -1846,14 +1842,12 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             return publish_cmd::settings_publish(store_path, dry_run, browser, out, ctx);
         }
         #[cfg(feature = "account")]
-        SettingsCommand::Import { from_handle, from_account, pds, replace, dry_run, .. }
+        SettingsCommand::Import { from_handle, from_account, replace, dry_run, .. }
             if from_account || from_handle.is_some() =>
         {
-            let req = api::ImportPublishedSettings { from: from_handle, pds, replace };
+            let req = api::ImportPublishedSettings { from: from_handle, replace };
             return publish_cmd::settings_import(store_path, &req, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SettingsCommand::Import { pds: Some(_), .. } => bail!("--pds goes with --from-handle or --from-account"),
         #[cfg(feature = "account")]
         SettingsCommand::Import { replace: true, .. } => bail!("--replace goes with --from-handle or --from-account"),
         SettingsCommand::Import { drive, dry_run, .. } => {

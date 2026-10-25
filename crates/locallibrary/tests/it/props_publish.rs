@@ -16,8 +16,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::atmosphere::directory::Fetched;
 use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
-use locallibrary::atmosphere::repo::{self, Fetched};
+use locallibrary::atmosphere::repo;
 use locallibrary::atmosphere::{self, AccountInfo, Client, Storage};
 use locallibrary::error::Reason;
 use locallibrary::profile::{
@@ -36,6 +37,13 @@ use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
 
+/// A pretend data server, which Local Network's directory and website are at too for this test.
+fn network() -> MockPds {
+    let pds = MockPds::start();
+    locallibrary::testing::directory_on_this_thread(Some(pds.url.clone()));
+    pds
+}
+
 /// Sign `DID` in on this computer (the session in files, not the keychain) with a session for
 /// `pds` that was granted `scopes`.
 fn sign_in(root: &Path, pds: &str, scopes: &str) {
@@ -51,6 +59,18 @@ fn publishing() -> String {
 fn timeless(mut v: Value) -> Value {
     if let Some(m) = v.as_object_mut() {
         for f in ["updatedAt", "generatedAt", "createdAt"] {
+            m.remove(f);
+        }
+    }
+    v
+}
+
+/// `v` as a record says it, whether as written or as the directory keeps it: without the fields
+/// that only say when, its `$type`, or the fields the directory adds to a set.
+fn as_said(v: Value) -> Value {
+    let mut v = timeless(v);
+    if let Some(m) = v.as_object_mut() {
+        for f in ["$type", "trackCount", "namedTracks"] {
             m.remove(f);
         }
     }
@@ -882,9 +902,10 @@ fn account_with(scopes: Vec<String>) -> AccountInfo {
     }
 }
 
-/// A plan for a set over what's published in its place: signed out, it can only be looked at;
-/// signed in, it keeps when the published record says it was first published (when that's a
-/// time), changes something exactly when the record differs in more than its times, and says
+/// A plan for a set over what's published in its place (as written, or as the directory keeps
+/// it): signed out, it can only be looked at; signed in, it keeps when the published record says
+/// it was first published (when that's a time), changes something exactly when the record differs
+/// in more than its times and what the directory adds or leaves out, and says
 /// which scope the session lacks. Applying a plan that changes nothing writes nothing and says
 /// what's there; one the session can't write, or with nobody signed in, stops with nothing sent.
 #[hegel::test(test_cases = 100)]
@@ -902,9 +923,15 @@ fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: Tes
         2 => value["createdAt"] = json!(1_700_000_000),
         _ => drop(value.as_object_mut().unwrap().remove("createdAt")),
     }
+    if tc.draw(gs::booleans()) {
+        let set = value.as_object_mut().unwrap();
+        set.remove("$type");
+        set.insert("trackCount".into(), s.tracks.len().into());
+        set.insert("namedTracks".into(), json!([]));
+    }
     let current = tc.draw(gs::booleans()).then(|| Fetched {
         uri: uri.clone(),
-        cid: tc.draw(gs::optional(gs::just("bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string()))),
+        cid: "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string(),
         value: value.clone(),
     });
     let plan = publish::plan_over(account.clone(), SET, &s.id, record.clone(), current.clone()).unwrap();
@@ -913,7 +940,7 @@ fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: Tes
     if signed_in && let Some(created) = current.as_ref().map(|c| &c.value["createdAt"]).filter(|c| c.is_string()) {
         want["createdAt"] = created.clone();
     }
-    let changed = !signed_in || current.as_ref().is_none_or(|c| timeless(c.value.clone()) != timeless(record.clone()));
+    let changed = !signed_in || current.as_ref().is_none_or(|c| as_said(c.value.clone()) != as_said(record.clone()));
     assert_eq!(plan.record, want);
     assert_eq!(plan.changed, changed);
     assert_eq!(plan.uri, signed_in.then_some(uri));
@@ -1069,7 +1096,7 @@ impl Model {
             let published = result.unwrap();
             let (stored, cid) = pds.record(DID, SETTINGS, "self").unwrap();
             assert!(published.written);
-            assert_eq!(published.cid.as_deref(), Some(cid.as_str()));
+            assert_eq!(published.cid, cid);
             assert_eq!(timeless(stored.clone()), timeless(plan.record.clone()));
             if !at_once {
                 assert_eq!(stored, plan.record, "exactly the record planned");
@@ -1106,7 +1133,7 @@ impl Model {
 /// `settings_publish_apply` agree.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, &publishing());
@@ -1182,15 +1209,16 @@ fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
     }
 }
 
-/// Importing someone's published My Settings (the signed-in account's own, or anyone's on a
-/// server named) adds them to the profile's base (theirs winning) or, asked to, replaces the base
-/// with them; the plan lists exactly the values that change, says it's a no-op when none do and
-/// destructive when one already set changes, warns about a few of the settings it skips, and
-/// applying it (or importing in one go) leaves the base as the model says. Nobody to import from,
-/// a server that isn't https, or nothing published, and there's nothing to import.
+/// Importing someone's published My Settings (the signed-in account's own, or anyone's, as Local
+/// Network's directory has them) adds them to the profile's base (theirs winning) or, asked to,
+/// replaces the base with them; the plan lists exactly the values that change, says it's a no-op
+/// when none do and destructive when one already set changes, warns about a few of the settings it
+/// skips (and that the directory couldn't be asked to read your own again, when the session may
+/// not), and applying it (or importing in one go) leaves the base as the model says. Nobody to
+/// import from, or nothing published, and there's nothing to import.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     assert_eq!(api::settings_publish_plan(&root).unwrap_err().reason(), Some(Reason::EmptyProfile));
@@ -1210,23 +1238,24 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     // Settings this version doesn't know: a few say enough, so some at and past the 20 shown.
     let unknown = tc.draw(gs::sampled_from(vec![0usize, 3, 20, 21, 25]));
     let replace = tc.draw(gs::booleans());
-    // Nobody signed in or named, or a server that isn't https: nothing to import from.
-    let refused = |from: Option<&str>, pds: Option<&str>| {
-        let req = ImportPublishedSettings { from: from.map(String::from), pds: pds.map(String::from), replace };
+    // Nobody signed in or named: nothing to import from.
+    let refused = |from: Option<&str>| {
+        let req = ImportPublishedSettings { from: from.map(String::from), replace };
         api::settings_import_published_plan(&root, &req).unwrap_err()
     };
-    assert_eq!(refused(None, None).reason(), Some(Reason::NotSignedIn));
-    assert!(refused(Some(DID), Some("http://10.0.0.1")).to_string().contains("https://"));
-    assert_eq!(refused(Some("not a handle!"), None).code(), "not_found");
-    // Whose: the signed-in account's own, or someone named with their server.
-    let (from, server) = match tc.draw(gs::booleans()) {
+    assert_eq!(refused(None).reason(), Some(Reason::NotSignedIn));
+    assert_eq!(refused(Some("not a handle!")).code(), "not_found");
+    // Whose: the signed-in account's own (with a session that may have the directory read it
+    // again, or not), or someone named.
+    let (from, cant_ask) = match tc.draw(gs::booleans()) {
         true => {
-            sign_in(&root, &pds.url, "atproto");
-            (None, None)
+            let may_ask = tc.draw(gs::booleans());
+            sign_in(&root, &pds.url, &if may_ask { publishing() } else { "atproto".into() });
+            (None, !may_ask)
         }
-        false => (Some(format!(" @{DID} ")), Some(pds.url.clone())),
+        false => (Some(format!(" @{DID} ")), false),
     };
-    let req = ImportPublishedSettings { from, pds: server, replace };
+    let req = ImportPublishedSettings { from, replace };
     if tc.draw(gs::weighted_booleans(0.1)) {
         assert_eq!(api::settings_import_published_plan(&root, &req).unwrap_err().code(), "not_found");
         return;
@@ -1250,7 +1279,8 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     assert_eq!(planned, changes);
     assert_eq!(plan.published.values.clone().into_iter().collect::<IndexMap<_, _>>(), published);
     assert_eq!(plan.published.skipped.len(), unknown);
-    assert_eq!(plan.warnings.len(), unknown.min(20) + usize::from(unknown > 20), "{:?}", plan.warnings);
+    let asking = usize::from(cant_ask);
+    assert_eq!(plan.warnings.len(), unknown.min(20) + usize::from(unknown > 20) + asking, "{:?}", plan.warnings);
     assert_eq!((plan.noop, plan.destructive), (changes.is_empty(), changes.iter().any(|c| c.1.is_some())));
     assert_eq!((plan.from.did.as_str(), plan.uri.clone()), (DID, repo::at_uri(DID, SETTINGS, "self")));
     let profile = match tc.draw(gs::booleans()) {
@@ -1260,9 +1290,8 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     assert_eq!(profile.base.into_iter().collect::<IndexMap<_, _>>(), after);
 }
 
-/// The key `plays publish` gave a history list, and when it first published it.
+/// The key `plays publish` gave a history list.
 const OLD_KEY: &str = "3lzzzzzzzzz22";
-const FIRST_OUT: &str = "2026-10-04T09:30:00.000Z";
 
 /// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
 fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
@@ -1277,13 +1306,13 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// A set published from the store is the record `set_record` makes for it, with the tracks the
 /// set marks unnamed, the request hides and the profile hides left unidentified, and notes saying
 /// which and why; a track that isn't there can't be hidden. Signed in, it goes out under the
-/// set's id, or under the key `plays publish` gave its history list (which becomes its id, with
-/// when that first went out); publishing it again unchanged writes nothing, and once it's edited
+/// set's id, or under the key `plays publish` gave its history list (which becomes its id);
+/// publishing it again unchanged writes nothing, and once it's edited
 /// replaces exactly what was read, keeping when it first went out. Signed out, it can only be
 /// looked at.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let signed_in = tc.draw(gs::weighted_booleans(0.8));
@@ -1303,12 +1332,6 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     };
     // A set from a history list `plays publish` published takes over its key.
     let legacy = signed_in && tc.draw(gs::weighted_booleans(0.7));
-    // Its old record may be gone since; the key is still the set's to take.
-    let old_record = legacy && tc.draw(gs::weighted_booleans(0.75));
-    if old_record {
-        let old = json!({ "$type": publish::PLAYS_PUBLISH_COLLECTION, "date": "2026-10-03", "tracks": [], "createdAt": FIRST_OUT });
-        pds.put(DID, publish::PLAYS_PUBLISH_COLLECTION, OLD_KEY, old);
-    }
     if legacy {
         let session = s.sessions[0].clone();
         std::fs::write(root.join(publish::SET_KEYS_FILE), json!({ DID: { session: OLD_KEY } }).to_string()).unwrap();
@@ -1356,13 +1379,6 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
             &s.sessions[0][..8]
         ));
     }
-    if old_record {
-        notes.push(format!(
-            "what `plays publish` published stays in {}: publishing can't remove it",
-            publish::PLAYS_PUBLISH_COLLECTION
-        ));
-        assert_eq!(plan.record["createdAt"], FIRST_OUT, "first published by plays publish");
-    }
     assert_eq!(plan.notes, notes);
     assert_eq!(plan.rkey, key);
     assert!(!plan.destructive);
@@ -1403,7 +1419,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
 /// writes nothing.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_published_profile_is_the_documents_record(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, &publishing());

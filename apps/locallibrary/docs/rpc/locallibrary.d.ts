@@ -1604,11 +1604,6 @@ export type ImportPublishedSettings = {
   /** Whose My Settings: a handle or DID. Default: the signed-in account's. */
   from?: string | null;
   /**
-   * Their data server's URL (https, or http on this machine), instead of finding it from the
-   * handle or DID.
-   */
-  pds?: string | null;
-  /**
    * Replace the settings profile's whole base with theirs, so settings they didn't publish
    * become unset. Default: add theirs to the base, over the values it has for them.
    */
@@ -6284,7 +6279,10 @@ export type PublishPlan = {
   uri: string | null;
   /** The record exactly as it will be written. */
   record: unknown;
-  /** What's published there now (`None`: nothing yet). */
+  /**
+   * What's published there now, as Local Network's directory has it (`None`: nothing yet, as
+   * far as it knows).
+   */
   current: Fetched | null;
   /** Whether publishing changes anything (time stamps aside). */
   changed: boolean;
@@ -6297,11 +6295,15 @@ export type PublishPlan = {
   notes: string[];
 };
 
-/** A record read from a repository. */
+/** A record as the directory has it. */
 export type Fetched = {
   uri: string;
-  /** The record's content hash (servers always send it). */
-  cid: string | null;
+  /** The version the directory has. */
+  cid: string;
+  /**
+   * The record as its collection's record script kept it, which may leave fields out and add
+   * its own.
+   */
   value: unknown;
 };
 
@@ -6309,7 +6311,7 @@ export type Fetched = {
 export type Published = {
   uri: string;
   /** Its content hash. */
-  cid: string | null;
+  cid: string;
   /** False when what's published was already the same, so nothing was written. */
   written: boolean;
   record: unknown;
@@ -6319,7 +6321,7 @@ export type Published = {
 export type SettingsImportPlan = {
   from: Resolved;
   uri: string;
-  cid: string | null;
+  cid: string;
   published: PublishedSettings;
   /**
    * Whether importing replaces the whole base, so settings they didn't publish become unset.
@@ -6335,8 +6337,6 @@ export type Resolved = {
   did: string;
   /** When it was found by handle. */
   handle: string | null;
-  /** Its data server. */
-  pds: string;
 };
 
 /** The settings a published settings record holds, as a settings profile's base values. */

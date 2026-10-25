@@ -91,13 +91,19 @@ fn hosted_metadata_is_a_native_public_client() {
 fn the_published_document_allows_publishing() {
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &publish_scopes()), Ok(()));
-    let publish: Vec<String> =
+    let mut publish: Vec<String> =
         lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
+    publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
     // The server grants the permission set's scopes in its place: these, each one jacquard
-    // understands, written the way it writes them back.
+    // understands, written the way it writes them back (the `rpc` one without its `aud=*`).
     let granted = mock_pds::granted(&publish_scopes());
-    assert_eq!(granted, [&PUBLISH_SCOPES[..], &["atproto"]].concat());
+    assert!(granted.contains(&"rpc:computer.localnetwork.directory.requestIndex?aud=*".to_string()), "{granted:?}");
+    let mut written: Vec<String> = scopes(&granted).unwrap().iter().map(|s| s.to_string()).collect();
+    let mut want = [&PUBLISH_SCOPES[..], &["atproto"]].concat();
+    written.sort();
+    want.sort();
+    assert_eq!(written, want);
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
@@ -107,6 +113,9 @@ fn the_published_document_allows_publishing() {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
         assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
     }
+    // A service token for asking the directory to read them again, and for no other method.
+    assert!(granted.grants(&Scope::rpc(directory::REQUEST_INDEX).unwrap()));
+    assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));
 }
 
 pub(crate) fn signed_in_with(scopes: &[&str]) -> AccountInfo {

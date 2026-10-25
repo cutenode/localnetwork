@@ -47,11 +47,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `plugins.export.*` and `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`,
   images and audio for `art.*`, `file` for `firmware.*`, a plugin's path params (`file` for the
   tracklist plugin's `import`), `db` for `collection.*`, any folder as a drive)
-  and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and `scopes` for
-  `account.login.begin`). Never expose it on a socket or to another user, and never pass web content
-  (a page's or a renderer's input) into its parameters. It refuses relative paths to write to, a
-  data server that isn't https (or on this machine) and a line longer than 16 MiB; those checks only
-  catch mistakes.
+  and what it asks servers for (`client_id` and `scopes` for `account.login.begin`). Never expose it
+  on a socket or to another user, and never pass web content (a page's or a renderer's input) into
+  its parameters. It refuses relative paths to write to and a line longer than 16 MiB; those checks
+  only catch mistakes.
 - **The contract.** [`docs/rpc/schema.json`](../docs/rpc/schema.json) describes every method:
   its `kind` (`read`; `plan` and `apply`, paired; `immediate`, a change with no plan step;
   `control`, about the sidecar itself), its `aliases`, whether it's `long_running` (sends
@@ -286,8 +285,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   Publishing: `settings.publish.plan/apply`, `profile.publish.plan/apply` (the parameters of
   `profile.build`), `sets.publish.plan/apply` (`set`, optional `hide`), and
   `settings.import_published.plan/apply` (`from`: a handle or DID, default the signed-in account;
-  `pds`; `replace: true` to replace the base instead of adding to it). A plan holds the exact
-  `record`, what's published in its place now (`current`), `changed`, `notes` to show the DJ, and
+  `replace: true` to replace the base instead of adding to it). A plan holds the exact
+  `record`, what's published in its place now as Local Network's directory has it (`current`),
+  `changed`, `notes` to show the DJ, and
   `missing_scope` when the session may not write it: sign in again with `publish: true` before
   applying. Like every plan it has a `plan_id`: `*.apply {"plan_id": ...}` publishes (or imports)
   exactly what it showed, and fails with `stale_plan` if the record was published again in between

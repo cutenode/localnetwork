@@ -160,7 +160,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `watch`) says how many. The profile counts declared sets, with sessions standing in (and never
   published) until there are some, and never names a track a set marks unnamed. `sets publish`
   replaces `plays publish`: a set made from a single list that `plays publish` published takes that
-  list's key and first-published time the first time it's published. Sets and the profile are
+  list's key the first time it's published. Sets and the profile are
   `computer.localnetwork.dj.set` and `computer.localnetwork.dj.profile`, record types Local
   Network's tools share (with `computer.localnetwork.dj.defs`), and My Settings stay
   `computer.localnetwork.locallibrary.settings`. The set Lexicon gains `kind`, `location` (an open
@@ -589,7 +589,6 @@ their old names.
 - The sidecar refuses relative paths to write to (`art.embed.*` files included), `mix.export`
   refuses to replace a file without `replace: true`, `drive.reidentify` is a `.plan`/`.apply` pair
   (the old name still works), a second SIGINT or SIGTERM waits for a database swap under way,
-  `settings.import_published` takes only an `https://` `pds` (or `http://` on this machine),
   `drive.fsck` is described as destructive, and a request line over 16 MiB is answered with a
   parse error while serving goes on.
 - `mix --export` writes format version 2: no `library` (drive name and size), a cover only when
@@ -610,6 +609,16 @@ their old names.
   import --from-handle` and `--from-account` (and `settings.import_published.*`) add the
   published settings to the base; `--replace` (`replace: true`) replaces it. TLS also trusts the
   system's root certificates.
+- What locallibrary reads from the network (what a publish replaces, My Settings to import, the
+  space bug reports go to) comes from Local Network's directory, its HappyView AppView, instead of
+  the account's data server, and a publish replaces only the version the directory showed. The
+  first publish or import from an account on a computer has the directory read what the account
+  published before it kept locallibrary's records, through Local Network's website
+  (`computer.localnetwork.directory.requestIndex`, which publishing's permission set now allows).
+  `settings import --pds` and `settings.import_published`'s `pds` are gone. A handle is resolved
+  only from its DNS record or `/.well-known/atproto-did`, never through Bluesky's AppView. A set
+  taking the key `plays publish` gave its list no longer copies the old record's first-published
+  time.
 - In the player, `u` undoes the last change on the drive it was made to (after a pack, the drive
   packed onto), in every view, and confirmations say what they do ("Eject DEMO?", "Pack a set onto
   SET?", "Undo the last change on DEMO?") instead of "Write to the drive?".

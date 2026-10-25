@@ -10131,14 +10131,6 @@
           "description": "Whose My Settings: a handle or DID. Default: the signed-in account's.",
           "default": null
         },
-        "pds": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Their data server's URL (https, or http on this machine), instead of finding it from the\nhandle or DID.",
-          "default": null
-        },
         "replace": {
           "type": "boolean",
           "description": "Replace the settings profile's whole base with theirs, so settings they didn't publish\nbecome unset. Default: add theirs to the base, over the values it has for them.",
@@ -25388,7 +25380,7 @@
               "type": "null"
             }
           ],
-          "description": "What's published there now (`None`: nothing yet)."
+          "description": "What's published there now, as Local Network's directory has it (`None`: nothing yet, as\nfar as it knows)."
         },
         "changed": {
           "type": "boolean",
@@ -25429,20 +25421,19 @@
           "type": "string"
         },
         "cid": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The record's content hash (servers always send it)."
+          "type": "string",
+          "description": "The version the directory has."
         },
-        "value": true
+        "value": {
+          "description": "The record as its collection's record script kept it, which may leave fields out and add\nits own."
+        }
       },
       "required": [
         "uri",
         "cid",
         "value"
       ],
-      "description": "A record read from a repository."
+      "description": "A record as the directory has it."
     },
     "Published": {
       "type": "object",
@@ -25451,10 +25442,7 @@
           "type": "string"
         },
         "cid": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "description": "Its content hash."
         },
         "written": {
@@ -25481,10 +25469,7 @@
           "type": "string"
         },
         "cid": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "published": {
           "$ref": "#/$defs/PublishedSettings"
@@ -25523,16 +25508,11 @@
             "null"
           ],
           "description": "When it was found by handle."
-        },
-        "pds": {
-          "type": "string",
-          "description": "Its data server."
         }
       },
       "required": [
         "did",
-        "handle",
-        "pds"
+        "handle"
       ],
       "description": "An account found from its handle or DID."
     },
