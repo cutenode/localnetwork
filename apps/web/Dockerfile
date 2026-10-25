@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
 # Build from the repo root, which holds the pnpm workspace and lockfile:
 #   docker build -f apps/web/Dockerfile .
-FROM node:24-bookworm-slim AS base
+# Pinned by digest, so every build gets the same image until Dependabot (.github/dependabot.yml)
+# moves the digest to the tag's newer one.
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
 WORKDIR /app

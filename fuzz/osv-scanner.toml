@@ -1,0 +1,33 @@
+# Advisories osv-scanner (https://google.github.io/osv-scanner/) reports in fuzz/Cargo.lock, each
+# with why. OpenSSF Scorecard's Vulnerabilities check runs osv-scanner and reads this file; the
+# root osv-scanner.toml doesn't reach this directory. The fuzz targets only build on the machine
+# that runs them (run.sh) and never ship. A package override names one version, so it stops
+# matching once that version changes.
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "paste"
+version = "1.0.15"
+vulnerability.ignore = true
+reason = "unmaintained, no vulnerability; a proc-macro under lofty 0.25.4 (the latest), so it only runs at compile time"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zbus_names"
+version = "4.3.5"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zvariant"
+version = "5.15.1"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
+
+[[PackageOverrides]]
+ecosystem = "crates.io"
+name = "zvariant_derive"
+version = "5.15.1"
+vulnerability.ignore = true
+reason = "unmaintained (merged into zbus 6), no vulnerability; a proc-macro, Linux only, through keyring 4.2.0 and secret-service 5.2.0, both the latest and on zbus 5"
