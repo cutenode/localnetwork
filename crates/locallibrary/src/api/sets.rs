@@ -80,7 +80,7 @@ pub fn set_new(store: &Store, req: &NewSet, ctx: &Ctx<'_>) -> Result<SetChange> 
     set.sessions = from.iter().map(|s| s.id.clone()).collect();
     set.tracks = built.tracks;
     set.recording = recording.map(|(r, id)| Recording { path: r.mix.path, report: Some(id) });
-    build::read_musicbrainz(&mut set.tracks, &super::mounted_exports());
+    build::read_musicbrainz(store, &mut set.tracks, &super::mounted_exports());
     // Read again: gathering sessions and identifying a recording take a while.
     let mut book = SetBook::load(store)?;
     book.sets.push(set.clone());
@@ -188,7 +188,7 @@ pub fn set_edit(store: &Store, req: &EditSet, ctx: &Ctx<'_>) -> Result<SetChange
         notes.extend(built.notes);
         set.recording = Some(Recording { path: r.mix.path, report: Some(id) });
     }
-    build::read_musicbrainz(&mut set.tracks, &super::mounted_exports());
+    build::read_musicbrainz(store, &mut set.tracks, &super::mounted_exports());
     set.updated_at = Utc::now();
     // Read again: gathering sessions and identifying a recording take a while.
     let mut book = SetBook::load(store)?;

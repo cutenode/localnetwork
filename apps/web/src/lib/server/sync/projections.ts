@@ -15,8 +15,8 @@ import type { ChangeHandler } from './engine';
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count, and only a press kit owner's
- * grants.
+ * account's decisions, roles, and details count, and only the grants of a press
+ * kit space's authority.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -63,6 +63,8 @@ export function createProjections(deps: {
 				await epks.unindexGrant(change.space, change.uri);
 			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkRequest) {
 				await epks.unindexRequest(change.uri);
+			} else if (type === SPACE_TYPE.backstage && change.collection === COLLECTION.epkDraft) {
+				await epks.drafts.unindex(change.uri);
 			}
 
 			return;
@@ -165,6 +167,19 @@ export function createProjections(deps: {
 			case COLLECTION.epkGrant:
 				if (type === SPACE_TYPE.epk)
 					await epks.indexGrant({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.epkDraft:
+				if (type === SPACE_TYPE.backstage) {
+					await epks.drafts.index({
+						space: change.space,
+						uri: change.uri,
+						repoDid: change.repoDid,
+						rkey: change.rkey,
+						cid: change.cid,
+						value
+					});
+				}
 
 				return;
 			default:

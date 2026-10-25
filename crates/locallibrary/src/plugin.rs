@@ -58,7 +58,7 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -177,6 +177,9 @@ pub struct Options {
     /// `net/fetch` may reach servers on this computer (over http too), for tests: never in a
     /// build without debug assertions, whatever this says.
     pub test_loopback: bool,
+    /// Plugins reach no server but this computer's, for tests (`LOCALLIBRARY_TEST_OFFLINE` in the
+    /// CLI's), so none reaches MusicBrainz: only in builds with debug assertions.
+    pub test_offline: bool,
     /// Where plugins' logs go: what they write to stderr (without terminal escapes), and what
     /// the host has to say about them. A front end drawing on the terminal gives its own.
     pub log: Log,
@@ -216,6 +219,7 @@ impl Default for Options {
             max_body: 8 << 20,
             secrets: Storage::from_env(),
             test_loopback: false,
+            test_offline: false,
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
             events: 64,
             notices: Arc::new(|n| eprintln!("{}: {}", n.plugin, n.message)),
@@ -238,7 +242,7 @@ impl Plugins {
     /// [`PluginSpec::first_party`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host = Arc::new(process::Host { reads, options });
+        let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {

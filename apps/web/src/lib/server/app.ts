@@ -296,8 +296,8 @@ export async function createApp(options: CreateAppOptions) {
 		},
 
 		/**
-		 * Has HappyView re-read the managers' records of each of MANAGER_COLLECTIONS once for its current record script
-		 * (`uploaded` lists the scripts it just got). A failure is logged and tried again on the next round, without
+		 * Has HappyView re-read the managers' records of each of MANAGER_COLLECTIONS, and the root's (which holds press
+		 * kits), once for its current record script (`uploaded` lists the scripts it just got). A failure is logged and tried again on the next round, without
 		 * marking the directory sync failed.
 		 */
 		async refreshManagers(uploaded: string[] = []) {
@@ -314,7 +314,7 @@ export async function createApp(options: CreateAppOptions) {
 						collection,
 						script,
 						uploaded: uploaded.includes(id),
-						accounts: () => (managers ??= projects.managers())
+						accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
 					});
 				} catch (error) {
 					logger.warn({ err: error, collection }, "could not have HappyView re-read managers' records");

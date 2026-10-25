@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.backstage",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "A project's private work in progress, like press kit drafts. Owned by the Local Network root account, one space per project, keyed by the project record's key. Its members are exactly the project's current managers, who can all read and write.",
+			"key": "tid",
+			"name": "Local Network backstage",
+			"collections": ["computer.localnetwork.epk.draft"]
+		}
+	}
+}
