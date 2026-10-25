@@ -77,7 +77,12 @@ local function score(show, profile)
 
 	local budget = 1
 	if show.tier then
-		local have = TIER[profile.fee and profile.fee.tier]
+		-- The cheapest fee level, so a project fits a budget when any of its levels does.
+		local have
+		for _, fee in ipairs(profile.fees or { profile.fee }) do
+			local rank = TIER[fee.tier]
+			if rank and (not have or rank < have) then have = rank end
+		end
 		if not have then
 			budget = 0.6
 		elseif have <= show.tier then

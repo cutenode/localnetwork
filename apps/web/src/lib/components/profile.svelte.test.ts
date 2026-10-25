@@ -73,6 +73,33 @@ describe('ProjectFacts', () => {
 		await expect.element(page.getByText('Fee')).not.toBeInTheDocument();
 	});
 
+	it('lists every fee level, led by what it covers', async () => {
+		await render(ProjectFacts, {
+			profile: {
+				...profile,
+				fees: [
+					{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
+					{ tier: 'community' }
+				]
+			}
+		});
+
+		await expect.element(page.getByRole('term')).toHaveTextContent('Fees');
+		expect(
+			page
+				.getByRole('definition')
+				.elements()
+				.map((line) => line.textContent)
+		).toEqual(['Club nights: Established · €600–€1,500', 'Community']);
+	});
+
+	it('shows the one fee of a record written before fee levels', async () => {
+		await render(ProjectFacts, { profile: { ...profile, fee: { tier: 'emerging' } } });
+
+		await expect.element(page.getByRole('term')).toHaveTextContent('Fee');
+		await expect.element(page.getByRole('definition')).toHaveTextContent('Emerging');
+	});
+
 	it('leaves out the list when there is nothing to show', async () => {
 		await render(ProjectFacts, { profile });
 

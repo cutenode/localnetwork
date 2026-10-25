@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatDistance } from '#lib/geo.ts';
-	import { feeLabel, kindLabel } from '#lib/format.ts';
+	import { feeSummary, kindLabel } from '#lib/format.ts';
 	import type { ProjectView } from '#lib/types.ts';
 	import Avatar from './Avatar.svelte';
 	import type { Snippet } from 'svelte';
@@ -12,6 +12,8 @@
 	const distance = $derived(project.distanceKm ?? null);
 
 	const genres = $derived(profile.genres.slice(0, 3));
+
+	const fee = $derived(feeSummary(profile));
 </script>
 
 <!-- The name's link stretches over the card; `children` sits above it so its own links still work. -->
@@ -35,7 +37,7 @@
 			{#each genres as genre, index (genre)}<span class="whitespace-nowrap">{index < genres.length - 1 ? `${genre} ·` : genre}</span>{/each}
 			{#if profile.genres.length > 3}<span class="text-fg-subtle">+{profile.genres.length - 3}</span>{/if}
 		</span>
-		{#if profile.fee}<span>{feeLabel(profile)}</span>{/if}
+		{#if fee}<span>{fee}</span>{/if}
 	</p>
 	{#if children}<div class="relative z-10 border-t border-line pt-3">{@render children()}</div>{/if}
 </article>

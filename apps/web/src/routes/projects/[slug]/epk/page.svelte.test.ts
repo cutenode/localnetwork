@@ -16,7 +16,7 @@ const project: ProjectView = {
 		tagline: 'Rolling, hypnotic techno for late rooms',
 		genres: ['techno', 'dub techno'],
 		location: { city: 'Berlin', country: 'DE' },
-		fee: { tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
+		fees: [{ tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 }],
 		mixes: [{ title: 'Tidal Hours 004', url: 'https://soundcloud.com/neon/tidal-hours-004' }],
 		highlights: ['Four-year residency at Halle Nord']
 	},
