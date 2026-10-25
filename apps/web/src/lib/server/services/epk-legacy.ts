@@ -85,12 +85,35 @@ export class LegacyEpks {
 	/** Moves one press kit, or finishes moving it, and says whether it did. */
 	private async move(owner: RepoClient, viewer: Viewer, epk: EpkView): Promise<boolean> {
 		const log = { epk: epk.uri, did: viewer.did };
+		const held = await this.epks.rootKit(epk.rkey);
 
-		if (!(await this.epks.rootKit(epk.rkey))) {
+		// The root's press kit under this key is this one moved only if it's of the same project. Anyone can pick a key in
+		// their own repo, so one of another project means a clash, and deleting the maker's copy would lose it.
+		if (held && held.record.project !== epk.record.project) {
+			this.core.logger.warn(
+				{ ...log, held: held.uri },
+				'leaving a legacy press kit whose key the root holds for another project'
+			);
+
+			return false;
+		}
+
+		if (!held) {
 			const project = await this.projects.current(epk.record.project);
 
 			if (!project?.managers.includes(viewer.did)) {
 				this.core.logger.info(log, "leaving a legacy press kit of a project its maker doesn't manage");
+
+				return false;
+			}
+
+			// Another manager's legacy press kit under the same key means one copied the other's key. Moving either would make
+			// the other look moved, and its maker's next visit would delete it, so both stay where they are.
+			const others = project.managers.filter((did) => did !== viewer.did);
+			const lists = await Promise.all(others.map((did) => this.epks.publishedBy(did)));
+
+			if (lists.flat().some((other) => other.rkey === epk.rkey)) {
+				this.core.logger.warn(log, "leaving a legacy press kit another manager's press kit has the key of");
 
 				return false;
 			}
@@ -151,7 +174,7 @@ export class LegacyEpks {
 	}
 
 	/**
-	 * Rewrites the old space's open requests into the new one as the root, on the askers' behalf and under the same keys,
+	 * Rewrites the old space's open requests into the new one as the root, on the askers' behalf,
 	 * and grants the ones the rules approved, which waited for the move. Returns each old request's new URI.
 	 */
 	private async carryRequests(epk: EpkView, space: string, uri: string): Promise<Map<string, string>> {
@@ -174,12 +197,22 @@ export class LegacyEpks {
 				createdAt: row.createdAt
 			});
 
-			const ref = await root.putSpaceRecord({
-				space,
-				collection: COLLECTION.epkRequest,
-				rkey: row.uri.split('/').at(-1)!,
-				record: validateRecord(COLLECTION.epkRequest, record)
-			});
+			// Each asker picked their own request's key, so two can share one; the root writes each under a key of its own,
+			// once per asker, which an earlier, unfinished move may have done already.
+			const moved = await this.core.db
+				.selectFrom('epkRequest')
+				.select('uri')
+				.where('spaceUri', '=', space)
+				.where('requesterDid', '=', row.requesterDid)
+				.executeTakeFirst();
+
+			const ref =
+				moved ??
+				(await root.createSpaceRecord({
+					space,
+					collection: COLLECTION.epkRequest,
+					record: validateRecord(COLLECTION.epkRequest, record)
+				}));
 
 			await this.epks.saveRequest({
 				uri: ref.uri,

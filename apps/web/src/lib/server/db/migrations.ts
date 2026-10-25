@@ -210,7 +210,8 @@ const epkDrafts = statements(
 		epk_rkey TEXT NOT NULL,
 		cid TEXT NOT NULL,
 		record TEXT NOT NULL,
-		updated_at TEXT NOT NULL
+		updated_at TEXT NOT NULL,
+		published_rkey TEXT
 	)`,
 	`CREATE INDEX epk_draft_space ON epk_draft (space_uri, epk_rkey)`
 );

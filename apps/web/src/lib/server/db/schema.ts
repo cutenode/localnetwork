@@ -242,6 +242,11 @@ export interface EpkDraftTable {
 	/** The draft record as JSON. */
 	record: string;
 	updatedAt: string;
+	/**
+	 * The key the root chose for the new press kit a draft without a base publishes, kept from before the first write so
+	 * a publish that failed part way finishes under the same key.
+	 */
+	publishedRkey: string | null;
 }
 
 export interface GeocodeCacheTable {

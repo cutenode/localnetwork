@@ -158,7 +158,7 @@ describe('EpkDrafts', () => {
 		expect((await f.t.epks.dashboard(f.project)).kits[0].drafts.map((draft) => draft.status)).toEqual(['behind']);
 	});
 
-	it('makes a new press kit from a draft, under the key the draft had', async () => {
+	it('makes a new press kit from a draft, under a key the root chooses', async () => {
 		const draft = await save(CODJ, undefined, { title: 'Festivals' });
 
 		expect(draft?.status).toBe('new');
@@ -167,11 +167,28 @@ describe('EpkDrafts', () => {
 
 		const result = await publish(CODJ, draft!.rkey);
 
-		expect(result).toMatchObject({
-			kind: 'published',
-			epk: { rkey: draft!.rkey, record: { title: 'Festivals 2027' } }
-		});
+		if (result.kind !== 'published') throw new Error('a new press kit has nothing to conflict with');
+		expect(result.epk).toMatchObject({ record: { title: 'Festivals 2027' } });
+		expect(result.epk.rkey).not.toBe(draft!.rkey);
+		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${draft!.rkey}`)).toBe(false);
 		expect((await f.t.epks.dashboard(f.project)).drafts).toEqual([]);
+	});
+
+	it("finishes a new press kit's publish under the key it started with, and keeps a leftover draft with it", async () => {
+		const draft = await save(DJ, undefined, { title: 'Festivals' });
+		f.t.capable.delete(DJ);
+
+		// The draft can't be deleted without DJ's session, so it stays, standing for the press kit it became.
+		const result = await publish(DJ, draft!.rkey);
+
+		if (result.kind !== 'published') throw new Error('a new press kit has nothing to conflict with');
+		const { kits } = await f.t.epks.dashboard(f.project);
+
+		expect(kits.map((kit) => [kit.epk.rkey, kit.drafts.map((entry) => entry.status)])).toEqual([
+			[result.epk.rkey, ['behind']]
+		]);
+		expect(await publish(DJ, result.epk.rkey)).toMatchObject({ kind: 'published', epk: { rkey: result.epk.rkey } });
+		expect(await f.t.epks.forProject(f.project)).toHaveLength(1);
 	});
 
 	it("writes a draft on the behalf of a manager whose PDS can't, under a key of its own", async () => {
@@ -235,7 +252,7 @@ describe('EpkDrafts', () => {
 		expect((await publish(DJ, epk.rkey)).kind).toBe('published');
 	});
 
-	it("won't publish a draft onto another project's press kit", async () => {
+	it("won't publish a draft onto another project's press kit, whatever key it names", async () => {
 		const other = await f.t.projectAdmin.create({
 			actor: await f.t.viewer(ADMIN),
 			profile: { name: 'Elsewhere', kind: 'solo', genres: ['house'], location: { city: 'Leeds', country: 'GB' } },
@@ -243,22 +260,68 @@ describe('EpkDrafts', () => {
 		});
 
 		const theirs = await f.t.epks.drafts.save(await f.t.viewer(STRANGER), other, { values: values() });
-		await f.t.epks.drafts.publish(await f.t.viewer(STRANGER), other, theirs!.rkey);
+		const result = await f.t.epks.drafts.publish(await f.t.viewer(STRANGER), other, theirs!.rkey);
+
+		if (result.kind !== 'published') throw new Error('a new press kit has nothing to conflict with');
+		const target = result.epk;
 		const space = f.t.epks.drafts.space(f.project);
 		const now = new Date().toISOString();
 
-		// CODJ writes a draft under the other project's key straight into this project's backstage.
+		// CODJ writes drafts under the other project's key straight into this project's backstage.
+		const write = (rkey: string, value: JsonObject) =>
+			f.t.epks.drafts.index({
+				space,
+				uri: `${space}/${CODJ}/${COLLECTION.epkDraft}/${rkey}`,
+				repoDid: CODJ,
+				rkey,
+				cid: 'c',
+				value
+			});
+
+		await write(target.rkey, {
+			changes: { title: 'Taken over' },
+			base: { uri: target.uri, cid: target.cid },
+			createdAt: now,
+			updatedAt: now
+		});
+		await expect(publish(CODJ, target.rkey)).rejects.toThrow(/does not exist/);
+
+		// Without a base it's a new press kit, which gets a key of its own.
+		await write(target.rkey, {
+			changes: { title: 'Taken over', access: values().access! },
+			createdAt: now,
+			updatedAt: now
+		});
+		const made = await publish(CODJ, target.rkey);
+		expect(made).toMatchObject({ kind: 'published', epk: { record: { project: f.project.uri, title: 'Taken over' } } });
+		expect(published(target.rkey).value).toMatchObject({ project: other.uri, title: 'Clubs' });
+	});
+
+	it('never has the root write a draft under a key a manager picked, and lists a new draft apart from the press kits', async () => {
+		const epk = await f.publish(DJ);
+		const space = f.t.epks.drafts.space(f.project);
+		await save(CODJ, epk.rkey, { title: 'Clubs 2027' });
+		f.t.capable.delete(CODJ);
+
+		// CODJ's own draft is keyed by the press kit; written on their behalf now, the root's gets a key of its own.
+		await save(CODJ, epk.rkey, { title: 'Clubs 2028' });
+		const [written] = f.t.net.spaceRecordsIn(space, ROOT);
+		expect(written.uri).not.toContain(epk.rkey);
+		expect(written.value).toMatchObject({ onBehalfOf: CODJ, changes: { title: 'Clubs 2028' } });
+
+		// A draft with no base under a published press kit's key is still a new press kit's.
+		const now = new Date().toISOString();
 		await f.t.epks.drafts.index({
 			space,
-			uri: `${space}/${CODJ}/${COLLECTION.epkDraft}/${theirs!.rkey}`,
-			repoDid: CODJ,
-			rkey: theirs!.rkey,
+			uri: `${space}/${DJ}/${COLLECTION.epkDraft}/${epk.rkey}`,
+			repoDid: DJ,
+			rkey: epk.rkey,
 			cid: 'c',
-			value: { changes: { title: 'Taken over' }, createdAt: now, updatedAt: now }
+			value: { changes: { title: 'Fresh' }, createdAt: now, updatedAt: now }
 		});
-
-		await expect(publish(CODJ, theirs!.rkey)).rejects.toThrow(/does not exist/);
-		expect(published(theirs!.rkey).value).toMatchObject({ project: other.uri, title: 'Clubs' });
+		const dashboard = await f.t.epks.dashboard(f.project);
+		expect(dashboard.kits[0].drafts.map((draft) => draft.author.did)).not.toContain(DJ);
+		expect(dashboard.drafts).toMatchObject([{ author: { did: DJ }, status: 'new' }]);
 	});
 
 	it("indexes drafts synced from a backstage, by the manager they're for", async () => {

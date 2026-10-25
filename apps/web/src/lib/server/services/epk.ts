@@ -87,19 +87,22 @@ export class EpkService {
 		return (await this.kits(project)).slice(0, MAX_EPKS_PER_PROJECT);
 	}
 
-	/** Every press kit of a project. A legacy one whose key the root already holds has moved, so the root's wins. */
+	/**
+	 * Every press kit of a project. A legacy one has moved once the root holds a press kit of the same project under its
+	 * key, so the root's wins; one the root holds for another project doesn't count, and the legacy one stays listed.
+	 */
 	async kits(project: ProjectView): Promise<EpkView[]> {
 		const [shared, ...legacy] = await Promise.all([
 			this.rootKits(),
 			...project.managers.map((did) => this.publishedBy(did))
 		]);
 
-		const moved = new Set(shared.map((epk) => epk.rkey));
+		const ours = shared.filter((epk) => epk.record.project === project.uri);
+		const moved = new Set(ours.map((epk) => epk.rkey));
 
-		return [
-			...shared.filter((epk) => epk.record.project === project.uri),
-			...legacy.flat().filter((epk) => epk.record.project === project.uri && !moved.has(epk.rkey))
-		].sort(newestFirst);
+		return [...ours, ...legacy.flat().filter((epk) => epk.record.project === project.uri && !moved.has(epk.rkey))].sort(
+			newestFirst
+		);
 	}
 
 	/** A press kit of `project` by its key, for the project's pages and dashboard. */
@@ -107,7 +110,7 @@ export class EpkService {
 		if (!TID.is(rkey)) return null;
 		const shared = await this.rootKit(rkey);
 
-		if (shared) return shared.record.project === project.uri ? { epk: shared, project } : null;
+		if (shared?.record.project === project.uri) return { epk: shared, project };
 
 		const legacy = await Promise.all(project.managers.map((did) => this.legacyKit(did, rkey)));
 		const epk = legacy.find((view) => view?.record.project === project.uri);
@@ -117,11 +120,18 @@ export class EpkService {
 
 	/**
 	 * A press kit and its project from an old `/epk/<did>/<rkey>` link, which named the repo holding it: the root's
-	 * once it moved, else the maker's while the project still lists them as a manager. Null for a hidden project.
+	 * once it moved, else the maker's while the project still lists them as a manager. A root press kit of another
+	 * project under the same key isn't the maker's. Null for a hidden project.
 	 */
 	async locate(did: string, rkey: string): Promise<PressKit | null> {
 		if (!TID.is(rkey)) return null;
-		const epk = (await this.rootKit(rkey)) ?? (did === this.core.rootDid ? null : await this.legacyKit(did, rkey));
+
+		const [shared, legacy] = await Promise.all([
+			this.rootKit(rkey),
+			did === this.core.rootDid ? null : this.legacyKit(did, rkey)
+		]);
+
+		const epk = legacy && shared?.record.project !== legacy.record.project ? legacy : shared;
 
 		if (!epk) return null;
 		const project = await this.projects.byUri(epk.record.project);
@@ -140,9 +150,12 @@ export class EpkService {
 		const kits = await this.kits(project);
 		const drafts = await this.drafts.list(project, kits);
 
+		// A draft of a new press kit belongs to none until it's published, whatever key it has.
+		const of = (epk: EpkView) => drafts.filter((draft) => draft.status !== 'new' && draft.rkey === epk.rkey);
+
 		return {
-			kits: kits.map((epk) => ({ epk, drafts: drafts.filter((draft) => draft.rkey === epk.rkey) })),
-			drafts: drafts.filter((draft) => !kits.some((epk) => epk.rkey === draft.rkey))
+			kits: kits.map((epk) => ({ epk, drafts: of(epk) })),
+			drafts: drafts.filter((draft) => !kits.some((epk) => of(epk).includes(draft)))
 		};
 	}
 

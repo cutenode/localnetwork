@@ -111,6 +111,32 @@ describe('EpkService', () => {
 		expect((await f.t.epks.forProject(f.project)).map((epk) => epk.uri)).toContain(shared.uri);
 	});
 
+	it('keeps listing a legacy press kit whose key the root holds for another project', async () => {
+		const legacy = await f.legacy(DJ, { title: 'Old clubs' });
+
+		const other = await f.t.projectAdmin.create({
+			actor: await f.t.viewer(ADMIN),
+			profile: { name: 'Elsewhere', kind: 'solo', genres: ['house'], location: { city: 'Leeds', country: 'GB' } },
+			managers: [STRANGER]
+		});
+
+		// Some other project's press kit under the same key, as a clash or a squat.
+		const record = f.t.net.records.get(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)!.value;
+		await f.t.net.client(ROOT).putRecord({
+			collection: COLLECTION.epk,
+			rkey: legacy.rkey,
+			record: { ...record, project: other.uri, title: 'Squat' }
+		});
+		f.t.epks.forget();
+
+		expect((await f.t.epks.forProject(f.project)).map((epk) => epk.uri)).toEqual([legacy.uri]);
+		expect((await f.t.epks.forProject(other)).map((epk) => epk.record.title)).toEqual(['Squat']);
+		expect((await f.t.epks.get(f.project, legacy.rkey))?.epk.uri).toBe(legacy.uri);
+		expect((await f.t.epks.get(other, legacy.rkey))?.epk.did).toBe(ROOT);
+		expect((await f.t.epks.locate(DJ, legacy.rkey))?.epk.uri).toBe(legacy.uri);
+		expect((await f.t.epks.locate(ROOT, legacy.rkey))?.project.uri).toBe(other.uri);
+	});
+
 	it('caps a project at its number of press kits, counting the legacy ones', async () => {
 		await f.legacy(DJ, { title: 'Legacy' });
 

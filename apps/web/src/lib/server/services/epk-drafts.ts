@@ -41,6 +41,9 @@ import { actorRole } from './requests';
 
 type DraftRecord = z.infer<typeof epkDraftSchema>;
 
+/** The press kit a draft row stands for: the one it was published as, or the one its record names. */
+const kitKey = (row: EpkDraftTable) => row.publishedRkey ?? row.epkRkey;
+
 const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
 
 /**
@@ -78,7 +81,7 @@ export class EpkDrafts {
 		return current.flatMap((row) => {
 			const author = accounts.get(row.authorDid) ?? { did: row.authorDid, handle: null };
 
-			return this.view(row, author, kits.find((epk) => epk.rkey === row.epkRkey) ?? null) ?? [];
+			return this.view(row, author, kits.find((epk) => epk.rkey === kitKey(row)) ?? null) ?? [];
 		});
 	}
 
@@ -139,7 +142,9 @@ export class EpkDrafts {
 		if (onBehalf) record.onBehalfOf = actor.did;
 		// The root may hold several managers' drafts of one press kit, so its own get keys of their own, and the base names
 		// the press kit. A new press kit takes its draft's key.
-		const rkey = existing?.rkey ?? (kit && !onBehalf ? kit.epk.rkey : TID.nextStr());
+		// A draft only keeps its key in the repo that wrote it: the root never takes a key a manager chose for their own.
+		const reused = existing?.repoDid === client.did ? existing.rkey : undefined;
+		const rkey = reused ?? (kit && !onBehalf ? kit.epk.rkey : TID.nextStr());
 		const value = validateRecord(COLLECTION.epkDraft, toJson(record));
 		const ref = await client.putSpaceRecord({ space, collection: COLLECTION.epkDraft, rkey, record: value });
 
@@ -152,7 +157,8 @@ export class EpkDrafts {
 			epkRkey: kit?.epk.rkey ?? existing?.epkRkey ?? rkey,
 			cid: ref.cid,
 			record: JSON.stringify(value),
-			updatedAt: now
+			updatedAt: now,
+			publishedRkey: existing?.publishedRkey ?? null
 		};
 
 		await this.saveRow(row);
@@ -189,7 +195,8 @@ export class EpkDrafts {
 		const draft = row && this.parse(row);
 
 		if (!row || !draft) throw new NotFoundError('That draft does not exist');
-		const live = await this.epks.rootKit(row.epkRkey);
+		const kitRkey = await this.publishKey(row, draft);
+		const live = await this.epks.rootKit(kitRkey);
 
 		if (draft.base && !live) throw new NotFoundError('This press kit was deleted since you started this draft');
 
@@ -240,7 +247,7 @@ export class EpkDrafts {
 			}
 		}
 
-		const kitSpace = await this.epks.ensureKitSpace(row.epkRkey, current.managers);
+		const kitSpace = await this.epks.ensureKitSpace(kitRkey, current.managers);
 		const now = nowIso();
 
 		const record = validateRecord(
@@ -258,7 +265,7 @@ export class EpkDrafts {
 		try {
 			// The public record first: its CID marks the version, and publishing again after a failure below finds these
 			// fields already applied, so it carries on with the rest.
-			await root.putRecord({ collection: COLLECTION.epk, rkey: row.epkRkey, record, swapRecord: live?.cid ?? null });
+			await root.putRecord({ collection: COLLECTION.epk, rkey: kitRkey, record, swapRecord: live?.cid ?? null });
 		} catch (error) {
 			if (xrpcErrorName(error) === 'InvalidSwap')
 				throw new UserError('Someone published this press kit at the same moment. Try again.', 409);
@@ -281,14 +288,14 @@ export class EpkDrafts {
 		}
 
 		this.core.logger.info(
-			{ epk: row.epkRkey, fields, overwritten: [...overwrite], kept: [...keep] },
+			{ epk: kitRkey, fields, overwritten: [...overwrite], kept: [...keep] },
 			'published a press kit draft'
 		);
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
 			action: 'epk.save',
-			subject: `at://${root.did}/${COLLECTION.epk}/${row.epkRkey}`,
+			subject: `at://${root.did}/${COLLECTION.epk}/${kitRkey}`,
 			subjectKind: 'epk',
 			summary: live
 				? `Published changes to the press kit “${visible.title}” of ${current.profile.name}`
@@ -296,9 +303,9 @@ export class EpkDrafts {
 			details: { project: current.uri, fields, overwritten: [...overwrite] }
 		});
 
-		const epk = await this.epks.rootKit(row.epkRkey);
+		const epk = await this.epks.rootKit(kitRkey);
 
-		if (!epk) throw new Error(`press kit ${row.epkRkey} is missing right after publishing it`);
+		if (!epk) throw new Error(`press kit ${kitRkey} is missing right after publishing it`);
 
 		return { kind: 'published', epk };
 	}
@@ -312,6 +319,21 @@ export class EpkDrafts {
 		const photo = [...photosOf(draft.changes), ...photosOf(draft.previous)].find((entry) => cidOf(entry) === cid);
 
 		return photo ? ((await this.core.fetchSpaceBlob?.(this.space(project), draft.repo, cid)) ?? null) : null;
+	}
+
+	/**
+	 * The key a draft publishes under: its base's, or for a new press kit, one the root chooses, never the draft's own,
+	 * which whoever wrote it picked and could have taken from another project's press kit. It's kept before anything is
+	 * written, so publishing again after a failure finishes the same press kit.
+	 */
+	private async publishKey(row: EpkDraftTable, draft: DraftRecord): Promise<string> {
+		if (draft.base) return row.epkRkey;
+
+		if (row.publishedRkey) return row.publishedRkey;
+		const rkey = TID.nextStr();
+		await this.core.db.updateTable('epkDraft').set({ publishedRkey: rkey }).where('uri', '=', row.uri).execute();
+
+		return rkey;
 	}
 
 	/** Uploads a photo for a draft, to the repo `actor`'s drafts are written to. */
@@ -359,7 +381,8 @@ export class EpkDrafts {
 			epkRkey,
 			cid: input.cid,
 			record: JSON.stringify(input.value),
-			updatedAt: draft.data.updatedAt
+			updatedAt: draft.data.updatedAt,
+			publishedRkey: null
 		});
 	}
 
@@ -426,20 +449,21 @@ export class EpkDrafts {
 		}
 	}
 
-	/** A manager's latest draft of a press kit. */
-	private row(space: string, author: string, epkRkey: string) {
+	/** A manager's latest draft of a press kit: one it changes, one of a new one by its key, or one already published as it. */
+	private row(space: string, author: string, rkey: string) {
 		return this.core.db
 			.selectFrom('epkDraft')
 			.selectAll()
 			.where('spaceUri', '=', space)
 			.where('authorDid', '=', author)
-			.where('epkRkey', '=', epkRkey)
+			.where((eb) => eb.or([eb('epkRkey', '=', rkey), eb('publishedRkey', '=', rkey)]))
 			.orderBy('updatedAt', 'desc')
 			.executeTakeFirst();
 	}
 
 	private async saveRow(row: EpkDraftTable): Promise<void> {
-		const { uri: _uri, ...rest } = row;
+		// A sync of the record knows nothing of the key it was published under, so that stays.
+		const { uri: _uri, publishedRkey: _publishedRkey, ...rest } = row;
 
 		await this.core.db
 			.insertInto('epkDraft')
@@ -469,13 +493,14 @@ export class EpkDrafts {
 		const draft = this.parse(row);
 
 		if (!draft) return null;
-		let status: EpkDraftStatus = kit ? 'behind' : 'new';
+		// A draft of a new press kit stands against one only once it's been published as it.
+		let status: EpkDraftStatus = kit && row.publishedRkey ? 'behind' : 'new';
 
 		if (draft.base) status = !kit ? 'deleted' : draft.base.cid === kit.cid ? 'current' : 'behind';
 
 		return {
 			uri: row.uri,
-			rkey: row.epkRkey,
+			rkey: kitKey(row),
 			author,
 			repo: row.repoDid,
 			base: draft.base ?? null,

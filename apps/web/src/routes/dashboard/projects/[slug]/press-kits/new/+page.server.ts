@@ -23,9 +23,11 @@ async function fromForm({ request, locals, url, params }: RequestEvent, publish:
 
 			if (!draft) throw new Error('a new press kit always differs from nothing');
 
-			if (publish) await epks.drafts.publish(viewer, project, draft.rkey);
+			if (!publish) return { rkey: draft.rkey };
+			const published = await epks.drafts.publish(viewer, project, draft.rkey);
 
-			return { rkey: draft.rkey };
+			// A new press kit gets a key of the root's choosing, not its draft's.
+			return { rkey: published.kind === 'published' ? published.epk.rkey : draft.rkey };
 		},
 		submittedValues(form, project.profile.mixes ?? [])
 	);

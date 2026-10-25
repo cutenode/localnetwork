@@ -38,6 +38,9 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 
 const back = (url: URL, notice: keyof typeof NOTICES) => `${url.pathname}?notice=${notice}`;
 
+/** A press kit's editor. A new press kit is published under a key of the root's choosing, so it moves there. */
+const kitPage = (slug: string, rkey: string) => `/dashboard/projects/${slug}/press-kits/${rkey}`;
+
 export const actions: Actions = {
 	save: async ({ request, locals, url, params }) => {
 		const editor = await loadEditor(locals, url, params);
@@ -68,14 +71,15 @@ export const actions: Actions = {
 
 				return published.kind === 'conflict'
 					? { conflicts: describeConflicts(published.conflicts) }
-					: { published: true };
+					: { published: published.epk.rkey };
 			},
 			submittedValues(form, editor.project.profile.mixes ?? [])
 		);
 
 		if ('unchanged' in result) redirect(303, back(url, 'unchanged'));
 
-		if ('published' in result) redirect(303, back(url, 'published'));
+		if ('published' in result && result.published)
+			redirect(303, `${kitPage(editor.project.slug, result.published)}?notice=published`);
 
 		return result;
 	},
@@ -94,10 +98,11 @@ export const actions: Actions = {
 
 			return published.kind === 'conflict'
 				? { conflicts: describeConflicts(published.conflicts) }
-				: { published: true };
+				: { published: published.epk.rkey };
 		});
 
-		if ('published' in result) redirect(303, back(url, 'published'));
+		if ('published' in result && result.published)
+			redirect(303, `${kitPage(editor.project.slug, result.published)}?notice=published`);
 
 		return result;
 	},

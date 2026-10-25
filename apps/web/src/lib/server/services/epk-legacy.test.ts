@@ -127,6 +127,101 @@ describe('LegacyEpks', () => {
 		await expectMoved();
 	});
 
+	it('survives a manager of another project publishing a draft under its key, then moves as usual', async () => {
+		const other = await f.t.projectAdmin.create({
+			actor: await f.t.viewer(ADMIN),
+			profile: { name: 'Elsewhere', kind: 'solo', genres: ['house'], location: { city: 'Leeds', country: 'GB' } },
+			managers: [STRANGER]
+		});
+
+		const stranger = await f.t.viewer(STRANGER);
+		await f.t.epks.drafts.save(stranger, other, { values: values({ title: 'Mine' }) });
+		const backstage = f.t.epks.drafts.space(other);
+		const now = new Date().toISOString();
+		const record = { changes: { title: 'Squat', access: values().access! }, createdAt: now, updatedAt: now };
+
+		// Legacy keys are public in their maker's repo, so STRANGER writes a draft under one straight into their backstage.
+		await f.t.net.client(STRANGER).putSpaceRecord({
+			space: backstage,
+			collection: COLLECTION.epkDraft,
+			rkey: legacy.rkey,
+			record: validateRecord(COLLECTION.epkDraft, record)
+		});
+		await f.t.epks.drafts.index({
+			space: backstage,
+			uri: `${backstage}/${STRANGER}/${COLLECTION.epkDraft}/${legacy.rkey}`,
+			repoDid: STRANGER,
+			rkey: legacy.rkey,
+			cid: 'c',
+			value: record
+		});
+
+		const result = await f.t.epks.drafts.publish(stranger, other, legacy.rkey);
+
+		expect(result).toMatchObject({ kind: 'published', epk: { record: { project: other.uri, title: 'Squat' } } });
+		expect(result.kind === 'published' && result.epk.rkey).not.toBe(legacy.rkey);
+		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(false);
+		expect((await f.t.epks.forProject(f.project)).map((epk) => epk.uri)).toEqual([legacy.uri]);
+
+		expect(await migrate()).toEqual({ migrated: [legacy.rkey], failed: [] });
+		await expectMoved();
+	});
+
+	it('leaves a legacy press kit where it is when the root holds its key for another project', async () => {
+		const other = await f.t.projectAdmin.create({
+			actor: await f.t.viewer(ADMIN),
+			profile: { name: 'Elsewhere', kind: 'solo', genres: ['house'], location: { city: 'Leeds', country: 'GB' } },
+			managers: [STRANGER]
+		});
+
+		// Without its photos, which only DJ's repo holds.
+		const { photos: _photos, ...record } = f.t.net.records.get(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)!.value;
+		await f.t.net
+			.client(ROOT)
+			.putRecord({ collection: COLLECTION.epk, rkey: legacy.rkey, record: { ...record, project: other.uri } });
+		f.t.epks.forget();
+
+		expect(await migrate()).toEqual({ migrated: [], failed: [] });
+		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(true);
+		expect(f.t.net.spaces.has(legacy.space)).toBe(true);
+		expect(f.t.net.records.get(`${ROOT}|${COLLECTION.epk}|${legacy.rkey}`)?.value.project).toBe(other.uri);
+	});
+
+	it("leaves both legacy press kits where they are when a co-manager's has the same key", async () => {
+		const { photos: _photos, ...record } = f.t.net.records.get(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)!.value;
+		await f.t.net
+			.client(CODJ)
+			.putRecord({ collection: COLLECTION.epk, rkey: legacy.rkey, record: { ...record, title: 'Copy' } });
+		f.t.epks.forget(CODJ);
+
+		expect(await migrate(CODJ)).toEqual({ migrated: [], failed: [] });
+		expect(await migrate()).toEqual({ migrated: [], failed: [] });
+		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(false);
+		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(true);
+	});
+
+	it('carries one request per asker, even when two askers picked the same key', async () => {
+		// ADMIN picks the same key for their request as an asker already in the space.
+		const [first] = await f.t.epks.requests(legacy);
+		const rkey = first.uri.split('/').at(-1)!;
+		await f.t.epks.saveRequest({
+			uri: `${legacy.space}/${ADMIN}/${COLLECTION.epkRequest}/${rkey}`,
+			space: legacy.space,
+			epk: legacy.uri,
+			requester: ADMIN,
+			role: null,
+			message: 'Me too',
+			rule: 'review',
+			createdAt: new Date().toISOString()
+		});
+
+		expect(await migrate()).toEqual({ migrated: [legacy.rkey], failed: [] });
+		const [moved] = await f.t.epks.forProject(f.project);
+		expect((await f.t.epks.requests(moved)).map((request) => request.requester.did).sort()).toEqual(
+			[ADMIN, STRANGER].sort()
+		);
+	});
+
 	it('joins a move already running for the same account instead of racing it', async () => {
 		const viewer = await f.t.viewer(DJ);
 		const [first, second] = await Promise.all([f.t.epks.migrateLegacy(viewer), f.t.epks.migrateLegacy(viewer)]);
