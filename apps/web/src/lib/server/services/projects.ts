@@ -131,6 +131,8 @@ export class ProjectService {
 	 * recent change.
 	 */
 	async reconcileManagerSpaces(): Promise<void> {
+		// The root's own repo decides who's in a thread: a directory that's behind could let a removed manager back in.
+		// ast-grep-ignore: no-direct-pds-read
 		const records = await (await this.core.root()).listRecords(COLLECTION.project);
 
 		for (const { uri, cid, value } of records) {
@@ -178,6 +180,8 @@ export class ProjectService {
 		const rkey = this.projectRkey(uri);
 
 		if (!rkey) return null;
+		// The root's own repo decides who's in a new thread, as in reconcileManagerSpaces.
+		// ast-grep-ignore: no-direct-pds-read
 		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.project, rkey });
 
 		return stored && this.toView({ uri: stored.uri, cid: stored.cid, record: stored.value });

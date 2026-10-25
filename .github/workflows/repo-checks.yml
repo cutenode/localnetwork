@@ -1,9 +1,9 @@
 name: Repo checks
 
 # The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
-# config files, tools/project.sh's planner tests, ast-grep's rules (sgconfig.yml) over the Rust
-# code, goat over the lexicons, and on main, that GitHub's "Protect Main" ruleset is
-# .github/rulesets/protect-main.json.
+# config files, tools/project.sh's planner tests, ast-grep's rules (sgconfig.yml) over the Rust,
+# TypeScript and Svelte code, goat over the lexicons, and on main, that GitHub's "Protect Main"
+# ruleset is .github/rulesets/protect-main.json.
 on:
   push:
     branches: [main]

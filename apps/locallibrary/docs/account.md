@@ -131,7 +131,9 @@ Everything locallibrary reads from the network comes from Local Network's direct
 [HappyView](https://happyview.localnetwork.computer) AppView the website uses, never from an
 account's data server or Bluesky's: what's published in a record's place before a publish, My
 Settings for `settings import --from-handle` and `--from-account`, and the space bug reports go
-to. Writes still go to your account's data server. A handle is found from its own DNS record or
+to. Writes still go to your account's data server, which is otherwise only asked to sign you in
+(found from your handle or DID), to check the session, and for the token that has the website
+re-read your records (below). A handle is found from its own DNS record or
 `https://<handle>/.well-known/atproto-did`, never by asking Bluesky.
 
 The directory hears of each record as it's written, a moment later. Publishing replaces only the
