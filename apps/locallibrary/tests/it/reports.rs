@@ -146,10 +146,6 @@ fn history_stats_export_and_diff() {
     let snapshot = env.json(&["log"])["libraries"]["A"][0]["short_id"].as_str().unwrap().to_string();
     let v = env.json(&["diff", &format!("snapshot:{snapshot}"), path(&b), "--playlist", "Set"]);
     assert_eq!(v["changed_playlists"][0]["removed"].as_array().unwrap().len(), 1);
-
-    let xml = env.root.join("set.xml");
-    let v = &env.json(&["xml", path(&a), "-o", path(&xml), "--only", "Set"])["report"];
-    assert_eq!((v["tracks"].as_i64(), v["playlists"].as_i64()), (Some(2), Some(1)));
 }
 
 #[test]

@@ -3,6 +3,8 @@
 pub mod encode;
 #[cfg(feature = "engine")]
 pub mod engine;
+#[cfg(feature = "rekordbox")]
+pub mod rekordbox;
 #[cfg(feature = "serato")]
 pub mod serato;
 #[cfg(feature = "traktor")]
@@ -26,6 +28,8 @@ pub enum Software {
     Serato,
     /// Engine DJ: `Engine Library/Database2/m.db`.
     Engine,
+    /// rekordbox: a `DJ_PLAYLISTS` XML file, for its Imported Library.
+    Rekordbox,
 }
 
 impl Software {
@@ -34,6 +38,7 @@ impl Software {
             Software::Traktor => "Traktor",
             Software::Serato => "Serato",
             Software::Engine => "Engine DJ",
+            Software::Rekordbox => "rekordbox",
         }
     }
 }
@@ -113,7 +118,7 @@ pub enum Content {
 
 impl Export {
     /// An export of `lib`, counting its playlists and folders.
-    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine"))]
+    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine", feature = "rekordbox"))]
     fn new(lib: &Library) -> Export {
         Export {
             playlists: lib.playlists.iter().filter(|p| !p.is_folder).count(),
@@ -122,7 +127,7 @@ impl Export {
         }
     }
 
-    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine"))]
+    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine", feature = "rekordbox"))]
     fn file(&mut self, path: PathBuf, what: impl Into<String>, bytes: Vec<u8>) {
         self.files.push(File { path, what: what.into(), bytes: bytes.len() as u64, content: Content::Bytes(bytes) });
     }

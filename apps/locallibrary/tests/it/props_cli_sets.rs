@@ -537,8 +537,8 @@ fn plays_print_what_their_json_says(tc: TestCase) {
 }
 
 /// A log of plays (Beat Link Trigger's Playlist Writer) with drawn tracks and start times kept as a
-/// session: a set made from it is timed, `sets show` prints each start, and its Mixcloud and
-/// YouTube tracklists print what its JSON export does.
+/// session (`--quiet` leaving out the tip to make a set of it): a set made from it is timed, `sets
+/// show` prints each start, and its Mixcloud and YouTube tracklists print what its JSON export does.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_timed_log_makes_a_timed_set(tc: TestCase) {
     let fx = Env::from_template();
@@ -580,6 +580,7 @@ fn a_timed_log_makes_a_timed_set(tc: TestCase) {
         assert!(r.out.contains("kept Friday as session"), "{}", r.out);
         let plays = if picked.len() == 1 { "1 play".to_string() } else { format!("{} plays", picked.len()) };
         assert!(r.out.contains(&format!(": {plays}, ")), "{}", r.out);
+        assert!(!r.out.contains("makes a set of it"), "{}", r.out);
     }
     let sessions = fx.json(&["plays", "lists", "Club", "--all"]);
     let id = sessions["sessions"]

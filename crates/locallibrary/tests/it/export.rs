@@ -1,4 +1,4 @@
-use crate::common;
+use crate::common::{self, XmlOptions};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,7 +7,6 @@ use locallibrary::api::{self, ExportPlaylist};
 use locallibrary::device::Device;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Error, anlz, paths};
 use rekordbox_pdb::PdbEditor;
 
@@ -136,8 +135,7 @@ fn folders_libraries_and_history_as_csv_and_text() {
     assert!(matches!(api::export_playlist(None, &req, &Ctx::silent()), Err(Error::NotFound(_))));
 }
 
-/// Regression: exports and XML replaced a file already there without a word, so `xml Main` in a
-/// folder holding rekordbox's own `rekordbox.xml` lost it.
+/// Regression: exports replaced a file already there without a word.
 #[test]
 fn files_already_there_are_replaced_only_when_asked() {
     let dir = tempfile::tempdir().unwrap();
@@ -160,21 +158,6 @@ fn files_already_there_are_replaced_only_when_asked() {
     assert_eq!(fs::read_to_string(&mine).unwrap(), "mine");
     api::export_playlist(None, &req(true), &Ctx::silent()).unwrap();
     assert!(fs::read_to_string(&mine).unwrap().starts_with("#EXTM3U"));
-
-    let xml = dir.path().join("rekordbox.xml");
-    fs::write(&xml, "rekordbox's own").unwrap();
-    let req = |replace| api::ExportXml {
-        drive: root.display().to_string(),
-        output: xml.clone(),
-        location_root: None,
-        skip_analysis: false,
-        only: Vec::new(),
-        replace,
-    };
-    assert!(api::export_xml(&req(false), &Ctx::silent()).is_err());
-    assert_eq!(fs::read_to_string(&xml).unwrap(), "rekordbox's own");
-    api::export_xml(&req(true), &Ctx::silent()).unwrap();
-    assert!(fs::read_to_string(&xml).unwrap().contains("DJ_PLAYLISTS"));
 }
 
 #[test]
@@ -184,7 +167,7 @@ fn xml_of_some_playlists_only() {
     let d = Device::open_export(&root).unwrap();
     let opts = |only: &[&str]| XmlOptions { only: only.iter().map(|s| s.to_string()).collect(), ..Default::default() };
 
-    let (text, report) = xml::export(&d, &opts(&["Shows/2026/Peak"]), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &opts(&["Shows/2026/Peak"])).unwrap();
     assert_eq!((report.tracks, report.playlists), (2, 1));
     assert_eq!(text.matches("<TRACK TrackID=").count(), 2);
     // The folders above it stay, holding only it.
@@ -192,18 +175,18 @@ fn xml_of_some_playlists_only() {
     assert!(text.contains("<NODE Type=\"0\" Name=\"2026\" Count=\"1\">"));
     assert!(text.contains("Name=\"Peak\"") && !text.contains("Name=\"Warmup\"") && !text.contains("Name=\"aab\""));
 
-    let (_, report) = xml::export(&d, &opts(&["Shows", "aab"]), &Ctx::silent()).unwrap();
+    let (_, report) = common::rekordbox_xml(&d, &opts(&["Shows", "aab"])).unwrap();
     assert_eq!((report.tracks, report.playlists), (12, 3));
-    assert!(matches!(xml::export(&d, &opts(&["Nope"]), &Ctx::silent()), Err(Error::NotFound(_))));
+    assert_eq!(common::rekordbox_xml(&d, &opts(&["Nope"])).unwrap_err(), "Nope");
 }
 
 #[test]
 fn xml_export_is_valid_rekordbox_xml() {
     let dir = tempfile::tempdir().unwrap();
     let d = Device::open_export(common::demo_drive(dir.path(), "USB")).unwrap();
-    let (xml, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (xml, report) = common::rekordbox_xml(&d, &XmlOptions::default()).unwrap();
     assert_eq!(report.tracks, 2);
-    assert_eq!(report.tracks_with_beatgrid, 2);
+    assert_eq!(report.beat_grids, 2);
     assert!(xml.contains("<TEMPO Inizio="));
     assert!(xml.contains("Tonality=\"Fm\""));
     assert!(xml.contains("Location=\"file://localhost/"));
@@ -218,8 +201,7 @@ fn xml_export_is_valid_rekordbox_xml() {
 
     let b = Device::open_export(common::bigger_drive(dir.path(), "B")).unwrap();
     let (xml, report) =
-        xml::export(&b, &XmlOptions { location_root: Some("/Music".into()), ..Default::default() }, &Ctx::silent())
-            .unwrap();
+        common::rekordbox_xml(&b, &XmlOptions { location_root: Some("/Music".into()), ..Default::default() }).unwrap();
     assert_eq!(report.playlists, 1);
     assert!(xml.contains("<NODE Name=\"aab\" Type=\"1\" KeyType=\"0\" Entries=\"12\">"));
     assert!(xml.contains("file://localhost/Music/Contents/%5Ba%5Dpendics.shuffle/"));
