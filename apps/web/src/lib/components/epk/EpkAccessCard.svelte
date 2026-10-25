@@ -7,9 +7,10 @@
 
 	/**
 	 * What someone without access sees where the private part would be: how to get it, that they've
-	 * asked, or that it isn't open to requests.
+	 * asked, or that it isn't open to requests. With `askHref` (the press kit's public page) asking is
+	 * a link to the dashboard page that holds the form; without it (that page) it's the form.
 	 */
-	let { access, name, loginHref, error }: { access: EpkAccessState; name: string; loginHref: string; error?: string } = $props();
+	let { access, name, askHref, error }: { access: EpkAccessState; name: string; askHref?: string; error?: string } = $props();
 
 	let sending = $state(false);
 
@@ -22,7 +23,9 @@
 		<p class="m-0 text-small text-fg-muted">The full bio, more mixes and photos, press quotes, the rider and how to book {name}.</p>
 	</div>
 	{#if access.kind === 'signedOut'}
-		<p class="m-0 text-small"><a class="btn-primary btn-sm" href={loginHref}>Sign in to {instant ? 'see it' : 'ask for it'}</a></p>
+		<p class="m-0 text-small"><a class="btn-primary btn-sm" href={askHref}>Sign in to {instant ? 'see it' : 'ask for it'}</a></p>
+	{:else if access.kind === 'canAsk' && askHref}
+		<p class="m-0 text-small"><a class="btn-primary btn-sm" href={askHref}>{instant ? 'Get access' : 'Ask for access'}</a></p>
 	{:else if access.kind === 'canAsk'}
 		<form
 			method="POST"
@@ -57,7 +60,7 @@
 		</form>
 	{:else if access.kind === 'pending'}
 		<p role="status" class="notice notice-info m-0">
-			{#if access.approved}You're approved. The rest shows here as soon as {name}'s PDS records it, usually the next time they sign in.{:else}You asked on {formatDate(access.since)}. You'll see the rest here once {name} lets you in.{/if}
+			{#if access.approved}You're approved. The rest shows as soon as {name}'s PDS records it, usually the next time they sign in.{:else}You asked on {formatDate(access.since)}. You'll see the rest once {name} lets you in.{/if}
 		</p>
 	{:else if access.kind === 'declined'}
 		<p class="notice notice-info m-0">{name} isn't sharing the rest of this press kit with you.</p>

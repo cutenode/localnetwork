@@ -1,0 +1,92 @@
+# jq --run-tests -L tools/project tools/project/plan.test
+# Each test is a program, its input and the outputs it gives, one per line, then a blank line.
+
+# in_scope: an empty scope takes everything
+include "plan"; in_scope([])
+{"labels":[]}
+true
+
+# in_scope: a tool's area label counts as the tool
+include "plan"; in_scope(["web"])
+{"labels":["bug","web: epk"]}
+true
+
+# in_scope: a label that only starts with the tool's name doesn't
+include "plan"; in_scope(["web"])
+{"labels":["webhooks"]}
+false
+
+# in_scope: an area scope takes only that area
+include "plan"; [{"labels":["locallibrary: sidecar"]},{"labels":["locallibrary"]}] | map(in_scope(["locallibrary: sidecar"]))
+null
+[true,false]
+
+# field_option: the tool from an area label
+include "plan"; field_option({"options":[{"id":"w","name":"web"},{"id":"l","name":"locallibrary"},{"id":"r","name":"repo"}],"other":{"name":"repo"}}; null)
+{"labels":["bug","locallibrary: core"]}
+"l"
+
+# field_option: a value that's one of the issue's tools stays
+include "plan"; field_option({"options":[{"id":"w","name":"web"},{"id":"l","name":"locallibrary"},{"id":"r","name":"repo"}],"other":{"name":"repo"}}; "locallibrary")
+{"labels":["web","locallibrary"]}
+null
+
+# field_option: a value that isn't moves to the issue's tool
+include "plan"; field_option({"options":[{"id":"w","name":"web"},{"id":"l","name":"locallibrary"},{"id":"r","name":"repo"}],"other":{"name":"repo"}}; "repo")
+{"labels":["web"]}
+"w"
+
+# field_option: other goes in only while the field is empty
+include "plan"; [null, "web"] | map(. as $current | {"labels":["tooling"]} | field_option({"options":[{"id":"w","name":"web"},{"id":"r","name":"repo"}],"other":{"name":"repo"}}; $current))
+null
+["r",null]
+
+# field_option: areas from a prefix, and nothing without an other option
+include "plan"; [{"labels":["locallibrary","locallibrary: player"]},{"labels":["locallibrary"]}] | map(field_option({"prefix":"locallibrary: ","options":[{"id":"c","name":"cli"},{"id":"p","name":"player"}]}; null))
+null
+["p",null]
+
+# status: the newest one a person set wins over a newer default
+include "plan"; status([{"name":"Todo","updatedAt":"2026-10-01","auto":false},{"name":"In Progress","updatedAt":"2026-10-03","auto":false},{"name":"Inbox","updatedAt":"2026-10-05","auto":true}]; ["Inbox","Todo","In Progress","Done"])
+{}
+"In Progress"
+
+# status: with only defaults, the newest of them
+include "plan"; status([{"name":"Todo","updatedAt":"2026-10-01","auto":true},{"name":"Inbox","updatedAt":"2026-10-02","auto":true}]; ["Inbox","Todo","In Progress","Done"])
+{}
+"Inbox"
+
+# status: options that aren't in the list are left out
+include "plan"; status([{"name":"Backlog","updatedAt":"2026-10-05","auto":false},{"name":"Todo","updatedAt":"2026-10-01","auto":false}]; ["Inbox","Todo","In Progress","Done"])
+{}
+"Todo"
+
+# status: none is new, and a new issue with a Priority, milestone or assignee is triaged
+include "plan"; [{}, {"priority":"High"}, {"milestone":"v1"}, {"assigned":true}] | map(status([]; ["Inbox","Todo","In Progress","Done"]))
+null
+["Inbox","Todo","Todo","Todo"]
+
+# status: a done issue that's open again is triaged
+include "plan"; status([{"name":"Done","updatedAt":"2026-10-01","auto":true}]; ["Inbox","Todo","In Progress","Done"])
+{}
+"Todo"
+
+# status: an open pull request moves a new or triaged issue on, and only those
+include "plan"; [["Inbox",true],["Todo",true],["Todo",false],["In Progress",false]] | map(.[0] as $set | {"linked":.[1]} | status([{"name":$set,"updatedAt":"x","auto":false}]; ["Inbox","Todo","In Progress","Done"]))
+null
+["In Progress","In Progress","Todo","In Progress"]
+
+# plan: a new issue goes on every board whose scope it's in, with its Status and field
+include "plan"; . as $in | [$in.issues | plan($in.boards)]
+{"issues":[{"id":"I1","number":1,"labels":["web: epk"]}],"boards":[{"number":9,"project":"P9","scope":[],"status":{"id":"S9","options":[{"id":"a","name":"Inbox"},{"id":"b","name":"Todo"},{"id":"c","name":"In Progress"},{"id":"d","name":"Done"}]},"field":{"id":"F9","other":{"name":"repo"},"options":[{"id":"w","name":"web"},{"id":"r","name":"repo"}]},"items":[]},{"number":3,"project":"P3","scope":["web"],"status":{"id":"S3","options":[{"id":"e","name":"Inbox"},{"id":"f","name":"Todo"},{"id":"g","name":"In Progress"},{"id":"h","name":"Done"}]},"field":{"id":"F3","prefix":"web: ","options":[{"id":"x","name":"epk"}]},"items":[]},{"number":5,"project":"P5","scope":["localtoolbox"],"status":{"id":"S5","options":[]},"field":null,"items":[]}]}
+[{"board":9,"project":"P9","number":1,"issue":"I1","item":null,"set":[{"field":"S9","option":"a"},{"field":"F9","option":"w"}]},{"board":3,"project":"P3","number":1,"issue":"I1","item":null,"set":[{"field":"S3","option":"e"},{"field":"F3","option":"x"}]}]
+
+# plan: a Status set on one board is copied to the others, and an issue that's left a board's scope is taken off it
+include "plan"; . as $in | [$in.issues | plan($in.boards)]
+{"issues":[{"id":"I1","number":1,"labels":["web"]}],"boards":[{"number":9,"project":"P9","scope":[],"status":{"id":"S9","options":[{"id":"a","name":"Inbox"},{"id":"b","name":"Todo"},{"id":"c","name":"In Progress"},{"id":"d","name":"Done"}]},"field":null,"items":[{"id":"T1","issue":"I1","number":1,"labels":["web"],"status":{"name":"Todo","updatedAt":"2026-10-02","auto":false}}]},{"number":3,"project":"P3","scope":["web"],"status":{"id":"S3","options":[{"id":"e","name":"Inbox"},{"id":"f","name":"Todo"},{"id":"g","name":"In Progress"},{"id":"h","name":"Done"}]},"field":null,"items":[{"id":"T2","issue":"I1","number":1,"labels":["web"],"status":{"name":"Inbox","updatedAt":"2026-10-01","auto":false}}]},{"number":5,"project":"P5","scope":["localtoolbox"],"status":{"id":"S5","options":[]},"field":null,"items":[{"id":"T3","issue":"I1","number":1,"labels":["web"],"status":null},{"id":"T4","issue":null,"number":null,"labels":[],"status":null}]}]}
+[{"board":3,"project":"P3","number":1,"issue":"I1","item":"T2","set":[{"field":"S3","option":"f"}]},{"board":5,"project":"P5","number":1,"delete":"T3"}]
+
+# type_for: from the first label that names a type, else the default, and never over a type
+include "plan"; map(type_for({"labels":{"bug":"Bug","scheduled-failure":"Bug","enhancement":"Feature"},"default":"Task"}))
+[{"labels":["enhancement","bug"]},{"labels":["scheduled-failure","web"]},{"labels":["tooling"]},{"labels":["bug"],"type":"Feature"}]
+["Feature","Bug","Task",null]

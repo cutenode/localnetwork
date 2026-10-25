@@ -1,15 +1,13 @@
-//! What the rekordbox XML export says of each track: the kind its file's extension names, the
-//! colour and rating rekordbox gives it, and the year (or its release date's); and which
-//! playlists it holds when only some are asked for.
+//! What the rekordbox XML export (the interop plugin's) says of each track of a real drive: the
+//! kind its file's extension names, the colour and rating rekordbox gives it, and the year (or its
+//! release date's); and which playlists it holds when only some are asked for.
 
-use crate::common;
+use crate::common::{self, XmlOptions};
 
 use hegel::TestCase;
 use hegel::generators as gs;
 use locallibrary::device::Device;
 use locallibrary::paths;
-use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// Extensions a track's file can have, and the kind rekordbox's XML calls each (case aside).
@@ -72,7 +70,7 @@ fn xml_tracks_say_what_rekordbox_says_of_them(tc: TestCase) {
         want.push((id, kind, colour, [0, 51, 102, 153, 204, 255][usize::from(rating.min(5))], year));
     }
     let d = Device::open_export(&root).unwrap();
-    let (text, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &XmlOptions::default()).unwrap();
     assert_eq!(report.tracks, 12 + want.len());
     for (id, kind, colour, rating, year) in want {
         assert_eq!(attribute(&text, id, "Kind").as_deref(), Some(kind), "track {id}");
@@ -90,7 +88,7 @@ fn xml_tracks_say_what_rekordbox_says_of_them(tc: TestCase) {
     let asked = tc.draw(gs::sampled_from(names.to_vec()));
     let d = Device::open_export(&root).unwrap();
     let only = XmlOptions { only: vec![asked.to_string()], ..Default::default() };
-    match xml::export(&d, &only, &Ctx::silent()) {
+    match common::rekordbox_xml(&d, &only) {
         Ok((text, report)) => {
             assert_eq!(asked, made);
             assert_eq!((report.playlists, report.tracks), (1, 0));
@@ -98,8 +96,7 @@ fn xml_tracks_say_what_rekordbox_says_of_them(tc: TestCase) {
         }
         Err(e) => {
             assert_ne!(asked, made);
-            assert_eq!(e.code(), "not_found", "{e}");
-            assert!(e.to_string().contains(asked), "{e}");
+            assert_eq!(e, asked);
         }
     }
 }

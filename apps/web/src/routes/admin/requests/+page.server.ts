@@ -1,3 +1,4 @@
+import { requireStaff } from '#lib/server/http.ts';
 import { isRequestKind } from '#lib/server/services/requests.ts';
 import type { RequestStatus } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
@@ -11,6 +12,7 @@ const STATUSES = [
 ] as const satisfies readonly RequestStatus[];
 
 export const load: PageServerLoad = async ({ locals, url }) => {
+	requireStaff(locals, url);
 	const statusParam = url.searchParams.get('status') ?? 'pending';
 
 	const status = statusParam === 'all' ? undefined : (STATUSES.find((value) => value === statusParam) ?? 'pending');

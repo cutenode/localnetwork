@@ -21,8 +21,8 @@
 
 	const perks = [
 		['/match', 'Match a show', 'Describe the night and get a shortlist, with the reasons each DJ made it.'],
-		['/bookings', 'Private inquiries', 'Each booking is its own thread, shared only with the project’s managers.'],
-		['/planner', 'Planner', 'Keep shortlists and build a lineup slot by slot, in a space only you can read.'],
+		['/dashboard/bookings', 'Private inquiries', 'Each booking is its own thread, shared only with the project’s managers.'],
+		['/dashboard/planner', 'Planner', 'Keep shortlists and build a lineup slot by slot, in a space only you can read.'],
 		['/about#spaces', 'Booking details', 'Email, phone, rate notes, rider and hospitality, for signed-in members.']
 	];
 </script>
@@ -47,7 +47,7 @@
 			</div>
 			<button class="btn-primary">Find DJs</button>
 		</form>
-		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/projects/new">List your project</a></p>
+		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/dashboard/projects/new">List your project</a></p>
 	</div>
 </section>
 
@@ -83,7 +83,7 @@
 					<p class="m-0 font-semibold">No projects listed yet.</p>
 					<p class="m-0 mt-1 text-fg-muted">Be the first DJ on the map.</p>
 				</div>
-				<Button size="sm" href="/projects/new">List your project</Button>
+				<Button size="sm" href="/dashboard/projects/new">List your project</Button>
 			</Card>
 		{:else}
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
@@ -160,6 +160,6 @@
 
 <Section tone="grid" labelledby="closing-title">
 	<SectionHeader id="closing-title" align="center" title="You play out? Put your project on the map." lede="List a solo act, a b2b duo or a whole crew. Already listed by an admin? Claim it. Every change is reviewed by a moderator.">
-		{#snippet actions()}<Button size="lg" href="/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim a project</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
+		{#snippet actions()}<Button size="lg" href="/dashboard/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim a project</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
 	</SectionHeader>
 </Section>

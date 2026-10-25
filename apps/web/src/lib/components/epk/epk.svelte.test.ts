@@ -26,18 +26,25 @@ describe('AccessMatrix', () => {
 });
 
 describe('EpkAccessCard', () => {
-	const props = { name: 'Neon Tide', loginHref: '/login?next=/epk/x/y' };
+	const props = { name: 'Neon Tide', askHref: '/dashboard/access/did:plc:dj/3k' };
 
 	it('asks a visitor to sign in, saying when they get straight in', async () => {
 		await render(EpkAccessCard, { ...props, access: { kind: 'signedOut', rule: 'auto' } });
 
-		await expect
-			.element(page.getByRole('link', { name: 'Sign in to see it' }))
-			.toHaveAttribute('href', props.loginHref);
+		await expect.element(page.getByRole('link', { name: 'Sign in to see it' })).toHaveAttribute('href', props.askHref);
 	});
 
-	it('lets someone ask, and says the owner sees their handle', async () => {
-		await render(EpkAccessCard, { ...props, access: { kind: 'canAsk', rule: 'review' } });
+	it('sends someone who can ask to the dashboard, where the form is', async () => {
+		const { rerender } = await render(EpkAccessCard, { ...props, access: { kind: 'canAsk', rule: 'review' } });
+
+		await expect.element(page.getByRole('link', { name: 'Ask for access' })).toHaveAttribute('href', props.askHref);
+		await expect.element(page.getByRole('button')).not.toBeInTheDocument();
+		await rerender({ ...props, access: { kind: 'canAsk', rule: 'auto' } });
+		await expect.element(page.getByRole('link', { name: 'Get access' })).toHaveAttribute('href', props.askHref);
+	});
+
+	it('lets someone ask on the dashboard, and says the owner sees their handle', async () => {
+		await render(EpkAccessCard, { name: 'Neon Tide', access: { kind: 'canAsk', rule: 'review' } });
 
 		await expect.element(page.getByRole('button', { name: 'Ask for access' })).toBeVisible();
 		await expect.element(page.getByLabelText("You're a")).toBeVisible();
@@ -100,7 +107,7 @@ describe('EpkForm', () => {
 				extraMixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo', visibility: 'private' }]
 			},
 			photoBase: '/epk/did:plc:dj/3k/photos',
-			editHref: '/projects/neon-tide/edit',
+			editHref: '/dashboard/projects/neon-tide/profile',
 			submitLabel: 'Save changes'
 		});
 
@@ -116,7 +123,7 @@ describe('EpkForm', () => {
 		await expect.element(page.getByRole('radio', { name: 'On request' }).nth(2)).toBeChecked();
 		await expect
 			.element(page.getByRole('link', { name: 'Add some to the project' }))
-			.toHaveAttribute('href', '/projects/neon-tide/edit');
+			.toHaveAttribute('href', '/dashboard/projects/neon-tide/profile');
 		await expect
 			.element(page.getByRole('listitem').filter({ hasText: 'Every photo credited' }))
 			.not.toHaveClass(/text-good/);

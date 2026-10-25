@@ -8,6 +8,7 @@ import {
 	all,
 	cacheBriefly,
 	clientIp,
+	guardArea,
 	limit,
 	optionalCurrency,
 	requireAdmin,
@@ -81,20 +82,20 @@ describe('act', () => {
 describe('safeNext', () => {
 	it('only allows same-site paths', () => {
 		expect(safeNext('/projects?q=a')).toBe('/projects?q=a');
-		expect(safeNext('//evil.test')).toBe('/me');
-		expect(safeNext('/\\evil.test')).toBe('/me');
+		expect(safeNext('//evil.test')).toBe('/dashboard');
+		expect(safeNext('/\\evil.test')).toBe('/dashboard');
 		expect(safeNext('https://evil.test', '/')).toBe('/');
-		expect(safeNext(null)).toBe('/me');
+		expect(safeNext(null)).toBe('/dashboard');
 	});
 
 	it('refuses paths a browser would read as another site', () => {
 		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
 		// these becomes `//evil.test`.
 		for (const next of ['/\t/evil.test', '/\n/evil.test', '/\r\n/evil.test', '/\\\\evil.test', '/x\\..\\\\evil.test']) {
-			expect(safeNext(next)).toBe('/me');
+			expect(safeNext(next)).toBe('/dashboard');
 		}
 
-		expect(safeNext('/ /evil.test')).toBe('/me');
+		expect(safeNext('/ /evil.test')).toBe('/dashboard');
 		expect(safeNext('/%09/evil.test')).toBe('/%09/evil.test');
 	});
 });
@@ -128,6 +129,36 @@ describe('guards', () => {
 		expect(thrown(() => requireAdmin({ viewer: viewer('moderator') }, url))).toMatchObject({ status: 403 });
 		expect(requireStaff({ viewer: viewer('moderator') }, url).did).toBe('did:plc:a');
 		expect(requireAdmin({ viewer: viewer('admin') }, url).isAdmin).toBe(true);
+	});
+
+	it('guards the dashboard and the staff console by the route matched, and nothing else', () => {
+		const guard = (viewer: Viewer | null, path: string, route: string | null) =>
+			thrown(() => guardArea({ viewer }, new URL(path, 'https://x.test'), route));
+
+		expect(guard(null, '/dashboard/bookings?x=1', '/dashboard/bookings')).toMatchObject({
+			status: 303,
+			location: '/login?next=%2Fdashboard%2Fbookings%3Fx%3D1'
+		});
+		expect(guard(null, '/dashboard', '/dashboard')).toMatchObject({ status: 303 });
+		expect(guard(viewer(), '/dashboard/planner', '/dashboard/planner')).toBeUndefined();
+		expect(guard(null, '/admin/requests', '/admin/requests')).toMatchObject({
+			status: 303,
+			location: '/login?next=%2Fadmin%2Frequests'
+		});
+		expect(guard(viewer(), '/admin', '/admin')).toMatchObject({ status: 403 });
+		expect(guard(viewer(), '/admin/audit/export', '/admin/audit/export')).toMatchObject({ status: 403 });
+		expect(guard(viewer('moderator'), '/admin/requests', '/admin/requests')).toBeUndefined();
+		// SvelteKit matches routes on the decoded path, so an encoded one still reaches the area, and the
+		// sign-in link keeps the path as it came.
+		expect(guard(viewer(), '/%61dmin/requests', '/admin/requests')).toMatchObject({ status: 403 });
+		expect(guard(null, '/%64ashboard/bookings', '/dashboard/bookings')).toMatchObject({
+			status: 303,
+			location: '/login?next=%2F%2564ashboard%2Fbookings'
+		});
+		// Only whole route segments count, and public pages and unmatched paths stay open.
+		expect(guard(null, '/dashboards', null)).toBeUndefined();
+		expect(guard(viewer(), '/projects/neon-tide', '/projects/[slug]')).toBeUndefined();
+		expect(guard(viewer(), '/administer', null)).toBeUndefined();
 	});
 
 	it('reads repeated fields and the client address', () => {
