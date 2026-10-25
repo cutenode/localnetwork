@@ -211,17 +211,13 @@ describe('form values', () => {
 		const values = epkFormValues(
 			projectMixes,
 			{
-				cid: VERSION,
-				record: {
-					project: 'at://x',
-					title: 'Clubs',
-					access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
-					mixes: [{ title: 'Tidal Hours 004', url: projectMixes[0].url }],
-					photos: [photo('bafyone')],
-					createdAt: '2026-10-01T00:00:00Z'
-				}
+				title: 'Clubs',
+				access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
+				mixes: [{ title: 'Tidal Hours 004', url: projectMixes[0].url }],
+				photos: [photo('bafyone')],
+				content: { mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }] }
 			},
-			{ mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }], updatedAt: '2026-10-01T00:00:00Z' }
+			VERSION
 		);
 
 		expect(values.mixes.map((mix) => mix.visibility)).toEqual(['public', 'hidden', 'hidden']);

@@ -98,6 +98,20 @@ export class IndexedRepo {
 		return (await this.read(options, () => this.directory.query('listRecords', params))) ?? { records: [] };
 	}
 
+	/** Every record of `collection` in `did`'s repo, a page at a time. */
+	async listAll(did: string, collection: string, options: ReadOptions = {}): Promise<DirectoryRecord[]> {
+		const records: DirectoryRecord[] = [];
+		let cursor: string | undefined;
+
+		do {
+			const page = await this.listRecords(did, collection, { ...options, cursor });
+			records.push(...page.records);
+			cursor = page.cursor;
+		} while (cursor);
+
+		return records;
+	}
+
 	/**
 	 * Waits for HappyView to serve the record as version `cid`, or not at all for null (a delete), so the next page load
 	 * reads the write. When it doesn't in time, HappyView re-reads that collection from the account's repo.

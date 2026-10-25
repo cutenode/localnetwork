@@ -18,7 +18,7 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
-import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
+import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
@@ -119,7 +119,7 @@ export class ProjectService {
 		private readonly indexWaitMs = INDEX_WAIT_MS
 	) {
 		this.sets = new SetService(core, directory);
-		this.managerSpaces = new ManagerSpaces(core);
+		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
 	}
 
 	/**

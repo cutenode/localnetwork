@@ -34,7 +34,7 @@ use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::harmony;
 use crate::hash::Hash;
-use crate::model::{Library, LibraryDiff, MAX_DEPTH, Playlist, PlaylistKey, Track, TrackColor, TrackRef};
+use crate::model::{Library, LibraryDiff, MAX_DEPTH, Playlist, PlaylistKey, Track, TrackColor, TrackRef, is_isrc};
 use crate::onelibrary::{OneLibrary, Tree};
 use crate::paths;
 use crate::pdb;
@@ -429,15 +429,6 @@ impl TrackFields {
         }
         parts.join(", ")
     }
-}
-
-/// `GBDUW0000059`: a country code, a registrant code of letters or digits, a year and a number.
-pub(crate) fn is_isrc(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 12
-        && b[..2].iter().all(u8::is_ascii_uppercase)
-        && b[2..5].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        && b[5..].iter().all(u8::is_ascii_digit)
 }
 
 // ---------------------------------------------------------------------------------------------

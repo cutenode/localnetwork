@@ -12,7 +12,7 @@
 
 	let { data, form }: PageProps = $props();
 
-	const kit = $derived(`/dashboard/projects/${data.project.slug}/press-kits/${data.epk.did}/${data.epk.rkey}`);
+	const kit = $derived(`/dashboard/projects/${data.project.slug}/press-kits/${data.epk.rkey}`);
 
 	const pending = $derived(data.requests.filter((request) => request.status === 'pending'));
 
@@ -20,7 +20,7 @@
 
 	const preset = $derived(presetFor(data.epk.record.access));
 
-	const VIA = { auto: 'Let in automatically', approved: 'You approved', invited: 'You added' } as const;
+	const VIA = { auto: 'Let in automatically', approved: 'Approved', invited: 'Added by a manager' } as const;
 </script>
 
 <svelte:head><title>Who can see {data.epk.record.title} · Local Network</title></svelte:head>
@@ -41,10 +41,13 @@
 		{/if}
 	</div>
 
+	{#if data.legacyMaker}
+		<p class="notice m-0">This press kit moves to the project the next time <Handle account={data.legacyMaker} /> opens the dashboard. Until then, only they can answer requests.</p>
+	{:else}
 	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{:else}<FormMessage {form} />{/if}
 
 	<section aria-labelledby="waiting" class="flex flex-col gap-3">
-		<h2 id="waiting" class="m-0 text-heading font-semibold">Waiting for you</h2>
+		<h2 id="waiting" class="m-0 text-heading font-semibold">Waiting for an answer</h2>
 		{#if pending.length}
 			<ul class="m-0 flex list-none flex-col p-0">
 				{#each pending as request (request.uri)}
@@ -52,7 +55,7 @@
 						<div class="flex min-w-0 flex-col gap-1">
 							<p class="m-0 text-small"><Handle account={request.requester} />{#if request.role}{' '}<span class="text-fg-muted">· {ROLE_LABELS[request.role]}</span>{/if}</p>
 							{#if request.message}<p class="m-0 text-small text-fg-soft">{request.message}</p>{/if}
-							<p class="m-0 text-caption text-fg-subtle">Asked {formatDate(request.createdAt)}{request.rule === 'auto' ? ' · approved by your rules, saved once you sign in again' : ''}</p>
+							<p class="m-0 text-caption text-fg-subtle">Asked {formatDate(request.createdAt)}{request.rule === 'auto' ? ' · approved by the rules, saved once the press kit moves' : ''}</p>
 						</div>
 						<form method="POST" class="flex gap-2" use:enhance>
 							<input type="hidden" name="request" value={request.uri} />
@@ -105,5 +108,7 @@
 		</section>
 	{/if}
 
-	<p class="m-0 text-caption text-fg-subtle">Each person you let in gets a grant record in this press kit's space on your PDS, and a place on its member list. Removing them deletes both.</p>
+	{/if}
+
+	<p class="m-0 text-caption text-fg-subtle">Any of the project's managers can answer. Each person let in gets a grant record in this press kit's space and a place on its member list. Removing them deletes both.</p>
 </div>

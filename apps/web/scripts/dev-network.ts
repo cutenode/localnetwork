@@ -64,7 +64,7 @@ const ACCOUNTS = [
 		handle: 'neon.test',
 		password: 'neon-pass',
 		displayName: 'Neon',
-		note: 'DJ; manages two demo projects, has three sets, two press kits, and four shows'
+		note: 'DJ; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
 	},
 	{ handle: 'pat.test', password: 'pat-pass', displayName: 'Pat', note: "promoter; follows both of neon's projects" },
 	...DEMO_DJS.map((dj) => ({
@@ -212,6 +212,7 @@ async function main() {
 
 	const now = new Date().toISOString();
 	const projectUris: string[] = [];
+	const projectManagers: string[][] = [];
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
 		const managers = [
@@ -240,18 +241,22 @@ async function main() {
 		});
 
 		projectUris.push(written.uri);
+		projectManagers.push(managers);
 	}
 
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
 
-	// neon.test's press kits for Neon Tide, written by the same client the site uses: a space per
-	// press kit with the root as a member, the private part in it, then the public record.
+	// Neon Tide's press kits, written as the site writes them: a space per press kit (under the root, whose members are
+	// the project's managers as readers, or for the legacy one under neon.test with the root as a member), the private
+	// part in it, then the public record.
+	const rootClient = new AgentRepoClient(root.did, rootAgent);
 	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
 
 	for (const epk of DEMO_EPKS) {
 		const rkey = TID.nextStr();
+		const owner = epk.legacy ? neonClient : rootClient;
 
-		const space = await neonClient.createSpace({
+		const space = await owner.createSpace({
 			spaceType: SPACE_TYPE.epk,
 			skey: rkey,
 			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
@@ -259,14 +264,18 @@ async function main() {
 			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
 		});
 
-		await neonClient.putMember({ space, did: root.did, read: true, write: true });
-		await neonClient.putSpaceRecord({
+		const members = epk.legacy
+			? [{ did: root.did, read: true, write: true }]
+			: projectManagers[0].map((did) => ({ did, read: true, write: false }));
+
+		for (const member of members) await owner.putMember({ space, ...member });
+		await owner.putSpaceRecord({
 			space,
 			collection: COLLECTION.epkContent,
 			rkey: EPK_CONTENT_KEY,
 			record: validateRecord(COLLECTION.epkContent, { ...epk.content, updatedAt: now })
 		});
-		await neonClient.putRecord({
+		await owner.putRecord({
 			collection: COLLECTION.epk,
 			rkey,
 			record: validateRecord(COLLECTION.epk, {
@@ -282,7 +291,7 @@ async function main() {
 		});
 	}
 
-	log(`Seeded ${DEMO_EPKS.length} press kits for ${DEMO_PROJECTS[0].name}`);
+	log(`Seeded ${DEMO_EPKS.length} press kits for ${DEMO_PROJECTS[0].name}, one of them still in neon.test's repo`);
 
 	// neon.test's shows, written the way the announce form writes them: the calendar event, then the show copying it.
 	for (const { project, days, show } of DEMO_SHOWS) {
@@ -319,6 +328,7 @@ async function main() {
 	void backfillSeeds(new HappyViewClient(happyView), projectUris, [
 		{ collection: COLLECTION.djProfile, did: dids['neon.test'] },
 		...djs.map(({ handle }) => ({ collection: COLLECTION.djSet, did: dids[handle] })),
+		{ collection: COLLECTION.epk, did: root.did },
 		{ collection: COLLECTION.epk, did: dids['neon.test'] },
 		{ collection: COLLECTION.show, did: dids['neon.test'] },
 		...DEMO_FOLLOWS.map(({ handle }) => ({ collection: COLLECTION.follow, did: dids[handle] }))

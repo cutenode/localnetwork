@@ -133,8 +133,8 @@ fn a_session_without_the_report_scope_is_stopped_before_the_server() {
     let space = Space::parse(SPACE_URI).unwrap();
     let r = record(&space, "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a", "t", "", Utc::now());
     let err = repo::create_record(root, &account.did, lexicon::DISCUSSION, &r).unwrap_err();
-    assert_eq!(err.reason(), Some(Reason::MissingScope));
-    assert!(err.to_string().contains("publish bug reports; sign in again, allowing bug reports"));
+    assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}");
+    assert!(err.to_string().contains("publish bug reports; sign in again, allowing bug reports"), "{err}");
 }
 
 #[test]
