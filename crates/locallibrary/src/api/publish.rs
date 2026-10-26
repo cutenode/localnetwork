@@ -29,7 +29,9 @@ use crate::progress::Ctx;
 use crate::publish;
 use crate::publish::recording::{self, Audio, Encoding};
 pub use crate::publish::{PublishPlan, Published, PublishedSettings, SettingsImportPlan};
-use crate::sets::{SETS_FILE, SetBook};
+use crate::sets::chapters::Chapter;
+use crate::sets::export::shown_name;
+use crate::sets::{SETS_FILE, SetBook, SetEntry, chapters};
 use crate::settings::SettingsProfile;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -342,6 +344,9 @@ pub struct SetUploadRequest {
     /// Lexicon's 300 MiB: the recording is encoded to fit.
     #[serde(default)]
     pub max_bytes: Option<u64>,
+    /// Positions (from 1) of tracks whose chapters don't name them, as with the set's record.
+    #[serde(default)]
+    pub hide: Vec<usize>,
 }
 
 /// A set's recording, ready to upload to the signed-in account and publish as a recording record
@@ -353,6 +358,9 @@ pub struct RecordingUpload {
     pub audio: Audio,
     /// As it is, or encoded again by ffmpeg.
     pub encoding: Encoding,
+    /// The set's tracks as chapters in the file that goes up: none when no track has a start time,
+    /// or it goes up as it is and isn't an MP3.
+    pub chapters: Vec<Chapter>,
     /// The most the data server is taken to take, in bytes.
     pub limit: u64,
     /// The account it goes to. `None`: nobody's signed in, so it can only be looked at.
@@ -387,16 +395,24 @@ pub fn set_upload_plan(store_root: &Path, req: &SetUploadRequest) -> Result<Plan
     let audio = recording::probe(on_disk)?;
     let limit = req.max_bytes.map_or(recording::MAX_BYTES, |m| m.min(recording::MAX_BYTES));
     let encoding = recording::encoding(audio.playable.is_some(), audio.bytes, audio.duration_secs, limit)?;
+    // Named as the set's record names them.
+    let unnamed = set.unnamed(&req.hide, &ProfilePrefs::load(&store)?)?.positions;
+    let title = |n, e: &SetEntry| shown_name(e, !unnamed.contains(&n));
+    let (chapters, notes) = match recording::takes_chapters(&audio, encoding) {
+        true => chapters::chapters(set, Some(audio.duration_secs), title),
+        false => Default::default(),
+    };
     let account = atmosphere::status(store_root)?;
     let mut plan = RecordingUpload {
         set: set.id.clone(),
         encoding,
+        chapters,
         limit,
         account: account.clone(),
         uri: None,
         current: None,
         missing_scope: None,
-        notes: Vec::new(),
+        notes,
         audio,
     };
     if let Some(info) = &account {
@@ -432,8 +448,9 @@ pub fn set_upload_plan(store_root: &Path, req: &SetUploadRequest) -> Result<Plan
     }
     let summary = [line].into_iter().chain(plan.notes.iter().cloned()).collect::<Vec<_>>();
     let replaces = plan.current.is_some();
-    // The set's recording, and the set it keeps the record's reference in.
-    let read_from = Touched::path(store_root, true, vec![Probe::Content(vec![SETS_FILE.into()])]);
+    // The set's recording, and the set it keeps the record's reference in; its chapters are named
+    // as the profile says.
+    let read_from = Touched::path(store_root, true, vec![Probe::Content(vec![SETS_FILE.into(), PREFS_FILE.into()])]);
     Ok(Planned::new("sets.upload", plan, store_root.to_path_buf())
         .summary(summary)
         .warnings(warnings)
@@ -453,7 +470,7 @@ impl Operation for RecordingUpload {
         if planned.missing_scope.is_some() {
             return Err(repo::scope_error(info, lexicon::RECORDING));
         }
-        let upload = recording::prepare(&planned.audio, planned.encoding, planned.limit, ctx)?;
+        let upload = recording::prepare(&planned.audio, planned.encoding, planned.limit, &planned.chapters, ctx)?;
         let blob = repo::upload_blob(root, &info.did, upload.path(), &upload.mime, ctx)?;
         let record = recording::record(blob, planned.audio.duration_secs, Utc::now());
         let plan = publish::plan_over(

@@ -12,6 +12,7 @@
 //! logs imported from other tools (Beat Link Trigger), which carry real play times.
 
 pub mod build;
+pub mod chapters;
 pub mod edit;
 pub mod export;
 pub mod import;

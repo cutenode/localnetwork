@@ -114,6 +114,7 @@ locallibrary sets new --recording friday.wav --title Friday   # the tracks a rec
 locallibrary sets edit Friday --drop 1-2 --move 5:2 --insert 4:"Floorplan - Never Grow Old"
 locallibrary sets edit Friday --unnamed 7      # an unreleased dubplate: published as ID - ID
 locallibrary sets export Friday --format mixcloud   # paste into Mixcloud's tracklist
+locallibrary sets export Friday -o friday.json      # chapters for podcast apps
 locallibrary sets playlist Friday Home        # a playlist of it in the library, to start the next one
 locallibrary sets played "never grow old"     # when and where you played a track
 locallibrary sets publish Friday --dry-run    # see Publishing
@@ -145,7 +146,10 @@ times, so a set made from it is timed too.
 the track that was fifth just before the one that was second. `--insert` looks the track up on
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
-1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
+1001Tracklists, [Podcasting 2.0
+chapters](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/chapters/jsonChapters.md)
+for podcast apps (`chapters`: a chapter for each track with a start time, in the order they play),
+CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.json`, `.csv`,
 `.m3u8` or `.txt`), and a plugin's formats more: `--format traktor --drive Home -o DIR` makes
 it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see [Other DJ
 software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
@@ -172,7 +176,11 @@ else (WAV, AIFF, FLAC, ALAC), or a file too big for the account's data server, i
 128 kbit/s, or less to fit, down to 64. No data server says how big a file it takes: the reference
 one takes 5 MiB unless whoever runs it raises `PDS_BLOB_UPLOAD_LIMIT` (its installer allows 300
 MiB), so locallibrary aims for 300 MiB, and `--max-mib` for less when your server refuses that
-(the refusal names the size it was sent). `--dry-run` shows how it would go up and sends nothing,
+(the refusal names the size it was sent). The set's tracks with a start time go in as chapters,
+named as its record names them (`--hide` too), each ending where the next starts, so podcast apps
+and players show what's playing and skip between tracks: MP4 chapters in what ffmpeg encodes, and
+ID3 chapters in a copy of an MP3 (made beside the encodings, and gone once it's sent; the MP3
+itself isn't touched). An AAC or M4A file that goes up as it is gets none. `--dry-run` shows how it would go up and sends nothing,
 and `--json` puts the set record's plan and outcome in the same document as `record`. Uploading
 again replaces the recording. The set's record keeps pointing to it once it's published, so the
 next `sets publish SET` keeps it too.

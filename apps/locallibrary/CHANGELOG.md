@@ -354,6 +354,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   kbit/s, or down to 64 to fit 300 MiB, or `--max-mib`). The file is read as it's sent, and a server
   that refuses its size says so. Publishing's sign-in now also asks for `blob:audio/*`, and its
   permission set covers the new record type.
+- **Chapters for a set's recording.** `sets export SET --format chapters` (or `-o FILE.json`)
+  writes Podcasting 2.0 JSON chapters for podcast apps, one per track with a start time. `sets
+  publish SET --upload` puts the same chapters in the file it sends: MP4 chapters in what ffmpeg
+  encodes, and ID3 chapters in a copy of an MP3 that goes up as it is (an AAC or M4A file that goes
+  up as it is gets none). They name tracks as the set's record does, `--hide` included.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
