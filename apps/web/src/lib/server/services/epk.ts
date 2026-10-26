@@ -29,6 +29,8 @@ import { epkSpace, parseSpaceUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import { EPK_PHOTO_MAX_BYTES } from '../forms/epk';
+import type { DirectoryRecord } from '../happyview/client';
+import type { IndexedRepo } from '../happyview/indexed';
 import { EpkDrafts } from './epk-drafts';
 import { cidOf, toJson } from './epk-fields';
 import { type LegacyMigration, LegacyEpks } from './epk-legacy';
@@ -60,7 +62,9 @@ const newestFirst = (a: EpkView, b: EpkView) =>
  * change a press kit through drafts ({@link EpkDrafts}), and any of them answers requests and grants access, which the
  * root writes as a grant record plus a place in the space, so access is on the protocol, not in this app's database.
  * Press kits made before the root held them stay in their maker's repo and space until that manager's next visit
- * ({@link LegacyEpks}); until then they're listed and read as before, but only their maker can move them.
+ * ({@link LegacyEpks}); until then they're listed and read as before, but only their maker can move them. Every press
+ * kit is read through HappyView (lua/computer/localnetwork/epk.lua), strictly where a write or an access decision
+ * depends on it, so a HappyView that's down fails those instead of reading as no press kit.
  */
 export class EpkService {
 	readonly drafts: EpkDrafts;
@@ -74,6 +78,9 @@ export class EpkService {
 	constructor(
 		private readonly core: Core,
 		private readonly projects: ProjectService,
+		/** Where press kits are read, and their writes waited for. */
+		readonly indexed: IndexedRepo,
+		/** Where managers' Bluesky follows are read. */
 		private readonly repos: PublicRepo,
 		private readonly resolveIdentifier: (identifier: string) => Promise<string>,
 		private readonly now: () => number = Date.now
@@ -90,11 +97,12 @@ export class EpkService {
 	/**
 	 * Every press kit of a project. A legacy one has moved once the root holds a press kit of the same project under its
 	 * key, so the root's wins; one the root holds for another project doesn't count, and the legacy one stays listed.
+	 * `strict` for a write that counts them: read fresh, and fail when HappyView can't answer.
 	 */
-	async kits(project: ProjectView): Promise<EpkView[]> {
+	async kits(project: ProjectView, strict = false): Promise<EpkView[]> {
 		const [shared, ...legacy] = await Promise.all([
-			this.rootKits(),
-			...project.managers.map((did) => this.publishedBy(did))
+			this.rootKits(strict),
+			...project.managers.map((did) => this.publishedBy(did, strict))
 		]);
 
 		const ours = shared.filter((epk) => epk.record.project === project.uri);
@@ -105,7 +113,10 @@ export class EpkService {
 		);
 	}
 
-	/** A press kit of `project` by its key, for the project's pages and dashboard. */
+	/**
+	 * A press kit of `project` by its key, for the project's pages and dashboard. Every change to one and every access
+	 * decision starts here, so a HappyView that's down fails this rather than reading as a press kit that isn't there.
+	 */
 	async get(project: ProjectView, rkey: string): Promise<PressKit | null> {
 		if (!TID.is(rkey)) return null;
 		const shared = await this.rootKit(rkey);
@@ -264,6 +275,7 @@ export class EpkService {
 		// The space goes first: a failure after it leaves the record, so deleting again finishes the job.
 		if (await root.getSpace(epk.space)) await root.deleteSpace(epk.space);
 		await root.deleteRecord({ collection: COLLECTION.epk, rkey: epk.rkey });
+		await this.indexed.awaitWrite(root.did, COLLECTION.epk, epk.rkey, null);
 		await this.forgetIndex(epk.space);
 		this.forget();
 		this.core.logger.info({ epk: epk.uri, actor: actor.did }, 'deleted a press kit');
@@ -520,11 +532,11 @@ export class EpkService {
 		return current;
 	}
 
-	/** A press kit the root holds, by its key. */
+	/** A press kit the root holds, by its key, as HappyView serves it; a HappyView that's down fails this. */
 	async rootKit(rkey: string): Promise<EpkView | null> {
-		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.epk, rkey });
+		const stored = await this.indexed.getRecord(this.core.rootDid, COLLECTION.epk, rkey, { strict: true });
 
-		return stored && this.view(this.core.rootDid, rkey, stored.cid, stored.value);
+		return stored && this.view(this.core.rootDid, stored);
 	}
 
 	/**
@@ -622,20 +634,9 @@ export class EpkService {
 		this.lists.delete(did);
 	}
 
-	/** A manager's legacy press kits, from their own repo. */
-	async publishedBy(did: string): Promise<EpkView[]> {
-		const cached = this.lists.get(did);
-
-		if (cached && this.now() - cached.at < FRESH_MS) return cached.value;
-		const { records } = await this.repos.listRecords(did, COLLECTION.epk);
-
-		const value = records.flatMap(
-			(record) => this.view(did, record.uri.split('/').at(-1)!, record.cid, record.value) ?? []
-		);
-
-		this.lists.set(did, { at: this.now(), value });
-
-		return value;
+	/** A manager's legacy press kits, from their own repo. `strict` as for {@link kits}. */
+	async publishedBy(did: string, strict = false): Promise<EpkView[]> {
+		return this.listed(did, strict);
 	}
 
 	private async grant(kit: PressKit, grant: Omit<GrantInput, 'createdAt'>, actor: Viewer | null): Promise<void> {
@@ -692,29 +693,35 @@ export class EpkService {
 	}
 
 	/** Every press kit the root holds, for every project. */
-	private async rootKits(): Promise<EpkView[]> {
-		const { rootDid } = this.core;
-		const cached = this.lists.get(rootDid);
+	private rootKits(strict: boolean): Promise<EpkView[]> {
+		return this.listed(this.core.rootDid, strict);
+	}
 
-		if (cached && this.now() - cached.at < FRESH_MS) return cached.value;
-		const records = await (await this.core.root()).listRecords(COLLECTION.epk);
+	/**
+	 * An account's press kits as HappyView serves them, reused for a minute, except by a `strict` read, which reads them
+	 * fresh and fails when HappyView can't answer.
+	 */
+	private async listed(did: string, strict: boolean): Promise<EpkView[]> {
+		const cached = this.lists.get(did);
 
-		const value = records.flatMap(
-			(record) => this.view(rootDid, record.uri.split('/').at(-1)!, record.cid, record.value) ?? []
-		);
+		if (!strict && cached && this.now() - cached.at < FRESH_MS) return cached.value;
+		const records = await this.indexed.listAll(did, COLLECTION.epk, { strict });
+		const value = records.flatMap((record) => this.view(did, record) ?? []);
 
-		this.lists.set(rootDid, { at: this.now(), value });
+		this.lists.set(did, { at: this.now(), value });
 
 		return value;
 	}
 
 	private async legacyKit(did: string, rkey: string): Promise<EpkView | null> {
-		const found = await this.repos.getRecord(did, COLLECTION.epk, rkey);
+		const found = await this.indexed.getRecord(did, COLLECTION.epk, rkey, { strict: true });
 
-		return found && this.view(did, rkey, found.cid, found.value);
+		return found && this.view(did, found);
 	}
 
-	private view(did: string, rkey: string, cid: string | undefined, value: JsonObject): EpkView | null {
+	/** A press kit record in `did`'s repo as a view, or null when it doesn't validate. */
+	view(did: string, { uri, cid, value }: DirectoryRecord): EpkView | null {
+		const rkey = uri.split('/').at(-1)!;
 		const record = this.parse(COLLECTION.epk, epkRecordSchema, value);
 
 		if (!record) {
@@ -727,7 +734,7 @@ export class EpkService {
 			uri: `at://${did}/${COLLECTION.epk}/${rkey}`,
 			did,
 			rkey,
-			cid: cid ?? '',
+			cid,
 			space: epkSpace(did, rkey),
 			legacy: did !== this.core.rootDid,
 			record

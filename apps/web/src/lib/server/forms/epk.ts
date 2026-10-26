@@ -17,7 +17,7 @@ import {
 import type { ProjectMix } from '#lib/types.ts';
 import { UserError } from '../core';
 import { isWebUrl, text } from '../http';
-import { sniffImage } from './project';
+import { CID, sniffImage } from './project';
 
 /** Big enough for a 3,000 px JPEG, the size press asks for, and under the 5 MiB some PDSes allow. */
 export const EPK_PHOTO_MAX_BYTES = 5_000_000;
@@ -40,8 +40,11 @@ const visibility = (value: string): Visibility => (value === 'private' || value 
 const all = (form: FormData, name: string) =>
 	form.getAll(name).map((value) => (value instanceof File ? '' : value.trim()));
 
-/** The form's starting values, from a press kit's fields: a new press kit shows every project mix publicly. */
-export function epkFormValues(projectMixes: ProjectMix[], record?: EpkFields): EpkFormValues {
+/**
+ * The form's starting values, from a press kit's fields: a new press kit shows every project mix publicly. `cid` is
+ * the published version the form opens on, empty for a new press kit.
+ */
+export function epkFormValues(projectMixes: ProjectMix[], record?: EpkFields, cid = ''): EpkFormValues {
 	const content = record?.content;
 
 	const where = (url: string): Visibility => {
@@ -69,6 +72,7 @@ export function epkFormValues(projectMixes: ProjectMix[], record?: EpkFields): E
 	});
 
 	return {
+		cid,
 		title: record?.title ?? '',
 		headline: record?.headline ?? '',
 		bio: record?.bio ?? '',
@@ -95,6 +99,7 @@ export function submittedValues(form: FormData, projectMixes: ProjectMix[]): Epk
 	const preset = text(form, 'preset', 32);
 
 	return {
+		cid: text(form, 'cid', 128),
 		title: text(form, 'title', 100),
 		headline: text(form, 'headline', 300),
 		bio: text(form, 'bio', 1000),
@@ -189,6 +194,7 @@ export async function parseEpkForm(
 	projectMixes: ProjectMix[],
 	existingPhotos: EpkPhoto[]
 ): Promise<{
+	cid: string;
 	title: string;
 	headline?: string;
 	bio?: string;
@@ -200,6 +206,9 @@ export async function parseEpkForm(
 	uploads: PhotoUpload[];
 	content: Omit<EpkContent, 'updatedAt' | 'mixes' | 'photos'>;
 }> {
+	const cid = text(form, 'cid', 128);
+
+	if (cid && !CID.test(cid)) throw new UserError('Reload the press kit and try again');
 	const title = text(form, 'title', 100);
 
 	if (!title) throw new UserError('Give the press kit a name, like “Clubs” or “Festivals”');
@@ -229,8 +238,8 @@ export async function parseEpkForm(
 	const publicPhotos: EpkPhoto[] = [];
 	const privatePhotos: EpkPhoto[] = [];
 
-	for (const [index, cid] of all(form, 'photoCid').entries()) {
-		const found = byCid.get(cid);
+	for (const [index, photoCid] of all(form, 'photoCid').entries()) {
+		const found = byCid.get(photoCid);
 		const place = visibility(text(form, `photoVisibility.${index}`, 16));
 
 		if (!found || place === 'hidden') continue;
@@ -270,6 +279,7 @@ export async function parseEpkForm(
 	if (techRider) content.techRider = techRider;
 
 	return {
+		cid,
 		title,
 		headline: text(form, 'headline', 300) || undefined,
 		bio: text(form, 'bio', 1000) || undefined,

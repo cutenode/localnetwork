@@ -12,10 +12,10 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { DirectoryShow, HappyViewClient } from '../happyview/client';
-import { awaitIndexed, reindex } from '../happyview/indexed';
+import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
 import { atVenue, venueTime } from '../venue-time';
 import { writeOwn } from './own-repo';
-import { INDEX_WAIT_MS, type ProjectService } from './projects';
+import type { ProjectService } from './projects';
 import { actorRole } from './requests';
 
 /** A venue's city, with the coordinates its clock is found from. */

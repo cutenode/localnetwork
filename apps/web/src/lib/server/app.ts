@@ -1,8 +1,5 @@
-import { COLLECTION } from '#lib/nsid.ts';
 import type { Viewer } from '#lib/types.ts';
-import { loadReferencedLexicons, REFERENCED_NSIDS } from './atproto/lexicons';
-import { z } from 'zod';
-import { SpaceCredentialManager, XrpcResponseError } from './atproto/credentials';
+import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
 import { PublicRepo } from './atproto/public-repo';
@@ -18,6 +15,8 @@ import { type Db, nowIso, openDatabase } from './db';
 import { Geocoder } from './geocode';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
+import { IndexedRepo } from './happyview/indexed';
+import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
 import { RateLimiter } from './rate-limit';
@@ -51,12 +50,6 @@ export type CreateAppOptions = {
 	background?: boolean;
 };
 
-/** What com.atproto.space.getRecord answers, kept as JSON for validateRecord. */
-const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.record(z.string(), z.json()) });
-
-/** HappyView's record script for DJ sets, whose changes only apply to sets it reads after them. */
-const SET_SCRIPT = `record.index:${COLLECTION.djSet}`;
-
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
 export async function createApp(options: CreateAppOptions) {
 	const { config } = options;
@@ -65,10 +58,6 @@ export async function createApp(options: CreateAppOptions) {
 		options.logger ?? createLogger({ level: config.logLevel, pretty: config.dev && config.env !== 'test' });
 
 	const db = options.db ?? (await openDatabase(config.databasePath));
-
-	// Before anything validates a record or uploads lexicons to HappyView: both need the ones ours reference.
-	await loadReferencedLexicons();
-	logger.debug({ lexicons: REFERENCED_NSIDS }, 'fetched the lexicons ours reference');
 
 	const identity = new IdentityResolver({
 		plcUrl: config.plcUrl,
@@ -133,25 +122,7 @@ export async function createApp(options: CreateAppOptions) {
 
 			return { bytes, mimeType: response.headers.get('content-type') ?? 'application/octet-stream' };
 		},
-		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
-			const host = await identity.resolve(repo);
-
-			try {
-				const response = await credentials.request({
-					space,
-					service: host.pds,
-					audience: repo,
-					nsid: 'com.atproto.space.getRecord',
-					params: { space, repo, collection, rkey }
-				});
-
-				return spaceRecordOutput.parse(await response.json());
-			} catch (error) {
-				// A record that isn't there comes back as 400 RecordNotFound.
-				if (error instanceof XrpcResponseError && error.error === 'RecordNotFound') return null;
-				throw error;
-			}
-		},
+		readSpaceRecord: (input) => credentials.readRecord(input),
 		fetchBlob: async (did, cid, maxBytes) => {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
@@ -178,9 +149,14 @@ export async function createApp(options: CreateAppOptions) {
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
 	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
-	const dj = new DjService(publicRepo, logger.child({ component: 'dj' }));
+	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
+	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
-	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
+
+	const epks = new EpkService(core, projects, indexedRepo, publicRepo, (identifier) =>
+		identity.resolveIdentifier(identifier)
+	);
+
 	const shows = new ShowService(core, projects, happyView, publicRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, publicRepo, identity);
@@ -199,6 +175,7 @@ export async function createApp(options: CreateAppOptions) {
 		identity,
 		credentials,
 		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks }),
+		onSpaceDropped: (space) => bookings.forget(space),
 		notifyService: config.syncNotify ? config.syncService : null
 	});
 
@@ -297,7 +274,8 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Uploads this app's lexicons and scripts to HappyView where they changed and backfills the root's
-		 * projects, then each manager's shows and (once per set script) sets, when there's an API key. A failure is
+		 * projects, then each manager's shows and (once per record script) their records the site reads, when there's an
+		 * API key. A failure is
 		 * logged and kept for the System page rather than thrown: the rest of the app works without the directory, and
 		 * HappyView keeps its last scripts.
 		 */
@@ -310,7 +288,7 @@ export async function createApp(options: CreateAppOptions) {
 				directorySync = { at: nowIso(), error: null };
 				// In the background: the shows Jetstream missed don't hold the app up.
 				void shows.reindexManagers().catch((error) => logger.warn({ err: error }, 'could not re-read shows'));
-				await app.refreshSets(uploaded.scripts.includes(SET_SCRIPT));
+				await app.refreshManagers(uploaded.scripts);
 			} catch (error) {
 				logger.error({ err: error }, 'could not sync the HappyView directory');
 				directorySync = { at: nowIso(), error: error instanceof Error ? error.message : String(error) };
@@ -318,17 +296,29 @@ export async function createApp(options: CreateAppOptions) {
 		},
 
 		/**
-		 * Has HappyView re-read the managers' sets once for its current set script (`uploaded` when it just got it).
-		 * A failure is logged and tried again on the next round, without marking the directory sync failed.
+		 * Has HappyView re-read the managers' records of each of MANAGER_COLLECTIONS, and the root's (which holds press
+		 * kits), once for its current record script (`uploaded` lists the scripts it just got). A failure is logged and tried again on the next round, without
+		 * marking the directory sync failed.
 		 */
-		async refreshSets(uploaded = false) {
+		async refreshManagers(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
-			const script = happyViewBundle(rootDid).scripts.find((candidate) => candidate.id === SET_SCRIPT)!.body;
+			const { scripts } = happyViewBundle(rootDid);
+			let managers: Promise<string[]> | undefined;
 
-			try {
-				await projects.sets.refreshForScript(script, uploaded, () => projects.managers());
-			} catch (error) {
-				logger.warn({ err: error }, "could not have HappyView re-read managers' sets");
+			for (const collection of MANAGER_COLLECTIONS) {
+				const id = `record.index:${collection}`;
+				const script = scripts.find((candidate) => candidate.id === id)!.body;
+
+				try {
+					await refreshForScript(core, happyView, {
+						collection,
+						script,
+						uploaded: uploaded.includes(id),
+						accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
+					});
+				} catch (error) {
+					logger.warn({ err: error, collection }, "could not have HappyView re-read managers' records");
+				}
 			}
 		},
 
@@ -347,12 +337,12 @@ export async function createApp(options: CreateAppOptions) {
 			every(config.syncPollIntervalMs, () => (bootstrapped ? syncer.syncAll() : app.bootstrap()), 'sync');
 			every(15_000, () => audit.processPending(), 'audit-retry');
 			// Retries a failed directory sync, so a HappyView that was down at boot still gets this app's scripts, and
-			// the managers' sets until HappyView has re-read them all.
+			// the managers' records until HappyView has re-read them all.
 			every(
 				config.syncPollIntervalMs,
 				async () => {
 					if (directorySync?.error) await app.syncDirectory();
-					else if (directorySync) await app.refreshSets();
+					else if (directorySync) await app.refreshManagers();
 				},
 				'directory-sync'
 			);

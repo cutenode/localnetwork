@@ -1,19 +1,18 @@
-//! Cleaning rekordbox's demo samples off drives laid out every way (both databases, export.pdb
-//! alone, OneLibrary alone), with something changed between the plan and applying it: a plan
-//! applies only to the drive it was made for, a database that can't be read is reported rather
-//! than written, and audio outside `Contents/` is never deleted.
+//! The demos plugin's `clean` on drives laid out every way (both databases, export.pdb alone,
+//! OneLibrary alone), with something changed between the plan and applying it: a plan applies
+//! only to the drive it was made for, a database that can't be read is reported rather than
+//! written, and audio outside `Contents/` is never deleted.
 
 use crate::common::{self, Before, Warnings};
+use crate::demos;
 
 use std::fs;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
-use locallibrary::clean;
 use locallibrary::device::Device;
 use locallibrary::onelibrary::OneLibrary;
-use locallibrary::progress::Ctx;
-use locallibrary::{Error, paths};
+use locallibrary::{edit, paths};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// Titles on a drive, in each database it has that can be read (an unreadable OneLibrary is
@@ -37,14 +36,14 @@ fn titles(root: &std::path::Path) -> Vec<Vec<String>> {
 #[hegel::explicit_test_case(layout = 1u8, samples = 2usize, outside = false, fault = 3u8, art = 0u8)]
 #[hegel::explicit_test_case(layout = 0u8, samples = 1usize, outside = false, fault = 2u8, art = 2u8)]
 #[hegel::explicit_test_case(layout = 0u8, samples = 1usize, outside = false, fault = 4u8, art = 0u8)]
-fn a_clean_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
+fn a_demos_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
     // Both databases, export.pdb alone, OneLibrary alone.
     let layout = tc.draw(gs::integers::<u8>().max_value(2));
     let samples = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
     // One more sample whose audio is outside Contents/.
     let outside = tc.draw(gs::booleans());
-    // Between plan and apply: nothing, export.pdb exported again, OneLibrary exported again,
-    // exportExt.pdb damaged; or before planning, OneLibrary damaged.
+    // Between plan and apply: nothing, export.pdb exported again, OneLibrary exported again; or
+    // before planning, exportExt.pdb damaged, or OneLibrary.
     let fault = tc.draw(gs::integers::<u8>().max_value(4));
     // In OneLibrary, a sample's image: none, its own, or one a playlist shows too.
     let art = tc.draw(gs::integers::<u8>().max_value(2));
@@ -52,7 +51,7 @@ fn a_clean_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
 
     let dir = tempfile::tempdir().unwrap();
     let blank = common::blank(dir.path(), "Blank");
-    assert!(matches!(clean::plan(&Device::open(&blank).unwrap(), &Ctx::silent()), Err(Error::NotAnExport(_))));
+    assert!(demos::try_clean_plan(&blank).unwrap_err().contains("not a rekordbox export"));
     let root = common::bigger_drive(dir.path(), "Main");
     let pdb_path = root.join(paths::EXPORT_PDB);
     for n in 0..samples {
@@ -104,26 +103,25 @@ fn a_clean_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
         .unwrap();
     }
     let tracks_before = titles(&root);
+    if fault == 3 && has_pdb {
+        fs::write(root.join(paths::EXPORT_EXT_PDB), b"not a database").unwrap();
+    }
     if fault == 4 && has_plus {
         fs::write(root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
     }
 
-    let plan = clean::plan(&Device::open_export(&root).unwrap(), &Ctx::silent());
-    let plan = match plan {
+    let plan = match demos::try_clean_plan(&root) {
         Err(e) => {
             // OneLibrary alone, and unreadable: nothing to clean it with.
             assert!(fault == 4 && !has_pdb, "{e}");
-            assert!(
-                matches!(e, Error::OneLibrary(_) | Error::Io { .. }) || e.to_string().contains("exportLibrary.db"),
-                "{e}"
-            );
+            assert!(e.contains("exportLibrary.db"), "{e}");
             return;
         }
         Ok(p) => p,
     };
     let unreadable_plus = fault == 4 && has_plus;
     let removed = samples + usize::from(outside);
-    assert_eq!(plan.tracks.len(), removed, "{:?}", plan.tracks);
+    assert_eq!(plan.tracks_removed.len(), removed, "{:?}", plan.tracks_removed);
     let outside_warning =
         plan.warnings.iter().any(|w| w.contains("outside Contents/ are left on the drive (e.g. /Music/Techno1.wav)"));
     assert_eq!(outside_warning, outside, "{:?}", plan.warnings);
@@ -155,26 +153,19 @@ fn a_clean_plan_holds_only_for_the_drive_it_was_made_for(tc: TestCase) {
             fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
             true
         }
-        3 if has_pdb => {
-            fs::write(root.join(paths::EXPORT_EXT_PDB), b"not a database").unwrap();
-            false
-        }
         _ => false,
     };
     let before = Before::take(&root);
     let warnings = Warnings::default();
     let mut d = Device::open_export(&root).unwrap();
-    match clean::apply(&plan, &mut d, &warnings.ctx()) {
+    match edit::apply(&plan, &mut d, &warnings.ctx()) {
         Err(e) => {
             assert!(stale, "{e}");
             assert_eq!(e.code(), "stale_plan", "{e}");
             before.untouched(&root).unwrap();
             return;
         }
-        Ok(report) => {
-            assert!(!stale, "applied to a drive that changed");
-            assert_eq!(report.tracks_removed, removed);
-        }
+        Ok(_) => assert!(!stale, "applied to a drive that changed"),
     }
     let ext_warning = warnings.said().iter().any(|w| w.starts_with("My Tags in exportExt.pdb weren't updated: "));
     assert_eq!(ext_warning, fault == 3 && has_pdb, "{:?}", warnings.said());

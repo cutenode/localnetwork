@@ -46,20 +46,17 @@ function handle()
 			.. ', perAct AS (SELECT act, min(count(DISTINCT trackId), '
 			.. MAX_SUPPORTS_PER_DJ
 			.. ') AS n FROM mine GROUP BY act)'
-			.. ', counts AS (SELECT trackId, count(DISTINCT act) AS supports, max(date) AS last, setUri, position'
+			.. ', counts AS (SELECT trackId, count(DISTINCT act) AS supports, max(date) AS last'
 			.. ' FROM mine GROUP BY trackId)'
 			.. ' SELECT (SELECT artistId FROM wanted) AS artistId,'
 			.. ' (SELECT artistName FROM mine GROUP BY artistName ORDER BY count(*) DESC, max(date) DESC, artistName'
 			.. ' LIMIT 1) AS name,'
 			.. ' (SELECT sum(n) FROM perAct) AS artistSupports, (SELECT count(*) FROM perAct) AS djCount,'
 			.. ' m.trackId AS id, c.supports, m.setUri AS uri, m.did, m.startSeconds,'
-			-- The track as its latest play names it, read once per track rather than on every row.
+			-- The track as its latest play names it, once per track rather than on every row.
 			.. ' CASE WHEN row_number() OVER (PARTITION BY m.trackId ORDER BY m.date DESC, m.setUri, m.position) = 1'
-			.. ' THEN '
-			.. playedTrack('ls', 'c')
-			.. ' END AS track'
+			.. ' THEN m.track END AS track'
 			.. ' FROM mine AS m JOIN counts AS c ON c.trackId = m.trackId'
-			.. ' JOIN happyview_records AS ls ON ls.uri = c.setUri'
 			.. ' ORDER BY c.supports DESC, c.last DESC, m.trackId, m.date DESC, m.setUri, m.position LIMIT ?',
 		playsArgs(id and 'mbid:' .. id or normalize(wanted), MAX_PLAYS)
 	)

@@ -39,14 +39,12 @@ function handle()
 			.. MIN_DJS_TO_CHART
 			.. ')'
 			.. ', topTracks AS (SELECT * FROM charted ORDER BY supports DESC, last DESC, trackId LIMIT ?)'
-			.. ', latestTracks AS (SELECT trackId, max(date) AS latest, setUri, position FROM plays'
+			.. ', latestTracks AS (SELECT trackId, max(date) AS latest, track FROM plays'
 			.. ' WHERE trackId IN (SELECT trackId FROM topTracks) GROUP BY trackId)'
 			.. ', supported AS (SELECT * FROM played WHERE trackId IN (SELECT trackId FROM charted))'
 			.. rankArtists('supported')
 			.. " SELECT 'track' AS kind, t.trackId AS id, t.supports, t.last, NULL AS djCount, NULL AS name, "
-			.. playedTrack('s', 'l')
-			.. ' AS track FROM topTracks AS t JOIN latestTracks AS l ON l.trackId = t.trackId'
-			.. ' JOIN happyview_records AS s ON s.uri = l.setUri'
+			.. 'l.track FROM topTracks AS t JOIN latestTracks AS l ON l.trackId = t.trackId'
 			.. " UNION ALL SELECT 'artist', a.artistId, a.supports, NULL, a.djCount, n.artistName, NULL"
 			.. ' FROM topArtists AS a JOIN artistNames AS n ON n.artistId = a.artistId'
 			.. ' ORDER BY kind DESC, supports DESC, last DESC, djCount DESC, id',
@@ -61,7 +59,7 @@ function handle()
 			.. ' FROM happyview_records WHERE collection = ? AND did IN (SELECT did FROM djs)'
 			.. " AND json_extract(record, '$.location.locality') IS NOT NULL"
 			.. " AND json_extract(record, '$.location.country') IS NOT NULL"
-			.. " AND json_array_length(record, '$.tracks') > 0"
+			.. " AND json_array_length(record, '$.namedTracks') > 0"
 			.. ' GROUP BY lower(city), country ORDER BY count DESC, lower(city), country LIMIT 100',
 		playsArgs()
 	)

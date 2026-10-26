@@ -87,7 +87,8 @@ describe('shared press kits on a real atproto spaces network', () => {
 			rkey: EPK_CONTENT_KEY,
 			record: validateRecord(COLLECTION.epkContent, { ...parts.content, updatedAt: now })
 		});
-		await owner.putRecord({
+
+		const { uri } = await owner.putRecord({
 			collection: COLLECTION.epk,
 			rkey,
 			record: validateRecord(COLLECTION.epk, {
@@ -97,6 +98,13 @@ describe('shared press kits on a real atproto spaces network', () => {
 				createdAt: now
 			})
 		});
+
+		// The app reads press kits from HappyView, which hears of this one over Jetstream.
+		await expect
+			.poll(async () => (await net.app.happyView.query('getRecords', { uris: [uri] })).records.length, {
+				timeout: 10_000
+			})
+			.toBe(1);
 
 		return { rkey, space, now };
 	};
@@ -134,9 +142,15 @@ describe('shared press kits on a real atproto spaces network', () => {
 			[remy.did]: { read: true, write: false }
 		});
 
-		await drafts.save(remy, tide, { rkey: epk.rkey, values: kit({ photos: [photo], headline: "Remy's headline" }) });
+		// Both open the press kit as published, so each draft saves over that version.
+		await drafts.save(remy, tide, {
+			rkey: epk.rkey,
+			cid: epk.cid,
+			values: kit({ photos: [photo], headline: "Remy's headline" })
+		});
 		await drafts.save(neon, tide, {
 			rkey: epk.rkey,
+			cid: epk.cid,
 			values: kit({
 				photos: [photo],
 				headline: "Neon's headline",
@@ -251,7 +265,8 @@ describe('shared press kits on a real atproto spaces network', () => {
 			return { params, url, request: new Request(url, { method: 'POST', body }), locals: locals(viewer) };
 		};
 
-		const kitForm = (headline: string, bio: string): [string, string][] => [
+		const kitForm = (headline: string, bio: string, cid = ''): [string, string][] => [
+			['cid', cid],
 			['title', 'Night Shift'],
 			['headline', headline],
 			['bio', bio],
@@ -267,6 +282,13 @@ describe('shared press kits on a real atproto spaces network', () => {
 		const rkey = /press-kits\/([^/?]+)/.exec(created.location)![1];
 		const page = `/dashboard/projects/${slug}/press-kits/${rkey}`;
 		const params = { slug, rkey };
+
+		const editing = (viewer: typeof neon) =>
+			editorLoad({ params, url: new URL(`http://x${page}`), locals: locals(viewer) });
+
+		/** The editor's form as `viewer` opens it now, filled in: it carries the published version it shows. */
+		const opened = async (viewer: typeof neon, headline: string, bio: string) =>
+			kitForm(headline, bio, (await editing(viewer)).values.cid);
 
 		// Links pasted before the move keep working.
 		await expect(
@@ -288,15 +310,11 @@ describe('shared press kits on a real atproto spaces network', () => {
 		);
 
 		// Remy saves a draft, then drops it.
-		await expect(
-			handled(() => editorActions.save(post(page, remy, kitForm('Remy', 'Remy bio'), params)))
-		).rejects.toMatchObject({
+		const remyForm = await opened(remy, 'Remy', 'Remy bio');
+		await expect(handled(() => editorActions.save(post(page, remy, remyForm, params)))).rejects.toMatchObject({
 			status: 303,
 			location: `${page}?notice=saved`
 		});
-
-		const editing = (viewer: typeof neon) =>
-			editorLoad({ params, url: new URL(`http://x${page}`), locals: locals(viewer) });
 
 		expect(await editing(remy)).toMatchObject({ draft: { status: 'current' }, values: { headline: 'Remy' } });
 		expect(await editing(neon)).toMatchObject({ draft: null, others: [{ author: { did: remy.did } }] });
@@ -305,19 +323,22 @@ describe('shared press kits on a real atproto spaces network', () => {
 		});
 		expect(await editing(remy)).toMatchObject({ draft: null, values: { headline: 'First' } });
 
-		// Both change the headline and bio; Neon publishes first, so Remy's draft is behind and asks about both.
-		await expect(
-			handled(() => editorActions.save(post(page, remy, kitForm('Remy', 'Remy bio'), params)))
-		).rejects.toMatchObject({
+		// Both change the headline and bio; Neon publishes first, so Remy's draft is behind.
+		const before = await opened(remy, 'Remy', 'Remy bio');
+		await expect(handled(() => editorActions.save(post(page, remy, before, params)))).rejects.toMatchObject({
 			location: `${page}?notice=saved`
 		});
-		await expect(
-			handled(() => editorActions.publish(post(page, neon, kitForm('Neon', 'Neon bio'), params)))
-		).rejects.toMatchObject({
+		const neonForm = await opened(neon, 'Neon', 'Neon bio');
+		await expect(handled(() => editorActions.publish(post(page, neon, neonForm, params)))).rejects.toMatchObject({
 			location: `${page}?notice=published`
 		});
 		expect(await editing(remy)).toMatchObject({ draft: { status: 'behind' } });
-		const conflict = await editorActions.publish(post(page, remy, kitForm('Remy', 'Remy bio'), params));
+
+		// The form Remy still has open shows the version before Neon's, so saving it would take Neon's back: reload.
+		expect(await editorActions.publish(post(page, remy, before, params))).toMatchObject({ status: 409 });
+
+		// Reloaded, publishing asks about both fields.
+		const conflict = await editorActions.publish(post(page, remy, await opened(remy, 'Remy', 'Remy bio'), params));
 		expect(conflict).toMatchObject({
 			conflicts: [
 				{ field: 'headline', published: 'Neon', previous: 'First', draft: 'Remy' },

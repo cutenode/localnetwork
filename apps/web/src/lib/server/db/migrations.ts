@@ -237,6 +237,12 @@ const migrations = {
 		async up(db) {
 			for (const statement of epkDrafts) await sql.raw(statement).execute(db);
 		}
+	},
+	// The set script's re-read version now sits under a key per collection (happyview/refresh.ts).
+	'005_refresh_keys': {
+		async up(db) {
+			await sql.raw("DELETE FROM kv WHERE key = 'happyview_set_script_refreshed'").execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

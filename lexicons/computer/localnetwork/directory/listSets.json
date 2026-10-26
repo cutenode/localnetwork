@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "List the sets some accounts published, most recently played first. The directory only has sets by accounts that manage a published project.",
+			"description": "List the sets some accounts published, most recently played first. Only accounts that manage a published project have their sets listed.",
 			"parameters": {
 				"type": "params",
 				"required": ["actors"],

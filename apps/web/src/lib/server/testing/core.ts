@@ -4,6 +4,7 @@ import { ensureRootSpaces } from '../bootstrap';
 import type { Core } from '../core';
 import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { AccountService } from '../services/accounts';
 import { PublicRepo } from '../atproto/public-repo';
@@ -101,12 +102,14 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		net.publicFetch
 	);
 
-	const epks = new EpkService(core, projects, publicRepo, async (identifier) => {
+	// Writes are indexed in-process here, so a write that isn't served at once never will be.
+	const indexedRepo = new IndexedRepo(directory, silentLogger, 0);
+
+	const epks = new EpkService(core, projects, indexedRepo, publicRepo, async (identifier) => {
 		if (identifier.startsWith('did:')) return identifier;
 		throw new Error(`no such handle ${identifier}`);
 	});
 
-	// Writes are indexed in-process here, so a write that isn't served at once never will be.
 	const shows = new ShowService(core, projects, directory, publicRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
@@ -155,6 +158,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		verifications,
 		handles,
 		publicRepo,
+		indexedRepo,
 		viewer,
 		capable,
 		spaces

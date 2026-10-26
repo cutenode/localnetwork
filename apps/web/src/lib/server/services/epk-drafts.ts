@@ -17,7 +17,13 @@ import {
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { AccountView, ProjectView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import { type BlobJson, createSpaceIfMissing, type RepoClient, xrpcErrorName } from '../atproto/repo-client';
+import {
+	type BlobJson,
+	createSpaceIfMissing,
+	type RecordRef,
+	type RepoClient,
+	xrpcErrorName
+} from '../atproto/repo-client';
 import { backstageSpace, parsePublicRecordUri, parseSpaceUri } from '../atproto/spaces';
 import { type Core, NotFoundError, ReauthError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
@@ -45,6 +51,9 @@ type DraftRecord = z.infer<typeof epkDraftSchema>;
 const kitKey = (row: EpkDraftTable) => row.publishedRkey ?? row.epkRkey;
 
 const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
+
+/** A save only lands on the published version its form was opened on. */
+const staleForm = () => new UserError('This press kit changed since you opened it. Reload and try again.', 409);
 
 /**
  * Press kit drafts. Each manager edits a press kit by writing a draft into their own repo in the project's backstage,
@@ -86,15 +95,15 @@ export class EpkDrafts {
 	}
 
 	/**
-	 * Saves `actor`'s draft of the press kit `rkey`, or of a new one without it, from the whole form's `values`: the
-	 * fields that differ from the published press kit become its changes. A field it already changed keeps the published
-	 * value it had then, so publishing still notices a change someone else published in between. Returns null, deleting
-	 * the draft, when nothing differs anymore.
+	 * Saves `actor`'s draft of the press kit `rkey`, or of a new one without it, from the whole form's `values`, as long
+	 * as the published press kit is still the version (`cid`) the form was opened on: the fields that differ from it
+	 * become its changes. A field it already changed keeps the published value it had then, so publishing still notices
+	 * a change someone else published in between. Returns null, deleting the draft, when nothing differs anymore.
 	 */
 	async save(
 		actor: Viewer,
 		project: ProjectView,
-		input: { rkey?: string; values: EpkFields }
+		input: { rkey?: string; cid?: string; values: EpkFields }
 	): Promise<EpkDraftView | null> {
 		const current = await this.epks.assertManager(actor, project);
 		const space = this.space(current);
@@ -104,6 +113,9 @@ export class EpkDrafts {
 		if (input.rkey && !kit && !existing) throw new NotFoundError('That press kit does not exist');
 
 		if (kit?.epk.legacy) throw new UserError(LEGACY_KIT);
+
+		// A form opened on an older version would take back whatever was published since.
+		if (kit && kit.epk.cid !== input.cid) throw staleForm();
 		const values = epkFieldsSchema.parse(input.values);
 		const published = kit ? fieldsOf(kit.epk.record, await this.epks.content(kit.epk)) : {};
 		const before = existing ? this.parse(existing) : null;
@@ -203,7 +215,7 @@ export class EpkDrafts {
 		// A draft written straight to the backstage can name any key, so it only publishes onto this project's press kit.
 		if (live && live.record.project !== current.uri) throw new NotFoundError('That press kit does not exist');
 
-		if (!live && (await this.epks.kits(current)).length >= MAX_EPKS_PER_PROJECT)
+		if (!live && (await this.epks.kits(current, true)).length >= MAX_EPKS_PER_PROJECT)
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
 		const published = live ? fieldsOf(live.record, await this.epks.content(live)) : {};
 		const keep = new Set(options.keep ?? []);
@@ -262,15 +274,20 @@ export class EpkDrafts {
 			})
 		);
 
+		let ref: RecordRef;
+
 		try {
 			// The public record first: its CID marks the version, and publishing again after a failure below finds these
 			// fields already applied, so it carries on with the rest.
-			await root.putRecord({ collection: COLLECTION.epk, rkey: kitRkey, record, swapRecord: live?.cid ?? null });
+			ref = await root.putRecord({ collection: COLLECTION.epk, rkey: kitRkey, record, swapRecord: live?.cid ?? null });
 		} catch (error) {
-			if (xrpcErrorName(error) === 'InvalidSwap')
-				throw new UserError('Someone published this press kit at the same moment. Try again.', 409);
-			throw error;
+			if (xrpcErrorName(error) !== 'InvalidSwap') throw error;
+			// HappyView may not have the version the PDS holds yet, so it re-reads the root's press kits for the retry.
+			await this.epks.indexed.reindex(root.did, COLLECTION.epk);
+			throw new UserError('Someone published this press kit at the same moment. Try again.', 409);
 		}
+
+		await this.epks.indexed.awaitWrite(root.did, COLLECTION.epk, kitRkey, ref.cid);
 
 		await root.putSpaceRecord({
 			space: kitSpace,
@@ -303,9 +320,9 @@ export class EpkDrafts {
 			details: { project: current.uri, fields, overwritten: [...overwrite] }
 		});
 
-		const epk = await this.epks.rootKit(kitRkey);
+		const epk = this.epks.view(root.did, { uri: ref.uri, cid: ref.cid, value: record });
 
-		if (!epk) throw new Error(`press kit ${kitRkey} is missing right after publishing it`);
+		if (!epk) throw new Error(`press kit ${kitRkey} does not validate right after publishing it`);
 
 		return { kind: 'published', epk };
 	}

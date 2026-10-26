@@ -17,7 +17,6 @@
 //! * `atmosphere`: sign in with an Atmosphere account (AT Protocol OAuth) and keep the session.
 //! * `publish`: the records locallibrary publishes to that account (My Settings, the profile,
 //!   sets).
-//! * [`clean`]: remove tracks nobody wants (rekordbox's bundled demo samples) from a drive.
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
 //! * [`onelibrary`]: read and edit `exportLibrary.db`, the only database newer players
@@ -65,7 +64,6 @@ pub mod backup;
 pub mod callback;
 pub mod catalog;
 pub mod check;
-pub mod clean;
 pub mod collection_export;
 mod commit;
 pub mod compare;
@@ -129,6 +127,7 @@ pub mod sync;
 pub mod tags;
 pub mod tidy;
 mod timeline;
+mod track_files;
 pub mod tree;
 pub mod upgrade;
 pub mod watch;
@@ -194,35 +193,6 @@ pub mod testing {
     /// or not (`Some(false)`), whatever this process is (`None`: as it is).
     pub fn elevated_on_this_thread(elevated: Option<bool>) {
         crate::plugin::THREAD_ELEVATED.with(|e| e.set(elevated));
-    }
-
-    /// A stand-in for Lexicon Community's address document, which tests take rather than fetching
-    /// it: what locallibrary writes of it (a name, a locality and the required country code), with
-    /// the published document's limits.
-    #[cfg(feature = "account")]
-    pub fn address_lexicon() -> serde_json::Value {
-        let text = serde_json::json!({ "type": "string" });
-        serde_json::json!({
-            "lexicon": 1,
-            "id": crate::atmosphere::lexicon::ADDRESS,
-            "defs": { "main": {
-                "type": "object",
-                "required": ["country"],
-                "properties": {
-                    "country": { "type": "string", "minLength": 2, "maxLength": 10 },
-                    "locality": text,
-                    "name": text,
-                },
-            } },
-        })
-    }
-
-    /// Validating records in this process takes [`address_lexicon`] rather than fetching the real
-    /// one. A process that runs `locallibrary` itself names a folder holding it in
-    /// `$LOCALLIBRARY_LEXICONS` instead.
-    #[cfg(feature = "account")]
-    pub fn address_lexicon_stand_in() {
-        crate::atmosphere::lexicon::keep(crate::atmosphere::lexicon::ADDRESS, address_lexicon());
     }
 
     /// Plans on this thread warn as they would on `os` (`linux`, `windows`; `None`: this one)
