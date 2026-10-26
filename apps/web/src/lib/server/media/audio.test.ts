@@ -107,6 +107,14 @@ describe('recordingAudio', () => {
 		expect(response.headers.has('content-range')).toBe(false);
 	});
 
+	it('serves a recording its PDS typed video/mp4 as audio/mp4, for the <audio> element', async () => {
+		const response = await ask(null, { audio: async () => ({ mimeType: 'video/mp4', size: BYTES.length }) });
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('audio/mp4');
+		expect(await body(response)).toEqual(range(0, 99));
+	});
+
 	it("answers a range from the PDS's whole file, across its chunks", async () => {
 		for (const [header, start, end] of [
 			['bytes=0-0', 0, 0],

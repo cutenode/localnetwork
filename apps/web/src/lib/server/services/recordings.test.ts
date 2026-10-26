@@ -22,8 +22,14 @@ const SOUNDCLOUD = 'https://soundcloud.com/neon/tidal-hours';
 
 const ARCHIVE = 'https://archive.org/download/neon-tidal-hours/tidal-hours.mp3';
 
-/** A `computer.localnetwork.dj.recording` as the other branch's lexicon has it. */
-const recording = (audio: Partial<{ mimeType: string; size: number; cid: string }> = {}): JsonRecord => ({
+/** The recording lexicon's `audio` maxSize: 300 MiB. */
+const MAX_SIZE = 314_572_800;
+
+/** A `computer.localnetwork.dj.recording` as locallibrary writes it: an hour long, unless `extra` says otherwise. */
+const recording = (
+	audio: Partial<{ mimeType: string; size: number; cid: string }> = {},
+	extra: JsonRecord = { durationSeconds: 3600 }
+): JsonRecord => ({
 	$type: COLLECTION.djRecording,
 	audio: {
 		$type: 'blob',
@@ -31,7 +37,8 @@ const recording = (audio: Partial<{ mimeType: string; size: number; cid: string 
 		mimeType: audio.mimeType ?? 'audio/mpeg',
 		size: audio.size ?? 1234
 	},
-	durationSeconds: 3600
+	createdAt: '2026-10-26T12:00:00.000Z',
+	...extra
 });
 
 type Seeded = { did?: string; collection: string; rkey: string; record: JsonRecord };
@@ -39,22 +46,15 @@ type Seeded = { did?: string; collection: string; rkey: string; record: JsonReco
 type Options = { plyrTrack?: { gated?: boolean }; manages?: (did: string) => boolean; now?: () => number };
 
 /**
- * A RecordingService over a HappyView holding `records`, a plyr.fm answering `plyrTrack` (with CDN audio unless
+ * A RecordingService over a HappyView that indexed `records` through their record scripts, a plyr.fm answering `plyrTrack` (with CDN audio unless
  * `gated`), and `DJ` as the only account that manages an active project unless `manages` says otherwise. Counts what
  * it asks.
  */
 async function service(records: Seeded[], { plyrTrack, manages = (did) => did === DJ, now }: Options = {}) {
 	const hv = new FakeHappyView('did:plc:root');
 
-	hv.seed(
-		await Promise.all(
-			records.map(async ({ did = DJ, ...rest }) => ({
-				did,
-				cid: (await cidForLex(jsonToLex(rest.record))).toString(),
-				...rest
-			}))
-		)
-	);
+	for (const { did = DJ, ...rest } of records)
+		await hv.ingest({ did, cid: (await cidForLex(jsonToLex(rest.record))).toString(), ...rest });
 	const asked = { happyView: 0, plyr: 0, managers: 0 };
 
 	const directory = new HappyViewClient({
@@ -155,10 +155,48 @@ describe('RecordingService.source', () => {
 		});
 	});
 
+	it('plays a recording without durationSeconds, which the player reads from the audio', async () => {
+		const { recordings } = await service([
+			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording({}, {}) }
+		]);
+
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) })).toMatchObject({
+			src: `/media/audio/${DJ}/${AUDIO_CID}`
+		});
+		expect(await recordings.audio(DJ, AUDIO_CID)).toEqual({ mimeType: 'audio/mpeg', size: 1234 });
+	});
+
+	it('plays a video/mp4 recording, the type a PDS gives an M4A it reads as video', async () => {
+		const { recordings } = await service([
+			{ collection: COLLECTION.djRecording, rkey: '3rec', record: recording({ mimeType: 'video/mp4' }) }
+		]);
+
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/3rec`) })).toMatchObject({
+			src: `/media/audio/${DJ}/${AUDIO_CID}`
+		});
+		expect(await recordings.audio(DJ, AUDIO_CID)).toEqual({ mimeType: 'video/mp4', size: 1234 });
+	});
+
+	it("takes a recording of the lexicon's maxSize, and not a byte more", async () => {
+		expect(RECORDING_MAX_BYTES).toBe(MAX_SIZE);
+
+		const { recordings } = await service([
+			{ collection: COLLECTION.djRecording, rkey: 'cap', record: recording({ cid: 'bafycap', size: MAX_SIZE }) },
+			{ collection: COLLECTION.djRecording, rkey: 'over', record: recording({ cid: 'bafyover', size: MAX_SIZE + 1 }) }
+		]);
+
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/cap`) })).toMatchObject({
+			src: `/media/audio/${DJ}/bafycap`
+		});
+		expect(await recordings.audio(DJ, 'bafycap')).toEqual({ mimeType: 'audio/mpeg', size: MAX_SIZE });
+		expect(await recordings.source({ recording: ref(`at://${DJ}/${COLLECTION.djRecording}/over`) })).toBeNull();
+		expect(await recordings.audio(DJ, 'bafyover')).toBeNull();
+	});
+
 	it("doesn't offer a PDS recording that isn't audio, is too big, is missing, or isn't a manager's", async () => {
 		const { recordings } = await service([
-			{ collection: COLLECTION.djRecording, rkey: 'video', record: recording({ mimeType: 'video/mp4' }) },
-			{ collection: COLLECTION.djRecording, rkey: 'huge', record: recording({ size: RECORDING_MAX_BYTES + 1 }) },
+			{ collection: COLLECTION.djRecording, rkey: 'video', record: recording({ mimeType: 'video/webm' }) },
+			{ collection: COLLECTION.djRecording, rkey: 'huge', record: recording({ size: MAX_SIZE + 1 }) },
 			{ did: STRANGER, collection: COLLECTION.djRecording, rkey: '3rec', record: recording() }
 		]);
 
@@ -218,12 +256,12 @@ describe('RecordingService.audio', () => {
 	it("refuses a blob a non-manager's recording, a video or an oversize one references", async () => {
 		const { recordings } = await service([
 			{ did: STRANGER, collection: COLLECTION.djRecording, rkey: 'a', record: recording() },
-			{ collection: COLLECTION.djRecording, rkey: 'v', record: recording({ cid: 'bafyvideo', mimeType: 'video/mp4' }) },
 			{
 				collection: COLLECTION.djRecording,
-				rkey: 'h',
-				record: recording({ cid: 'bafyhuge', size: RECORDING_MAX_BYTES + 1 })
-			}
+				rkey: 'v',
+				record: recording({ cid: 'bafyvideo', mimeType: 'video/webm' })
+			},
+			{ collection: COLLECTION.djRecording, rkey: 'h', record: recording({ cid: 'bafyhuge', size: MAX_SIZE + 1 }) }
 		]);
 
 		expect(await recordings.audio(STRANGER, AUDIO_CID)).toBeNull();

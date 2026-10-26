@@ -1,4 +1,6 @@
+import { type Accept, BlobPermission } from '@atproto/oauth-scopes';
 import { z } from 'zod';
+import recordingLexicon from '../../../../../../lexicons/computer/localnetwork/dj/recording.json' with { type: 'json' };
 import type { DjSet } from '#lib/dj.ts';
 import { djSetSchema } from '#lib/dj-schema.ts';
 import { linkSources, PLYR_TRACK, type PlayerSource, preferred } from '#lib/mix/source.ts';
@@ -9,8 +11,14 @@ import type { IndexedRepo } from '../happyview/indexed';
 import type { Logger } from '../logger';
 import type { PlyrClient } from '../plyr';
 
-/** The largest recording served. It mirrors the `computer.localnetwork.dj.recording` lexicon's `audio` maxSize, and must match it. */
-export const RECORDING_MAX_BYTES = 300_000_000;
+const { accept, maxSize } = recordingLexicon.defs.main.record.properties.audio;
+
+/** The largest recording served: the recording lexicon's `audio` maxSize, 300 MiB. */
+export const RECORDING_MAX_BYTES = maxSize;
+
+/** The types the recording lexicon accepts for its audio, matched the way a PDS matches a `blob:` scope. */
+// SAFETY: the lexicon's accept list isn't empty, and each entry is a MIME type or a `type/*` pattern.
+const ACCEPTED = new BlobPermission(accept as [Accept, ...Accept[]]);
 
 /**
  * How long a lookup the audio route makes is reused. A playing <audio> asks for a new range on every seek, and each
@@ -23,15 +31,21 @@ const CACHE_SIZE = 500;
 /** Pages of an account's recordings the audio route reads, 100 to a page. */
 const RECORDING_PAGES = 5;
 
-/** The parts of a `computer.localnetwork.dj.recording` the site reads: its audio, which must be audio and not too big. */
+/**
+ * The part of a `computer.localnetwork.dj.recording` the site reads: its audio, of a type and size the lexicon takes.
+ * The player reads how long it plays from the audio itself, so a record without `durationSeconds` plays the same.
+ */
 const recordingSchema = z.object({
 	audio: z.object({
 		$type: z.literal('blob'),
 		ref: z.object({ $link: z.string() }),
-		mimeType: z.string().regex(/^audio\/[\w.+-]+$/),
+		// The audio route sends it as the Content-Type, so it's a bare type and nothing more.
+		mimeType: z
+			.string()
+			.regex(/^[\w.+-]+\/[\w.+-]+$/)
+			.refine((mime) => ACCEPTED.matches({ mime })),
 		size: z.number().int().min(1).max(RECORDING_MAX_BYTES)
-	}),
-	durationSeconds: z.number().int().min(0).optional()
+	})
 });
 
 /** A recording's audio blob as its record declares it, which the audio route serves by. */

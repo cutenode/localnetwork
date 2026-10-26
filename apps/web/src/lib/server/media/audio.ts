@@ -84,14 +84,21 @@ export type AudioRequest = {
 	log: Logger;
 };
 
+/**
+ * The type a recording goes out as. A PDS names a blob's type by sniffing its bytes, and an M4A whose header doesn't
+ * brand it as audio comes back as video/mp4, which the recording lexicon accepts for that reason. It's a recording
+ * all the same, so the <audio> element (and anyone opening the link, who'd otherwise get a video page) gets audio/mp4.
+ */
+const servedType = (mimeType: string) => (mimeType === 'video/mp4' ? 'audio/mp4' : mimeType);
+
 /** A plain answer for a refusal, so a browser shows the status rather than a media error page. */
 const refuse = (status: number, message: string, headers: Record<string, string> = {}) =>
 	new Response(message, { status, headers: { 'content-type': 'text/plain; charset=utf-8', ...headers } });
 
 /**
  * Streams a DJ's recording from their PDS through the site, for the set player: only a blob a recording record they
- * published references, served as the type and size that record declares, with Range answered here since
- * `com.atproto.sync.getBlob` ignores it. Nothing is stored; every request reads the PDS again, and browsers cache
+ * published references, served as the type (see servedType) and size that record declares, with Range answered here
+ * since `com.atproto.sync.getBlob` ignores it. Nothing is stored; every request reads the PDS again, and browsers cache
  * the answers, since a CID's bytes never change.
  */
 export async function recordingAudio(request: AudioRequest): Promise<Response> {
@@ -144,7 +151,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	return new Response(slice(upstream.body, start, length), {
 		status,
 		headers: {
-			'content-type': audio.mimeType,
+			'content-type': servedType(audio.mimeType),
 			'content-length': String(length),
 			'accept-ranges': 'bytes',
 			...(range && { 'content-range': `bytes ${start}-${end}/${audio.size}` }),
