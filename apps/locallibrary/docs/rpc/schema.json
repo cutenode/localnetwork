@@ -920,64 +920,6 @@
       }
     },
     {
-      "name": "clean.plan",
-      "aliases": [],
-      "kind": "plan",
-      "pair": "clean.apply",
-      "operation": "clean",
-      "long_running": true,
-      "destructive": true,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/DriveRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/CleanPlan"
-          },
-          {
-            "$ref": "#/$defs/PlanFields"
-          }
-        ]
-      }
-    },
-    {
-      "name": "clean.apply",
-      "aliases": [],
-      "kind": "apply",
-      "pair": "clean.plan",
-      "operation": "clean",
-      "long_running": true,
-      "destructive": true,
-      "params": {
-        "anyOf": [
-          {
-            "$ref": "#/$defs/ApplyPlan"
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/$defs/DriveRef"
-              },
-              {
-                "$ref": "#/$defs/WriteOptions"
-              }
-            ]
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/CleanReport"
-      }
-    },
-    {
       "name": "convert.plan",
       "aliases": [],
       "kind": "plan",
@@ -6939,16 +6881,16 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "create_playlist"
+            },
             "path": {
               "type": "string"
             },
             "folder": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "create_playlist"
             }
           },
           "required": [
@@ -6960,15 +6902,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "rename_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "name": {
               "type": "string"
-            },
-            "op": {
-              "type": "string",
-              "const": "rename_playlist"
             }
           },
           "required": [
@@ -6980,6 +6922,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "move_playlist"
+            },
             "playlist": {
               "type": "string"
             },
@@ -6998,10 +6944,6 @@
               "format": "uint",
               "minimum": 0,
               "default": null
-            },
-            "op": {
-              "type": "string",
-              "const": "move_playlist"
             }
           },
           "required": [
@@ -7013,15 +6955,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "with_tracks": {
               "type": "boolean"
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_playlist"
             }
           },
           "required": [
@@ -7033,6 +6975,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "add_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7059,10 +7005,6 @@
             "allow_repeats": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "add_tracks"
             }
           },
           "required": [
@@ -7075,6 +7017,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "remove_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7097,10 +7043,6 @@
                 "minimum": 0
               },
               "default": []
-            },
-            "op": {
-              "type": "string",
-              "const": "remove_tracks"
             }
           },
           "required": [
@@ -7112,6 +7054,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "move_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7127,10 +7073,6 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0
-            },
-            "op": {
-              "type": "string",
-              "const": "move_tracks"
             }
           },
           "required": [
@@ -7144,6 +7086,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7169,10 +7115,6 @@
             "create": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "set_tracks"
             }
           },
           "required": [
@@ -7185,6 +7127,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_entries"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7196,10 +7142,6 @@
             },
             "create": {
               "type": "boolean"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_entries"
             }
           },
           "required": [
@@ -7212,15 +7154,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "sort_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "by": {
               "type": "string"
-            },
-            "op": {
-              "type": "string",
-              "const": "sort_playlist"
             }
           },
           "required": [
@@ -7233,16 +7175,16 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "dedupe"
+            },
             "playlist": {
               "type": "string"
             },
             "recordings": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "dedupe"
             }
           },
           "required": [
@@ -7254,6 +7196,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "plan_set"
+            },
             "playlist": {
               "type": "string"
             },
@@ -7274,10 +7220,6 @@
                 "null"
               ],
               "default": null
-            },
-            "op": {
-              "type": "string",
-              "const": "plan_set"
             }
           },
           "required": [
@@ -7289,15 +7231,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "edit_tracks"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "fields": {
               "$ref": "#/$defs/TrackFields"
-            },
-            "op": {
-              "type": "string",
-              "const": "edit_tracks"
             }
           },
           "required": [
@@ -7309,27 +7251,31 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_tracks"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "keep_files": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_tracks"
             }
           },
           "required": [
             "op",
             "tracks"
           ],
-          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them."
+          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them. A track goes with every\nrow of its audio file, in each database; a path may name one only the drive's other\ndatabase lists (OneLibrary, drifted from `export.pdb`), which is deleted there."
         },
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "replace_track"
+            },
             "duplicate": {
               "$ref": "#/$defs/TrackSelector"
             },
@@ -7339,10 +7285,6 @@
             "keep_duplicate": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "replace_track"
             }
           },
           "required": [
@@ -7355,6 +7297,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_path"
+            },
             "track": {
               "$ref": "#/$defs/TrackSelector"
             },
@@ -7374,10 +7320,6 @@
             "shift_ms": {
               "type": "integer",
               "format": "int32"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_path"
             }
           },
           "required": [
@@ -7390,6 +7332,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_history"
+            },
             "names": {
               "type": "array",
               "items": {
@@ -7400,10 +7346,6 @@
             "all": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_history"
             }
           },
           "required": [
@@ -7414,15 +7356,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_history_lists"
+            },
             "lists": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/HistoryListName"
               }
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_history_lists"
             }
           },
           "required": [
@@ -7448,6 +7390,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "cues"
+            },
             "tracks": {
               "type": "array",
               "items": {
@@ -7456,10 +7402,6 @@
             },
             "change": {
               "$ref": "#/$defs/CueChange"
-            },
-            "op": {
-              "type": "string",
-              "const": "cues"
             }
           },
           "required": [
@@ -7472,15 +7414,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_artwork"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "image": {
               "$ref": "#/$defs/ImageSource"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_artwork"
             }
           },
           "required": [
@@ -7493,6 +7435,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            },
             "track": {
               "type": "string"
             },
@@ -7526,10 +7472,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "op": {
-              "type": "string",
-              "const": "set_analysis"
             }
           },
           "required": [
@@ -7808,29 +7750,10 @@
         {
           "type": "object",
           "properties": {
-            "tag": {
-              "type": "string"
-            },
-            "tracks": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
             "action": {
               "type": "string",
               "const": "add"
-            }
-          },
-          "required": [
-            "action",
-            "tag",
-            "tracks"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
+            },
             "tag": {
               "type": "string"
             },
@@ -7839,10 +7762,6 @@
               "items": {
                 "type": "string"
               }
-            },
-            "action": {
-              "type": "string",
-              "const": "remove"
             }
           },
           "required": [
@@ -7854,15 +7773,38 @@
         {
           "type": "object",
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
+            "tag": {
+              "type": "string"
+            },
+            "tracks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "action",
+            "tag",
+            "tracks"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "rename"
+            },
             "tag": {
               "type": "string"
             },
             "to": {
               "type": "string"
-            },
-            "action": {
-              "type": "string",
-              "const": "rename"
             }
           },
           "required": [
@@ -7874,12 +7816,12 @@
         {
           "type": "object",
           "properties": {
-            "tag": {
-              "type": "string"
-            },
             "action": {
               "type": "string",
               "const": "delete"
+            },
+            "tag": {
+              "type": "string"
             }
           },
           "required": [
@@ -8637,6 +8579,10 @@
         {
           "type": "object",
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "add"
+            },
             "tag": {
               "type": "string"
             },
@@ -8688,10 +8634,6 @@
                 "null"
               ],
               "description": "The tracks of a history list (what a player recorded), by name."
-            },
-            "action": {
-              "type": "string",
-              "const": "add"
             }
           },
           "required": [
@@ -8703,6 +8645,10 @@
         {
           "type": "object",
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
             "tag": {
               "type": "string"
             },
@@ -8754,10 +8700,6 @@
                 "null"
               ],
               "description": "The tracks of a history list (what a player recorded), by name."
-            },
-            "action": {
-              "type": "string",
-              "const": "remove"
             }
           },
           "required": [
@@ -8769,15 +8711,15 @@
         {
           "type": "object",
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "rename"
+            },
             "tag": {
               "type": "string"
             },
             "to": {
               "type": "string"
-            },
-            "action": {
-              "type": "string",
-              "const": "rename"
             }
           },
           "required": [
@@ -8790,12 +8732,12 @@
         {
           "type": "object",
           "properties": {
-            "tag": {
-              "type": "string"
-            },
             "action": {
               "type": "string",
               "const": "delete"
+            },
+            "tag": {
+              "type": "string"
             }
           },
           "required": [
@@ -8969,12 +8911,12 @@
         {
           "type": "object",
           "properties": {
-            "cue": {
-              "$ref": "#/$defs/CueRef"
-            },
             "op": {
               "type": "string",
               "const": "delete"
+            },
+            "cue": {
+              "$ref": "#/$defs/CueRef"
             }
           },
           "required": [
@@ -8985,12 +8927,12 @@
         {
           "type": "object",
           "properties": {
-            "from": {
-              "$ref": "#/$defs/TrackSelector"
-            },
             "op": {
               "type": "string",
               "const": "copy"
+            },
+            "from": {
+              "$ref": "#/$defs/TrackSelector"
             }
           },
           "required": [
@@ -11140,15 +11082,15 @@
         {
           "type": "object",
           "properties": {
+            "from": {
+              "type": "string",
+              "const": "drive"
+            },
             "name": {
               "type": "string"
             },
             "root": {
               "type": "string"
-            },
-            "from": {
-              "type": "string",
-              "const": "drive"
             }
           },
           "required": [
@@ -11160,15 +11102,15 @@
         {
           "type": "object",
           "properties": {
+            "from": {
+              "type": "string",
+              "const": "destination"
+            },
             "plugin": {
               "type": "string"
             },
             "destination": {
               "type": "string"
-            },
-            "from": {
-              "type": "string",
-              "const": "destination"
             }
           },
           "required": [
@@ -16898,144 +16840,6 @@
         "fingerprint"
       ]
     },
-    "CleanPlan": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string"
-        },
-        "root": {
-          "type": "string"
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/TrackRef"
-          }
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Files to delete (audio, analysis, artwork), as drive keys."
-        },
-        "bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0,
-          "description": "Total size of `files`."
-        },
-        "playlists": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/AffectedPlaylist"
-          }
-        },
-        "lookup_rows": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0,
-          "description": "Artist/album/genre/label/key/artwork rows left unused by the removal."
-        },
-        "needed_bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0,
-          "description": "Space needed for the backup of the database and the deleted files."
-        },
-        "free_space": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
-        },
-        "fits": {
-          "type": "boolean"
-        },
-        "warnings": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "drive",
-        "root",
-        "tracks",
-        "files",
-        "bytes",
-        "playlists",
-        "lookup_rows",
-        "needed_bytes",
-        "free_space",
-        "fits",
-        "warnings"
-      ]
-    },
-    "AffectedPlaylist": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "entries_removed": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "path",
-        "entries_removed"
-      ]
-    },
-    "CleanReport": {
-      "type": "object",
-      "properties": {
-        "tracks_removed": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "files_deleted": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "freed_bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "backup": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "fingerprint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Hash"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "tracks_removed",
-        "files_deleted",
-        "freed_bytes",
-        "backup",
-        "fingerprint"
-      ]
-    },
     "ConvertPlan": {
       "type": "object",
       "properties": {
@@ -18677,16 +18481,16 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "create_playlist"
+            },
             "path": {
               "type": "string"
             },
             "folder": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "create_playlist"
             }
           },
           "required": [
@@ -18699,15 +18503,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "rename_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "name": {
               "type": "string"
-            },
-            "op": {
-              "type": "string",
-              "const": "rename_playlist"
             }
           },
           "required": [
@@ -18719,6 +18523,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "move_playlist"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18737,10 +18545,6 @@
               "format": "uint",
               "minimum": 0,
               "default": null
-            },
-            "op": {
-              "type": "string",
-              "const": "move_playlist"
             }
           },
           "required": [
@@ -18754,15 +18558,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "with_tracks": {
               "type": "boolean"
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_playlist"
             }
           },
           "required": [
@@ -18774,6 +18578,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "add_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18800,10 +18608,6 @@
             "allow_repeats": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "add_tracks"
             }
           },
           "required": [
@@ -18819,6 +18623,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "remove_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18841,10 +18649,6 @@
                 "minimum": 0
               },
               "default": []
-            },
-            "op": {
-              "type": "string",
-              "const": "remove_tracks"
             }
           },
           "required": [
@@ -18858,6 +18662,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "move_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18873,10 +18681,6 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0
-            },
-            "op": {
-              "type": "string",
-              "const": "move_tracks"
             }
           },
           "required": [
@@ -18890,6 +18694,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_tracks"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18915,10 +18723,6 @@
             "create": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "set_tracks"
             }
           },
           "required": [
@@ -18934,6 +18738,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_entries"
+            },
             "playlist": {
               "type": "string"
             },
@@ -18945,10 +18753,6 @@
             },
             "create": {
               "type": "boolean"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_entries"
             }
           },
           "required": [
@@ -18961,15 +18765,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "sort_playlist"
+            },
             "playlist": {
               "type": "string"
             },
             "by": {
               "type": "string"
-            },
-            "op": {
-              "type": "string",
-              "const": "sort_playlist"
             }
           },
           "required": [
@@ -18982,16 +18786,16 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "dedupe"
+            },
             "playlist": {
               "type": "string"
             },
             "recordings": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "dedupe"
             }
           },
           "required": [
@@ -19004,6 +18808,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "plan_set"
+            },
             "playlist": {
               "type": "string"
             },
@@ -19024,10 +18832,6 @@
                 "null"
               ],
               "default": null
-            },
-            "op": {
-              "type": "string",
-              "const": "plan_set"
             }
           },
           "required": [
@@ -19041,15 +18845,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "edit_tracks"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "fields": {
               "$ref": "#/$defs/TrackFields"
-            },
-            "op": {
-              "type": "string",
-              "const": "edit_tracks"
             }
           },
           "required": [
@@ -19061,16 +18865,16 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_tracks"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "keep_files": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_tracks"
             }
           },
           "required": [
@@ -19078,11 +18882,15 @@
             "tracks",
             "keep_files"
           ],
-          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them."
+          "description": "Delete tracks with their playlist and history entries, and (unless `keep_files`) their\naudio, analysis and artwork files when no other track uses them. A track goes with every\nrow of its audio file, in each database; a path may name one only the drive's other\ndatabase lists (OneLibrary, drifted from `export.pdb`), which is deleted there."
         },
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "replace_track"
+            },
             "duplicate": {
               "$ref": "#/$defs/TrackSelector"
             },
@@ -19092,10 +18900,6 @@
             "keep_duplicate": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "replace_track"
             }
           },
           "required": [
@@ -19109,6 +18913,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_path"
+            },
             "track": {
               "$ref": "#/$defs/TrackSelector"
             },
@@ -19128,10 +18936,6 @@
             "shift_ms": {
               "type": "integer",
               "format": "int32"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_path"
             }
           },
           "required": [
@@ -19144,6 +18948,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_history"
+            },
             "names": {
               "type": "array",
               "items": {
@@ -19154,10 +18962,6 @@
             "all": {
               "type": "boolean",
               "default": false
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_history"
             }
           },
           "required": [
@@ -19170,15 +18974,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "delete_history_lists"
+            },
             "lists": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/HistoryListName"
               }
-            },
-            "op": {
-              "type": "string",
-              "const": "delete_history_lists"
             }
           },
           "required": [
@@ -19204,6 +19008,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "cues"
+            },
             "tracks": {
               "type": "array",
               "items": {
@@ -19212,10 +19020,6 @@
             },
             "change": {
               "$ref": "#/$defs/CueChange"
-            },
-            "op": {
-              "type": "string",
-              "const": "cues"
             }
           },
           "required": [
@@ -19228,15 +19032,15 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_artwork"
+            },
             "tracks": {
               "$ref": "#/$defs/TrackSelector"
             },
             "image": {
               "$ref": "#/$defs/ImageSource"
-            },
-            "op": {
-              "type": "string",
-              "const": "set_artwork"
             }
           },
           "required": [
@@ -19249,6 +19053,10 @@
         {
           "type": "object",
           "properties": {
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            },
             "track": {
               "type": "string"
             },
@@ -19282,10 +19090,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "op": {
-              "type": "string",
-              "const": "set_analysis"
             }
           },
           "required": [
@@ -19927,6 +19731,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "snapshot"
+            },
             "snapshot": {
               "$ref": "#/$defs/SnapshotInfo"
             },
@@ -19935,10 +19743,6 @@
                 "string",
                 "null"
               ]
-            },
-            "kind": {
-              "type": "string",
-              "const": "snapshot"
             }
           },
           "required": [
@@ -19950,12 +19754,12 @@
         {
           "type": "object",
           "properties": {
-            "backup": {
-              "$ref": "#/$defs/BackupInfo"
-            },
             "kind": {
               "type": "string",
               "const": "backup"
+            },
+            "backup": {
+              "$ref": "#/$defs/BackupInfo"
             }
           },
           "required": [
@@ -21301,12 +21105,12 @@
         {
           "type": "object",
           "properties": {
-            "error": {
-              "type": "string"
-            },
             "kind": {
               "type": "string",
               "const": "unreadable"
+            },
+            "error": {
+              "type": "string"
             }
           },
           "required": [
@@ -21318,6 +21122,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "truncated"
+            },
             "ends_secs": {
               "type": "number",
               "format": "double"
@@ -21325,10 +21133,6 @@
             "expected_secs": {
               "type": "number",
               "format": "double"
-            },
-            "kind": {
-              "type": "string",
-              "const": "truncated"
             }
           },
           "required": [
@@ -21341,12 +21145,12 @@
         {
           "type": "object",
           "properties": {
-            "error": {
-              "type": "string"
-            },
             "kind": {
               "type": "string",
               "const": "undecodable"
+            },
+            "error": {
+              "type": "string"
             }
           },
           "required": [
@@ -21358,6 +21162,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "length_differs"
+            },
             "file_secs": {
               "type": "number",
               "format": "double"
@@ -21365,10 +21173,6 @@
             "expected_secs": {
               "type": "number",
               "format": "double"
-            },
-            "kind": {
-              "type": "string",
-              "const": "length_differs"
             }
           },
           "required": [
@@ -23516,12 +23320,12 @@
         {
           "type": "object",
           "properties": {
-            "client_id": {
-              "type": "string"
-            },
             "kind": {
               "type": "string",
               "const": "hosted"
+            },
+            "client_id": {
+              "type": "string"
             }
           },
           "required": [
@@ -27913,6 +27717,10 @@
         {
           "type": "object",
           "properties": {
+            "standing": {
+              "type": "string",
+              "const": "behind"
+            },
             "snapshots": {
               "type": "integer",
               "format": "uint",
@@ -27923,10 +27731,6 @@
                 "string",
                 "null"
               ]
-            },
-            "standing": {
-              "type": "string",
-              "const": "behind"
             }
           },
           "required": [
@@ -31675,6 +31479,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "list"
+            },
             "title": {
               "type": [
                 "string",
@@ -31686,10 +31494,6 @@
               "items": {
                 "$ref": "#/$defs/ListItem"
               }
-            },
-            "kind": {
-              "type": "string",
-              "const": "list"
             }
           },
           "required": [
@@ -31701,6 +31505,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "table"
+            },
             "title": {
               "type": [
                 "string",
@@ -31719,10 +31527,6 @@
                 "type": "array",
                 "items": true
               }
-            },
-            "kind": {
-              "type": "string",
-              "const": "table"
             }
           },
           "required": [
@@ -31735,6 +31539,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "kv"
+            },
             "title": {
               "type": [
                 "string",
@@ -31746,10 +31554,6 @@
               "items": {
                 "$ref": "#/$defs/Pair"
               }
-            },
-            "kind": {
-              "type": "string",
-              "const": "kv"
             }
           },
           "required": [
@@ -31761,6 +31565,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "text"
+            },
             "title": {
               "type": [
                 "string",
@@ -31769,10 +31577,6 @@
             },
             "text": {
               "type": "string"
-            },
-            "kind": {
-              "type": "string",
-              "const": "text"
             }
           },
           "required": [
@@ -31798,6 +31602,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "tree"
+            },
             "title": {
               "type": [
                 "string",
@@ -31809,10 +31617,6 @@
               "items": {
                 "$ref": "#/$defs/TreeItem"
               }
-            },
-            "kind": {
-              "type": "string",
-              "const": "tree"
             }
           },
           "required": [
@@ -31824,6 +31628,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "chart"
+            },
             "title": {
               "type": [
                 "string",
@@ -31850,10 +31658,6 @@
                 "string",
                 "null"
               ]
-            },
-            "kind": {
-              "type": "string",
-              "const": "chart"
             }
           },
           "required": [
@@ -31866,6 +31670,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "image"
+            },
             "title": {
               "type": [
                 "string",
@@ -31886,10 +31694,6 @@
                 "null"
               ],
               "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin\nsends here is replaced."
-            },
-            "kind": {
-              "type": "string",
-              "const": "image"
             }
           },
           "required": [
@@ -31902,6 +31706,10 @@
         {
           "type": "object",
           "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sections"
+            },
             "title": {
               "type": [
                 "string",
@@ -31913,10 +31721,6 @@
               "items": {
                 "$ref": "#/$defs/Section"
               }
-            },
-            "kind": {
-              "type": "string",
-              "const": "sections"
             }
           },
           "required": [
@@ -32933,6 +32737,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "phase_start"
+            },
             "phase": {
               "$ref": "#/$defs/Phase"
             },
@@ -32945,10 +32753,6 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
-            },
-            "event": {
-              "type": "string",
-              "const": "phase_start"
             }
           },
           "required": [
@@ -32962,6 +32766,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "item"
+            },
             "phase": {
               "$ref": "#/$defs/Phase"
             },
@@ -32972,10 +32780,6 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
-            },
-            "event": {
-              "type": "string",
-              "const": "item"
             }
           },
           "required": [
@@ -32989,6 +32793,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "bytes"
+            },
             "phase": {
               "$ref": "#/$defs/Phase"
             },
@@ -32996,10 +32804,6 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0
-            },
-            "event": {
-              "type": "string",
-              "const": "bytes"
             }
           },
           "required": [
@@ -33012,12 +32816,12 @@
         {
           "type": "object",
           "properties": {
-            "phase": {
-              "$ref": "#/$defs/Phase"
-            },
             "event": {
               "type": "string",
               "const": "phase_end"
+            },
+            "phase": {
+              "$ref": "#/$defs/Phase"
             }
           },
           "required": [
@@ -33028,12 +32832,12 @@
         {
           "type": "object",
           "properties": {
-            "message": {
-              "type": "string"
-            },
             "event": {
               "type": "string",
               "const": "warning"
+            },
+            "message": {
+              "type": "string"
             }
           },
           "required": [
@@ -33176,6 +32980,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "drive.changed"
+            },
             "root": {
               "type": "string"
             },
@@ -33200,10 +33008,6 @@
               "items": {
                 "$ref": "#/$defs/DriveChange"
               }
-            },
-            "event": {
-              "type": "string",
-              "const": "drive.changed"
             }
           },
           "required": [
@@ -33219,6 +33023,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "store.changed"
+            },
             "root": {
               "type": "string"
             },
@@ -33227,10 +33035,6 @@
               "items": {
                 "type": "string"
               }
-            },
-            "event": {
-              "type": "string",
-              "const": "store.changed"
             }
           },
           "required": [
@@ -33263,6 +33067,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "job.started"
+            },
             "id": {
               "anyOf": [
                 {
@@ -33279,10 +33087,6 @@
             "started": {
               "type": "string",
               "format": "date-time"
-            },
-            "event": {
-              "type": "string",
-              "const": "job.started"
             }
           },
           "required": [
@@ -33295,6 +33099,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "job.finished"
+            },
             "id": {
               "anyOf": [
                 {
@@ -33317,10 +33125,6 @@
                 "null"
               ],
               "description": "The error's `kind`, when it failed."
-            },
-            "event": {
-              "type": "string",
-              "const": "job.finished"
             }
           },
           "required": [
@@ -33338,6 +33142,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.up_to_date"
+            },
             "root": {
               "type": "string"
             },
@@ -33359,10 +33167,6 @@
             },
             "library": {
               "type": "string"
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.up_to_date"
             }
           },
           "required": [
@@ -33378,6 +33182,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.pending"
+            },
             "root": {
               "type": "string"
             },
@@ -33410,10 +33218,6 @@
             "beside": {
               "type": "boolean",
               "description": "It would be saved beside the library's newest snapshot (back from a set)."
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.pending"
             }
           },
           "required": [
@@ -33431,6 +33235,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.pulled"
+            },
             "root": {
               "type": "string"
             },
@@ -33466,10 +33274,6 @@
             "beside": {
               "type": "boolean",
               "description": "Saved beside the library's newest snapshot, which stays the newest."
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.pulled"
             }
           },
           "required": [
@@ -33488,6 +33292,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.synced"
+            },
             "root": {
               "type": "string"
             },
@@ -33515,10 +33323,6 @@
               "items": {
                 "$ref": "#/$defs/TargetResult"
               }
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.synced"
             }
           },
           "required": [
@@ -33535,6 +33339,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.waiting"
+            },
             "root": {
               "type": "string"
             },
@@ -33556,10 +33364,6 @@
             },
             "reason": {
               "type": "string"
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.waiting"
             }
           },
           "required": [
@@ -33575,6 +33379,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.skipped"
+            },
             "root": {
               "type": "string"
             },
@@ -33596,10 +33404,6 @@
             },
             "reason": {
               "type": "string"
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.skipped"
             }
           },
           "required": [
@@ -33615,6 +33419,10 @@
         {
           "type": "object",
           "properties": {
+            "event": {
+              "type": "string",
+              "const": "watch.failed"
+            },
             "root": {
               "type": "string"
             },
@@ -33639,10 +33447,6 @@
             },
             "message": {
               "type": "string"
-            },
-            "event": {
-              "type": "string",
-              "const": "watch.failed"
             }
           },
           "required": [

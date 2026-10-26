@@ -471,6 +471,10 @@ export class FakeHappyView {
 	constructor(rootDid: string, bundle: HappyViewBundle = happyViewBundle(rootDid)) {
 		this.lexicons = new Map(bundle.lexicons.map((doc) => [doc.id, doc]));
 		this.scripts = new Map(bundle.scripts.map((script) => [script.id, script.body]));
+		// SQLite writes the temporary tables its queries build (materialized CTEs, sorts) to files in $TMPDIR by
+		// default, even for an in-memory database, so the support queries over many sets would wait on the disk
+		// whenever something else is using it. Where they live doesn't change any result or instruction count.
+		this.db.exec('PRAGMA temp_store = MEMORY');
 		this.db.exec(SCHEMA);
 	}
 

@@ -214,7 +214,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let mut warnings = Vec::new();
     // `dst_lib` is export.pdb's when the target has one; OneLibrary's tracks count too.
     let dst_plus =
-        if target.has_device_library() { crate::clean::open_plus(target, true, &mut warnings)? } else { None };
+        if target.has_device_library() { crate::onelibrary::open_plus(target, true, &mut warnings)? } else { None };
 
     // Index the target.
     let dst_by_path: FxHashMap<String, &Track> =
@@ -764,7 +764,7 @@ pub fn apply(
     let target_lib = target.library()?;
     let has_pdb = target.has_device_library();
     let mut plus_warnings = Vec::new();
-    let plus = crate::clean::open_plus(target, has_pdb, &mut plus_warnings)?;
+    let plus = crate::onelibrary::open_plus(target, has_pdb, &mut plus_warnings)?;
     for w in plus_warnings {
         warnings.warn("unreadable OneLibrary", w);
     }

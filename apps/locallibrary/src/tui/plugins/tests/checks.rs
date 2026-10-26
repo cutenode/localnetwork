@@ -50,7 +50,8 @@ fn which_checks_run_is_a_form_kept_where_plugin_checks_keeps_it() {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     app.perform(Act::CheckSettings, None);
-    let fields = ["echo.untitled", "echo.edits", "echo.edits.blocking", "timeout"].map(String::from).to_vec();
+    let fields =
+        ["demos.tracks", "echo.untitled", "echo.edits", "echo.edits.blocking", "timeout"].map(String::from).to_vec();
     assert_eq!(form_open(&app), ("Check settings".into(), fields));
     let plugins = crate::plugins::host().unwrap();
     let saved = |app: &mut App, given: serde_json::Value| {
@@ -61,8 +62,12 @@ fn which_checks_run_is_a_form_kept_where_plugin_checks_keeps_it() {
     let given = json!({ "echo.untitled": false, "echo.edits": true, "echo.edits.blocking": true, "timeout": 4 });
     assert_eq!(saved(&mut app, given.clone()), "check settings saved");
     let store = Store::open(&app.store_root).unwrap();
-    let kept: Vec<(bool, bool)> =
-        plugins.checks(Some(&store)).into_iter().map(|(_, _, s)| (s.on, s.blocking)).collect();
+    let kept: Vec<(bool, bool)> = plugins
+        .checks(Some(&store))
+        .into_iter()
+        .filter(|(p, ..)| *p == "echo")
+        .map(|(_, _, s)| (s.on, s.blocking))
+        .collect();
     assert_eq!(kept, [(false, false), (true, true)]);
     assert_eq!(check_timeout(Some(&store)).as_secs(), 4);
     assert_eq!(saved(&mut app, given), "nothing changed");
