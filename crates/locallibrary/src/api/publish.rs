@@ -13,11 +13,12 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use loclib_plugin::StrongRef;
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::ProfileRequest;
-use crate::atmosphere::directory;
+use crate::atmosphere::directory::{self, Fetched};
 use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::error::{Action, Reason};
@@ -26,6 +27,7 @@ use crate::op::{Operation, Planned, Probe, Touched};
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
 use crate::publish;
+use crate::publish::recording::{self, Audio, Encoding};
 pub use crate::publish::{PublishPlan, Published, PublishedSettings, SettingsImportPlan};
 use crate::sets::{SETS_FILE, SetBook};
 use crate::settings::SettingsProfile;
@@ -330,6 +332,150 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
 pub fn set_publish_apply(store_root: &Path, req: &SetPublishRequest) -> Result<Published> {
     let plan = set_publish_plan(store_root, req)?;
     publish_to(plan.request(), &plan)
+}
+
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub struct SetUploadRequest {
+    /// The set: its id (or a prefix of 4 or more characters), title or day, or `last`.
+    pub set: String,
+    /// The most the account's data server takes, in bytes, when that's less than the recording
+    /// Lexicon's 300 MiB: the recording is encoded to fit.
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+}
+
+/// A set's recording, ready to upload to the signed-in account and publish as a recording record
+/// under the set's key, which the set's record then points at.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct RecordingUpload {
+    /// The set, by id.
+    pub set: String,
+    pub audio: Audio,
+    /// As it is, or encoded again by ffmpeg.
+    pub encoding: Encoding,
+    /// The most the data server is taken to take, in bytes.
+    pub limit: u64,
+    /// The account it goes to. `None`: nobody's signed in, so it can only be looked at.
+    pub account: Option<AccountInfo>,
+    /// `at://did/computer.localnetwork.dj.recording/<set id>` (`None` while signed out).
+    pub uri: Option<String>,
+    /// The recording published there now, as Local Network's directory has it, which uploading
+    /// replaces.
+    pub current: Option<Fetched>,
+    /// The scope the session lacks to upload it and write its record: sign in again allowing
+    /// publishing (`account.login.begin` with `publish: true`) before applying.
+    pub missing_scope: Option<String>,
+    pub notes: Vec<String>,
+}
+
+/// A recording ready to upload, as [`Planned::apply`] takes it (with the store it's for).
+pub type PlannedUpload = Planned<RecordingUpload, PathBuf>;
+
+/// Plan uploading the recording on this computer of the set `req` names: how it goes up (as it is,
+/// or encoded by ffmpeg to play in browsers and fit `req.max_bytes`), and where its record goes.
+pub fn set_upload_plan(store_root: &Path, req: &SetUploadRequest) -> Result<PlannedUpload> {
+    let store = Store::open(store_root)?;
+    let book = SetBook::load(&store)?;
+    let set = book.find(&req.set)?;
+    let on_disk = set.recording.as_ref().map(|r| &r.path).filter(|p| p.is_file()).ok_or_else(|| {
+        Error::NotFound(format!(
+            "a recording of {} on this computer to upload (`sets edit {} --recording FILE` attaches one)",
+            set.heading(),
+            set.short_id()
+        ))
+    })?;
+    let audio = recording::probe(on_disk)?;
+    let limit = req.max_bytes.map_or(recording::MAX_BYTES, |m| m.min(recording::MAX_BYTES));
+    let encoding = recording::encoding(audio.playable.is_some(), audio.bytes, audio.duration_secs, limit)?;
+    let account = atmosphere::status(store_root)?;
+    let mut plan = RecordingUpload {
+        set: set.id.clone(),
+        encoding,
+        limit,
+        account: account.clone(),
+        uri: None,
+        current: None,
+        missing_scope: None,
+        notes: Vec::new(),
+        audio,
+    };
+    if let Some(info) = &account {
+        plan.notes.extend(directory::request_index(store_root, info)?);
+        plan.uri = Some(repo::at_uri(&info.did, lexicon::RECORDING, &set.id));
+        plan.current = directory::get_record(&info.did, lexicon::RECORDING, &set.id)?;
+        let mime = recording::mime(&plan.audio, encoding);
+        plan.missing_scope = atmosphere::missing_scope(info, lexicon::RECORDING)
+            .or_else(|| (!atmosphere::may_upload(info, mime)).then(|| atmosphere::UPLOAD_SCOPE.to_string()));
+    }
+    let name = plan.audio.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let how = match encoding {
+        Encoding::AsIs => format!("as it is ({})", crate::op::bytes(plan.audio.bytes)),
+        Encoding::Aac { kbps, bytes } => {
+            format!("encoded by ffmpeg as AAC at {kbps} kbit/s (about {})", crate::op::bytes(bytes))
+        }
+    };
+    let mut warnings = Vec::new();
+    let line = match (&plan.account, &plan.current) {
+        (Some(info), None) => format!("upload {name} {how} as {}", info.name()),
+        (Some(info), Some(_)) => format!("upload {name} {how} as {}, replacing the recording there", info.name()),
+        (None, _) => {
+            warnings.push("not signed in to an Atmosphere account: sign in, allowing publishing, to upload".into());
+            format!("{name} would be uploaded {how}")
+        }
+    };
+    if plan.missing_scope.is_some() {
+        warnings.push(
+            "this session can't upload yet: sign in again allowing publishing (`account.login.begin` with \
+             `publish: true`)"
+                .into(),
+        );
+    }
+    let summary = [line].into_iter().chain(plan.notes.iter().cloned()).collect::<Vec<_>>();
+    let replaces = plan.current.is_some();
+    // The set's recording, and the set it keeps the record's reference in.
+    let read_from = Touched::path(store_root, true, vec![Probe::Content(vec![SETS_FILE.into()])]);
+    Ok(Planned::new("sets.upload", plan, store_root.to_path_buf())
+        .summary(summary)
+        .warnings(warnings)
+        .destructive(replaces)
+        .touches(read_from))
+}
+
+impl Operation for RecordingUpload {
+    type Request = PathBuf;
+    type Report = Published;
+
+    /// Encode the recording if it has to be, upload it, publish its record (only over the one
+    /// the plan read), and keep the record on the set, for the set's record to point at.
+    fn apply(planned: &PlannedUpload, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<Published> {
+        let root = planned.request();
+        let info = planned.account.as_ref().ok_or_else(atmosphere::not_signed_in)?;
+        if planned.missing_scope.is_some() {
+            return Err(repo::scope_error(info, lexicon::RECORDING));
+        }
+        let upload = recording::prepare(&planned.audio, planned.encoding, planned.limit, ctx)?;
+        let blob = repo::upload_blob(root, &info.did, upload.path(), &upload.mime, ctx)?;
+        let record = recording::record(blob, planned.audio.duration_secs, Utc::now());
+        let plan = publish::plan_over(
+            planned.account.clone(),
+            lexicon::RECORDING,
+            &planned.set,
+            record,
+            planned.current.clone(),
+        )?;
+        let published = publish::apply(root, &plan).map_err(|e| match e {
+            e if e.code() == "conflict" => Error::StalePlan(e.to_string()),
+            e => e,
+        })?;
+        let store = Store::open(root)?;
+        let _lock = store.lock()?;
+        let mut book = SetBook::load(&store)?;
+        let set = book.find_mut(&planned.set)?;
+        set.recording_record = Some(StrongRef { uri: published.uri.clone(), cid: published.cid.clone() });
+        set.updated_at = Utc::now();
+        book.save(&store)?;
+        Ok(published)
+    }
 }
 
 #[cfg(test)]

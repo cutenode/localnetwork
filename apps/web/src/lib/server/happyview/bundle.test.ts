@@ -12,6 +12,7 @@ describe('happyViewBundle', () => {
 			COLLECTION.project,
 			COLLECTION.djProfile,
 			COLLECTION.djSet,
+			COLLECTION.djRecording,
 			COLLECTION.epk,
 			COLLECTION.show,
 			COLLECTION.follow,
