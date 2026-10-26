@@ -291,4 +291,4 @@ pub fn collect(device: &mut Device, opts: &CollectOptions, ctx: &Ctx<'_>) -> Res
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

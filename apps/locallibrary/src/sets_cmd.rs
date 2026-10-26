@@ -114,7 +114,7 @@ enum SetsCommand {
         dry_run: bool,
     },
     /// Publish a set: with its recording at a plugin's set destination (--to), or on your
-    /// Atmosphere account, where anyone can read it (alpha)
+    /// Atmosphere account, its recording too with --upload, where anyone can read it (alpha)
     Publish {
         #[arg(value_name = "SET")]
         set: String,
@@ -130,6 +130,16 @@ enum SetsCommand {
         /// Show what would be published without publishing
         #[arg(long)]
         dry_run: bool,
+        /// Upload its recording to your Atmosphere account first, and point its record at it
+        /// (encoded as AAC by ffmpeg when browsers can't play it or it's too big)
+        #[cfg(feature = "account")]
+        #[arg(long, conflicts_with = "to")]
+        upload: bool,
+        /// The most your account's data server takes, in MiB, when that's less than 300 (the
+        /// recording is encoded to fit)
+        #[cfg(feature = "account")]
+        #[arg(long, value_name = "MIB", requires = "upload", value_parser = clap::value_parser!(u64).range(1..))]
+        max_mib: Option<u64>,
         #[cfg(feature = "account")]
         #[command(flatten)]
         browser: crate::browser::BrowserArgs,
@@ -499,6 +509,10 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             dry_run,
             hide,
             #[cfg(feature = "account")]
+            upload,
+            #[cfg(feature = "account")]
+            max_mib,
+            #[cfg(feature = "account")]
             browser,
         } => {
             if let Some(spec) = to {
@@ -512,6 +526,10 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             #[cfg(feature = "account")]
             {
                 let req = api::SetPublishRequest { set, hide: all(hide) };
+                if upload {
+                    let max_bytes = max_mib.map(|m| m.saturating_mul(1024 * 1024));
+                    return crate::publish_cmd::set_upload(store_path, &req, max_bytes, dry_run, browser, out, ctx);
+                }
                 return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx)?.print(out));
             }
             #[cfg(not(feature = "account"))]
