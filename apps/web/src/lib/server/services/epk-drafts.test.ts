@@ -2,8 +2,14 @@ import { XRPCError } from '@atproto/api';
 import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
-import { ForbiddenError, NotFoundError } from '../core';
+import { z } from 'zod';
+import { recordCid } from '../atproto/repo-client';
+import { ForbiddenError, NotFoundError, UserError } from '../core';
+import { HappyViewClient } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
+import { silentLogger } from '../logger';
 import { ROOT } from '../testing/core';
+import { EpkService } from './epk';
 import { FakeRootClient } from '../testing/fakes';
 import { ADMIN, CODJ, DJ, NO_SPACES, pressKitServices, STRANGER, values } from '../testing/press-kits';
 
@@ -20,7 +26,11 @@ describe('EpkDrafts', () => {
 	});
 
 	const save = async (did: string, rkey: string | undefined, overrides: Parameters<typeof values>[0] = {}) =>
-		f.t.epks.drafts.save(await f.t.viewer(did), f.project, { rkey, values: values(overrides) });
+		f.t.epks.drafts.save(await f.t.viewer(did), f.project, {
+			rkey,
+			cid: await f.opened(rkey),
+			values: values(overrides)
+		});
 
 	const publish = async (did: string, rkey: string, overwrite?: Parameters<typeof f.t.epks.drafts.publish>[3]) =>
 		f.t.epks.drafts.publish(await f.t.viewer(did), f.project, rkey, overwrite);
@@ -203,6 +213,7 @@ describe('EpkDrafts', () => {
 
 		const draft = await f.t.epks.drafts.save(manager, f.project, {
 			rkey: epk.rkey,
+			cid: epk.cid,
 			values: values({ photos: [photo] })
 		});
 
@@ -250,6 +261,65 @@ describe('EpkDrafts', () => {
 		vi.spyOn(FakeRootClient.prototype, 'putRecord').mockRejectedValueOnce(new XRPCError(400, 'InvalidSwap'));
 		await expect(publish(DJ, epk.rkey)).rejects.toMatchObject({ status: 409 });
 		expect((await publish(DJ, epk.rkey)).kind).toBe('published');
+	});
+
+	it('saves a draft only over the published version its form was opened on', async () => {
+		const epk = await f.publish(DJ);
+		const codj = await f.t.viewer(CODJ);
+		const stale = new UserError('This press kit changed since you opened it. Reload and try again.', 409);
+
+		// DJ publishes again while CODJ's form is still open on the first version.
+		await f.publish(DJ, { headline: 'Warehouse techno' }, epk.rkey);
+		await expect(
+			f.t.epks.drafts.save(codj, f.project, { rkey: epk.rkey, cid: epk.cid, values: values({ title: 'Clubs 2027' }) })
+		).rejects.toEqual(stale);
+		await expect(f.t.epks.drafts.save(codj, f.project, { rkey: epk.rkey, values: values() })).rejects.toEqual(stale);
+		expect(f.t.net.spaceRecordsIn(f.t.epks.drafts.space(f.project), CODJ)).toEqual([]);
+
+		// Reloaded, it saves.
+		expect(await save(CODJ, epk.rkey, { title: 'Clubs 2027', headline: 'Warehouse techno' })).toMatchObject({
+			status: 'current',
+			fields: ['title']
+		});
+	});
+
+	it("has HappyView re-read the root's press kits when the PDS holds a version it doesn't serve yet", async () => {
+		const backfilled: string[] = [];
+
+		const admin = new HappyViewClient({
+			url: 'http://happyview.test',
+			apiKey: 'hv_test',
+			fetch: async (url, init) => {
+				const request = new Request(url, init);
+
+				if (new URL(request.url).pathname !== '/admin/backfill') return f.t.happyView.fetch(request);
+				const { collection, did } = z.object({ collection: z.string(), did: z.string() }).parse(await request.json());
+				backfilled.push(`${collection} ${did}`);
+
+				return Response.json({ id: 'job', status: 'running' });
+			}
+		});
+
+		const epks = new EpkService(
+			f.t.core,
+			f.t.projects,
+			new IndexedRepo(admin, silentLogger, 0),
+			f.t.publicRepo,
+			async (id) => id
+		);
+
+		const epk = await f.publish(DJ);
+		const dj = await f.t.viewer(DJ);
+		await epks.drafts.save(dj, f.project, { rkey: epk.rkey, cid: epk.cid, values: values({ title: 'Clubs 2027' }) });
+
+		// Another app changes it in the root's repo, and HappyView hasn't heard yet.
+		const key = `${ROOT}|${COLLECTION.epk}|${epk.rkey}`;
+		const elsewhere = { ...published(epk.rkey).value, headline: 'Changed elsewhere' };
+		f.t.net.records.set(key, { uri: epk.uri, cid: await recordCid(elsewhere), value: elsewhere });
+
+		await expect(epks.drafts.publish(dj, f.project, epk.rkey)).rejects.toMatchObject({ status: 409 });
+		expect(published(epk.rkey).value.headline).toBe('Changed elsewhere');
+		expect(backfilled).toEqual([`${COLLECTION.epk} ${ROOT}`]);
 	});
 
 	it("won't publish a draft onto another project's press kit, whatever key it names", async () => {

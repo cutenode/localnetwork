@@ -59,6 +59,7 @@
 		};
 	}}
 >
+	<input type="hidden" name="cid" value={values.cid} />
 	<section aria-labelledby="epk-basics" class="flex flex-col gap-4">
 		<h2 id="epk-basics" class="m-0 text-emphasis font-semibold">The public part</h2>
 		<TextField id="title" name="title" label="Name" hint="What this press kit is for, like Clubs or Festivals 2027." required maxlength={100} value={values.title} />

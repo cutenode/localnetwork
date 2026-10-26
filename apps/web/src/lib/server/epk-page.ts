@@ -146,7 +146,7 @@ export async function saveDraftForm(
 		content: { ...parsed.content, mixes: parsed.privateMixes, photos: privatePhotos }
 	};
 
-	return epks.drafts.save(viewer, project, { rkey, values });
+	return epks.drafts.save(viewer, project, { rkey, cid: parsed.cid, values });
 }
 
 const FIELD_LABELS: Record<EpkField, string> = {

@@ -1,7 +1,7 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.directory.defs",
-	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows.",
+	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects, their managers' DJ records, press kits and shows, and follows.",
 	"defs": {
 		"projectView": {
 			"type": "object",
@@ -16,6 +16,16 @@
 					"minimum": 0,
 					"description": "Meters from the searched location, when the search had one and the project has coordinates."
 				}
+			}
+		},
+		"recordView": {
+			"type": "object",
+			"description": "A record as the directory indexed it. Its collection's record script can leave fields out and add its own.",
+			"required": ["uri", "cid", "value"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"value": { "type": "unknown" }
 			}
 		},
 		"setView": {

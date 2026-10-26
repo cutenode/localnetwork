@@ -250,7 +250,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     };
     for t in libraries.iter().flat_map(|l| l.tracks.iter()) {
         add(&paths::key(&t.file_path), &src_tree, &mut wanted);
-        for k in crate::clean::analysis_files(&t.analyze_path, &src_tree) {
+        for k in crate::track_files::analysis_files(&t.analyze_path, &src_tree) {
             add(&k, &src_tree, &mut wanted);
         }
         if let Some(a) = &t.artwork_path {

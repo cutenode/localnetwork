@@ -299,55 +299,6 @@ fn resolver(public_only: bool) -> Result<JacquardResolver<Http>> {
     Ok(JacquardResolver::new(Http::new(public_only)?, ResolverOptions::default()).with_system_dns())
 }
 
-/// The Lexicon document `nsid` as its authority publishes it now: the authority's `_lexicon` DNS
-/// record names its DID, and the document is a record in that DID's repository.
-///
-/// The DNS record is looked up here, with the system's resolver configuration, rather than by
-/// jacquard: its resolver is built with hickory's empty default configuration, which has no name
-/// servers to ask (jacquard-identity 0.12.2, `JacquardResolver::with_system_dns`).
-pub(crate) fn fetch_lexicon(nsid: &str) -> Result<serde_json::Value> {
-    use hickory_resolver::TokioResolver;
-    use hickory_resolver::proto::rr::RData;
-    use jacquard_common::types::ident::AtIdentifier;
-    use jacquard_common::types::nsid::Nsid;
-    use jacquard_common::types::recordkey::RecordKey;
-    use jacquard_common::xrpc::XrpcExt;
-    use jacquard_common::xrpc::atproto::GetRecord;
-    use jacquard_identity::resolver::IdentityResolver;
-
-    let failed = |why: String| Error::Account(one_line(&format!("couldn't fetch the Lexicon {nsid}: {why}")));
-    let id = Nsid::new(nsid).map_err(|e| Error::invalid(format!("{nsid} isn't an NSID: {e}")))?;
-    let authority = id.domain_authority().split('.').rev().collect::<Vec<_>>().join(".");
-    block_on(async {
-        let dns = TokioResolver::builder_tokio().and_then(|b| b.build()).map_err(|e| failed(e.to_string()))?;
-        let txt = dns.txt_lookup(format!("_lexicon.{authority}.")).await.map_err(|e| failed(e.to_string()))?;
-        let did = txt
-            .answers()
-            .iter()
-            .filter_map(|record| match &record.data {
-                RData::TXT(txt) => Some(txt),
-                _ => None,
-            })
-            .flat_map(|txt| txt.txt_data.iter())
-            .find_map(|data| std::str::from_utf8(data).ok()?.strip_prefix("did=").map(str::to_string))
-            .ok_or_else(|| failed(format!("_lexicon.{authority} names no DID")))?;
-        let did: Did = Did::new_owned(did.as_str()).map_err(|e| failed(format!("{did}: {e}")))?;
-        let resolver = resolver(true)?;
-        let doc = resolver.resolve_did_doc(&did).await.map_err(|e| failed(e.to_string()))?;
-        let doc = doc.parse().map_err(|e| failed(e.to_string()))?;
-        let pds = doc.pds_endpoint().ok_or_else(|| failed(format!("{did} names no data server")))?;
-        let request: GetRecord = GetRecord {
-            repo: AtIdentifier::Did(did.clone()),
-            collection: Nsid::new_owned("com.atproto.lexicon.schema").expect("an NSID"),
-            rkey: RecordKey::any_owned(nsid).map_err(|e| failed(e.to_string()))?,
-            cid: None,
-        };
-        let response = resolver.xrpc(pds).send(&request).await.map_err(|e| failed(e.to_string()))?;
-        let output = response.into_output().map_err(|e| failed(e.to_string()))?;
-        serde_json::to_value(&output.value).map_err(|e| failed(e.to_string()))
-    })
-}
-
 fn oauth(store: LocalStore, config: AtprotoClientMetadata<SmolStr>, public_only: bool) -> Result<Oauth> {
     Ok(OAuthClient::new_from_resolver(store, resolver(public_only)?, ClientData { keyset: None, config }))
 }

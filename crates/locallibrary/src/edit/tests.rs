@@ -78,7 +78,10 @@ fn playlist_edits_on_the_model() {
     let r = Resolver::new(&device, &extra, false, Ctx::silent());
     let (ops, _, _) =
         r.resolve(&Edit::DeletePlaylist { playlist: "Sets".into(), with_tracks: true }, &with_history).unwrap();
-    assert!(ops.contains(&Op::DeleteTracks { tracks: vec!["contents/2.mp3".into(), "contents/3.mp3".into()] }));
+    assert!(ops.contains(&Op::DeleteTracks {
+        tracks: vec!["contents/2.mp3".into(), "contents/3.mp3".into()],
+        elsewhere: Vec::new()
+    }));
 
     let add = |ids: Vec<u32>, position| Edit::AddTracks {
         playlist: "Sets/Fri".into(),
@@ -879,7 +882,7 @@ fn ops_naming_what_a_database_lacks_are_refused_or_skipped(tc: hegel::TestCase) 
         Op::SetEntries { node: name(), tracks: Vec::new(), before: None },
         Op::SetEntries { node: vec!["Loose".into()], tracks: vec![track()], before: None },
         Op::SetFields { tracks: vec![track()], fields },
-        Op::DeleteTracks { tracks: vec![track()] },
+        Op::DeleteTracks { tracks: vec![track()], elsewhere: Vec::new() },
         Op::Repoint { from: track(), to: "contents/1.mp3".into() },
         Op::SetPath { track: track(), path: "/Contents/9.mp3".into(), file: None, shift_ms: 0 },
         Op::DeleteHistory { lists: vec![(name()[0].clone(), 0)] },

@@ -30,7 +30,7 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 		title: epk?.record.title ?? draft?.changes.title ?? 'New press kit',
 		draft: draft && { status: draft.status, updatedAt: draft.updatedAt },
 		others: editor.others.map((other) => ({ author: other.author, updatedAt: other.updatedAt })),
-		values: epkFormValues(project.profile.mixes ?? [], editor.fields),
+		values: epkFormValues(project.profile.mixes ?? [], editor.fields, epk?.cid),
 		waiting: requests.filter((request) => request.status === 'pending').length,
 		notice
 	};

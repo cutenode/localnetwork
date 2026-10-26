@@ -3,7 +3,11 @@ import { type EpkAccess, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import { ensureRootSpaces } from '../bootstrap';
 import { ForbiddenError, UserError } from '../core';
+import { HappyViewClient, HappyViewError } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
+import { silentLogger } from '../logger';
 import { ROOT } from '../testing/core';
+import { EpkService } from './epk';
 import {
 	ADMIN,
 	CODJ,
@@ -13,7 +17,8 @@ import {
 	PROMOTER,
 	preset,
 	pressKitServices,
-	STRANGER
+	STRANGER,
+	values
 } from '../testing/press-kits';
 
 describe('EpkService', () => {
@@ -278,6 +283,31 @@ describe('EpkService', () => {
 		expect(f.t.net.records.has(`${ROOT}|${COLLECTION.epk}|${epk.rkey}`)).toBe(false);
 		expect(await f.t.epks.forProject(f.project)).toEqual([]);
 		expect(await f.t.epks.grants(epk)).toEqual([]);
+	});
+
+	it('fails a change or an access decision while HappyView is down, rather than taking a press kit for missing', async () => {
+		const epk = await f.publish(DJ);
+		const dj = await f.t.viewer(DJ);
+		const draft = await f.t.epks.drafts.save(dj, f.project, { values: values({ title: 'Festivals' }) });
+		const unanswered = async () => new Response('down', { status: 503 });
+
+		const down = new EpkService(
+			f.t.core,
+			f.t.projects,
+			new IndexedRepo(new HappyViewClient({ url: 'http://happyview.test', fetch: unanswered }), silentLogger, 0),
+			f.t.publicRepo,
+			async (id) => id
+		);
+
+		await expect(down.get(f.project, epk.rkey)).rejects.toBeInstanceOf(HappyViewError);
+		await expect(down.locate(ROOT, epk.rkey)).rejects.toBeInstanceOf(HappyViewError);
+		await expect(
+			down.drafts.save(dj, f.project, { rkey: epk.rkey, cid: epk.cid, values: values({ title: 'Edited' }) })
+		).rejects.toBeInstanceOf(HappyViewError);
+		await expect(down.drafts.publish(dj, f.project, draft!.rkey)).rejects.toBeInstanceOf(HappyViewError);
+		expect(f.t.net.records.get(`${ROOT}|${COLLECTION.epk}|${epk.rkey}`)?.value.title).toBe('Clubs');
+		// Pages that list press kits still render without it.
+		expect(await down.forProject(f.project)).toEqual([]);
 	});
 
 	it('has the bootstrap watch the press kit spaces and backstages the root made', async () => {

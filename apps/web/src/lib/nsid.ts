@@ -16,6 +16,8 @@ export const COLLECTION = {
 	bookingStatus: `${NS}.booking.status`,
 	plannerSave: `${NS}.planner.save`,
 	plannerShow: `${NS}.planner.show`,
+	/** A DJ's playing stats, written by locallibrary to the DJ's own repo. */
+	djProfile: `${NS}.dj.profile`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
 	djSet: `${NS}.dj.set`,
 	epk: `${NS}.epk`,
@@ -38,7 +40,10 @@ export const VERIFICATION = 'app.bsky.graph.verification' as const;
 /** Bluesky's profile record, where an account's display name lives. */
 export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;
 
-/** Queries served by the directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows. */
+/**
+ * Queries served by the directory, the HappyView AppView that indexes published projects, their managers' DJ records,
+ * press kits and shows, and follows.
+ */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
 	matchProjects: `${NS}.directory.matchProjects`,
@@ -52,7 +57,9 @@ export const DIRECTORY = {
 	getFollowStatus: `${NS}.directory.getFollowStatus`,
 	getCharts: `${NS}.directory.getCharts`,
 	getArtist: `${NS}.directory.getArtist`,
-	searchArtists: `${NS}.directory.searchArtists`
+	searchArtists: `${NS}.directory.searchArtists`,
+	getRecords: `${NS}.directory.getRecords`,
+	listRecords: `${NS}.directory.listRecords`
 } as const;
 
 export const SPACE_TYPE = {

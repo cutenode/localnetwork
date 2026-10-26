@@ -1,5 +1,5 @@
 //! A plan the drive has no room for is refused when applied, whatever the command: editing
-//! playlists, cleaning, merging, converting, setting a cue. Nothing on the drive changes, the
+//! playlists, deleting a track with its files, merging, converting, setting a cue. Nothing on the drive changes, the
 //! error says the space the plan needs, and the same plan with room applies.
 
 use crate::{common, drawn};
@@ -14,8 +14,12 @@ use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::progress::Ctx;
-use locallibrary::{Error, Result, clean};
+use locallibrary::query::TrackSelector;
+use locallibrary::{Error, Result};
 use rekordbox_pdb::NewTrack;
+
+/// A demo sample on the drive, for a plan deleting a track with its files.
+const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
 
 /// Apply a plan of the drawn command on `root` (with `fits` as given): what applying said.
 fn attempt(command: u8, root: &Path, guest: &Path, fits: bool) -> (Result<()>, u64) {
@@ -29,9 +33,10 @@ fn attempt(command: u8, root: &Path, guest: &Path, fits: bool) -> (Result<()>, u
             (edit::apply(&p, &mut d, &silent).map(drop), p.needed_bytes)
         }
         1 => {
-            let mut p = clean::plan(&d, &silent).unwrap();
+            let edits = [Edit::DeleteTracks { tracks: TrackSelector::paths([SAMPLE.into()]), keep_files: false }];
+            let mut p = edit::plan(&d, &edits, &EditOptions::default(), &silent).unwrap();
             p.fits = fits;
-            (clean::apply(&p, &mut d, &silent).map(drop), p.needed_bytes)
+            (edit::apply(&p, &mut d, &silent).map(drop), p.needed_bytes)
         }
         2 => {
             let src = Device::open_export(guest).unwrap();
@@ -69,14 +74,13 @@ fn a_plan_the_drive_has_no_room_for_changes_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = locallibrary::device::dunce_canonicalize(dir.path());
     // The demo export (real analysis, for cues) or the twelve-track one drawn on, with a demo
-    // sample to clean.
+    // sample to delete.
     let main = match tc.draw(gs::booleans()) {
         true => common::demo_drive(&root, "Main"),
         false => drawn::drive(&tc, &root, "Main").0,
     };
-    let sample = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
-    let track = NewTrack { artist: Some("rekordbox".into()), ..NewTrack::new("House 1", sample) };
-    common::add_track(&main, track, &common::placeholder_audio(sample));
+    let track = NewTrack { artist: Some("rekordbox".into()), ..NewTrack::new("House 1", SAMPLE) };
+    common::add_track(&main, track, &common::placeholder_audio(SAMPLE));
     // A track with its analysis where rekordbox keeps it, for the cue.
     drawn::track(&tc, &main, 7);
     let guest = common::bigger_drive(&root, "Guest");

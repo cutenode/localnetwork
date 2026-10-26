@@ -29,6 +29,9 @@ are:
   collection.nml LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE
   --from interop:traktor --grant FOLDER --option collection=FILE`), see [From
   Traktor](other-software.md#from-traktor).
+- **demos**: `locallibrary clean LIBRARY` removes rekordbox's demo tracks and their files (see
+  [Editing](editing.md#clean)), and its check lists them in `check` and `doctor`, with `clean` as
+  the fix. `refresh` runs it first.
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
