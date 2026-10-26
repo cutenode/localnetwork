@@ -320,6 +320,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
     label when it was found by name, and a track's title and artist when its ISRC found it (a
     track without an album only from a single of its title).
+  - `demos`: `clean` removes rekordbox's demo tracks with their files, and its check lists them
+    in `check` and doctor, with `clean` as the fix.
   - `musicbrainz`: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
     for `sets publish` to publish: the recording only when it's the track's (its length, or
     without one its title; of several, both), the earliest release named as the album, and the
@@ -569,6 +571,12 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
+- `clean` is the demos plugin's now: its plan is an edit plan (journaled, so `edits replay` makes it
+  again after an export), a demo track only OneLibrary lists goes too, and one sharing its audio
+  file with another track stays, said so. `refresh`'s first step runs it. Over RPC, `clean.plan`
+  and `clean.apply` are gone: use `plugins.op.plan {plugin: "demos", operation: "clean", context:
+  {drive}}` and `plugins.op.apply`. A `delete_tracks` edit removes every row of a track's audio
+  file, and may name a track only the drive's other database lists.
 - `playlist import` is the tracklist plugin's now. The entries that could be several tracks are
   asked about 64 at a time (all at once for most lists), so the list and the drive's library are
   read once a round rather than once an entry (in a terminal; otherwise it stops, exit status 2,

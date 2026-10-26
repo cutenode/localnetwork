@@ -276,7 +276,7 @@ pub(super) fn plan(
                 && tgt_tree.resolve(&w.to).is_some_and(|e| e.size == r.file.size)
         });
         let copy_path = paths::device_path(&w.to);
-        for analysis in crate::clean::analysis_files(&t.analyze_path, src_tree) {
+        for analysis in crate::track_files::analysis_files(&t.analyze_path, src_tree) {
             let e = src_tree.resolve(&analysis).expect("listed from the tree");
             let rewritten =
                 library_write::Source::analysis(src_tree.fs_path(&e.path), e.mtime, &copy_path, w.shift_ms)?;

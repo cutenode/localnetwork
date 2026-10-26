@@ -139,19 +139,20 @@ fn jobs_through_the_api() {
     let plan = api::refresh_plan(&store, &api::RefreshRequest::default(), &ctx).unwrap();
     assert_eq!(
         running(&plan),
-        [StepKind::Clean, StepKind::Replay, StepKind::Smart, StepKind::Player, StepKind::Settings, StepKind::Pull]
+        [StepKind::Replay, StepKind::Smart, StepKind::Player, StepKind::Settings, StepKind::Pull]
     );
-    assert!(plan.destructive, "clean deletes the demo sample");
     let v = serde_json::to_value(&plan).unwrap();
     assert_eq!(v["operation"], "refresh");
-    assert_eq!(v["steps"][0]["step"], "clean");
-    assert!(v["summary"].as_array().unwrap().iter().any(|l| l.as_str().unwrap().starts_with("Remove rekordbox's")));
+    // The demo sample is the demos plugin's to remove, which the app hosts.
+    let first = (v["steps"][0]["step"].as_str(), v["steps"][0]["reason"].as_str());
+    assert_eq!(first, (Some("clean"), Some("the demos plugin isn't there")));
+    assert!(v["summary"].as_array().unwrap().iter().any(|l| l.as_str().unwrap().starts_with("Make the recorded")));
     let report = plan.apply(Some(&store), &ctx).unwrap();
     assert!(report.stopped.is_none(), "{:?}", report.stopped);
-    assert_eq!(report.steps.len(), 6);
+    assert_eq!(report.steps.len(), 5);
     let names = playlist_names(&main);
     assert!(names.contains(&"Friday".to_string()) && names.contains(&"Everything".to_string()), "{names:?}");
-    assert!(!paths::to_fs(&main, &paths::key(SAMPLE)).exists(), "the demo sample is gone");
+    assert!(paths::to_fs(&main, &paths::key(SAMPLE)).exists(), "the demo sample stays");
     assert_eq!(player::db_identity(&main), Some(remembered.clone()));
     let st = status_of(&store, &main);
     assert_eq!(
@@ -168,7 +169,7 @@ fn jobs_through_the_api() {
     export_again(&main, &export);
     let skip = vec![StepKind::Smart, StepKind::Player, StepKind::Settings];
     let plan = api::refresh_plan(&store, &api::RefreshRequest { skip, ..Default::default() }, &ctx).unwrap();
-    assert_eq!(running(&plan), [StepKind::Clean, StepKind::Replay, StepKind::Pull]);
+    assert_eq!(running(&plan), [StepKind::Replay, StepKind::Pull]);
     assert_eq!(plan.steps.iter().find(|s| s.step == StepKind::Smart).unwrap().reason.as_deref(), Some("skipped"));
     let held = store.lock().unwrap();
     let report = plan.apply(Some(&store), &ctx).unwrap();
@@ -176,7 +177,7 @@ fn jobs_through_the_api() {
     let stopped = report.stopped.as_ref().expect("the store was locked");
     assert_eq!((stopped.step.as_str(), stopped.kind), ("pull", "locked"));
     assert!(report.did_anything());
-    assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Clean, StepKind::Replay]);
+    assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Replay]);
     assert!(playlist_names(&main).contains(&"Friday".to_string()));
     // The rest, with the drive as the first run left it (the replay made the rule's playlist too,
     // as `smart apply` recorded it).
@@ -306,7 +307,7 @@ fn jobs_through_the_api() {
     impl Progress for Swap {
         fn on_event(&self, _: &Event) {}
         fn on_step(&self, scope: &Scope) {
-            if scope.step.is_some_and(|s| s.id == "replay") {
+            if scope.step.is_some_and(|s| s.id == "smart") {
                 let mut d = Device::open(&self.0).unwrap();
                 fleet::reidentify(None, &mut d, Some("Impostor")).unwrap();
             }
@@ -314,12 +315,12 @@ fn jobs_through_the_api() {
     }
     let req = api::RefreshRequest { drive: Some(path(&main)), ..Default::default() };
     let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
-    assert_eq!(running(&plan)[..2], [StepKind::Clean, StepKind::Replay]);
+    assert_eq!(running(&plan)[..2], [StepKind::Replay, StepKind::Smart]);
     let swap = Swap(main.clone());
     let report = plan.apply(Some(&store), &Ctx::new(&swap, CancelToken::new())).unwrap();
     let stopped = report.stopped.as_ref().expect("refused");
-    assert_eq!((stopped.step.as_str(), stopped.kind), ("replay", "stale_plan"), "{}", stopped.message);
-    assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Clean]);
+    assert_eq!((stopped.step.as_str(), stopped.kind), ("smart", "stale_plan"), "{}", stopped.message);
+    assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Replay]);
 }
 
 /// rekordbox writes both databases, a player only the one it reads: on a drive with both, a set

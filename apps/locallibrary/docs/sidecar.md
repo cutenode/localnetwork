@@ -204,10 +204,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
-  `clean.plan/apply`, `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
-  previews), `store.*`, `disks.list`,
-  `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
-  the one erased).
+  `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG previews), `store.*`,
+  `disks.list`, `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the
+  user confirmed is the one erased).
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,

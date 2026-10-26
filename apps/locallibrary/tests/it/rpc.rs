@@ -891,7 +891,7 @@ fn a_plan_is_applied_by_its_id_once_and_not_once_stale() {
     assert!(plan["result"]["summary"].as_array().is_some_and(|s| !s.is_empty()), "{plan}");
 
     // Applied by id, exactly once; and only by the method of its kind.
-    let wrong = s.call(2, "clean.apply", json!({ "plan_id": id }));
+    let wrong = s.call(2, "convert.apply", json!({ "plan_id": id }));
     assert_eq!(kind(&wrong), "invalid_params", "{wrong}");
     let done = s.call(3, "edit.apply", json!({ "plan_id": id }));
     assert!(done["result"]["changes"].as_u64().is_some(), "{done}");
