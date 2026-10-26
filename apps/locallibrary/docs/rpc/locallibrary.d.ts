@@ -8780,7 +8780,9 @@ export type Phase =
   /** Looking for library tracks in a mix. */
   | "match"
   /** Decoding library tracks to estimate their tempo, key and loudness. */
-  | "analyze";
+  | "analyze"
+  /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
+  | "upload";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {

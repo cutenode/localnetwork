@@ -156,7 +156,8 @@ pub struct PublishSet {
     /// One of the manifest's set destinations.
     pub destination: String,
     pub set: PublishedSet,
-    /// The set's recording on this computer (absolute): read it, never change it.
+    /// The set's recording on this computer (absolute): read it, never change it. Publishing (not
+    /// a dry run), `net/fetch` sends it, or parts of it, as its `body_blob` or a form's `file`.
     pub recording: PathBuf,
     /// In play order.
     pub tracklist: Vec<TracklistEntry>,

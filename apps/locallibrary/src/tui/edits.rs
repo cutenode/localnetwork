@@ -460,6 +460,7 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Verify => "verifying",
         Phase::Format => "formatting",
         Phase::Analyze => "analyzing",
+        Phase::Upload => "uploading",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }

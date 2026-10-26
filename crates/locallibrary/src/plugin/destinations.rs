@@ -125,7 +125,7 @@ impl Destination for StoreDestination {
         let req = PutManifest { destination: self.name.clone(), name: name.into(), blob, context: self.context() };
         let given = [(RECORD, bytes)];
         let store = self.store.as_ref();
-        self.slot.call_giving(method::MANIFEST_PUT, &req, &given, store, ctx, &|_| {}, |_: Value, _, _| Ok(()))
+        self.slot.call_giving(method::MANIFEST_PUT, &req, &given, &[], store, ctx, &|_| {}, |_: Value, _, _| Ok(()))
     }
 
     fn get_manifest(&self, name: &str, ctx: &Ctx<'_>) -> Result<Option<Vec<u8>>> {
