@@ -30,10 +30,11 @@ fn mp3(frames: usize) -> Vec<u8> {
     [&[0xff, 0xfb, 0x90, 0x64][..], &[0; 413]].concat().repeat(frames)
 }
 
-/// A set in the store at `root` whose recording is `recording` (written there when it's given).
-fn save_set(root: &Path, recording: Option<&[u8]>) -> std::path::PathBuf {
+/// A set in the store at `root` whose recording is `recording` (written there, as `name`, when it's
+/// given).
+fn save_set(root: &Path, name: &str, recording: Option<&[u8]>) -> std::path::PathBuf {
     // Beside the store, which takes nothing else in its folder.
-    let file = root.with_extension("recordings").join("friday.mp3");
+    let file = root.with_extension("recordings").join(name);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     if let Some(bytes) = recording {
         std::fs::write(&file, bytes).unwrap();
@@ -126,7 +127,7 @@ fn a_recording_goes_up_as_a_blob_and_the_sets_record_points_at_it() {
     let root = dir.path().join("store");
     let key = sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
     let audio = mp3(40);
-    save_set(&root, Some(&audio));
+    save_set(&root, "friday.mp3", Some(&audio));
 
     let plan = api::set_upload_plan(&root, &upload_request()).unwrap();
     let uri = format!("at://{DID}/{RECORDING}/{ID}");
@@ -189,13 +190,13 @@ fn an_upload_that_cant_go_says_why() {
     let root = dir.path().join("store");
 
     // No recording on the set, or one that isn't there any more.
-    save_set(&root, None);
+    save_set(&root, "friday.mp3", None);
     let err = api::set_upload_plan(&root, &upload_request()).unwrap_err();
     assert_eq!(err.code(), "not_found");
     assert!(err.to_string().contains(&format!("`sets edit {} --recording FILE`", &ID[..8])), "{err}");
 
     let other = dir.path().join("other");
-    let file = save_set(&other, Some(&mp3(40)));
+    let file = save_set(&other, "friday.mp3", Some(&mp3(40)));
     // Signed out, it can be looked at.
     let plan = api::set_upload_plan(&other, &upload_request()).unwrap();
     assert!(plan.account.is_none() && plan.summary[0].starts_with("friday.mp3 would be uploaded as it is"));
@@ -203,7 +204,7 @@ fn an_upload_that_cant_go_says_why() {
     assert_eq!(api::set_upload_plan(&other, &upload_request()).unwrap_err().code(), "not_found");
 
     // Signed in allowing publishing, but from before uploads were asked for.
-    let file = save_set(&dir.path().join("third"), Some(&mp3(40)));
+    let file = save_set(&dir.path().join("third"), "friday.mp3", Some(&mp3(40)));
     let root = dir.path().join("third");
     let without_uploads = PUBLISHING.replace(" blob:audio/*", "");
     sign_in(&root, &pds.url, &without_uploads, LATER, Some("refresh-1"));
@@ -226,4 +227,112 @@ fn an_upload_that_cant_go_says_why() {
     assert!(pds.record(DID, RECORDING, ID).is_none(), "no record without the file");
     let store = Store::open(&root).unwrap();
     assert!(SetBook::load(&store).unwrap().sets[0].recording_record.is_none());
+}
+
+/// Over recordings (an MP3 that may go up as it is, or a WAV that has to be encoded), limits,
+/// sessions with and without permission to upload, what ffmpeg (a stand-in) makes of them and data
+/// servers that take less than they're sent: the plan goes up as it is exactly when browsers play
+/// the recording and it fits. A session that may not upload sends nothing; an encoding over the
+/// limit isn't sent and a file over the server's is refused, each saying its size, with no record
+/// and the set as it was. Otherwise the server has the file exactly as it went up, as its type,
+/// its record is under the set's key, and the set points at it instead of what it had.
+#[cfg(unix)]
+#[hegel::test(test_cases = 25)]
+fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
+    use super::{PLYR_TRACK, PLYR_TRACK_CID};
+    use hegel::generators as gs;
+    use locallibrary::op::bytes;
+    use locallibrary::publish::recording::MAX_BYTES;
+    use loclib_plugin::StrongRef;
+    use std::os::unix::fs::PermissionsExt;
+    let pds = network();
+    pds.set_account(DID, "dj.example.com");
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let is_mp3 = tc.draw(gs::booleans());
+    let audio = if is_mp3 {
+        mp3(tc.draw(gs::integers::<usize>().min_value(40).max_value(400)))
+    } else {
+        let secs = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
+        crate::common::media::wav_of(8000, 16, 1, f64::from(secs))
+    };
+    save_set(&root, if is_mp3 { "friday.mp3" } else { "friday.wav" }, Some(&audio));
+    let may_upload = tc.draw(gs::weighted_booleans(0.8));
+    let scopes = if may_upload { PUBLISHING.to_string() } else { PUBLISHING.replace(" blob:audio/*", "") };
+    sign_in(&root, &pds.url, &scopes, LATER, Some("refresh-1"));
+    // Published at a plugin first, the set points at that recording.
+    let before = tc.draw(gs::booleans()).then(|| StrongRef { uri: PLYR_TRACK.into(), cid: PLYR_TRACK_CID.into() });
+    let store = Store::open(&root).unwrap();
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets[0].recording_record = before.clone();
+    book.save(&store).unwrap();
+    let pointed_at = || SetBook::load(&store).unwrap().sets[0].recording_record.clone();
+
+    // ffmpeg copies what it's to make into the file it's told to.
+    let encoded = vec![7u8; tc.draw(gs::integers::<usize>().min_value(1).max_value(40_000))];
+    let (bin, made) = (dir.path().join("bin"), dir.path().join("encoded"));
+    std::fs::create_dir(&bin).unwrap();
+    std::fs::write(&made, &encoded).unwrap();
+    let script = format!("#!/bin/sh\nfor last; do :; done\n/bin/cp '{}' \"$last\"\n", made.display());
+    std::fs::write(bin.join("ffmpeg"), script).unwrap();
+    std::fs::set_permissions(bin.join("ffmpeg"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    // SAFETY: nextest gives each test a process of its own, and nothing else in it reads the
+    // environment meanwhile.
+    unsafe { std::env::set_var("PATH", &bin) };
+    let server_limit = tc.draw(gs::optional(gs::integers::<usize>().min_value(1).max_value(50_000)));
+    if let Some(l) = server_limit {
+        pds.set_blob_limit(l);
+    }
+
+    let max_bytes = tc.draw(gs::optional(gs::integers::<u64>().min_value(8_000).max_value(2 * audio.len() as u64)));
+    let limit = max_bytes.map_or(MAX_BYTES, |m| m.min(MAX_BYTES));
+    let as_is = is_mp3 && audio.len() as u64 <= limit;
+    let plan = match api::set_upload_plan(&root, &SetUploadRequest { set: ID.into(), max_bytes }) {
+        Ok(plan) => plan,
+        Err(e) => {
+            // Too long to fit the limit even at 64 kbit/s.
+            assert!(!as_is && e.to_string().starts_with("the recording is too long to upload"), "{e}");
+            return;
+        }
+    };
+    assert_eq!(plan.encoding == Encoding::AsIs, as_is);
+    assert_eq!(plan.missing_scope.is_some(), !may_upload);
+    let sent = if as_is { &audio } else { &encoded };
+    let result = plan.apply(None, &Ctx::silent());
+    let uploaded = pds.calls(UPLOAD).len();
+    if !may_upload {
+        assert_eq!(result.unwrap_err().reason(), Some(Reason::MissingScope));
+        assert_eq!(uploaded, 0);
+    } else if !as_is && encoded.len() as u64 > limit {
+        let err = result.unwrap_err().to_string();
+        assert_eq!(
+            err,
+            format!(
+                "ffmpeg's encoding of the recording came to {}, more than {}",
+                bytes(encoded.len() as u64),
+                bytes(limit)
+            )
+        );
+        assert_eq!(uploaded, 0);
+    } else if server_limit.is_some_and(|l| sent.len() > l) {
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains(&format!("refused the recording: {} is more than it takes", bytes(sent.len() as u64))),
+            "{err}"
+        );
+    } else {
+        let published = result.unwrap();
+        let (record, cid) = pds.record(DID, RECORDING, ID).unwrap();
+        assert_eq!(
+            (published.uri.as_str(), published.cid.as_str()),
+            (format!("at://{DID}/{RECORDING}/{ID}").as_str(), cid.as_str())
+        );
+        let mime = if as_is { "audio/mpeg" } else { "audio/mp4" };
+        let link = record["audio"]["ref"]["$link"].as_str().unwrap();
+        assert_eq!(pds.blob(link), Some((mime.to_string(), sent.clone())));
+        assert_eq!(pointed_at(), Some(StrongRef { uri: published.uri, cid }));
+        return;
+    }
+    assert!(pds.record(DID, RECORDING, ID).is_none(), "no record without the file");
+    assert_eq!(pointed_at(), before);
 }
