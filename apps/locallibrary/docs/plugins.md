@@ -86,8 +86,14 @@ until when, and `sign-out` forgets the tokens and tells the service when it can.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
 and refreshed a minute before they expire. The plugin never sees them: a request it makes names
-the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
-once it has checked the request, never sending it on to another server a redirect leads to.
+the account (`{account:ID}`) where its token goes, the `Authorization` header unless the service
+only takes it in the address (Mixcloud), and locallibrary fills in the token once it has checked
+the request, never sending it on to another server a redirect leads to.
+
+Some services (SoundCloud) only take the browser back at the exact address their app was
+registered with, port included. A plugin's account on one of those names its port, and its
+service's app is registered with `http://127.0.0.1:PORT/callback`. Signing in then needs that port
+free on this computer, and says so when another program has it.
 
 Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
 tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
@@ -401,12 +407,13 @@ A plugin goes online through locallibrary, which fetches only from the servers i
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
-such a request names it, filled in by locallibrary, never on to another server a redirect leads
-to, and is left out of the plugin's log and of the errors it's told (what a server answers is
-passed on as it is). The files a plugin sends are those in its request's folder (see below) and a
-set's recording while it publishes the set, nothing else. A destination is given stored files to
-read, never the store's folder to write: what it gives back is checked before locallibrary keeps
-it.
+such a request names it (an account's token, only where its manifest says it goes), filled in by
+locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
+and of the errors it's told. What a server answers is passed on as it is, but for an account's
+token sent in the address, which comes back as the placeholder that named it. The files a plugin
+sends are those in its request's folder (see below) and a set's recording while it publishes the
+set, nothing else. A destination is given stored files to read, never the store's folder to
+write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary

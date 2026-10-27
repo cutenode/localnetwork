@@ -7,7 +7,7 @@ use super::*;
 use crate::{
     Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources, Exporter,
     FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation,
-    Panel, Provider, ProviderKind, Role, Service, Theme, When, code,
+    Panel, Provider, ProviderKind, Role, Service, Theme, TokenPlace, When, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -442,6 +442,48 @@ fn an_account_trades_tokens_at_its_token_endpoint_or_local_networks_exchange_onl
     assert_eq!(account(""), "contributes.accounts[0].token_url: is missing, and so is token_exchange");
     let both = "token_url = \"https://auth.example/token\"\ntoken_exchange = \"https://localnetwork.computer/api/token-exchange/x\"\n";
     assert_eq!(account(both), "contributes.accounts[0].token_exchange: goes in token_url's place, not beside it");
+}
+
+/// An account's token goes in the `Authorization` header as `Bearer` unless it names another
+/// scheme or a query parameter, one of them, and the browser comes back to any port unless it
+/// names one a program may listen on.
+#[test]
+fn an_account_says_where_its_token_goes_and_where_the_browser_comes_back() {
+    let account = |rest: &str| {
+        let manifest = format!(
+            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+             authorize_url = \"https://auth.example/authorize\"\ntoken_url = \"https://auth.example/token\"\n\
+             client_id = \"demo\"\n{rest}"
+        );
+        Manifest::parse(&format!("{HEAD}{manifest}")).and_then(|m| {
+            m.validate(false)?;
+            Ok((m.contributes.accounts[0].token.clone(), m.contributes.accounts[0].redirect_port))
+        })
+    };
+    let bearer = TokenPlace::Scheme("Bearer".into());
+    assert_eq!(account("").unwrap(), (bearer.clone(), None));
+    assert_eq!(account("token = { scheme = \"Bearer\" }\n").unwrap(), (bearer, None));
+    let oauth = account("token = { scheme = \"OAuth\" }\nredirect_port = 8765\n").unwrap();
+    assert_eq!(oauth, (TokenPlace::Scheme("OAuth".into()), Some(8765)));
+    let query = account("token = { query = \"access_token\" }\n").unwrap();
+    assert_eq!(query, (TokenPlace::Query("access_token".into()), None));
+    let said = |rest: &str| account(rest).unwrap_err().to_string();
+    assert_eq!(
+        said("token = { scheme = \"Bearer token\" }\n"),
+        "contributes.accounts[0].token.scheme: \"Bearer token\" isn't a scheme: one word, like Bearer or OAuth"
+    );
+    assert_eq!(
+        said("token = { query = \"a=b\" }\n"),
+        "contributes.accounts[0].token.query: \"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~"
+    );
+    assert!(said("token = { scheme = \"OAuth\", query = \"access_token\" }\n").contains("token"));
+    assert!(said("token = { header = \"X-Token\" }\n").contains("unknown variant `header`"));
+    assert!(said("token = \"OAuth\"\n").contains("token"));
+    assert_eq!(
+        said("redirect_port = 80\n"),
+        "contributes.accounts[0].redirect_port: is 1024 or more: 80 is a system service's"
+    );
+    assert!(said("redirect_port = 70000\n").contains("redirect_port"));
 }
 
 /// For any token endpoint and any Local Network token exchange (or a test server's), an account
@@ -1211,6 +1253,19 @@ fn account(tc: &TestCase, id: String) -> Account {
         client_id: title(tc),
         pkce: true,
         revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
+        token: token_place(tc),
+        redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
+    }
+}
+
+/// Where an account's token may go: the `Authorization` header after a scheme (`Bearer` when it
+/// doesn't say), or a query parameter.
+#[hegel::test_helper]
+fn token_place(tc: &TestCase) -> TokenPlace {
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => TokenPlace::default(),
+        1 => TokenPlace::Scheme(tc.draw(gs::from_regex("[A-Za-z0-9!#$%&'*+.^_`|~-]{1,12}").fullmatch(true))),
+        _ => TokenPlace::Query(tc.draw(gs::from_regex("[A-Za-z0-9._~-]{1,12}").fullmatch(true))),
     }
 }
 
@@ -1617,6 +1672,8 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
                 client_id: "added".into(),
                 pkce: true,
                 revoke_url: None,
+                token: TokenPlace::default(),
+                redirect_port: None,
             }),
             "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
@@ -1770,6 +1827,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "account scope",
         "account pkce",
         "account exchange",
+        "account token",
+        "account port",
         "account grant",
         "check when",
         "export grant",
@@ -2123,7 +2182,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 }
             }
         }
-        "account endpoint" | "account client" | "account scope" | "account pkce" | "account exchange" => {
+        "account endpoint" | "account client" | "account scope" | "account pkce" | "account exchange"
+        | "account token" | "account port" => {
             add(c, "accounts", 1);
             if !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
                 m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
@@ -2198,6 +2258,28 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     let j = tc.draw(gs::integers::<usize>().max_value(x.scopes.len()));
                     x.scopes.insert(j, wrong.into());
                     (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
+                }
+                "account token" => {
+                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", "Bearer:", "a=b", "a&b", "{x}", "é"]));
+                    match tc.draw(gs::booleans()) {
+                        true => {
+                            x.token = TokenPlace::Scheme(wrong.into());
+                            (
+                                format!("{at}.token.scheme: {wrong:?} isn't a scheme: one word, like Bearer or OAuth"),
+                                false,
+                            )
+                        }
+                        false => {
+                            x.token = TokenPlace::Query(wrong.into());
+                            let rule = "a query parameter's name: letters, digits, -, ., _ and ~";
+                            (format!("{at}.token.query: {wrong:?} isn't {rule}"), false)
+                        }
+                    }
+                }
+                "account port" => {
+                    let port = tc.draw(gs::integers::<u16>().max_value(1023));
+                    x.redirect_port = Some(port);
+                    (format!("{at}.redirect_port: is 1024 or more: {port} is a system service's"), false)
                 }
                 _ => {
                     x.pkce = false;

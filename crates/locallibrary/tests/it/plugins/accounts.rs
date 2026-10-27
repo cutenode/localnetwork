@@ -2,8 +2,11 @@
 //! browser), the tokens kept with the plugin's secrets and filled into the requests that name the
 //! account, refreshed before they expire, never sent to another origin, never seen by the plugin,
 //! its log or what the host answers; and signing out. The tokens are traded at the service's token
-//! endpoint or, for an account naming it, at Local Network's token exchange.
+//! endpoint or, for an account naming it, at Local Network's token exchange. A token goes in the
+//! `Authorization` header (after `Bearer`, or the scheme the account names) or in the query
+//! parameter the account names, and nowhere else.
 
+use std::net::TcpListener;
 use std::time::Duration;
 
 use hegel::TestCase;
@@ -117,6 +120,15 @@ revoke_url = "{server}/revoke"
 "#
     );
     format!("{}{account}", granting(&["net:127.0.0.1"]))
+}
+
+/// [`with_account`], its token going where `token` says (`{ query = "access_token" }`), or as
+/// `Bearer` in the `Authorization` header when it's empty.
+fn placed(server: &str, token: &str) -> String {
+    match token {
+        "" => with_account(server),
+        token => format!("{}token = {token}\n", with_account(server)),
+    }
 }
 
 /// [`with_account`], its tokens traded at Local Network's token exchange.
@@ -619,4 +631,161 @@ fn an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) 
     let given: Vec<String> = (1..=issued).flat_map(|n| [format!("at-{n}"), format!("rt-{n}")]).collect();
     let seen = f.seen(&answers.iter().collect::<Vec<_>>());
     assert!(given.iter().all(|t| !seen.contains(t.as_str())), "what the service gave is out where it may not be");
+}
+
+/// Where a step of [`a_token_lands_exactly_where_its_account_says`] names the account, as the
+/// whole value.
+#[derive(Debug, Clone, Copy)]
+enum Named {
+    Authorization,
+    /// Another header.
+    Header,
+    /// The query parameter.
+    Query(&'static str),
+    Body,
+}
+
+/// For an account whose token goes in the `Authorization` header (after `Bearer` when it doesn't
+/// say, or the scheme it names) or as a query parameter, and any requests naming it anywhere: one
+/// naming it where the account says reaches the server with the token there and nowhere else in
+/// the request (its address, its other headers, its body), and a token sent in the query is
+/// answered to the plugin as the placeholder that named it; one naming it anywhere else is
+/// refused, saying where it goes, before anything is sent; and no token gets into the plugin's log
+/// or the store but its secrets.
+#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_token_lands_exactly_where_its_account_says(tc: TestCase) {
+    let token = tc.draw(gs::sampled_from(vec![
+        "",
+        "{ scheme = \"Bearer\" }",
+        "{ scheme = \"OAuth\" }",
+        "{ query = \"access_token\" }",
+        "{ query = \"oauth_token\" }",
+    ]));
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
+    let server = service(state.clone());
+    let f = fixture(&placed(&server.url, token), &[], Options::default());
+    f.sign_in(&state).unwrap();
+    let scheme = match token {
+        "" => Some("Bearer"),
+        t => t.strip_prefix("{ scheme = \"").and_then(|t| t.strip_suffix("\" }")),
+    };
+    let query = token.strip_prefix("{ query = \"").and_then(|t| t.strip_suffix("\" }"));
+    let named = [Named::Authorization, Named::Header, Named::Query("access_token"), Named::Query("oauth_token")];
+    let steps = tc.draw(gs::vecs(gs::sampled_from([named.to_vec(), vec![Named::Body]].concat())).max_size(4));
+    let mut answers = Vec::new();
+    for (i, step) in steps.into_iter().enumerate() {
+        let (path, sent) = (format!("/s{i}?page=2"), server.got().len());
+        let url = format!("{}{path}", server.url);
+        let answer = f.fetch(match step {
+            Named::Authorization => {
+                json!({ "url": url, "headers": { "Authorization": "{account:main}", "X-Other": "x" } })
+            }
+            Named::Header => json!({ "url": url, "headers": { "X-Token": "{account:main}" } }),
+            Named::Query(name) => json!({ "url": format!("{url}&{name}={{account:main}}") }),
+            Named::Body => json!({ "url": url, "method": "POST", "body": "{account:main}" }),
+        });
+        let lands = match step {
+            Named::Authorization => scheme.is_some(),
+            Named::Query(name) => query == Some(name),
+            _ => false,
+        };
+        if !lands {
+            let said = match query {
+                Some(name) => format!("this account goes only in the query: {name}={{account:<id>}}"),
+                None => "an account goes only in the Authorization header: {account:<id>}".into(),
+            };
+            assert_eq!(answer["error"]["message"], said, "step {i}: not refused, or not saying where it goes");
+            assert_eq!(server.got().len(), sent, "step {i}: something was sent");
+            answers.push(answer);
+            continue;
+        }
+        let got = server.got().last().cloned().unwrap_or_default();
+        let (target, authorization) = match (step, scheme) {
+            (Named::Query(name), _) => (format!("{path}&{name}=at-1"), None),
+            (_, scheme) => (path.clone(), scheme.map(|s| format!("{s} at-1"))),
+        };
+        assert!(got.target == target, "step {i}: the address isn't what it was named in");
+        assert!(got.headers.get("authorization") == authorization.as_ref(), "step {i}: the header isn't");
+        let elsewhere =
+            got.headers.iter().filter(|(name, _)| *name != "authorization").any(|(_, v)| v.contains("at-1"));
+        assert!(!elsewhere && !got.body.contains("at-1"), "step {i}: the token is elsewhere in the request");
+        if let Named::Query(name) = step {
+            // The server says the address it was asked at back: as the plugin named it.
+            assert_eq!(answer["result"]["body"], format!("{path}&{name}={{account:main}} -"), "step {i}");
+            answers.push(answer);
+        }
+    }
+    let seen = f.seen(&answers.iter().collect::<Vec<_>>());
+    assert!(!seen.contains("at-1") && !seen.contains("rt-1"), "a token is out where it may not be");
+}
+
+/// A token sent in the query stays out of the errors the plugin is told and its log (a failed
+/// request's error names its address), is never carried to another origin a redirect leads to,
+/// and comes back in what the server answers as the placeholder that named it, which asks for it
+/// again.
+#[test]
+fn a_token_in_the_query_stays_out_of_errors_logs_and_other_origins() {
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
+    let server = service(state.clone());
+    let f = fixture(&placed(&server.url, "{ query = \"access_token\" }"), &[], Options::default());
+    f.sign_in(&state).unwrap();
+    let mut answers = Vec::new();
+
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let e = f.fetch(json!({ "url": format!("http://127.0.0.1:{closed}/x?access_token={{account:main}}") }));
+    let said = e["error"]["message"].as_str().unwrap_or_default().to_string();
+    assert!(said.contains("access_token=<secret>") && !said.contains("at-1"), "the address isn't scrubbed");
+    answers.push(e);
+
+    let elsewhere = Server::new(|_, _| ok("there"));
+    let to = elsewhere.url.clone();
+    let echoing = Server::new(move |_, got| {
+        let query = got.target.split_once('?').map(|(_, q)| q).unwrap_or_default().to_string();
+        Reply { status: 302, headers: vec![("Location", format!("{to}/there?{query}"))], body: Vec::new() }
+    });
+    let e = f.fetch(json!({ "url": format!("{}/away?access_token={{account:main}}", echoing.url) }));
+    let said = e["error"]["message"].as_str().unwrap_or_default().to_string();
+    assert!(said.ends_with("/there?access_token=<secret>, which a secret in its address isn't for"), "not refused");
+    assert!(elsewhere.got().is_empty(), "the other origin was sent the token");
+    answers.push(e);
+
+    let paging = Server::new(|base, got| {
+        let next = format!("{base}{}", got.target.replace("page=1", "page=2"));
+        let headers = vec![("Link", format!("<{next}>; rel=\"next\""))];
+        Reply { status: 200, headers, body: json!({ "next": next }).to_string().into_bytes() }
+    });
+    let first = f.fetch(json!({ "url": format!("{}/p?page=1&access_token={{account:main}}", paging.url) }));
+    let next = format!("{}/p?page=2&access_token={{account:main}}", paging.url);
+    assert_eq!(first["result"]["headers"]["link"], format!("<{next}>; rel=\"next\""));
+    let body: Value = serde_json::from_str(first["result"]["body"].as_str().unwrap_or_default()).unwrap();
+    assert_eq!(body["next"], next);
+    let second = f.fetch(json!({ "url": next }));
+    assert_eq!(second["result"]["status"], 200, "the link given back doesn't ask again");
+    assert!(paging.got().iter().all(|g| g.target.ends_with("&access_token=at-1")), "a page went without the token");
+    answers.extend([first, second]);
+    let seen = f.seen(&answers.iter().collect::<Vec<_>>());
+    assert!(!seen.contains("at-1"), "a token is out where it may not be");
+}
+
+/// An account naming the port the browser comes back to is signed in there, and a sign-in still
+/// waiting on it gives way to a new one; another program holding it is said.
+#[test]
+fn an_account_naming_a_port_is_come_back_to_there() {
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
+    let server = service(state.clone());
+    let f = fixture(&format!("{}redirect_port = {port}\n", with_account(&server.url)), &[], Options::default());
+    let waiting = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap();
+    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+    assert_eq!(
+        (waiting.redirect_uri.as_str(), opened(&waiting)["redirect_uri"].as_str()),
+        (&*redirect_uri, &*redirect_uri)
+    );
+    assert!(f.sign_in(&state).unwrap().signed_in);
+    assert_eq!(form(&server.got()[0])["redirect_uri"], redirect_uri);
+    assert!(!f.plugins.cancel_sign_in(&waiting.id), "the sign-in waiting didn't give way");
+
+    let _held = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let e = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap_err().to_string();
+    assert!(e.starts_with(&format!("can't listen for the browser on 127.0.0.1:{port}: ")), "{e}");
 }

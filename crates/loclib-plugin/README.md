@@ -69,8 +69,9 @@ and typed table columns, see [views](#views)).
    `key`, filled in once the request is checked, left out of the plugin's log and the errors
    it's told, and never sent on to another server a redirect leads to: the headers it was filled
    into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
-   `{account:<id>}` as the `Authorization` header's whole value is the same for one of its
-   accounts' access tokens (see [accounts](#accounts)), and refused anywhere else in a request.
+   `{account:<id>}` is the same for one of its accounts' access tokens (see
+   [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
+   parameter the account names, and refused anywhere else in a request.
    An answer is given as text up to 8 MiB, or written to `into_blob` (a new file in the
    request's scratch folder, absolute) as far as the folder has room. `body_blob` sends a file
    instead (absolute): one in the scratch folder, or the recording `set/publish` gives (not in a
@@ -184,11 +185,24 @@ token, once it's checked, and never on to another server a redirect leads to. A 
 account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
 methods: it's the SDK's own.
 
+A service that wants the token some other way says so with the account's `token`:
+`token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and
+`token = { query = "access_token" }` sends it as that query parameter instead (Mixcloud). The
+request names the account there, `?access_token={account:<id>}`, and the `Authorization` header
+can't. The host never carries a token in the query to another server a redirect leads to, and
+where the answer's headers or text say the address back (a next page's link, say), the token is
+given back as `{account:<id>}`, so the link can be fetched as it is. An answer written to
+`into_blob` is kept as the server sent it.
+
 - `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` or `token_exchange`
   (one of them), `scopes`, `client_id` (a public client, without a secret), `pkce = true` (the
-  default; nothing else is taken) and `revoke_url` (RFC 7009, optional), where the tokens are
-  revoked at signing out. Each endpoint is an https address without a user name or password. A
-  plugin with an account needs a `net:` capability, for the requests its token goes into.
+  default; nothing else is taken), `revoke_url` (RFC 7009, optional), where the tokens are
+  revoked at signing out, `token` (optional, above) and `redirect_port` (optional). Each endpoint
+  is an https address without a user name or password. A plugin with an account needs a `net:`
+  capability, for the requests its token goes into.
+- `redirect_port`, 1024 or more, is for a service that compares the redirect URI with the one its
+  client was registered with, port and all (SoundCloud). The browser then comes back to
+  `http://127.0.0.1:<port>/callback`, which is what to register; without it, any free port.
 - `token_exchange`, for a service whose token endpoint wants a client secret (SoundCloud, Mixcloud,
   Google), is Local Network's token exchange for it:
   `https://localnetwork.computer/api/token-exchange/<service>`, nowhere else, since it's sent the
