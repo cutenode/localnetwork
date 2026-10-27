@@ -56,6 +56,8 @@ plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer,
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
                             as an importer (keys, tempos, cues) and a library source to build drives from
+plugins/youtube/            the youtube plugin: the `video` set destination, a set's recording made into a
+                            video by FFmpeg and uploaded to YouTube, its tracklist the description's chapters
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the

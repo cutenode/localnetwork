@@ -331,6 +331,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     `track fetch`, `analyze --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets
     publish` about to publish (signed in and confirmed), unless `--no-lookup` or `plugin roles
     recording --none`.
+  - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
+    YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
+    frame) over the recording, and it goes up through YouTube's resumable upload, titled after the
+    set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
+    description, keeping the video's page as the set's link. It signs in to Google through Local
+    Network's token exchange, asking only to upload videos.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
