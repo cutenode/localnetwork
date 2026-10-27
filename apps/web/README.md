@@ -243,6 +243,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself, the set picker only lists sets HappyView heard about over Jetstream, and `requestIndex` answers `indexed: false` without re-reading anything.
 - `LOCALLIBRARY_HOST`: [locallibrary's own host](#tools-pages-and-hosts) (default `locallibrary.localnetwork.computer`).
 - `USERINPUT_SPACE`: Local Network's space on [userinput.app](https://userinput.app), as `at://<did>/app.userinput.space/<rkey>`. See [Bug reports](#bug-reports). Optional; without it, "Report a bug" opens GitHub's issue form.
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `MIXCLOUD_CLIENT_ID` / `MIXCLOUD_CLIENT_SECRET`, `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET`: Local Network's clients at the services locallibrary plugins sign in to through the [token exchange](#token-exchange). Optional; a service without both answers that it isn't set up yet.
 
 ## Deploying
 
@@ -281,6 +282,12 @@ locallibrary account client-metadata -o src/lib/tools/locallibrary/oauth-client-
 
 Until the host answers, locallibrary signs in as a local development app instead (servers ask about it every time).
 
+### Token exchange
+
+Some services a locallibrary plugin signs in to (Mixcloud, SoundCloud, Google) want a client secret when a sign-in's code is traded for tokens, or when they're refreshed, and a secret can't ship inside an app people download. A plugin's account names `https://localnetwork.computer/api/token-exchange/<service>` as its `token_exchange` instead of a `token_url`, and locallibrary posts that address what it would have sent the service, as JSON. This app adds its client id and secret for the service from the environment, sends the request on the way the service takes it, and answers what the service answered.
+
+The services are in [`src/lib/server/token-exchange/services.json`](src/lib/server/token-exchange/services.json) (schema beside it): each one's token endpoint, how it takes a request (`form`, the usual POST, or `query`, Mixcloud's GET), and the environment variables holding its client id and secret. Adding a service is an entry there and its two variables. The exchange sends nothing anywhere but those token endpoints, logs which service and grant and the status, never a code, token or secret, reads at most 64 KiB of a request or an answer, and counts against the per-address write limit. Until a service's variables are set, it answers `503` with `temporarily_unavailable`, which locallibrary shows as the reason the sign-in failed. Regenerate the schema after changing what an entry has with `SCHEMA_BLESS=1 pnpm -C apps/web vitest run --project server src/lib/server/token-exchange/services.test.ts`.
+
 ## Security notes
 
 - OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, booking, and backstage spaces and a self-authority planner space, and to the shows and follows in their public repo (plus deleting press kits made before the root held them, as they move), plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists, and calendar events (`repo:community.lexicon.calendar.event`, asked for on its own since a permission set can only grant its own namespace). The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for `atproto` plus the show, follow, and calendar event writes, and fall back to plain `atproto` if their PDS refuses those; they, and anyone who approves only part of the request, have the root account write their space records on their behalf. Sessions granted before the app asked for a new space or blob scope are sent back through sign-in on their next page load. Show, follow, and calendar event writes are asked for when they're needed instead, with a one-click "Sign in again"; a PDS that still won't grant them after that gets a plain "your account's server doesn't allow this yet". Posting bug reports to userinput.app is asked for separately, when someone first sends one, and only allows creating `app.userinput.discussion` records. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
@@ -289,6 +296,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).
 - Uploaded images are type- and magic-byte-checked and capped at 1 MB; images are served from a dedicated route with a locked-down CSP.
 - Rate limits on sign-in, writes, and city search.
+- The [token exchange](#token-exchange) only sends requests to the token endpoints `services.json` lists, and never logs what it relays.
 - Spaces are access control, not end-to-end encryption: the hosting PDSes and this app can read the data they handle.
 
 ## Project layout
@@ -305,6 +313,7 @@ src/lib/server/audit/           Hash-chained audit log with dual atproto deliver
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections
+src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and the services it signs in to
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints

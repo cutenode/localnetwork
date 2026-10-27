@@ -7887,12 +7887,21 @@ export type Account = {
   authorize_url: string;
   /**
    * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https).
+   * them (https). An account has this or `token_exchange`.
    */
-  token_url: string;
+  token_url?: string | null;
+  /**
+   * Local Network's token exchange for its service
+   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
+   * a service that wants a client secret there.
+   */
+  token_exchange?: string | null;
   /** What it asks the service for, as the service names them. */
   scopes?: string[];
-  /** The plugin's client at the service: a public one, without a secret. */
+  /**
+   * The plugin's client at the service: a public one, without a secret, or Local Network's,
+   * whose secret its token exchange holds.
+   */
   client_id: string;
   /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
   pkce: boolean;
@@ -8780,7 +8789,9 @@ export type Phase =
   /** Looking for library tracks in a mix. */
   | "match"
   /** Decoding library tracks to estimate their tempo, key and loudness. */
-  | "analyze";
+  | "analyze"
+  /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
+  | "upload";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {

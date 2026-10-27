@@ -60,21 +60,28 @@ and typed table columns, see [views](#views)).
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
    kind `busy`).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
-   body_blob?, into_blob?}` -> `{status, headers, body? | blob?}`. The host sends it only to a
-   host the manifest's `net:` capabilities grant, at a public https address, following redirects
-   itself and each only there, at most five; as `locallibrary/<version> (+<contact>)`, the
-   plugin's `contact` setting when it has one; waiting its turn when the manifest limits that
-   host (`[[net]]`). `{secret:<key>}` in a header's value, a query value or `body` is the
-   plugin's secret setting `key`, filled in once the request is checked, left out of the
-   plugin's log and the errors it's told, and never sent on to another server a redirect leads
-   to: the headers it was filled into (and `Authorization`, `Cookie`) are dropped there, and a
-   body with it isn't sent on. `{account:<id>}` as the `Authorization` header's whole value is the
-   same for one of its accounts' access tokens (see [accounts](#accounts)), and refused anywhere
-   else in a request. An answer is given as text up to 8 MiB, or written to
-   `into_blob` (a new file in the request's scratch folder, absolute) as far as the folder has
-   room; `body_blob` sends such a file. Errors have kind `denied` (not a host it may reach),
-   `invalid`, `too_big`, `external` (it couldn't be reached) or `cancelled`. Nothing fetched is
-   kept.
+   body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
+   host sends it only to a host the manifest's `net:` capabilities grant, at a public https
+   address, following redirects itself and each only there, at most five; as
+   `locallibrary/<version> (+<contact>)`, the plugin's `contact` setting when it has one;
+   waiting its turn when the manifest limits that host (`[[net]]`). `{secret:<key>}` in a
+   header's value, a query value, `body` or a form part's `value` is the plugin's secret setting
+   `key`, filled in once the request is checked, left out of the plugin's log and the errors
+   it's told, and never sent on to another server a redirect leads to: the headers it was filled
+   into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
+   `{account:<id>}` as the `Authorization` header's whole value is the same for one of its
+   accounts' access tokens (see [accounts](#accounts)), and refused anywhere else in a request.
+   An answer is given as text up to 8 MiB, or written to `into_blob` (a new file in the
+   request's scratch folder, absolute) as far as the folder has room. `body_blob` sends a file
+   instead (absolute): one in the scratch folder, or the recording `set/publish` gives (not in a
+   dry run), perhaps only `body_range {offset, length?}` of it, for an upload in parts.
+   `multipart` sends a `multipart/form-data` form instead, its parts `{name, value}` or `{name,
+   file, range?, filename?, content_type?}`. The host reads a file as it sends it (again for a
+   redirect that asks for the body again), says how long the body is and what type a form is,
+   and reports the bytes it sends as the hook's progress: `bytes` events of phase `upload`, so a
+   plugin starts that phase with how much it'll send, and ends it. Errors have kind `denied`
+   (not a host it may reach), `invalid`, `too_big`, `external` (it couldn't be reached) or
+   `cancelled`. Nothing fetched is kept.
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -177,11 +184,21 @@ token, once it's checked, and never on to another server a redirect leads to. A 
 account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
 methods: it's the SDK's own.
 
-- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url`, `scopes`, `client_id`
-  (a public client, without a secret), `pkce = true` (the default; nothing else is taken) and
-  `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. Each endpoint
-  is an https address without a user name or password. A plugin with an account needs a `net:`
-  capability, for the requests its token goes into.
+- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` or `token_exchange`
+  (one of them), `scopes`, `client_id` (a public client, without a secret), `pkce = true` (the
+  default; nothing else is taken) and `revoke_url` (RFC 7009, optional), where the tokens are
+  revoked at signing out. Each endpoint is an https address without a user name or password. A
+  plugin with an account needs a `net:` capability, for the requests its token goes into.
+- `token_exchange`, for a service whose token endpoint wants a client secret (SoundCloud, Mixcloud,
+  Google), is Local Network's token exchange for it:
+  `https://localnetwork.computer/api/token-exchange/<service>`, nowhere else, since it's sent the
+  user's codes and refresh tokens. The host posts it what it would have sent the token endpoint
+  (`grant_type`, `code`, `code_verifier` and `redirect_uri`, or `refresh_token`) as a JSON object,
+  and the website adds its client id and secret for the service, sends the request on the way the
+  service takes it and answers what the service answered. `client_id` is then Local Network's
+  client at the service. The services it knows are in
+  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 
 ### analysis
 

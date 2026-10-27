@@ -1,7 +1,8 @@
 //! Plugins' accounts: signing in through a mock OAuth server on this computer (the test plays the
 //! browser), the tokens kept with the plugin's secrets and filled into the requests that name the
 //! account, refreshed before they expire, never sent to another origin, never seen by the plugin,
-//! its log or what the host answers; and signing out.
+//! its log or what the host answers; and signing out. The tokens are traded at the service's token
+//! endpoint or, for an account naming it, at Local Network's token exchange.
 
 use std::time::Duration;
 
@@ -34,18 +35,35 @@ fn form(got: &Got) -> IndexMap<String, String> {
     form_urlencoded::parse(got.body.as_bytes()).into_owned().collect()
 }
 
+/// What a token request sent, by name: a form to a token endpoint, a JSON object to Local
+/// Network's token exchange.
+fn fields(got: &Got) -> IndexMap<String, String> {
+    match got.target.starts_with(EXCHANGE) {
+        true => serde_json::from_str(&got.body).unwrap_or_default(),
+        false => form(got),
+    }
+}
+
+/// Where the mock service plays Local Network's token exchange for itself.
+const EXCHANGE: &str = "/api/token-exchange/mock";
+
 fn json_reply(status: u16, body: Value) -> Reply {
     Reply { status, headers: vec![("Content-Type", "application/json".into())], body: body.to_string().into_bytes() }
 }
 
 /// A mock OAuth service: `/token` trades a code (checked against the PKCE challenge) or a refresh
-/// token for tokens, `/revoke` takes one back, and anything else answers what it was sent.
+/// token for tokens, and so does Local Network's token exchange for it, taking the same as JSON;
+/// `/revoke` takes one back, and anything else answers what it was sent.
 fn service(state: Arc<Mutex<Service>>) -> Server {
     Server::new(move |base, got| {
         let mut s = state.lock().unwrap();
         match got.target.as_str() {
-            "/token" => {
-                let f = form(got);
+            "/token" | EXCHANGE => {
+                let json = got.headers.get("content-type").is_some_and(|t| t == "application/json");
+                if json != (got.target == EXCHANGE) {
+                    return json_reply(415, json!({ "error": "invalid_request" }));
+                }
+                let f = fields(got);
                 if let Some((error, description)) = &s.refuses {
                     return json_reply(400, json!({ "error": error, "error_description": description }));
                 }
@@ -99,6 +117,12 @@ revoke_url = "{server}/revoke"
 "#
     );
     format!("{}{account}", granting(&["net:127.0.0.1"]))
+}
+
+/// [`with_account`], its tokens traded at Local Network's token exchange.
+fn exchanging(server: &str) -> String {
+    with_account(server)
+        .replace(&format!("token_url = \"{server}/token\""), &format!("token_exchange = \"{server}{EXCHANGE}\""))
 }
 
 /// The query of the address a sign-in opens in the browser, by name.
@@ -205,6 +229,34 @@ fn signing_in_keeps_the_tokens_and_fills_them_into_requests_naming_the_account()
     let seen = f.seen(&[&listed]);
     assert!(!seen.contains("at-1") && !seen.contains("rt-1"), "a token is out where it may not be");
     assert_eq!(state.lock().unwrap().issued, 1, "a token valid for an hour isn't refreshed");
+}
+
+/// An account naming Local Network's token exchange trades its code and refresh tokens there, as
+/// JSON (a form posted without an `Origin` is refused there), never at a token endpoint; and what
+/// the exchange answers when it can't is what the plugin is told.
+#[test]
+fn an_account_naming_the_token_exchange_signs_in_and_refreshes_there() {
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(30), ..Service::default() }));
+    let server = service(state.clone());
+    let f = fixture(&exchanging(&server.url), &[], Options::default());
+    let status = f.sign_in(&state).unwrap();
+    assert_eq!((status.signed_in, status.refreshes), (true, true));
+    let traded = server.got()[0].clone();
+    assert_eq!((traded.method.as_str(), traded.target.as_str()), ("POST", EXCHANGE));
+    let sent = fields(&traded);
+    assert!(has(&sent, "grant_type", "authorization_code") && has(&sent, "code", "c0de"), "the code isn't traded");
+    assert!(sent["redirect_uri"].starts_with("http://127.0.0.1:") && sent.contains_key("code_verifier"));
+
+    assert!(sent_token(&f.as_account(&server, "/a", "{account:main}"), "/a", 2), "not refreshed");
+    let refreshed = fields(&server.got().iter().rev().nth(1).unwrap().clone());
+    assert!(has(&refreshed, "grant_type", "refresh_token") && has(&refreshed, "refresh_token", "rt-1"), "refreshed");
+    assert!(server.got().iter().all(|g| g.target != "/token"), "the service's token endpoint was asked");
+
+    let unset = "Local Network isn't set up to sign in to Mock yet";
+    state.lock().unwrap().refuses = Some(("temporarily_unavailable".into(), unset.into()));
+    let e = f.as_account(&server, "/b", "{account:main}");
+    assert_eq!(e["error"]["message"], format!("signing in to Mock: temporarily_unavailable: {unset}"));
+    assert!(f.plugins.account("echo", "main", Some(&f.store)).unwrap().signed_in, "signed out for the exchange");
 }
 
 #[test]
@@ -382,18 +434,21 @@ enum Naming {
     Unknown,
 }
 
-/// For tokens of any lifetime, refreshed with a new refresh token or not, and any requests: one
-/// naming the account as its whole `Authorization` header reaches the server with the access
-/// token the service gave last, refreshed first exactly when it's within a minute of expiring;
-/// one naming it anywhere else, or naming another account, is refused before anything is sent;
-/// and no token gets into the plugin's log, its answers or the store but its secrets.
+/// For tokens of any lifetime, refreshed with a new refresh token or not, traded at the service's
+/// token endpoint or at Local Network's token exchange, and any requests: one naming the account
+/// as its whole `Authorization` header reaches the server with the access token the service gave
+/// last, refreshed first exactly when it's within a minute of expiring, and only where the account
+/// says; one naming it anywhere else, or naming another account, is refused before anything is
+/// sent; and no token gets into the plugin's log, its answers or the store but its secrets.
 #[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_token_goes_only_where_the_account_is_named(tc: TestCase) {
     let expires_in = tc.draw(gs::sampled_from(vec![None, Some(5), Some(59), Some(61), Some(3600)]));
     let rotates = tc.draw(gs::booleans());
+    let exchanges = tc.draw(gs::booleans());
     let state = Arc::new(Mutex::new(Service { expires_in, rotates, ..Service::default() }));
     let server = service(state.clone());
-    let f = fixture(&with_account(&server.url), &[], Options::default());
+    let manifest = if exchanges { exchanging(&server.url) } else { with_account(&server.url) };
+    let f = fixture(&manifest, &[], Options::default());
     f.sign_in(&state).unwrap();
     let expiring = expires_in.is_some_and(|s| s <= 60);
     let (mut current, mut answers) = (1, Vec::new());
@@ -428,6 +483,9 @@ fn a_token_goes_only_where_the_account_is_named(tc: TestCase) {
         answers.push(answer["error"].clone());
     }
     assert_eq!(state.lock().unwrap().issued, current, "refreshed when it needn't be, or not when it had to");
+    let traded_at = if exchanges { EXCHANGE } else { "/token" };
+    let traded = server.got().into_iter().filter(|g| [EXCHANGE, "/token"].contains(&g.target.as_str()));
+    assert!(traded.into_iter().all(|g| g.target == traded_at), "tokens traded where the account doesn't say");
     let tokens: Vec<String> = (1..=current).flat_map(|n| [format!("at-{n}"), format!("rt-{n}")]).collect();
     let seen = f.seen(&answers.iter().collect::<Vec<_>>());
     assert!(tokens.iter().all(|t| !seen.contains(t.as_str())), "a token is out where it may not be");

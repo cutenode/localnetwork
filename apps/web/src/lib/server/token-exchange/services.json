@@ -1,0 +1,26 @@
+{
+	"$schema": "./services.schema.json",
+	"services": {
+		"google": {
+			"title": "Google",
+			"tokenUrl": "https://oauth2.googleapis.com/token",
+			"style": "form",
+			"clientIdEnv": "GOOGLE_CLIENT_ID",
+			"clientSecretEnv": "GOOGLE_CLIENT_SECRET"
+		},
+		"mixcloud": {
+			"title": "Mixcloud",
+			"tokenUrl": "https://www.mixcloud.com/oauth/access_token",
+			"style": "query",
+			"clientIdEnv": "MIXCLOUD_CLIENT_ID",
+			"clientSecretEnv": "MIXCLOUD_CLIENT_SECRET"
+		},
+		"soundcloud": {
+			"title": "SoundCloud",
+			"tokenUrl": "https://secure.soundcloud.com/oauth/token",
+			"style": "form",
+			"clientIdEnv": "SOUNDCLOUD_CLIENT_ID",
+			"clientSecretEnv": "SOUNDCLOUD_CLIENT_SECRET"
+		}
+	}
+}

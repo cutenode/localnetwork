@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
@@ -473,7 +473,20 @@ impl Slot {
         store: Option<&Store>,
         ctx: &Ctx<'_>,
     ) -> Result<R> {
-        self.call_with(method, params, store, ctx, &|_| {}, |answer, _, _| Ok(answer))
+        self.call_lending(method, params, &[], store, ctx)
+    }
+
+    /// [`Slot::call`], lending the hook the files `lent` (absolute, as its params name them, to
+    /// read): its `net/fetch` may send them until it answers, the bytes sent its progress.
+    pub(crate) fn call_lending<R: DeserializeOwned>(
+        self: &Arc<Self>,
+        method: &str,
+        params: &impl Serialize,
+        lent: &[&Path],
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+    ) -> Result<R> {
+        self.call_giving(method, params, &[], lent, store, ctx, &|_| {}, |answer, _, _| Ok(answer))
     }
 
     /// [`Slot::call`], the hook's `params.context` given a scratch folder of its own (with the
@@ -490,17 +503,19 @@ impl Slot {
         shown: &dyn Fn(Partial),
         read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
     ) -> Result<T> {
-        self.call_giving(method, params, &[], store, ctx, shown, read)
+        self.call_giving(method, params, &[], &[], store, ctx, shown, read)
     }
 
     /// [`Slot::call_with`], the files `given` (by name, their bytes) written to the scratch
-    /// folder first, for the request to name: it fails without one.
+    /// folder first, for the request to name: it fails without one. And the files `lent` (see
+    /// [`Slot::call_lending`]).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn call_giving<R: DeserializeOwned, T>(
         self: &Arc<Self>,
         method: &str,
         params: &impl Serialize,
         given: &[(&str, &[u8])],
+        lent: &[&Path],
         store: Option<&Store>,
         ctx: &Ctx<'_>,
         shown: &dyn Fn(Partial),
@@ -510,8 +525,8 @@ impl Slot {
         let p = self.start(store)?;
         let _busy = Busy::new(&p);
         let scratch = match p.live.has("blobs") {
-            true => p.live.scratches.make(&p.scratch)?,
-            false => p.live.scratches.none(),
+            true => p.live.scratches.make(&p.scratch, lent)?,
+            false => p.live.scratches.none(lent),
         };
         for (name, bytes) in given {
             let dir = scratch
@@ -525,6 +540,9 @@ impl Slot {
             params["context"]["scratch"] = Value::from(dir.to_string_lossy().into_owned());
         }
         let pending = p.peer.send_request_reporting(method, &params).map_err(|e| self.error(&p, e))?;
+        if let Some(reporter) = pending.reporter() {
+            scratch.report_to(reporter);
+        }
         let mut cancelled: Option<Instant> = None;
         loop {
             let answer = pending.wait_timeout(TICK);
