@@ -46,13 +46,25 @@ are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
+  the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
+  (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
+  as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
+  set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
+  and the plugin refuses others before anything goes. It needs a developer token from
+  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
+  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
+  sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
+  plyr.fm after a day, and publishing again starts over.
 
-coverart and musicbrainz are the only ones that go online, and only for these, through
-locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between them, as it asks:
-`art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with `--yes` or a terminal to
-ask in), for the tracks it names without IDs, unless `--no-lookup` (or `plugin roles recording
---none`, for good); and `analyze --plugin musicbrainz`. `analyze` alone leaves out the analyzers
-that go online, and says so.
+coverart, musicbrainz and plyr are the only ones that go online, and only for these, through
+locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
+it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with
+`--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup` (or
+`plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish --to
+plyr:track` once you confirm it. `analyze` alone leaves out the analyzers that go online, and says
+so.
 
 ## What you have
 
