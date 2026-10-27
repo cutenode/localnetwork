@@ -1,0 +1,22 @@
+[package]
+name = "locallibrary-plugin-mixcloud"
+description = "locallibrary's Mixcloud plugin: a set's recording uploaded to Mixcloud as a show, its tracklist as the show's sections"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
