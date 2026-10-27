@@ -157,7 +157,7 @@ export async function createApp(options: CreateAppOptions) {
 		identity.resolveIdentifier(identifier)
 	);
 
-	const shows = new ShowService(core, projects, happyView, publicRepo);
+	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, publicRepo, identity);
 

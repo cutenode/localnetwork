@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -1173,6 +1173,41 @@ describe('show record script', () => {
 		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toHaveLength(1);
 		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.show, rkey, cid: '', record: null });
 		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toEqual([]);
+	});
+});
+
+describe('calendar event record script', () => {
+	const event = (fields: JsonObject = {}) => ({
+		name: 'Tidal Hours',
+		startsAt: '2026-11-07T23:00:00+01:00',
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	});
+
+	it("keeps calendar events as written, by an account that manages one of the root's projects", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const before = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'before', event());
+		await publish(hv, {}, { managers: ['did:plc:other', 'did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+
+		// No show has to name it, so it doesn't matter which of the two HappyView hears of first.
+		const kept = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'kept', event({ description: 'Doors at 22:00' }));
+
+		const uris = [
+			// From before they managed a project, until a re-read.
+			before.uri,
+			kept.uri,
+			(await ingest(hv, 'did:plc:nobody', CALENDAR_EVENT, 'theirs', event())).uri,
+			(await ingest(hv, 'did:plc:faker', CALENDAR_EVENT, 'fake', event())).uri
+		];
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { $type: CALENDAR_EVENT, ...event({ description: 'Doors at 22:00' }) } }
+		]);
+
+		await hv.ingest({ did: 'did:plc:dj', collection: CALENDAR_EVENT, rkey: 'kept', cid: '', record: null });
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([]);
 	});
 });
 

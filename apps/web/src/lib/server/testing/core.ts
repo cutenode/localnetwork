@@ -110,7 +110,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		throw new Error(`no such handle ${identifier}`);
 	});
 
-	const shows = new ShowService(core, projects, directory, publicRepo, 0);
+	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
