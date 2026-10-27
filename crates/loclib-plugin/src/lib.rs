@@ -19,7 +19,7 @@ mod view;
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
-pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account};
+pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account, TokenPlace};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,

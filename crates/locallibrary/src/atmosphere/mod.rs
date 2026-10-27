@@ -410,7 +410,7 @@ pub fn begin_login(root: &Path, input: &str, options: &LoginOptions) -> Result<L
         }
         Some(Client::Loopback) => (Client::Loopback, None),
     };
-    let (listener, redirect_uri) = callback::bind()?;
+    let (listener, redirect_uri) = callback::bind(0)?;
     let config = client_config(&client, &redirect_uri, scopes(&requested)?)?;
     let store = LocalStore::new(root, options.storage, client.clone(), redirect_uri.clone(), requested.clone());
     let oauth = oauth(store, config, true)?;

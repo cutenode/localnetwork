@@ -1,14 +1,16 @@
 //! Plugins' accounts (the `accounts` feature): the host signs the user in to each in the browser,
 //! with OAuth 2's authorization code flow and PKCE (the `oauth2` crate), the browser coming back
-//! to this computer ([`crate::callback`]). An account's tokens are kept with the plugin's secrets
-//! (see [`super::secrets`], as `account:<id>`) and go nowhere else: not to the plugin, a log, an
-//! error, an answer or a copy of the store. A `net/fetch` request whose `Authorization` header is
-//! `{account:<id>}` gets `Bearer` and the access token instead, once it's checked (see
-//! [`super::net`]), refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's
-//! endpoints are reached as `net/fetch` reaches servers: at public https addresses (servers on
-//! this computer in tests), following no redirect. An account whose service wants a client secret
-//! for its tokens names Local Network's token exchange instead of the service's token endpoint:
-//! the host sends it the same request as JSON, and it adds the secret and answers as the service.
+//! to this computer ([`crate::callback`]), at the port the account names if it names one. An
+//! account's tokens are kept with the plugin's secrets (see [`super::secrets`], as `account:<id>`)
+//! and go nowhere else: not to the plugin, a log, an error, an answer or a copy of the store. A
+//! `net/fetch` request naming the account as `{account:<id>}`, in its `Authorization` header or
+//! the query parameter the account names, gets the access token there instead (in the header,
+//! after `Bearer` or the scheme the account names), once it's checked (see [`super::net`]),
+//! refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's endpoints are
+//! reached as `net/fetch` reaches servers: at public https addresses (servers on this computer in
+//! tests), following no redirect. An account whose service wants a client secret for its tokens
+//! names Local Network's token exchange instead of the service's token endpoint: the host sends it
+//! the same request as JSON, and it adds the secret and answers as the service.
 
 use std::io::Read;
 use std::net::TcpListener;
@@ -156,7 +158,7 @@ impl Plugin {
     /// The account `id` it declares: its service's endpoints, client and scopes. Neither this nor
     /// [`Plugin::sign_in_client`] is named for an account or OAuth: CodeQL guesses secrets from
     /// names, and would take the sign-in link made from them for one.
-    fn declared_sign_in(&self, id: &str) -> Result<&Account> {
+    pub(super) fn declared_sign_in(&self, id: &str) -> Result<&Account> {
         self.declared("account", id, &self.manifest.contributes.accounts, |a| &a.id)
     }
 
@@ -282,18 +284,18 @@ impl Plugin {
         }
     }
 
-    /// The access token of the account `id` for a `net/fetch` request: refreshed first when it's
-    /// about to expire (one refresh at a time), told to [`super::net::State::scrub`]. The plugin
-    /// is told how to sign in when it's signed out.
-    pub(crate) fn bearer(&self, live: &Live, id: &str) -> std::result::Result<String, RpcError> {
-        let invalid = |why: String| RpcError::failed("invalid", why);
-        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
+    /// The access token of `account` for a `net/fetch` request: refreshed first when it's about to
+    /// expire (one refresh at a time), told to [`super::net::State::scrub`]. The plugin is told
+    /// how to sign in when it's signed out.
+    pub(crate) fn access_token(&self, live: &Live, account: &Account) -> std::result::Result<String, RpcError> {
+        let id = &account.id;
         let signed_out = || {
             let plugin = &self.manifest.id;
-            invalid(format!(
+            let why = format!(
                 "its {} account isn't signed in (locallibrary plugin account {plugin} {id} sign-in)",
                 account.title
-            ))
+            );
+            RpcError::failed("invalid", why)
         };
         let store = live.store.as_ref().ok_or_else(signed_out)?;
         let external = |e: Error| RpcError::failed("external", self.net.scrub(&e.to_string()));
@@ -356,7 +358,11 @@ impl Plugins {
         // it keeps dropped first: CodeQL follows a `?` on it into the sign-in link. A kept sign-in
         // that can't be read is replaced.
         slot.secret(store, &key(account)).map(drop)?;
-        let (listener, redirect_uri) = callback::bind()?;
+        if let Some(port) = declared.redirect_port {
+            // A sign-in still waiting on its port gives way: the browser comes back to the newest.
+            lock(&self.signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
+        }
+        let (listener, redirect_uri) = callback::bind(declared.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
         let client = slot.sign_in_client(declared, Some(redirect))?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();

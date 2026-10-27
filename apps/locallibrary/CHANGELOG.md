@@ -355,7 +355,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
   never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
   Google) is signed in to through Local Network's token exchange, which holds the secret, so
-  none ships with locallibrary. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
+  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
+  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
+  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The plugin uploads the recording through locallibrary

@@ -3,10 +3,12 @@
 //! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
 //! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
 //! say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
-//! accounts' access tokens only into the `Authorization` header that names one (`{account:<id>}`,
-//! see [`super::accounts`]), filled in once it's checked, never on to another server a redirect
-//! leads to, and left out of its log and the errors it's told (see [`State::scrub`]); what a
-//! server answers is passed on as it is.
+//! accounts' access tokens only where a request names one (`{account:<id>}`, see
+//! [`super::accounts`]) and the account says its token goes: the `Authorization` header, or a query
+//! parameter. They're filled in once it's checked, never on to another server a redirect leads to,
+//! and left out of its log and the errors it's told (see [`State::scrub`]); what a server answers
+//! is passed on as it is, but for a token it was sent in the query, given back as the placeholder
+//! it was named with.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 
@@ -19,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType};
+use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace};
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
@@ -242,15 +244,24 @@ impl Plugin {
             return Err(invalid("a body_range is of a body_blob, which it doesn't send"));
         }
         let texts = req.body.iter().chain(req.multipart.iter().filter_map(|p| p.value.as_ref()));
-        let named_account = url.query_pairs().any(|(_, v)| v.contains(ACCOUNT_PLACEHOLDER));
-        if named_account || texts.clone().any(|t| t.contains(ACCOUNT_PLACEHOLDER)) {
-            return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
+        if let Some(text) = texts.clone().find(|t| t.contains(ACCOUNT_PLACEHOLDER)) {
+            return Err(self.misplaced(text));
         }
-        if url.query_pairs().any(|(_, v)| v.contains(SECRET)) {
+        // The accounts' tokens filled into the query, and the placeholders that named them.
+        let mut in_query = Vec::new();
+        if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
             let pairs: Vec<(String, String)> =
                 url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-            let filled =
-                pairs.into_iter().map(|(k, v)| Ok((k, self.fill(live, &v)?))).collect::<Result<Vec<_>, RpcError>>()?;
+            let mut filled = Vec::with_capacity(pairs.len());
+            for (k, v) in pairs {
+                if !v.contains(ACCOUNT_PLACEHOLDER) {
+                    filled.push((k, self.fill(live, &v)?));
+                    continue;
+                }
+                let token = self.account(live, &v, Some(&k))?;
+                filled.push((k, token.clone()));
+                in_query.push((token, v));
+            }
             url.query_pairs_mut().clear().extend_pairs(filled);
         }
         let mut sent = Sent { method, plain: HeaderMap::new(), filled: HeaderMap::new(), body: None, secret: false };
@@ -262,14 +273,13 @@ impl Plugin {
                 continue;
             }
             if value.contains(ACCOUNT_PLACEHOLDER) {
-                let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
-                let Some(id) = id.filter(|id| name == AUTHORIZATION && !id.contains('}')) else {
-                    return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
-                };
-                let mut bearer = HeaderValue::from_str(&format!("Bearer {}", self.bearer(live, id)?))
+                if name != AUTHORIZATION {
+                    return Err(self.misplaced(value));
+                }
+                let mut filled = HeaderValue::from_str(&self.account(live, value, None)?)
                     .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
-                bearer.set_sensitive(true);
-                sent.filled.append(AUTHORIZATION, bearer);
+                filled.set_sensitive(true);
+                sent.filled.append(AUTHORIZATION, filled);
                 continue;
             }
             let to = if value.contains(SECRET) { &mut sent.filled } else { &mut sent.plain };
@@ -296,17 +306,51 @@ impl Plugin {
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
         let response = self.follow(live, url, sent, cancel)?;
         let status = response.status().as_u16();
+        // A server says the address it was asked at back (a next page's link, a `Location`): a token
+        // sent in the query is given back as the placeholder that named it, which asks for it again.
+        let named = |text: String| {
+            in_query.iter().fold(text, |text, (token, placeholder)| {
+                let encoded: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
+                text.replace(token, placeholder).replace(&encoded, placeholder)
+            })
+        };
         let mut answered: IndexMap<String, String> = IndexMap::new();
         for (name, value) in response.headers() {
-            let value = String::from_utf8_lossy(value.as_bytes());
-            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value.into());
+            let value = named(String::from_utf8_lossy(value.as_bytes()).into_owned());
+            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value);
         }
         let fetched = Fetched { status, headers: answered, body: None, blob: None };
         let fetched = match into {
             Some(into) => Fetched { blob: Some(self.write_blob(into, response)?), ..fetched },
-            None => Fetched { body: Some(self.text(response)?), ..fetched },
+            None => Fetched { body: Some(named(self.text(response)?)), ..fetched },
         };
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
+    }
+
+    /// What goes where a request names an account as the whole of `value`, `{account:<id>}`: in
+    /// the `Authorization` header (`query` is `None`), its scheme and access token; as the query
+    /// parameter `query`, the token. Only where the account says its token goes.
+    fn account(&self, live: &Live, value: &str, query: Option<&str>) -> Result<String, RpcError> {
+        let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
+        let Some(id) = id.filter(|id| !id.contains('}')) else { return Err(self.misplaced(value)) };
+        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
+        match (&account.token, query) {
+            (TokenPlace::Scheme(scheme), None) => Ok(format!("{scheme} {}", self.access_token(live, account)?)),
+            (TokenPlace::Query(name), Some(query)) if name == query => self.access_token(live, account),
+            _ => Err(self.misplaced(value)),
+        }
+    }
+
+    /// Why `text`, which names an account, can't be where it is: where that account's token goes.
+    fn misplaced(&self, text: &str) -> RpcError {
+        let id = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next());
+        let account = self.manifest.contributes.accounts.iter().find(|a| Some(a.id.as_str()) == id);
+        match account.map(|a| &a.token) {
+            Some(TokenPlace::Query(name)) => {
+                invalid(format!("this account goes only in the query: {name}={{account:<id>}}"))
+            }
+            _ => invalid("an account goes only in the Authorization header: {account:<id>}"),
+        }
     }
 
     /// A form's parts, its text's secrets filled in and its files checked.
@@ -378,6 +422,10 @@ impl Plugin {
                 }
             }
             if next.origin() != url.origin() {
+                // The server put a secret in the address it sent the request on to: it stays here.
+                if self.net.scrub(next.as_str()) != next.as_str() {
+                    return Err(external(format!("redirected to {next}, which a secret in its address isn't for")));
+                }
                 if sent.secret {
                     return Err(external(format!("redirected to {next}, which its body's secret isn't for")));
                 }
