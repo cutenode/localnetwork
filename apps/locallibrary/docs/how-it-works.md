@@ -53,6 +53,8 @@ plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track'
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
+plugins/soundcloud/         the soundcloud plugin: the `track` set destination, a set's recording uploaded to
+                            SoundCloud as a track, its tracklist the description, the track's page its link
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
                             as an importer (keys, tempos, cues) and a library source to build drives from

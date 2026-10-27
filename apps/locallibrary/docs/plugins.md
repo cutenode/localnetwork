@@ -46,13 +46,39 @@ are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **soundcloud**: a set destination, `track`: `locallibrary sets publish SET --to
+  soundcloud:track` uploads the set's recording to SoundCloud as a track of yours and keeps the
+  track's page as the set's link. Sign in first with `locallibrary plugin account soundcloud
+  soundcloud sign-in`. The track is titled after the set (else its venue and date), with its
+  tracklist as the description (`05:30 Artist - Title` lines, as many as SoundCloud's 4,000
+  characters hold), tagged `dj mix`, not downloadable, and private unless the `sharing` setting
+  says `public`. The `genre` setting is its genre, and the `picture` setting (a JPEG or PNG under
+  2 MB) its artwork, which SoundCloud's API reference lists for Pro accounts. SoundCloud takes WAV,
+  FLAC, AIFF, MP3, AAC, Ogg, MP4, MP2, M4A, 3GP, 3G2, MJ2, WMA and AMR recordings of up to 4 GB,
+  and the plugin refuses others before anything goes. The recording goes in one request, which
+  locallibrary gives as long as a slow connection (about a megabit up) needs. SoundCloud can't
+  resume an upload, so one that doesn't arrive, or that SoundCloud fails or finds one too many, is
+  sent again whole, a few times at most. SoundCloud sometimes makes the track even when the upload
+  fails, so before sending it again the plugin looks for it among your newest tracks, and answers
+  it when it's there.
 
-coverart and musicbrainz are the only ones that go online, and only for these, through
-locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between them, as it asks:
-`art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with `--yes` or a terminal to
-ask in), for the tracks it names without IDs, unless `--no-lookup` (or `plugin roles recording
---none`, for good); and `analyze --plugin musicbrainz`. `analyze` alone leaves out the analyzers
-that go online, and says so.
+  What SoundCloud does once it has the recording is up to SoundCloud. It encodes it for a while
+  after the upload, so the link can take some minutes to play. A DJ mix needs the permission of
+  every track's rights holders: SoundCloud's content identification takes down a mix that matches
+  music it isn't allowed to have, and closes an account after three copyright strikes (its
+  [guide to DJ mixes](https://help.soundcloud.com/hc/en-us/articles/115003564568-Best-practices-for-creating-and-uploading-a-DJ-mix)).
+  A free account may upload 2 hours of audio in all, so a long set may not fit
+  ([Upload Requirements](https://help.soundcloud.com/hc/en-us/articles/360039171614-Upload-Requirements)).
+  Local Network's SoundCloud app is registered with the redirect address
+  `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
+
+coverart, musicbrainz and soundcloud are the only ones that go online, and only for these, through
+locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
+it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with
+`--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup` (or
+`plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish --to
+soundcloud:track` once you confirm it. `analyze` alone leaves out the analyzers that go online, and
+says so.
 
 ## What you have
 

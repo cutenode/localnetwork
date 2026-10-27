@@ -216,6 +216,7 @@ atstore:
           - "apps/locallibrary/src/tui/{account,account_off,profile}{.rs,/**}"
           - "apps/locallibrary/docs/{account,sets}.md"
           - "plugins/musicbrainz/**"
+          - "plugins/soundcloud/**"
           - "lexicons/computer/localnetwork/{dj,locallibrary}/**"
           - "lexicons/computer/localnetwork/locallibraryPublishing.json"
 

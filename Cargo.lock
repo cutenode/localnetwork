@@ -3953,6 +3953,7 @@ dependencies = [
  "locallibrary-plugin-interop",
  "locallibrary-plugin-musicbrainz",
  "locallibrary-plugin-sound",
+ "locallibrary-plugin-soundcloud",
  "locallibrary-plugin-tracklist",
  "loclib-interop",
  "loclib-mixid",
@@ -4053,6 +4054,19 @@ dependencies = [
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-soundcloud"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
  "serde_json",
  "tempfile",
 ]
