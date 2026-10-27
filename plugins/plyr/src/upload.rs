@@ -6,8 +6,9 @@
 //! The host answers a request whole, and the progress is a stream of server-sent events (one a
 //! second) that plyr.fm ends once the upload is published or has failed. plyr.fm has no other way
 //! to ask, so the stream is read as one answer, its last event saying how it went: the host waits
-//! as long as events keep coming, giving up once one is 30 seconds late. A part has those 30
-//! seconds to go and be answered, so a 10 MiB part needs about 3 Mbit/s up.
+//! as long as events keep coming, giving up once one is 30 seconds late. Each part is sent
+//! straight from the recording the host lends the hook, and the host gives a request sending a
+//! file time for it to go on a slow uplink.
 //!
 //! A part, or the progress, that doesn't arrive (or that plyr.fm answers with a server error) is
 //! asked for again, a few times, waiting longer each time: plyr.fm takes a part sent again in place
@@ -15,13 +16,11 @@
 //! good, cancelled, or the computer stopping) leaves its session open on plyr.fm, which fails it
 //! once it has been idle for a day; publishing again starts afresh.
 
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use loclib_plugin::{Fetch, Fetched, Host, RpcError};
-use loclib_progress::{Ctx, Event, Phase};
+use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError};
+use loclib_progress::{Ctx, Phase};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -43,10 +42,6 @@ const FIRST_WAIT: Duration = if cfg!(test) { Duration::from_millis(1) } else { D
 
 /// How often a wait notices the hook being cancelled.
 const CHECK_EVERY: Duration = Duration::from_millis(50);
-
-/// The biggest part taken from plyr.fm: the host reads a part into memory to send it, and plyr.fm
-/// asks for 10 MiB.
-const MAX_PART: u64 = 64 << 20;
 
 /// What opening a session answers.
 #[derive(Deserialize)]
@@ -83,43 +78,40 @@ pub(crate) fn parts(size: u64, part: u64) -> impl Iterator<Item = (u64, u64, u64
     })
 }
 
-/// Uploads `recording` (`size` bytes, named `filename`) as `track`, each part through a file in
-/// `scratch`: the track's id once plyr.fm has published it, and what plyr.fm warns of.
+/// Uploads `recording` (`size` bytes, named `filename`) as `track`: the track's id once plyr.fm
+/// has published it, and what plyr.fm warns of.
 pub(crate) fn upload(
     host: &Host,
     recording: &Path,
     size: u64,
     filename: &str,
     track: &Track,
-    scratch: &Path,
 ) -> Result<(u64, Vec<String>), RpcError> {
     let start = json!({ "filename": filename, "size_bytes": size }).to_string();
     let start = Fetch { body: Some(start), ..request("POST", "/tracks/uploads", Some("application/json")) };
     let session: Session = read(&ask(host, &start, "the upload", 1)?)?;
     let part = session.part_size_bytes;
-    if !(1..=MAX_PART).contains(&part) || session.part_count != size.div_ceil(part) {
+    if part == 0 || session.part_count != size.div_ceil(part) {
         return Err(RpcError::failed(
             "external",
             format!("plyr.fm asked for {} parts of {part} bytes", session.part_count),
         ));
     }
     let id = &session.upload_id;
-    let io = |e: std::io::Error| RpcError::failed("io", format!("{}: {e}", recording.display()));
-    let mut file = File::open(recording).map_err(io)?;
-    let blob = scratch.join("part");
     let ctx = host.ctx();
-    ctx.phase_start(Phase::Copy, session.part_count, size);
-    for (n, at, len) in parts(size, part) {
+    // The host reports the bytes it sends as this phase's progress.
+    ctx.phase_start(Phase::Upload, session.part_count, size);
+    for (n, offset, length) in parts(size, part) {
         ctx.check()?;
-        let mut bytes = vec![0; usize::try_from(len).expect("a part fits in memory")];
-        file.seek(SeekFrom::Start(at)).and_then(|_| file.read_exact(&mut bytes)).map_err(io)?;
-        std::fs::write(&blob, bytes).map_err(|e| RpcError::failed("io", format!("{}: {e}", blob.display())))?;
         let path = format!("/tracks/uploads/{id}/parts/{n}");
-        let put = Fetch { body_blob: Some(blob.clone()), ..request("PUT", &path, Some("application/octet-stream")) };
+        let put = Fetch {
+            body_blob: Some(recording.to_path_buf()),
+            body_range: Some(ByteRange { offset, length: Some(length) }),
+            ..request("PUT", &path, Some("application/octet-stream"))
+        };
         ask(host, &put, &format!("part {n} of {}", session.part_count), TRIES)?;
-        ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: len });
     }
-    ctx.phase_end(Phase::Copy);
+    ctx.phase_end(Phase::Upload);
     let tags = serde_json::to_string(&TAGS).expect("tags are JSON");
     let mut form = form_urlencoded::Serializer::new(String::new());
     form.append_pair("title", &track.title).append_pair("tags", &tags);

@@ -61,12 +61,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
         let line = format!("{what}, tagged {}{listed}", track::TAGS.join(", "));
         return Ok(Published { url: None, warnings: [vec![line], track.notes].concat() });
     }
-    let scratch = req
-        .context
-        .scratch
-        .as_deref()
-        .ok_or_else(|| RpcError::invalid_params("no scratch folder to send parts from"))?;
-    let (id, warnings) = upload::upload(host, recording, size, &filename, &track, scratch)?;
+    let (id, warnings) = upload::upload(host, recording, size, &filename, &track)?;
     Ok(Published { url: Some(format!("{TRACK_PAGE}{id}")), warnings: [track.notes, warnings].concat() })
 }
 

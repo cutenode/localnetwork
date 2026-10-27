@@ -7,7 +7,7 @@ use std::time::Duration;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer,
+    ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer,
     ProgressReport, Progressed, PublishedSet, SettingType, TracklistEntry, method,
 };
 use loclib_progress::{Event, Phase};
@@ -68,17 +68,18 @@ impl Received {
 }
 
 /// plyr.fm as `upload_sessions.py` and `uploads.py` answer, with parts of `part_size` bytes, but
-/// as `script` says, through a host with the token set or not.
+/// as `script` says, through a host with the token set or not that lent the hook `lent`.
 struct Plyr {
     part_size: u64,
     token: bool,
+    lent: Option<PathBuf>,
     script: Script,
     received: Received,
 }
 
 impl Plyr {
     fn new(part_size: u64) -> Plyr {
-        Plyr { part_size, token: true, script: Box::new(|_, _| None), received: Received::default() }
+        Plyr { part_size, token: true, lent: None, script: Box::new(|_, _| None), received: Received::default() }
     }
 
     fn scripted(part_size: u64, script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Plyr {
@@ -94,6 +95,7 @@ impl Plyr {
                 "its secret token isn't set (locallibrary plugin settings plyr token --secret)",
             ));
         }
+        let sent = file_part(self.lent.as_deref(), fetch)?;
         let r = &mut self.received;
         r.requests.push((fetch.method.clone(), fetch.url.clone()));
         assert_eq!(fetch.headers.get("Authorization").map(String::as_str), Some(AUTHORIZATION), "{fetch:?}");
@@ -110,15 +112,33 @@ impl Plyr {
         let (status, body) = match (self.script)(&route, asked) {
             Some(Reply::Unreachable) => return Err(RpcError::failed("external", "connection reset")),
             Some(Reply::Status(status, body)) => (status, body),
-            None => as_plyr(self.part_size, r, &route, fetch),
+            None => as_plyr(self.part_size, r, &route, fetch, sent),
         };
         Ok(Fetched { status, headers: Default::default(), body: Some(body), blob: None })
     }
 }
 
+/// What of a file `fetch` sends, read as the host reads it before sending: only the file the hook
+/// was lent, and only a range inside it.
+fn file_part(lent: Option<&Path>, fetch: &Fetch) -> Result<Option<Vec<u8>>, RpcError> {
+    let Some(path) = &fetch.body_blob else { return Ok(None) };
+    let invalid = |why: String| RpcError::failed("invalid", format!("{}: {why}", path.display()));
+    if lent != Some(path.as_path()) {
+        return Err(invalid("not a file it was lent".into()));
+    }
+    let file = std::fs::read(path).map_err(|e| invalid(e.to_string()))?;
+    let size = file.len() as u64;
+    let ByteRange { offset, length } = fetch.body_range.unwrap_or_default();
+    let length = length.unwrap_or(size.saturating_sub(offset));
+    if offset + length > size {
+        return Err(invalid(format!("{length} bytes from {offset} go past its end, at {size}")));
+    }
+    Ok(Some(file[offset as usize..(offset + length) as usize].to_vec()))
+}
+
 /// What plyr.fm, cutting files into parts of `part_size` bytes, answers `fetch`, the request
-/// `route` (as [`Script`] names it), having been sent `r`.
-fn as_plyr(part_size: u64, r: &mut Received, route: &str, fetch: &Fetch) -> (u16, String) {
+/// `route` (as [`Script`] names it) sending the file part `sent`, having been sent `r`.
+fn as_plyr(part_size: u64, r: &mut Received, route: &str, fetch: &Fetch, sent: Option<Vec<u8>>) -> (u16, String) {
     let content_type = fetch.headers.get("Content-Type").map(String::as_str);
     let refused = |status: u16, detail: String| (status, json!({ "detail": detail }).to_string());
     match route {
@@ -156,13 +176,13 @@ fn as_plyr(part_size: u64, r: &mut Received, route: &str, fetch: &Fetch) -> (u16
             assert_eq!(content_type, Some("application/octet-stream"));
             assert_eq!(fetch.body, None);
             let n: u64 = part.strip_prefix("part ").unwrap().parse().unwrap();
-            let bytes = std::fs::read(fetch.body_blob.as_ref().expect("a part's file")).unwrap();
             let size = r.opened.as_ref().unwrap().0;
-            let expected = part_size.min(size - (n - 1) * part_size);
-            if bytes.len() as u64 != expected {
-                return refused(400, format!("part {n} must be {expected} bytes, got {}", bytes.len()));
+            let offset = (n - 1) * part_size;
+            let expected = ByteRange { offset, length: Some(part_size.min(size - offset)) };
+            if fetch.body_range != Some(expected) {
+                return refused(400, format!("part {n} must be {expected:?} of the file, got {:?}", fetch.body_range));
             }
-            r.parts.push((n, bytes));
+            r.parts.push((n, sent.expect("a part's bytes")));
             (200, json!({ "part_number": n, "etag": format!("e{n}") }).to_string())
         }
     }
@@ -177,8 +197,6 @@ struct Session {
     hello: HelloReply,
     /// Answering its fetches: scripted afresh by [`Session::script`].
     plyr: Arc<Mutex<Plyr>>,
-    /// The requests' scratch folder.
-    scratch: tempfile::TempDir,
 }
 
 fn start(plyr: Plyr) -> Session {
@@ -199,30 +217,34 @@ fn start(plyr: Plyr) -> Session {
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
     let hello = host.request(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, hello, plyr, scratch: tempfile::tempdir().unwrap() }
+    Session { host, served, answering, hello, plyr }
 }
 
-/// What a publish answered, and the bytes it said it sent.
-type Outcome = (Result<Published, RpcError>, u64);
+/// What a publish answered, and the upload phase it reported, in order: `Some` of the parts and
+/// bytes it started with, `None` where it ended.
+type Outcome = (Result<Published, RpcError>, Vec<Option<(u64, u64)>>);
 
 impl Session {
-    /// `set/publish` to `track` as the host sends it, with a scratch folder.
+    /// `set/publish` to `track` as the host sends it, lending the hook `recording`.
     fn publish(&self, set: &PublishedSet, recording: &Path, tracklist: &[TracklistEntry], dry_run: bool) -> Outcome {
-        let context = json!({ "scratch": self.scratch.path() });
-        let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run, "context": context });
+        self.plyr.lock().unwrap().lent = Some(recording.to_path_buf());
+        let req = json!({ "destination": "track", "set": set, "recording": recording, "tracklist": tracklist, "dry_run": dry_run });
         let pending = self.host.send_request_reporting(method::SET_PUBLISH, &req).unwrap();
         let answer = pending.wait_timeout(Duration::from_secs(60)).expect("an answer in a minute");
-        let sent = pending
+        let upload = pending
             .progress()
             .filter_map(|p| match p {
                 ProgressReport::Known(e) => match e.event {
-                    Progressed::Event(Event::Bytes { phase: Phase::Copy, bytes }) => Some(bytes),
+                    Progressed::Event(Event::PhaseStart { phase: Phase::Upload, items, bytes }) => {
+                        Some(Some((items, bytes)))
+                    }
+                    Progressed::Event(Event::PhaseEnd { phase: Phase::Upload }) => Some(None),
                     _ => None,
                 },
                 ProgressReport::Unknown(_) => None,
             })
-            .sum();
-        (answer, sent)
+            .collect();
+        (answer, upload)
     }
 
     /// Its fetches answered by `plyr` from now on.
@@ -307,7 +329,7 @@ fn a_set_goes_up_in_parts_and_answers_its_page() {
         entry(Some("Someone"), Some("Unplaced"), None),
     ];
     let s = start(Plyr::new(1024));
-    let (answer, sent) = s.publish(&set(), &path, &tracklist, false);
+    let (answer, upload) = s.publish(&set(), &path, &tracklist, false);
     let r = s.stop();
     let published = answer.unwrap();
     assert_eq!(published, Published { url: Some(format!("https://plyr.fm/track/{TRACK}")), warnings: Vec::new() });
@@ -315,7 +337,7 @@ fn a_set_goes_up_in_parts_and_answers_its_page() {
     let sizes: Vec<(u64, usize)> = r.parts.iter().map(|(n, b)| (*n, b.len())).collect();
     assert_eq!(sizes, [(1, 1024), (2, 1024), (3, 452)]);
     assert_eq!(r.file(), std::fs::read(&path).unwrap());
-    assert_eq!(sent, 2500);
+    assert_eq!(upload, [Some((3, 2500)), None]);
     let description =
         "00:00 Young Fathers - In My View\n05:30 ID - ID\n1:02:03 Chris Lake - Turn Off the Lights\nSomeone - Unplaced";
     let fields = [("title", "Closing set"), ("tags", r#"["dj mix"]"#), ("description", description)];
@@ -373,13 +395,13 @@ fn a_dry_run_sends_nothing() {
     let s = start(Plyr::new(1024));
     let untitled = PublishedSet { title: None, ..set() };
     let tracklist = [entry(Some("A"), Some("B"), Some(1)), entry(None, None, None)];
-    let (answer, sent) = s.publish(&untitled, &path, &tracklist, true);
+    let (answer, upload) = s.publish(&untitled, &path, &tracklist, true);
     let line = "set.mp3 (1.5 MiB) would go to plyr.fm as \"Warehouse, 2026-10-03\", tagged dj mix, its 2 tracks in the description";
     assert_eq!(answer.unwrap(), Published { url: None, warnings: vec![line.into()] });
     let (answer, _) = s.publish(&untitled, &path, &[], true);
     let line = "set.mp3 (1.5 MiB) would go to plyr.fm as \"Warehouse, 2026-10-03\", tagged dj mix";
     assert_eq!(answer.unwrap().warnings, [line]);
-    assert_eq!(sent, 0);
+    assert!(upload.is_empty());
     assert!(s.stop().requests.is_empty());
 }
 
@@ -395,7 +417,7 @@ fn a_part_that_fails_is_sent_again() {
         _ => None,
     });
     let s = start(plyr);
-    let (answer, sent) = s.publish(&set(), &path, &[], false);
+    let (answer, upload) = s.publish(&set(), &path, &[], false);
     let r = s.stop();
     assert_eq!(answer.unwrap().url, Some(format!("https://plyr.fm/track/{TRACK}")));
     let order: Vec<u64> = r.parts.iter().map(|(n, _)| *n).collect();
@@ -403,7 +425,7 @@ fn a_part_that_fails_is_sent_again() {
     let puts = r.requests.iter().filter(|(m, _)| m == "PUT").count();
     assert_eq!(puts, 5);
     assert_eq!(r.file(), std::fs::read(&path).unwrap());
-    assert_eq!(sent, 300);
+    assert_eq!(upload, [Some((3, 300)), None]);
     // Without a description, none is sent.
     assert_eq!(r.field("description"), None);
 
@@ -427,21 +449,8 @@ fn without_a_token_nothing_goes() {
     assert!(s.stop().requests.is_empty());
 }
 
-/// From a host that gives no scratch folder (one without `blobs`), nothing goes: a part is sent
-/// from a file there.
-#[test]
-fn without_a_scratch_folder_nothing_goes() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = recording(dir.path(), "set.flac", 10);
-    let s = start(Plyr::new(1024));
-    let req = json!({ "destination": "track", "set": set(), "recording": path, "tracklist": [] });
-    let e = s.host.request::<_, Published>(method::SET_PUBLISH, &req).unwrap_err();
-    assert_eq!(e.message, "invalid params: no scratch folder to send parts from");
-    assert!(s.stop().requests.is_empty());
-}
-
-/// A recording cut short once the upload has started, or a scratch folder gone, fails the upload
-/// as a file that couldn't be read or written, naming it.
+/// A recording cut short once the upload has started fails the upload where the host can't send
+/// the next part, with its error naming the file, and nothing is asked again.
 #[test]
 fn a_file_that_goes_wrong_midway_fails_naming_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -453,18 +462,17 @@ fn a_file_that_goes_wrong_midway_fails_naming_it() {
         }
         None
     }));
-    let e = s.publish(&set(), &path, &[], false).0.unwrap_err();
-    assert_eq!(s.stop().parts.len(), 2);
-    assert_eq!(e.kind(), Some("io"), "{e:?}");
-    assert!(e.message.starts_with(&path.display().to_string()), "{e:?}");
-
-    let s = start(Plyr::new(100));
-    let scratch = s.scratch.path().to_path_buf();
-    std::fs::remove_dir(&scratch).unwrap();
-    let e = s.publish(&set(), &path, &[], false).0.unwrap_err();
-    assert_eq!(e.kind(), Some("io"), "{e:?}");
-    assert!(e.message.starts_with(&scratch.join("part").display().to_string()), "{e:?}");
-    assert!(s.stop().parts.is_empty());
+    let (answer, upload) = s.publish(&set(), &path, &[], false);
+    let r = s.stop();
+    assert_eq!(r.parts.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(r.requests.len(), 3);
+    let e = answer.unwrap_err();
+    assert_eq!(
+        kind(&e),
+        ("invalid", format!("{}: 100 bytes from 200 go past its end, at 150", path.display()).as_str())
+    );
+    // Failing, it never ends the upload phase.
+    assert_eq!(upload, [Some((3, 300))]);
 }
 
 /// plyr.fm refusing says why, in its words: a token it doesn't take, a track it won't publish.
@@ -722,7 +730,7 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     static SESSION: LazyLock<Mutex<Session>> = LazyLock::new(|| Mutex::new(start(Plyr::new(1))));
     let s = SESSION.lock().unwrap_or_else(PoisonError::into_inner);
     s.script(Plyr { token, ..plyr });
-    let (answer, sent) = s.publish(&set(), &path, &tracklist, dry_run);
+    let (answer, upload) = s.publish(&set(), &path, &tracklist, dry_run);
     let r = s.received();
     drop(s);
 
@@ -733,17 +741,17 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     };
     if let Some(kind) = refused_first {
         assert_eq!(answer.unwrap_err().kind(), Some(kind));
-        assert!(r.requests.is_empty());
+        assert!(r.requests.is_empty() && upload.is_empty());
         return;
     }
     if dry_run {
         assert_eq!(answer.unwrap().url, None);
-        assert!(r.requests.is_empty());
+        assert!(r.requests.is_empty() && upload.is_empty());
         return;
     }
     if !token {
         assert_eq!(answer.unwrap_err().kind(), Some("invalid"));
-        assert!(r.requests.is_empty());
+        assert!(r.requests.is_empty() && upload.is_empty());
         return;
     }
     // What plyr.fm refusing a step fails the publish as.
@@ -755,6 +763,7 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     if let Some(("start", (code, _))) = refused {
         assert_eq!(answer.unwrap_err().kind(), Some(kind_of(code)));
         assert_eq!(r.requests.len(), 1, "{:?}", r.requests);
+        assert!(upload.is_empty());
         return;
     }
     let dead = fails.iter().position(|f| *f == TRIES);
@@ -764,7 +773,9 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let puts = r.requests.iter().filter(|(m, _)| m == "PUT").count() as u32;
     let tries: u32 = fails.iter().take(reached as usize + usize::from(dead.is_some())).map(|f| f + 1).sum();
     assert_eq!(puts, tries - u32::from(dead.is_some()));
-    assert_eq!(sent, r.parts.iter().map(|(_, b)| b.len() as u64).sum::<u64>());
+    // The upload phase spans the parts, ended once every one has arrived.
+    let ended = dead.is_none().then_some(None);
+    assert_eq!(upload, [Some(Some((count, size))), ended].into_iter().flatten().collect::<Vec<_>>());
     let gets = r.requests.iter().filter(|(m, _)| m == "GET").count() as u32;
     match (dead, refused) {
         (Some(d), _) => {

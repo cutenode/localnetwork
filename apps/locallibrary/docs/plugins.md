@@ -53,10 +53,10 @@ are:
   set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
   and the plugin refuses others before anything goes. It needs a developer token from
   plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
-  --secret`. The recording goes in the parts plyr.fm asks for (10 MiB), each sent again a few
-  times when it doesn't arrive; each has the 30 seconds locallibrary gives a request, so it takes
-  about 3 Mbit/s up. An upload that stops partway is dropped by plyr.fm after a day, and
-  publishing again starts over.
+  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
+  sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
+  plyr.fm after a day, and publishing again starts over.
 
 coverart, musicbrainz and plyr are the only ones that go online, and only for these, through
 locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
