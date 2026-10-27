@@ -31,6 +31,8 @@ pub enum Phase {
     Match,
     /// Decoding library tracks to estimate their tempo, key and loudness.
     Analyze,
+    /// Sending files to a server (a set's recording, by a plugin's `net/fetch`).
+    Upload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

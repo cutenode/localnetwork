@@ -8,7 +8,9 @@
 //! leads to, and left out of its log and the errors it's told (see [`State::scrub`]); what a
 //! server answers is passed on as it is.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
-//! scratch folder; nothing is kept.
+//! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
+
+mod body;
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -17,7 +19,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, RpcError, SettingType};
+use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType};
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
@@ -26,6 +28,7 @@ use reqwest::header::{
 use reqwest::{Method, Url};
 use serde_json::Value;
 
+use self::body::{Body, Field, FilePart};
 use super::blobs;
 use super::process::{Live, Plugin};
 use crate::export::one_line;
@@ -33,8 +36,11 @@ use crate::net::{public, this_computer, with_causes};
 use crate::progress::CancelToken;
 use crate::{lock, op};
 
-/// The longest a request may take.
+/// The longest a request may take, besides sending files.
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// The slowest a request sending files may send them, in bytes a second (a slow home connection's
+/// upload, about a megabit): it may take as long as that would, besides [`TIMEOUT`].
+const SLOWEST: u64 = 128 << 10;
 /// The most redirects followed.
 const MAX_REDIRECTS: usize = 5;
 /// How often a request waiting for its turn notices being cancelled.
@@ -92,7 +98,7 @@ struct Sent {
     plain: HeaderMap,
     /// Those with one.
     filled: HeaderMap,
-    body: Option<Vec<u8>>,
+    body: Option<Body>,
     /// Whether the body has a secret in it.
     secret: bool,
 }
@@ -229,8 +235,15 @@ impl Plugin {
         if req.body.is_some() && req.body_blob.is_some() {
             return Err(invalid("a request sends a body or a body_blob, not both"));
         }
+        if !req.multipart.is_empty() && (req.body.is_some() || req.body_blob.is_some()) {
+            return Err(invalid("a request sends a multipart form or a body, not both"));
+        }
+        if req.body_range.is_some() && req.body_blob.is_none() {
+            return Err(invalid("a body_range is of a body_blob, which it doesn't send"));
+        }
+        let texts = req.body.iter().chain(req.multipart.iter().filter_map(|p| p.value.as_ref()));
         let named_account = url.query_pairs().any(|(_, v)| v.contains(ACCOUNT_PLACEHOLDER));
-        if named_account || req.body.as_deref().is_some_and(|b| b.contains(ACCOUNT_PLACEHOLDER)) {
+        if named_account || texts.clone().any(|t| t.contains(ACCOUNT_PLACEHOLDER)) {
             return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
         }
         if url.query_pairs().any(|(_, v)| v.contains(SECRET)) {
@@ -244,8 +257,8 @@ impl Plugin {
         for (name, value) in &req.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| invalid(format!("{name:?} isn't a header's name")))?;
-            // Never one the plugin sets: the host says who's asking.
-            if name == USER_AGENT {
+            // Never one the plugin sets: the host says who's asking, and how long the body is.
+            if name == USER_AGENT || name == CONTENT_LENGTH {
                 continue;
             }
             if value.contains(ACCOUNT_PLACEHOLDER) {
@@ -267,19 +280,21 @@ impl Plugin {
         let agent = HeaderValue::from_str(&self.user_agent(live))
             .map_err(|_| invalid("its contact can't be sent in a header"))?;
         sent.plain.insert(USER_AGENT, agent);
+        sent.secret = texts.clone().any(|t| t.contains(SECRET));
         if let Some(body) = &req.body {
-            sent.secret = body.contains(SECRET);
-            sent.body = Some(self.fill(live, body)?.into_bytes());
+            sent.body = Some(Body::Text(self.fill(live, body)?.into_bytes()));
         }
         if let Some(blob) = &req.body_blob {
-            let mut bytes = Vec::new();
-            let read = live.scratches.open(blob).and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| e.to_string()));
-            read.map_err(|e| invalid(format!("{}: {e}", blob.display())))?;
-            sent.body = Some(bytes);
+            sent.body = Some(Body::File(FilePart::new(live, blob, req.body_range)?));
+        }
+        if !req.multipart.is_empty() {
+            // The host says what it is: a form with the boundary it makes.
+            sent.plain.remove(CONTENT_TYPE);
+            sent.body = Some(Body::Form(self.form(live, &req.multipart)?));
         }
         // Before it's sent: an answer with nowhere to go is never asked for.
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
-        let response = self.follow(url, sent, cancel)?;
+        let response = self.follow(live, url, sent, cancel)?;
         let status = response.status().as_u16();
         let mut answered: IndexMap<String, String> = IndexMap::new();
         for (name, value) in response.headers() {
@@ -294,12 +309,26 @@ impl Plugin {
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
     }
 
+    /// A form's parts, its text's secrets filled in and its files checked.
+    fn form(&self, live: &Live, parts: &[FormPart]) -> Result<Vec<(String, Field)>, RpcError> {
+        let field = |p: &FormPart| match (&p.value, &p.file) {
+            (Some(value), None) if p.range.is_none() => Ok(Field::Text(self.fill(live, value)?)),
+            (None, Some(file)) => Ok(Field::File {
+                file: FilePart::new(live, file, p.range)?,
+                filename: p.filename.clone(),
+                content_type: p.content_type.clone(),
+            }),
+            _ => Err(invalid(format!("the form's part {:?} has a value or a file (and its range), not both", p.name))),
+        };
+        parts.iter().map(|p| Ok((p.name.clone(), field(p)?))).collect()
+    }
+
     /// Sends `sent` to `url`, and follows the redirects it's answered with as browsers do, each
     /// to where the plugin may go ([`refused`]) and in its turn: its last answer. Once one leads
     /// to another server, the headers its secrets were filled into, and those reqwest never sends
     /// on to another (its credentials), are left out from then on; a body with a secret in it is
     /// never sent there.
-    fn follow(&self, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
+    fn follow(&self, live: &Live, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
         let external = |why: String| RpcError::failed("external", self.net.scrub(&why));
         let mut hops = 0;
         loop {
@@ -307,9 +336,20 @@ impl Plugin {
             let mut request = self.client()?.request(sent.method.clone(), url.clone());
             request = request.headers(sent.plain.clone()).headers(sent.filled.clone());
             if let Some(body) = &sent.body {
-                request = request.body(body.clone());
+                let files = body.file_bytes();
+                if files > 0 {
+                    let to = url.host_str().unwrap_or_default();
+                    let said = format!("net/fetch: sending {} of files to {to} ({})", op::bytes(files), sent.method);
+                    self.host.log(&self.manifest.id, &said);
+                    request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
+                }
+                request = body.send(request, live, cancel)?;
             }
-            let response = request.send().map_err(|e| external(with_causes(&e)))?;
+            let sending = request.send();
+            if sending.is_err() && cancel.is_cancelled() {
+                return Err(RpcError::cancelled());
+            }
+            let response = sending.map_err(|e| external(with_causes(&e)))?;
             let location = response.headers().get(LOCATION).and_then(|l| l.to_str().ok());
             let (Some(location), 301 | 302 | 303 | 307 | 308) = (location, response.status().as_u16()) else {
                 return Ok(response);

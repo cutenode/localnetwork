@@ -89,6 +89,14 @@ and refreshed a minute before they expire. The plugin never sees them: a request
 the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
 once it has checked the request, never sending it on to another server a redirect leads to.
 
+Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+on one of those is signed in to through Local Network's token exchange
+(`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
+tokens back. The website never keeps them, and the exchange is the only server besides the
+service that a sign-in's code goes to. Until the website is set up for a service, signing in
+says so.
+
 ## Analysis
 
 An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,
@@ -181,7 +189,9 @@ A set destination publishes a set's recording with its tracklist (tracks marked 
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):
 `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
 shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
-there), and keeps where the set can be heard as its link.
+there), and keeps where the set can be heard as its link. The plugin uploads the recording through
+locallibrary, whole, in parts or in a form, which reads it as it sends it and shows how much has
+gone; the plugin may send it only while it's publishing, never in the dry run.
 
 ## Events
 
@@ -393,8 +403,10 @@ to those, as `locallibrary/VERSION` with the plugin's contact setting if it has 
 its manifest says each server allows. A secret setting, or an account's token, goes only where
 such a request names it, filled in by locallibrary, never on to another server a redirect leads
 to, and is left out of the plugin's log and of the errors it's told (what a server answers is
-passed on as it is). A destination is given stored files to read, never the store's folder to
-write: what it gives back is checked before locallibrary keeps it.
+passed on as it is). The files a plugin sends are those in its request's folder (see below) and a
+set's recording while it publishes the set, nothing else. A destination is given stored files to
+read, never the store's folder to write: what it gives back is checked before locallibrary keeps
+it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary

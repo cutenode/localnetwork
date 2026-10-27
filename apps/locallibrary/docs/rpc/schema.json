@@ -30593,8 +30593,18 @@
           "description": "The service's authorization endpoint, where the browser signs in (https)."
         },
         "token_url": {
-          "type": "string",
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https)."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account has this or `token_exchange`."
+        },
+        "token_exchange": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Local Network's token exchange for its service\n(`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for\na service that wants a client secret there."
         },
         "scopes": {
           "type": "array",
@@ -30605,7 +30615,7 @@
         },
         "client_id": {
           "type": "string",
-          "description": "The plugin's client at the service: a public one, without a secret."
+          "description": "The plugin's client at the service: a public one, without a secret, or Local Network's,\nwhose secret its token exchange holds."
         },
         "pkce": {
           "type": "boolean",
@@ -30624,7 +30634,6 @@
         "id",
         "title",
         "authorize_url",
-        "token_url",
         "client_id",
         "pkce"
       ],
@@ -32905,6 +32914,11 @@
           "type": "string",
           "const": "analyze",
           "description": "Decoding library tracks to estimate their tempo, key and loudness."
+        },
+        {
+          "type": "string",
+          "const": "upload",
+          "description": "Sending files to a server (a set's recording, by a plugin's `net/fetch`)."
         }
       ]
     },

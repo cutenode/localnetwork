@@ -60,8 +60,9 @@ keyring.workspace = true
 # The keychain entries themselves, from whichever store is the default: the system's, which
 # `keyring` sets, or the tests' in-memory one.
 keyring-core = { version = "1" }
-# `blocking`: plugins' `net/fetch`, answered on the callback's own thread.
-reqwest = { workspace = true, features = ["blocking"] }
+# `blocking`: plugins' `net/fetch`, answered on the callback's own thread; `multipart`: the forms
+# it sends, streamed.
+reqwest = { workspace = true, features = ["blocking", "multipart"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
