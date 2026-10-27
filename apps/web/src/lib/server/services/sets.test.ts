@@ -179,7 +179,7 @@ describe('linked sets', () => {
 		expect(calls).toEqual(['/admin/backfill', '/admin/backfill/status', `/xrpc/${DIRECTORY.listSets}`]);
 	});
 
-	it("has HappyView read a project's new managers' sets once it's published", async () => {
+	it("has HappyView read a project's new managers' sets, stats, and press kits once it's published", async () => {
 		const backfilled: string[] = [];
 
 		// Reads go to the test's HappyView; only the backfills are watched.
@@ -191,7 +191,8 @@ describe('linked sets', () => {
 				const { pathname } = new URL(request.url);
 
 				if (pathname === '/admin/backfill') {
-					backfilled.push(z.object({ did: z.string() }).parse(await request.json()).did);
+					const { collection, did } = z.object({ collection: z.string(), did: z.string() }).parse(await request.json());
+					backfilled.push(`${collection} ${did}`);
 
 					return Response.json({ id: 'job', status: 'running' });
 				}
@@ -209,10 +210,14 @@ describe('linked sets', () => {
 			status: 'active',
 			createdBy: ADMIN
 		});
-		await expect.poll(() => backfilled).toEqual([STRANGER]);
+		await expect
+			.poll(() => backfilled.toSorted())
+			.toEqual(
+				[COLLECTION.djProfile, COLLECTION.djSet, COLLECTION.epk].map((collection) => `${collection} ${STRANGER}`)
+			);
 	});
 
-	it("doesn't have HappyView read new managers' sets before it serves the project that lets them in", async () => {
+	it("doesn't have HappyView read new managers' records before it serves the project that lets them in", async () => {
 		const backfilled: string[] = [];
 
 		const admin = new HappyViewClient({
@@ -264,86 +269,5 @@ describe('linked sets', () => {
 		await sets.published([DJ]);
 		await sets.published([DJ]);
 		expect(calls.filter((path) => path === '/admin/backfill')).toHaveLength(2);
-	});
-});
-
-describe('re-reading sets for a new set script', () => {
-	let t: Awaited<ReturnType<typeof createTestServices>>;
-
-	beforeEach(async () => {
-		t = await createTestServices();
-	});
-	afterEach(async () => {
-		await t.audit.idle();
-		await t.db.destroy();
-	});
-
-	const managers = Array.from({ length: 10 }, (_, i) => `did:plc:manager${i}`);
-
-	/** A HappyView that takes a moment over each backfill, and turns away the ones for `refuse`. */
-	function happyView(refuse = new Set<string>()) {
-		const backfilled: string[] = [];
-		let running = 0;
-		let most = 0;
-		let polls = 0;
-
-		const client = new HappyViewClient({
-			url: 'http://happyview.test',
-			apiKey: 'hv_test',
-			fetch: async (input, init) => {
-				const request = new Request(input, init);
-				const { pathname } = new URL(request.url);
-
-				if (pathname === '/admin/backfill/status') polls += 1;
-
-				if (pathname !== '/admin/backfill') return Response.json([]);
-				const { did } = z.object({ did: z.string() }).parse(await request.json());
-				running += 1;
-				most = Math.max(most, running);
-				await sleep(5);
-				running -= 1;
-				backfilled.push(did);
-
-				return refuse.has(did) ? new Response('no', { status: 500 }) : Response.json({ id: did, status: 'running' });
-			}
-		});
-
-		return { client, backfilled, most: () => most, polls: () => polls };
-	}
-
-	it("re-reads every manager's sets once per script version, four at a time, without waiting for them", async () => {
-		const hv = happyView();
-		const sets = new SetService(t.core, hv.client);
-
-		const refresh = (script: string, uploaded: boolean) =>
-			sets.refreshForScript(script, uploaded, async () => managers);
-
-		await refresh('v1', true);
-		expect(hv.backfilled.toSorted()).toEqual(managers.toSorted());
-		expect(hv.most()).toBe(4);
-		expect(hv.polls()).toBe(0);
-
-		await refresh('v1', false);
-		expect(hv.backfilled).toHaveLength(10);
-		await refresh('v2', false);
-		expect(hv.backfilled).toHaveLength(20);
-		// HappyView was given the same script again (a new instance, say), so it needs the sets again.
-		await refresh('v2', true);
-		expect(hv.backfilled).toHaveLength(30);
-	});
-
-	it('tries again until every re-read has started', async () => {
-		const refuse = new Set([managers[3]]);
-		const hv = happyView(refuse);
-		const sets = new SetService(t.core, hv.client);
-		const refresh = () => sets.refreshForScript('v1', false, async () => managers);
-
-		await refresh();
-		await refresh();
-		expect(hv.backfilled).toHaveLength(20);
-		refuse.clear();
-		await refresh();
-		await refresh();
-		expect(hv.backfilled).toHaveLength(30);
 	});
 });

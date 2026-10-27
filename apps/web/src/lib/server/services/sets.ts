@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import PQueue from 'p-queue';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { DjSetView, ProjectProfile, StrongRef } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
@@ -12,12 +10,6 @@ const BACKFILL_WAIT_MS = 5_000;
 /** How often one account's sets are re-read at most. Jetstream keeps them current in between. */
 const BACKFILL_EVERY_MS = 10 * 60_000;
 
-/** How many accounts' re-reads start at once after a new set script. */
-const SCRIPT_REFRESH_CONCURRENCY = 4;
-
-/** The app database key holding the version (a hash) of the set script every manager's sets were re-read for. */
-const SCRIPT_REFRESH_KEY = 'happyview_set_script_refreshed';
-
 /** The most sets the picker offers. */
 const PICKER_LIMIT = 100;
 
@@ -25,8 +17,8 @@ const sameRef = (a: StrongRef | undefined, b: StrongRef) => a?.uri === b.uri && 
 
 /**
  * DJ sets (`computer.localnetwork.dj.set`) that a project's mixes link. They live in the managers' own repos, and
- * HappyView keeps the ones by accounts that manage a project (lua/computer/localnetwork/dj/set.lua), so every read
- * goes through it.
+ * HappyView keeps them (lua/computer/localnetwork/dj/set.lua) and serves the ones by accounts that manage a project,
+ * so every read goes through it.
  */
 export class SetService {
 	/**
@@ -127,7 +119,8 @@ export class SetService {
 
 	/**
 	 * Has HappyView re-read each account's sets from its PDS (when this app has an API key, and at most every ten
-	 * minutes per account), for sets Jetstream never brought: ones published before the account managed a project.
+	 * minutes per account), for sets Jetstream never brought: ones published before HappyView kept every account's, or
+	 * while it was down.
 	 */
 	async refresh(accounts: string[]): Promise<void> {
 		await Promise.all(accounts.map((did) => this.backfill(did)));
@@ -142,49 +135,6 @@ export class SetService {
 		this.backfilled.set(did, { at: Date.now(), done });
 
 		return done;
-	}
-
-	/**
-	 * Has HappyView re-read every manager's sets once for each version of its set script (`script`), which only applies
-	 * to sets HappyView reads after it. The version is kept in the app's database once every re-read has started, so
-	 * a failure or a restart before then tries again, and a later boot doesn't. `uploaded` says HappyView was just
-	 * given the script, so it needs the re-reads even if this app made them for the same version before. Starts a few
-	 * at a time and doesn't wait for them to finish.
-	 */
-	async refreshForScript(script: string, uploaded: boolean, managers: () => Promise<string[]>): Promise<void> {
-		const version = createHash('sha256').update(script).digest('hex');
-		const kv = this.core.db;
-
-		if (uploaded) await kv.deleteFrom('kv').where('key', '=', SCRIPT_REFRESH_KEY).execute();
-		const done = await kv.selectFrom('kv').select('value').where('key', '=', SCRIPT_REFRESH_KEY).executeTakeFirst();
-
-		if (done?.value === version) return;
-		const accounts = await managers();
-		const queue = new PQueue({ concurrency: SCRIPT_REFRESH_CONCURRENCY });
-		this.core.logger.info({ accounts: accounts.length }, "having HappyView re-read managers' sets");
-
-		const started = await Promise.all(
-			accounts.map((did) =>
-				queue.add(async () => {
-					try {
-						await this.directory.backfill(COLLECTION.djSet, did);
-
-						return true;
-					} catch (error) {
-						this.core.logger.warn({ err: error, did }, 'could not have HappyView re-read sets');
-
-						return false;
-					}
-				})
-			)
-		);
-
-		if (!started.every(Boolean)) return;
-		await kv
-			.insertInto('kv')
-			.values({ key: SCRIPT_REFRESH_KEY, value: version })
-			.onConflict((conflict) => conflict.column('key').doUpdateSet({ value: version }))
-			.execute();
 	}
 
 	private async read(did: string): Promise<void> {

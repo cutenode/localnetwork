@@ -384,7 +384,8 @@ pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Optio
 pub(crate) fn image_files(device: &Device, files: &[String]) -> Result<Vec<String>> {
     let wanted: FxHashSet<String> = files.iter().map(|f| paths::file_key(f)).collect();
     let mut libraries = vec![device.library()?];
-    libraries.extend(crate::clean::open_plus(device, device.has_device_library(), &mut Vec::new())?.map(|(l, _)| l));
+    libraries
+        .extend(crate::onelibrary::open_plus(device, device.has_device_library(), &mut Vec::new())?.map(|(l, _)| l));
     let mut out = Vec::new();
     for t in libraries.iter().flat_map(|l| &l.tracks) {
         let Some(image) = t.artwork_path.as_deref().filter(|_| wanted.contains(&paths::file_key(&t.file_path))) else {
@@ -517,7 +518,7 @@ fn apply_batches(
         })
         .collect();
     let has_pdb = device.has_device_library();
-    let mut plus = crate::clean::open_plus(device, has_pdb, warnings)?;
+    let mut plus = crate::onelibrary::open_plus(device, has_pdb, warnings)?;
 
     // The same batches in OneLibrary's ids. `library` is export.pdb's when the drive has one.
     let mut plus_plan: Option<PlusBatches> = None;

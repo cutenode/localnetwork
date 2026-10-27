@@ -25,7 +25,6 @@ default = ["account", "peers"]
 # `publish` modules and the `account_*` and `*_publish_*` API. Its async runtime, AT Protocol
 # clients and DNS are for this alone (the HTTP client and the keychain are plugins' too).
 account = [
-    "dep:hickory-resolver",
     "dep:http",
     "dep:jacquard-api",
     "dep:jacquard-common",
@@ -61,8 +60,9 @@ keyring.workspace = true
 # The keychain entries themselves, from whichever store is the default: the system's, which
 # `keyring` sets, or the tests' in-memory one.
 keyring-core = { version = "1" }
-# `blocking`: plugins' `net/fetch`, answered on the callback's own thread.
-reqwest = { workspace = true, features = ["blocking"] }
+# `blocking`: plugins' `net/fetch`, answered on the callback's own thread; `multipart`: the forms
+# it sends, streamed.
+reqwest = { workspace = true, features = ["blocking", "multipart"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
@@ -97,7 +97,6 @@ ring = "0.17.14"
 unicode-segmentation = { version = "1.13.3", optional = true }
 # The plugin protocol the plugin host speaks (`plugin`).
 loclib-plugin.workspace = true
-hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
 # How a URL's query spells a plugin's secret, to leave that out of what the plugin is told too.
 form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
@@ -115,6 +114,8 @@ loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
 # The interop plugin's rekordbox XML writer, which tests read fixture drives' libraries through.
 loclib-interop.workspace = true
+# The demos plugin, served in the tests that apply its plans to drives (`props_demos`).
+locallibrary-plugin-demos = { path = "../../plugins/demos" }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.

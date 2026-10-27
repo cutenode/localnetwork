@@ -22,6 +22,13 @@ fn progress_reads_as_the_sidecar_sends_it() {
 
     let ProgressReport::Known(e) = report(json!({ "event": "step", "step": step })) else { panic!("known") };
     assert!(matches!(e.event, Progressed::Step(_)));
+
+    // A phase's start has items of its own: how many there are, not how many it stands for.
+    let start = json!({ "event": "phase_start", "phase": "copy", "items": 2, "bytes": 9, "target": "USB" });
+    let ProgressReport::Known(e) = report(start.clone()) else { panic!("known") };
+    assert!(matches!(e.event, Progressed::Event(Event::PhaseStart { phase: Phase::Copy, items: 2, bytes: 9 })));
+    assert_eq!((e.target.as_deref(), e.items), (Some("USB"), None));
+    assert_eq!(serde_json::to_value(&e).unwrap(), start);
 }
 
 /// A newer plugin's event or phase doesn't stop an older host reading progress: it reads as

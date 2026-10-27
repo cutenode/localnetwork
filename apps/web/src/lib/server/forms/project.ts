@@ -53,7 +53,7 @@ function linkRows(form: FormData, field: string, label: string): Map<string, num
 }
 
 /** The CIDs records are written with: base32 CIDv1, as the lexicon's `cid` format accepts. */
-const CID = /^b[a-z2-7]{20,100}$/;
+export const CID = /^b[a-z2-7]{20,100}$/;
 
 /**
  * A mix's set picker value: the set's URI and the CID of the version picked, space-separated (see

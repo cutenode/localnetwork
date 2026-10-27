@@ -145,7 +145,7 @@ pub enum ProgressReport {
 
 /// The RPC sidecar's progress event: what happened, the drive (`target`) and step it's about, and
 /// for a coalesced `item`, how many items it stands for (count `items ?? 1`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProgressEvent {
     #[serde(flatten)]
     pub event: Progressed,
@@ -155,6 +155,24 @@ pub struct ProgressEvent {
     pub step: Option<StepInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<u64>,
+}
+
+/// Read by hand: a phase's start has `items` of its own (how many there are), which a derived
+/// reader would take for the event's count and leave the start without.
+impl<'de> Deserialize<'de> for ProgressEvent {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Scope {
+            target: Option<String>,
+            step: Option<StepInfo>,
+            items: Option<u64>,
+        }
+        let v = Value::deserialize(d)?;
+        let Scope { target, step, items } = Scope::deserialize(&v).map_err(serde::de::Error::custom)?;
+        let event = Progressed::deserialize(&v).map_err(serde::de::Error::custom)?;
+        let items = items.filter(|_| matches!(event, Progressed::Event(loclib_progress::Event::Item { .. })));
+        Ok(ProgressEvent { event, target, step, items })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -202,10 +220,11 @@ pub struct Partial {
 
 /// `net/fetch`: an HTTP request the host makes for the plugin, to a host its `net:<host>`
 /// capabilities grant (https only, redirects checked hop by hop), as `locallibrary/<version>`.
-/// `{secret:<key>}` in a header's value, a query value or `body` stands for the plugin's secret
-/// setting `key`, and `{account:<id>}` as the `Authorization` header's whole value for its account
-/// `id` (feature `accounts`): the host fills them in after the checks (an account as `Bearer` and
-/// its access token), and the plugin never sees either.
+/// `{secret:<key>}` in a header's value, a query value, `body` or a `multipart` part's value
+/// stands for the plugin's secret setting `key`, and `{account:<id>}` as the `Authorization`
+/// header's whole value for its account `id` (feature `accounts`): the host fills them in after
+/// the checks (an account as `Bearer` and its access token), and the plugin never sees either.
+/// The host says how long the body is (`Content-Length`), and for `multipart`, its type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetch {
     pub url: String,
@@ -217,9 +236,18 @@ pub struct Fetch {
     /// Text to send.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-    /// A file in the request's scratch folder to send instead (absolute).
+    /// A file to send instead (absolute): one in the request's scratch folder, or one a hook
+    /// under way was given to send (`set/publish`'s `recording`, but for a dry run). The host
+    /// reads it as it sends it, again for a redirect that asks for the body again, and reports
+    /// the bytes sent as the hook's progress (`bytes` events of phase `upload`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_blob: Option<PathBuf>,
+    /// Only this part of `body_blob`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_range: Option<ByteRange>,
+    /// A `multipart/form-data` form to send instead, its parts in this order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub multipart: Vec<FormPart>,
     /// Write what it answers to this file in the request's scratch folder (absolute) rather than
     /// answering it: for an image, or more than the host answers in a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -233,8 +261,46 @@ fn get() -> String {
 impl Fetch {
     /// A `GET` of `url`.
     pub fn get(url: impl Into<String>) -> Fetch {
-        Fetch { url: url.into(), method: get(), headers: IndexMap::new(), body: None, body_blob: None, into_blob: None }
+        Fetch {
+            url: url.into(),
+            method: get(),
+            headers: IndexMap::new(),
+            body: None,
+            body_blob: None,
+            body_range: None,
+            multipart: Vec::new(),
+            into_blob: None,
+        }
     }
+}
+
+/// `length` bytes of a file from `offset` (to its end, when it doesn't say): an upload's part. A
+/// range past the file's end is refused.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ByteRange {
+    #[serde(default)]
+    pub offset: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+}
+
+/// A part of a `multipart/form-data` form: text (`value`), or a file (`file`, as `body_blob` names
+/// one, perhaps only its `range`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FormPart {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<ByteRange>,
+    /// The name the server is told the file has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    /// `audio/mpeg`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
 }
 
 /// What `net/fetch` answers: the status and headers (names in lowercase) of the last answer
