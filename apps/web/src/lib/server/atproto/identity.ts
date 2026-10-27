@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { getHandle, getPdsEndpoint, getServiceEndpoint, getVerificationMaterial } from '@atproto/common-web';
+import { getHandle, getPdsEndpoint, getVerificationMaterial } from '@atproto/common-web';
 import { getDidKeyFromMultibase, IdResolver, MemoryCache } from '@atproto/identity';
 import { z } from 'zod';
 import type { Logger } from '../logger';
@@ -15,12 +15,13 @@ export type ResolvedIdentity = {
 	 */
 	handle: string | null;
 	pds: string;
-	/** did:key used to verify the account's commit and JWT signatures. */
+	/** did:key used to verify the account's JWT signatures. */
 	signingKey: string;
-	/** Where this DID answers as a space authority (falls back to the PDS). */
-	spaceHost: string;
-	/** did:key that signs space credentials for spaces under this DID. */
-	spaceKey: string;
+	/**
+	 * did:key of the account's `#atproto_kem` key, which a MAC on its space repos' responses is keyed to, or null
+	 * when its DID document publishes none (or one this app can't read).
+	 */
+	kemKey: string | null;
 };
 
 const resolveHandleOutput = z.object({ did: z.string().startsWith('did:') });
@@ -40,8 +41,9 @@ export type IdentityOptions = {
 };
 
 /**
- * DID and handle resolution with caching, space-host discovery, and an SSRF
- * guard for any service endpoint the app will call.
+ * DID and handle resolution with caching, and an SSRF guard for any service
+ * endpoint the app will call. A space authority is resolved like any account:
+ * its PDS is its space host.
  */
 export class IdentityResolver {
 	readonly resolver: IdResolver;
@@ -116,28 +118,8 @@ export class IdentityResolver {
 		const atprotoKey = getVerificationMaterial(doc, 'atproto');
 
 		if (!atprotoKey) throw new IdentityError(`${did} has no atproto signing key`);
-
-		const spaceHostEntry = (doc.service ?? []).find(
-			(service) => service.id === '#atproto_space_host' || service.id === `${did}#atproto_space_host`
-		);
-
-		let spaceHost = pds;
-
-		if (spaceHostEntry) {
-			const endpoint = getServiceEndpoint(doc, { id: '#atproto_space_host', type: 'AtprotoSpaceHost' });
-
-			if (!endpoint) throw new IdentityError(`${did} has a malformed #atproto_space_host entry`);
-			spaceHost = endpoint;
-		}
-
-		const hasSpaceKey = (doc.verificationMethod ?? []).some(
-			(method) => method.id === '#atproto_space' || method.id === `${did}#atproto_space`
-		);
-
-		const spaceKeyMaterial = hasSpaceKey ? getVerificationMaterial(doc, 'atproto_space') : atprotoKey;
-
-		if (!spaceKeyMaterial) throw new IdentityError(`${did} has a malformed #atproto_space key`);
-
+		// Missing on accounts whose PDS hasn't published one yet. Only reading their space repos needs it.
+		const kemKey = getVerificationMaterial(doc, 'atproto_kem');
 		const claimed = getHandle(doc) ?? null;
 		const handle = claimed && (await this.resolveHandle(claimed).catch(() => null)) === did ? claimed : null;
 
@@ -146,8 +128,7 @@ export class IdentityResolver {
 			handle,
 			pds: pds.replace(/\/+$/, ''),
 			signingKey: toDidKey(atprotoKey, did, 'atproto'),
-			spaceHost: spaceHost.replace(/\/+$/, ''),
-			spaceKey: toDidKey(spaceKeyMaterial, did, 'atproto_space')
+			kemKey: (kemKey && getDidKeyFromMultibase(kemKey)) ?? null
 		};
 	}
 
@@ -172,6 +153,17 @@ export class IdentityResolver {
 			if (isPrivateAddress(address)) throw new IdentityError(`Refusing private network endpoint ${url.origin}`);
 		}
 	}
+}
+
+/** The account's KEM key, or an error saying why its space repos can't be read without one. */
+export function requireKemKey(identity: ResolvedIdentity): string {
+	if (!identity.kemKey) {
+		throw new IdentityError(
+			`${identity.did} publishes no #atproto_kem key, so its space repos can't be synced until its PDS adds one`
+		);
+	}
+
+	return identity.kemKey;
 }
 
 /** Handles both Multikey and legacy (EcdsaSecp256k1VerificationKey2019 etc.) encodings. */

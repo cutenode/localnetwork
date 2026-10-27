@@ -29,6 +29,9 @@ are:
   collection.nml LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE
   --from interop:traktor --grant FOLDER --option collection=FILE`), see [From
   Traktor](other-software.md#from-traktor).
+- **demos**: `locallibrary clean LIBRARY` removes rekordbox's demo tracks and their files (see
+  [Editing](editing.md#clean)), and its check lists them in `check` and `doctor`, with `clean` as
+  the fix. `refresh` runs it first.
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
   [Providers](#providers)).
@@ -101,6 +104,14 @@ The tokens are kept in the system's keychain, as secret settings are (see [Setti
 and refreshed a minute before they expire. The plugin never sees them: a request it makes names
 the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
 once it has checked the request, never sending it on to another server a redirect leads to.
+
+Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+on one of those is signed in to through Local Network's token exchange
+(`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
+tokens back. The website never keeps them, and the exchange is the only server besides the
+service that a sign-in's code goes to. Until the website is set up for a service, signing in
+says so.
 
 ## Analysis
 

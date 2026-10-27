@@ -6,7 +6,9 @@
 //! `{account:<id>}` gets `Bearer` and the access token instead, once it's checked (see
 //! [`super::net`]), refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's
 //! endpoints are reached as `net/fetch` reaches servers: at public https addresses (servers on
-//! this computer in tests), following no redirect.
+//! this computer in tests), following no redirect. An account whose service wants a client secret
+//! for its tokens names Local Network's token exchange instead of the service's token endpoint:
+//! the host sends it the same request as JSON, and it adds the secret and answers as the service.
 
 use std::io::Read;
 use std::net::TcpListener;
@@ -163,9 +165,10 @@ impl Plugin {
         let bad = |what: &str, e: oauth2::url::ParseError| {
             self.misbehaved(format!("its {} account's {what} can't be used: {e}", account.title))
         };
+        let token_url = account.token_url.as_ref().or(account.token_exchange.as_ref()).cloned().unwrap_or_default();
         let client = BasicClient::new(ClientId::new(account.client_id.clone()))
             .set_auth_uri(AuthUrl::new(account.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
-            .set_token_uri(TokenUrl::new(account.token_url.clone()).map_err(|e| bad("token_url", e))?);
+            .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
             Some(redirect) => client.set_redirect_uri(redirect),
             None => client,
@@ -194,6 +197,21 @@ impl Plugin {
         let mut body = Vec::new();
         response.take(MAX_ANSWER).read_to_end(&mut body).map_err(|e| Unanswered(with_causes(&e)))?;
         answer.body(body).map_err(|e| Unanswered(e.to_string()))
+    }
+
+    /// Sends a request for `account`'s tokens: to its service's token endpoint as it is, or to
+    /// Local Network's token exchange as a JSON object of the same fields, since SvelteKit refuses
+    /// a form posted without an `Origin` header (as it would a browser's from another site).
+    fn send_token(&self, account: &Account, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
+        if account.token_exchange.is_none() {
+            return self.send(request);
+        }
+        let (mut parts, form) = request.into_parts();
+        let fields: serde_json::Map<String, serde_json::Value> =
+            form_urlencoded::parse(&form).map(|(k, v)| (k.into_owned(), v.into_owned().into())).collect();
+        let json = oauth2::http::HeaderValue::from_static("application/json");
+        parts.headers.insert(oauth2::http::header::CONTENT_TYPE, json);
+        self.send(HttpRequest::from_parts(parts, serde_json::Value::Object(fields).to_string().into_bytes()))
     }
 
     /// Asks `account`'s service to forget `tokens` (RFC 7009: the refresh token, which takes the
@@ -286,7 +304,7 @@ impl Plugin {
         }
         let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
         let client = self.sign_in_client(account, None).map_err(external)?;
-        let send = |r: HttpRequest| self.send(r);
+        let send = |r: HttpRequest| self.send_token(account, r);
         let answer = client.exchange_refresh_token(&RefreshToken::new(refresh)).request(&send);
         let answer = match answer {
             Ok(answer) => answer,
@@ -415,7 +433,7 @@ impl Plugins {
             return Err(Error::Account(why));
         }
         let code = query.code.clone().ok_or_else(|| Error::Account("the browser came back without a code".into()))?;
-        let send = |r: HttpRequest| slot.send(r);
+        let send = |r: HttpRequest| slot.send_token(account, r);
         let answer = p
             .client
             .exchange_code(AuthorizationCode::new(code))

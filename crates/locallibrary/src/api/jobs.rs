@@ -24,8 +24,8 @@ use uuid::Uuid;
 use super::autopull::{PullNext, new_history, pull_next, save_order};
 use super::{
     CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError, SyncRequest,
-    check, clean_plan, drive_eject, edits_replay_plan, known_drives, mounted_exports, player_set_plan, registry,
-    resolve_drive, settings_apply_plan, smart_fill_plan, sync_plan,
+    check, drive_eject, edits_replay_plan, known_drives, mounted_exports, player_set_plan, registry, resolve_drive,
+    settings_apply_plan, smart_fill_plan, sync_plan,
 };
 use crate::check::{CheckOptions, CheckReport};
 use crate::device::Device;
@@ -742,6 +742,9 @@ impl OperationStep {
     }
 }
 
+/// The plugin whose `clean` operation removes rekordbox's demo samples, the refresh's first step.
+const DEMOS: &str = "demos";
+
 /// What refreshing a drive after a rekordbox export would do, step by step, each only when
 /// needed: remove rekordbox's demo samples, make the recorded edits again (playlists, tracks,
 /// My Tags, cues), fill the rule-based playlists, put back the name and colour players show
@@ -766,14 +769,20 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
     };
     let mut steps = Vec::new();
 
-    // rekordbox's demo samples, which come back with every export.
+    // rekordbox's demo samples, which come back with every export: the demos plugin's `clean`,
+    // run as any operation a refresh is asked for.
     let mut s = JobStep::new(StepKind::Clean);
-    if !skipped(StepKind::Clean) {
-        let dr = drive_ref.clone();
-        let again = replan(move |_, ctx| clean_plan(&dr(), ctx));
-        s.op(again(Some(store), ctx)?, again);
-    }
-    steps.push(s.unless_runs(if skipped(StepKind::Clean) { "skipped" } else { "no demo samples on the drive" }));
+    let demos = crate::plugin::hosted().is_some_and(|p| p.manifest(DEMOS).is_ok());
+    let s = match demos {
+        _ if skipped(StepKind::Clean) => s.idle("skipped"),
+        false => s.idle(format!("the {DEMOS} plugin isn't there")),
+        true => {
+            let again = OperationStep { operation: format!("{DEMOS}.clean"), params: Value::Null }.again(&spec)?;
+            s.op(again(Some(store), ctx)?, again);
+            s.unless_runs("no demo samples on the drive")
+        }
+    };
+    steps.push(s);
 
     // The edits the export replaced.
     let mut s = JobStep::new(StepKind::Replay);

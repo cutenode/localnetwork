@@ -444,6 +444,29 @@ impl std::fmt::Debug for OneLibrary {
     }
 }
 
+/// The drive's OneLibrary database and its library, if it has one. On a drive that also has
+/// `export.pdb`, one that can't be read is reported and left alone rather than failing the edit.
+pub(crate) fn open_plus(
+    device: &Device,
+    has_pdb: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Option<(Library, OneLibrary)>> {
+    if !device.has_library_plus() {
+        return Ok(None);
+    }
+    match device.library_plus().and_then(|one| Ok((one.library()?, one))) {
+        Ok(x) => Ok(Some(x)),
+        Err(e) if has_pdb => {
+            warnings.push(format!(
+                "{e}. Only export.pdb will be changed, so CDJ-3000X, OPUS-QUAD, XDJ-AZ and other players that \
+                 read OneLibrary won't see this until the drive is exported from rekordbox again"
+            ));
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 impl OneLibrary {
     /// Open a drive's OneLibrary database (and its WAL).
     pub fn open(device: &Device) -> Result<OneLibrary> {
