@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type EpkAccess, MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
-import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
+import { followSchema } from '#lib/epk-schema.ts';
+import { BSKY_FOLLOW, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import { ensureRootSpaces } from '../bootstrap';
 import { ForbiddenError, UserError } from '../core';
 import { HappyViewClient, HappyViewError } from '../happyview/client';
@@ -196,9 +197,28 @@ describe('EpkService', () => {
 		await expect(f.t.epks.remove(await f.t.viewer(CODJ), kit)).rejects.toThrow(/moves to the project/);
 	});
 
+	/** A Bluesky follow of `subject` in `did`'s repo, which Jetstream brings HappyView. */
+	const follow = (did: string, subject: string) =>
+		f.t.net.client(did).createRecord({
+			collection: BSKY_FOLLOW,
+			record: { $type: BSKY_FOLLOW, subject, createdAt: '2026-01-01T00:00:00Z' }
+		});
+
+	/** Whom HappyView keeps `did` following. */
+	const followed = async (did: string) =>
+		(await f.t.indexedRepo.listAll(did, BSKY_FOLLOW))
+			.map(({ value }) => followSchema.parse(value).subject)
+			.toSorted((a, b) => a.localeCompare(b));
+
 	it("reads each audience from bookings and from any manager's follows", async () => {
 		const access: EpkAccess = { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'none' };
+		// CODJ follows them, not DJ who made the press kit, from before any press kit read follows, so HappyView
+		// turned it away then.
+		await follow(CODJ, NO_SPACES);
+		expect(await followed(CODJ)).toEqual([]);
 		const kit = f.kit(await f.publish(DJ, { access }));
+		// The project's first press kit that reads follows has HappyView re-read its managers'.
+		await vi.waitFor(async () => expect(await followed(CODJ)).toEqual([NO_SPACES]));
 
 		const other = await f.t.projectAdmin.create({
 			actor: await f.t.viewer(ADMIN),
@@ -208,18 +228,34 @@ describe('EpkService', () => {
 
 		await book(PROMOTER, other.uri);
 		await book(FRIEND, f.project.uri);
-		// CODJ follows them, not DJ who made the press kit.
-		f.t.net.records.set(`${CODJ}|app.bsky.graph.follow|3follow`, {
-			uri: `at://${CODJ}/app.bsky.graph.follow/3follow`,
-			cid: 'c',
-			value: { $type: 'app.bsky.graph.follow', subject: NO_SPACES, createdAt: '2026-01-01T00:00:00Z' }
-		});
 
 		expect(await f.t.epks.ruleForViewer(kit, FRIEND)).toBe('auto');
 		expect(await f.t.epks.ruleForViewer(kit, NO_SPACES)).toBe('auto');
 		expect(await f.t.epks.ruleForViewer(kit, PROMOTER)).toBe('review');
 		expect(await f.t.epks.accessState(kit, await f.t.viewer(ADMIN))).toEqual({ kind: 'closed' });
 		await expect(f.t.epks.request(await f.t.viewer(ADMIN), kit, {})).rejects.toBeInstanceOf(UserError);
+	});
+
+	it("keeps only the follows of managers whose project's press kits read them, and re-reads a new manager's", async () => {
+		await f.publish(DJ, { access: preset('review') });
+		await follow(DJ, FRIEND);
+		expect(await followed(DJ)).toEqual([]);
+
+		await f.publish(CODJ, { access: { ...preset('review'), following: 'auto' } });
+		await vi.waitFor(async () => expect(await followed(DJ)).toEqual([FRIEND]));
+		await follow(CODJ, STRANGER);
+		expect(await followed(CODJ)).toEqual([STRANGER]);
+		await follow(NO_SPACES, FRIEND);
+		expect(await followed(NO_SPACES)).toEqual([]);
+		expect((await f.t.epks.followReaders()).toSorted()).toEqual([CODJ, DJ].toSorted());
+
+		// Someone who comes to manage the project has their earlier follows re-read.
+		await f.t.projectAdmin.setManagers({
+			actor: await f.t.viewer(ADMIN),
+			project: f.project,
+			managers: [DJ, CODJ, NO_SPACES]
+		});
+		await vi.waitFor(async () => expect(await followed(NO_SPACES)).toEqual([FRIEND]));
 	});
 
 	it('takes no requests when nobody can ask, but any manager can add and remove people', async () => {
@@ -295,7 +331,6 @@ describe('EpkService', () => {
 			f.t.core,
 			f.t.projects,
 			new IndexedRepo(new HappyViewClient({ url: 'http://happyview.test', fetch: unanswered }), silentLogger, 0),
-			f.t.publicRepo,
 			async (id) => id
 		);
 

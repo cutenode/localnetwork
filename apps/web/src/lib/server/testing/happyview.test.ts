@@ -33,6 +33,7 @@ const PROBE = `function handle()
 	if params.mode == 'loop' then while true do end end
 	if params.mode == 'fail' then error('broken') end
 	if params.mode == 'function' then return { f = print } end
+	if params.mode == 'internal' then return db.raw('SELECT count(*) AS n FROM happyview_backfill_jobs') end
 	return {
 		params = params,
 		types = { limit = math.type(params.limit) or type(params.limit), flag = type(params.flag) },
@@ -146,6 +147,34 @@ describe('FakeHappyView', () => {
 			status: 500,
 			body: { errorType: 'runtime', message: expect.stringContaining('unsupported value type') }
 		});
+		expect(await call(hv, 'mode=internal')).toMatchObject({
+			status: 500,
+			body: {
+				message: expect.stringContaining(
+					"cannot reference the protected internal HappyView table 'happyview_backfill_jobs'"
+				)
+			}
+		});
 		expect((await call(hv, '', 'test.fake.thing')).status).toBe(404);
+	});
+
+	it("re-reads one account's records through the record script in a backfill, and says when it's done", async () => {
+		const hv = fake();
+
+		const admin = (path: string, body?: { collection: string; did: string }) =>
+			hv.fetch(`http://happyview.test${path}`, body && { method: 'POST', body: JSON.stringify(body) });
+
+		expect((await admin('/admin/backfill', { collection: 'test.fake.thing', did: 'did:plc:root' })).status).toBe(404);
+		hv.repo = (did, collection) =>
+			['plain', 'skip'].map((rkey) => ({ did, collection, rkey, cid: 'bafy', record: { value: rkey } }));
+
+		expect(
+			await (await admin('/admin/backfill', { collection: 'test.fake.thing', did: 'did:plc:root' })).json()
+		).toEqual({
+			id: 'job-0',
+			status: 'running'
+		});
+		expect(await (await admin('/admin/backfill/status')).json()).toEqual([{ id: 'job-0', status: 'completed' }]);
+		expect((await call(hv, '')).body.stored).toEqual([{ rkey: 'plain', record: '{"value":"plain"}' }]);
 	});
 });
