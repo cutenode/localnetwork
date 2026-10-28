@@ -3952,6 +3952,7 @@ dependencies = [
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-demos",
  "locallibrary-plugin-interop",
+ "locallibrary-plugin-mixcloud",
  "locallibrary-plugin-musicbrainz",
  "locallibrary-plugin-plyr",
  "locallibrary-plugin-sound",
@@ -4039,6 +4040,18 @@ dependencies = [
  "loclib-progress",
  "rusqlite",
  "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-mixcloud"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
  "serde",
  "serde_json",
  "tempfile",

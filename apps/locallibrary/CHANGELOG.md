@@ -350,6 +350,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
     description, keeping the video's page as the set's link. It signs in to Google through Local
     Network's token exchange, asking only to upload videos.
+  - `mixcloud`: a set destination, `sets publish SET --to mixcloud:show`, uploading the set's
+    recording to Mixcloud as a show in one form, titled after the set, with the tracklist as the
+    show's sections (artist, title and start time), the `tags` setting's tags (five at most), the
+    `picture` setting's picture and, with `unlisted`, kept private, and keeping the show's page as
+    the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
+    fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
+    through Local Network's token exchange, with the token in the query as Mixcloud takes it.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -386,10 +393,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
   `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
 - **Where a set's recording plays.** A set destination may name the link it answers (plyr's
-  `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`) and give the Atmosphere record
-  holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The set keeps both, and
-  its record names the link and points to that record as `recording`, a field the set Lexicon
-  gains. Signed in, `sets publish SET --to` offers to publish the set's record next, in the same
+  `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
+  Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
+  set keeps both, and its record names the link and points to that record as `recording`, a field
+  the set Lexicon gains. Signed in, `sets publish SET --to` offers to publish the set's record next, in the same
   run (`--dry-run`, `--yes` and `--json` cover both).
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
