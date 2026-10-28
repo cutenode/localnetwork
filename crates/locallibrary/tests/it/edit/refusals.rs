@@ -97,3 +97,39 @@ fn a_plan_that_doesnt_fit_is_refused() {
     assert!(matches!(err, Error::NoSpace { .. }), "{err}");
     before.untouched(&root).unwrap();
 }
+
+/// A track goes with every row of its audio file, so a track replacing another of its own file
+/// is refused, and deleting a playlist with its tracks leaves one whose file a track kept
+/// elsewhere shares.
+#[test]
+fn rows_sharing_a_file_go_together_or_not_at_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    let file = lib.tracks[0].file_path.clone();
+    let twin = common::add_track(&root, rekordbox_pdb::NewTrack::new("Twin", file.clone()), b"audio");
+    let ids = |id: u32| TrackSelector { ids: vec![id], ..Default::default() };
+    let replace = Edit::ReplaceTrack { duplicate: ids(twin), keep: ids(lib.tracks[0].id), keep_duplicate: false };
+    let err = plan(&root, &[replace], false).unwrap_err();
+    assert_eq!(err.to_string(), "a track can't replace itself, or another of its own file");
+
+    let mut d = Device::open_export(&root).unwrap();
+    let edits = [
+        Edit::CreatePlaylist { path: "Twins".into(), folder: false },
+        Edit::AddTracks {
+            playlist: "Twins".into(),
+            tracks: ids(twin),
+            position: None,
+            sort: None,
+            allow_repeats: false,
+        },
+    ];
+    edit::apply(&plan(&root, &edits, false).unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let delete = Edit::DeletePlaylist { playlist: "Twins".into(), with_tracks: true };
+    let p = plan(&root, &[delete], false).unwrap();
+    assert!(p.tracks_removed.is_empty() && p.files.is_empty(), "{:?} {:?}", p.tracks_removed, p.files);
+    edit::apply(&p, &mut d, &Ctx::silent()).unwrap();
+    let titles: Vec<String> = d.library().unwrap().tracks.into_iter().map(|t| t.title).collect();
+    assert!(titles.contains(&"Twin".to_string()) && titles.len() == 13, "{titles:?}");
+    assert!(root.join(paths::key(&file)).is_file());
+}

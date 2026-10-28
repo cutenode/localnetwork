@@ -16,7 +16,7 @@ fn read(file: Result<std::fs::File, String>) -> Result<Vec<u8>, String> {
 fn made() -> (tempfile::TempDir, Arc<Scratches>, Scratch) {
     let dir = tempfile::tempdir().unwrap();
     let scratches = Arc::new(Scratches::default());
-    let scratch = scratches.make(dir.path()).unwrap();
+    let scratch = scratches.make(dir.path(), &[]).unwrap();
     (dir, scratches, scratch)
 }
 
@@ -40,7 +40,7 @@ fn a_scratch_folder_is_there_until_its_read_and_holds_its_files() {
 
 #[test]
 fn without_the_blobs_feature_there_is_no_folder() {
-    let scratch = Arc::new(Scratches::default()).none();
+    let scratch = Arc::new(Scratches::default()).none(&[]);
     assert_eq!((scratch.dir(), scratch.size()), (None, 0));
     assert_eq!(scratch.blob("a.jpg").unwrap_err(), "it has no scratch folder for files (the blobs feature)");
 }
@@ -134,7 +134,7 @@ fn store_gc_removes_only_the_scratch_folders_a_stopped_host_left() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("s")).unwrap();
     let root = store.root().join("plugins/echo/scratch");
-    let scratch = Arc::new(Scratches::default()).make(&root).unwrap();
+    let scratch = Arc::new(Scratches::default()).make(&root, &[]).unwrap();
     let live = scratch.dir().unwrap().to_path_buf();
     std::fs::write(live.join("a"), "in use").unwrap();
     // As a host that crashed leaves one: its lock file, held by nobody.

@@ -70,21 +70,24 @@ mod tracklist_xml;
 /// When exports say they were written (`SOURCE_DATE_EPOCH`): 2026-09-21, 14:13:20 UTC.
 const STAMPED: i64 = 1_790_000_000;
 
+/// An address nothing answers at.
+const NOWHERE: &str = "http://127.0.0.1:9";
+
 /// `locallibrary`, the binary cargo built for the tests, with its store at `store` and nothing to
 /// read on stdin. It looks for drives only in the folders `volumes` (none: it sees no drive), never
 /// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`), and has only the plugins
 /// it ships. The account settings of whoever runs the tests don't reach it, nor do their
-/// terminal's: it prints as it does piped (no colour) in a UTF-8 locale. Traktor collections are
-/// stamped at one time ([`STAMPED`]), so a dry run's sizes are what's written however the clock
-/// moves between.
-/// An address nothing answers at.
-const NOWHERE: &str = "http://127.0.0.1:9";
-
+/// terminal's: it prints as it does piped (no colour) in a UTF-8 locale. No plugin reaches a server
+/// but this computer's (`LOCALLIBRARY_TEST_OFFLINE`), so none reaches MusicBrainz, and Local
+/// Network's directory and website are at [`NOWHERE`] unless a test names its own. Traktor
+/// collections are stamped at one time ([`STAMPED`]), so a dry run's sizes are what's written
+/// however the clock moves between.
 fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
     let mut c = Command::cargo_bin("locallibrary").unwrap();
     c.env("LOCALLIBRARY_STORE", store)
         .env("LOCALLIBRARY_VOLUMES", std::env::join_paths(volumes).unwrap())
         .env("SOURCE_DATE_EPOCH", STAMPED.to_string())
+        .env("LOCALLIBRARY_TEST_OFFLINE", "1")
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")

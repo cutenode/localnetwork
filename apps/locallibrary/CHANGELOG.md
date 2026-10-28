@@ -167,8 +167,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   union, a Lexicon Community address for now), `event`, `playedWith`, `links` and `sources` (for
   `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
   `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
-  teal.fm's and skaists' records so readers can map them. `recordingMbId` is `mbid:<uuid>`, as
-  teal.fm writes it, and locallibrary fills the MusicBrainz IDs from files Picard tagged. The
+  teal.fm's and skaists' records so readers can map them. MusicBrainz IDs are bare UUIDs, as
+  teal.fm writes them. locallibrary fills them from files Picard tagged, else from a plugin
+  analyzer's `recording`, `release` and `artists` roles when its `isrc` and `credits` say they're
+  for the track as the set has it, which `sets publish` runs first on the tracks it names, once
+  it's signed in and confirmed, and keeps in the set (`--no-lookup` doesn't; over RPC
+  `sets.lookup`). The
   profile's `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
   now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
@@ -246,10 +250,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   checks` turns each on or off, makes guards blocking and sets how long a check has (the sidecar
   `plugins.checks`, `plugins.checks.set` and `plugins.checks.timeout.set`; the player a "check
   settings…" form, a check's findings in its results and their fixes in the palette).
-  An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
-  `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
-  has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
-  `plugins.roles.set` and `plugins.apply_fields.plan/apply`. Plugins may listen for drives
+  An analyzer's fields may have roles (a track's key, tempo, loudness, MusicBrainz IDs...), which
+  doctor, `check`, `playlist order` and `sets publish` read from the analyzer `plugin roles`
+  chooses (the sound plugin's and the musicbrainz plugin's unless another has them), and `analyze
+  --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
+  `plugins.apply_fields.plan/apply`; `plugin roles ROLE --none` reads one from no analyzer. Plain
+  `analyze` leaves out the analyzers of plugins that go online. Plugins limiting one server take
+  its turns between them. Plugins may listen for drives
   plugged in, unplugged, changed, pulled and back from a set, the sidecar's requests finishing and
   plans applied (capabilities `events:drives`, `events:jobs`, `events:plans`), told by the player,
   the sidecar, `watch` and any command applying a plan, through a bounded queue for each plugin
@@ -312,8 +319,29 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     album that could be several release groups offered as each of them, and from the same
     MusicBrainz lookups track details for `track fetch`: the album's title, year and genre, its
     label when it was found by name, and a track's title and artist when its ISRC found it (a
-    track without an album only from a single of its title). It's the only one that goes online,
-    and only when it's run.
+    track without an album only from a single of its title).
+  - `demos`: `clean` removes rekordbox's demo tracks with their files, and its check lists them
+    in `check` and doctor, with `clean` as the fix.
+  - `musicbrainz`: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
+    for `sets publish` to publish: the recording only when it's the track's (its length, or
+    without one its title; of several, both), the earliest release named as the album, and the
+    artists when each name the track credits is one of the recording's, answered with the ISRC
+    and credits they're for (the `isrc` and `credits` roles). It and `coverart` go online, a
+    request a second to MusicBrainz between them, only for `art fetch`, `track fetch`, `analyze
+    --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets publish` about to publish
+    (signed in and confirmed), unless `--no-lookup` or `plugin roles recording --none`.
+  - `plyr`: a set destination, `sets publish SET --to plyr:track`, uploading the set's recording
+    to plyr.fm as a track in the parts plyr.fm asks for (each sent again a few times when it
+    doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
+    and keeping the track's page as the set's link. A recording plyr.fm wouldn't take (another
+    format, or over 1536 MiB) is refused before anything goes. It signs in with a plyr.fm
+    developer token, kept as a secret setting, and goes online only to publish.
+  - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
+    YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
+    frame) over the recording, and it goes up through YouTube's resumable upload, titled after the
+    set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
+    description, keeping the video's page as the set's link. It signs in to Google through Local
+    Network's token exchange, asking only to upload videos.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -336,11 +364,19 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
   locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
   player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
-  never sees one. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
+  Google) is signed in to through Local Network's token exchange, which holds the secret, so
+  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
+  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
+  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
+  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
-  the link it answers kept in the set. The sidecar has both as `plugins.account*`,
-  `plugins.store.*` and `plugins.publish.*`.
+  the link it answers kept in the set. The plugin uploads the recording through locallibrary
+  (`net/fetch`'s `body_blob`, perhaps a `body_range` of it, or a `multipart` form's file), which
+  reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
+  lets it send nothing else but files in its request's scratch folder. The sidecar has both as
+  `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
 - **Where a set's recording plays.** A set destination may name the link it answers (`plyr.fm`)
   and give the Atmosphere record holding the recording (a plyr.fm track, as a
   `com.atproto.repo.strongRef`). The set keeps both, and its record names the link and points to
@@ -560,6 +596,12 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice.
+- `clean` is the demos plugin's now: its plan is an edit plan (journaled, so `edits replay` makes it
+  again after an export), a demo track only OneLibrary lists goes too, and one sharing its audio
+  file with another track stays, said so. `refresh`'s first step runs it. Over RPC, `clean.plan`
+  and `clean.apply` are gone: use `plugins.op.plan {plugin: "demos", operation: "clean", context:
+  {drive}}` and `plugins.op.apply`. A `delete_tracks` edit removes every row of a track's audio
+  file, and may name a track only the drive's other database lists.
 - `playlist import` is the tracklist plugin's now. The entries that could be several tracks are
   asked about 64 at a time (all at once for most lists), so the list and the drive's library are
   read once a round rather than once an entry (in a terminal; otherwise it stops, exit status 2,

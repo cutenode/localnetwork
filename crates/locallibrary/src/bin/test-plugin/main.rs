@@ -21,7 +21,8 @@
 //! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its
 //! tracklist; its importer answers a JSON file as it is (in a blob with the `blob` option); its
 //! destinations are echo's (a store kept in `destination/` where it runs, and a set published
-//! nowhere, or as its `answer` setting says), each request noted as `<method> <what>` in `asked`
+//! nowhere, or as its `answer` setting says, or sending its recording as its `upload` setting says,
+//! see `plugin::upload`), each request noted as `<method> <what>` in `asked`
 //! where it runs; it logs each event it's told of and tells the user it heard it, suggesting
 //! echo's `playlist` (or tells them what its payload's `tell` says); and its services run as their
 //! names say (see `plugin::serve_service`). Any library source reads the files in the folders it's

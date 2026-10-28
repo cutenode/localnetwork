@@ -4,9 +4,10 @@ use std::fs;
 use std::path::Path;
 
 use locallibrary::api::{self, DiffRequest, RestoreBackup};
-use locallibrary::clean;
 use locallibrary::device::Device;
+use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::progress::Ctx;
+use locallibrary::query::TrackSelector;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::{Error, paths};
@@ -85,7 +86,7 @@ fn a_drive_against_a_snapshot() {
 }
 
 #[test]
-fn restore_preview_shows_what_a_clean_would_bring_back() {
+fn restore_preview_shows_what_deleting_a_track_would_bring_back() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let file = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
@@ -98,12 +99,13 @@ fn restore_preview_shows_what_a_clean_would_bring_back() {
     fs::create_dir_all(audio.parent().unwrap()).unwrap();
     fs::write(&audio, "demo sample").unwrap();
     let mut d = Device::open_export(&root).unwrap();
-    let plan = clean::plan(&d, &Ctx::silent()).unwrap();
-    clean::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let edits = [Edit::DeleteTracks { tracks: TrackSelector::paths([file.to_string()]), keep_files: false }];
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent()).unwrap();
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let before = common::library_files(&root);
 
     let p = api::restore_preview(&RestoreBackup { drive: path(&root), backup: None, force: false }).unwrap();
-    assert_eq!(p.backup.reason, "before cleaning");
+    assert_eq!(p.backup.reason, "before editing");
     assert_eq!(p.diff.added_tracks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["rekordbox - House 1"]);
     let entries = &p.diff.changed_playlists[0];
     assert_eq!((entries.path.as_str(), entries.added.len(), entries.added[0].position), ("aab", 1, 13));

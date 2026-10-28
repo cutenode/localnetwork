@@ -4,61 +4,113 @@
 //! fetches into, and removes it once it has read what it needs. A name leading out of the folder
 //! is refused, and so is a folder holding more than [`super::Options::max_blobs`]. While a folder
 //! is in use the host holds a lock beside it (`<uuid>.lock`): one nobody holds is a stopped
-//! host's, which `store gc` removes ([`abandoned`]).
+//! host's, which `store gc` removes ([`abandoned`]). A hook call may also be lent files to read
+//! (a set's recording), which `net/fetch` sends too while it's under way.
 
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use loclib_plugin::{ProgressEvent, ProgressReport, Progressed};
 
 use crate::error::IoContext;
 use crate::fsutil::FileLock;
+use crate::progress::{Event, Phase};
 use crate::store::Store;
 use crate::{Result, lock};
 
-/// A process's scratch folders, of the requests under way.
+/// A process's hook calls under way, as `net/fetch` finds them by the files it names.
 #[derive(Default)]
-pub(crate) struct Scratches(Mutex<Vec<PathBuf>>);
+pub(crate) struct Scratches(Mutex<Vec<Arc<Under>>>);
+
+/// A file in a scratch folder under way: the call it's for, the folder, and its name there.
+type Found = (Arc<Under>, PathBuf, PathBuf);
+
+/// A hook call under way: its scratch folder, the files it was lent, and where the bytes its
+/// `net/fetch` requests send of them are reported.
+pub(crate) struct Under {
+    dir: Option<PathBuf>,
+    lent: Vec<PathBuf>,
+    /// Its progress, once it has been sent (see [`Scratch::report_to`]).
+    progress: OnceLock<Sender<ProgressReport>>,
+}
+
+impl Under {
+    /// Reports `bytes` more of its files sent, as its progress.
+    pub(crate) fn sent(&self, bytes: u64) {
+        let Some(to) = self.progress.get() else { return };
+        let event = Progressed::Event(Event::Bytes { phase: Phase::Upload, bytes });
+        let _ = to.send(ProgressReport::Known(ProgressEvent { event, target: None, step: None, items: None }));
+    }
+}
 
 impl Scratches {
-    /// A new folder in `root`, until the [`Scratch`] is dropped. Its lock is held before the
-    /// folder is there, so `store gc` never takes it for a stopped host's.
-    pub(crate) fn make(self: &Arc<Self>, root: &Path) -> Result<Scratch> {
+    /// A new folder in `root`, with the files `lent`, until the [`Scratch`] is dropped. Its lock
+    /// is held before the folder is there, so `store gc` never takes it for a stopped host's.
+    pub(crate) fn make(self: &Arc<Self>, root: &Path, lent: &[&Path]) -> Result<Scratch> {
         let dir = root.join(uuid::Uuid::new_v4().to_string());
         std::fs::create_dir_all(root).at(root)?;
         let held = FileLock::wait(&dir.with_extension("lock"))?;
         std::fs::create_dir(&dir).at(&dir)?;
-        lock(&self.0).push(dir.clone());
-        Ok(Scratch { dir: Some(dir), held: Some(held), scratches: self.clone() })
+        Ok(self.register(Some(dir), Some(held), lent))
     }
 
-    /// No folder: for a plugin without the `blobs` feature, whose answers name no files.
-    pub(crate) fn none(self: &Arc<Self>) -> Scratch {
-        Scratch { dir: None, held: None, scratches: self.clone() }
+    /// No folder, but the files `lent`: for a plugin without the `blobs` feature, whose answers
+    /// name no files.
+    pub(crate) fn none(self: &Arc<Self>, lent: &[&Path]) -> Scratch {
+        self.register(None, None, lent)
+    }
+
+    fn register(self: &Arc<Self>, dir: Option<PathBuf>, held: Option<FileLock>, lent: &[&Path]) -> Scratch {
+        let lent = lent.iter().map(|p| p.to_path_buf()).collect();
+        let under = Arc::new(Under { dir, lent, progress: OnceLock::new() });
+        lock(&self.0).push(under.clone());
+        Scratch { under, held, scratches: self.clone() }
     }
 
     /// The scratch folder under way that `path` (absolute, as `net/fetch` names a file) is in,
-    /// and its name there, once it's one ([`file_name`]).
+    /// with the call it's for, and its name there, once it's one ([`file_name`]). None when it's
+    /// in none.
+    fn find(&self, path: &Path) -> Option<Result<Found, String>> {
+        let found = lock(&self.0).iter().find_map(|u| {
+            let dir = u.dir.as_ref()?;
+            Some((u.clone(), dir.clone(), path.strip_prefix(dir).ok()?.to_path_buf()))
+        });
+        let (under, dir, name) = found?;
+        let Some(name) = name.to_str() else {
+            return Some(Err(format!("{} isn't a name a file can have here", path.display())));
+        };
+        Some(file_name(&dir, name).map(|name| (under, dir, name)))
+    }
+
+    /// [`Scratches::find`]'s folder and name.
     pub(crate) fn holding(&self, path: &Path) -> Result<(PathBuf, PathBuf), String> {
-        let shown = path.display();
-        let found =
-            lock(&self.0).iter().find_map(|dir| Some((dir.clone(), path.strip_prefix(dir).ok()?.to_path_buf())));
-        let (dir, name) = found.ok_or_else(|| format!("{shown} isn't in the scratch folder of a request under way"))?;
-        let name = name.to_str().ok_or_else(|| format!("{shown} isn't a name a file can have here"))?;
-        let name = file_name(&dir, name)?;
+        let not = || Err(format!("{} isn't in the scratch folder of a request under way", path.display()));
+        let (_, dir, name) = self.find(path).unwrap_or_else(not)?;
         Ok((dir, name))
     }
 
-    /// The file `path` (absolute) names in a scratch folder under way, opened to read as
-    /// [`Scratch::blob`] opens one: what `net/fetch` sends (`body_blob`).
-    pub(crate) fn open(&self, path: &Path) -> Result<File, String> {
-        let (dir, name) = self.holding(path)?;
-        open(&dir, &name.to_string_lossy())
+    /// The file `path` (absolute) names, opened to read, with the call it's for: one lent to a
+    /// call under way, or one in a scratch folder under way, opened as [`Scratch::blob`] opens
+    /// one. What `net/fetch` sends (`body_blob`).
+    pub(crate) fn open(&self, path: &Path) -> Result<(File, Arc<Under>), String> {
+        let shown = path.display();
+        let lent = lock(&self.0).iter().find(|u| u.lent.iter().any(|l| l == path)).cloned();
+        if let Some(under) = lent {
+            let opened = File::open(path).map_err(|e| format!("{shown}: {e}"))?;
+            return Ok((opened, under));
+        }
+        let not =
+            || Err(format!("{shown} isn't in the scratch folder of a request under way, nor a file one was given"));
+        let (under, dir, name) = self.find(path).unwrap_or_else(not)?;
+        Ok((open(&dir, &name.to_string_lossy())?, under))
     }
 }
 
-/// A request's scratch folder, removed when this is dropped.
+/// A hook call's scratch folder (and the files it was lent), removed when this is dropped.
 pub(crate) struct Scratch {
-    dir: Option<PathBuf>,
+    under: Arc<Under>,
     /// Its lock, let go once it's removed.
     held: Option<FileLock>,
     scratches: Arc<Scratches>,
@@ -67,18 +119,23 @@ pub(crate) struct Scratch {
 impl Scratch {
     /// The folder, absolute, for the request's context.
     pub(crate) fn dir(&self) -> Option<&Path> {
-        self.dir.as_deref()
+        self.under.dir.as_deref()
+    }
+
+    /// Where what its files' sending makes of progress goes: the request's, once it's sent.
+    pub(crate) fn report_to(&self, progress: Sender<ProgressReport>) {
+        let _ = self.under.progress.set(progress);
     }
 
     /// The file a blob `name` names in the folder, opened to read (see [`open`]).
     pub(crate) fn blob(&self, name: &str) -> Result<File, String> {
-        let dir = self.dir.as_deref().ok_or("it has no scratch folder for files (the blobs feature)")?;
+        let dir = self.dir().ok_or("it has no scratch folder for files (the blobs feature)")?;
         open(dir, name)
     }
 
     /// How much its files hold, in bytes.
     pub(crate) fn size(&self) -> u64 {
-        self.dir.as_deref().map_or(0, size)
+        self.dir().map_or(0, size)
     }
 }
 
@@ -90,9 +147,9 @@ pub(crate) fn size(dir: &Path) -> u64 {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let Some(dir) = self.dir.take() else { return };
-        lock(&self.scratches.0).retain(|d| *d != dir);
-        let _ = std::fs::remove_dir_all(&dir);
+        lock(&self.scratches.0).retain(|u| !Arc::ptr_eq(u, &self.under));
+        let Some(dir) = &self.under.dir else { return };
+        let _ = std::fs::remove_dir_all(dir);
         drop(self.held.take());
         let _ = std::fs::remove_file(dir.with_extension("lock"));
     }

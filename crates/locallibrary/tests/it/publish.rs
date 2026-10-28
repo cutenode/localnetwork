@@ -359,7 +359,7 @@ fn a_set_says_how_tracks_came_in_and_holds_as_many_as_a_record_can() {
         tracks[1]["transitionIn"],
         json!({ "technique": "blend", "durationMs": 20000, "harmony": "energyBoost", "tempoChangePermille": -159 })
     );
-    assert_eq!(tracks[1]["recordingMbId"], format!("mbid:{}", Uuid::from_u128(1)));
+    assert_eq!(tracks[1]["recordingMbId"], Uuid::from_u128(1).to_string());
     assert!(plan.notes.is_empty(), "{:?}", plan.notes);
 
     let most = publish::SET_TRACK_LIMIT;

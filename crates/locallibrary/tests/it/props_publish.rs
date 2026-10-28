@@ -10,7 +10,7 @@ use crate::session::{DID, session_json, sign_in_as};
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use hegel::generators as gs;
@@ -21,6 +21,9 @@ use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::repo;
 use locallibrary::atmosphere::{self, AccountInfo, Client, Storage};
 use locallibrary::error::Reason;
+use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Role};
+use locallibrary::plugin::Analyzed;
 use locallibrary::profile::{
     self, ArcShape, Basis, Count, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets,
     DocShare, DocTempo, DocTrack, Precision, PrefsUpdate, ProfileDocument, Section,
@@ -709,12 +712,12 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         assert_eq!(t.get("startSeconds"), start.as_ref());
         let release = text(&e.album).filter(|a| a.as_str().is_some_and(|a| a.chars().count() <= 256));
         assert_eq!(t.get("releaseName").cloned(), release);
-        let mbid = |id: Option<Uuid>| id.map(|id| Value::from(format!("mbid:{id}")));
+        let mbid = |id: Option<Uuid>| id.map(|id| Value::from(id.to_string()));
         assert_eq!(t.get("recordingMbId").cloned(), mbid(e.musicbrainz.recording));
         assert_eq!(t.get("releaseMbId").cloned(), mbid(e.musicbrainz.release));
         // Artists one by one, as the profile counts them, when the credit names more than one or
         // the tags identify its one; their IDs only when the tags have one for each.
-        let (names, ids) = (profile::artist_credits(&e.artist), &e.musicbrainz.artists);
+        let (names, ids) = (locallibrary::model::artist_credits(&e.artist), &e.musicbrainz.artists);
         let paired = ids.len() == names.len();
         match t.get("artists") {
             None => assert!(names.len() < 2 && !(paired && names.len() == 1), "{names:?} {ids:?}"),
@@ -723,7 +726,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
                     .iter()
                     .enumerate()
                     .map(|(i, n)| match paired {
-                        true => json!({ "artistName": n, "artistMbId": format!("mbid:{}", ids[i]) }),
+                        true => json!({ "artistName": n, "artistMbId": ids[i].to_string() }),
                         false => json!({ "artistName": n }),
                     })
                     .collect();
@@ -862,13 +865,15 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             None
         }
         15 if n > 0 => {
-            r["tracks"][track()]["recordingMbId"] = "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
+            // As locallibrary writes it, or as early records have it.
+            let prefix = tc.draw(gs::sampled_from(vec!["", "mbid:"]));
+            r["tracks"][track()]["recordingMbId"] = format!("{prefix}c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b").into();
             None
         }
         16 if n > 0 => {
             let i = track();
-            r["tracks"][i]["recordingMbId"] = "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
-            Some(format!("tracks[{i}].recordingMbId isn't a URI"))
+            r["tracks"][i]["recordingMbId"] = 1.into();
+            Some(format!("tracks[{i}].recordingMbId should be text"))
         }
         17 => {
             let (uri, cid, why) = tc.draw(gs::sampled_from(vec![
@@ -1480,4 +1485,286 @@ fn the_published_profile_is_the_documents_record(tc: TestCase) {
     assert_eq!(pds.record(DID, PROFILE, "self").unwrap().0, plan.record);
     let again = api::profile_publish_apply(&root, &req, &Ctx::silent()).unwrap();
     assert!(!again.written);
+}
+
+/// What a pretend analyzer answers for a drive track's MusicBrainz recording: an ID, nothing
+/// (worked out: null), or a failure.
+#[derive(Debug, Clone, Copy)]
+enum Heard {
+    Id(u128),
+    Nothing,
+    Fails,
+}
+
+/// Looking up a set's MusicBrainz IDs runs the analyzer once on exactly the tracks the record
+/// names that have no IDs, by their ids on the mounted drive holding their files (again, over
+/// what it kept, for those it kept values of another ISRC for), and counts those no mounted drive
+/// holds; it keeps what the analyzer found in the set, leaving every other track as it was, so a
+/// second lookup asks only about the tracks it found nothing for. An analyzer failing on a track,
+/// or on the whole drive (a warning), counts it as failed. A set publishing refuses, or the
+/// `recording` role turned off, looks up nothing.
+#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::open_or_init(&root).unwrap();
+    let volumes = common::isolate(dir.path(), Some(&root));
+    let drive = common::bigger_drive(&volumes, "Main");
+    let library = common::library(&drive);
+    let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
+    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
+    let fields = FieldStore::in_store(&store);
+    let audio = |i: usize| locallibrary::paths::to_fs(&drive, &locallibrary::paths::key(&library.tracks[i].file_path));
+    // What the analyzer keeps: the recording, and the ISRC it was looked up by.
+    let keep = |i: usize, recording: FieldValue, isrc: Option<String>| {
+        let isrc = isrc.map_or(FieldValue::Null, FieldValue::String);
+        let kept = [("recording".to_string(), recording), ("isrc".into(), isrc)].into_iter().collect();
+        fields.put(&audio(i), &analyzer, &kept).unwrap();
+    };
+    let heard: Vec<Heard> = (0..library.tracks.len())
+        .map(|_| match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => Heard::Id(tc.draw(gs::integers::<u128>())),
+            1 => Heard::Nothing,
+            _ => Heard::Fails,
+        })
+        .collect();
+    // Values kept from before, of another ISRC than the track has now: stale.
+    let stale: Vec<bool> = (0..library.tracks.len()).map(|_| tc.draw(gs::weighted_booleans(0.3))).collect();
+    for i in (0..library.tracks.len()).filter(|&i| stale[i]) {
+        keep(i, FieldValue::String(Uuid::from_u128(7).to_string()), Some("USRC17607840".into()));
+    }
+    let drive_fails = tc.draw(gs::weighted_booleans(0.15));
+    let n = tc.draw(gs::integers::<usize>().max_value(10));
+    let mut tracks = Vec::new();
+    for i in 0..n {
+        let mut e = match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => SetEntry::added(&format!("Someone - Dubplate {i}")),
+            1 => {
+                let gone = tc.draw(gs::integers::<u8>().max_value(2));
+                SetEntry { file: Some(format!("/Contents/gone/{gone}.mp3")), ..SetEntry::added("Gone - Away") }
+            }
+            _ => {
+                let t = &library.tracks[tc.draw(gs::integers::<usize>().max_value(library.tracks.len() - 1))];
+                SetEntry::from_track(t, EntryOrigin::Added, None)
+            }
+        };
+        e.unnamed = tc.draw(gs::weighted_booleans(0.2));
+        if tc.draw(gs::weighted_booleans(0.2)) {
+            e.musicbrainz.recording = Some(Uuid::from_u128(u128::MAX - i as u128));
+        }
+        tracks.push(e);
+    }
+    if let Some(e) = tracks.first().filter(|_| tc.draw(gs::weighted_booleans(0.3))) {
+        api::profile_prefs_update(&store, &PrefsUpdate { hide: vec![e.name().to_lowercase()], ..Default::default() })
+            .unwrap();
+    }
+    let mut hide: Vec<usize> = (1..=n).filter(|_| tc.draw(gs::weighted_booleans(0.2))).collect();
+    let refused = tc.draw(gs::weighted_booleans(0.1));
+    if refused {
+        hide.push(n + 1);
+    }
+    let off = tc.draw(gs::weighted_booleans(0.1));
+    if off {
+        locallibrary::fields::roles::turn_off(&store, Role::Recording).unwrap();
+    }
+    let set = Set {
+        id: "3m2abcdefgh22".into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        tracks: tracks.clone(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    SetBook { sets: vec![set], ..Default::default() }.save(&store).unwrap();
+    let req = SetPublishRequest { set: "last".into(), hide };
+
+    let asked: std::cell::RefCell<Vec<(Vec<u32>, bool)>> = Default::default();
+    let analyze = |_: &locallibrary::Device, ids: &[u32], again: bool| {
+        asked.borrow_mut().push((ids.to_vec(), again));
+        if drive_fails {
+            return Err(locallibrary::Error::Invalid("the plugin stopped".into()));
+        }
+        let mut done = Analyzed::default();
+        for id in ids {
+            let i = library.tracks.iter().position(|t| t.id == *id).unwrap();
+            let recording = match heard[i] {
+                Heard::Fails => {
+                    let track = locallibrary::model::TrackRef::from(&library.tracks[i]);
+                    done.failures.push(locallibrary::audio_cache::TrackFailure { track, error: "no".into() });
+                    done.failed += 1;
+                    continue;
+                }
+                Heard::Id(n) => FieldValue::String(Uuid::from_u128(n).to_string()),
+                Heard::Nothing => FieldValue::Null,
+            };
+            keep(i, recording, locallibrary::model::isrc(&library.tracks[i].isrc));
+            done.analyzed += 1;
+        }
+        Ok(done)
+    };
+    let warnings = common::Warnings::default();
+    let looked = api::set_lookup(&root, &req, analyze, &warnings.ctx());
+    if refused || off {
+        assert_eq!(looked.map_err(|e| e.code()), if refused { Err("invalid") } else { Ok(api::SetLookup::default()) });
+        assert!(asked.take().is_empty(), "nothing asked");
+        locallibrary::testing::roles_on_this_thread(None);
+        return;
+    }
+    let looked = looked.unwrap();
+
+    // What the record names decides what's asked.
+    let record = api::set_publish_plan(&root, &req).unwrap().record.clone();
+    let named = |i: usize| record["tracks"][i]["unidentified"] != true;
+    let held: IndexMap<String, usize> =
+        library.tracks.iter().enumerate().map(|(i, t)| (locallibrary::paths::file_key(&t.file_path), i)).collect();
+    let mut wanted: Vec<String> = Vec::new();
+    for (_, e) in tracks.iter().enumerate().filter(|(i, e)| named(*i) && e.musicbrainz.is_empty()) {
+        if let Some(k) = e.file_key().filter(|k| !wanted.contains(k)) {
+            wanted.push(k);
+        }
+    }
+    let on_drive: Vec<usize> = wanted.iter().filter_map(|k| held.get(k).copied()).collect();
+    let ids_of = |of: &[usize]| of.iter().map(|&i| library.tracks[i].id).collect::<Vec<u32>>();
+    let calls = |of: &[usize]| {
+        let (redo, fresh): (Vec<usize>, Vec<usize>) = of.iter().partition(|&&i| stale[i]);
+        [(ids_of(&fresh), false), (ids_of(&redo), true)]
+            .into_iter()
+            .filter(|(ids, _)| !ids.is_empty())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(asked.take(), calls(&on_drive));
+    let found: Vec<usize> =
+        on_drive.iter().copied().filter(|&i| !drive_fails && matches!(heard[i], Heard::Id(_))).collect();
+    let failed = on_drive.iter().filter(|&&i| drive_fails || matches!(heard[i], Heard::Fails)).count();
+    let unmounted = wanted.len() - on_drive.len();
+    assert_eq!(looked, api::SetLookup { asked: on_drive.len(), found: found.len(), failed, unmounted });
+    let drive_warnings = if drive_fails {
+        [false, true].iter().filter(|&&r| on_drive.iter().any(|&i| stale[i] == r)).count()
+    } else {
+        0
+    };
+    assert_eq!(warnings.said().len(), drive_warnings, "{:?}", warnings.said());
+    let after = SetBook::load(&store).unwrap().sets.remove(0).tracks;
+    for (i, (before, now)) in tracks.iter().zip(&after).enumerate() {
+        let filled = before.file_key().filter(|k| wanted.contains(k)).and_then(|k| held.get(&k).copied());
+        let musicbrainz = match filled.filter(|j| before.musicbrainz.is_empty() && found.contains(j)) {
+            Some(j) => {
+                let Heard::Id(n) = heard[j] else { unreachable!("found") };
+                MusicBrainzIds { recording: Some(Uuid::from_u128(n)), ..Default::default() }
+            }
+            None => before.musicbrainz.clone(),
+        };
+        assert_eq!(now, &SetEntry { musicbrainz, ..before.clone() }, "track {}", i + 1);
+    }
+
+    // Found once, kept: only the rest are asked about again, and what it worked out failing
+    // over stale values is still stale.
+    api::set_lookup(&root, &req, analyze, &Ctx::silent()).unwrap();
+    let still_stale = |i: &usize| stale[*i] && (drive_fails || matches!(heard[*i], Heard::Fails));
+    let rest: Vec<usize> = on_drive.iter().copied().filter(|i| !found.contains(i)).collect();
+    let (redo, fresh): (Vec<usize>, Vec<usize>) = rest.iter().partition(|i| still_stale(i));
+    let again: Vec<(Vec<u32>, bool)> =
+        [(ids_of(&fresh), false), (ids_of(&redo), true)].into_iter().filter(|(ids, _)| !ids.is_empty()).collect();
+    assert_eq!(asked.take(), again);
+    locallibrary::testing::roles_on_this_thread(None);
+}
+
+/// Where a drive track's file is, for [`a_track_is_read_back_from_the_drive_it_was_analysed_on`]:
+/// on both drives, only on the one whose library reads, only on the one whose library doesn't,
+/// or on neither.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Held {
+    Both,
+    Readable,
+    Unreadable,
+    Nowhere,
+}
+
+/// With a plugged-in drive whose library can't be read (a warning) before one whose library can,
+/// each track is analysed on the drive that lists it and read back from that drive, though the
+/// other holds a file at the same path (another one, as a copy changed since is); a file only the
+/// unreadable drive holds isn't missing, and only a file on neither drive is.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::open_or_init(&root).unwrap();
+    let volumes = common::isolate(dir.path(), Some(&root));
+    // Drives are taken in the order of their paths: the unreadable one first.
+    let readable = common::bigger_drive(&volumes, "B-Main");
+    let unreadable = volumes.join("A-Broken");
+    common::copy_dir(&readable, &unreadable);
+    std::fs::write(unreadable.join(locallibrary::paths::EXPORT_PDB), b"not a database").unwrap();
+    let library = common::library(&readable);
+    let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
+    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
+    let file = |drive: &Path, i: usize| {
+        locallibrary::paths::to_fs(drive, &locallibrary::paths::key(&library.tracks[i].file_path))
+    };
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(library.tracks.len()));
+    let mut held = Vec::new();
+    for i in 0..n {
+        let h = tc.draw(gs::sampled_from(vec![Held::Both, Held::Readable, Held::Unreadable, Held::Nowhere]));
+        match h {
+            // Another file at the same path: kept values are another file's.
+            Held::Both => std::fs::write(file(&unreadable, i), b"changed since it was copied").unwrap(),
+            Held::Readable => std::fs::remove_file(file(&unreadable, i)).unwrap(),
+            Held::Unreadable => std::fs::remove_file(file(&readable, i)).unwrap(),
+            Held::Nowhere => {
+                for d in [&readable, &unreadable] {
+                    std::fs::remove_file(file(d, i)).unwrap();
+                }
+            }
+        }
+        held.push(h);
+    }
+    let tracks: Vec<SetEntry> =
+        library.tracks[..n].iter().map(|t| SetEntry::from_track(t, EntryOrigin::Added, None)).collect();
+    let set = Set {
+        id: "3m2abcdefgh22".into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        tracks: tracks.clone(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    SetBook { sets: vec![set], ..Default::default() }.save(&store).unwrap();
+    let fields = FieldStore::in_store(&store);
+    let asked: std::cell::RefCell<Vec<(PathBuf, Vec<u32>)>> = Default::default();
+    let analyze = |d: &locallibrary::Device, ids: &[u32], _again: bool| {
+        asked.borrow_mut().push((d.root().to_path_buf(), ids.to_vec()));
+        for id in ids {
+            let i = library.tracks.iter().position(|t| t.id == *id).unwrap();
+            let recording = FieldValue::String(Uuid::from_u128(i as u128 + 1).to_string());
+            let audio = d.checked_path(&locallibrary::paths::key(&library.tracks[i].file_path)).unwrap();
+            fields.put(&audio, &analyzer, &[("recording".to_string(), recording)].into_iter().collect()).unwrap();
+        }
+        Ok(Analyzed { analyzed: ids.len(), ..Analyzed::default() })
+    };
+    let warnings = common::Warnings::default();
+    let req = SetPublishRequest { set: "last".into(), hide: Vec::new() };
+    let looked = api::set_lookup(&root, &req, analyze, &warnings.ctx()).unwrap();
+
+    let on_readable: Vec<usize> = (0..n).filter(|&i| matches!(held[i], Held::Both | Held::Readable)).collect();
+    let ids: Vec<u32> = on_readable.iter().map(|&i| library.tracks[i].id).collect();
+    let calls = asked.take();
+    assert_eq!(
+        calls.iter().map(|(_, ids)| ids.clone()).collect::<Vec<_>>(),
+        [ids].into_iter().filter(|i| !i.is_empty()).collect::<Vec<_>>()
+    );
+    let readable_root = locallibrary::device::dunce_canonicalize(&readable);
+    assert!(calls.iter().all(|(d, _)| locallibrary::device::dunce_canonicalize(d) == readable_root), "{calls:?}");
+    let unmounted = held.iter().filter(|h| **h == Held::Nowhere).count();
+    let found = on_readable.len();
+    assert_eq!(looked, api::SetLookup { asked: found, found, failed: 0, unmounted });
+    let said = warnings.said();
+    assert!(said.len() == 1 && said[0].contains("couldn't read A-Broken's library"), "{said:?}");
+    let after = SetBook::load(&store).unwrap().sets.remove(0).tracks;
+    for (i, e) in after.iter().enumerate() {
+        let want = on_readable.contains(&i).then(|| Uuid::from_u128(i as u128 + 1));
+        assert_eq!(e.musicbrainz.recording, want, "track {} ({:?})", i + 1, held[i]);
+    }
+    locallibrary::testing::roles_on_this_thread(None);
 }

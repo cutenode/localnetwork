@@ -206,7 +206,7 @@ atstore:
           - "crates/loclib-plugin/**"
           - "plugins/**"
           - "{apps,crates}/locallibrary/**/plugin{,s,_cmd}{.rs,.md,/**}"
-          - "crates/locallibrary/examples/test-plugin/**"
+          - "crates/locallibrary/src/bin/test-plugin/**"
 
 "locallibrary: publishing":
   - changed-files:
@@ -215,6 +215,9 @@ atstore:
           - "apps/locallibrary/src/{account_cmd,publish_cmd,sets_cmd,profile_cmd}{.rs,/**}"
           - "apps/locallibrary/src/tui/{account,account_off,profile}{.rs,/**}"
           - "apps/locallibrary/docs/{account,sets}.md"
+          - "plugins/musicbrainz/**"
+          - "plugins/plyr/**"
+          - "plugins/youtube/**"
           - "lexicons/computer/localnetwork/{dj,locallibrary}/**"
           - "lexicons/computer/localnetwork/locallibraryPublishing.json"
 
@@ -277,7 +280,7 @@ dependencies:
 
 github_actions:
   - changed-files:
-      - any-glob-to-any-file: [".github/workflows/**", ".github/actions/**", ".github/actionlint.yaml"]
+      - any-glob-to-any-file: [".github/workflows/**", ".github/actions/**", ".github/actionlint.yaml", ".github/codeql/**"]
 
 tooling:
   - changed-files:
