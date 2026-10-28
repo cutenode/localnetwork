@@ -12,6 +12,8 @@ export const GET: RequestHandler = async ({ params, locals, fetch }) => {
 
 	if (params.did !== app.rootDid || !CID.test(params.cid)) error(404, 'Not found');
 	const pds = (await app.identity.resolve(app.rootDid)).pds;
+	// Blobs come from the PDS until HappyView serves them.
+	// ast-grep-ignore: no-direct-pds-read
 	const url = new URL('/xrpc/com.atproto.sync.getBlob', pds);
 	url.searchParams.set('did', params.did);
 	url.searchParams.set('cid', params.cid);

@@ -1,0 +1,22 @@
+id: no-direct-pds-read
+valid:
+  - "const found = await indexed.getRecord(did, COLLECTION.epk, rkey, { strict: true });"
+  - "const { records } = await indexed.listRecords(did, COLLECTION.djSet, { limit: 100 });"
+  - "const page = await happyView.query('listRecords', { actor: did, collection });"
+  - "const { data } = await this.agent.com.atproto.space.getRecord(input);"
+  - "const { data } = await this.agent.com.atproto.space.listRecords({ limit: 100, ...input });"
+  - "await this.agent.com.atproto.repo.putRecord({ repo: this.did, collection, rkey, record });"
+  - "const url = new URL('/xrpc/com.atproto.identity.resolveHandle', service);"
+  - "export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;"
+  - "const nsid = 'com.atproto.space.getBlob';"
+invalid:
+  - "const { data } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });"
+  - "await agent.com.atproto.repo.describeRepo({ repo });"
+  - "await agent.com.atproto.sync.getRepo({ did });"
+  - "const { data } = await agent.app.bsky.actor.getProfile({ actor });"
+  - "const stored = await root.getRecord({ collection: COLLECTION.project, rkey });"
+  - "const records = await (await this.core.root()).listRecords(COLLECTION.project);"
+  - "const url = new URL('/xrpc/com.atproto.sync.getBlob', pds);"
+  - "const res = await fetch(`${pds}/xrpc/com.atproto.repo.listRecords?repo=${did}`);"
+  - "const agent = new Agent('https://public.api.bsky.app');"
+  - "await xrpc.call('app.bsky.feed.getAuthorFeed', { actor });"
