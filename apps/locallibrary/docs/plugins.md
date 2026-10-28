@@ -57,14 +57,40 @@ are:
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
   sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
   plyr.fm after a day, and publishing again starts over.
+- **youtube**: a set destination, `video`: `locallibrary sets publish SET --to youtube:video`
+  uploads the set to YouTube as a video on your channel and keeps its page as the set's link.
+  YouTube takes videos, not audio, so the plugin runs [FFmpeg](https://ffmpeg.org/download.html)
+  (`ffprobe` and `ffmpeg`, which have to be installed) to make one first: a still picture over the
+  whole recording, the `picture` setting's (`locallibrary plugin settings youtube picture
+  FILE`, fitted into a 1080p frame) or a black frame, at a frame a second, with the audio as AAC
+  (copied when it's AAC already, else encoded, which takes a few minutes for a long WAV). The
+  video is made in the request's folder and removed once it has gone. It's titled after the set
+  (else its venue and date), in YouTube's category for music, and the tracklist is the
+  description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
+  chapters when there are three or more, in order, each at least ten seconds long, so a time that
+  would break that is left off its line (the dry run says how many). Who can watch it is the
+  `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
+  `locallibrary plugin account youtube google sign-in`: it asks Google only to upload videos.
+  The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
+  to, a few times at most; an upload that stops partway starts over when you publish again.
 
-coverart, musicbrainz and plyr are the only ones that go online, and only for these, through
-locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
-it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with
-`--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup` (or
-`plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish --to
-plyr:track` once you confirm it. `analyze` alone leaves out the analyzers that go online, and says
-so.
+  What YouTube does once it has the video is up to YouTube. It processes it for a while after the
+  upload, so the link can take some minutes to play, longer in HD. Its Content ID matches every
+  upload against the labels' records, and a mix of other people's records is likely to be
+  matched: a label can block the video (in some countries or all), put ads on it and take what
+  they earn, or only track it. YouTube takes videos over 15 minutes only from verified accounts
+  ([youtube.com/verify](https://www.youtube.com/verify)). And YouTube
+  gives Local Network's Google client a number of uploads a day (100 for now), shared by everyone
+  publishing through it: once they're used up, publishing says so, and works again the next day.
+
+coverart, musicbrainz, plyr and youtube are the only ones that go online, and only for these,
+through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first
+two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed
+in, with `--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup`
+(or `plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish
+--to plyr:track` or `--to youtube:video` once you confirm it. `analyze` alone leaves out the
+analyzers that go online, and says so. youtube is the only one that runs another program (FFmpeg),
+as you, like any plugin.
 
 ## What you have
 

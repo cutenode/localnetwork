@@ -3955,6 +3955,7 @@ dependencies = [
  "locallibrary-plugin-plyr",
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
+ "locallibrary-plugin-youtube",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
@@ -4080,6 +4081,18 @@ dependencies = [
  "loclib-model",
  "loclib-plugin",
  "loclib-tracklist",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-youtube"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
  "serde",
  "serde_json",
  "tempfile",
