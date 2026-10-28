@@ -14,10 +14,12 @@ use locallibrary::api::{
     TrackPlaysQuery,
 };
 use locallibrary::error::Reason;
+use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
 use locallibrary::mix::{MixInfo, MixReport, Play, report};
 use locallibrary::progress::Ctx;
 use locallibrary::sets::{EntryOrigin, MusicBrainzIds, SETS_FILE, Set};
-use locallibrary::{Device, Store, Track};
+use locallibrary::{Device, Store, Track, paths};
 use uuid::Uuid;
 
 /// A store, and a drive in the only folder drives are looked for in.
@@ -193,6 +195,48 @@ fn tracks_keep_the_musicbrainz_ids_their_files_are_tagged_with() {
     let later =
         MusicBrainzIds { recording: Some(Uuid::from_u128(3)), release: Some(Uuid::from_u128(3)), artists: vec![] };
     assert_eq!(ids(&set), [tagged, later, MusicBrainzIds::default()]);
+}
+
+/// Tracks take what their files' tags lack of their MusicBrainz IDs from what the analyzer chosen
+/// for their roles kept for the file: a recording or release only when it's a UUID, the artists
+/// only with one for each name the credit has, and none of it when the analyzer says it worked
+/// from another ISRC than the track's.
+#[test]
+fn tracks_take_what_their_tags_lack_from_the_ids_an_analyzer_kept() {
+    let s = setup();
+    let t = &s.tracks;
+    let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
+    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
+    let kept = |track: &Track, recording: String, artists: Vec<Uuid>, isrc: Option<&str>| {
+        let fields: Fields = [
+            ("recording".to_string(), FieldValue::String(recording)),
+            ("release".into(), FieldValue::String("not a uuid".into())),
+            ("artists".into(), FieldValue::Strings(artists.iter().map(Uuid::to_string).collect())),
+            ("isrc".into(), isrc.map_or(FieldValue::Null, |i| FieldValue::String(i.into()))),
+        ]
+        .into_iter()
+        .collect();
+        let audio = paths::to_fs(&s.drive, &paths::key(&track.file_path));
+        FieldStore::in_store(&s.store).put(&audio, &analyzer, &fields).unwrap();
+    };
+    let ids = |n: usize, from: u128| (0..n as u128).map(|i| Uuid::from_u128(from + i)).collect::<Vec<_>>();
+    let credits = |t: &Track| locallibrary::model::artist_credits(&t.artist).len();
+    let isrc = |t: &Track| locallibrary::model::isrc(&t.isrc);
+    tag_musicbrainz(&s.drive, &t[0], Uuid::from_u128(1), &[]);
+    kept(&t[0], Uuid::from_u128(9).to_string(), ids(credits(&t[0]), 30), isrc(&t[0]).as_deref());
+    kept(&t[1], Uuid::from_u128(2).to_string().to_uppercase(), ids(credits(&t[1]), 10), isrc(&t[1]).as_deref());
+    kept(&t[2], "not a uuid".into(), ids(credits(&t[2]) + 1, 20), isrc(&t[2]).as_deref());
+    kept(&t[3], Uuid::from_u128(4).to_string(), ids(credits(&t[3]), 40), Some("USRC17607840"));
+    let plays = [(&t[0], 0.0, 0.9), (&t[1], 200.0, 0.9), (&t[2], 400.0, 0.9), (&t[3], 600.0, 0.9)];
+    let id = report::save(&s.store, &report(&plays, None)).unwrap();
+    let set = new(&s, NewSet { fields: fields("Friday", "2026-10-03"), report: Some(id), ..Default::default() });
+    let got: Vec<MusicBrainzIds> = set.tracks.iter().map(|e| e.musicbrainz.clone()).collect();
+    let one = Some(Uuid::from_u128(1));
+    let tagged = MusicBrainzIds { recording: one, release: one, artists: ids(credits(&t[0]), 30) };
+    let heard = MusicBrainzIds { recording: Some(Uuid::from_u128(2)), release: None, artists: ids(credits(&t[1]), 10) };
+    assert_eq!(got, [tagged, heard, MusicBrainzIds::default(), MusicBrainzIds::default()]);
+    locallibrary::testing::roles_on_this_thread(None);
 }
 
 #[test]

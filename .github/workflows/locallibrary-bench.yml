@@ -88,12 +88,12 @@ jobs:
       # Keep in step with codspeed-criterion-compat's version in Cargo.toml. It has no
       # install-action manifest, so this falls back to cargo-binstall, which fetches CodSpeed's
       # release binary.
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-codspeed@5.0.2
       # Every feature, so benchmarks that need one (`test-util`) build too.
       - run: cargo codspeed build --workspace --all-features --locked -m simulation
-      - uses: CodSpeedHQ/action@f842b9a3ffe213dbb81768fd7f7eeb4dfcf1c369 # v5.4.2
+      - uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
         with:
           mode: simulation
           run: cargo codspeed run -m simulation

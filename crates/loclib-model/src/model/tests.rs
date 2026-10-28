@@ -2,6 +2,16 @@ use super::*;
 use crate::test_util::{TrackGenerator, track};
 
 #[test]
+fn artists_are_credited_once_each() {
+    assert_eq!(artist_credits("Bicep FEAT. Clara La San"), ["Bicep", "Clara La San"]);
+    assert_eq!(artist_credits("Chris Lake, Amber Mark"), ["Chris Lake", "Amber Mark"]);
+    assert_eq!(artist_credits("Simon & Garfunkel"), ["Simon & Garfunkel"]);
+    assert_eq!(artist_credits("Röyksopp (feat. Robyn)"), ["Röyksopp", "Robyn"]);
+    assert_eq!(artist_credits("İzel, Ölgü"), ["İzel", "Ölgü"]);
+    assert_eq!(artist_credits(""), Vec::<String>::new());
+}
+
+#[test]
 fn diff_detects_adds_removes_changes() {
     let old = Library {
         tracks: vec![track(1, "A", "One", "/Contents/A/1.mp3"), track(2, "B", "Two", "/Contents/B/2.mp3")],
@@ -825,4 +835,39 @@ fn onelibrary_only_tracks_are_numbered_on_for_files() {
     let mut plain = Library { tracks: vec![track(4, "A", "T", "/Contents/4.mp3")], ..Default::default() };
     assert!(plain.number_for_files().is_empty());
     assert_eq!(plain.tracks[0].id, 4);
+}
+
+/// An ISRC (two letters, three letters or digits, seven digits) is one however a tag writes it
+/// (lowercase, hyphens, spaces around), as the capitals alone; anything else (another length,
+/// letters where the digits go, other characters inside) isn't one, nor is it plain.
+#[hegel::test(test_cases = 200)]
+fn isrcs_are_one_however_tagged(tc: TestCase) {
+    let part = |alphabet: &'static str, n: usize| tc.draw(gs::text().alphabet(alphabet).min_size(n).max_size(n));
+    let code = [part("ABXZabxz", 2), part("ABXZabxz0189", 3), part("0189", 7)].concat();
+    let hyphens: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(12)).max_size(4));
+    let mut tagged = code.clone();
+    for at in hyphens.into_iter().rev() {
+        tagged.insert(at.min(tagged.len()), '-');
+    }
+    let tagged = format!(
+        "{}{tagged}{}",
+        tc.draw(gs::sampled_from(vec!["", " ", "\t"])),
+        tc.draw(gs::sampled_from(vec!["", " "]))
+    );
+    let plain = code.to_ascii_uppercase();
+    assert_eq!(isrc(&tagged), Some(plain.clone()), "{tagged:?}");
+    assert!(is_isrc(&plain) && (code == plain || !is_isrc(&code)), "{code:?}");
+    // Anything drawn from what ISRCs are made of is one only where each character's place says.
+    let other = tc.draw(gs::text().alphabet("AZaz09- ").max_size(16));
+    let squeezed = other.trim().replace('-', "").to_ascii_uppercase();
+    let placed = squeezed.len() == 12
+        && squeezed.char_indices().all(|(i, c)| match i {
+            0 | 1 => c.is_ascii_uppercase(),
+            2..=4 => c.is_ascii_alphanumeric(),
+            _ => c.is_ascii_digit(),
+        });
+    assert_eq!(isrc(&other).is_some(), placed, "{other:?}");
+    assert_eq!(isrc("GBCFB17005 86"), None, "a space inside");
+    assert_eq!(isrc("1BCFB1700586"), None, "a digit in the country code");
+    assert_eq!(isrc("GBCFB17005X6"), None, "a letter in the number");
 }

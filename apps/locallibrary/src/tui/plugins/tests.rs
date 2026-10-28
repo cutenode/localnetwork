@@ -314,8 +314,7 @@ fn a_secret_typed_in_the_form_is_kept_apart() {
     wait(&mut app, |a| a.job.is_none());
     let plugins = crate::plugins::host().unwrap();
     let store = locallibrary::Store::open(&app.store_root).unwrap();
-    // Not echoed on failure: CodeQL takes the app's toasts (a sign-in's names the account) for something secret.
-    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"]);
+    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"], "{}", last_message(&app));
     let settings = std::fs::read_to_string(app.store_root.join("plugins/echo/settings.json")).unwrap_or_default();
     assert!(!settings.contains("hunter2"), "{settings}");
     // Open again: not filled in; saved empty, kept.
@@ -435,8 +434,7 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
     let said = say_yes(&mut app);
-    // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
-    assert!(said.contains("u to undo"));
+    assert!(said.contains("u to undo"), "{said}");
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
@@ -1173,13 +1171,14 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         press(&mut app, "\u{1b}");
         press(&mut app, open);
 
-        // Only what runs here and now: the echo plugin's hooks and analyzer; the others' hooks
-        // (each asks for params first, nothing run until they're given), writing an analyzer's
-        // values (a form first too), exports, settings and columns.
+        // Only what runs here and now: the echo plugin's hooks, analyzer and sign-in; the others'
+        // hooks (each asks for params first, nothing run until they're given), writing an
+        // analyzer's values (a form first too), exports, settings and columns. Another plugin's
+        // sign-in would open its service's page in the browser.
         let safe: Vec<usize> = (first..acts.len())
             .filter(|&i| match acts[i] {
                 Act::Plugin(p, n) => p == "echo" || !hook(p, n).1.is_empty(),
-                Act::Analyze(p, _) => p == "echo",
+                Act::Analyze(p, _) | Act::PluginSignIn(p, _) => p == "echo",
                 _ => true,
             })
             .collect();
@@ -1277,7 +1276,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             wait(app, |a| a.job.is_none());
             // The demo drive's two tracks: analysed now, or by an entry chosen before.
             let fresh = ["file size: 2 tracks analyzed, 0 already", "file size: 0 tracks analyzed, 2 already"];
-            assert!(fresh.contains(&last_message(app)));
+            assert!(fresh.contains(&last_message(app)), "{}", last_message(app));
         }
         Act::ApplyFields(p, a) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
@@ -1319,15 +1318,17 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), ("Provider settings".into(), vec!["auto_pick".into()]));
             press(app, "\u{1b}");
         }
-        // Its sign-in page is on this computer, which the player never reaches: refused before
+        // Echo's sign-in page is on this computer, which the player never reaches: refused before
         // anything opens. Never signed in, so never signed out either.
         Act::PluginSignIn(..) => {
             wait(app, |a| a.job.is_none());
             assert!(last_message(app).starts_with("signing in: "), "signing in failed as it began");
         }
-        Act::PluginSignOut(..) => {
+        Act::PluginSignOut(p, a) => {
             wait(app, |a| a.job.is_none());
-            assert_eq!(last_message(app), "not signed in to Echo Cloud");
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let account = m.contributes.accounts.iter().find(|x| x.id == a).unwrap();
+            assert_eq!(last_message(app), format!("not signed in to {}", account.title));
         }
         Act::CheckSettings => {
             let plugins = crate::plugins::host().unwrap();

@@ -477,24 +477,24 @@ export type Edit =
    * happens if it exists already.
    */
   | {
+    op: "create_playlist";
     path: string;
     folder?: boolean;
-    op: "create_playlist";
   }
   | {
+    op: "rename_playlist";
     playlist: string;
     name: string;
-    op: "rename_playlist";
   }
   /**
    * Move a playlist or folder into folder `into` (the top level when absent or empty), at
    * `position` among its new siblings (the end when absent).
    */
   | {
+    op: "move_playlist";
     playlist: string;
     into?: string | null;
     position?: number | null;
-    op: "move_playlist";
   }
   /**
    * Delete a playlist, or a folder with everything in it. Tracks stay in the library unless
@@ -502,36 +502,36 @@ export type Edit =
    * their files, as when removing a guest's crate after a back-to-back set.
    */
   | {
+    op: "delete_playlist";
     playlist: string;
     with_tracks?: boolean;
-    op: "delete_playlist";
   }
   /**
    * Add tracks at `position` (the end when absent). Tracks already in the playlist are left
    * out unless `allow_repeats`.
    */
   | {
+    op: "add_tracks";
     playlist: string;
     tracks: TrackSelector;
     position?: number | null;
     /** Order the added tracks (see [`query::parse_sort`]). */
     sort?: string | null;
     allow_repeats?: boolean;
-    op: "add_tracks";
   }
   /** Remove every entry of the selected tracks and/or the entries at `positions`. */
   | {
+    op: "remove_tracks";
     playlist: string;
     tracks?: TrackSelector | null;
     positions?: number[];
-    op: "remove_tracks";
   }
   /** Move the entries at `positions` (kept in their order) so the first lands at `to`. */
   | {
+    op: "move_tracks";
     playlist: string;
     positions: number[];
     to: number;
-    op: "move_tracks";
   }
   /**
    * Make a playlist hold exactly the selected tracks (a query or filter may select none),
@@ -539,12 +539,12 @@ export type Edit =
    * missing. Rule-based playlists use this.
    */
   | {
+    op: "set_tracks";
     playlist: string;
     tracks: TrackSelector;
     sort?: string | null;
     limit?: number | null;
     create?: boolean;
-    op: "set_tracks";
   }
   /**
    * Make a playlist's entries exactly these audio files (device paths) in this order, repeats
@@ -554,25 +554,25 @@ export type Edit =
    * (`PlanSet`), and removing or moving entries whose files have other entries in it too.
    */
   | {
+    op: "set_entries";
     playlist: string;
     paths: string[];
     create?: boolean;
-    op: "set_entries";
   }
   /** Reorder a playlist (see [`query::parse_sort`]). */
   | {
+    op: "sort_playlist";
     playlist: string;
     by: string;
-    op: "sort_playlist";
   }
   /**
    * Drop repeated entries (the first stays); with `recordings`, also other copies of the same
    * recording (artist, title and duration).
    */
   | {
+    op: "dedupe";
     playlist: string;
     recordings?: boolean;
-    op: "dedupe";
   }
   /**
    * Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from
@@ -580,34 +580,36 @@ export type Edit =
    * into a new playlist at `into`.
    */
   | {
+    op: "plan_set";
     playlist: string;
     start?: TrackSelector | null;
     into?: string | null;
-    op: "plan_set";
   }
   | {
+    op: "edit_tracks";
     tracks: TrackSelector;
     fields: TrackFields;
-    op: "edit_tracks";
   }
   /**
    * Delete tracks with their playlist and history entries, and (unless `keep_files`) their
-   * audio, analysis and artwork files when no other track uses them.
+   * audio, analysis and artwork files when no other track uses them. A track goes with every
+   * row of its audio file, in each database; a path may name one only the drive's other
+   * database lists (OneLibrary, drifted from `export.pdb`), which is deleted there.
    */
   | {
+    op: "delete_tracks";
     tracks: TrackSelector;
     keep_files?: boolean;
-    op: "delete_tracks";
   }
   /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)
    * move to `keep`, then `duplicate` is deleted unless `keep_duplicate`.
    */
   | {
+    op: "replace_track";
     duplicate: TrackSelector;
     keep: TrackSelector;
     keep_duplicate?: boolean;
-    op: "replace_track";
   }
   /**
    * Point one track at another audio file on the drive (a device path), as when its file was
@@ -617,17 +619,17 @@ export type Edit =
    * beat grid move by that much, for audio that starts at another point.
    */
   | {
+    op: "set_path";
     track: TrackSelector;
     path: string;
     file?: AudioFile | null;
     shift_ms?: number;
-    op: "set_path";
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
+    op: "delete_history";
     names?: string[];
     all?: boolean;
-    op: "delete_history";
   }
   /**
    * Delete history lists, each the one with exactly its name and entries. The journal records
@@ -635,8 +637,8 @@ export type Edit =
    * reused name too.
    */
   | {
-    lists: HistoryListName[];
     op: "delete_history_lists";
+    lists: HistoryListName[];
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
@@ -650,18 +652,18 @@ export type Edit =
    * `cues` edits are recorded this way too.
    */
   | {
+    op: "cues";
     tracks: string[];
     change: CueChange;
-    op: "cues";
   }
   /**
    * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
    * journal records the tracks by file and the image as staged on the drive.
    */
   | {
+    op: "set_artwork";
     tracks: TrackSelector;
     image: ImageSource;
-    op: "set_artwork";
   }
   /**
    * Write a beat grid, phrases or a waveform into the analysis files of the track of this
@@ -670,13 +672,13 @@ export type Edit =
    * drive.
    */
   | {
+    op: "set_analysis";
     track: string;
     /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
     beats?: Beat[] | null;
     /** The phrases, named as the track's mood names them. */
     phrases?: SongStructure | null;
     waveform?: WaveSource | null;
-    op: "set_analysis";
   };
 
 /**
@@ -758,20 +760,20 @@ export type HistoryListName = {
  * their audio files (device paths), so a replay on a later export, where ids differ, finds them.
  */
 export type TagChange = {
-  tag: string;
-  tracks: string[];
   action: "add";
-} | {
   tag: string;
   tracks: string[];
-  action: "remove";
 } | {
+  action: "remove";
+  tag: string;
+  tracks: string[];
+} | {
+  action: "rename";
   tag: string;
   to: string;
-  action: "rename";
 } | {
-  tag: string;
   action: "delete";
+  tag: string;
 };
 
 /**
@@ -1046,6 +1048,7 @@ export type TagsEdit = {
 } & (
   /** Give the selected tracks a tag (`Category/Tag`), creating it where it's missing. */
   | {
+    action: "add";
     tag: string;
     ids?: number[];
     /** Matches "artist - title" or path substrings; must match at least one track. */
@@ -1059,10 +1062,10 @@ export type TagsEdit = {
     paths?: string[];
     /** The tracks of a history list (what a player recorded), by name. */
     history?: string | null;
-    action: "add";
   }
   /** Take a tag off the selected tracks. */
   | {
+    action: "remove";
     tag: string;
     ids?: number[];
     /** Matches "artist - title" or path substrings; must match at least one track. */
@@ -1076,18 +1079,17 @@ export type TagsEdit = {
     paths?: string[];
     /** The tracks of a history list (what a player recorded), by name. */
     history?: string | null;
-    action: "remove";
   }
   /** Rename a tag (`Category/Tag`) or a category (`Category`). */
   | {
+    action: "rename";
     tag: string;
     to: string;
-    action: "rename";
   }
   /** Delete a tag, taking it off every track. */
   | {
-    tag: string;
     action: "delete";
+    tag: string;
   });
 
 /**
@@ -1155,13 +1157,13 @@ export type CueOp =
     op: "update";
   })
   | {
-    cue: CueRef;
     op: "delete";
+    cue: CueRef;
   }
   /** Replace the selected tracks' cues with a copy of one other track's. */
   | {
-    from: TrackSelector;
     op: "copy";
+    from: TrackSelector;
   };
 
 export type PlaylistRestoreRequest = {
@@ -1996,15 +1998,15 @@ export type RepairSource =
     from: "store";
   }
   | {
+    from: "drive";
     name: string;
     root: string;
-    from: "drive";
   }
   /** The copy of the store at a plugin's destination, from which it's fetched into the store. */
   | {
+    from: "destination";
     plugin: string;
     destination: string;
-    from: "destination";
   };
 
 export type FsCheckRequest = {
@@ -2463,7 +2465,8 @@ export type ApplyFields = {
 /**
  * What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
  * (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
- * BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
+ * BPMs to tracks, a published set's MusicBrainz IDs) from the analyzer chosen for it. A closed
+ * list, each with one type.
  */
 export type FieldRole =
   /** A Camelot code (`8A`): a string. */
@@ -2481,7 +2484,29 @@ export type FieldRole =
   /** Runs of samples at full scale: an integer. */
   | "clipped_runs"
   /** Equal values are the same recording: a string. */
-  | "identity";
+  | "identity"
+  /**
+   * The MusicBrainz recording's ID, a bare lowercase UUID
+   * (`8dfae998-efd4-4ebe-a482-1523ff687362`): a string.
+   */
+  | "recording"
+  /** The MusicBrainz release's ID, a bare lowercase UUID: a string. */
+  | "release"
+  /**
+   * The MusicBrainz IDs of the artists the track credits, a bare lowercase UUID for each name
+   * loclib-model's `artist_credits` splits its artist into, in that order: a list of strings.
+   */
+  | "artists"
+  /**
+   * The ISRC the MusicBrainz IDs were looked up by, as loclib-model's `isrc` spells it (null:
+   * the track had none): a string. The host takes them only for a track with that ISRC.
+   */
+  | "isrc"
+  /**
+   * The names its artists' IDs go with, as loclib-model's `artist_credits` split the artist it
+   * worked from: a list of strings. The host takes them only for a track credited the same.
+   */
+  | "credits";
 
 /** A change to a check's settings. */
 export type SetCheck = {
@@ -2595,6 +2620,8 @@ export type ChooseRole = {
    * out) puts it back to its default.
    */
   analyzer?: string | null;
+  /** Read it from no analyzer instead (`recording`: `sets publish` looks up no MusicBrainz IDs). */
+  none?: boolean;
 };
 
 /** Building a drive from a plugin's library source. */
@@ -3819,37 +3846,6 @@ export type MergeReport = {
   fingerprint: Hash | null;
 };
 
-export type CleanPlan = {
-  drive: string;
-  root: string;
-  tracks: TrackRef[];
-  /** Files to delete (audio, analysis, artwork), as drive keys. */
-  files: string[];
-  /** Total size of `files`. */
-  bytes: number;
-  playlists: AffectedPlaylist[];
-  /** Artist/album/genre/label/key/artwork rows left unused by the removal. */
-  lookup_rows: number;
-  /** Space needed for the backup of the database and the deleted files. */
-  needed_bytes: number;
-  free_space: number | null;
-  fits: boolean;
-  warnings: string[];
-};
-
-export type AffectedPlaylist = {
-  path: string;
-  entries_removed: number;
-};
-
-export type CleanReport = {
-  tracks_removed: number;
-  files_deleted: number;
-  freed_bytes: number;
-  backup: string | null;
-  fingerprint: Hash | null;
-};
-
 export type ConvertPlan = {
   drive: string;
   root: string;
@@ -4327,24 +4323,24 @@ export type EditOutput =
    * happens if it exists already.
    */
   | {
+    op: "create_playlist";
     path: string;
     folder: boolean;
-    op: "create_playlist";
   }
   | {
+    op: "rename_playlist";
     playlist: string;
     name: string;
-    op: "rename_playlist";
   }
   /**
    * Move a playlist or folder into folder `into` (the top level when absent or empty), at
    * `position` among its new siblings (the end when absent).
    */
   | {
+    op: "move_playlist";
     playlist: string;
     into: string | null;
     position: number | null;
-    op: "move_playlist";
   }
   /**
    * Delete a playlist, or a folder with everything in it. Tracks stay in the library unless
@@ -4352,36 +4348,36 @@ export type EditOutput =
    * their files, as when removing a guest's crate after a back-to-back set.
    */
   | {
+    op: "delete_playlist";
     playlist: string;
     with_tracks?: boolean;
-    op: "delete_playlist";
   }
   /**
    * Add tracks at `position` (the end when absent). Tracks already in the playlist are left
    * out unless `allow_repeats`.
    */
   | {
+    op: "add_tracks";
     playlist: string;
     tracks: TrackSelector;
     position: number | null;
     /** Order the added tracks (see [`query::parse_sort`]). */
     sort: string | null;
     allow_repeats: boolean;
-    op: "add_tracks";
   }
   /** Remove every entry of the selected tracks and/or the entries at `positions`. */
   | {
+    op: "remove_tracks";
     playlist: string;
     tracks: TrackSelector | null;
     positions: number[];
-    op: "remove_tracks";
   }
   /** Move the entries at `positions` (kept in their order) so the first lands at `to`. */
   | {
+    op: "move_tracks";
     playlist: string;
     positions: number[];
     to: number;
-    op: "move_tracks";
   }
   /**
    * Make a playlist hold exactly the selected tracks (a query or filter may select none),
@@ -4389,12 +4385,12 @@ export type EditOutput =
    * missing. Rule-based playlists use this.
    */
   | {
+    op: "set_tracks";
     playlist: string;
     tracks: TrackSelector;
     sort: string | null;
     limit: number | null;
     create: boolean;
-    op: "set_tracks";
   }
   /**
    * Make a playlist's entries exactly these audio files (device paths) in this order, repeats
@@ -4404,25 +4400,25 @@ export type EditOutput =
    * (`PlanSet`), and removing or moving entries whose files have other entries in it too.
    */
   | {
+    op: "set_entries";
     playlist: string;
     paths: string[];
     create?: boolean;
-    op: "set_entries";
   }
   /** Reorder a playlist (see [`query::parse_sort`]). */
   | {
+    op: "sort_playlist";
     playlist: string;
     by: string;
-    op: "sort_playlist";
   }
   /**
    * Drop repeated entries (the first stays); with `recordings`, also other copies of the same
    * recording (artist, title and duration).
    */
   | {
+    op: "dedupe";
     playlist: string;
     recordings: boolean;
-    op: "dedupe";
   }
   /**
    * Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from
@@ -4430,34 +4426,36 @@ export type EditOutput =
    * into a new playlist at `into`.
    */
   | {
+    op: "plan_set";
     playlist: string;
     start: TrackSelector | null;
     into: string | null;
-    op: "plan_set";
   }
   | {
+    op: "edit_tracks";
     tracks: TrackSelector;
     fields: TrackFields;
-    op: "edit_tracks";
   }
   /**
    * Delete tracks with their playlist and history entries, and (unless `keep_files`) their
-   * audio, analysis and artwork files when no other track uses them.
+   * audio, analysis and artwork files when no other track uses them. A track goes with every
+   * row of its audio file, in each database; a path may name one only the drive's other
+   * database lists (OneLibrary, drifted from `export.pdb`), which is deleted there.
    */
   | {
+    op: "delete_tracks";
     tracks: TrackSelector;
     keep_files: boolean;
-    op: "delete_tracks";
   }
   /**
    * Replace one copy of a recording with another: playlist and history entries (and My Tags)
    * move to `keep`, then `duplicate` is deleted unless `keep_duplicate`.
    */
   | {
+    op: "replace_track";
     duplicate: TrackSelector;
     keep: TrackSelector;
     keep_duplicate: boolean;
-    op: "replace_track";
   }
   /**
    * Point one track at another audio file on the drive (a device path), as when its file was
@@ -4467,17 +4465,17 @@ export type EditOutput =
    * beat grid move by that much, for audio that starts at another point.
    */
   | {
+    op: "set_path";
     track: TrackSelector;
     path: string;
     file?: AudioFile | null;
     shift_ms?: number;
-    op: "set_path";
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
+    op: "delete_history";
     names: string[];
     all: boolean;
-    op: "delete_history";
   }
   /**
    * Delete history lists, each the one with exactly its name and entries. The journal records
@@ -4485,8 +4483,8 @@ export type EditOutput =
    * reused name too.
    */
   | {
-    lists: HistoryListName[];
     op: "delete_history_lists";
+    lists: HistoryListName[];
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
@@ -4500,18 +4498,18 @@ export type EditOutput =
    * `cues` edits are recorded this way too.
    */
   | {
+    op: "cues";
     tracks: string[];
     change: CueChange;
-    op: "cues";
   }
   /**
    * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
    * journal records the tracks by file and the image as staged on the drive.
    */
   | {
+    op: "set_artwork";
     tracks: TrackSelector;
     image: ImageSource;
-    op: "set_artwork";
   }
   /**
    * Write a beat grid, phrases or a waveform into the analysis files of the track of this
@@ -4520,13 +4518,13 @@ export type EditOutput =
    * drive.
    */
   | {
+    op: "set_analysis";
     track: string;
     /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
     beats?: Beat[] | null;
     /** The phrases, named as the track's mood names them. */
     phrases?: SongStructure | null;
     waveform?: WaveSource | null;
-    op: "set_analysis";
   };
 
 /** A track none of the players play that packing leaves as it is. */
@@ -4696,12 +4694,12 @@ export type PlaylistRestorePreview = {
 
 /** Where the restored playlist comes from. */
 export type RestoreSource = {
+  kind: "snapshot";
   snapshot: SnapshotInfo;
   library: string | null;
-  kind: "snapshot";
 } | {
-  backup: BackupInfo;
   kind: "backup";
+  backup: BackupInfo;
 };
 
 /** An entry the source has whose track isn't on the drive any more. */
@@ -5086,28 +5084,28 @@ export type AudioFinding = {
 export type AudioProblem =
   /** It doesn't open as audio, or there's no decoder for it. */
   | {
-    error: string;
     kind: "unreadable";
+    error: string;
   }
   /**
    * Its audio stops before the length the database (or its own header) gives: a copy cut
    * short, most likely.
    */
   | {
+    kind: "truncated";
     ends_secs: number;
     expected_secs: number;
-    kind: "truncated";
   }
   /** Its last seconds don't decode. */
   | {
-    error: string;
     kind: "undecodable";
+    error: string;
   }
   /** Its header gives a different length from the database's (a replaced file?). */
   | {
+    kind: "length_differs";
     file_secs: number;
     expected_secs: number;
-    kind: "length_differs";
   };
 
 /**
@@ -5783,8 +5781,8 @@ export type Client =
   }
   /** A client metadata document at this HTTPS URL (see [`client_metadata`]). */
   | {
-    client_id: string;
     kind: "hosted";
+    client_id: string;
   };
 
 /** Where secrets are kept. */
@@ -6321,6 +6319,24 @@ export type Published = {
   record: unknown;
 };
 
+/**
+ * What looking up the MusicBrainz IDs of a set's tracks did (`sets.lookup`), counting the tracks
+ * the record names without IDs by file, once however often the set plays them.
+ */
+export type SetLookup = {
+  /**
+   * Tracks the analyzers ran on (or had worked out already): those on a plugged-in drive that
+   * lists them.
+   */
+  asked: number;
+  /** Of those, tracks that got MusicBrainz IDs, now kept in the set. */
+  found: number;
+  /** Of those, tracks an analyzer failed on. Each failure was a warning. */
+  failed: number;
+  /** Tracks whose files are on no plugged-in drive: not looked up. */
+  unmounted: number;
+};
+
 /** Someone's published My Settings, and how importing them changes the settings profile. */
 export type SettingsImportPlan = {
   from: Resolved;
@@ -6442,8 +6458,8 @@ export type SetEntry = {
   /** Seconds from the start of the set (from a recording or a timed log). */
   start_seconds?: number | null;
   /**
-   * MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made
-   * or edited.
+   * MusicBrainz IDs from the audio file's tags, else from what the analyzers chosen for their
+   * roles worked out for it, read from a mounted drive when the set is made, edited or published.
    */
   musicbrainz?: MusicBrainzIds;
   /** Published without naming it: only its place in the set. */
@@ -6455,7 +6471,8 @@ export type SetEntry = {
 
 /**
  * MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
- * recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.
+ * recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist. An
+ * analyzer answers them as the roles `recording`, `release` and `artists`.
  */
 export type MusicBrainzIds = {
   recording?: string | null;
@@ -7091,9 +7108,9 @@ export type Standing =
    * snapshot holding it, none when the library's latest went through it unsaved.
    */
   | {
+    standing: "behind";
     snapshots: number;
     held: string | null;
-    standing: "behind";
   }
   /**
    * It held a state the store never saved, which the library's latest never went through (a
@@ -7886,18 +7903,52 @@ export type Account = {
   authorize_url: string;
   /**
    * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https).
+   * them (https). An account has this or `token_exchange`.
    */
-  token_url: string;
+  token_url?: string | null;
+  /**
+   * Local Network's token exchange for its service
+   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
+   * a service that wants a client secret there.
+   */
+  token_exchange?: string | null;
   /** What it asks the service for, as the service names them. */
   scopes?: string[];
-  /** The plugin's client at the service: a public one, without a secret. */
+  /**
+   * The plugin's client at the service: a public one, without a secret, or Local Network's,
+   * whose secret its token exchange holds.
+   */
   client_id: string;
   /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
   pkce: boolean;
   /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
   revoke_url?: string | null;
+  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
+  token?: TokenPlace;
+  /**
+   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+   * URI with the one its client was registered with, port and all (SoundCloud): that's then
+   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
+   */
+  redirect_port?: number | null;
 };
+
+/**
+ * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+ * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ */
+export type TokenPlace =
+  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
+  | {
+    scheme: string;
+  }
+  /**
+   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
+   * there (Mixcloud).
+   */
+  | {
+    query: string;
+  };
 
 /** Run with `command/run`. */
 export type Command = {
@@ -8288,31 +8339,31 @@ export type CommandOutput =
 export type View =
   /** Lines, each with an optional second line. */
   | {
+    kind: "list";
     title?: string | null;
     items: ListItem[];
-    kind: "list";
   }
   /**
    * Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,
    * or (feature `views`) a name with what its cells are ([`Column`]).
    */
   | {
+    kind: "table";
     title?: string | null;
     columns: Column[];
     rows: unknown[][];
-    kind: "table";
   }
   /** Labelled values, in order. */
   | {
+    kind: "kv";
     title?: string | null;
     pairs: Pair[];
-    kind: "kv";
   }
   /** Plain text. */
   | {
+    kind: "text";
     title?: string | null;
     text: string;
-    kind: "text";
   }
   /**
    * A question for the user (feature `choose`): the host asks it, then runs the command again
@@ -8323,24 +8374,25 @@ export type View =
   })
   /** Items with items below them (feature `views`). */
   | {
+    kind: "tree";
     title?: string | null;
     items: TreeItem[];
-    kind: "tree";
   }
   /** Points, each series a line or bars (feature `views`). */
   | {
+    kind: "chart";
     title?: string | null;
     style: ChartStyle;
     series: Series[];
     x_label?: string | null;
     y_label?: string | null;
-    kind: "chart";
   }
   /**
    * A picture (features `views` and `blobs`): a file in the request's scratch folder, which
    * the host reads (see [`crate::Blob`]).
    */
   | {
+    kind: "image";
     title?: string | null;
     /** Its file's name in the scratch folder. */
     blob: string;
@@ -8352,13 +8404,12 @@ export type View =
      * sends here is replaced.
      */
     data?: string | null;
-    kind: "image";
   }
   /** Views one after another, each under a title of its own (feature `views`). */
   | {
+    kind: "sections";
     title?: string | null;
     items: Section[];
-    kind: "sections";
   };
 
 export type ListItem = {
@@ -8708,10 +8759,15 @@ export type ListedProvider = {
 /** A role, and the analyzers answering it. */
 export type RoleChoice = {
   role: FieldRole;
-  /** The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it). */
+  /**
+   * The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it, or it's
+   * turned off).
+   */
   chosen: string | null;
   /** Chosen in the settings, rather than by default. */
   set: boolean;
+  /** Read from no analyzer, as the settings say ([`turn_off`]). */
+  off: boolean;
   /** Every analyzer with it, `<plugin>.<analyzer>`, in the order the app has its plugins. */
   offered: string[];
 };
@@ -8740,31 +8796,31 @@ export type ProgressEvent = {
 export type Event =
   /** A phase begins. `items`/`bytes` are totals when known up front (0 otherwise). */
   | {
+    event: "phase_start";
     phase: Phase;
     items: number;
     bytes: number;
-    event: "phase_start";
   }
   /** Work on one item (usually a file) begins. */
   | {
+    event: "item";
     phase: Phase;
     path: string;
     bytes: number;
-    event: "item";
   }
   /** `bytes` more bytes were processed in the current phase. */
   | {
+    event: "bytes";
     phase: Phase;
     bytes: number;
-    event: "bytes";
   }
   | {
-    phase: Phase;
     event: "phase_end";
+    phase: Phase;
   }
   | {
-    message: string;
     event: "warning";
+    message: string;
   };
 
 export type Phase =
@@ -8778,7 +8834,9 @@ export type Phase =
   /** Looking for library tracks in a mix. */
   | "match"
   /** Decoding library tracks to estimate their tempo, key and loudness. */
-  | "analyze";
+  | "analyze"
+  /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
+  | "upload";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {
@@ -8812,6 +8870,7 @@ export type WatchEvent =
   })
   /** A mounted drive's databases or state changed. */
   | {
+    event: "drive.changed";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8820,16 +8879,15 @@ export type WatchEvent =
     /** Whether it holds a rekordbox export (either database). */
     has_export: boolean;
     changed: DriveChange[];
-    event: "drive.changed";
   }
   /**
    * The store's libraries, snapshots, labels, drive registry, settings, smart playlists or
    * sets changed.
    */
   | {
+    event: "store.changed";
     root: string;
     changed: string[];
-    event: "store.changed";
   };
 
 /** What changed on a drive (see [`WatchEvent::Changed`]). */
@@ -8841,23 +8899,24 @@ export type DriveChange =
 
 /** A request starting or finishing. */
 export type JobEvent = {
+  event: "job.started";
   id: RequestId | null;
   method: string;
   started: string;
-  event: "job.started";
 } | {
+  event: "job.finished";
   id: RequestId | null;
   method: string;
   ok: boolean;
   /** The error's `kind`, when it failed. */
   kind?: string | null;
-  event: "job.finished";
 };
 
 /** What watching did about a drive. */
 export type WatchAction =
   /** The store holds the drive's state already. */
   | {
+    event: "watch.up_to_date";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8866,10 +8925,10 @@ export type WatchAction =
     /** Whether it holds a rekordbox export (either database). */
     has_export: boolean;
     library: string;
-    event: "watch.up_to_date";
   }
   /** The drive holds a state the store lacks, and it wasn't pulled (watching without `pull`). */
   | {
+    event: "watch.pending";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8882,10 +8941,10 @@ export type WatchAction =
     history_lists: string[];
     /** It would be saved beside the library's newest snapshot (back from a set). */
     beside: boolean;
-    event: "watch.pending";
   }
   /** The drive's state was pulled into the store as a new snapshot. */
   | {
+    event: "watch.pulled";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8899,10 +8958,10 @@ export type WatchAction =
     history_lists: string[];
     /** Saved beside the library's newest snapshot, which stays the newest. */
     beside: boolean;
-    event: "watch.pulled";
   }
   /** The library's other mounted drives were synced from this one. */
   | {
+    event: "watch.synced";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8912,13 +8971,13 @@ export type WatchAction =
     has_export: boolean;
     library: string;
     targets: TargetResult[];
-    event: "watch.synced";
   }
   /**
    * Another operation holds the store or the drive: it's looked at again once that's done.
    * Said once per wait.
    */
   | {
+    event: "watch.waiting";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8927,10 +8986,10 @@ export type WatchAction =
     /** Whether it holds a rekordbox export (either database). */
     has_export: boolean;
     reason: string;
-    event: "watch.waiting";
   }
   /** Left alone, and why. */
   | {
+    event: "watch.skipped";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8939,10 +8998,10 @@ export type WatchAction =
     /** Whether it holds a rekordbox export (either database). */
     has_export: boolean;
     reason: string;
-    event: "watch.skipped";
   }
   /** Looking at the drive failed (other than waiting on a lock): `kind` is the error's code. */
   | {
+    event: "watch.failed";
     root: string;
     /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
     id: string | null;
@@ -8952,7 +9011,6 @@ export type WatchAction =
     has_export: boolean;
     kind: string;
     message: string;
-    event: "watch.failed";
   };
 
 /** What a plugin did. */
@@ -9309,10 +9367,6 @@ export interface Methods {
   "merge.plan": { params: MergeRequest & WriteOptions; result: MergePlan & PlanFields };
   /** apply method; paired with `merge.plan`; long running: sends `progress`, can be cancelled */
   "merge.apply": { params: ApplyPlan | (MergeRequest & WriteOptions); result: MergeReport };
-  /** plan method; paired with `clean.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "clean.plan": { params: DriveRef & WriteOptions; result: CleanPlan & PlanFields };
-  /** apply method; paired with `clean.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "clean.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: CleanReport };
   /** plan method; paired with `convert.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "convert.plan": { params: ConvertRequest & WriteOptions; result: ConvertPlan & PlanFields };
   /** apply method; paired with `convert.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -9535,6 +9589,8 @@ export interface Methods {
   "profile.publish.plan": { params: ProfileRequest & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `profile.publish.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "profile.publish.apply": { params: ApplyPlan | (ProfileRequest & WriteOptions); result: Published };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "sets.lookup": { params: SetPublishRequest & WriteOptions; result: SetLookup };
   /** plan method; paired with `sets.publish.apply`; can delete or overwrite something */
   "sets.publish.plan": { params: SetPublishRequest & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `sets.publish.plan`; can delete or overwrite something */

@@ -15,7 +15,7 @@
 		<h2>Staff only</h2>
 		<p>Requests, claim evidence, decisions, staff roles, and the audit log live in spaces only staff can read. Audit entries record what happened (who, what, when, and which fields changed); booking message contents are never copied into the audit log.</p>
 		<h2>Press kits</h2>
-		<p>A press kit's public part is a record in its owner's repo that anyone can read. The rest sits in a space under the owner's account that only they, Local Network, and the people they let in can read. Asking to see it shares your handle and any message you write with the owner. Each person let in gets a record in that space saying so, which the owner can delete to take access away.</p>
+		<p>A press kit's public part is a record in Local Network's repo that anyone can read. The rest sits in a space under Local Network's account that only the project's managers, Local Network, and the people they let in can read. Asking to see it shares your handle and any message you write with the project's managers. Each person let in gets a record in that space saying so, which any of the managers can have deleted to take access away. Drafts of a press kit sit in each manager's repo in a space only the project's current managers can read.</p>
 		<h2>Just you and the other party</h2>
 		<p>Booking threads are readable only by the promoter and the project's managers. Your planner is readable only by you.</p>
 		<h2>On our server</h2>

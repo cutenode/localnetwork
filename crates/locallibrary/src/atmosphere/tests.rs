@@ -305,7 +305,7 @@ fn waiting_at(root: &Path, state: &str, authserver: &str, public_only: bool) -> 
         },
     };
     block_on(ClientAuthStore::save_auth_req_info(&store, &request)).unwrap();
-    let (listener, redirect) = callback::bind().unwrap();
+    let (listener, redirect) = callback::bind(0).unwrap();
     let config = client_config(&Client::Loopback, &redirect, scopes(&[]).unwrap()).unwrap();
     let pending = Pending {
         oauth: oauth(store, config, public_only).unwrap(),
@@ -1094,7 +1094,7 @@ fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
     let kept = did.clone().unwrap_or_else(|| "did:plc:abc".into());
     assert_eq!(status(root).unwrap().map(|i| i.did), Some(kept), "kept until signing out");
     let out = logout(root).unwrap();
-    assert!(out.account.is_some() && !out.revoked);
+    assert!(out.account.is_some() && !out.revoked, "{out:?}");
     assert_eq!(status(root).unwrap(), None);
 }
 

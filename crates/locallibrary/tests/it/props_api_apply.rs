@@ -9,8 +9,10 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::convert::{ConvertOptions, Target};
+use locallibrary::edit::Edit;
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
+use locallibrary::query::TrackSelector;
 use locallibrary::{Error, paths};
 
 /// Main, saved in the library Main with a labelled snapshot, then exported to: a pull into a
@@ -75,7 +77,7 @@ fn a_pull_is_labelled_unless_its_library_or_label_is_wrong(tc: TestCase) {
 }
 
 /// rekordbox's demo sample on Main, or not; a track exported only to its export.pdb; no settings
-/// files: cleaning removes the sample (planned, or in one go), once; converting to OneLibrary
+/// files: deleting the sample removes its file too (planned, or in one go); converting to OneLibrary
 /// adds what export.pdb has to the database there (or rebuilds it), after which OneLibrary
 /// holds every track; importing settings from a drive with none is refused, and so is writing
 /// settings with no drive mounted.
@@ -88,18 +90,18 @@ fn operations_applied_in_one_go_do_what_their_plans_say(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::silent();
     let (store, main) = saved_copy(dir.path());
-    let drive = api::DriveRef { drive: path(&main) };
     if sample {
         add_demo_sample(&main);
+        let edits = vec![Edit::DeleteTracks { tracks: TrackSelector::paths([SAMPLE.into()]), keep_files: false }];
+        let req = api::EditRequest { drive: path(&main), edits, options: Default::default() };
+        let plan = api::edit_plan(&req, &ctx).unwrap();
+        assert!(plan.destructive);
+        match in_one_go {
+            true => drop(api::edit_apply(&req, &ctx).unwrap()),
+            false => drop(plan.apply(Some(&store), &ctx).unwrap()),
+        }
+        assert!(!paths::to_fs(&main, &paths::key(SAMPLE)).exists(), "the sample is gone");
     }
-    let plan = api::clean_plan(&drive, &ctx).unwrap();
-    assert_eq!(plan.noop, !sample);
-    match in_one_go {
-        true => drop(api::clean_apply(&drive, &ctx).unwrap()),
-        false => drop(plan.apply(Some(&store), &ctx).unwrap()),
-    }
-    assert!(!paths::to_fs(&main, &paths::key(SAMPLE)).exists(), "the sample is gone");
-    assert!(api::clean_plan(&drive, &ctx).unwrap().noop, "once");
 
     common::add_onelibrary(&main);
     common::export_new_track(&main, "Artist", "Only in export.pdb");
