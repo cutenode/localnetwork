@@ -2,7 +2,8 @@
 //! others published.
 //!
 //! Each write is a `*_plan` / `*_apply` pair. The plan (a [`Planned`]) holds the exact record,
-//! what's published in its place now, and `missing_scope` when the session may not write it yet:
+//! what's published in its place now (as Local Network's directory has it, which every read goes
+//! through), and `missing_scope` when the session may not write it yet:
 //! sign in again with `publish: true` (`account_login_begin`) first. [`Planned::apply`] publishes
 //! exactly that record, and only over what the plan read: if someone published in its place
 //! since, it fails with `stale_plan`. The `*_apply` functions plan again and write in one go. A
@@ -18,6 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::ProfileRequest;
+use crate::atmosphere::directory;
 use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::device::Device;
@@ -145,47 +147,29 @@ pub struct ImportPublishedSettings {
     /// Whose My Settings: a handle or DID. Default: the signed-in account's.
     #[serde(default)]
     pub from: Option<String>,
-    /// Their data server's URL (https, or http on this machine), instead of finding it from the
-    /// handle or DID.
-    #[serde(default)]
-    pub pds: Option<String>,
     /// Replace the settings profile's whole base with theirs, so settings they didn't publish
     /// become unset. Default: add theirs to the base, over the values it has for them.
     #[serde(default)]
     pub replace: bool,
 }
 
-/// A data server a request names: an https URL, or http on this computer (a test or development
-/// server). Checked before anything is fetched from it.
-fn named_pds(pds: &str) -> Result<String> {
-    let pds = pds.trim_end_matches('/');
-    let fit = reqwest::Url::parse(pds)
-        .is_ok_and(|u| u.scheme() == "https" || (u.scheme() == "http" && atmosphere::this_computer(&u)));
-    match fit {
-        true => Ok(pds.to_string()),
-        false => Err(Error::invalid(format!("a data server is an https:// URL, not {pds:?}"))),
-    }
-}
-
-fn source(store_root: &Path, req: &ImportPublishedSettings) -> Result<Resolved> {
+/// Whose settings `req` imports, and the signed-in account when it's theirs.
+fn source(store_root: &Path, req: &ImportPublishedSettings) -> Result<(Resolved, Option<AccountInfo>)> {
+    let account = atmosphere::status(store_root)?;
     let from = req.from.as_deref().map(|f| f.trim().trim_start_matches('@')).filter(|f| !f.is_empty());
-    let pds = req.pds.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(named_pds).transpose()?;
-    match (from, pds) {
-        (Some(id), Some(pds)) => {
-            Ok(Resolved { did: id.to_string(), handle: (!id.starts_with("did:")).then(|| id.to_lowercase()), pds })
+    let from = match (from, account.as_ref()) {
+        (Some(id), _) => repo::resolve(id)?,
+        (None, Some(info)) => Resolved { did: info.did.clone(), handle: info.handle.clone() },
+        (None, None) => {
+            return Err(Error::Account(
+                "not signed in to an Atmosphere account: sign in, or name whose settings to import".into(),
+            )
+            .because(Reason::NotSignedIn)
+            .action(crate::atmosphere::sign_in()));
         }
-        (Some(id), None) => repo::resolve(id),
-        (None, pds) => {
-            let info = atmosphere::status(store_root)?.ok_or_else(|| {
-                Error::Account(
-                    "not signed in to an Atmosphere account: sign in, or name whose settings to import".into(),
-                )
-                .because(Reason::NotSignedIn)
-                .action(crate::atmosphere::sign_in())
-            })?;
-            Ok(Resolved { did: info.did, handle: info.handle, pds: pds.unwrap_or(info.pds) })
-        }
-    }
+    };
+    let own = account.filter(|info| info.did == from.did);
+    Ok((from, own))
 }
 
 /// Someone's published My Settings (yours by default), and how importing them would change the
@@ -196,7 +180,12 @@ pub fn settings_import_published_plan(
     store_root: &Path,
     req: &ImportPublishedSettings,
 ) -> Result<Planned<SettingsImportPlan, PathBuf>> {
-    let from = source(store_root, req)?;
+    let (from, own) = source(store_root, req)?;
+    // Your own, published before the directory kept them, may need reading again first.
+    let indexing = match own {
+        Some(info) => directory::request_index(store_root, &info)?,
+        None => None,
+    };
     let store = Store::open(store_root).ok();
     let base = match &store {
         Some(store) => store.settings_profile()?.base,
@@ -217,6 +206,7 @@ pub fn settings_import_published_plan(
     if skipped.len() > SHOWN {
         warnings.push(format!("left out {} more this version doesn't know", skipped.len() - SHOWN));
     }
+    warnings.extend(indexing);
     let noop = plan.changes.is_empty();
     let replaces = plan.changes.iter().any(|c| c.from.is_some());
     let mut planned = Planned::new("settings.import_published", plan, store_root.to_path_buf())
@@ -297,11 +287,9 @@ fn to_publish<'b>(store: &Store, book: &'b SetBook, req: &SetPublishRequest) -> 
 /// set's id. Planned signed out, it can only be looked at.
 ///
 /// `plays publish` published history lists as sets under keys of their own (`atmosphere-sets.json`
-/// remembers them), in the collection sets had then ([`publish::PLAYS_PUBLISH_COLLECTION`]). A set
-/// built from one of those lists alone, with nothing published under its own id, takes over that
-/// key the first time it's published, and the time the old record says it first went out;
-/// publishing changes the set's id to the key. The old record stays where it is: publishing may
-/// only write sets in today's collection.
+/// remembers them). A set built from one of those lists alone, with nothing published under its
+/// own id, takes over that key the first time it's published; publishing changes the set's id to
+/// the key.
 pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<PlannedPublish> {
     let store = Store::open(store_root)?;
     let book = SetBook::load(&store)?;
@@ -310,7 +298,7 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     // How tracks came in is in the recording's report: without it (gone from the store), it's left out.
     let report =
         set.recording.as_ref().and_then(|r| r.report.as_deref()).and_then(|id| report::load(store_root, id).ok());
-    let mut record = publish::set_record(set, &unnamed.positions, report.as_ref(), Utc::now());
+    let record = publish::set_record(set, &unnamed.positions, report.as_ref(), Utc::now());
     if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
         notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
     }
@@ -324,10 +312,13 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     }
 
     let account = atmosphere::status(store_root)?;
-    let read = |info: &AccountInfo, rkey: &str| repo::get_record(&info.pds, &info.did, lexicon::SET, rkey);
+    let read = |info: &AccountInfo, rkey: &str| directory::get_record(&info.did, lexicon::SET, rkey);
     let mut rkey = set.id.clone();
     let mut current = match &account {
-        Some(info) => read(info, &rkey)?,
+        Some(info) => {
+            notes.extend(directory::request_index(store_root, info)?);
+            read(info, &rkey)?
+        }
         None => None,
     };
     let mut renamed = None;
@@ -338,15 +329,6 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
         let short = &session[..session.len().min(8)];
         notes.push(format!("takes the key `plays publish` gave session {short}; the set's id becomes {old}"));
         current = read(info, &old)?;
-        if let Some(legacy) = repo::get_record(&info.pds, &info.did, publish::PLAYS_PUBLISH_COLLECTION, &old)? {
-            notes.push(format!(
-                "what `plays publish` published stays in {}: publishing can't remove it",
-                publish::PLAYS_PUBLISH_COLLECTION
-            ));
-            if let Some(first) = legacy.value.get("createdAt").filter(|c| c.is_string() && current.is_none()) {
-                record["createdAt"] = first.clone();
-            }
-        }
         renamed = Some(std::mem::replace(&mut rkey, old));
     }
     let mut plan = publish::plan_over(account, lexicon::SET, &rkey, record, current)?;

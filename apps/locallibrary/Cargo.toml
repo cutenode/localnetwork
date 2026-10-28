@@ -95,6 +95,7 @@ base64.workspace = true
 shlex = "2.0.1"
 locallibrary-plugin-plyr = { version = "0.1.0", path = "../../plugins/plyr" }
 locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive" }
+locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

@@ -626,7 +626,7 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     use crate::support::account::{DID, PUBLISHING, sign_in};
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let signed_in = tc.draw(gs::booleans());
     if signed_in {
         sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
@@ -695,13 +695,13 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
             assert_eq!(again["error"]["data"]["kind"], "stale_plan", "{again}");
         }
     }
-    // What's published comes back from the account.
-    let import = s.call("settings.import_published.plan", json!({ "pds": pds.url, "from": DID }));
+    // What's published comes back from Local Network's directory.
+    let import = s.call("settings.import_published.plan", json!({ "from": DID }));
     shaped("settings.import_published.plan", &import);
     if signed_in {
         let request = match tc.draw(gs::booleans()) {
             true => json!({ "plan_id": import["result"]["plan_id"] }),
-            false => json!({ "pds": pds.url, "from": DID }),
+            false => json!({ "from": DID }),
         };
         let applied = s.call("settings.import_published.apply", request);
         shaped("settings.import_published.apply", &applied);

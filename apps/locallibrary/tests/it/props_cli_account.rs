@@ -295,7 +295,7 @@ fn publish_plan_is_printed(p: &Value, what: &str, out: &str, said: &str) {
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let session = tc.draw(gs::integers::<u8>().max_value(2));
     match session {
         0 => sign_in(&fx.store, &pds.url, &PUBLISHING, json!({})),
@@ -428,7 +428,8 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
             if let Some(uri) = p["uri"].as_str() {
                 let (repo, rest) = uri.strip_prefix("at://").unwrap().split_once('/').unwrap();
                 let (collection, rkey) = rest.split_once('/').unwrap();
-                let now = pds.record(repo, collection, rkey).map(|r| r.0);
+                // The plan showed what the directory has, which still has what's published.
+                let now = pds.indexed(repo, collection, rkey).map(|r| r.0);
                 assert_eq!(now.as_ref(), p["current"].get("value"), "{said}");
             }
             if p["noop"] == true && !json && session != 2 {
@@ -468,9 +469,9 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     for key in ["quantize", "jog_mode", "lcd_brightness"] {
         fx.run(&["--yes", "settings", "unset", key]);
     }
-    // From the account signed in, or (signed out) one named, at its server.
+    // From the account signed in, or (signed out) one named.
     let import: Vec<&str> = match session {
-        2 => vec!["settings", "import", "--from-handle", DID, "--pds", &pds.url],
+        2 => vec!["settings", "import", "--from-handle", DID],
         _ => vec!["settings", "import", "--from-account"],
     };
     let planned = fx.run(&[&["--json"][..], &import, &["--dry-run"]].concat());
@@ -513,7 +514,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let json = tc.draw(gs::booleans());
     let r = fx.run(&[if json { "--json" } else { "--quiet" }, "account", "login"]);
     assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
@@ -557,7 +558,7 @@ fn published_sections() -> Vec<(&'static str, &'static str, Value)> {
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
     let all = published_sections();
     let names: Vec<&str> = all.iter().map(|(f, _, _)| *f).collect();
@@ -672,7 +673,7 @@ fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let handle = tc.draw(gs::booleans());
     let mut info = json!({ "client": { "kind": "hosted", "client_id": LOCAL_CLIENT } });
     if !handle {

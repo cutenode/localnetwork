@@ -1,5 +1,6 @@
 //! `settings publish`, `profile publish`, `sets publish`, `settings import --from-handle` and the
-//! publish RPC methods, against a pretend data server on 127.0.0.1: what each shows before it
+//! publish RPC methods, against a pretend data server on 127.0.0.1 (standing in for Local
+//! Network's directory and website too): what each shows before it
 //! publishes (and how a record differs from the one published), and what it writes. The session
 //! is written straight into the store (as files, never the keychain); nothing signs in to a real
 //! account or touches the network.
@@ -17,7 +18,7 @@ const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
 #[test]
 fn settings_publish_and_import_from_the_command_line() {
     let pds = MockPds::start();
-    let env = Env::new();
+    let env = Env::new().with_directory(&pds.url);
     env.ok(&["--yes", "settings", "set", "quantize=off", "jog_mode=cdj"]);
 
     // Signed out, it can be looked at but not published.
@@ -50,9 +51,9 @@ fn settings_publish_and_import_from_the_command_line() {
     let out = env.ok(&["settings", "publish", "--yes"]);
     assert!(out.contains("already published, unchanged"), "{out}");
 
-    // Another computer imports them, signed out, naming the account and its server.
-    let other = Env::new();
-    let from = ["settings", "import", "--from-handle", DID, "--pds", &pds.url];
+    // Another computer imports them, signed out, naming the account.
+    let other = Env::new().with_directory(&pds.url);
+    let from = ["settings", "import", "--from-handle", DID];
     let r = other.run(&[&["--json"][..], &from[..]].concat());
     let v: Value = serde_json::from_str(&r.out).unwrap();
     assert_eq!((r.code, &v["outcome"]), (3, &json!("not_confirmed")), "{}", r.out);
@@ -62,8 +63,8 @@ fn settings_publish_and_import_from_the_command_line() {
     assert!(out.contains("imported 2 settings from did:plc:testdj"), "{out}");
     let profile = other.json(&["settings", "profile"]);
     assert_eq!(profile["base"], json!({ "jog_mode": "cdj", "quantize": "off" }));
-    let r = other.run(&["settings", "import", "--pds", &pds.url]);
-    assert!(r.code != 0 && r.err.contains("--from-handle or --from-account"), "{}", r.err);
+    // Read from the directory, never from the account's data server.
+    assert!(pds.calls("com.atproto.repo.getRecord").is_empty());
 
     // The server refuses: say what to do.
     pds.set_writes(Writes::RefuseScope);
@@ -87,7 +88,7 @@ fn settings_publish_and_import_from_the_command_line() {
 #[test]
 fn sets_publish_from_the_command_line() {
     let pds = MockPds::start();
-    let env = Env::new();
+    let env = Env::new().with_directory(&pds.url);
     let declare = ["sets", "new", "--title", "Friday", "--date", "2026-10-03", "--venue", "Warehouse"];
     env.ok(&[&declare[..], &["--city", "London", "--country", "gb"]].concat());
     let tracks = ["--insert", "1:Floorplan - Never Grow Old", "--insert", "1:Someone - Dubplate"];
@@ -128,7 +129,7 @@ fn sets_publish_from_the_command_line() {
 fn sets_publish_looks_up_musicbrainz_ids_first() {
     const RECORDING: &str = "8dfae998-efd4-4ebe-a482-1523ff687362";
     let pds = MockPds::start();
-    let mut env = Env::new();
+    let mut env = Env::new().with_directory(&pds.url);
     let ids = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
                fields = { recording = \"string\", release = \"string\", artists = \"string[]\", \
                isrc = \"string\", credits = \"string[]\" }\n\
@@ -199,7 +200,7 @@ fn sets_publish_looks_up_musicbrainz_ids_first() {
 #[test]
 fn an_unchanged_record_needs_no_permission_to_leave_as_it_is() {
     let pds = MockPds::start();
-    let env = Env::new();
+    let env = Env::new().with_directory(&pds.url);
     env.ok(&["--yes", "settings", "set", "quantize=off"]);
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     env.ok(&["--yes", "settings", "publish"]);
@@ -218,7 +219,7 @@ fn an_unchanged_record_needs_no_permission_to_leave_as_it_is() {
 #[test]
 fn rpc_publish_methods() {
     let pds = MockPds::start();
-    let env = Env::new();
+    let env = Env::new().with_directory(&pds.url);
     env.ok(&["--yes", "settings", "set", "quantize=off"]);
     sign_in(&env.store, &pds.url, &["atproto"], json!({}));
     let mut rpc = Rpc::start(env.command());
@@ -250,7 +251,7 @@ fn rpc_publish_methods() {
 #[test]
 fn a_publish_plan_is_applied_by_its_id_and_only_over_what_it_read() {
     let pds = MockPds::start();
-    let env = Env::new();
+    let env = Env::new().with_directory(&pds.url);
     env.ok(&["--yes", "settings", "set", "quantize=off"]);
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     let mut s = Rpc::start(env.command());
@@ -301,8 +302,8 @@ fn a_publish_plan_is_applied_by_its_id_and_only_over_what_it_read() {
 
 #[test]
 fn settings_are_shown_against_what_was_published_and_imported_elsewhere() {
-    let env = Env::ascii();
     let pds = MockPds::start();
+    let env = Env::ascii().with_directory(&pds.url);
     env.ok(&["--yes", "settings", "set", "quantize=off", "waveform_color=rgb", "crossfader_curve=slow-cut"]);
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     // --json doesn't ask: without --yes, it's not confirmed.
@@ -324,9 +325,9 @@ fn settings_are_shown_against_what_was_published_and_imported_elsewhere() {
     env.ok(&["--yes", "settings", "publish"]);
 
     // Another computer imports them: first adding to its profile, then replacing its base.
-    let other = Env::ascii();
+    let other = Env::ascii().with_directory(&pds.url);
     other.ok(&["--yes", "settings", "set", "jog_mode=cdj"]);
-    let from = ["settings", "import", "--from-handle", DID, "--pds", &pds.url];
+    let from = ["settings", "import", "--from-handle", DID];
     let out = other.ok(&[&from[..], &["--dry-run"]].concat());
     assert!(out.starts_with(&format!("My Settings published by {DID} (")), "{out}");
     assert!(out.contains("    Quantize                           (not set) -> Off\n"), "{out}");
@@ -342,8 +343,8 @@ fn settings_are_shown_against_what_was_published_and_imported_elsewhere() {
 
 #[test]
 fn a_profile_is_shown_against_what_was_published() {
-    let env = Env::ascii();
     let pds = MockPds::start();
+    let env = Env::ascii().with_directory(&pds.url);
     let club = env.club("Club");
     play(&club, "HISTORY 001", &[1, 2, 3, 4, 5, 6]);
     play(&club, "HISTORY 002", &[9, 10, 1, 2, 12, 7]);
@@ -366,8 +367,8 @@ fn a_profile_is_shown_against_what_was_published() {
 
 #[test]
 fn a_set_is_shown_against_what_was_published() {
-    let env = Env::ascii();
     let pds = MockPds::start();
+    let env = Env::ascii().with_directory(&pds.url);
     let club = env.club("Club");
     env.ok(&["sets", "new", "--title", "Friday", "--date", "2026-10-03", "--venue", "Warehouse"]);
     env.ok(&["sets", "edit", "Friday", "--insert", "1:Deluxe Cynic", "--with", "did:plc:abc", "--drive", path(&club)]);

@@ -1,9 +1,18 @@
 //! A pretend Atmosphere data server (PDS) on 127.0.0.1, for tests that publish without the
 //! network: it keeps records in memory, answers `com.atproto.repo.getRecord`, `putRecord`
 //! (`swapRecord: null` meaning there must be no record yet) and `createRecord` (under a key of its
-//! own, numbered from 1), `com.atproto.server.getSession` and
+//! own, numbered from 1), `com.atproto.server.getSession`, `getServiceAuth` and
 //! token revocation the way a PDS does, and records every request it gets. [`granted`] is what
 //! its sign-in would grant: it doesn't sign anyone in, since that needs a browser.
+//!
+//! It also stands in for Local Network's directory and website, at the same address: HappyView's
+//! `computer.localnetwork.directory.getRecords` answers from an index of its own, which every
+//! record written here reaches as the firehose would bring it ([`MockPds::put_unindexed`] makes
+//! one it missed, [`MockPds::set_firehose`] holds writes back), and the website's
+//! `computer.localnetwork.directory.requestIndex` copies the caller's locallibrary records into
+//! it, as HappyView reading the account's repository again would. A `computer.localnetwork.dj.set`
+//! is indexed as the directory's record script keeps it: without its `$type`, with fields of its
+//! own.
 //!
 //! Writes must be DPoP-bound: an `Authorization: DPoP <token>` header and a `DPoP` proof, which
 //! must carry the nonce the server hands out (the first write is told to use one, as servers
@@ -29,6 +38,8 @@ pub struct Request {
     /// Without the query.
     pub path: String,
     pub query: IndexMap<String, String>,
+    /// Every query parameter, repeated ones too, in order.
+    pub params: Vec<(String, String)>,
     /// Lowercase names.
     pub headers: IndexMap<String, String>,
     pub body: Vec<u8>,
@@ -65,10 +76,26 @@ pub enum Writes {
     RefuseRecord,
 }
 
+/// `(repo, collection, rkey)` → (record, CID).
+type Records = IndexMap<(String, String, String), (Value, String)>;
+
+/// The record types the website has the directory read again (its `requestIndex`).
+const LOCALLIBRARY_COLLECTIONS: [&str; 3] =
+    ["computer.localnetwork.locallibrary.settings", "computer.localnetwork.dj.profile", "computer.localnetwork.dj.set"];
+
+/// The account `getServiceAuth` signs for until [`MockPds::set_account`] names one: the tests'
+/// own (`session::DID`).
+const TESTS_ACCOUNT: &str = "did:plc:testdj";
+
 #[derive(Debug)]
 struct State {
-    /// `(repo, collection, rkey)` → (record, CID).
-    records: IndexMap<(String, String, String), (Value, String)>,
+    records: Records,
+    /// What the directory has, as its record scripts keep it.
+    indexed: Records,
+    /// Whether writes reach the directory as they're made.
+    firehose: bool,
+    /// What `requestIndex` answers: whether the directory finished reading in time.
+    finishes: bool,
     writes: Writes,
     nonce: String,
     /// The account `getSession` answers for: `(did, handle)`.
@@ -92,6 +119,9 @@ impl MockPds {
         let url = format!("http://127.0.0.1:{port}");
         let state = Arc::new(Mutex::new(State {
             records: IndexMap::new(),
+            indexed: IndexMap::new(),
+            firehose: true,
+            finishes: true,
             writes: Writes::Accept,
             nonce: "nonce-1".into(),
             account: None,
@@ -151,10 +181,61 @@ impl MockPds {
 
     /// Store a record as if another app had written it.
     pub fn put(&self, repo: &str, collection: &str, rkey: &str, record: Value) -> String {
+        let cid = self.put_unindexed(repo, collection, rkey, record);
+        let mut s = self.state.lock().unwrap();
+        if s.firehose {
+            index(&mut s, &(repo.into(), collection.into(), rkey.into()));
+        }
+        cid
+    }
+
+    /// Store a record as if it had been written before the directory kept its record type: the
+    /// directory doesn't have it until the account's repository is read again.
+    pub fn put_unindexed(&self, repo: &str, collection: &str, rkey: &str, record: Value) -> String {
         let cid = cid(&record);
         self.state.lock().unwrap().records.insert((repo.into(), collection.into(), rkey.into()), (record, cid.clone()));
         cid
     }
+
+    /// What the directory has as `collection/rkey` in `repo`, and its CID.
+    pub fn indexed(&self, repo: &str, collection: &str, rkey: &str) -> Option<(Value, String)> {
+        self.state.lock().unwrap().indexed.get(&(repo.into(), collection.into(), rkey.into())).cloned()
+    }
+
+    /// Whether writes reach the directory as they're made (they do until this says otherwise). Set
+    /// back on, the directory catches up with what it missed.
+    pub fn set_firehose(&self, on: bool) {
+        let mut s = self.state.lock().unwrap();
+        s.firehose = on;
+        if on {
+            let all: Vec<_> = s.records.keys().cloned().collect();
+            all.iter().for_each(|id| index(&mut s, id));
+        }
+    }
+
+    /// Whether the directory finishes reading an account again within `requestIndex` (it does
+    /// until this says otherwise; otherwise it answers before reading anything).
+    pub fn set_index_finishes(&self, finishes: bool) {
+        self.state.lock().unwrap().finishes = finishes;
+    }
+}
+
+/// Have the directory keep `id`'s record as its record script would, or forget it once it's gone.
+fn index(s: &mut State, id: &(String, String, String)) {
+    let Some((record, cid)) = s.records.get(id).cloned() else {
+        s.indexed.shift_remove(id);
+        return;
+    };
+    let mut kept = record;
+    if id.1 == "computer.localnetwork.dj.set"
+        && let Some(set) = kept.as_object_mut()
+    {
+        set.remove("$type");
+        let tracks = set.get("tracks").and_then(Value::as_array).map_or(0, Vec::len);
+        set.insert("trackCount".into(), tracks.into());
+        set.insert("namedTracks".into(), json!([]));
+    }
+    s.indexed.insert(id.clone(), (kept, cid));
 }
 
 impl Drop for MockPds {
@@ -168,9 +249,10 @@ impl Drop for MockPds {
 /// each `include:<nsid>` replaced by the permissions its permission set (the repo's Lexicon for
 /// `nsid`) lists, then the rest. That's `@atproto/oauth-provider`'s `buildTokenScope`
 /// (`lexicon/lexicon-manager.js`) with `@atproto/oauth-scopes`'s `IncludeScope`
-/// (`scopes/include-scope.js`) for `repo` permissions: one is dropped when a collection isn't
-/// under the set's NSID group or it has a field `repo:` scopes don't, and one with several
-/// collections is written `repo?collection=…`.
+/// (`scopes/include-scope.js`) for `repo` and `rpc` permissions: one is dropped when a collection
+/// or method isn't under the set's NSID group, a `repo` one has a field `repo:` scopes don't, or an
+/// `rpc` one names an audience other than `*`; one with several collections is written
+/// `repo?collection=…`.
 pub fn granted<S: AsRef<str>>(requested: &[S]) -> Vec<String> {
     let (sets, rest): (Vec<&str>, Vec<&str>) =
         requested.iter().map(AsRef::as_ref).partition(|s| s.starts_with("include:"));
@@ -186,14 +268,31 @@ fn permission_set(nsid: &str) -> Vec<String> {
     assert_eq!((&doc["id"], &set["type"]), (&json!(nsid), &json!("permission-set")), "{}", file.display());
     let group = &nsid[..=nsid.rfind('.').unwrap()];
     let all = ["create", "update", "delete"];
-    let repo_scope = |p: &Value| -> Option<String> {
-        assert_eq!(p["resource"], "repo", "the mock only grants repo permissions");
+    let under_group =
+        |nsids: &[&str]| !nsids.is_empty() && nsids.iter().all(|c| c.starts_with(group) && c.len() > group.len());
+    let rpc_scope = |p: &Value| -> Option<String> {
+        let mut lxm: Vec<&str> = p["lxm"].as_array()?.iter().map(Value::as_str).collect::<Option<_>>()?;
+        if !under_group(&lxm) || p["aud"] != "*" {
+            return None;
+        }
+        lxm.sort_unstable();
+        lxm.dedup();
+        Some(match lxm[..] {
+            [one] => format!("rpc:{one}?aud=*"),
+            _ => format!("rpc?{}&aud=*", lxm.iter().map(|m| format!("lxm={m}")).collect::<Vec<_>>().join("&")),
+        })
+    };
+    let permission = |p: &Value| -> Option<String> {
+        if p["resource"] == "rpc" {
+            return rpc_scope(p);
+        }
+        assert_eq!(p["resource"], "repo", "the mock only grants repo and rpc permissions");
         if p.as_object()?.keys().any(|k| !["type", "resource", "collection", "action"].contains(&k.as_str())) {
             return None;
         }
         let mut collections: Vec<&str> =
             p["collection"].as_array()?.iter().map(Value::as_str).collect::<Option<_>>()?;
-        if collections.is_empty() || collections.iter().any(|c| !c.starts_with(group) || c.len() == group.len()) {
+        if !under_group(&collections) {
             return None;
         }
         collections.sort_unstable();
@@ -222,7 +321,7 @@ fn permission_set(nsid: &str) -> Vec<String> {
         }
         Some(scope)
     };
-    set["permissions"].as_array().unwrap().iter().filter_map(repo_scope).collect()
+    set["permissions"].as_array().unwrap().iter().filter_map(permission).collect()
 }
 
 fn decode_json(part: &str) -> Option<Value> {
@@ -333,9 +432,10 @@ fn read_request(conn: &mut TcpStream) -> Option<Request> {
     let mut body = vec![0; len];
     reader.read_exact(&mut body).ok()?;
     let (path, query) = target.split_once('?').unwrap_or((&target, ""));
-    let query =
+    let params: Vec<(String, String)> =
         query.split('&').filter_map(|kv| kv.split_once('=')).map(|(k, v)| (k.to_string(), percent_decode(v))).collect();
-    Some(Request { method, path: path.to_string(), query, headers, body })
+    let query = params.iter().cloned().collect();
+    Some(Request { method, path: path.to_string(), query, params, headers, body })
 }
 
 fn percent_decode(s: &str) -> String {
@@ -424,6 +524,9 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
             }
             let record_cid = cid(&body["record"]);
             s.records.insert(id.clone(), (body["record"].clone(), record_cid.clone()));
+            if s.firehose {
+                index(&mut s, &id);
+            }
             (
                 200,
                 vec![],
@@ -467,6 +570,62 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
                     json!({ "error": "InvalidToken", "message": "Token has been revoked" }),
                 ),
             }
+        }
+        ("GET", "/xrpc/com.atproto.server.getServiceAuth") => {
+            let signed = req.header("authorization").is_some_and(|a| a.starts_with("DPoP ")) && req.dpop().is_some();
+            if !signed || s.writes == Writes::RefuseToken {
+                return (401, vec![], json!({ "error": "InvalidToken", "message": "Token has been revoked" }));
+            }
+            let iss = s.account.as_ref().map_or(TESTS_ACCOUNT, |(did, _)| did.as_str());
+            let claims =
+                json!({ "iss": iss, "aud": req.query.get("aud"), "lxm": req.query.get("lxm"), "exp": 4102444800u64 });
+            let token = format!(
+                "{}.{}.mock-signature",
+                base64url(br#"{"typ":"JWT","alg":"ES256K"}"#),
+                base64url(claims.to_string().as_bytes())
+            );
+            (200, vec![], json!({ "token": token }))
+        }
+        ("GET", "/xrpc/computer.localnetwork.directory.getRecords") => {
+            let records: Vec<Value> = req
+                .params
+                .iter()
+                .filter(|(k, _)| k == "uris")
+                .filter_map(|(_, uri)| {
+                    let mut parts = uri.strip_prefix("at://")?.splitn(3, '/').map(String::from);
+                    let id = (parts.next()?, parts.next()?, parts.next()?);
+                    let (value, cid) = s.indexed.get(&id)?;
+                    Some(json!({ "uri": uri, "cid": cid, "value": value }))
+                })
+                .collect();
+            (200, vec![], json!({ "records": records }))
+        }
+        ("POST", "/xrpc/computer.localnetwork.directory.requestIndex") => {
+            // A token this server's getServiceAuth signed for this method, at this website.
+            let audience = format!("did:web:{}", base.trim_start_matches("http://").replace(':', "%3A"));
+            let claims = req
+                .header("authorization")
+                .and_then(|a| a.strip_prefix("Bearer "))
+                .and_then(|t| t.split('.').nth(1))
+                .and_then(decode_json)
+                .filter(|c| {
+                    c["aud"] == audience.as_str() && c["lxm"] == "computer.localnetwork.directory.requestIndex"
+                });
+            let Some(claims) = claims else {
+                return (401, vec![], json!({ "error": "AuthenticationRequired", "message": "Invalid service auth" }));
+            };
+            if !s.finishes {
+                return (200, vec![], json!({ "indexed": false }));
+            }
+            let did = claims["iss"].as_str().unwrap_or_default();
+            let theirs: Vec<_> = s
+                .records
+                .keys()
+                .filter(|(repo, collection, _)| repo == did && LOCALLIBRARY_COLLECTIONS.contains(&collection.as_str()))
+                .cloned()
+                .collect();
+            theirs.iter().for_each(|id| index(&mut s, id));
+            (200, vec![], json!({ "indexed": true }))
         }
         ("POST", "/oauth/revoke") => (s.revocation, vec![], json!({})),
         ("POST", "/oauth/token") => {

@@ -134,6 +134,8 @@ pub struct Env {
     own_home: bool,
     /// The plugins the commands have besides locallibrary's (see [`Env::plugins`]).
     plugins: Vec<PathBuf>,
+    /// Where the commands find Local Network's directory and website ([`Env::with_directory`]).
+    directory: Option<String>,
 }
 
 impl Env {
@@ -143,7 +145,15 @@ impl Env {
         let root = dunce_canonicalize(dir.path());
         let volumes = root.join("volumes");
         std::fs::create_dir(&volumes).unwrap();
-        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false, plugins: Vec::new() }
+        Env {
+            _dir: dir,
+            volumes,
+            store: root.join("store"),
+            ascii: false,
+            own_home: false,
+            plugins: Vec::new(),
+            directory: None,
+        }
     }
 
     /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
@@ -226,8 +236,18 @@ impl Env {
             .collect();
     }
 
+    /// The commands find Local Network's directory and website at `url` (a pretend data server,
+    /// which stands in for both), not nowhere.
+    pub fn with_directory(mut self, url: &str) -> Env {
+        self.directory = Some(url.to_string());
+        self
+    }
+
     pub fn command(&self) -> Command {
         let mut c = crate::locallibrary(&self.store, &[&self.volumes]);
+        if let Some(url) = &self.directory {
+            c.env("LOCALLIBRARY_HAPPYVIEW_URL", url).env("LOCALLIBRARY_WEBSITE_URL", url);
+        }
         if !self.plugins.is_empty() {
             c.env("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(&self.plugins).unwrap());
         }
@@ -514,9 +534,9 @@ pub mod account {
         let account = file.account.as_mut().unwrap();
         account.requested_scopes = scopes.iter().map(|s| s.to_string()).collect();
         let mut details = serde_json::to_value(&account.info).unwrap();
+        // The granted scopes stay as locallibrary saved them from the session: as jacquard writes them.
         let said = json!({
             "handle": "dj.example.com",
-            "scopes": granted,
             "signed_in_at": "2026-10-05T00:00:00Z",
             "sign_in_again_by": "2099-01-01T00:00:00Z",
             "access_expires_at": null,

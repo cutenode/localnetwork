@@ -20,6 +20,8 @@ export const COLLECTION = {
 	djProfile: `${NS}.dj.profile`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
 	djSet: `${NS}.dj.set`,
+	/** A DJ's rekordbox settings, written by locallibrary to the DJ's own repo. */
+	locallibrarySettings: `${NS}.locallibrary.settings`,
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
@@ -64,6 +66,12 @@ export const DIRECTORY = {
 	getRecords: `${NS}.directory.getRecords`,
 	listRecords: `${NS}.directory.listRecords`
 } as const;
+
+/**
+ * The directory procedure this app answers itself rather than HappyView (it needs the app's HappyView API key): has
+ * HappyView read a caller's locallibrary records again.
+ */
+export const REQUEST_INDEX = `${NS}.directory.requestIndex` as const;
 
 export const SPACE_TYPE = {
 	audit: `${NS}.space.audit`,
