@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -204,6 +204,17 @@ describe('getProject, getProjects, and getStats', () => {
 
 type Sets = { sets: (DjSetView & { tracks?: unknown })[] };
 
+type Records = DirectoryOutputs['listRecords'];
+
+/** Delivers any record like Jetstream would, with its CID worked out like a PDS does. Returns its URI and CID. */
+async function ingest(hv: FakeHappyView, did: string, collection: string, rkey: string, record: JsonObject) {
+	const value = { $type: collection, ...record };
+	const cid = (await cidForLex(jsonToLex(value))).toString();
+	await hv.ingest({ did, collection, rkey, cid, record: value });
+
+	return { uri: `at://${did}/${collection}/${rkey}`, cid };
+}
+
 let played = 0;
 
 /**
@@ -229,7 +240,7 @@ async function publishSet(hv: FakeHappyView, did: string, fields: JsonObject = {
 }
 
 describe('set record script', () => {
-	it("keeps sets by the root's projects' managers only, and serves them without their tracks", async () => {
+	it("keeps every account's sets and serves those by the root's projects' managers, without their tracks", async () => {
 		const hv = new FakeHappyView(ROOT);
 		// A project in someone else's repo doesn't make its managers count.
 		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
@@ -262,6 +273,42 @@ describe('set record script', () => {
 			}
 		]);
 		expect(hv.logs).toEqual([`skipped ${broken.uri}: bad date or tracks`]);
+		// Kept for when they come to manage a project, and the support queries leave them out until then.
+		expect(
+			(await query<Records>(hv, 'listRecords', { actor: 'did:plc:nobody', collection: COLLECTION.djSet })).records
+		).toHaveLength(1);
+		expect((await query<Sets>(hv, 'getSets', { uris: kept.uri })).sets).toHaveLength(1);
+	});
+
+	it('keeps what the DJ sets block shows: the tracklist as written, who it was played with, and where to listen', async () => {
+		const hv = new FakeHappyView(ROOT);
+
+		const tracks = [
+			{ title: 'One', artist: 'A', recordingMbId: `mbid:${mbid(1)}`, bpmCentis: 12_800, key: '8A', startSeconds: 0 },
+			{ unidentified: true, bpmCentis: 13_000, key: '9A', transitionIn: { technique: 'blend', harmony: 'adjacent' } }
+		];
+
+		const set = await publishSet(hv, 'did:plc:dj', {
+			tracks,
+			playedWith: [{ name: 'Two Rooms' }],
+			links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+			event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
+			sources: [{ kind: 'history' }]
+		});
+
+		const [record] = (await query<Records>(hv, 'getRecords', { uris: set.uri })).records;
+
+		expect(record).toEqual({
+			...set,
+			value: expect.objectContaining({
+				tracks,
+				playedWith: [{ name: 'Two Rooms' }],
+				links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+				event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
+				trackCount: 2
+			})
+		});
+		expect(record.value).not.toHaveProperty('sources');
 	});
 
 	it('removes a deleted set', async () => {
@@ -299,6 +346,109 @@ describe('getSets and listSets', () => {
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'] })).toEqual(['B2', 'A2', 'B1', 'A1']);
 		expect(await titles({ actors: 'did:plc:c' })).toEqual(['C1']);
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'], limit: 1 })).toEqual(['B2']);
+	});
+});
+
+describe('getRecords and listRecords', () => {
+	it('returns records of any collection in the order asked for, once each, without unknown ones', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, { name: 'Neon Tide' });
+		const set = await publishSet(hv, 'did:plc:dj');
+		const missing = `at://did:plc:dj/${COLLECTION.djSet}/missing`;
+
+		const { records } = await query<Records>(hv, 'getRecords', { uris: [set.uri, missing, project, set.uri] });
+
+		expect(records.map((record) => record.uri)).toEqual([set.uri, project]);
+		expect(records[1]).toMatchObject({ cid: expect.any(String), value: { profile: { name: 'Neon Tide' } } });
+	});
+
+	it("lists one account's records of one collection, last record key first, a page at a time", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const sets = [];
+
+		for (let i = 0; i < 5; i++) sets.push((await publishSet(hv, 'did:plc:dj')).uri);
+		await publishSet(hv, 'did:plc:other');
+		await ingest(hv, 'did:plc:dj', COLLECTION.djProfile, 'self', { generatedAt: '2026-10-01T00:00:00.000Z' });
+
+		const page = async (params: Params = {}) => {
+			const result = await query<Records>(hv, 'listRecords', {
+				actor: 'did:plc:dj',
+				collection: COLLECTION.djSet,
+				...params
+			});
+
+			return { uris: result.records.map((record) => record.uri), cursor: result.cursor };
+		};
+
+		const first = await page({ limit: 2 });
+		expect(first.uris).toEqual([sets[4], sets[3]]);
+		const second = await page({ limit: 2, cursor: first.cursor! });
+		expect(second.uris).toEqual([sets[2], sets[1]]);
+		expect(await page({ limit: 2, cursor: second.cursor! })).toEqual({ uris: [sets[0]], cursor: undefined });
+		expect((await page()).uris).toEqual(sets.toReversed());
+	});
+});
+
+describe('DJ profile, rekordbox settings, and press kit record scripts', () => {
+	const SETTINGS = 'computer.localnetwork.locallibrary.settings';
+
+	it("keeps every account's DJ stats and rekordbox settings as written, at the key self only", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const profile = { generatedAt: '2026-10-01T00:00:00.000Z', tempo: { low: 120, high: 132, median: 126 } };
+		const settings = { updatedAt: '2026-10-01T00:00:00.000Z', player: { quantize: 'on' } };
+		const kept = [];
+		const uris = [];
+
+		for (const [collection, record] of [
+			[COLLECTION.djProfile, profile],
+			[SETTINGS, settings]
+		] as const) {
+			kept.push({
+				...(await ingest(hv, 'did:plc:anyone', collection, 'self', record)),
+				value: { $type: collection, ...record }
+			});
+			uris.push(kept.at(-1)!.uri, (await ingest(hv, 'did:plc:anyone', collection, 'other', record)).uri);
+		}
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual(kept);
+
+		await hv.ingest({ did: 'did:plc:anyone', collection: SETTINGS, rkey: 'self', cid: '', record: null });
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual(kept.slice(0, 1));
+	});
+
+	it("keeps press kits of the root's projects as written: the root's, and legacy ones by the project's managers", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		const fake = await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+
+		const epk = (fields: JsonObject = {}) => ({
+			project,
+			title: 'Clubs',
+			access: { anyone: 'review' },
+			createdAt: '2026-10-01T00:00:00.000Z',
+			...fields
+		});
+
+		const kept = await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'kept', epk());
+		const held = await ingest(hv, ROOT, COLLECTION.epk, 'held', epk());
+
+		const uris = [
+			kept.uri,
+			held.uri,
+			(await ingest(hv, ROOT, COLLECTION.epk, 'elsewhere', epk({ project: fake }))).uri,
+			(await ingest(hv, 'did:plc:nobody', COLLECTION.epk, 'theirs', epk())).uri,
+			(await ingest(hv, 'did:plc:faker', COLLECTION.epk, 'fake', epk({ project: fake }))).uri,
+			(await ingest(hv, 'did:plc:dj', COLLECTION.epk, 'odd', epk({ project: 7 }))).uri
+		];
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { $type: COLLECTION.epk, ...epk() } },
+			{ ...held, value: { $type: COLLECTION.epk, ...epk() } }
+		]);
+
+		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.epk, rkey: 'kept', cid: '', record: null });
+		expect((await query<Records>(hv, 'getRecords', { uris })).records.map((record) => record.uri)).toEqual([held.uri]);
 	});
 });
 
@@ -1054,6 +1204,41 @@ describe('show record script', () => {
 	});
 });
 
+describe('calendar event record script', () => {
+	const event = (fields: JsonObject = {}) => ({
+		name: 'Tidal Hours',
+		startsAt: '2026-11-07T23:00:00+01:00',
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	});
+
+	it("keeps calendar events as written, by an account that manages one of the root's projects", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const before = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'before', event());
+		await publish(hv, {}, { managers: ['did:plc:other', 'did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+
+		// No show has to name it, so it doesn't matter which of the two HappyView hears of first.
+		const kept = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'kept', event({ description: 'Doors at 22:00' }));
+
+		const uris = [
+			// From before they managed a project, until a re-read.
+			before.uri,
+			kept.uri,
+			(await ingest(hv, 'did:plc:nobody', CALENDAR_EVENT, 'theirs', event())).uri,
+			(await ingest(hv, 'did:plc:faker', CALENDAR_EVENT, 'fake', event())).uri
+		];
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { $type: CALENDAR_EVENT, ...event({ description: 'Doors at 22:00' }) } }
+		]);
+
+		await hv.ingest({ did: 'did:plc:dj', collection: CALENDAR_EVENT, rkey: 'kept', cid: '', record: null });
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([]);
+	});
+});
+
 describe('follow record script and getFollowStatus', () => {
 	it("counts each account following one of the root's projects once, and finds an account's follows", async () => {
 		const hv = new FakeHappyView(ROOT);
@@ -1343,9 +1528,10 @@ describe('instruction budget', () => {
 			const used: Record<string, number> = {};
 			used['record script, 500 tracks'] = hv.instructions;
 
-			// Stored as the record script leaves them, without running it 2,000 times: 50 DJs, each with a project of their
-			// own, with 40 sets of 25 tracks, from 3,000 tracks by 600 artists, some played far more than others, and a
-			// third of them without IDs. One of them also has 20 sets of 500 tracks, all crediting one artist.
+			// Stored as the record script leaves them, without running it 2,000 times (each tracklist as its named tracks):
+			// 50 DJs, each with a project of their own, with 40 sets of 25 tracks, from 3,000 tracks by 600 artists, some
+			// played far more than others, and a third of them without IDs. One of them also has 20 sets of 500 tracks, all
+			// crediting one artist.
 			let seed = 1;
 
 			const random = () => {
@@ -1374,6 +1560,14 @@ describe('instruction budget', () => {
 				projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value }))
 			);
 
+			const marathon = Array.from({ length: 500 }, (_track, t) => ({
+				title: `Long ${t}`,
+				artist: 'Marathon',
+				artists: [{ artistName: 'Marathon', key: 'marathon' }],
+				key: `marathon\nlong ${t}`,
+				startSeconds: t * 60
+			}));
+
 			const long = Array.from({ length: 20 }, (_set, s) => ({
 				did: djs[1],
 				collection: COLLECTION.djSet,
@@ -1383,13 +1577,8 @@ describe('instruction budget', () => {
 					date: `2026-08-${String(s + 1).padStart(2, '0')}`,
 					kind: 'mix',
 					trackCount: 500,
-					tracks: Array.from({ length: 500 }, (_track, t) => ({
-						title: `Long ${t}`,
-						artist: 'Marathon',
-						artists: [{ artistName: 'Marathon', key: 'marathon' }],
-						key: `marathon\nlong ${t}`,
-						startSeconds: t * 60
-					}))
+					tracks: marathon,
+					namedTracks: marathon
 				}
 			}));
 
@@ -1413,7 +1602,8 @@ describe('instruction budget', () => {
 								kind: 'club',
 								location: { country: 'DE', locality: cities[(d + s) % cities.length] },
 								trackCount: tracks.length,
-								tracks
+								tracks,
+								namedTracks: tracks
 							}
 						};
 					})
@@ -1427,6 +1617,7 @@ describe('instruction budget', () => {
 				['getArtist', { mbid: mbid(100_001) }],
 				['getArtist', { name: 'Marathon' }],
 				['listSets', { actors: djs[1], limit: 100 }],
+				['listRecords', { actor: djs[1], collection: COLLECTION.djSet, limit: 100 }],
 				['searchArtists', { q: 'artist 1', limit: 50 }],
 				['searchArtists', {}]
 			];

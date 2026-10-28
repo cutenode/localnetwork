@@ -59,6 +59,7 @@
 		};
 	}}
 >
+	<input type="hidden" name="cid" value={values.cid} />
 	<section aria-labelledby="epk-basics" class="flex flex-col gap-4">
 		<h2 id="epk-basics" class="m-0 text-emphasis font-semibold">The public part</h2>
 		<TextField id="title" name="title" label="Name" hint="What this press kit is for, like Clubs or Festivals 2027." required maxlength={100} value={values.title} />
@@ -161,7 +162,7 @@
 	<section aria-labelledby="epk-private" class="flex flex-col gap-4">
 		<div class="flex flex-col gap-1">
 			<h2 id="epk-private" class="m-0 text-emphasis font-semibold">On request</h2>
-			<p class="m-0 text-small text-fg-muted">Only you and the people you let in see this.</p>
+			<p class="m-0 text-small text-fg-muted">Only the project's managers and the people they let in see this.</p>
 		</div>
 		<div class="flex flex-col gap-1.5">
 			<label for="longBio" class="text-label font-medium text-fg-soft">Full bio</label>

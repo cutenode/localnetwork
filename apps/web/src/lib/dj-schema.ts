@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { bareMbid } from './supports.ts';
 
 /**
- * Schemas for what locallibrary publishes about a DJ (see dj.ts). The site doesn't publish these
- * lexicons, so it parses only the parts its pages show, leniently: an unknown field is dropped, a
+ * Schemas for what locallibrary publishes about a DJ (see dj.ts). The site doesn't write these
+ * records, so it parses only the parts its pages show, leniently: an unknown field is dropped, a
  * malformed section is left out rather than failing the record. Pages import dj.ts instead, so zod
  * stays out of their bundles.
  */

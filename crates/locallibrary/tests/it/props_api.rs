@@ -32,7 +32,7 @@ use locallibrary::retention::PruneOptions;
 use locallibrary::settings::{self, DriveSettings, SCHEMA, SettingValue};
 use locallibrary::store::{Snapshot, Store};
 use locallibrary::tree::FileEntry;
-use locallibrary::{Error, Hash, Library, artwork, backup, clean, convert, merge};
+use locallibrary::{Error, Hash, Library, artwork, backup, convert, merge};
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::Serialize;
@@ -1790,9 +1790,8 @@ fn json_of<T: Serialize>(v: &T) -> Value {
 
 /// A drive named by its path, adopted name in any case, or id's first characters, reads and
 /// plans through the api as the modules do for it directly: its library and backups, compare,
-/// clean, convert, merge, missing and automatic artwork and its tracks' art. Applying a clean
-/// or a merge leaves nothing more to do; a conversion leaves the drive with the database it was
-/// for.
+/// convert, merge, missing and automatic artwork and its tracks' art. Applying a merge leaves
+/// nothing more to do; a conversion leaves the drive with the database it was for.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -1854,10 +1853,6 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
     assert_described(&merged);
     assert_eq!(json_of(&merged.plan), json_of(&merge::plan(&other_dev, &d, &Default::default(), &ctx).unwrap()));
     assert_eq!(merged.plan.new_tracks.len(), 1, "the guest's track");
-    let cleaned = api::clean_plan(&drive, &ctx).unwrap();
-    assert_described(&cleaned);
-    assert_eq!(json_of(&cleaned.plan), json_of(&clean::plan(&d, &ctx).unwrap()));
-    assert_eq!((cleaned.noop, cleaned.destructive), (cleaned.plan.is_noop(), !cleaned.plan.is_noop()));
     // Each applied, through the plan or in one go: then there's nothing more to do.
     match tc.draw(gs::booleans()) {
         true => merged.apply(None, &ctx).map(|_| ()).unwrap(),
@@ -1876,14 +1871,6 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
             convert::Target::DeviceLibrary => d.has_device_library(),
         };
         assert!(has, "converted, the drive has the database");
-    }
-    let cleaned = api::clean_plan(&drive, &ctx).unwrap();
-    if !cleaned.noop {
-        match tc.draw(gs::booleans()) {
-            true => cleaned.apply(None, &ctx).map(|_| ()).unwrap(),
-            false => api::clean_apply(&drive, &ctx).map(|_| ()).unwrap(),
-        }
-        assert!(api::clean_plan(&drive, &ctx).unwrap().noop, "cleaned again");
     }
     locallibrary::testing::volumes_on_this_thread(None);
 }

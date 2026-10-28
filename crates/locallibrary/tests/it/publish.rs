@@ -338,7 +338,7 @@ fn a_set_says_how_tracks_came_in_and_holds_as_many_as_a_record_can() {
         tracks[1]["transitionIn"],
         json!({ "technique": "blend", "durationMs": 20000, "harmony": "energyBoost", "tempoChangePermille": -159 })
     );
-    assert_eq!(tracks[1]["recordingMbId"], format!("mbid:{}", Uuid::from_u128(1)));
+    assert_eq!(tracks[1]["recordingMbId"], Uuid::from_u128(1).to_string());
     assert!(plan.notes.is_empty(), "{:?}", plan.notes);
 
     let most = publish::SET_TRACK_LIMIT;
@@ -371,7 +371,6 @@ fn publish_set(set: &str) -> SetPublishRequest {
 
 #[test]
 fn a_set_goes_out_as_its_record_with_nothing_private() {
-    locallibrary::testing::address_lexicon_stand_in();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let set = save_set(&root, "3m2abcdefgh22", &["0123456789abcdef0123456789abcdef"]);
@@ -450,7 +449,6 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
 
 #[test]
 fn a_set_and_the_profile_go_where_they_should() {
-    locallibrary::testing::address_lexicon_stand_in();
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -523,7 +521,6 @@ fn published_by_plays_publish(root: &Path, pds: &MockPds, did: &str) {
 
 #[test]
 fn a_set_from_a_list_plays_publish_published_takes_its_key() {
-    locallibrary::testing::address_lexicon_stand_in();
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -561,7 +558,6 @@ fn a_set_from_a_list_plays_publish_published_takes_its_key() {
 
 #[test]
 fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
-    locallibrary::testing::address_lexicon_stand_in();
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");

@@ -70,6 +70,7 @@ checks on the server's answer, refresh and revocation) is the
 locallibrary settings publish                 # your My Settings
 locallibrary profile publish --dry-run        # your DJ profile: look first
 locallibrary sets publish last --hide 3,7     # your latest set, without naming tracks 3 and 7
+locallibrary sets publish last --no-lookup    # without looking up MusicBrainz IDs first
 ```
 
 Publishing writes a record to your account's repository, where anyone can read it and other
@@ -98,14 +99,23 @@ it first went out. The old record stays where `plays publish` wrote it
 (`computer.localnetwork.locallibrary.set`), since publishing may only write today's set records.
 
 A track's artists go out one by one (split as the profile counts them) when its credit names
-several, and its MusicBrainz IDs (`mbid:<uuid>`, as teal.fm writes them) when its file is tagged
-with them, as MusicBrainz Picard tags files: rekordbox keeps none, so they're read from the files
-on the mounted drives when a set is made or edited. An artist's ID goes with their name only when
-the tags have one for each artist the credit names. For a set built from a recording, each track
-says how it came in (`transitionIn`), as the recording's [mix report](sets.md#mixes) heard it,
-wherever the set still has the two tracks one after the other: a `blend` when both were heard
-together for 8 seconds or more, otherwise `unknown` (a fade the fingerprints miss can look like a
-cut), with how long they overlapped, how the keys heard relate and how much the tempo changed.
+several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
+rekordbox keeps none, so they're read from the files on the mounted drives when a set is made or
+edited (as MusicBrainz Picard tags files), else from what a plugin's analyzer worked out for the
+`recording`, `release` and `artists` [roles](plugins.md#roles): the musicbrainz plugin's unless
+you choose another, which looks a track up on MusicBrainz by its ISRC. Before publishing, `sets
+publish` runs that analyzer on the tracks it will name that have no IDs yet, and keeps what it
+finds in the set, so later publishes don't ask again. Tracks whose drive isn't plugged in are
+skipped, and it says how many. An analyzer failing is a warning, and the set publishes without
+those IDs. `--no-lookup` skips the lookup, `plugin roles recording --none` turns it off for
+good, and `--dry-run` never runs it, nor does a publish that can't happen: signed out, or not
+confirmed (no `--yes`, and no terminal to ask in). What it did is among the plan's notes. An artist's ID goes
+with their name only when the set has one for each artist the credit names. For a set built from
+a recording, each track says how it came in (`transitionIn`), as the recording's [mix
+report](sets.md#mixes) heard it, wherever the set still has the two tracks one after the other: a
+`blend` when both were heard together for 8 seconds or more, otherwise `unknown` (a fade the
+fingerprints miss can look like a cut), with how long they overlapped, how the keys heard relate
+and how much the tempo changed.
 Next to an unidentified track it says only how long they overlapped.
 
 A set record holds up to 500 tracks: `sets publish` refuses a longer set, so drop some first
@@ -117,10 +127,10 @@ ones. The plan says when a record is bigger than that.
 The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
 My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local
 Network's tools share (`dj/`, with the definitions both use in `dj/defs.json`). The address Lexicon
-they use is [Lexicon Community](https://tangled.org/lexicon.community/lexicons)'s, fetched as it
-publishes it the first time a set needs it. Each record is checked against its Lexicon before it's
-written. Everything published is public and copied around the network:
-deleting a record later doesn't delete the copies.
+they use is [Lexicon Community](https://tangled.org/lexicon.community/lexicons)'s, copied into
+[`lexicons/community/`](../../../lexicons/community/lexicon/location/address.json) as it publishes
+it. Each record is checked against its Lexicon before it's written. Everything published is public
+and copied around the network: deleting a record later doesn't delete the copies.
 
 ## Reporting a bug
 

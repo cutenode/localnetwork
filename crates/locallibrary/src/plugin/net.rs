@@ -2,13 +2,17 @@
 //! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]), redirects
 //! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
 //! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
-//! say. Its secret settings go only where a request names them (`{secret:<key>}`), and its
-//! accounts' access tokens only into the `Authorization` header that names one (`{account:<id>}`,
-//! see [`super::accounts`]), filled in once it's checked, never on to another server a redirect
-//! leads to, and left out of its log and the errors it's told (see [`State::scrub`]); what a
-//! server answers is passed on as it is.
+//! say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
+//! accounts' access tokens only where a request names one (`{account:<id>}`, see
+//! [`super::accounts`]) and the account says its token goes: the `Authorization` header, or a query
+//! parameter. They're filled in once it's checked, never on to another server a redirect leads to,
+//! and left out of its log and the errors it's told (see [`State::scrub`]); what a server answers
+//! is passed on as it is, but for a token it was sent in the query, given back as the placeholder
+//! it was named with.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
-//! scratch folder; nothing is kept.
+//! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
+
+mod body;
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -17,16 +21,16 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, RpcError, SettingType};
+use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace};
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
     LOCATION, PROXY_AUTHORIZATION, TRANSFER_ENCODING, USER_AGENT, WWW_AUTHENTICATE,
 };
 use reqwest::{Method, Url};
-use rustc_hash::FxHashMap;
 use serde_json::Value;
 
+use self::body::{Body, Field, FilePart};
 use super::blobs;
 use super::process::{Live, Plugin};
 use crate::export::one_line;
@@ -34,8 +38,11 @@ use crate::net::{public, this_computer, with_causes};
 use crate::progress::CancelToken;
 use crate::{lock, op};
 
-/// The longest a request may take.
+/// The longest a request may take, besides sending files.
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// The slowest a request sending files may send them, in bytes a second (a slow home connection's
+/// upload, about a megabit): it may take as long as that would, besides [`TIMEOUT`].
+const SLOWEST: u64 = 128 << 10;
 /// The most redirects followed.
 const MAX_REDIRECTS: usize = 5;
 /// How often a request waiting for its turn notices being cancelled.
@@ -46,8 +53,6 @@ const SECRET: &str = "{secret:";
 /// A plugin's `net/fetch` state, whichever of its processes asks.
 #[derive(Default)]
 pub(crate) struct State {
-    /// When each `[[net]]` limit lets a request go next, by its host.
-    turns: Mutex<FxHashMap<String, Instant>>,
     client: OnceLock<Result<Client, String>>,
     /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
     /// them), while this host runs.
@@ -95,7 +100,7 @@ struct Sent {
     plain: HeaderMap,
     /// Those with one.
     filled: HeaderMap,
-    body: Option<Vec<u8>>,
+    body: Option<Body>,
     /// Whether the body has a secret in it.
     secret: bool,
 }
@@ -133,6 +138,14 @@ impl Plugin {
         cfg!(debug_assertions) && self.host.options.test_loopback
     }
 
+    /// Why the plugin doesn't reach `url` in tests kept offline ([`super::Options::test_offline`]),
+    /// if it doesn't: it isn't on this computer.
+    pub(super) fn offline(&self, url: &Url) -> Option<String> {
+        let offline = cfg!(debug_assertions) && self.host.options.test_offline && !this_computer(url);
+        offline
+            .then(|| format!("{} isn't on this computer, and tests stay offline", url.host_str().unwrap_or_default()))
+    }
+
     /// The plugin's client, which follows no redirect: [`Plugin::fetch`] does, checking each.
     pub(super) fn client(&self) -> Result<&Client, RpcError> {
         let made = self.net.client.get_or_init(|| {
@@ -143,7 +156,8 @@ impl Plugin {
     }
 
     /// Waits for the turn of a request to `url` under the `[[net]]` limit for its host, if it has
-    /// one, unless it's cancelled first.
+    /// one, unless it's cancelled first. Turns are the host's, shared by every plugin limiting
+    /// the same host: two plugins asking one server keep to its limit between them.
     fn wait_turn(&self, url: &Url, cancel: &CancelToken) -> Result<(), RpcError> {
         let host = url.host_str().unwrap_or_default();
         let Some(limit) = self.manifest.net.iter().find(|l| Capability::Net(l.host.clone()).reaches(host)) else {
@@ -154,7 +168,7 @@ impl Plugin {
             if cancel.is_cancelled() {
                 return Err(RpcError::cancelled());
             }
-            let mut turns = lock(&self.net.turns);
+            let mut turns = lock(&self.host.turns);
             let now = Instant::now();
             let next = turns.get(&limit.host).copied().unwrap_or(now);
             if next <= now {
@@ -215,7 +229,7 @@ impl Plugin {
         let req: Fetch = loclib_plugin::params(params)?;
         let mut url =
             Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
-        if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()) {
+        if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(denied(why));
         }
         let method = Method::from_bytes(req.method.as_bytes())
@@ -223,34 +237,49 @@ impl Plugin {
         if req.body.is_some() && req.body_blob.is_some() {
             return Err(invalid("a request sends a body or a body_blob, not both"));
         }
-        let named_account = url.query_pairs().any(|(_, v)| v.contains(ACCOUNT_PLACEHOLDER));
-        if named_account || req.body.as_deref().is_some_and(|b| b.contains(ACCOUNT_PLACEHOLDER)) {
-            return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
+        if !req.multipart.is_empty() && (req.body.is_some() || req.body_blob.is_some()) {
+            return Err(invalid("a request sends a multipart form or a body, not both"));
         }
-        if url.query_pairs().any(|(_, v)| v.contains(SECRET)) {
+        if req.body_range.is_some() && req.body_blob.is_none() {
+            return Err(invalid("a body_range is of a body_blob, which it doesn't send"));
+        }
+        let texts = req.body.iter().chain(req.multipart.iter().filter_map(|p| p.value.as_ref()));
+        if let Some(text) = texts.clone().find(|t| t.contains(ACCOUNT_PLACEHOLDER)) {
+            return Err(self.misplaced(text));
+        }
+        // The accounts' tokens filled into the query, and the placeholders that named them.
+        let mut in_query = Vec::new();
+        if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
             let pairs: Vec<(String, String)> =
                 url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
-            let filled =
-                pairs.into_iter().map(|(k, v)| Ok((k, self.fill(live, &v)?))).collect::<Result<Vec<_>, RpcError>>()?;
+            let mut filled = Vec::with_capacity(pairs.len());
+            for (k, v) in pairs {
+                if !v.contains(ACCOUNT_PLACEHOLDER) {
+                    filled.push((k, self.fill(live, &v)?));
+                    continue;
+                }
+                let token = self.account(live, &v, Some(&k))?;
+                filled.push((k, token.clone()));
+                in_query.push((token, v));
+            }
             url.query_pairs_mut().clear().extend_pairs(filled);
         }
         let mut sent = Sent { method, plain: HeaderMap::new(), filled: HeaderMap::new(), body: None, secret: false };
         for (name, value) in &req.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| invalid(format!("{name:?} isn't a header's name")))?;
-            // Never one the plugin sets: the host says who's asking.
-            if name == USER_AGENT {
+            // Never one the plugin sets: the host says who's asking, and how long the body is.
+            if name == USER_AGENT || name == CONTENT_LENGTH {
                 continue;
             }
             if value.contains(ACCOUNT_PLACEHOLDER) {
-                let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
-                let Some(id) = id.filter(|id| name == AUTHORIZATION && !id.contains('}')) else {
-                    return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
-                };
-                let mut bearer = HeaderValue::from_str(&format!("Bearer {}", self.bearer(live, id)?))
+                if name != AUTHORIZATION {
+                    return Err(self.misplaced(value));
+                }
+                let mut filled = HeaderValue::from_str(&self.account(live, value, None)?)
                     .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
-                bearer.set_sensitive(true);
-                sent.filled.append(AUTHORIZATION, bearer);
+                filled.set_sensitive(true);
+                sent.filled.append(AUTHORIZATION, filled);
                 continue;
             }
             let to = if value.contains(SECRET) { &mut sent.filled } else { &mut sent.plain };
@@ -261,31 +290,81 @@ impl Plugin {
         let agent = HeaderValue::from_str(&self.user_agent(live))
             .map_err(|_| invalid("its contact can't be sent in a header"))?;
         sent.plain.insert(USER_AGENT, agent);
+        sent.secret = texts.clone().any(|t| t.contains(SECRET));
         if let Some(body) = &req.body {
-            sent.secret = body.contains(SECRET);
-            sent.body = Some(self.fill(live, body)?.into_bytes());
+            sent.body = Some(Body::Text(self.fill(live, body)?.into_bytes()));
         }
         if let Some(blob) = &req.body_blob {
-            let mut bytes = Vec::new();
-            let read = live.scratches.open(blob).and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| e.to_string()));
-            read.map_err(|e| invalid(format!("{}: {e}", blob.display())))?;
-            sent.body = Some(bytes);
+            sent.body = Some(Body::File(FilePart::new(live, blob, req.body_range)?));
+        }
+        if !req.multipart.is_empty() {
+            // The host says what it is: a form with the boundary it makes.
+            sent.plain.remove(CONTENT_TYPE);
+            sent.body = Some(Body::Form(self.form(live, &req.multipart)?));
         }
         // Before it's sent: an answer with nowhere to go is never asked for.
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
-        let response = self.follow(url, sent, cancel)?;
+        let response = self.follow(live, url, sent, cancel)?;
         let status = response.status().as_u16();
+        // A server says the address it was asked at back (a next page's link, a `Location`): a token
+        // sent in the query is given back as the placeholder that named it, which asks for it again.
+        let named = |text: String| {
+            in_query.iter().fold(text, |text, (token, placeholder)| {
+                let encoded: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
+                text.replace(token, placeholder).replace(&encoded, placeholder)
+            })
+        };
         let mut answered: IndexMap<String, String> = IndexMap::new();
         for (name, value) in response.headers() {
-            let value = String::from_utf8_lossy(value.as_bytes());
-            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value.into());
+            let value = named(String::from_utf8_lossy(value.as_bytes()).into_owned());
+            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value);
         }
         let fetched = Fetched { status, headers: answered, body: None, blob: None };
         let fetched = match into {
             Some(into) => Fetched { blob: Some(self.write_blob(into, response)?), ..fetched },
-            None => Fetched { body: Some(self.text(response)?), ..fetched },
+            None => Fetched { body: Some(named(self.text(response)?)), ..fetched },
         };
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
+    }
+
+    /// What goes where a request names an account as the whole of `value`, `{account:<id>}`: in
+    /// the `Authorization` header (`query` is `None`), its scheme and access token; as the query
+    /// parameter `query`, the token. Only where the account says its token goes.
+    fn account(&self, live: &Live, value: &str, query: Option<&str>) -> Result<String, RpcError> {
+        let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
+        let Some(id) = id.filter(|id| !id.contains('}')) else { return Err(self.misplaced(value)) };
+        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
+        match (&account.token, query) {
+            (TokenPlace::Scheme(scheme), None) => Ok(format!("{scheme} {}", self.access_token(live, account)?)),
+            (TokenPlace::Query(name), Some(query)) if name == query => self.access_token(live, account),
+            _ => Err(self.misplaced(value)),
+        }
+    }
+
+    /// Why `text`, which names an account, can't be where it is: where that account's token goes.
+    fn misplaced(&self, text: &str) -> RpcError {
+        let id = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next());
+        let account = self.manifest.contributes.accounts.iter().find(|a| Some(a.id.as_str()) == id);
+        match account.map(|a| &a.token) {
+            Some(TokenPlace::Query(name)) => {
+                invalid(format!("this account goes only in the query: {name}={{account:<id>}}"))
+            }
+            _ => invalid("an account goes only in the Authorization header: {account:<id>}"),
+        }
+    }
+
+    /// A form's parts, its text's secrets filled in and its files checked.
+    fn form(&self, live: &Live, parts: &[FormPart]) -> Result<Vec<(String, Field)>, RpcError> {
+        let field = |p: &FormPart| match (&p.value, &p.file) {
+            (Some(value), None) if p.range.is_none() => Ok(Field::Text(self.fill(live, value)?)),
+            (None, Some(file)) => Ok(Field::File {
+                file: FilePart::new(live, file, p.range)?,
+                filename: p.filename.clone(),
+                content_type: p.content_type.clone(),
+            }),
+            _ => Err(invalid(format!("the form's part {:?} has a value or a file (and its range), not both", p.name))),
+        };
+        parts.iter().map(|p| Ok((p.name.clone(), field(p)?))).collect()
     }
 
     /// Sends `sent` to `url`, and follows the redirects it's answered with as browsers do, each
@@ -293,7 +372,7 @@ impl Plugin {
     /// to another server, the headers its secrets were filled into, and those reqwest never sends
     /// on to another (its credentials), are left out from then on; a body with a secret in it is
     /// never sent there.
-    fn follow(&self, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
+    fn follow(&self, live: &Live, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
         let external = |why: String| RpcError::failed("external", self.net.scrub(&why));
         let mut hops = 0;
         loop {
@@ -301,9 +380,20 @@ impl Plugin {
             let mut request = self.client()?.request(sent.method.clone(), url.clone());
             request = request.headers(sent.plain.clone()).headers(sent.filled.clone());
             if let Some(body) = &sent.body {
-                request = request.body(body.clone());
+                let files = body.file_bytes();
+                if files > 0 {
+                    let to = url.host_str().unwrap_or_default();
+                    let said = format!("net/fetch: sending {} of files to {to} ({})", op::bytes(files), sent.method);
+                    self.host.log(&self.manifest.id, &said);
+                    request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
+                }
+                request = body.send(request, live, cancel)?;
             }
-            let response = request.send().map_err(|e| external(with_causes(&e)))?;
+            let sending = request.send();
+            if sending.is_err() && cancel.is_cancelled() {
+                return Err(RpcError::cancelled());
+            }
+            let response = sending.map_err(|e| external(with_causes(&e)))?;
             let location = response.headers().get(LOCATION).and_then(|l| l.to_str().ok());
             let (Some(location), 301 | 302 | 303 | 307 | 308) = (location, response.status().as_u16()) else {
                 return Ok(response);
@@ -315,7 +405,9 @@ impl Plugin {
             let next = url
                 .join(location)
                 .map_err(|_| external(format!("redirected to {}, which isn't a web address", one_line(location))))?;
-            if let Some(why) = refused(&self.manifest.capabilities, &next, self.loopback()) {
+            if let Some(why) =
+                refused(&self.manifest.capabilities, &next, self.loopback()).or_else(|| self.offline(&next))
+            {
                 return Err(external(format!("redirected to where it may not go: {why}")));
             }
             // 301, 302 and 303 ask again without the body (with GET, but for HEAD).
@@ -330,6 +422,10 @@ impl Plugin {
                 }
             }
             if next.origin() != url.origin() {
+                // The server put a secret in the address it sent the request on to: it stays here.
+                if self.net.scrub(next.as_str()) != next.as_str() {
+                    return Err(external(format!("redirected to {next}, which a secret in its address isn't for")));
+                }
                 if sent.secret {
                     return Err(external(format!("redirected to {next}, which its body's secret isn't for")));
                 }

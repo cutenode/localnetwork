@@ -134,7 +134,6 @@ const RELEASE: Uuid = uuid::uuid!("5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f");
 
 #[test]
 fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
-    crate::testing::address_lexicon_stand_in();
     let mut track = loclib_model::test_util::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
     track.isrc = "GB-AHT-17-00123".into();
     track.bpm = 129.98;
@@ -165,11 +164,11 @@ fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
         json!({
             "title": "Glue",
             "artist": "Bicep",
-            "artists": [{ "artistName": "Bicep", "artistMbId": "mbid:e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a0" }],
+            "artists": [{ "artistName": "Bicep", "artistMbId": "e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a0" }],
             "releaseName": "Isles",
             "isrc": "GBAHT1700123",
-            "recordingMbId": "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b",
-            "releaseMbId": "mbid:5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f",
+            "recordingMbId": "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b",
+            "releaseMbId": "5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f",
             "bpmCentis": 12998,
             "key": "8A",
             "startSeconds": 0,
@@ -207,18 +206,15 @@ fn artists_and_releases_go_out_as_far_as_they_are_known() {
     };
     let artists = |artist: &str, ids: &[u128]| track(artist, ids).get("artists").cloned();
     assert_eq!(artists("Bicep", &[]), None, "the credit line says it all");
-    assert_eq!(
-        artists("Bicep", &[1]),
-        Some(json!([{ "artistName": "Bicep", "artistMbId": format!("mbid:{}", id(1)) }]))
-    );
+    assert_eq!(artists("Bicep", &[1]), Some(json!([{ "artistName": "Bicep", "artistMbId": id(1).to_string() }])));
     let names = json!([{ "artistName": "Chris Lake" }, { "artistName": "Amber Mark" }]);
     assert_eq!(artists("Chris Lake, Amber Mark", &[]), Some(names.clone()));
     assert_eq!(artists("Chris Lake, Amber Mark", &[1]), Some(names), "which artist has the one ID?");
     assert_eq!(
         artists("Chris Lake feat. Amber Mark", &[1, 2]),
         Some(json!([
-            { "artistName": "Chris Lake", "artistMbId": format!("mbid:{}", id(1)) },
-            { "artistName": "Amber Mark", "artistMbId": format!("mbid:{}", id(2)) },
+            { "artistName": "Chris Lake", "artistMbId": id(1).to_string() },
+            { "artistName": "Amber Mark", "artistMbId": id(2).to_string() },
         ]))
     );
     assert_eq!(artists(&format!("{}, B", "a".repeat(257)), &[]), None, "too long a name");

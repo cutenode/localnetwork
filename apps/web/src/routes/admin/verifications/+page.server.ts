@@ -14,7 +14,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		verifications,
-		// Streamed one by one, so the table shows at once and each status fills in as its account's PDS answers.
+		// Streamed one by one, so the table shows at once and each status fills in as HappyView answers for its account.
 		live: Object.fromEntries(subjects.map((did) => [did, locals.app.verifications.live(did)])),
 		subject: url.searchParams.get('subject') ?? ''
 	};

@@ -25,7 +25,7 @@ fn queries_and_pasted_urls_parse() {
 
 #[test]
 fn the_listener_waits_for_the_sign_ins_own_redirect() {
-    let (listener, redirect) = bind().unwrap();
+    let (listener, redirect) = bind(0).unwrap();
     assert!(redirect.starts_with("http://127.0.0.1:") && redirect.ends_with("/callback"));
     let port = listener.local_addr().unwrap().port();
     let browser = std::thread::spawn(move || {
@@ -57,7 +57,7 @@ fn the_listener_waits_for_the_sign_ins_own_redirect() {
 
 #[test]
 fn an_endless_request_is_cut_off() {
-    let (listener, _) = bind().unwrap();
+    let (listener, _) = bind(0).unwrap();
     let port = listener.local_addr().unwrap().port();
     let (done, finished) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
@@ -78,7 +78,7 @@ fn an_endless_request_is_cut_off() {
 
 #[test]
 fn waiting_stops_at_the_deadline_or_when_cancelled() {
-    let (listener, _) = bind().unwrap();
+    let (listener, _) = bind(0).unwrap();
     let err = wait(&listener, Duration::from_millis(150), &Ctx::silent(), |_| true).unwrap_err();
     assert!(err.to_string().contains("no answer"), "{err}");
     let cancel = crate::CancelToken::new();
@@ -142,7 +142,7 @@ fn only_the_sign_ins_own_redirect_ends_the_wait(tc: TestCase) {
     let (code, iss) = (tc.draw(alnum()), tc.draw(gs::sampled_from(vec!["https://pds.example", "https://bsky.social"])));
     let query = format!("code={code}&state={state}&iss={}", iss.replace(':', "%3A").replace('/', "%2F"));
 
-    let (listener, _) = bind().unwrap();
+    let (listener, _) = bind(0).unwrap();
     let port = listener.local_addr().unwrap().port();
     // All of them connect before the wait starts, in order: none of them waits for another.
     let knocked: Vec<(Stranger, TcpStream)> = strangers

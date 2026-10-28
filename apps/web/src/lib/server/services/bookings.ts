@@ -8,6 +8,7 @@ import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spa
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
+import { spaceWriter } from './own-repo';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
 
@@ -76,16 +77,6 @@ export class BookingService {
 		private readonly core: Core,
 		private readonly projects: ProjectService
 	) {}
-
-	private async writerFor(actor: Viewer) {
-		if (actor.spacesCapable) {
-			const client = await this.core.userClient(actor.did);
-
-			if (client) return { client, onBehalf: false };
-		}
-
-		return { client: await this.core.root(), onBehalf: true };
-	}
 
 	async start(input: { actor: Viewer; projectUri: string; show: ShowDetails; message: string }): Promise<string> {
 		const { actor } = input;
@@ -161,7 +152,7 @@ export class BookingService {
 			value: opened
 		});
 
-		const { client, onBehalf } = await this.writerFor(actor);
+		const { client, onBehalf } = await spaceWriter(this.core, actor);
 
 		const draft: BookingRecord = {
 			project: project.uri,
@@ -225,7 +216,7 @@ export class BookingService {
 
 		if (!text) throw new UserError('Write a message');
 		await this.requireParticipant(input.actor, input.space);
-		const { client, onBehalf } = await this.writerFor(input.actor);
+		const { client, onBehalf } = await spaceWriter(this.core, input.actor);
 
 		const draft: BookingRecord = { text, createdAt: nowIso() };
 
@@ -259,7 +250,7 @@ export class BookingService {
 		const thread = await this.requireParticipant(input.actor, input.space);
 
 		if (thread.status === input.status) return;
-		const { client, onBehalf } = await this.writerFor(input.actor);
+		const { client, onBehalf } = await spaceWriter(this.core, input.actor);
 
 		const draft: BookingRecord = { status: input.status, createdAt: nowIso() };
 		const note = input.note?.trim();
@@ -309,6 +300,12 @@ export class BookingService {
 		} catch {
 			return new Set();
 		}
+	}
+
+	/** Forgets a thread whose space is gone. Its participants go with it (ON DELETE CASCADE). */
+	async forget(space: string): Promise<void> {
+		await this.core.db.deleteFrom('bookingEvent').where('spaceUri', '=', space).execute();
+		await this.core.db.deleteFrom('bookingThread').where('spaceUri', '=', space).execute();
 	}
 
 	/** Indexes a booking record from our own write or from sync, ignoring records by non-participants. */

@@ -1,12 +1,16 @@
 //! Plugins' accounts (the `accounts` feature): the host signs the user in to each in the browser,
 //! with OAuth 2's authorization code flow and PKCE (the `oauth2` crate), the browser coming back
-//! to this computer ([`crate::callback`]). An account's tokens are kept with the plugin's secrets
-//! (see [`super::secrets`], as `account:<id>`) and go nowhere else: not to the plugin, a log, an
-//! error, an answer or a copy of the store. A `net/fetch` request whose `Authorization` header is
-//! `{account:<id>}` gets `Bearer` and the access token instead, once it's checked (see
-//! [`super::net`]), refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's
-//! endpoints are reached as `net/fetch` reaches servers: at public https addresses (servers on
-//! this computer in tests), following no redirect.
+//! to this computer ([`crate::callback`]), at the port the account names if it names one. An
+//! account's tokens are kept with the plugin's secrets (see [`super::secrets`], as `account:<id>`)
+//! and go nowhere else: not to the plugin, a log, an error, an answer or a copy of the store. A
+//! `net/fetch` request naming the account as `{account:<id>}`, in its `Authorization` header or
+//! the query parameter the account names, gets the access token there instead (in the header,
+//! after `Bearer` or the scheme the account names), once it's checked (see [`super::net`]),
+//! refreshed first when it's within [`REFRESH_BEFORE`] of expiring. The service's endpoints are
+//! reached as `net/fetch` reaches servers: at public https addresses (servers on this computer in
+//! tests), following no redirect. An account whose service wants a client secret for its tokens
+//! names Local Network's token exchange instead of the service's token endpoint: the host sends it
+//! the same request as JSON, and it adds the secret and answers as the service.
 
 use std::io::Read;
 use std::net::TcpListener;
@@ -154,7 +158,7 @@ impl Plugin {
     /// The account `id` it declares: its service's endpoints, client and scopes. Neither this nor
     /// [`Plugin::sign_in_client`] is named for an account or OAuth: CodeQL guesses secrets from
     /// names, and would take the sign-in link made from them for one.
-    fn declared_sign_in(&self, id: &str) -> Result<&Account> {
+    pub(super) fn declared_sign_in(&self, id: &str) -> Result<&Account> {
         self.declared("account", id, &self.manifest.contributes.accounts, |a| &a.id)
     }
 
@@ -163,9 +167,10 @@ impl Plugin {
         let bad = |what: &str, e: oauth2::url::ParseError| {
             self.misbehaved(format!("its {} account's {what} can't be used: {e}", account.title))
         };
+        let token_url = account.token_url.as_ref().or(account.token_exchange.as_ref()).cloned().unwrap_or_default();
         let client = BasicClient::new(ClientId::new(account.client_id.clone()))
             .set_auth_uri(AuthUrl::new(account.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
-            .set_token_uri(TokenUrl::new(account.token_url.clone()).map_err(|e| bad("token_url", e))?);
+            .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
             Some(redirect) => client.set_redirect_uri(redirect),
             None => client,
@@ -176,7 +181,7 @@ impl Plugin {
     /// redirect, to a public https address (in tests, this computer too).
     fn send(&self, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
         let url = Url::parse(&request.uri().to_string()).map_err(|e| Unanswered(e.to_string()))?;
-        if let Some(why) = unreachable(&url, self.loopback()) {
+        if let Some(why) = unreachable(&url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(Unanswered(why));
         }
         let client = self.client().map_err(|e| Unanswered(e.message))?;
@@ -194,6 +199,21 @@ impl Plugin {
         let mut body = Vec::new();
         response.take(MAX_ANSWER).read_to_end(&mut body).map_err(|e| Unanswered(with_causes(&e)))?;
         answer.body(body).map_err(|e| Unanswered(e.to_string()))
+    }
+
+    /// Sends a request for `account`'s tokens: to its service's token endpoint as it is, or to
+    /// Local Network's token exchange as a JSON object of the same fields, since SvelteKit refuses
+    /// a form posted without an `Origin` header (as it would a browser's from another site).
+    fn send_token(&self, account: &Account, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
+        if account.token_exchange.is_none() {
+            return self.send(request);
+        }
+        let (mut parts, form) = request.into_parts();
+        let fields: serde_json::Map<String, serde_json::Value> =
+            form_urlencoded::parse(&form).map(|(k, v)| (k.into_owned(), v.into_owned().into())).collect();
+        let json = oauth2::http::HeaderValue::from_static("application/json");
+        parts.headers.insert(oauth2::http::header::CONTENT_TYPE, json);
+        self.send(HttpRequest::from_parts(parts, serde_json::Value::Object(fields).to_string().into_bytes()))
     }
 
     /// Asks `account`'s service to forget `tokens` (RFC 7009: the refresh token, which takes the
@@ -264,18 +284,18 @@ impl Plugin {
         }
     }
 
-    /// The access token of the account `id` for a `net/fetch` request: refreshed first when it's
-    /// about to expire (one refresh at a time), told to [`super::net::State::scrub`]. The plugin
-    /// is told how to sign in when it's signed out.
-    pub(crate) fn bearer(&self, live: &Live, id: &str) -> std::result::Result<String, RpcError> {
-        let invalid = |why: String| RpcError::failed("invalid", why);
-        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
+    /// The access token of `account` for a `net/fetch` request: refreshed first when it's about to
+    /// expire (one refresh at a time), told to [`super::net::State::scrub`]. The plugin is told
+    /// how to sign in when it's signed out.
+    pub(crate) fn access_token(&self, live: &Live, account: &Account) -> std::result::Result<String, RpcError> {
+        let id = &account.id;
         let signed_out = || {
             let plugin = &self.manifest.id;
-            invalid(format!(
+            let why = format!(
                 "its {} account isn't signed in (locallibrary plugin account {plugin} {id} sign-in)",
                 account.title
-            ))
+            );
+            RpcError::failed("invalid", why)
         };
         let store = live.store.as_ref().ok_or_else(signed_out)?;
         let external = |e: Error| RpcError::failed("external", self.net.scrub(&e.to_string()));
@@ -286,7 +306,7 @@ impl Plugin {
         }
         let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
         let client = self.sign_in_client(account, None).map_err(external)?;
-        let send = |r: HttpRequest| self.send(r);
+        let send = |r: HttpRequest| self.send_token(account, r);
         let answer = client.exchange_refresh_token(&RefreshToken::new(refresh)).request(&send);
         let answer = match answer {
             Ok(answer) => answer,
@@ -338,7 +358,11 @@ impl Plugins {
         // it keeps dropped first: CodeQL follows a `?` on it into the sign-in link. A kept sign-in
         // that can't be read is replaced.
         slot.secret(store, &key(account)).map(drop)?;
-        let (listener, redirect_uri) = callback::bind()?;
+        if let Some(port) = declared.redirect_port {
+            // A sign-in still waiting on its port gives way: the browser comes back to the newest.
+            lock(&self.signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
+        }
+        let (listener, redirect_uri) = callback::bind(declared.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
         let client = slot.sign_in_client(declared, Some(redirect))?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
@@ -415,7 +439,7 @@ impl Plugins {
             return Err(Error::Account(why));
         }
         let code = query.code.clone().ok_or_else(|| Error::Account("the browser came back without a code".into()))?;
-        let send = |r: HttpRequest| slot.send(r);
+        let send = |r: HttpRequest| slot.send_token(account, r);
         let answer = p
             .client
             .exchange_code(AuthorizationCode::new(code))

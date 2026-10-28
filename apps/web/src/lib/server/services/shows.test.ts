@@ -4,10 +4,12 @@ import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { ProjectView } from '#lib/types.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
-import { HappyViewClient } from '../happyview/client';
+import { HappyViewClient, HappyViewError } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
+import { silentLogger } from '../logger';
 import { createTestServices } from '../testing/core';
 import { FollowService } from './follows';
-import { eventRecord, type ShowInput, ShowService } from './shows';
+import { eventRecord, type ShowEdit, type ShowInput, ShowService } from './shows';
 
 const ADMIN = 'did:plc:admin';
 
@@ -177,6 +179,13 @@ describe('shows and follows', () => {
 	});
 
 	describe('ShowService', () => {
+		/** The edit of the show at `rkey` from its form as HappyView serves it now, as the manager opens it. */
+		const opened = async (rkey: string): Promise<ShowEdit> => {
+			const values = await t.shows.values(await t.viewer(DJ), project, rkey);
+
+			return { rkey, showCid: values?.showCid ?? '', eventCid: values?.eventCid || null };
+		};
+
 		it("announces a calendar event in the manager's repo, and a show copying it that listings find", async () => {
 			const ref = await t.shows.save(await t.viewer(DJ), project, input());
 
@@ -238,18 +247,21 @@ describe('shows and follows', () => {
 			expect([...t.net.records.keys()].filter((key) => key.startsWith(`${DJ}|`))).toEqual([]);
 		});
 
-		it("has HappyView re-read the manager's shows when it doesn't serve a write in time", async () => {
+		it("has HappyView re-read the manager's shows and events when it doesn't serve a write in time", async () => {
 			const { directory, backfills } = adminDirectory();
 			t.net.onRecord = async () => {};
 
-			await new ShowService(t.core, t.projects, directory, t.publicRepo, 0).save(await t.viewer(DJ), project, input());
-			expect(backfills).toEqual([{ collection: COLLECTION.show, did: DJ }]);
+			const shows = new ShowService(t.core, t.projects, directory, new IndexedRepo(directory, silentLogger, 0), 0);
+			await shows.save(await t.viewer(DJ), project, input());
+			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, did: DJ }));
+			expect(backfills).toEqual(expect.arrayContaining(reread));
+			expect(backfills).toHaveLength(2);
 		});
 
 		it("has HappyView re-read each manager's shows, one account at a time", async () => {
 			const { directory, backfills } = adminDirectory();
 
-			await new ShowService(t.core, t.projects, directory, t.publicRepo, 0).reindexManagers();
+			await new ShowService(t.core, t.projects, directory, t.indexedRepo, 0).reindexManagers();
 			expect(backfills).toEqual([DJ, LAPSED].map((did) => ({ collection: COLLECTION.show, did })));
 		});
 
@@ -290,7 +302,12 @@ describe('shows and follows', () => {
 				cancelled: false
 			});
 
-			await t.shows.save(dj, project, input({ name: 'Tidal Hours (sold out)', start: '22:00', end: undefined }), rkey);
+			await t.shows.save(
+				dj,
+				project,
+				input({ name: 'Tidal Hours (sold out)', start: '22:00', end: undefined }),
+				await opened(rkey)
+			);
 			const moved = record(DJ, CALENDAR_EVENT, ref.uri)!;
 			expect(moved).toMatchObject({ startsAt: `${YEAR}-11-07T22:00:00+01:00`, status: EVENT_STATUS.rescheduled });
 			expect(moved).toMatchObject({ description: 'Doors at 22:00', createdAt: event.createdAt });
@@ -302,15 +319,166 @@ describe('shows and follows', () => {
 			});
 
 			// A show that moved stays marked as moved through later edits.
-			await t.shows.save(dj, project, input({ name: 'Tidal Hours', start: '22:00', end: undefined }), rkey);
+			await t.shows.save(
+				dj,
+				project,
+				input({ name: 'Tidal Hours', start: '22:00', end: undefined }),
+				await opened(rkey)
+			);
 			expect(record(DJ, CALENDAR_EVENT, ref.uri)).toMatchObject({
 				name: 'Tidal Hours',
 				status: EVENT_STATUS.rescheduled
 			});
 
-			await t.shows.save(dj, project, input({ start: '22:00', cancelled: true }), rkey);
+			await t.shows.save(dj, project, input({ start: '22:00', cancelled: true }), await opened(rkey));
 			expect((await t.shows.forProject(project))[0].record.status).toBe(EVENT_STATUS.cancelled);
 			expect(await t.shows.values(dj, project, rkey)).toMatchObject({ cancelled: true, end: '06:00' });
+		});
+
+		it('only lands an edit on the versions its form showed, before writing anything', async () => {
+			const { directory, backfills } = adminDirectory();
+			const shows = new ShowService(t.core, t.projects, directory, new IndexedRepo(directory, silentLogger, 0), 0);
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			const client = t.net.client(DJ);
+			const stored = (collection: string) => t.net.records.get(`${DJ}|${collection}|${rkey}`)!;
+			const form = await opened(rkey);
+			expect(form).toEqual({ rkey, showCid: ref.cid, eventCid: stored(CALENDAR_EVENT).cid });
+
+			// Another calendar app changes the event while the form is open, and HappyView picks it up.
+			const event = stored(CALENDAR_EVENT);
+			await client.putRecord({ collection: CALENDAR_EVENT, rkey, record: { ...event.value, name: 'Elsewhere' } });
+			const changed = stored(CALENDAR_EVENT);
+
+			await expect(shows.save(dj, project, input({ name: 'Edited' }), form)).rejects.toMatchObject({
+				status: 409,
+				message: 'This show changed since you opened it. Reload and try again.'
+			});
+			expect(stored(CALENDAR_EVENT)).toEqual(changed);
+			expect(stored(COLLECTION.show).cid).toBe(ref.cid);
+
+			// So is a show changed alone, without the event being written first.
+			const reopened = await opened(rkey);
+			const show = stored(COLLECTION.show);
+			await client.putRecord({ collection: COLLECTION.show, rkey, record: { ...show.value, name: 'Other' } });
+			await expect(shows.save(dj, project, input({ name: 'Edited' }), reopened)).rejects.toMatchObject({ status: 409 });
+			expect(stored(CALENDAR_EVENT)).toEqual(changed);
+			// HappyView has these versions, so there's nothing to re-read.
+			expect(backfills).toEqual([]);
+
+			await shows.save(dj, project, input({ name: 'Edited' }), await opened(rkey));
+			expect(stored(CALENDAR_EVENT).value).toMatchObject({ name: 'Edited' });
+		});
+
+		it("won't save over an event or show HappyView hasn't served yet, and asks to reload", async () => {
+			const { directory, backfills } = adminDirectory();
+			const shows = new ShowService(t.core, t.projects, directory, new IndexedRepo(directory, silentLogger, 0), 0);
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			const event = t.net.records.get(`${DJ}|${CALENDAR_EVENT}|${rkey}`)!;
+			const show = t.net.records.get(`${DJ}|${COLLECTION.show}|${rkey}`)!;
+
+			// Another calendar app changes the event, and HappyView hasn't heard yet.
+			const ingest = t.net.onRecord;
+			t.net.onRecord = async () => {};
+
+			const changed = { ...event.value, description: 'Doors at 22:00' };
+			await t.net.client(DJ).putRecord({ collection: CALENDAR_EVENT, rkey, record: changed });
+
+			await expect(
+				shows.save(dj, project, input({ name: 'Tidal Hours (late)' }), await opened(rkey))
+			).rejects.toMatchObject({
+				status: 409,
+				message: 'This show changed since you opened it. Reload and try again.'
+			});
+			expect(record(DJ, CALENDAR_EVENT, ref.uri)).toEqual(changed);
+			expect(t.net.records.get(`${DJ}|${COLLECTION.show}|${rkey}`)).toEqual(show);
+			const reread = [COLLECTION.show, CALENDAR_EVENT].map((collection) => ({ collection, did: DJ }));
+			expect(backfills).toEqual(expect.arrayContaining(reread));
+			expect(backfills).toHaveLength(2);
+
+			// Once HappyView has it, the edit goes on it and keeps what the other app added.
+			t.net.onRecord = ingest;
+			const current = t.net.records.get(`${DJ}|${CALENDAR_EVENT}|${rkey}`)!;
+			await ingest({ did: DJ, collection: CALENDAR_EVENT, rkey, cid: current.cid, record: current.value });
+			await shows.save(dj, project, input({ name: 'Tidal Hours (late)' }), await opened(rkey));
+			expect(record(DJ, CALENDAR_EVENT, ref.uri)).toMatchObject({
+				name: 'Tidal Hours (late)',
+				description: 'Doors at 22:00'
+			});
+		});
+
+		it("stops an edit over a show HappyView hasn't served, and marks it for the manager to review", async () => {
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			const show = t.net.records.get(`${DJ}|${COLLECTION.show}|${rkey}`)!;
+
+			// The show alone changes somewhere HappyView hasn't heard of yet.
+			const ingest = t.net.onRecord;
+			t.net.onRecord = async () => {};
+
+			await t.net.client(DJ).putRecord({ collection: COLLECTION.show, rkey, record: { ...show.value, name: 'Other' } });
+
+			t.net.onRecord = ingest;
+
+			await expect(
+				t.shows.save(dj, project, input({ name: 'Tidal Hours (late)' }), await opened(rkey))
+			).rejects.toMatchObject({
+				status: 409
+			});
+			expect(record(DJ, COLLECTION.show, ref.uri)).toMatchObject({ name: 'Other' });
+			expect(await t.shows.edited(DJ, await t.shows.forProject(project))).toEqual([ref.uri]);
+		});
+
+		it("asks to reload an edit when HappyView doesn't have the show's event yet, and passes other failures on", async () => {
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			await t.happyView.ingest({ did: DJ, collection: CALENDAR_EVENT, rkey, cid: '', record: null });
+
+			await expect(t.shows.save(dj, project, input({ name: 'Edited' }), await opened(rkey))).rejects.toMatchObject({
+				status: 409
+			});
+			t.net.failWrites(DJ);
+			await expect(t.shows.save(dj, project, input({ name: 'Edited' }), await opened(rkey))).rejects.toBeInstanceOf(
+				XRPCError
+			);
+			expect(record(DJ, CALENDAR_EVENT, ref.uri)).toMatchObject({ name: 'Tidal Hours' });
+		});
+
+		it("won't read a show for its form or write over one while HappyView is down, and marks none edited", async () => {
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			const listed = await t.shows.forProject(project);
+
+			const down = new HappyViewClient({
+				url: 'http://happyview.test',
+				fetch: async () => new Response('down', { status: 503 })
+			});
+
+			const shows = new ShowService(t.core, t.projects, down, new IndexedRepo(down, silentLogger, 0), 0);
+
+			await expect(shows.values(dj, project, rkey)).rejects.toBeInstanceOf(HappyViewError);
+			await expect(shows.save(dj, project, input({ name: 'Edited' }), await opened(rkey))).rejects.toBeInstanceOf(
+				HappyViewError
+			);
+			await expect(shows.remove(dj, project, rkey)).rejects.toBeInstanceOf(HappyViewError);
+			expect(record(DJ, COLLECTION.show, ref.uri)).toMatchObject({ name: 'Tidal Hours' });
+			expect(await shows.edited(DJ, listed)).toEqual([]);
+		});
+
+		it("deletes a show's event even when HappyView doesn't have it", async () => {
+			const dj = await t.viewer(DJ);
+			const ref = await t.shows.save(dj, project, input());
+			const rkey = ref.uri.split('/').at(-1)!;
+			await t.happyView.ingest({ did: DJ, collection: CALENDAR_EVENT, rkey, cid: '', record: null });
+
+			await t.shows.remove(dj, project, rkey);
+			expect([...t.net.records.keys()].filter((key) => key.startsWith(`${DJ}|`))).toEqual([]);
 		});
 
 		it('deletes a show and its event, and finds only shows of the project asked about', async () => {
@@ -324,7 +492,9 @@ describe('shows and follows', () => {
 			});
 
 			expect(await t.shows.values(dj, other, rkey)).toBeNull();
-			await expect(t.shows.save(dj, project, input(), 'missing')).rejects.toBeInstanceOf(NotFoundError);
+			await expect(
+				t.shows.save(dj, project, input(), { rkey: 'missing', showCid: ref.cid, eventCid: null })
+			).rejects.toBeInstanceOf(NotFoundError);
 			await expect(t.shows.remove(dj, other, rkey)).rejects.toBeInstanceOf(NotFoundError);
 
 			await t.shows.remove(dj, project, rkey);

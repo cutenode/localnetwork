@@ -17,7 +17,7 @@ import type {
 } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { UserError } from '../core';
-import { all, currencyCode, limit, optionalInt, optionalText, text, wholeNumber } from '../http';
+import { all, CID, currencyCode, limit, optionalInt, optionalText, text, wholeNumber } from '../http';
 
 const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
@@ -54,9 +54,6 @@ function linkRows(form: FormData, field: string, label: string): Map<string, num
 
 	return rows;
 }
-
-/** The CIDs records are written with: base32 CIDv1, as the lexicon's `cid` format accepts. */
-const CID = /^b[a-z2-7]{20,100}$/;
 
 /**
  * A mix's set picker value: the set's URI and the CID of the version picked, space-separated (see

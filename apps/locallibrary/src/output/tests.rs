@@ -240,6 +240,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
         Phase::Listen,
         Phase::Match,
         Phase::Analyze,
+        Phase::Upload,
     ];
     let p = CliProgress { bar: Mutex::new(None), enabled: true };
     // (label, counts items, position, message), as the bar should have them.

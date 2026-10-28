@@ -40,7 +40,26 @@ const form = (entries: [string, string | File][]) => {
 	return data;
 };
 
+/** A record version, as the edit form carries it. */
+const VERSION = 'bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku';
+
 describe('parseEpkForm', () => {
+	it('reads the version the form was opened on, which only a new press kit leaves empty', async () => {
+		const parse = (cid: string) =>
+			parseEpkForm(
+				form([
+					['title', 'Clubs'],
+					['cid', cid]
+				]),
+				[],
+				[]
+			);
+
+		expect((await parse(VERSION)).cid).toBe(VERSION);
+		expect((await parse('')).cid).toBe('');
+		await expect(parse('not-a-cid')).rejects.toThrow('Reload the press kit and try again');
+	});
+
 	it('splits mixes and photos by who sees them, taking blobs only from what the press kit holds', async () => {
 		const parsed = await parseEpkForm(
 			form([
@@ -192,14 +211,13 @@ describe('form values', () => {
 		const values = epkFormValues(
 			projectMixes,
 			{
-				project: 'at://x',
 				title: 'Clubs',
 				access: { bookedWith: 'auto', following: 'none', promoters: 'none', anyone: 'none' },
 				mixes: [{ title: 'Tidal Hours 004', url: projectMixes[0].url }],
 				photos: [photo('bafyone')],
-				createdAt: '2026-10-01T00:00:00Z'
+				content: { mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }] }
 			},
-			{ mixes: [{ title: 'Promo', url: 'https://soundcloud.com/neon/promo' }], updatedAt: '2026-10-01T00:00:00Z' }
+			VERSION
 		);
 
 		expect(values.mixes.map((mix) => mix.visibility)).toEqual(['public', 'hidden', 'hidden']);
@@ -210,6 +228,8 @@ describe('form values', () => {
 			{ cid: 'bafyone', alt: 'Neon Tide, press photo', credit: '', visibility: 'public', width: 3200, height: 1800 }
 		]);
 		expect(values.preset).toBe('custom');
+		expect(values.cid).toBe(VERSION);
+		expect(epkFormValues(projectMixes).cid).toBe('');
 	});
 
 	it('gives a failed submission back as it was typed', () => {
@@ -219,10 +239,13 @@ describe('form values', () => {
 				[`mixVisibility.${projectMixes[1].url}`, 'private'],
 				['extraMixTitle', 'Promo'],
 				['extraMixUrl', 'bad'],
-				['extraMixVisibility.0', 'public']
+				['extraMixVisibility.0', 'public'],
+				['cid', VERSION]
 			]),
 			projectMixes
 		);
+
+		expect(values.cid).toBe(VERSION);
 
 		expect(values.mixes[1].visibility).toBe('private');
 		expect(values.extraMixes).toEqual([{ title: 'Promo', url: 'bad', visibility: 'public' }]);

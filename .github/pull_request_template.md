@@ -2,7 +2,7 @@
 
 ## What and why
 
-<!-- What this changes and the problem it solves. "Fixes #123" closes the issue when it merges. -->
+<!-- What this changes and the problem it solves. "Fixes #123" or "Fixes LOC-123" closes the issue when it merges. -->
 
 ## How it was tested
 

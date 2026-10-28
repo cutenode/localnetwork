@@ -1,0 +1,53 @@
+{
+	"$id": "services.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"type": "object",
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"services": {
+			"type": "object",
+			"propertyNames": {
+				"type": "string",
+				"pattern": "^[a-z0-9-]+$"
+			},
+			"additionalProperties": {
+				"type": "object",
+				"properties": {
+					"title": {
+						"type": "string",
+						"minLength": 1,
+						"description": "The service as people know it, for error messages: \"SoundCloud\"."
+					},
+					"tokenUrl": {
+						"type": "string",
+						"format": "uri",
+						"description": "The service's token endpoint. The exchange sends nothing anywhere else."
+					},
+					"style": {
+						"type": "string",
+						"enum": ["form", "query"],
+						"description": "How the service takes a token request. form: a POST with a form body, client_id and client_secret in it, for codes and refresh tokens (RFC 6749). query: a GET with client_id, client_secret, redirect_uri and code in the query, for codes only (Mixcloud)."
+					},
+					"clientIdEnv": {
+						"type": "string",
+						"pattern": "^[A-Z][A-Z0-9_]*$",
+						"description": "The environment variable holding Local Network's client id at the service."
+					},
+					"clientSecretEnv": {
+						"type": "string",
+						"pattern": "^[A-Z][A-Z0-9_]*$",
+						"description": "The environment variable holding that client's secret."
+					}
+				},
+				"required": ["title", "tokenUrl", "style", "clientIdEnv", "clientSecretEnv"],
+				"additionalProperties": false
+			},
+			"description": "By the id a plugin's account names at the end of its token_exchange address."
+		}
+	},
+	"required": ["services"],
+	"additionalProperties": false,
+	"description": "The services Local Network's token exchange (/api/token-exchange/<id>) signs locallibrary plugins in to, adding the client secret only this server holds."
+}

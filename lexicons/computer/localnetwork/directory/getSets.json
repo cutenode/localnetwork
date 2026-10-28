@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Get sets by URI, in the order asked for. Sets the directory doesn't have are left out.",
+			"description": "Get sets by URI, in the order asked for. Sets the directory doesn't have, and ones by accounts that don't manage a published project, are left out.",
 			"parameters": {
 				"type": "params",
 				"required": ["uris"],

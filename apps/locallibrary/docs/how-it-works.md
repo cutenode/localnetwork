@@ -43,9 +43,15 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
 plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
+plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive, found by its check and
+                            removed by `clean` as one `delete_tracks` edit
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
+plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
+                            and artist IDs, looked up by its ISRC and kept where they fit the track
+plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
+                            in parts as a track, its tracklist the description, the track's page its link
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
@@ -115,7 +121,7 @@ crates/locallibrary/src/    the library, built on the crates above
   check.rs     the check before a set, down to the tracks each player won't load
   probe.rs     reading audio files through symphonia: their headers, and whether their ends decode
   convert.rs   building export.pdb from OneLibrary or the reverse
-  clean.rs     removing unwanted tracks (rekordbox's demo samples) and their files
+  track_files.rs  a track's files on a drive, and which ones removing tracks leaves unused
   settings.rs  My Settings on drives and in rekordbox's folder (the files' codec is loclib-mysettings),
                and the settings profile
   artwork.rs   drive artwork rows/thumbnails, audio tag embedding

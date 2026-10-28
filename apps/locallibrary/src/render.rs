@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 
 use console::style;
 use locallibrary::api::{DriveSettingsView, ListedDrive, StoreInfo, TrackDetails, TracksPage};
-use locallibrary::clean::{CleanPlan, CleanReport};
 use locallibrary::compare::{Comparison, Favors, Relation, Suggestion};
 use locallibrary::convert::{ConvertPlan, ConvertReport, Target};
 use locallibrary::device::DeviceInfo;
@@ -695,43 +694,6 @@ pub fn merge_report(r: &MergeReport, target: &str) {
     }
 }
 
-pub fn clean_plan(p: &CleanPlan) {
-    say!(
-        "{}: remove {} track(s) and {} file(s), {}",
-        style(&p.drive).bold(),
-        p.tracks.len(),
-        p.files.len(),
-        bytes(p.bytes)
-    );
-    // The same sample is often exported many times over; list each once.
-    let mut counts: IndexMap<&str, usize> = IndexMap::new();
-    for t in &p.tracks {
-        *counts.entry(t.name.as_str()).or_default() += 1;
-    }
-    counts.sort_unstable_keys();
-    for (name, n) in counts {
-        let copies = if n > 1 { format!("  ×{n}") } else { String::new() };
-        say!("    - {name}{}", dim(copies));
-    }
-    for pl in &p.playlists {
-        say!(
-            "  remove {} entr{} from playlist {}",
-            pl.entries_removed,
-            if pl.entries_removed == 1 { "y" } else { "ies" },
-            pl.path
-        );
-    }
-    if p.lookup_rows > 0 {
-        say!(
-            "  {}",
-            dim(format!("and {} artist/album/genre/label/key/artwork row(s) nothing else uses", p.lookup_rows))
-        );
-    }
-    for w in &p.warnings {
-        warn(w);
-    }
-}
-
 pub fn convert_plan(p: &ConvertPlan) {
     let (to, from) = match p.to {
         Target::OneLibrary => ("OneLibrary (exportLibrary.db)", "export.pdb"),
@@ -766,13 +728,6 @@ pub fn convert_report(r: &ConvertReport, drive: &str) {
         "converted {} track(s), {} playlist(s), {} history playlist(s), {} artwork image(s)",
         r.tracks, r.playlists, r.history_playlists, r.artwork
     ));
-    if let Some(b) = &r.backup {
-        crate::output::hint(format!("undo with: locallibrary undo {drive:?} (backup {b})"));
-    }
-}
-
-pub fn clean_report(r: &CleanReport, drive: &str) {
-    ok(format!("removed {} track(s) and {} file(s), {}", r.tracks_removed, r.files_deleted, bytes(r.freed_bytes)));
     if let Some(b) = &r.backup {
         crate::output::hint(format!("undo with: locallibrary undo {drive:?} (backup {b})"));
     }

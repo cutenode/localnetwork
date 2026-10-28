@@ -54,6 +54,8 @@ On a pull request, each tool's workflow keeps one comment up to date with its co
 
 Pull requests also get a dependency review (`dependency-review.yml`). It fails when a dependency the pull request adds or updates (dev tooling aside) has a known advisory or a licence `deny.toml` doesn't allow (fonts may also be OFL-1.1), and then comments on the pull request with what it found.
 
+CodeQL scans the workflows, the TypeScript and the Rust on every pull request (`codeql.yml`), and `main` won't take a pull request that adds a high or critical security alert, or an error. The Rust tests are left out (`.github/codeql/codeql-config.yml`), so a new `#[cfg(test)]` module needs one of the names listed there, which `ast-grep scan` checks.
+
 ## Pull requests
 
 - Keep each pull request to one concern.
@@ -63,14 +65,11 @@ Pull requests also get a dependency review (`dependency-review.yml`). It fails w
 
 Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `tests`, `documentation`, `dependencies`, `github_actions` and `tooling`. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.
 
-## Issues and the project
+## Issues and planning
 
-Every open issue is on the organization's [Local Network project](https://github.com/orgs/cutenode/projects/9), and each tool's issues are also on its own: [web](https://github.com/orgs/cutenode/projects/3), [locallibrary](https://github.com/orgs/cutenode/projects/4) and [localtoolbox](https://github.com/orgs/cutenode/projects/5), plus [locallibrary-desktop](https://github.com/orgs/cutenode/projects/8) for the sidecar until there's a desktop app. The [Project workflow](workflows/project.yml) keeps them in step from the issues' labels.
+Open issues here on GitHub, with the issue forms. Each one is synced both ways with the Localnetwork team (`LOC`) in [Linear](https://linear.app/localnetwork/team/LOC), where they're triaged and planned: title, description, status, assignee, labels, priority, sub-issues and comments, so an issue can be worked on from either side. Comments left in Linear outside the synced thread stay in Linear.
 
-- Status: Inbox (new), Todo (triaged), In Progress, Done, the same on every project: change it on any of them and the others follow within a few hours. An issue leaves Inbox once it has a Priority, a milestone or an assignee, is In Progress while an open pull request closes it, and is Done once it's closed. Reopening it brings it back to Todo.
-- Product (on Local Network) and Area (on a tool's project): from the issue's labels, `locallibrary` and `locallibrary: <area>`. An issue with no tool's label gets the Product `repo`. To move an issue, change its label, not the field.
-- Type: Bug, Feature or Task. The issue forms set it, and an issue without one gets it from its labels (`bug` and `scheduled-failure` are Bugs, `enhancement` a Feature, anything else a Task).
-- Priority and Effort: set while triaging. Features can also get a Start date and Target date, which place them on the roadmap.
-- A release is a milestone, like `locallibrary v0.1.0`. Big work gets sub-issues, and work that has to wait gets a "blocked by" link.
-
-The views: Board (a column per Status, a row per Product), Inbox to triage, Backlog, Bugs, Tooling (CI, tests and dependencies), Releases (by milestone) and Roadmap (features by date). Each tool's project has a Board and Backlog by Area, and Bugs.
+- Status: a new issue starts in Triage, then Backlog or Todo once someone has looked at it, In Progress, In Review and Done (or Canceled). Closing it on GitHub makes it Done, and reopening it brings it back.
+- Pull requests: `Fixes #123` or `Fixes LOC-123` in the description closes the issue when the pull request merges, and `Part of LOC-123` links it without closing it. A branch named from Linear's "Copy git branch name" (`bnb/loc-123-…`) links it as soon as it's pushed. A linked pull request moves its issue to In Progress when it's opened, In Review when a review is requested, and Done when it merges.
+- Labels: the ones in [labels.yml](labels.yml), a tool's (`locallibrary`) and an area's (`locallibrary: player`), and `bug`, `enhancement` and `scheduled-failure` for what kind of issue it is. To move an issue to another tool or area, change its label.
+- Priority and estimate are set while triaging. A release is a Linear project, like `locallibrary v0.1.0`, with a target date. Big work gets sub-issues, and work that has to wait gets a "blocked by" relation.

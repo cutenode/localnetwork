@@ -16,12 +16,16 @@ export const COLLECTION = {
 	bookingStatus: `${NS}.booking.status`,
 	plannerSave: `${NS}.planner.save`,
 	plannerShow: `${NS}.planner.show`,
+	/** A DJ's playing stats, written by locallibrary to the DJ's own repo. */
+	djProfile: `${NS}.dj.profile`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
 	djSet: `${NS}.dj.set`,
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
 	epkGrant: `${NS}.epk.grant`,
+	/** A manager's unpublished changes to a press kit, in their repo in the project's backstage. */
+	epkDraft: `${NS}.epk.draft`,
 	/** A show a manager announced, in their own repo beside its calendar event. */
 	show: `${NS}.show`,
 	follow: `${NS}.follow`
@@ -36,7 +40,13 @@ export const VERIFICATION = 'app.bsky.graph.verification' as const;
 /** Bluesky's profile record, where an account's display name lives. */
 export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;
 
-/** Queries served by the directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows. */
+/** Bluesky's follow record, which press kits' "people you follow" audience reads. */
+export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
+
+/**
+ * Queries served by the directory, the HappyView AppView that indexes published projects, their managers' DJ records,
+ * press kits and shows, and follows.
+ */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
 	matchProjects: `${NS}.directory.matchProjects`,
@@ -50,7 +60,9 @@ export const DIRECTORY = {
 	getFollowStatus: `${NS}.directory.getFollowStatus`,
 	getCharts: `${NS}.directory.getCharts`,
 	getArtist: `${NS}.directory.getArtist`,
-	searchArtists: `${NS}.directory.searchArtists`
+	searchArtists: `${NS}.directory.searchArtists`,
+	getRecords: `${NS}.directory.getRecords`,
+	listRecords: `${NS}.directory.listRecords`
 } as const;
 
 export const SPACE_TYPE = {
@@ -60,7 +72,8 @@ export const SPACE_TYPE = {
 	industry: `${NS}.space.industry`,
 	booking: `${NS}.space.booking`,
 	planner: `${NS}.space.planner`,
-	epk: `${NS}.space.epk`
+	epk: `${NS}.space.epk`,
+	backstage: `${NS}.space.backstage`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];
