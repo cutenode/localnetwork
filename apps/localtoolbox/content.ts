@@ -77,6 +77,10 @@
 
 	type ProfilesProgress = Tbx.ProfilesProgress;
 
+	type SaveGateRequest = Tbx.SaveGateRequest;
+
+	type SaveGateAnswer = Tbx.SaveGateAnswer;
+
 	type DownloadedMarks = Tbx.DownloadedMarks;
 
 	type PageSettings = Tbx.PageSettings;
@@ -2581,7 +2585,11 @@
 	//     link's real destination (SoundCloud wraps it in the gate.sc
 	//     redirector; the panel unwraps it, and so does this). The browser
 	//     opens it, which means a ⌘-click still puts it behind the page, and
-	//     nothing here has to ask for a tab.
+	//     nothing here has to ask for a tab. The exception is a gate the
+	//     Downloader can always walk to a file (Hypeddit, Droploud, Pump Your
+	//     Sound): a plain click on one is walked and saved where it is, by the
+	//     background worker, and the gate only opens if that does not work
+	//     (see saveGate).
 	//   - "Download file" has no URL at all: it is a button whose click
 	//     SoundCloud answers with the file. The panel's button for such a
 	//     track opens the *track page*, where that menu item is, and the click
@@ -2807,6 +2815,43 @@
 		return { permalink, href, from: hostOf(href) || href };
 	};
 
+	// The gate sites whose walk always ends in a file (`yields: 'file'` under
+	// src/tools/third-party-downloads/sites/), by the hosts their links arrive
+	// on. A link to one of them is walked and saved where it is clicked; the
+	// rest end in a page to open or a signup, and opening the link is already
+	// the answer for those. test/consistency.test.ts holds this to the sites.
+	const WALKED_HOSTS = new Set(['hypeddit.com', 'droploud.com', 'pumpyoursound.com']);
+
+	const isWalked = (href: string) => WALKED_HOSTS.has(hostOf(href));
+
+	// A gate link, walked to its file by the background worker (background.ts)
+	// instead of opened. Saved, the track is marked the way the Downloader
+	// marks it; anything else and the worker has opened the gate in a tab,
+	// so the track is queued as any opened link is. `aria-busy` is the button
+	// saying it heard, and keeps a second click from walking it twice.
+	const saveGate = async (button: HTMLElement, url: string, permalink: string, fields: Partial<RowFields>) => {
+		if (button.getAttribute('aria-busy') === 'true') return;
+		button.setAttribute('aria-busy', 'true');
+
+		try {
+			const answer: SaveGateAnswer | undefined = await chrome.runtime.sendMessage({
+				type: 'SAVE_GATE',
+				url
+			} satisfies SaveGateRequest);
+
+			if (!answer?.saved) await enqueue(permalink, fields);
+			else if (answer.mark) mark(permalink);
+		} catch (_e) {
+			// No worker to ask: the extension was reloaded under this page. The
+			// link opens, and the track is queued, as they would have been
+			// without any of this.
+			window.open(url, '_blank', 'noopener');
+			await enqueue(permalink, fields);
+		} finally {
+			button.removeAttribute('aria-busy');
+		}
+	};
+
 	// Our button, put beside the control it stands in for. A link where there
 	// is somewhere to go, a button where the click itself is the whole of it.
 	/**
@@ -2823,7 +2868,7 @@
 		text.className = `${OURS_CLASS}__text`;
 		text.textContent = OURS_TEXT;
 		el.append(text);
-		el.addEventListener('click', () => {
+		el.addEventListener('click', (event) => {
 			// SoundCloud's own button first, so the file is asked for inside the
 			// click that asked for it: a browser hands a gesture on for a few
 			// seconds and there is nothing here worth spending them on. A link
@@ -2831,7 +2876,21 @@
 			if (kind === 'soundcloud') native.click();
 			// Read at click time, because a row can be recycled for another track
 			// between the paint that made this button and the click on it.
-			void enqueue(el.dataset.permalink!, fieldsAround(native));
+			const permalink = el.dataset.permalink!;
+			const link = el.getAttribute('href') || '';
+
+			// A modifier is someone asking for the link itself, in a tab of its own.
+			const modified =
+				event instanceof MouseEvent && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+
+			if (!modified && isWalked(link)) {
+				event.preventDefault();
+				void saveGate(el, link, permalink, fieldsAround(native));
+
+				return;
+			}
+
+			void enqueue(permalink, fieldsAround(native));
 		});
 		native.after(el);
 

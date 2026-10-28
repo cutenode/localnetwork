@@ -1,8 +1,9 @@
 // Build for the extension's UI.
 //
 // The extension used to ship exactly what it ran: classic scripts, one HTML
-// page per tool, no build step. The UI is now a Svelte app, so there is one
-// — but only for the popup, which is bundled into ES modules (.mjs).
+// page per tool, no build step. The UI is now a Svelte app, so there is one,
+// but only for the extension's own pages: the popup, and the background
+// worker with the offscreen page it opens, all bundled into ES modules.
 // Everything that runs *in the page* (content.ts and the store it shares with
 // the panels) is still a classic script: it is written in TypeScript, and the
 // only compiling it gets is its types blanked out, so the content script keeps
@@ -105,9 +106,12 @@ function commit() {
 	}
 }
 
+// The popup's alone: the offscreen page reads neither global.
 const injectClassicScripts = (): Plugin => ({
 	name: 'toolbox-classic-scripts',
-	transformIndexHtml() {
+	transformIndexHtml(_html, { filename }) {
+		if (!filename.endsWith('popup.html')) return undefined;
+
 		return classicScripts.map((src) => ({
 			tag: 'script',
 			attrs: { src: `./${src}` },
@@ -157,11 +161,18 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			input: { popup: resolve(root, 'popup.html') },
+			// The popup, and the two that walk a gate for the page's Download button:
+			// the background worker and the offscreen page it opens (background.ts).
+			input: {
+				popup: resolve(root, 'popup.html'),
+				offscreen: resolve(root, 'offscreen.html'),
+				background: resolve(root, 'background.ts')
+			},
 			// ES modules, named as such. Chrome serves an extension's .mjs files as
-			// JavaScript, which is all a module script needs.
+			// JavaScript, which is all a module script needs. The worker keeps a name
+			// without a hash, because the manifest has to name it.
 			output: {
-				entryFileNames: 'assets/[name]-[hash].mjs',
+				entryFileNames: (chunk) => (chunk.name === 'background' ? 'background.js' : 'assets/[name]-[hash].mjs'),
 				chunkFileNames: 'assets/[name]-[hash].mjs'
 			}
 		}
