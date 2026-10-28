@@ -336,6 +336,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     and keeping the track's page as the set's link. A recording plyr.fm wouldn't take (another
     format, or over 1536 MiB) is refused before anything goes. It signs in with a plyr.fm
     developer token, kept as a secret setting, and goes online only to publish.
+  - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
+    recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
+    no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
+    by the `creator` setting, its tracklist as the description and tagged `dj mix`, sent again a
+    few times when it doesn't arrive or the Archive says to slow down, and keeping the item's page
+    as the set's link. It signs in with the account's S3 keys, kept as secret settings, goes
+    online only to publish, and never waits for the Archive to process the item.
   - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
     frame) over the recording, and it goes up through YouTube's resumable upload, titled after the

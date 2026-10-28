@@ -215,6 +215,7 @@ atstore:
           - "apps/locallibrary/src/{account_cmd,publish_cmd,sets_cmd,profile_cmd}{.rs,/**}"
           - "apps/locallibrary/src/tui/{account,account_off,profile}{.rs,/**}"
           - "apps/locallibrary/docs/{account,sets}.md"
+          - "plugins/archive/**"
           - "plugins/musicbrainz/**"
           - "plugins/plyr/**"
           - "plugins/youtube/**"

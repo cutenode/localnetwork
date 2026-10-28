@@ -57,6 +57,22 @@ are:
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
   sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
   plyr.fm after a day, and publishing again starts over.
+- **archive**: a set destination, `item`: `locallibrary sets publish SET --to archive:item`
+  uploads the set's recording to the [Internet Archive](https://archive.org) as an item of yours in
+  Community Audio, titled after the set (else its venue and date), by the DJ name you give it
+  (`locallibrary plugin settings archive creator NAME`), with its tracklist as the description
+  (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
+  `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
+  is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
+  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
+  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
+  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
+  would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
+  new item while it processes it, and the link works once it has. The Archive is only for what
+  you have the rights to share: it takes down mixes of other people's records when the rights
+  holders ask.
+
 - **youtube**: a set destination, `video`: `locallibrary sets publish SET --to youtube:video`
   uploads the set to YouTube as a video on your channel and keeps its page as the set's link.
   YouTube takes videos, not audio, so the plugin runs [FFmpeg](https://ffmpeg.org/download.html)
@@ -83,14 +99,14 @@ are:
   gives Local Network's Google client a number of uploads a day (100 for now), shared by everyone
   publishing through it: once they're used up, publishing says so, and works again the next day.
 
-coverart, musicbrainz, plyr and youtube are the only ones that go online, and only for these,
+coverart, musicbrainz, plyr, archive and youtube are the only ones that go online, and only for these,
 through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first
 two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed
 in, with `--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup`
 (or `plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish
---to plyr:track` or `--to youtube:video` once you confirm it. `analyze` alone leaves out the
-analyzers that go online, and says so. youtube is the only one that runs another program (FFmpeg),
-as you, like any plugin.
+--to plyr:track`, `--to archive:item` or `--to youtube:video` once you confirm it. `analyze` alone
+leaves out the analyzers that go online, and says so. youtube is the only one that runs another
+program (FFmpeg), as you, like any plugin.
 
 ## What you have
 
