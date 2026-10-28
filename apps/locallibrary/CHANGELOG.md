@@ -356,6 +356,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
     fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
     through Local Network's token exchange, with the token in the query as Mixcloud takes it.
+  - `soundcloud`: a set destination, `sets publish SET --to soundcloud:track`, uploading the set's
+    recording to SoundCloud as a track in one form, titled after the set, its tracklist as the
+    description, tagged `dj mix`, not downloadable and private unless the `sharing` setting says,
+    with the `genre` and `picture` settings as its genre and artwork, and keeping the track's page
+    as the set's link. A recording or artwork SoundCloud wouldn't take is refused before anything
+    goes. An upload that fails on the way is sent again whole a few times, once the plugin has
+    checked SoundCloud didn't make the track anyway. It signs in to SoundCloud through Local
+    Network's token exchange.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
