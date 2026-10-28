@@ -215,7 +215,9 @@ export class EpkDrafts {
 		// A draft written straight to the backstage can name any key, so it only publishes onto this project's press kit.
 		if (live && live.record.project !== current.uri) throw new NotFoundError('That press kit does not exist');
 
-		if (!live && (await this.epks.kits(current, true)).length >= MAX_EPKS_PER_PROJECT)
+		const kits = await this.epks.kits(current, true);
+
+		if (!live && kits.length >= MAX_EPKS_PER_PROJECT)
 			throw new UserError(`A project can have at most ${MAX_EPKS_PER_PROJECT} press kits`);
 		const published = live ? fieldsOf(live.record, await this.epks.content(live)) : {};
 		const keep = new Set(options.keep ?? []);
@@ -288,6 +290,7 @@ export class EpkDrafts {
 		}
 
 		await this.epks.indexed.awaitWrite(root.did, COLLECTION.epk, kitRkey, ref.cid);
+		this.epks.rereadFollows(current, kits, { access: visible.access });
 
 		await root.putSpaceRecord({
 			space: kitSpace,

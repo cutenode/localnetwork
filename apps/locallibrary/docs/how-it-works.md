@@ -50,6 +50,8 @@ plugins/interop/            the interop plugin: exporters for Traktor, Serato, E
                             and a library source reading Traktor's collection.nml back
 plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
                             and artist IDs, looked up by its ISRC and kept where they fit the track
+plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
+                            in parts as a track, its tracklist the description, the track's page its link
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform

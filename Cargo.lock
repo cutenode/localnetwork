@@ -3952,6 +3952,7 @@ dependencies = [
  "locallibrary-plugin-demos",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-musicbrainz",
+ "locallibrary-plugin-plyr",
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
  "locallibrary-plugin-youtube",
@@ -4043,6 +4044,19 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "locallibrary-plugin-plyr"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -62,6 +62,21 @@ describe('IndexedRepo', () => {
 		expect(await repo.getRecord(DJ, COLLECTION.djSet, 'missing')).toBeNull();
 	});
 
+	it("lists all of an account's records a page at a time, or up to a number of pages", async () => {
+		const hv = new FakeHappyView('did:plc:root');
+		const { client, calls } = admin(hv);
+		const repo = new IndexedRepo(client, silentLogger);
+
+		const sets = await Promise.all(
+			Array.from({ length: 150 }, (_, i) => publishSet(hv, `3set${String(i).padStart(3, '0')}`))
+		);
+
+		const all = await repo.listAll(DJ, COLLECTION.djSet);
+		expect(all.map((record) => record.uri)).toEqual(sets.map((set) => set.uri).toReversed());
+		expect(calls).toEqual([`/xrpc/${DIRECTORY.listRecords}`, `/xrpc/${DIRECTORY.listRecords}`]);
+		expect(await repo.listAll(DJ, COLLECTION.djSet, { pages: 1 })).toHaveLength(100);
+	});
+
 	it("waits for a write HappyView serves, and has it re-read the account's repo for one it doesn't", async () => {
 		const hv = new FakeHappyView('did:plc:root');
 		const { client, calls } = admin(hv);

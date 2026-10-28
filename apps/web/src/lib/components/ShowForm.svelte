@@ -3,7 +3,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import PlacePicker from './PlacePicker.svelte';
 
-	/** The announce form: what, when and where on the venue's clock, and a ticket link. `editing` adds cancelling. */
+	/** The announce form: what, when and where on the venue's clock, and a ticket link. `editing` adds cancelling, and the versions its save swaps on. */
 	let { values, geocoder = true, editing = false }: { values: ShowFormValues; geocoder?: boolean; editing?: boolean } = $props();
 
 	const place = $derived({ city: values.city, region: values.region, country: values.country, latE6: values.latE6, lngE6: values.lngE6 });
@@ -23,6 +23,8 @@
 	<p id="end-hint" class="hint -mt-2">Times are the venue's. An end before the start is the next morning.</p>
 	<div><label class="label" for="tickets">Ticket link <span class="font-normal text-fg-subtle">(optional)</span></label><input id="tickets" type="url" name="tickets" class="input" maxlength="2000" placeholder="https://" value={values.tickets} /></div>
 	{#if editing}
+		<input type="hidden" name="showCid" value={values.showCid} />
+		<input type="hidden" name="eventCid" value={values.eventCid} />
 		<label class="flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="cancelled" checked={values.cancelled} />This show is cancelled</label>
 	{/if}
 </Card>
