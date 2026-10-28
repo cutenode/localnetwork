@@ -1,0 +1,20 @@
+id = "plyr"
+name = "plyr.fm"
+version = "0.1.0"
+protocol = "^0.2"
+# It sends the set's recording, title and tracklist to plyr.fm's API, and nowhere else.
+capabilities = ["net:api.plyr.fm"]
+
+# `sets publish SET --to plyr:track`: the recording becomes a track of the account the token is
+# for, its tracklist the description, and the track's page the set's link.
+[[contributes.destinations]]
+name = "track"
+title = "A track on plyr.fm"
+kind = "set"
+
+# plyr.fm signs scripts in with a developer token. The host keeps it in the keychain and fills it
+# into the plugin's requests to plyr.fm; the plugin never sees it.
+[[contributes.settings]]
+key = "token"
+title = "Developer token (make one at plyr.fm/settings#developer)"
+type = "secret"

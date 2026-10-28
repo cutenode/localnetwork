@@ -326,11 +326,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     for `sets publish` to publish: the recording only when it's the track's (its length, or
     without one its title; of several, both), the earliest release named as the album, and the
     artists when each name the track credits is one of the recording's, answered with the ISRC
-    and credits they're for (the `isrc` and `credits` roles). It and `coverart` are the only ones
-    that go online, a request a second to MusicBrainz between them, and only for `art fetch`,
-    `track fetch`, `analyze --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets
-    publish` about to publish (signed in and confirmed), unless `--no-lookup` or `plugin roles
-    recording --none`.
+    and credits they're for (the `isrc` and `credits` roles). It and `coverart` go online, a
+    request a second to MusicBrainz between them, only for `art fetch`, `track fetch`, `analyze
+    --plugin musicbrainz` (plain `analyze` leaves it out) and a `sets publish` about to publish
+    (signed in and confirmed), unless `--no-lookup` or `plugin roles recording --none`.
+  - `plyr`: a set destination, `sets publish SET --to plyr:track`, uploading the set's recording
+    to plyr.fm as a track in the parts plyr.fm asks for (each sent again a few times when it
+    doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
+    and keeping the track's page as the set's link. A recording plyr.fm wouldn't take (another
+    format, or over 1536 MiB) is refused before anything goes. It signs in with a plyr.fm
+    developer token, kept as a secret setting, and goes online only to publish.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -355,7 +360,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
   never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
   Google) is signed in to through Local Network's token exchange, which holds the secret, so
-  none ships with locallibrary. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
+  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
+  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
+  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The plugin uploads the recording through locallibrary

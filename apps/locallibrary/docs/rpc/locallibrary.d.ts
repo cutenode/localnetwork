@@ -7907,7 +7907,32 @@ export type Account = {
   pkce: boolean;
   /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
   revoke_url?: string | null;
+  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
+  token?: TokenPlace;
+  /**
+   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+   * URI with the one its client was registered with, port and all (SoundCloud): that's then
+   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
+   */
+  redirect_port?: number | null;
 };
+
+/**
+ * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+ * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ */
+export type TokenPlace =
+  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
+  | {
+    scheme: string;
+  }
+  /**
+   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
+   * there (Mixcloud).
+   */
+  | {
+    query: string;
+  };
 
 /** Run with `command/run`. */
 export type Command = {
