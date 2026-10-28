@@ -216,6 +216,7 @@ atstore:
           - "apps/locallibrary/src/tui/{account,account_off,profile}{.rs,/**}"
           - "apps/locallibrary/docs/{account,sets}.md"
           - "plugins/archive/**"
+          - "plugins/mixcloud/**"
           - "plugins/musicbrainz/**"
           - "plugins/plyr/**"
           - "plugins/soundcloud/**"

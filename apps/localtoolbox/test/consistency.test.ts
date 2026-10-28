@@ -27,8 +27,20 @@ const appCss = read('src/app.css');
 describe('manifest.json', () => {
 	it('is a Manifest V3 extension with only the permissions the README lists', () => {
 		expect(manifest.manifest_version).toBe(3);
-		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads']);
-		expect(manifest.background).toBeUndefined();
+		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads', 'offscreen']);
+		// The one worker: it walks a gate for the page's Download button (background.ts).
+		expect(manifest.background).toEqual({ service_worker: 'background.js', type: 'module' });
+	});
+
+	// The page walks a link to a gate whose walk always ends in a file rather
+	// than following it (content.ts saveGate). A classic script cannot import
+	// the registry, so it keeps its own list of hosts, held to the sites here.
+	it('lets the page walk exactly the sites whose walk ends in a file', () => {
+		const walked = SITES.flatMap((site) => (site.yields === 'file' ? [...site.hosts, ...(site.aliases ?? [])] : []));
+
+		const declared = /const WALKED_HOSTS = new Set\((\[[^\]]*\])\)/.exec(read('content.ts'))![1];
+
+		expect(JSON.parse(declared.replace(/'/g, '"')).sort()).toEqual(walked.sort());
 	});
 
 	// The Downloader reads gate pages from the panel, so every site it knows

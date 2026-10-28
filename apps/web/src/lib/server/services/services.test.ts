@@ -86,7 +86,7 @@ describe('services', () => {
 				actor: admin,
 				profile: profile('Deep Current', {
 					genres: ['deep house'],
-					fee: { tier: 'emerging' },
+					fees: [{ tier: 'emerging' }],
 					formats: ['vinyl'],
 					setTypes: ['warmup']
 				})

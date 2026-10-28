@@ -4,7 +4,7 @@
 	import { Plus, Trash2 } from '@lucide/svelte';
 	import { FEE_TIERS, FORMATS, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import { djSetLabel } from '#lib/format.ts';
-	import type { DjSetView, ProjectFormValues, ProjectLink, ProjectMix, StrongRef } from '#lib/types.ts';
+	import type { DjSetView, FeeFormRow, ProjectFormValues, ProjectLink, ProjectMix, StrongRef } from '#lib/types.ts';
 	import Avatar from './Avatar.svelte';
 	import GenreInput from './GenreInput.svelte';
 	import PlacePicker from './PlacePicker.svelte';
@@ -51,7 +51,20 @@
 		return (list.length ? list : [{ title: '', url: '' }]).map((mix) => ({ ...mix, key: nextMixKey++ }));
 	};
 
+	// Fee rows have stable keys too: their inputs aren't bound, so each must stay with its own row.
+	let nextFeeKey = 0;
+
+	const emptyFee = (): FeeFormRow & { key: number } => ({ label: '', tier: '', currency: '', minAmount: '', maxAmount: '', key: nextFeeKey++ });
+
+	const initialFees = () => {
+		const list = values.fees ?? [];
+
+		return list.length ? list.map((fee) => ({ ...fee, key: nextFeeKey++ })) : [emptyFee()];
+	};
+
 	let links = $state<ProjectLink[]>(initialLinks());
+
+	let fees = $state<(FeeFormRow & { key: number })[]>(initialFees());
 
 	let mixes = $state<(ProjectMix & { key: number })[]>(initialMixes());
 
@@ -130,7 +143,8 @@
 		};
 	}}
 >
-	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+	<!-- min-w-0 on each section: a fieldset is otherwise as wide as its widest content, which can outgrow a phone. -->
+	<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 		{@render legend('The basics', 'How promoters will see the project in search results.')}
 		<div class="grid gap-4 sm:grid-cols-[1fr_14rem]">
 			<div>
@@ -176,7 +190,7 @@
 		</div>
 	</fieldset>
 
-	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+	<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 		{@render legend('Where', 'Local matters: promoters search by distance from their venue.')}
 		<PlacePicker {values} {geocoder} />
 		<div class="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-end">
@@ -194,7 +208,7 @@
 		</div>
 	</fieldset>
 
-	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+	<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 		{@render legend('Sets and setup', 'Helps match the project to the right slot.')}
 		<fieldset>
 			<legend class="label">Set types</legend>
@@ -240,32 +254,32 @@
 		</div>
 	</fieldset>
 
-	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
-		{@render legend('Fees', 'The tier is public and used for budget matching. Amounts are optional.')}
-		<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-			<div>
-				<label class="label" for="feeTier">Tier</label>
-				<select id="feeTier" class="input" name="feeTier">
-					<option value="">Not listed</option>
-					{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v('feeTier') === option.value}>{option.label}</option>{/each}
-				</select>
-			</div>
-			<div>
-				<label class="label" for="feeCurrency">Currency</label>
-				<input id="feeCurrency" class="input uppercase" name="feeCurrency" value={v('feeCurrency')} maxlength="3" placeholder="USD" />
-			</div>
-			<div>
-				<label class="label" for="feeMin">From</label>
-				<input id="feeMin" class="input" type="number" min="0" name="feeMin" value={v('feeMin')} />
-			</div>
-			<div>
-				<label class="label" for="feeMax">Up to</label>
-				<input id="feeMax" class="input" type="number" min="0" name="feeMax" value={v('feeMax')} />
-			</div>
+	<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
+		{@render legend('Fees', 'One level per kind of booking. Tiers are public and used for budget matching. Amounts are optional.')}
+		<div class="flex flex-col gap-4">
+			{#each fees as fee (fee.key)}
+				<div class="flex flex-col gap-2">
+					<!-- On a phone the label takes its own row under the tier and the remove button. -->
+					<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+						<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="feeTier" aria-label="Fee tier">
+							<option value="">Pick a tier</option>
+							{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={fee.tier === option.value}>{option.label}</option>{/each}
+						</select>
+						<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="feeLabel" value={fee.label} maxlength="64" placeholder="What it covers, like club nights" aria-label="What this fee covers" />
+						{@render remove('Remove fee', () => (fees = fees.filter((f) => f.key !== fee.key)))}
+					</div>
+					<div class="grid grid-cols-[5.5rem_1fr_1fr] gap-2 sm:grid-cols-[11rem_1fr_1fr] sm:pr-13">
+						<input class="input uppercase" name="feeCurrency" value={fee.currency} maxlength="3" placeholder="USD" aria-label="Currency" />
+						<input class="input" type="number" min="0" name="feeMin" value={fee.minAmount} placeholder="From" aria-label="From" />
+						<input class="input" type="number" min="0" name="feeMax" value={fee.maxAmount} placeholder="Up to" aria-label="Up to" />
+					</div>
+				</div>
+			{/each}
+			<button type="button" class="btn-ghost btn-sm self-start" onclick={() => (fees = [...fees, emptyFee()])}><Plus class="size-4" />Add fee</button>
 		</div>
 	</fieldset>
 
-	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+	<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 		{@render legend('Links and mixes', 'SoundCloud, Mixcloud, and YouTube mixes can be played right on the profile.')}
 		<div class="flex flex-col gap-2">
 			<span class="label mb-0">Links</span>
@@ -343,7 +357,7 @@
 	</fieldset>
 
 	{#if showDetails}
-		<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		<fieldset class="card flex min-w-0 flex-col gap-5 p-5 sm:p-6">
 			{@render legend('Private booking details', "Only signed-in members see these. They're stored in a private atproto space, not your public repo.")}
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div>
