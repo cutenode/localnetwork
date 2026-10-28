@@ -1,0 +1,22 @@
+id: test-module-name
+valid:
+  - "#[cfg(test)]\nmod tests;"
+  - "#[cfg(test)]\npub(crate) mod tests;"
+  - "#[cfg(test)]\nmod props;"
+  - "#[cfg(test)]\npub(super) mod testing;"
+  - "#[cfg(any(test, feature = \"test-util\"))]\npub mod test_util;"
+  - "#[cfg(test)]\nmod screens;"
+  - "#[cfg(test)]\n#[path = \"../tests/support/sqlcipher.rs\"]\nmod sqlcipher;"
+  - "#[path = \"../tests/support/sqlcipher.rs\"]\n/// The key.\n#[cfg(test)]\nmod sqlcipher;"
+  - "#[cfg(test)]\nmod helpers {\n    fn f() {}\n}"
+  - "#[cfg(not(test))]\nmod live;"
+  - "#[cfg(debug_assertions)]\n#[path = \"bin/test-plugin/plugin.rs\"]\nmod test_plugin;"
+  - "mod helpers;"
+  - "#[cfg(test)]\nmod tests;\nmod helpers;"
+invalid:
+  - "#[cfg(test)]\nmod helpers;"
+  - "#[cfg(test)]\npub(crate) mod fixtures;"
+  - "#[cfg(any(test, feature = \"test-util\"))]\npub mod fakes;"
+  - "#[cfg(test)]\n// The fixtures.\n#[allow(dead_code)]\nmod fixtures;"
+  - "#[cfg(test)]\n#[path = \"support/fixtures.rs\"]\nmod fixtures;"
+  - "#[path = \"../tests/fixtures.rs\"]\nfn f() {}\n#[cfg(test)]\nmod fixtures;"

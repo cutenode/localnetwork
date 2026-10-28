@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import type { ProjectProfile, ProjectView, StrongRef } from '#lib/types.ts';
 import { UserError } from '../core';
 import { HappyViewClient } from '../happyview/client';
@@ -179,7 +179,7 @@ describe('linked sets', () => {
 		expect(calls).toEqual(['/admin/backfill', '/admin/backfill/status', `/xrpc/${DIRECTORY.listSets}`]);
 	});
 
-	it("has HappyView read a project's new managers' sets, recordings, stats, press kits, calendar events and Bluesky profiles once it's published", async () => {
+	it("has HappyView read a project's new managers' sets, recordings, stats, press kits, calendar events, and Bluesky profiles and follows once it's published", async () => {
 		const backfilled: string[] = [];
 
 		// Reads go to the test's HappyView; only the backfills are watched.
@@ -215,6 +215,7 @@ describe('linked sets', () => {
 			.toEqual(
 				[
 					BSKY_PROFILE,
+					BSKY_FOLLOW,
 					CALENDAR_EVENT,
 					COLLECTION.djProfile,
 					COLLECTION.djRecording,

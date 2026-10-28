@@ -313,6 +313,44 @@ fn requests_to_a_limited_host_wait_their_turns() {
     assert_eq!(server.got().len(), 4, "the second never went");
 }
 
+/// Plugins limiting one host take its turns between them: two plugins asking one server keep to
+/// its limit together.
+#[test]
+fn plugins_limiting_one_host_share_its_turns() {
+    let server = Server::new(|_, _| ok("x"));
+    let second = talking(2.0).replace("id = \"echo\"", "id = \"second\"");
+    let options = Options { test_loopback: true, secrets: Storage::File, ..Options::default() };
+    let f = Fixture::new(|dir| vec![spec(dir, &talking(2.0), &[]), spec(dir, &second, &[])], options);
+    let run = |plugin: &str, params: Value| {
+        let ctx = Ctx::silent();
+        match f.plugins.run_command(plugin, "echo", params, f.context(), Some(&f.store), &ctx, &|_| {}).unwrap() {
+            CommandOutput::Headless(v) => v,
+            view => panic!("a headless command answers JSON: {view:?}"),
+        }
+    };
+    // Both running first, so only the turns take time.
+    run("echo", json!({}));
+    run("second", json!({}));
+    let started = Instant::now();
+    for plugin in ["echo", "second"] {
+        assert_eq!(run(plugin, json!({ "fetch": { "url": server.url.clone() } }))["result"]["status"], 200);
+    }
+    assert!(started.elapsed() >= Duration::from_millis(500), "{:?}", started.elapsed());
+}
+
+/// Tests kept offline (`Options::test_offline`) reach nothing but this computer, whatever the
+/// plugin may reach.
+#[test]
+fn tests_kept_offline_reach_only_this_computer() {
+    let server = Server::new(|_, _| ok("here"));
+    let manifest = talking(100.0).replacen("\"net:127.0.0.1\"", "\"net:127.0.0.1\", \"net:example.org\"", 1);
+    let f = fixture(&manifest, &[], Options { test_offline: true, ..Options::default() });
+    assert_eq!(f.fetch(json!({ "url": server.url.clone() }))["result"]["body"], "here");
+    let answer = f.fetch(json!({ "url": "https://example.org/" }));
+    assert_eq!(answer["error"]["data"]["kind"], "denied", "{answer}");
+    assert_eq!(answer["error"]["message"], "example.org isn't on this computer, and tests stay offline");
+}
+
 /// A plugin that doesn't say it has the `net` feature can't fetch, and one whose manifest limits
 /// what it fetches isn't hosted without it.
 #[test]
@@ -585,13 +623,21 @@ enum Mistake {
     SendsOutside,
     WritesOutside,
     WritesOver,
+    RangeAlone,
+    PastTheEnd,
+    FormAndBody,
+    ValueAndFile,
+    AccountInForm,
+    NotAType,
 }
 
 /// For any request a plugin gets wrong (an address that isn't one or that it may not reach, a
 /// method or header that can't be sent, two bodies, a placeholder that isn't closed or names none
 /// of its secrets or one that isn't set, a file to send that isn't there or one to send or write
-/// outside its scratch folder, or a file to write that's there already), the host refuses it
-/// saying why, wherever in the request the mistake is, and sends nothing.
+/// outside its scratch folder, a file to write that's there already, a range of no file or past
+/// its file's end, a form with a body, a form's part that's both text and a file or names an
+/// account, or a file part's type that isn't one), the host refuses it saying why, wherever in
+/// the request the mistake is, and sends nothing.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
     use Mistake::*;
@@ -612,6 +658,12 @@ fn a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
         SendsOutside,
         WritesOutside,
         WritesOver,
+        RangeAlone,
+        PastTheEnd,
+        FormAndBody,
+        ValueAndFile,
+        AccountInForm,
+        NotAType,
     ]));
     // Where a placeholder goes: a header, the query or the body.
     let place = tc.draw(gs::sampled_from(vec!["header", "query", "body"]));
@@ -643,6 +695,35 @@ fn a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
             (json!({ "url": server.url, "into_blob": elsewhere }), "invalid", "isn't in the scratch".into())
         }
         WritesOver => (json!({ "url": server.url, "into_blob": "held" }), "invalid", "exists".into()),
+        RangeAlone => {
+            let range = json!({ "offset": 1 });
+            (json!({ "url": server.url, "body": "a", "body_range": range }), "invalid", "of a body_blob".into())
+        }
+        PastTheEnd => {
+            let range = json!({ "offset": 2, "length": 3 });
+            let said = "3 bytes from 2 go past its end, at 4".into();
+            (json!({ "url": server.url, "body_blob": "held", "body_range": range }), "invalid", said)
+        }
+        FormAndBody => {
+            let form = json!([{ "name": "a", "value": "b" }]);
+            (
+                json!({ "url": server.url, "body": "a", "multipart": form }),
+                "invalid",
+                "a multipart form or a body".into(),
+            )
+        }
+        ValueAndFile => {
+            let form = json!([{ "name": "a", "value": "b", "file": "held" }]);
+            (json!({ "url": server.url, "multipart": form }), "invalid", "has a value or a file".into())
+        }
+        AccountInForm => {
+            let form = json!([{ "name": "a", "value": "{account:main}" }]);
+            (json!({ "url": server.url, "multipart": form }), "invalid", "only in the Authorization header".into())
+        }
+        NotAType => {
+            let form = json!([{ "name": "a", "file": "held", "content_type": "not a type" }]);
+            (json!({ "url": server.url, "multipart": form }), "invalid", "\"not a type\" isn't a content type".into())
+        }
     };
     params = json!({ "fetch": params, "blobs": { "held": b"mine" } });
     let e = f.echo_params(params).unwrap();
@@ -650,4 +731,143 @@ fn a_request_made_wrong_is_refused_saying_why(tc: hegel::TestCase) {
     let message = e["error"]["message"].as_str().unwrap();
     assert!(message.contains(&said), "{mistake:?}: {message}");
     assert!(server.got().is_empty(), "{mistake:?}: nothing was sent");
+}
+
+/// A file of `size` letters, `abc...zab...`, so a part of it shows where it's from.
+pub(super) fn letters(size: usize) -> Vec<u8> {
+    (0..size).map(|i| b'a' + (i % 26) as u8).collect()
+}
+
+/// For any file in the request's scratch folder and any part of it (from any offset, of any
+/// length or to its end), the host sends those bytes and no others, saying how many; a part
+/// going past the file's end is refused, and nothing is sent.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_request_sends_the_part_of_a_file_its_range_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let server = Server::new(|_, got| ok(got.body.clone()));
+    let f = fixture(&talking(100.0), &[], Options::default());
+    let size = tc.draw(gs::integers::<u64>().max_value(40));
+    let offset = tc.draw(gs::integers::<u64>().max_value(48));
+    let length = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u64>().max_value(48)));
+    let mut range = json!({ "offset": offset });
+    if let Some(length) = length {
+        range["length"] = json!(length);
+    }
+    let fetch =
+        json!({ "url": format!("{}/part", server.url), "method": "PUT", "body_blob": "sent", "body_range": range });
+    let answer = f.echo_params(json!({ "fetch": fetch, "blobs": { "sent": letters(size as usize) } })).unwrap();
+    let end = length.map_or(size.max(offset), |length| offset + length);
+    if end > size {
+        assert_eq!(answer["error"]["data"]["kind"], "invalid", "{answer}");
+        assert!(answer["error"]["message"].as_str().unwrap().contains("go past its end"), "{answer}");
+        assert!(server.got().is_empty(), "nothing was sent");
+        return;
+    }
+    let part = String::from_utf8(letters(size as usize)[offset as usize..end as usize].to_vec()).unwrap();
+    assert_eq!(answer["result"]["body"], part, "{answer}");
+    assert_eq!(server.got()[0].headers["content-length"], (end - offset).to_string());
+}
+
+/// A file's parts as an upload in parts sends them: from its start, the next, and the last one
+/// shorter (to its end, or saying how long), and none past its end; one at its end is empty.
+#[test]
+fn a_file_is_sent_in_parts_to_its_end() {
+    let server = Server::new(|_, got| ok(got.body.clone()));
+    let f = fixture(&talking(100.0), &[], Options::default());
+    let send = |range: Value| {
+        let fetch =
+            json!({ "url": format!("{}/part", server.url), "method": "PUT", "body_blob": "sent", "body_range": range });
+        let answer = f.echo_params(json!({ "fetch": fetch, "blobs": { "sent": b"0123456789" } })).unwrap();
+        match answer["result"]["body"].as_str() {
+            Some(body) => Ok(body.to_string()),
+            None => Err(answer["error"]["message"].as_str().unwrap().to_string()),
+        }
+    };
+    assert_eq!(send(json!({ "length": 4 })).unwrap(), "0123");
+    assert_eq!(send(json!({ "offset": 4, "length": 4 })).unwrap(), "4567");
+    assert_eq!(send(json!({ "offset": 8 })).unwrap(), "89");
+    assert_eq!(send(json!({ "offset": 8, "length": 2 })).unwrap(), "89");
+    let e = send(json!({ "offset": 8, "length": 4 })).unwrap_err();
+    assert!(e.ends_with("4 bytes from 8 go past its end, at 10"), "{e}");
+    assert_eq!(send(json!({ "offset": 10 })).unwrap(), "");
+    assert!(send(json!({ "offset": 11 })).unwrap_err().ends_with("0 bytes from 11 go past its end, at 10"));
+    assert_eq!(server.got().len(), 5, "none went past the end");
+}
+
+/// For any form (text parts, one naming its secret or not, and a file, or part of one, in any
+/// place, or not when it has text), the host sends it as `multipart/form-data` with a boundary of its own (the type the
+/// plugin said left out), each part as it's named, saying how long it all is, and the secret
+/// filled in.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_form_is_sent_as_multipart_with_its_file(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let server = Server::new(|_, got| ok(got.body.clone()));
+    let f = fixture(&talking(100.0), &[], Options::default());
+    f.plugins.set_setting("echo", &f.store, "token", Some(json!("s3cret"))).unwrap();
+    let texts: Vec<(String, String)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::from_regex("[a-z]{1,6}").fullmatch(true),
+            hegel::one_of!(gs::from_regex("[a-z ]{0,8}").fullmatch(true), gs::just("{secret:token}".to_string()))
+        ))
+        .max_size(3),
+    );
+    let mut parts: Vec<Value> = texts.iter().map(|(name, value)| json!({ "name": name, "value": value })).collect();
+    // Each part as it's sent: its name, what its head says besides, and its value.
+    let mut sent: Vec<(String, &str, String)> =
+        texts.iter().map(|(name, value)| (name.clone(), "", value.replace("{secret:token}", "s3cret"))).collect();
+    // A form has a part at least.
+    if texts.is_empty() || tc.draw(gs::booleans()) {
+        let size = tc.draw(gs::integers::<usize>().max_value(30));
+        let offset = tc.draw(gs::integers::<usize>().max_value(size));
+        let at = tc.draw(gs::integers::<usize>().max_value(parts.len()));
+        let mix = String::from_utf8(letters(size)[offset..].to_vec()).unwrap();
+        let mut file = json!({ "name": "mp3", "file": "mix", "range": { "offset": offset } });
+        // Its file's name and type, or neither.
+        let head = match tc.draw(gs::booleans()) {
+            true => {
+                file["filename"] = json!("Friday.mp3");
+                file["content_type"] = json!("audio/mpeg");
+                "; filename=\"Friday.mp3\"\r\nContent-Type: audio/mpeg"
+            }
+            false => "",
+        };
+        parts.insert(at, file);
+        sent.insert(at, ("mp3".into(), head, mix));
+        let headers = json!({ "Content-Type": "text/plain" });
+        let fetch = json!({ "url": server.url.clone(), "method": "POST", "headers": headers, "multipart": parts });
+        f.echo_params(json!({ "fetch": fetch, "blobs": { "mix": letters(size) } })).unwrap();
+    } else {
+        f.echo_params(json!({ "fetch": { "url": server.url.clone(), "method": "POST", "multipart": parts } })).unwrap();
+    }
+    let got = &server.got()[0];
+    let boundary = got.headers["content-type"].strip_prefix("multipart/form-data; boundary=").unwrap();
+    let mut body = String::new();
+    for (name, head, value) in &sent {
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"{head}\r\n\r\n{value}\r\n"
+        ));
+    }
+    body.push_str(&format!("--{boundary}--\r\n"));
+    assert_eq!(got.body, body);
+    assert_eq!(got.headers["content-length"], body.len().to_string());
+}
+
+/// A file a request sends is read again for a redirect that asks for the body again (307 and
+/// 308), and isn't for one that asks again without it (303).
+#[test]
+fn a_file_is_sent_again_where_a_redirect_asks_for_the_body() {
+    let server = redirecting();
+    let f = fixture(&talking_to_two(), &[], Options::default());
+    let send = |path: &str| {
+        let range = json!({ "offset": 8 });
+        let url = format!("{}{path}", server.url);
+        let fetch = json!({ "url": url, "method": "PUT", "body_blob": "sent", "body_range": range });
+        f.echo_params(json!({ "fetch": fetch, "blobs": { "sent": b"part of a mix" } })).unwrap()["result"]["body"]
+            .clone()
+    };
+    assert_eq!(send("/r/307/same/r/308/other/end"), "PUT a mix");
+    let got = server.got();
+    assert_eq!(got.iter().map(|g| g.body.as_str()).collect::<Vec<_>>(), ["a mix"; 3]);
+    assert_eq!(send("/r/303/same/end"), "GET ");
+    assert_eq!(server.got()[3].body, "a mix", "sent to the first");
 }

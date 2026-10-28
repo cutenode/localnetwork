@@ -152,7 +152,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
@@ -221,7 +221,7 @@ jobs:
       - if: runner.os == 'Windows'
         shell: bash
         run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -266,7 +266,7 @@ jobs:
       # As the Linux shards have them, and rg, which the script picks the tests with.
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
       - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -309,7 +309,7 @@ jobs:
       # nextest lists the tests by running each binary, which links ALSA on Linux.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -434,7 +434,7 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-deny
       - run: cargo deny --locked check advisories bans licenses sources
@@ -457,7 +457,7 @@ jobs:
       - run: rustup toolchain install
       # No rust-cache: only main saves caches, and this job never runs there. cargo-semver-checks
       # builds each crate, and its baseline, in a target directory of its own anyway.
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-semver-checks
       - name: Check the loclib-* crates against the base branch

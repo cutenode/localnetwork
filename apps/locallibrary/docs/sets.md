@@ -155,18 +155,19 @@ it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see 
 software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
 publishing: a track marked unnamed or one your profile hides (`profile hide`) is `ID - ID` there.
 `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as a
-`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
+`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks,
+looking up its tracks' MusicBrainz IDs first when a plugin works them out (`--no-lookup` doesn't).
 
 `sets publish SET --to PLUGIN:DESTINATION` has a plugin publish the set's recording (see
 [Plugins](plugins.md)), and the set keeps where the plugin says it can be heard as its link, with
 the name the plugin gives it. When the plugin keeps the recording as an Atmosphere record (a
 plyr.fm track, `fm.plyr.track`), the set keeps that too, and its record points to it as
 `recording`. Signed in, the same run then offers to publish the set's record with them: it shows
-the record and asks once, as `sets publish SET` does, with the same `--hide`. `--dry-run`
-publishes neither and says the record will be offered, `--yes` publishes both, and `--json` puts
-the record's plan and outcome in the same document as `record`. Saying no leaves the record for
-`sets publish SET` later, and a record that fails to publish says why and exits 5, the set still
-published at the destination.
+the record and asks once, as `sets publish SET` does, with the same `--hide` and `--no-lookup`.
+`--dry-run` publishes neither and says the record will be offered, `--yes` publishes both, and
+`--json` puts the record's plan and outcome in the same document as `record`. Saying no leaves the
+record for `sets publish SET` later, and a record that fails to publish says why and exits 5, the
+set still published at the destination.
 
 `sets publish SET --upload` puts the set's recording on your Atmosphere account instead, as a
 `computer.localnetwork.dj.recording` record under the set's id, and then publishes the set's

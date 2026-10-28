@@ -1,9 +1,11 @@
 //! Feature `accounts`: a plugin's accounts on other services, which the host signs the user in to
 //! (OAuth 2's authorization code flow with PKCE, the browser coming back to this computer) and
-//! keeps the tokens of. A plugin never sees a token: a `net/fetch` request names an account as its
-//! `Authorization` header's value, `{account:<id>}`, which the host fills in with `Bearer` and the
-//! account's access token once the request is checked, refreshing it first when it's about to
-//! expire.
+//! keeps the tokens of. A plugin never sees a token: a `net/fetch` request names an account as
+//! `{account:<id>}` where its [`TokenPlace`] says the token goes (the `Authorization` header's
+//! value unless it says otherwise), which the host fills in with the account's access token once
+//! the request is checked, refreshing it first when it's about to expire. A service whose token
+//! endpoint wants a client secret is reached through Local Network's token exchange, which holds
+//! the secret: a secret can't ship inside an app people download.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -14,8 +16,15 @@ use url::{Host, Url};
 use crate::manifest::{invalid, shown, unique_names};
 use crate::{Capability, Feature, Manifest, ManifestError};
 
-/// What a `net/fetch` request's `Authorization` header says to name an account: `{account:<id>}`.
+/// What a `net/fetch` request says to name an account, as the whole of a header's or a query
+/// parameter's value: `{account:<id>}`.
 pub const ACCOUNT_PLACEHOLDER: &str = "{account:";
+
+/// Where Local Network's token exchange is, the only one an account may name: its path, then the
+/// service's id. The host posts it what it would have sent the service's token endpoint, and the
+/// website adds its client secret for the service and answers what the service did.
+const EXCHANGE_ORIGIN: &str = "https://localnetwork.computer";
+const EXCHANGE_PATH: &str = "/api/token-exchange/";
 
 // Every plugin written with the SDK has it: what's an account in a request is the host's to fill.
 pub(crate) const FEATURE: Feature =
@@ -30,12 +39,19 @@ pub struct Account {
     /// The service's authorization endpoint, where the browser signs in (https).
     pub authorize_url: String,
     /// Its token endpoint, where the host trades the browser's code for tokens and refreshes
-    /// them (https).
-    pub token_url: String,
+    /// them (https). An account has this or `token_exchange`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    /// Local Network's token exchange for its service
+    /// (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
+    /// a service that wants a client secret there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_exchange: Option<String>,
     /// What it asks the service for, as the service names them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
-    /// The plugin's client at the service: a public one, without a secret.
+    /// The plugin's client at the service: a public one, without a secret, or Local Network's,
+    /// whose secret its token exchange holds.
     pub client_id: String,
     /// Signing in uses PKCE: always, and a manifest saying otherwise is refused.
     #[serde(default = "pkce")]
@@ -43,36 +59,80 @@ pub struct Account {
     /// Where its tokens are revoked at signing out (RFC 7009), when the service has one (https).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoke_url: Option<String>,
+    /// Where its access token goes in a request: `Authorization: Bearer <token>` unless it says.
+    #[serde(default, skip_serializing_if = "TokenPlace::is_bearer")]
+    pub token: TokenPlace,
+    /// The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+    /// URI with the one its client was registered with, port and all (SoundCloud): that's then
+    /// `http://127.0.0.1:<port>/callback`. Any free port otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_port: Option<u16>,
 }
 
 fn pkce() -> bool {
     true
 }
 
-/// A web address an account's endpoint may be at, as the host's HTTP client reads it: https, or
-/// http on this computer for a test server (which the host reaches only in tests), with no user
-/// name or password.
-fn is_endpoint(url: &str) -> bool {
-    let plain = !url.chars().any(|c| c.is_whitespace() || c.is_control());
-    let Some(parsed) = Url::parse(url).ok().filter(|u| plain && u.username().is_empty() && u.password().is_none())
-    else {
-        return false;
-    };
-    let this_computer = match parsed.host() {
-        Some(Host::Domain(name)) => name == "localhost",
-        Some(Host::Ipv4(ip)) => ip == Ipv4Addr::LOCALHOST,
-        Some(Host::Ipv6(ip)) => ip == Ipv6Addr::LOCALHOST,
-        None => return false,
-    };
-    match parsed.scheme() {
-        "https" => true,
-        "http" => this_computer,
-        _ => false,
+/// Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+/// or `token = { query = "access_token" }`. The request names the account there, and only there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenPlace {
+    /// The `Authorization` header, as this scheme and the token (`OAuth <token>`).
+    Scheme(String),
+    /// This query parameter's value (`?access_token=<token>`), for a service that takes it only
+    /// there (Mixcloud).
+    Query(String),
+}
+
+impl Default for TokenPlace {
+    fn default() -> TokenPlace {
+        TokenPlace::Scheme("Bearer".into())
     }
 }
 
-/// `[[contributes.accounts]]`: ids, titles, endpoints, scopes and PKCE, and a `net:` capability
-/// for the requests its token goes into.
+impl TokenPlace {
+    fn is_bearer(&self) -> bool {
+        *self == TokenPlace::default()
+    }
+}
+
+/// The lowest [`Account::redirect_port`]: one below it is a system service's, which a program run
+/// by a user can't listen on everywhere.
+const LOWEST_PORT: u16 = 1024;
+
+/// `url` as the host's HTTP client reads it, when an account's endpoint may be there: https, or
+/// http on this computer for a test server (which the host reaches only in tests), with no user
+/// name or password.
+fn endpoint(url: &str) -> Option<Url> {
+    let plain = !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    let parsed = Url::parse(url).ok().filter(|u| plain && u.username().is_empty() && u.password().is_none())?;
+    let this_computer = match parsed.host()? {
+        Host::Domain(name) => name == "localhost",
+        Host::Ipv4(ip) => ip == Ipv4Addr::LOCALHOST,
+        Host::Ipv6(ip) => ip == Ipv6Addr::LOCALHOST,
+    };
+    match parsed.scheme() {
+        "https" => Some(parsed),
+        "http" if this_computer => Some(parsed),
+        _ => None,
+    }
+}
+
+/// Whether `url` is Local Network's token exchange for a service, or the same path on this
+/// computer for a test server. Nowhere else: the host sends it the user's codes and refresh
+/// tokens, and any other server taking them would only be a token endpoint by another name.
+fn is_exchange(url: &str) -> bool {
+    let Some(parsed) = endpoint(url) else { return false };
+    let ours = parsed.scheme() == "http" || parsed.origin().ascii_serialization() == EXCHANGE_ORIGIN;
+    let service = parsed.path().strip_prefix(EXCHANGE_PATH).unwrap_or_default();
+    let named = !service.is_empty() && service.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'));
+    ours && named && parsed.query().is_none() && parsed.fragment().is_none()
+}
+
+/// `[[contributes.accounts]]`: ids, titles, endpoints (a token endpoint or Local Network's token
+/// exchange), scopes, PKCE, where its token goes and the port the browser comes back to, and a
+/// `net:` capability for the requests its token goes into.
 pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
     let (at, c) = ("contributes.accounts", &m.contributes);
     unique_names(at, "id", c.accounts.iter().map(|x| x.id.as_str()).enumerate())?;
@@ -80,20 +140,47 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
         let at = format!("{at}[{i}]");
         shown(format!("{at}.title"), &x.title)?;
         shown(format!("{at}.client_id"), &x.client_id)?;
-        let urls = [("authorize_url", Some(&x.authorize_url)), ("token_url", Some(&x.token_url))];
+        let urls = [("authorize_url", Some(&x.authorize_url)), ("token_url", x.token_url.as_ref())];
         for (key, url) in urls.into_iter().chain([("revoke_url", x.revoke_url.as_ref())]) {
-            if let Some(url) = url.filter(|u| !is_endpoint(u)) {
+            if let Some(url) = url.filter(|u| endpoint(u).is_none()) {
                 return Err(invalid(
                     format!("{at}.{key}"),
                     format!("{url:?} isn't an https:// address without a user name or password"),
                 ));
             }
         }
+        match (&x.token_url, &x.token_exchange) {
+            (None, None) => return Err(invalid(format!("{at}.token_url"), "is missing, and so is token_exchange")),
+            (Some(_), Some(_)) => {
+                return Err(invalid(format!("{at}.token_exchange"), "goes in token_url's place, not beside it"));
+            }
+            (None, Some(url)) if !is_exchange(url) => {
+                let why =
+                    format!("{url:?} isn't Local Network's token exchange ({EXCHANGE_ORIGIN}{EXCHANGE_PATH}<service>)");
+                return Err(invalid(format!("{at}.token_exchange"), why));
+            }
+            _ => {}
+        }
         if let Some((j, scope)) = x.scopes.iter().enumerate().find(|(_, s)| s.is_empty() || s.contains(' ')) {
             return Err(invalid(format!("{at}.scopes[{j}]"), format!("{scope:?} isn't a scope: a word, no spaces")));
         }
         if !x.pkce {
             return Err(invalid(format!("{at}.pkce"), "is true: locallibrary signs in with PKCE only"));
+        }
+        // A scheme is an HTTP token (RFC 9110); a parameter's name is kept to what no query has to
+        // escape, so the request names it as the service does.
+        let (key, name, allowed, rule) = match &x.token {
+            TokenPlace::Scheme(s) => ("scheme", s, "!#$%&'*+-.^_`|~", "a scheme: one word, like Bearer or OAuth"),
+            TokenPlace::Query(q) => ("query", q, "-._~", "a query parameter's name: letters, digits, -, ., _ and ~"),
+        };
+        let fits =
+            !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || allowed.as_bytes().contains(&b));
+        if !fits {
+            return Err(invalid(format!("{at}.token.{key}"), format!("{name:?} isn't {rule}")));
+        }
+        if let Some(port) = x.redirect_port.filter(|p| *p < LOWEST_PORT) {
+            let why = format!("is {LOWEST_PORT} or more: {port} is a system service's");
+            return Err(invalid(format!("{at}.redirect_port"), why));
         }
     }
     if !c.accounts.is_empty() && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))) {

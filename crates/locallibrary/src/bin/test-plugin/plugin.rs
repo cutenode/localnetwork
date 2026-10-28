@@ -19,9 +19,10 @@ use loclib_plugin::{
     Analysis, AnalyzeAction, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, ExportAction,
     Exported, ExportedFile, Fetch, FetchAction, FieldValue, Findings, GetBlob, GetManifest, HasBlobs, Hooks, Host,
     HostAction, HostNotify, ImportAnswer, LibraryPage, ListItem, Manifest, OpAnswer, OpPlan, PlanCheck, PlanOp,
-    ProvideCandidates, PublishSet, PutBlob, PutManifest, ReadImport, ReadLibrary, RenderPanel, RpcError, RunCheck,
-    RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View, WriteExport, params,
+    ProvideCandidates, PublishSet, Published, PutBlob, PutManifest, ReadImport, ReadLibrary, RenderPanel, RpcError,
+    RunCheck, RunCommand, SourcePlaylist, SourceTrack, StartService, Suggested, View, WriteExport, params,
 };
+use loclib_progress::Phase;
 use serde_json::{Value, json};
 
 pub struct Test {
@@ -103,6 +104,9 @@ impl Test {
                 })
                 .on(move |req: PublishSet, host: &Host| {
                     said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"));
+                    if let Some(fetches) = req.context.settings.get("upload").and_then(Value::as_str) {
+                        return upload(req.clone(), fetches, host);
+                    }
                     match req.context.settings.get("answer").and_then(Value::as_str) {
                         Some(answer) => {
                             serde_json::from_str(answer).map_err(|e| RpcError::failed("invalid", e.to_string()))
@@ -192,7 +196,8 @@ impl Test {
             let mut fetch: Fetch = params(p["fetch"].clone())?;
             // A name, in this request's scratch folder.
             let scratch = req.context.scratch.clone().unwrap_or_default();
-            for blob in [&mut fetch.body_blob, &mut fetch.into_blob].into_iter().flatten() {
+            let files = fetch.multipart.iter_mut().filter_map(|p| p.file.as_mut());
+            for blob in [&mut fetch.body_blob, &mut fetch.into_blob].into_iter().flatten().chain(files) {
                 *blob = scratch.join(&*blob);
             }
             return Ok(match host.fetch(&fetch) {
@@ -543,6 +548,32 @@ fn checked(context: &Context, edits: &[Value], host: &Host) -> Result<Findings, 
 fn asked(p: &Value) -> Option<Choice> {
     let choice: Choice = serde_json::from_value(p.get("ask")?.clone()).ok()?;
     (p.get(&choice.param).is_none() || p["ask_again"] == true).then_some(choice)
+}
+
+/// Publishes a set by sending the `net/fetch` requests `fetches` (JSON) names, `recording` in a
+/// file's place being the set's, between the start and end of an upload of the recording's size:
+/// a request that fails fails it, or for a dry run is a warning. Then as echo does.
+fn upload(req: PublishSet, fetches: &str, host: &Host) -> Result<Published, RpcError> {
+    let mut fetches: Vec<Fetch> =
+        serde_json::from_str(fetches).map_err(|e| RpcError::failed("invalid", e.to_string()))?;
+    let size = std::fs::metadata(&req.recording).map_err(|e| RpcError::failed("io", e.to_string()))?.len();
+    let ctx = host.ctx();
+    ctx.phase_start(Phase::Upload, 0, size);
+    let mut warnings = Vec::new();
+    for fetch in &mut fetches {
+        let files = fetch.multipart.iter_mut().filter_map(|p| p.file.as_mut());
+        for file in fetch.body_blob.iter_mut().chain(files).filter(|f| f.as_os_str() == "recording") {
+            *file = req.recording.clone();
+        }
+        match host.fetch(fetch) {
+            Ok(_) => {}
+            Err(e) if req.dry_run => warnings.push(e.message),
+            Err(e) => return Err(e),
+        }
+    }
+    ctx.phase_end(Phase::Upload);
+    let published = echo::publish_set(req, host)?;
+    Ok(Published { warnings: [published.warnings, warnings].concat(), ..published })
 }
 
 /// Writes the files `p["blobs"]` gives (by name, their bytes) into the request's scratch folder,

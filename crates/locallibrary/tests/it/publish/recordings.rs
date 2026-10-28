@@ -72,7 +72,7 @@ fn an_mp3_goes_up_with_its_tracks_as_chapters() {
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
     let audio = mp3(200);
-    let file = save_set(&root, Some(&audio));
+    let file = save_set(&root, "friday.mp3", Some(&audio));
     let store = Store::open(&root).unwrap();
     let mut book = SetBook::load(&store).unwrap();
     let timed = |name: &str, start: Option<u32>| SetEntry { start_seconds: start, ..SetEntry::added(name) };
@@ -287,7 +287,7 @@ fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
     let max_bytes = tc.draw(gs::optional(gs::integers::<u64>().min_value(8_000).max_value(2 * audio.len() as u64)));
     let limit = max_bytes.map_or(MAX_BYTES, |m| m.min(MAX_BYTES));
     let as_is = is_mp3 && audio.len() as u64 <= limit;
-    let plan = match api::set_upload_plan(&root, &SetUploadRequest { set: ID.into(), max_bytes }) {
+    let plan = match api::set_upload_plan(&root, &SetUploadRequest { max_bytes, ..upload_request() }) {
         Ok(plan) => plan,
         Err(e) => {
             // Too long to fit the limit even at 64 kbit/s.

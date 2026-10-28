@@ -127,7 +127,7 @@ enum SetsCommand {
         /// marks unnamed and tracks your profile hides are never named)
         #[arg(long, value_name = "POSITIONS", value_parser = positions)]
         hide: Vec<Positions>,
-        /// Show what would be published without publishing
+        /// Show what would be published without publishing (or looking anything up)
         #[arg(long)]
         dry_run: bool,
         /// Upload its recording to your Atmosphere account first, and point its record at it
@@ -140,6 +140,10 @@ enum SetsCommand {
         #[cfg(feature = "account")]
         #[arg(long, value_name = "MIB", requires = "upload", value_parser = clap::value_parser!(u64).range(1..))]
         max_mib: Option<u64>,
+        /// Don't look up MusicBrainz IDs for the tracks that have none
+        #[cfg(feature = "account")]
+        #[arg(long)]
+        no_lookup: bool,
         #[cfg(feature = "account")]
         #[command(flatten)]
         browser: crate::browser::BrowserArgs,
@@ -518,12 +522,14 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             #[cfg(feature = "account")]
             max_mib,
             #[cfg(feature = "account")]
+            no_lookup,
+            #[cfg(feature = "account")]
             browser,
         } => {
             if let Some(spec) = to {
                 let (store, hide) = (store()?, all(hide));
                 #[cfg(feature = "account")]
-                let then = then(&store, store_path, &hide, browser, out, ctx)?;
+                let then = then(&store, store_path, &hide, !no_lookup, browser, out, ctx)?;
                 #[cfg(not(feature = "account"))]
                 let then = None;
                 return publish_to(&store, &spec, &set, &hide, dry_run, then, out, ctx);
@@ -533,9 +539,12 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
                 let req = api::SetPublishRequest { set, hide: all(hide) };
                 if upload {
                     let max_bytes = max_mib.map(|m| m.saturating_mul(1024 * 1024));
-                    return crate::publish_cmd::set_upload(store_path, &req, max_bytes, dry_run, browser, out, ctx);
+                    return crate::publish_cmd::set_upload(
+                        store_path, &req, max_bytes, dry_run, !no_lookup, browser, out, ctx,
+                    );
                 }
-                return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx)?.print(out));
+                return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, !no_lookup, browser, out, ctx)?
+                    .print(out));
             }
             #[cfg(not(feature = "account"))]
             unreachable!("clap requires --to without the Atmosphere account");
@@ -563,6 +572,7 @@ fn then<'a>(
     store: &locallibrary::Store,
     store_path: &'a Option<PathBuf>,
     hide: &'a [usize],
+    lookup: bool,
     browser: crate::browser::BrowserArgs,
     out: Output,
     ctx: &'a Ctx<'_>,
@@ -571,7 +581,7 @@ fn then<'a>(
     let publish = move |set: &str, done: &mut serde_json::Value| {
         let later = format!("`locallibrary sets publish {set}` publishes its record later");
         let req = api::SetPublishRequest { set: set.to_string(), hide: hide.to_vec() };
-        match crate::publish_cmd::set_publish(store_path, &req, false, browser, out, ctx) {
+        match crate::publish_cmd::set_publish(store_path, &req, false, lookup, browser, out, ctx) {
             Ok(record) => {
                 if !out.json && record.outcome == Outcome::Declined {
                     crate::output::hint(later);

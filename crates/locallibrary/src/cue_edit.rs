@@ -502,7 +502,7 @@ pub fn list(device: &Device, track_ids: &[u32]) -> Result<Vec<TrackCues>> {
 /// [`list`], with the drive's library read already.
 pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<Vec<TrackCues>> {
     let mut warnings = Vec::new();
-    let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
+    let plus = crate::onelibrary::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
     let mut out = Vec::new();
     for id in track_ids {
@@ -902,7 +902,7 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
     let library = device.library()?;
     let track = |id: u32| library.track(id).ok_or_else(|| Error::no_track(id));
     let mut warnings = Vec::new();
-    let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
+    let plus = crate::onelibrary::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
     let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::file_key(&t.file_path)).copied());
 

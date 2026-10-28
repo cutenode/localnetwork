@@ -142,10 +142,10 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     let env = Env::new();
     let out = env.ok(&["plugin", "roles"]);
     assert!(line(&out, "loudness").contains("sound.tempo-key-loudness  default"), "{out}");
-    assert!(line(&out, "identity").contains("no analyzer works it out"), "{out}");
+    assert!(line(&out, "identity").contains("musicbrainz.ids  default"), "{out}");
     let v = env.json(&["plugin", "roles", "key"]);
     let sound = "sound.tempo-key-loudness";
-    assert_eq!(v, json!([{ "role": "key", "chosen": sound, "set": false, "offered": [sound] }]));
+    assert_eq!(v, json!([{ "role": "key", "chosen": sound, "set": false, "off": false, "offered": [sound] }]));
     let out = env.ok(&["--yes", "plugin", "roles", "key", sound]);
     assert!(line(&out, "key  ").ends_with("chosen"), "{out}");
     let out = env.ok(&["--yes", "plugin", "roles", "key", "--reset"]);
@@ -154,6 +154,36 @@ fn plugin_roles_shows_and_chooses_where_each_role_is_read_from() {
     assert!(err.contains("sound.nope doesn't work out key: sound.tempo-key-loudness does"), "{err}");
     let err = env.fails(2, &["plugin", "roles", "tempo"]);
     assert!(err.contains("\"tempo\" isn't a role"), "{err}");
+
+    // A role read from none, for good: `sets publish` looks up no MusicBrainz IDs.
+    let out = env.ok(&["--yes", "plugin", "roles", "recording", "--none"]);
+    assert!(line(&out, "recording  ").ends_with("none, as chosen"), "{out}");
+    let v = env.json(&["plugin", "roles", "recording"]);
+    assert_eq!((&v[0]["chosen"], &v[0]["off"]), (&Value::Null, &json!(true)), "{v}");
+    let out = env.ok(&["--yes", "plugin", "roles", "recording", "--reset"]);
+    assert!(line(&out, "recording  ").contains("musicbrainz.ids  default"), "{out}");
+}
+
+/// `analyze` alone leaves out the analyzers of plugins that go online, and says how to run them:
+/// naming the plugin does.
+#[cfg(debug_assertions)]
+#[test]
+fn analyze_alone_stays_on_this_computer() {
+    let mut env = Env::new();
+    let online = crate::support::echo_plugin().replacen(
+        "capabilities = [\"library:read\"",
+        "capabilities = [\"net:example.org\", \"library:read\"",
+        1,
+    );
+    env.plugins(&[&online]);
+    let root = analysed(&env, true);
+    let r = env.run(&["analyze", path(&root)]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    let said = "left out what goes online (musicbrainz, echo): name it to run it, as in --plugin musicbrainz";
+    assert!(r.err.contains(said), "{}", r.err);
+    assert!(r.out.contains("(sound)") && !r.out.contains("(echo)"), "{}", r.out);
+    let out = env.ok(&["analyze", path(&root), "--plugin", "echo"]);
+    assert!(out.contains("size (echo): 2 tracks analyzed"), "{out}");
 }
 
 #[test]
@@ -219,7 +249,10 @@ fn the_sidecar_chooses_roles_and_writes_what_was_heard() {
     let roles = result(s.call(1, "plugins.roles", Value::Null));
     assert_eq!(
         roles[0],
-        json!({ "role": "key", "chosen": "sound.tempo-key-loudness", "set": false, "offered": ["sound.tempo-key-loudness"] })
+        json!({
+            "role": "key", "chosen": "sound.tempo-key-loudness", "set": false, "off": false,
+            "offered": ["sound.tempo-key-loudness"],
+        })
     );
     let wrong = s.call(2, "plugins.roles.set", json!({ "role": "key", "analyzer": "sound.nope" }));
     assert_eq!(wrong["error"]["data"]["kind"], "invalid", "{wrong}");

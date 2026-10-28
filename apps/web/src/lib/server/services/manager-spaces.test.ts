@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_ACCESS } from '#lib/epk.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { JsonRecord } from '../atproto/repo-client';
 import type { ProjectView } from '#lib/types.ts';
@@ -291,6 +292,44 @@ describe('ManagerSpaces', () => {
 			expect(members(open)).toEqual([OLD, PROMOTER].sort());
 			expect(await threadsOf(NEW)).toEqual([]);
 		});
+	});
+
+	it("keeps a project's backstage and press kit spaces to its managers, leaving the people granted access", async () => {
+		const old = await t.viewer(OLD);
+		const draft = await t.epks.drafts.save(old, project, { values: { title: 'Clubs', access: DEFAULT_ACCESS } });
+		const result = await t.epks.drafts.publish(old, project, draft!.rkey);
+
+		if (result.kind !== 'published') throw new Error('the draft conflicts');
+		const { epk } = result;
+		await t.epks.invite(old, { epk, project }, PROMOTER);
+		const backstage = t.epks.drafts.space(project);
+		const access = (space: string) => Object.fromEntries(t.net.spaces.get(space)!.members);
+
+		await setManagers([OLD, NEW]);
+		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true }, [NEW]: { read: true, write: true } });
+		expect(access(epk.space)).toEqual({
+			[OLD]: { read: true, write: false },
+			[NEW]: { read: true, write: false },
+			[PROMOTER]: { read: true, write: false }
+		});
+
+		await setManagers([NEW]);
+		expect(access(backstage)).toEqual({ [NEW]: { read: true, write: true } });
+		expect(access(epk.space)).toEqual({
+			[NEW]: { read: true, write: false },
+			[PROMOTER]: { read: true, write: false }
+		});
+
+		// A space whose grants or members can't be read is left for the next sync.
+		const left = { [NEW]: { read: true, write: false }, [PROMOTER]: { read: true, write: false } };
+		vi.spyOn(FakeRootClient.prototype, 'listSpaceRecords').mockRejectedValueOnce(new Error('down'));
+		await setManagers([OLD]);
+		expect(access(epk.space)).toEqual(left);
+		expect(access(backstage)).toEqual({ [OLD]: { read: true, write: true } });
+
+		vi.spyOn(FakeRootClient.prototype, 'listMembers').mockRejectedValue(new Error('down'));
+		await setManagers([NEW]);
+		expect(access(epk.space)).toEqual(left);
 	});
 
 	it("opens a thread with the managers in the root's repo while the directory is still behind", async () => {

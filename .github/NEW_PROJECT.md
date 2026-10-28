@@ -69,7 +69,9 @@ Every workflow the ruleset requires has the same three parts. Copy `localtoolbox
 
 Jobs that only report stay out of the `passed` job's needs, so they never block a merge: the coverage `report` jobs that comment on the pull request, and locallibrary-ci's `semver`. Each workflow's concurrency group cancels the run a new push supersedes, on `main` too. locallibrary-ci and web-ci, the two that take the most runners, also skip their work on draft pull requests until they're marked ready for review.
 
-The "Protect Main" ruleset requires the `passed` jobs, which report either way, so a path-filtered workflow never blocks a pull request that doesn't touch it. The ruleset is `.github/rulesets/protect-main.json`: an admin applies it with `tools/ruleset.sh apply`, and the Repo checks workflow fails on `main` while GitHub's copy differs. It requires Web CI passed, locallibrary CI passed, localtoolbox CI passed, Mix report passed, npm advisories passed, Workflow lint passed, Repo checks passed and atstore CI passed, and code scanning, which is CodeQL's default setup for Actions, JavaScript and TypeScript, and Rust.
+The "Protect Main" ruleset requires the `passed` jobs, which report either way, so a path-filtered workflow never blocks a pull request that doesn't touch it. The ruleset is `.github/rulesets/protect-main.json`: an admin applies it with `tools/ruleset.sh apply`, and the Repo checks workflow fails on `main` while GitHub's copy differs. It requires Web CI passed, locallibrary CI passed, localtoolbox CI passed, Mix report passed, npm advisories passed, Workflow lint passed, Repo checks passed and atstore CI passed, and code scanning, which is `codeql.yml`'s CodeQL analysis of the workflows, the TypeScript and the Rust, leaving out the Rust tests (`.github/codeql/codeql-config.yml`).
+
+Changes reach `main` only through a pull request, merged as a merge commit. Each one needs an approval from a code owner (`.github/CODEOWNERS`) given after its last push, and a new push dismisses earlier approvals, so an agent's pull request waits for a person to approve it.
 
 Workflow conventions, which `workflow-lint.yml` checks with [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://zizmor.sh):
 
@@ -84,11 +86,11 @@ Repository-wide checks: `npm-advisories.yml` runs `pnpm audit --prod` over the l
 
 Labels: `pr-labels.yml` labels pull requests from `labeler.yml`, and `labels.yml` (the workflow) syncs `.github/labels.yml` to GitHub. Each tool has a label, and its areas are `"<tool>: <area>"` labels in a lighter shade of its colour.
 
-The projects: each file in `.github/projects/` is one of the organization's projects (`schema.json` says what goes in it): its views, the labels whose issues belong on it (`scope`), and a single select filled in from those labels (`field`: Product, a tool's label, on the Local Network project; Area, the `"<tool>: <area>"` labels, on each tool's). `.github/project.json` has what they share: the Status options, the organization's issue fields, and the issue type each label stands for. `tools/project.sh apply` makes the projects match the files, then syncs. `tools/project.sh sync` adds each open issue to every project whose scope it's in and takes it off the ones it has left, fills in the field, and keeps its Status the same on every project, with the newest Status someone set winning and the rules in `tools/project/plan.jq` moving it along (an issue with a Priority, milestone or assignee leaves Inbox, an open pull request that closes it makes it In Progress, and reopening it brings it back to Todo). `tools/project.sh types` gives an open issue with no type the one its labels stand for (Bug, Feature, otherwise Task). `project.yml` runs `apply` on `main` when those files change, `sync` on issue events and every three hours, and `types` after each, with the `PROJECT_TOKEN` secret (a fine-grained token for the organization with its Projects permission, read and write, and this repository's Issues and Pull requests, read). `tools/project/plan.test` tests the rules (`jq -L tools/project --run-tests tools/project/plan.test`, in the Repo checks workflow). The API can't set views' grouping, sorting, slicing or order, the Type column, or the built-in workflows' settings, so these are set once on GitHub:
+Issues are planned in Linear, in the `localnetwork` workspace's Localnetwork team (`LOC`). Linear's GitHub integration syncs this repository's issues both ways with that team and links pull requests to them, so nothing in the repository runs for it. Its settings live in Linear, so they're listed here:
 
-- Local Network: Board grouped by Product. Inbox and Backlog show Type. Backlog grouped by Product, sorted by Priority. Releases grouped by Milestone. Roadmap with Start date and Target date as its dates and milestones as markers.
-- Each tool's project: Board and Backlog grouped by Area, Backlog sorted by Priority, and Board first.
-- Workflows: Item closed and Pull request merged set Done, which is GitHub's default, and Auto-archive items archives `is:closed updated:<@today-2w`. Sync sets Status itself, so Item added to project and Pull request linked to issue can stay off.
+- Settings > Integrations > GitHub: the Linear app installed on `cutenode` with access to `cutenode/localnetwork`, and two-way Issues Sync from `cutenode/localnetwork` to Localnetwork. The issues from before the sync came in through the GitHub importer (Settings > Import/Export), which keeps them synced the same way.
+- Settings > Workspace > Integrations > GitHub > Branch format: `bnb/{issueIdentifier}-{issueTitle}`, so "Copy git branch name" gives a `bnb/loc-123-…` branch.
+- The Localnetwork team: Triage on, and under Workflows & automations, a pull request moves its issues to In Progress when it's drafted or opened, In Review when a review is requested, and Done when it merges.
 
 ### Production and releases
 
@@ -135,9 +137,8 @@ Then do the steps every app shares, below.
 4. If it signs people in with their Atmosphere account, as locallibrary does: a permission-set lexicon (`<tool>Publishing.json`), `hosts` and `clientMetadata` in its tool entry, and DNS for its own host (see [Tools' pages and hosts](../apps/web/README.md#tools-pages-and-hosts)).
 5. A label for it in `.github/labels.yml`, its paths under that label in `.github/labeler.yml`, and any areas as `"<tool>: <area>"` labels in both. The `web: tools` label's description names every tool.
 6. `.github/ISSUE_TEMPLATE/<tool>-bug.yml` (labels `["bug", "<tool>"]`, `type: Bug`), and the tool in the description and "Which tool?" dropdown of `feature_request.yml`. Questions go to Discussions, which has no form.
-7. A project for its issues: create it with `gh project create --owner cutenode --title apps/<tool>` and link it to the repository with `gh project link <number> --owner cutenode --repo cutenode/localnetwork`, then copy `.github/projects/web.json` to `.github/projects/<tool>.json` with the new project's number, its label as the scope and `"<tool>: "` as the Area prefix. `project.yml` applies it once it's on `main`.
-8. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
-9. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
+7. A line in `.github/CODEOWNERS` if someone other than the default owner reviews it.
+8. Its row in the root `README.md`'s table and layout; its docs and its label in `.github/CONTRIBUTING.md`; and in `.github/SECURITY.md`, its supported version and where to find the version it's on.
 
 ## A locallibrary plugin
 

@@ -35,13 +35,11 @@ fn a_checks_fix_is_planned_from_the_palette_and_confirmed() {
     press(&mut app, "\u{1b}");
     app.perform(Act::Fix(0), None);
     wait(&mut app, |a| a.job.is_none());
-    // Not echoed on failure: CodeQL takes a toast written after a plugin's operation for something
-    // secret.
-    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no plan") };
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no plan: {}", last_message(&app)) };
     assert_eq!((c.plan.operation(), c.plan.summary()[0].as_str()), ("echo.playlist", "make the playlist Untitled"));
     say_yes(&mut app);
     let lib = locallibrary::Device::open_export(&drive.0).unwrap().library().unwrap();
-    assert!(lib.find_playlist("Untitled").is_some());
+    assert!(lib.find_playlist("Untitled").is_some(), "{}", last_message(&app));
 }
 
 /// "check settings…" is a form of every check (and whether each guard stops changes) and how long
@@ -52,7 +50,8 @@ fn which_checks_run_is_a_form_kept_where_plugin_checks_keeps_it() {
     plugins_once();
     let (mut app, _store) = blank(Screen::Library);
     app.perform(Act::CheckSettings, None);
-    let fields = ["echo.untitled", "echo.edits", "echo.edits.blocking", "timeout"].map(String::from).to_vec();
+    let fields =
+        ["demos.tracks", "echo.untitled", "echo.edits", "echo.edits.blocking", "timeout"].map(String::from).to_vec();
     assert_eq!(form_open(&app), ("Check settings".into(), fields));
     let plugins = crate::plugins::host().unwrap();
     let saved = |app: &mut App, given: serde_json::Value| {
@@ -63,8 +62,12 @@ fn which_checks_run_is_a_form_kept_where_plugin_checks_keeps_it() {
     let given = json!({ "echo.untitled": false, "echo.edits": true, "echo.edits.blocking": true, "timeout": 4 });
     assert_eq!(saved(&mut app, given.clone()), "check settings saved");
     let store = Store::open(&app.store_root).unwrap();
-    let kept: Vec<(bool, bool)> =
-        plugins.checks(Some(&store)).into_iter().map(|(_, _, s)| (s.on, s.blocking)).collect();
+    let kept: Vec<(bool, bool)> = plugins
+        .checks(Some(&store))
+        .into_iter()
+        .filter(|(p, ..)| *p == "echo")
+        .map(|(_, _, s)| (s.on, s.blocking))
+        .collect();
     assert_eq!(kept, [(false, false), (true, true)]);
     assert_eq!(check_timeout(Some(&store)).as_secs(), 4);
     assert_eq!(saved(&mut app, given), "nothing changed");
