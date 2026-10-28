@@ -130,6 +130,9 @@ src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
   popup.html           the page the toolbar icon opens; main.ts mounts App
+  background.ts        the background worker: walks a download gate and saves
+                       its file, for a caller outside the popup
+  offscreen.html, offscreen.ts  the page that worker walks the gate in
   app.css              the shared Local Network theme and fonts, plus what only
                        the popup needs (its width, `field`, `icon-btn`)
   App.svelte           the shell: the tool menu, and whichever tool is open
@@ -549,6 +552,9 @@ test/
   settings-sheet.test.ts the settings sheet: what the page obeys, what the
                          Downloader asks for, the search badges, title case,
                          the report a bug link
+  background.test.ts     the worker behind the page's Download button: the file
+                         saved, or the gate opened, one walk at a time
+  offscreen.test.ts      the page it walks a gate in: which links, which settings
   saved-state.test.ts    the settings sheet's backup section: what it exports,
                          what it says about a file before importing it, and the
                          difference adding and replacing make
@@ -715,8 +721,10 @@ content, since the page type comes from the content.
 
 Permissions: `activeTab` (to read the active tab's URL when you click the
 icon), `clipboardWrite` (for the Copy button), `storage` (the Manager tool's own
-list of tracks and its set of downloaded ones; see that tool), and `downloads` (the third-party
-downloader saves the files it unlocks). The host patterns are the content
+list of tracks and its set of downloaded ones; see that tool), `downloads` (the third-party
+downloader saves the files it unlocks), and `offscreen` (the page the background
+worker walks a download gate in, since a service worker cannot parse HTML; see
+`src/background.ts`). The host patterns are the content
 script's match on `soundcloud.com`, plus one `host_permissions` entry per site
 the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
 `fanlink.tv`, `droploud.com` and its `api.` host, `pumpyoursound.com`,
@@ -724,7 +732,7 @@ the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
 (`d21i0hc4hl3bvt.cloudfront.net` for the drop, `d3oyaxbt9vo0fg.cloudfront.net`
 for the artist) and `events.laylo.com`, where a signup is posted, and `ffm.to`.
 Chrome reports those as site access on exactly those sites. No other host
-access, no background service worker, no remote code.
+access, no remote code.
 
 ### Limitations
 

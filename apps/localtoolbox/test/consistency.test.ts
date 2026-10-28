@@ -27,8 +27,9 @@ const appCss = read('src/app.css');
 describe('manifest.json', () => {
 	it('is a Manifest V3 extension with only the permissions the README lists', () => {
 		expect(manifest.manifest_version).toBe(3);
-		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads']);
-		expect(manifest.background).toBeUndefined();
+		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads', 'offscreen']);
+		// The one worker: it walks a gate for the page's Download button (background.ts).
+		expect(manifest.background).toEqual({ service_worker: 'background.js', type: 'module' });
 	});
 
 	// The Downloader reads gate pages from the panel, so every site it knows
