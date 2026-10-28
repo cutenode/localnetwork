@@ -274,11 +274,12 @@ fn decoded(value: &str) -> String {
     }
 }
 
-/// What a publish that went answers, its item at `id`.
+/// What a publish that went answers, its item at `id`, named the Internet Archive.
 fn published(id: &str, warnings: &[&str]) -> Published {
     let processing = "the Archive can take a few minutes to show it, while it processes the upload";
     let warnings = warnings.iter().chain([&processing]).map(|w| w.to_string()).collect();
-    Published { url: Some(format!("https://archive.org/details/{id}")), warnings, ..Published::default() }
+    let url = Some(format!("https://archive.org/details/{id}"));
+    Published { url, name: Some("Internet Archive".into()), record: None, warnings }
 }
 
 /// It reaches archive.org and its S3 alone, publishes sets at one destination, and keeps the keys

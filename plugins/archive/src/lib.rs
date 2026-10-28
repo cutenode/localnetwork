@@ -18,6 +18,9 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Where the Archive shows an item, by its identifier.
 const DETAILS: &str = "https://archive.org/details/";
 
+/// What the set's link is, as its record names it.
+const NAME: &str = "Internet Archive";
+
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
@@ -67,7 +70,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
         warnings.push(format!("{DETAILS}{} is taken, so it's {id}", item.identifier));
     }
     warnings.push("the Archive can take a few minutes to show it, while it processes the upload".into());
-    Ok(Published { url: Some(format!("{DETAILS}{id}")), warnings, ..Published::default() })
+    Ok(Published { url: Some(format!("{DETAILS}{id}")), name: Some(NAME.into()), warnings, record: None })
 }
 
 #[cfg(test)]

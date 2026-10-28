@@ -50,8 +50,9 @@ are:
   the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
   (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
   as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
-  set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
-  and the plugin refuses others before anything goes. It needs a developer token from
+  set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
+  plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
+  plugin refuses others before anything goes. It needs a developer token from
   plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
   --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
