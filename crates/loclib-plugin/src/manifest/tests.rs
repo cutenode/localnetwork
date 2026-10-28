@@ -7,7 +7,7 @@ use super::*;
 use crate::{
     Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources, Exporter,
     FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation,
-    Panel, Provider, ProviderKind, Role, Service, Theme, When, code,
+    Panel, Provider, ProviderKind, Role, Service, Theme, TokenPlace, When, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -396,6 +396,133 @@ fn an_accounts_endpoints_are_read_as_the_client_reads_them() {
         );
         assert_eq!(token_url(url), said, "{url}");
     }
+}
+
+/// An account trades its tokens at its service's token endpoint or at Local Network's token
+/// exchange, one of them, and an exchange is Local Network's (or a test server on this computer at
+/// the same path): no other server is sent the user's codes in its name.
+#[test]
+fn an_account_trades_tokens_at_its_token_endpoint_or_local_networks_exchange_only() {
+    let account = |token: &str| {
+        problem(&format!(
+            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+             authorize_url = \"https://auth.example/authorize\"\n{token}client_id = \"demo\"\n"
+        ))
+    };
+    let exchange = |url: &str| account(&format!("token_exchange = {url:?}\n"));
+    for url in [
+        "https://localnetwork.computer/api/token-exchange/soundcloud",
+        "https://localnetwork.computer:443/api/token-exchange/google",
+        "https://LocalNetwork.computer/api/token-exchange/mixcloud-2",
+        "http://127.0.0.1:5173/api/token-exchange/soundcloud",
+        "http://localhost/api/token-exchange/x",
+    ] {
+        assert_eq!(exchange(url), "", "{url}");
+    }
+    for url in [
+        "https://evil.example/api/token-exchange/soundcloud",
+        "https://localnetwork.computer.evil.example/api/token-exchange/soundcloud",
+        "https://localnetwork.computer:8443/api/token-exchange/soundcloud",
+        "http://localnetwork.computer/api/token-exchange/soundcloud",
+        "https://someone@localnetwork.computer/api/token-exchange/soundcloud",
+        "https://localnetwork.computer/api/token-exchange/",
+        "https://localnetwork.computer/api/token-exchange/SoundCloud",
+        "https://localnetwork.computer/api/token-exchange/a/b",
+        "https://localnetwork.computer/api/token-exchange/../oauth/token",
+        "https://localnetwork.computer/api/token-exchange/soundcloud?to=evil.example",
+        "https://localnetwork.computer/api/token-exchange/soundcloud#x",
+        "https://localnetwork.computer/oauth/token",
+    ] {
+        let said = format!(
+            "contributes.accounts[0].token_exchange: {url:?} isn't Local Network's token exchange \
+             (https://localnetwork.computer/api/token-exchange/<service>)"
+        );
+        assert_eq!(exchange(url), said, "{url}");
+    }
+    assert_eq!(account(""), "contributes.accounts[0].token_url: is missing, and so is token_exchange");
+    let both = "token_url = \"https://auth.example/token\"\ntoken_exchange = \"https://localnetwork.computer/api/token-exchange/x\"\n";
+    assert_eq!(account(both), "contributes.accounts[0].token_exchange: goes in token_url's place, not beside it");
+}
+
+/// An account's token goes in the `Authorization` header as `Bearer` unless it names another
+/// scheme or a query parameter, one of them, and the browser comes back to any port unless it
+/// names one a program may listen on.
+#[test]
+fn an_account_says_where_its_token_goes_and_where_the_browser_comes_back() {
+    let account = |rest: &str| {
+        let manifest = format!(
+            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+             authorize_url = \"https://auth.example/authorize\"\ntoken_url = \"https://auth.example/token\"\n\
+             client_id = \"demo\"\n{rest}"
+        );
+        Manifest::parse(&format!("{HEAD}{manifest}")).and_then(|m| {
+            m.validate(false)?;
+            Ok((m.contributes.accounts[0].token.clone(), m.contributes.accounts[0].redirect_port))
+        })
+    };
+    let bearer = TokenPlace::Scheme("Bearer".into());
+    assert_eq!(account("").unwrap(), (bearer.clone(), None));
+    assert_eq!(account("token = { scheme = \"Bearer\" }\n").unwrap(), (bearer, None));
+    let oauth = account("token = { scheme = \"OAuth\" }\nredirect_port = 8765\n").unwrap();
+    assert_eq!(oauth, (TokenPlace::Scheme("OAuth".into()), Some(8765)));
+    let query = account("token = { query = \"access_token\" }\n").unwrap();
+    assert_eq!(query, (TokenPlace::Query("access_token".into()), None));
+    let said = |rest: &str| account(rest).unwrap_err().to_string();
+    assert_eq!(
+        said("token = { scheme = \"Bearer token\" }\n"),
+        "contributes.accounts[0].token.scheme: \"Bearer token\" isn't a scheme: one word, like Bearer or OAuth"
+    );
+    assert_eq!(
+        said("token = { query = \"a=b\" }\n"),
+        "contributes.accounts[0].token.query: \"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~"
+    );
+    assert!(said("token = { scheme = \"OAuth\", query = \"access_token\" }\n").contains("token"));
+    assert!(said("token = { header = \"X-Token\" }\n").contains("unknown variant `header`"));
+    assert!(said("token = \"OAuth\"\n").contains("token"));
+    assert_eq!(
+        said("redirect_port = 80\n"),
+        "contributes.accounts[0].redirect_port: is 1024 or more: 80 is a system service's"
+    );
+    assert!(said("redirect_port = 70000\n").contains("redirect_port"));
+}
+
+/// For any token endpoint and any Local Network token exchange (or a test server's), an account
+/// naming one of them is valid; naming neither, both, or an exchange anywhere else (another
+/// scheme, host, port or path, a user name, a query) is refused, saying which.
+#[hegel::test(test_cases = 100)]
+fn an_account_trades_its_tokens_at_one_place_and_exchanges_only_at_local_networks(tc: TestCase) {
+    let at = "contributes.accounts[0]";
+    let (token, said) = match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => (format!("token_url = {:?}\n", endpoint(&tc)), String::new()),
+        1 => (format!("token_exchange = {:?}\n", exchange(&tc)), String::new()),
+        2 => {
+            let theirs = exchange(&tc);
+            let wrong = tc.draw(gs::sampled_from(vec![
+                endpoint(&tc),
+                theirs.replacen("://", "://someone@", 1),
+                theirs.replace("/api/", "/apis/"),
+                format!("{theirs}?to=elsewhere"),
+                format!("{theirs}/more"),
+                "ftp://localnetwork.computer/api/token-exchange/x".into(),
+                "https://localnetwork.computer:8443/api/token-exchange/x".into(),
+                "https://localnetwork.computer.example/api/token-exchange/x".into(),
+                "http://localnetwork.computer/api/token-exchange/x".into(),
+            ]));
+            let rule = "https://localnetwork.computer/api/token-exchange/<service>";
+            let said = format!("{at}.token_exchange: {wrong:?} isn't Local Network's token exchange ({rule})");
+            (format!("token_exchange = {wrong:?}\n"), said)
+        }
+        3 => (String::new(), format!("{at}.token_url: is missing, and so is token_exchange")),
+        _ => {
+            let both = format!("token_url = {:?}\ntoken_exchange = {:?}\n", endpoint(&tc), exchange(&tc));
+            (both, format!("{at}.token_exchange: goes in token_url's place, not beside it"))
+        }
+    };
+    let manifest = format!(
+        "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+         authorize_url = \"https://auth.example/authorize\"\n{token}client_id = \"demo\"\n"
+    );
+    assert_eq!(problem(&manifest), said, "{token}");
 }
 
 /// A library source reads files in the folders the user grants it: it's granted that.
@@ -1097,18 +1224,48 @@ fn endpoint(tc: &TestCase) -> String {
     }
 }
 
-/// An account with endpoints it may have, scopes and maybe a revocation endpoint.
+/// Local Network's token exchange for a service, or the same path on a test server on this
+/// computer.
+#[hegel::test_helper]
+fn exchange(tc: &TestCase) -> String {
+    let origin = tc.draw(gs::sampled_from(vec![
+        "https://localnetwork.computer",
+        "https://localnetwork.computer:443",
+        "http://127.0.0.1:5173",
+        "http://localhost",
+        "http://[::1]:9",
+    ]));
+    format!("{origin}/api/token-exchange/{}", tc.draw(gs::from_regex("[a-z0-9-]{1,12}")))
+}
+
+/// An account with endpoints it may have (its token endpoint, or Local Network's token exchange),
+/// scopes and maybe a revocation endpoint.
 #[hegel::test_helper]
 fn account(tc: &TestCase, id: String) -> Account {
+    let exchanges = tc.draw(gs::booleans());
     Account {
         id,
         title: title(tc),
         authorize_url: endpoint(tc),
-        token_url: endpoint(tc),
+        token_url: (!exchanges).then(|| endpoint(tc)),
+        token_exchange: exchanges.then(|| exchange(tc)),
         scopes: tc.draw(gs::vecs(gs::from_regex("[!-~]{1,12}")).max_size(3)),
         client_id: title(tc),
         pkce: true,
         revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
+        token: token_place(tc),
+        redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
+    }
+}
+
+/// Where an account's token may go: the `Authorization` header after a scheme (`Bearer` when it
+/// doesn't say), or a query parameter.
+#[hegel::test_helper]
+fn token_place(tc: &TestCase) -> TokenPlace {
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => TokenPlace::default(),
+        1 => TokenPlace::Scheme(tc.draw(gs::from_regex("[A-Za-z0-9!#$%&'*+.^_`|~-]{1,12}").fullmatch(true))),
+        _ => TokenPlace::Query(tc.draw(gs::from_regex("[A-Za-z0-9._~-]{1,12}").fullmatch(true))),
     }
 }
 
@@ -1509,11 +1666,14 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
                 id: name,
                 title,
                 authorize_url: "https://auth.example/authorize".into(),
-                token_url: "https://auth.example/token".into(),
+                token_url: Some("https://auth.example/token".into()),
+                token_exchange: None,
                 scopes: Vec::new(),
                 client_id: "added".into(),
                 pkce: true,
                 revoke_url: None,
+                token: TokenPlace::default(),
+                redirect_port: None,
             }),
             "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
@@ -1666,6 +1826,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "account client",
         "account scope",
         "account pkce",
+        "account exchange",
+        "account token",
+        "account port",
         "account grant",
         "check when",
         "export grant",
@@ -2019,7 +2182,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 }
             }
         }
-        "account endpoint" | "account client" | "account scope" | "account pkce" => {
+        "account endpoint" | "account client" | "account scope" | "account pkce" | "account exchange"
+        | "account token" | "account port" => {
             add(c, "accounts", 1);
             if !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
                 m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
@@ -2055,7 +2219,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url"]));
                     match key {
                         "authorize_url" => x.authorize_url = wrong.clone(),
-                        "token_url" => x.token_url = wrong.clone(),
+                        "token_url" => x.token_url = Some(wrong.clone()),
                         _ => x.revoke_url = Some(wrong.clone()),
                     }
                     (format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password"), false)
@@ -2064,11 +2228,58 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     x.client_id = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
                     (format!("{at}.client_id: is empty"), false)
                 }
+                "account exchange" => match tc.draw(gs::integers::<u8>().max_value(2)) {
+                    0 => {
+                        (x.token_url, x.token_exchange) = (None, None);
+                        (format!("{at}.token_url: is missing, and so is token_exchange"), false)
+                    }
+                    1 => {
+                        (x.token_url, x.token_exchange) = (Some(endpoint(&tc)), Some(exchange(&tc)));
+                        (format!("{at}.token_exchange: goes in token_url's place, not beside it"), false)
+                    }
+                    _ => {
+                        // Somewhere else, or Local Network's site but not its exchange for a
+                        // service.
+                        let wrong = tc.draw(gs::sampled_from(vec![
+                            endpoint(&tc),
+                            exchange(&tc).replace("/api/", "/apis/"),
+                            exchange(&tc).replace("localnetwork.computer", "localnetwork.computer.example"),
+                            format!("{}/x", exchange(&tc)),
+                            format!("{}?x", exchange(&tc)),
+                            "https://localnetwork.computer/api/token-exchange/".into(),
+                        ]));
+                        (x.token_url, x.token_exchange) = (None, Some(wrong.clone()));
+                        let rule = "https://localnetwork.computer/api/token-exchange/<service>";
+                        (format!("{at}.token_exchange: {wrong:?} isn't Local Network's token exchange ({rule})"), false)
+                    }
+                },
                 "account scope" => {
                     let wrong = tc.draw(gs::sampled_from(vec!["", "two words", " lead"]));
                     let j = tc.draw(gs::integers::<usize>().max_value(x.scopes.len()));
                     x.scopes.insert(j, wrong.into());
                     (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
+                }
+                "account token" => {
+                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", "Bearer:", "a=b", "a&b", "{x}", "é"]));
+                    match tc.draw(gs::booleans()) {
+                        true => {
+                            x.token = TokenPlace::Scheme(wrong.into());
+                            (
+                                format!("{at}.token.scheme: {wrong:?} isn't a scheme: one word, like Bearer or OAuth"),
+                                false,
+                            )
+                        }
+                        false => {
+                            x.token = TokenPlace::Query(wrong.into());
+                            let rule = "a query parameter's name: letters, digits, -, ., _ and ~";
+                            (format!("{at}.token.query: {wrong:?} isn't {rule}"), false)
+                        }
+                    }
+                }
+                "account port" => {
+                    let port = tc.draw(gs::integers::<u16>().max_value(1023));
+                    x.redirect_port = Some(port);
+                    (format!("{at}.redirect_port: is 1024 or more: {port} is a system service's"), false)
                 }
                 _ => {
                     x.pkce = false;

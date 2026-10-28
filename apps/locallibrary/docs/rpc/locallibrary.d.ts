@@ -7887,18 +7887,52 @@ export type Account = {
   authorize_url: string;
   /**
    * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https).
+   * them (https). An account has this or `token_exchange`.
    */
-  token_url: string;
+  token_url?: string | null;
+  /**
+   * Local Network's token exchange for its service
+   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
+   * a service that wants a client secret there.
+   */
+  token_exchange?: string | null;
   /** What it asks the service for, as the service names them. */
   scopes?: string[];
-  /** The plugin's client at the service: a public one, without a secret. */
+  /**
+   * The plugin's client at the service: a public one, without a secret, or Local Network's,
+   * whose secret its token exchange holds.
+   */
   client_id: string;
   /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
   pkce: boolean;
   /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
   revoke_url?: string | null;
+  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
+  token?: TokenPlace;
+  /**
+   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+   * URI with the one its client was registered with, port and all (SoundCloud): that's then
+   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
+   */
+  redirect_port?: number | null;
 };
+
+/**
+ * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+ * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ */
+export type TokenPlace =
+  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
+  | {
+    scheme: string;
+  }
+  /**
+   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
+   * there (Mixcloud).
+   */
+  | {
+    query: string;
+  };
 
 /** Run with `command/run`. */
 export type Command = {
@@ -8780,7 +8814,9 @@ export type Phase =
   /** Looking for library tracks in a mix. */
   | "match"
   /** Decoding library tracks to estimate their tempo, key and loudness. */
-  | "analyze";
+  | "analyze"
+  /** Sending files to a server (a set's recording, by a plugin's `net/fetch`). */
+  | "upload";
 
 /** `{"event": "step"}`. */
 export type StepStarted = {

@@ -46,13 +46,25 @@ are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
+  the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
+  (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
+  as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
+  set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
+  and the plugin refuses others before anything goes. It needs a developer token from
+  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
+  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
+  sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
+  plyr.fm after a day, and publishing again starts over.
 
-coverart and musicbrainz are the only ones that go online, and only for these, through
-locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between them, as it asks:
-`art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with `--yes` or a terminal to
-ask in), for the tracks it names without IDs, unless `--no-lookup` (or `plugin roles recording
---none`, for good); and `analyze --plugin musicbrainz`. `analyze` alone leaves out the analyzers
-that go online, and says so.
+coverart, musicbrainz and plyr are the only ones that go online, and only for these, through
+locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
+it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with
+`--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup` (or
+`plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish --to
+plyr:track` once you confirm it. `analyze` alone leaves out the analyzers that go online, and says
+so.
 
 ## What you have
 
@@ -86,8 +98,22 @@ until when, and `sign-out` forgets the tokens and tells the service when it can.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
 and refreshed a minute before they expire. The plugin never sees them: a request it makes names
-the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
-once it has checked the request, never sending it on to another server a redirect leads to.
+the account (`{account:ID}`) where its token goes, the `Authorization` header unless the service
+only takes it in the address (Mixcloud), and locallibrary fills in the token once it has checked
+the request, never sending it on to another server a redirect leads to.
+
+Some services (SoundCloud) only take the browser back at the exact address their app was
+registered with, port included. A plugin's account on one of those names its port, and its
+service's app is registered with `http://127.0.0.1:PORT/callback`. Signing in then needs that port
+free on this computer, and says so when another program has it.
+
+Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+on one of those is signed in to through Local Network's token exchange
+(`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
+tokens back. The website never keeps them, and the exchange is the only server besides the
+service that a sign-in's code goes to. Until the website is set up for a service, signing in
+says so.
 
 ## Analysis
 
@@ -181,7 +207,9 @@ A set destination publishes a set's recording with its tracklist (tracks marked 
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):
 `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
 shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
-there), and keeps where the set can be heard as its link.
+there), and keeps where the set can be heard as its link. The plugin uploads the recording through
+locallibrary, whole, in parts or in a form, which reads it as it sends it and shows how much has
+gone; the plugin may send it only while it's publishing, never in the dry run.
 
 ## Events
 
@@ -391,9 +419,12 @@ A plugin goes online through locallibrary, which fetches only from the servers i
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
-such a request names it, filled in by locallibrary, never on to another server a redirect leads
-to, and is left out of the plugin's log and of the errors it's told (what a server answers is
-passed on as it is). A destination is given stored files to read, never the store's folder to
+such a request names it (an account's token, only where its manifest says it goes), filled in by
+locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
+and of the errors it's told. What a server answers is passed on as it is, but for an account's
+token sent in the address, which comes back as the placeholder that named it. The files a plugin
+sends are those in its request's folder (see below) and a set's recording while it publishes the
+set, nothing else. A destination is given stored files to read, never the store's folder to
 write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with

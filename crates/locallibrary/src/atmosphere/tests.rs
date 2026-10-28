@@ -304,7 +304,7 @@ fn waiting_at(root: &Path, state: &str, authserver: &str, public_only: bool) -> 
         },
     };
     block_on(ClientAuthStore::save_auth_req_info(&store, &request)).unwrap();
-    let (listener, redirect) = callback::bind().unwrap();
+    let (listener, redirect) = callback::bind(0).unwrap();
     let config = client_config(&Client::Loopback, &redirect, scopes(&[]).unwrap()).unwrap();
     let pending = Pending {
         oauth: oauth(store, config, public_only).unwrap(),

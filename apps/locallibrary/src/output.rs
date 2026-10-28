@@ -623,6 +623,7 @@ fn phase_label(p: Phase) -> &'static str {
         Phase::Listen => "Listening",
         Phase::Match => "Matching",
         Phase::Analyze => "Analysing",
+        Phase::Upload => "Uploading",
         _ => "Working",
     }
 }
