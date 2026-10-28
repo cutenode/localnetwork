@@ -42,11 +42,14 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Docker running:
+The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Docker running for the policies:
 
 ```bash
 tools/policy.sh
+pnpm exec ast-grep test --skip-snapshot-tests && pnpm exec ast-grep scan
 ```
+
+ast-grep's rules (`sgconfig.yml`, in `tools/ast-grep/rules/` with their cases in `tools/ast-grep/tests/`) include `no-direct-pds-read`, which fails a record read that skips HappyView, in TypeScript, Svelte or Rust. Its exceptions are in the rule. clippy (`clippy.toml`) bans jacquard's typed requests for the same reads.
 
 CI runs a tool's checks only when its files (or the shared ones) change. Each workflow ends with a "… passed" check that reports either way, and those are the checks `main` requires before a merge. On a draft pull request, the Rust workspace's and the website's checks wait until you mark it ready for review, so open a pull request as a draft while it isn't next to merge (a stacked one, say). Their "… passed" checks fail on a draft that has something for them to check, since none of it ran. Marking it ready starts a new run, and if one doesn't show up, re-run the workflow. The slow suites run weekly in the `*-scheduled.yml` workflows, and you can start them on any branch from the Actions tab. A weekly run that fails opens an issue labelled `scheduled-failure`, and the next weekly run that passes closes it.
 

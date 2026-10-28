@@ -126,6 +126,8 @@ export async function createApp(options: CreateAppOptions) {
 		},
 		readSpaceRecord: (input) => credentials.readRecord(input),
 		fetchBlob: async (did, cid, maxBytes) => {
+			// Blobs come from the account's PDS until HappyView serves them.
+			// ast-grep-ignore: no-direct-pds-read
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);

@@ -1,3 +1,10 @@
 disallowed-types = [
     { path = "std::collections::BTreeMap", reason = "use IndexMap", replacement = "indexmap::IndexMap" },
+    # Records are read from HappyView, never from a PDS (writes to it are fine). ast-grep's
+    # no-direct-pds-read-rust rule catches the same reads made by hand.
+    { path = "jacquard_api::com_atproto::repo::get_record::GetRecord", reason = "read records through HappyView (atmosphere::directory)" },
+    { path = "jacquard_api::com_atproto::repo::list_records::ListRecords", reason = "read records through HappyView (atmosphere::directory)" },
+    { path = "jacquard_api::com_atproto::repo::describe_repo::DescribeRepo", reason = "read records through HappyView (atmosphere::directory)" },
+    { path = "jacquard_api::com_atproto::sync::get_record::GetRecord", reason = "read records through HappyView (atmosphere::directory)" },
+    { path = "jacquard_api::com_atproto::sync::get_repo::GetRepo", reason = "read records through HappyView (atmosphere::directory)" },
 ]

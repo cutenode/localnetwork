@@ -1,0 +1,9 @@
+id: no-direct-pds-read-rust
+valid:
+  - 'const GET_RECORDS: &str = "computer.localnetwork.directory.getRecords";'
+  - 'let url = format!("{pds}/xrpc/com.atproto.repo.putRecord");'
+  - 'let scope = "repo:app.bsky.feed.post";'
+invalid:
+  - 'let url = format!("{pds}/xrpc/com.atproto.repo.getRecord?repo={did}");'
+  - 'const LIST: &str = "com.atproto.repo.listRecords";'
+  - 'let url = r"https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile";'
