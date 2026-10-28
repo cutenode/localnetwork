@@ -379,7 +379,7 @@ describe('services', () => {
 			const [warehouse, broken, plain] = project.profile.mixes ?? [];
 			// Re-serialized on the way to root, so unknown fields are gone and the CID changes.
 			expect(warehouse.tracklist?.ref.$link).not.toBe(proposed?.ref.$link);
-			const published = JSON.parse(new TextDecoder().decode(t.net.blobs.get(warehouse.tracklist!.ref.$link)));
+			const published = JSON.parse(new TextDecoder().decode(t.net.blobs.get(warehouse.tracklist!.ref.$link)!.bytes));
 			expect(published).not.toHaveProperty('extra');
 			expect((await t.tracklists.published(warehouse.tracklist!)).plays).toHaveLength(sampleReport.plays.length);
 			// An invalid upload is dropped rather than published.

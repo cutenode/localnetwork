@@ -18,8 +18,7 @@ import type {
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { UserError } from '../core';
 import { all, CID, currencyCode, limit, optionalInt, optionalText, text, wholeNumber } from '../http';
-
-const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+import { AVATAR_TYPES } from '../images';
 
 const AVATAR_MAX_BYTES = 1_000_000;
 
