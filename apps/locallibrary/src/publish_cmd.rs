@@ -23,7 +23,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::browser::BrowserArgs;
-use crate::output::{Outcome, Output, dim, envelope, heading, ok, print_json, warn};
+use crate::output::{Outcome, Output, dim, envelope, heading, ok, plural, print_json, warn};
 
 fn root(store: &Option<PathBuf>) -> PathBuf {
     store.clone().unwrap_or_else(Store::default_root)
@@ -517,22 +517,44 @@ fn render_set(record: &Value, current: Option<&Value>) {
 }
 
 /// `locallibrary sets publish SET`, and the record `sets publish SET --to PLUGIN:DESTINATION`
-/// offers once the plugin has published the set.
+/// offers once the plugin has published the set. With `lookup`, MusicBrainz IDs are looked up
+/// first for the tracks it names (kept in the set, whether it's published or not), when it can be
+/// published from here: not when it's only shown, no one is asked to confirm it (without `--yes`,
+/// or a terminal), or no account is signed in (which the plan says first). What the lookup did is
+/// among the plan's notes.
 pub fn set_publish(
     store: &Option<PathBuf>,
     req: &api::SetPublishRequest,
     dry_run: bool,
+    lookup: bool,
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<Done> {
     let root = root(store);
+    let confirmable = out.yes || (!out.json && std::io::stdin().is_terminal());
+    let notes = match lookup && !dry_run && confirmable && locallibrary::atmosphere::status(&root)?.is_some() {
+        true => lookup_notes(&crate::plugins::roles::set_lookup(&root, req, ctx)?),
+        false => Vec::new(),
+    };
     publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "this set",
-        || api::set_publish_plan(&root, req),
+        || {
+            let mut p = api::set_publish_plan(&root, req)?;
+            p.plan.notes.extend(notes.iter().cloned());
+            Ok(p)
+        },
         render_set,
     )
+}
+
+/// What looking up a set's MusicBrainz IDs did, as notes of its plan.
+fn lookup_notes(looked: &api::SetLookup) -> Vec<String> {
+    let found = (looked.found > 0).then(|| format!("found MusicBrainz IDs for {}", plural(looked.found, "track")));
+    let unmounted = (looked.unmounted > 0)
+        .then(|| format!("plug in the drive to look up MusicBrainz IDs for {}", plural(looked.unmounted, "track")));
+    found.into_iter().chain(unmounted).collect()
 }
 
 fn render_upload(p: &PlannedUpload) {
@@ -583,11 +605,13 @@ fn render_upload(p: &PlannedUpload) {
 /// first when it has to be) and published as a recording record, then the set's record pointing at
 /// it, published as `sets publish SET` publishes it. One question covers both. A set record that
 /// fails to publish says so (exit status 5), with the recording up.
+#[allow(clippy::too_many_arguments)]
 pub fn set_upload(
     store: &Option<PathBuf>,
     req: &api::SetPublishRequest,
     max_bytes: Option<u64>,
     dry_run: bool,
+    lookup: bool,
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
@@ -629,7 +653,7 @@ pub fn set_upload(
     }
     let mut done = envelope(&p, &uploaded, true, Outcome::Applied);
     // Already asked about: the set's record goes out without asking again.
-    let outcome = match set_publish(store, req, false, browser, Output { yes: true, ..out }, ctx) {
+    let outcome = match set_publish(store, req, false, lookup, browser, Output { yes: true, ..out }, ctx) {
         Ok(record) => {
             done["record"] = record.envelope;
             Outcome::Applied

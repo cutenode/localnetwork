@@ -82,11 +82,13 @@ fn decode(s: &str) -> String {
     percent_encoding::percent_decode_str(&spaced).decode_utf8_lossy().into_owned()
 }
 
-/// Bind the listener on an ephemeral 127.0.0.1 port. The server ignores the port when it
-/// compares loopback redirect URIs, so any free one works.
-pub fn bind() -> Result<(TcpListener, String)> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| Error::Account(format!("can't listen for the browser on 127.0.0.1: {e}")))?;
+/// Bind the listener on 127.0.0.1 at `port`, or any free port with 0: an AT Protocol server (as
+/// RFC 8252 asks) ignores the port when it compares loopback redirect URIs, and a service that
+/// doesn't was registered with one.
+pub fn bind(port: u16) -> Result<(TcpListener, String)> {
+    let at = if port == 0 { "127.0.0.1".to_string() } else { format!("127.0.0.1:{port}") };
+    let listener = TcpListener::bind(("127.0.0.1", port))
+        .map_err(|e| Error::Account(format!("can't listen for the browser on {at}: {e}")))?;
     listener.set_nonblocking(true).map_err(|e| Error::Account(format!("listener: {e}")))?;
     let port = listener.local_addr().map_err(|e| Error::Account(format!("listener: {e}")))?.port();
     Ok((listener, format!("http://127.0.0.1:{port}{CALLBACK_PATH}")))

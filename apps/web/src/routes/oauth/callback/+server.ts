@@ -66,13 +66,6 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			},
 			{ actorClient: spacesCapable ? new AgentRepoClient(did, new Agent(session)) : null }
 		);
-		// Requests their press kit rules approved while they were away get their grants now.
-		const viewer = await app.viewer(did);
-
-		if (viewer)
-			void app.epks
-				.settle(viewer)
-				.catch((cause) => log.warn({ err: cause }, 'could not write waiting press kit grants'));
 	} catch (error) {
 		log.warn({ err: error }, 'OAuth callback failed');
 		redirect(303, '/login?error=login');

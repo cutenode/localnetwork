@@ -204,10 +204,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `library.list`, `library.rename`, `store.prune.plan/apply` (`keep_last`, `keep_daily`,
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
-  `clean.plan/apply`, `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
-  previews), `store.*`, `disks.list`,
-  `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
-  the one erased).
+  `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG previews), `store.*`,
+  `disks.list`, `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the
+  user confirmed is the one erased).
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
@@ -283,7 +282,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   and what couldn't be removed (`left_behind`). Errors about the account have `kind: "account"`.
   The account and publishing methods are alpha (see [Atmosphere account](account.md)).
   Publishing: `settings.publish.plan/apply`, `profile.publish.plan/apply` (the parameters of
-  `profile.build`), `sets.publish.plan/apply` (`set`, optional `hide`), and
+  `profile.build`), `sets.publish.plan/apply` (`set`, optional `hide`), `sets.lookup` (the same
+  parameters: runs the analyzers chosen for the MusicBrainz roles on the tracks publishing names
+  that have no IDs, keeps what they find in the set and answers `asked`, `found`, `failed` and
+  `unmounted`; call it before the plan), and
   `settings.import_published.plan/apply` (`from`: a handle or DID, default the signed-in account;
   `replace: true` to replace the base instead of adding to it). A plan holds the exact
   `record`, what's published in its place now as Local Network's directory has it (`current`),
@@ -547,8 +549,8 @@ files in the folders granted are copied, and what's left out is in its `warnings
 ### Roles
 
 `plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
-`[{role, chosen, set, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
-or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin, analyzer, drive,
+`[{role, chosen, set, off, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
+or `null`: back to its default) chooses one, or with `none: true` none (`off`). `plugins.apply_fields.plan {plugin, analyzer, drive,
 fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit plan
 (`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
 `plugins.apply_fields.apply {plan_id}`.

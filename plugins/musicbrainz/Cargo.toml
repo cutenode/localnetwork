@@ -1,0 +1,28 @@
+[package]
+name = "locallibrary-plugin-musicbrainz"
+description = "locallibrary's MusicBrainz plugin: a track's MusicBrainz recording, release and artist IDs, looked up by its ISRC"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+httpdate = "1.0.3"
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+loclib-tracklist.workspace = true
+quick-xml = { version = "0.42", features = ["serialize"] }
+rustc-hash.workspace = true
+serde.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+indexmap.workspace = true
+serde_json.workspace = true

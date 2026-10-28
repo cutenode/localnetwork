@@ -60,21 +60,29 @@ and typed table columns, see [views](#views)).
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
    kind `busy`).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
-   body_blob?, into_blob?}` -> `{status, headers, body? | blob?}`. The host sends it only to a
-   host the manifest's `net:` capabilities grant, at a public https address, following redirects
-   itself and each only there, at most five; as `locallibrary/<version> (+<contact>)`, the
-   plugin's `contact` setting when it has one; waiting its turn when the manifest limits that
-   host (`[[net]]`). `{secret:<key>}` in a header's value, a query value or `body` is the
-   plugin's secret setting `key`, filled in once the request is checked, left out of the
-   plugin's log and the errors it's told, and never sent on to another server a redirect leads
-   to: the headers it was filled into (and `Authorization`, `Cookie`) are dropped there, and a
-   body with it isn't sent on. `{account:<id>}` as the `Authorization` header's whole value is the
-   same for one of its accounts' access tokens (see [accounts](#accounts)), and refused anywhere
-   else in a request. An answer is given as text up to 8 MiB, or written to
-   `into_blob` (a new file in the request's scratch folder, absolute) as far as the folder has
-   room; `body_blob` sends such a file. Errors have kind `denied` (not a host it may reach),
-   `invalid`, `too_big`, `external` (it couldn't be reached) or `cancelled`. Nothing fetched is
-   kept.
+   body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
+   host sends it only to a host the manifest's `net:` capabilities grant, at a public https
+   address, following redirects itself and each only there, at most five; as
+   `locallibrary/<version> (+<contact>)`, the plugin's `contact` setting when it has one;
+   waiting its turn when the manifest limits that host (`[[net]]`). `{secret:<key>}` in a
+   header's value, a query value, `body` or a form part's `value` is the plugin's secret setting
+   `key`, filled in once the request is checked, left out of the plugin's log and the errors
+   it's told, and never sent on to another server a redirect leads to: the headers it was filled
+   into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
+   `{account:<id>}` is the same for one of its accounts' access tokens (see
+   [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
+   parameter the account names, and refused anywhere else in a request.
+   An answer is given as text up to 8 MiB, or written to `into_blob` (a new file in the
+   request's scratch folder, absolute) as far as the folder has room. `body_blob` sends a file
+   instead (absolute): one in the scratch folder, or the recording `set/publish` gives (not in a
+   dry run), perhaps only `body_range {offset, length?}` of it, for an upload in parts.
+   `multipart` sends a `multipart/form-data` form instead, its parts `{name, value}` or `{name,
+   file, range?, filename?, content_type?}`. The host reads a file as it sends it (again for a
+   redirect that asks for the body again), says how long the body is and what type a form is,
+   and reports the bytes it sends as the hook's progress: `bytes` events of phase `upload`, so a
+   plugin starts that phase with how much it'll send, and ends it. Errors have kind `denied`
+   (not a host it may reach), `invalid`, `too_big`, `external` (it couldn't be reached) or
+   `cancelled`. Nothing fetched is kept.
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -177,11 +185,34 @@ token, once it's checked, and never on to another server a redirect leads to. A 
 account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
 methods: it's the SDK's own.
 
-- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url`, `scopes`, `client_id`
-  (a public client, without a secret), `pkce = true` (the default; nothing else is taken) and
-  `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. Each endpoint
+A service that wants the token some other way says so with the account's `token`:
+`token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and
+`token = { query = "access_token" }` sends it as that query parameter instead (Mixcloud). The
+request names the account there, `?access_token={account:<id>}`, and the `Authorization` header
+can't. The host never carries a token in the query to another server a redirect leads to, and
+where the answer's headers or text say the address back (a next page's link, say), the token is
+given back as `{account:<id>}`, so the link can be fetched as it is. An answer written to
+`into_blob` is kept as the server sent it.
+
+- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` or `token_exchange`
+  (one of them), `scopes`, `client_id` (a public client, without a secret), `pkce = true` (the
+  default; nothing else is taken), `revoke_url` (RFC 7009, optional), where the tokens are
+  revoked at signing out, `token` (optional, above) and `redirect_port` (optional). Each endpoint
   is an https address without a user name or password. A plugin with an account needs a `net:`
   capability, for the requests its token goes into.
+- `redirect_port`, 1024 or more, is for a service that compares the redirect URI with the one its
+  client was registered with, port and all (SoundCloud). The browser then comes back to
+  `http://127.0.0.1:<port>/callback`, which is what to register; without it, any free port.
+- `token_exchange`, for a service whose token endpoint wants a client secret (SoundCloud, Mixcloud,
+  Google), is Local Network's token exchange for it:
+  `https://localnetwork.computer/api/token-exchange/<service>`, nowhere else, since it's sent the
+  user's codes and refresh tokens. The host posts it what it would have sent the token endpoint
+  (`grant_type`, `code`, `code_verifier` and `redirect_uri`, or `refresh_token`) as a JSON object,
+  and the website adds its client id and secret for the service, sends the request on the way the
+  service takes it and answers what the service answered. `client_id` is then Local Network's
+  client at the service. The services it knows are in
+  [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
+  one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 
 ### analysis
 
@@ -214,11 +245,18 @@ worked out with nothing to show. A field left out wasn't worked out.
 - `roles` says which of an analyzer's fields locallibrary reads as what (`Role`), a role to a
   field: `key` (a Camelot code, `8A`: a string), `bpm`, `key_confidence` and `bpm_confidence`
   (0 to 1), `loudness` (integrated LUFS), `true_peak` (dBTP), each a number, `clipped_runs` (an
-  integer) and `identity` (a string, equal for one recording). A field of another type than its
-  role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set and
-  writing keys and BPMs to tracks read a role from the analyzer the user chose for it, else the
-  only one, else the first. Roles need no feature of their own: a host that doesn't know them
-  leaves them out.
+  integer), `identity` (a string, equal for one recording), `recording` and `release` (the
+  MusicBrainz recording's and release's IDs, each a string: a bare lowercase UUID) and `artists`
+  (a `string[]`: the MusicBrainz artist IDs, one for each name loclib-model's `artist_credits`
+  splits the track's artist into, in its order), and what they were worked out from: `isrc` (a
+  string, the ISRC as loclib-model's `isrc` spells it, null for none) and `credits` (a
+  `string[]`, the names the artists' IDs go with). The host keeps the values by audio file but a
+  track's tags can change without it, so it takes the IDs only for a track whose ISRC is `isrc`,
+  and the artists' only when its credit splits into `credits`, when the analyzer answers them. A
+  field of another type than its role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys
+  and BPMs to tracks and the MusicBrainz IDs of a set published to an Atmosphere account read a
+  role from the analyzer the user chose for it, else the only one, else the first. Roles need no
+  feature of their own: a host that doesn't know them leaves them out.
 
 ### checks
 

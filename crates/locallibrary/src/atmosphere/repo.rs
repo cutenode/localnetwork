@@ -263,7 +263,7 @@ fn http_refusal(info: &AccountInfo, collection: &str, status: u16, body: &Value)
 }
 
 /// Upload the file at `path` (of the type `mime`, `audio/mp4`) to the data server of `did`, which
-/// has to be the signed-in account, reporting the bytes sent in the copy phase. Returns its blob,
+/// has to be the signed-in account, reporting the bytes sent in the upload phase. Returns its blob,
 /// as a record links to it: `$type`, `ref`, `mimeType` (what the server made of the file) and
 /// `size`. The file is read as it's sent, never held whole: a set's recording runs to hundreds of
 /// MB. jacquard would hold it (its upload takes the bytes, and its streaming upload keeps every
@@ -342,7 +342,7 @@ fn too_big(info: &AccountInfo, size: u64) -> Error {
 }
 
 /// Send `request` with the file at `path` (`size` bytes) as its body, read as it's sent, with
-/// what's sent reported in the copy phase.
+/// what's sent reported in the upload phase.
 fn send_file(
     request: reqwest::blocking::RequestBuilder,
     path: &Path,
@@ -352,23 +352,23 @@ fn send_file(
     let (sent, reported) = mpsc::channel();
     let body = Sending { file: File::open(path).at(path)?, sent, cancel: ctx.cancel.clone() };
     let request = request.body(reqwest::blocking::Body::sized(body, size));
-    ctx.phase_start(Phase::Copy, 1, size);
+    ctx.phase_start(Phase::Upload, 1, size);
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    ctx.emit(Event::Item { phase: Phase::Copy, path: name, bytes: size });
+    ctx.emit(Event::Item { phase: Phase::Upload, path: name, bytes: size });
     // reqwest reads the body on the thread that sends it, so another one sends while this one
     // reports.
     let response = std::thread::scope(|s| {
         let sending = s.spawn(move || request.send());
         loop {
             match reported.recv_timeout(Duration::from_millis(100)) {
-                Ok(bytes) => ctx.emit(Event::Bytes { phase: Phase::Copy, bytes }),
+                Ok(bytes) => ctx.emit(Event::Bytes { phase: Phase::Upload, bytes }),
                 Err(mpsc::RecvTimeoutError::Timeout) if !sending.is_finished() => {}
                 Err(_) => break,
             }
         }
         sending.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     });
-    ctx.phase_end(Phase::Copy);
+    ctx.phase_end(Phase::Upload);
     response.map_err(|e| match ctx.check() {
         Err(_) => Error::Cancelled,
         Ok(()) => Error::Account(one_line(&format!("sending {}: {}", path.display(), net::with_causes(&e)))),

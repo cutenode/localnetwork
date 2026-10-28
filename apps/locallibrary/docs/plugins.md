@@ -29,10 +29,85 @@ are:
   collection.nml LIBRARY`), or a whole drive built from it (`locallibrary collection export DRIVE
   --from interop:traktor --grant FOLDER --option collection=FILE`), see [From
   Traktor](other-software.md#from-traktor).
+- **demos**: `locallibrary clean LIBRARY` removes rekordbox's demo tracks and their files (see
+  [Editing](editing.md#clean)), and its check lists them in `check` and `doctor`, with `clean` as
+  the fix. `refresh` runs it first.
 - **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
   fetch`, and track details on MusicBrainz for `locallibrary track fetch` (see
-  [Providers](#providers)). It's the only one that goes online, and only when you run it, through
-  locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
+  [Providers](#providers)).
+- **musicbrainz**: looks up a track's MusicBrainz recording, release and artist IDs by its ISRC
+  (`musicbrainz.recording`, `musicbrainz.release`, `musicbrainz.artists`, with the ISRC as
+  `musicbrainz.isrc` and the names the artists' go with as `musicbrainz.credits`). The recording
+  is the ISRC's only one when it's as long as the track (or, with no length to go by, titled the
+  same), or the only one of several with the track's title and length: an extended mix or an edit
+  can carry the original's ISRC. The release is the earliest of that recording's named as the
+  track's album (one of its editions), and the artists one for each name the track credits, when
+  every name is a different one of the recording's. It's what `sets publish` reads a set's
+  MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
+  is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
+  none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
+  the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
+  (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
+  as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
+  set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
+  plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
+  plugin refuses others before anything goes. It needs a developer token from
+  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
+  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
+  sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
+  plyr.fm after a day, and publishing again starts over.
+- **archive**: a set destination, `item`: `locallibrary sets publish SET --to archive:item`
+  uploads the set's recording to the [Internet Archive](https://archive.org) as an item of yours in
+  Community Audio, titled after the set (else its venue and date), by the DJ name you give it
+  (`locallibrary plugin settings archive creator NAME`), with its tracklist as the description
+  (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
+  `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
+  is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
+  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
+  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
+  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
+  would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
+  new item while it processes it, and the link works once it has. The Archive is only for what
+  you have the rights to share: it takes down mixes of other people's records when the rights
+  holders ask.
+
+- **youtube**: a set destination, `video`: `locallibrary sets publish SET --to youtube:video`
+  uploads the set to YouTube as a video on your channel and keeps its page as the set's link.
+  YouTube takes videos, not audio, so the plugin runs [FFmpeg](https://ffmpeg.org/download.html)
+  (`ffprobe` and `ffmpeg`, which have to be installed) to make one first: a still picture over the
+  whole recording, the `picture` setting's (`locallibrary plugin settings youtube picture
+  FILE`, fitted into a 1080p frame) or a black frame, at a frame a second, with the audio as AAC
+  (copied when it's AAC already, else encoded, which takes a few minutes for a long WAV). The
+  video is made in the request's folder and removed once it has gone. It's titled after the set
+  (else its venue and date), in YouTube's category for music, and the tracklist is the
+  description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
+  chapters when there are three or more, in order, each at least ten seconds long, so a time that
+  would break that is left off its line (the dry run says how many). Who can watch it is the
+  `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
+  `locallibrary plugin account youtube google sign-in`: it asks Google only to upload videos.
+  The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
+  to, a few times at most; an upload that stops partway starts over when you publish again.
+
+  What YouTube does once it has the video is up to YouTube. It processes it for a while after the
+  upload, so the link can take some minutes to play, longer in HD. Its Content ID matches every
+  upload against the labels' records, and a mix of other people's records is likely to be
+  matched: a label can block the video (in some countries or all), put ads on it and take what
+  they earn, or only track it. YouTube takes videos over 15 minutes only from verified accounts
+  ([youtube.com/verify](https://www.youtube.com/verify)). And YouTube
+  gives Local Network's Google client a number of uploads a day (100 for now), shared by everyone
+  publishing through it: once they're used up, publishing says so, and works again the next day.
+
+coverart, musicbrainz, plyr, archive and youtube are the only ones that go online, and only for these,
+through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first
+two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed
+in, with `--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup`
+(or `plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish
+--to plyr:track`, `--to archive:item` or `--to youtube:video` once you confirm it. `analyze` alone
+leaves out the analyzers that go online, and says so. youtube is the only one that runs another
+program (FFmpeg), as you, like any plugin.
 
 ## What you have
 
@@ -66,8 +141,22 @@ until when, and `sign-out` forgets the tokens and tells the service when it can.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
 and refreshed a minute before they expire. The plugin never sees them: a request it makes names
-the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
-once it has checked the request, never sending it on to another server a redirect leads to.
+the account (`{account:ID}`) where its token goes, the `Authorization` header unless the service
+only takes it in the address (Mixcloud), and locallibrary fills in the token once it has checked
+the request, never sending it on to another server a redirect leads to.
+
+Some services (SoundCloud) only take the browser back at the exact address their app was
+registered with, port included. A plugin's account on one of those names its port, and its
+service's app is registered with `http://127.0.0.1:PORT/callback`. Signing in then needs that port
+free on this computer, and says so when another program has it.
+
+Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+on one of those is signed in to through Local Network's token exchange
+(`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
+tokens back. The website never keeps them, and the exchange is the only server besides the
+service that a sign-in's code goes to. Until the website is set up for a service, signing in
+says so.
 
 ## Analysis
 
@@ -163,8 +252,10 @@ your profile hides and those `--hide 3,7` names go without their names, notes st
 shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
 there), and keeps where the set can be heard as its link, with the name the plugin gives it
 (`plyr.fm`) and the Atmosphere record holding the recording when it keeps one (a plyr.fm track).
-Signed in to your account, it then offers to publish the set's record with them (see
-[Sets](sets.md)).
+The plugin uploads the recording through locallibrary, whole, in parts or in a form, which reads
+it as it sends it and shows how much has gone; the plugin may send it only while it's publishing,
+never in the dry run. Signed in to your account, it then offers to publish the set's record with
+them (see [Sets](sets.md)).
 
 ## Events
 
@@ -288,13 +379,25 @@ by an ISRC scores 0.95, by name 0.9, and one of several 0.5, for you to choose.
 ## Roles
 
 An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
-tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, or what tells one
-recording from another. Doctor's analysis, the check before a set, ordering a set (`playlist
-order`) and `analyze --apply` read those from one analyzer each, the sound plugin's unless
-another does too: `locallibrary plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER`
-chooses another that has it, and `plugin roles key --reset` puts it back (kept in the store's
-`plugins/settings.json` as `analysis.roles.key`). `doctor --analyze` runs those analyzers first
-on the tracks they haven't worked out; the check and ordering a set read what they kept.
+tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, what tells one
+recording from another, or its MusicBrainz IDs: the recording's (`recording`) and the release's
+(`release`), each a bare lowercase UUID, and the artists' (`artists`), a list with one for each
+artist its credit names, in order, split as a published set splits them (at commas, semicolons and
+"feat."), with the ISRC they were looked up by (`isrc`) and the names the artists' go with
+(`credits`). Doctor's analysis, the check before a set, ordering a set (`playlist order`),
+`analyze --apply` and the MusicBrainz IDs a set is published with read those from one analyzer
+each, the sound plugin's and the musicbrainz plugin's unless another does too: `locallibrary
+plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER` chooses another that has it,
+`plugin roles recording --none` reads one from none (`sets publish` then looks nothing up), and
+`plugin roles key --reset` puts it back (kept in the store's `plugins/settings.json` as
+`analysis.roles.key`). `doctor --analyze` runs those analyzers first on the tracks they haven't
+worked out, and so does `sets publish` for the MusicBrainz IDs of the tracks it names (see
+[Publishing](account.md#publishing)); the check and ordering a set read what they kept. A
+recording or release ID that isn't a UUID is left out, and so are the artists' unless every one
+is a UUID and there's one for each name. What an analyzer keeps goes with the audio file, which a
+library can retag without changing, so a track takes the IDs only when they were looked up by its
+ISRC, and the artists' only for its credit, as far as the analyzer says (`isrc`, `credits`);
+`sets publish` looks those tracks up again.
 
 `locallibrary analyze LIBRARY --apply key,bpm` writes what the analyzer heard to the tracks, as an
 edit you're shown and asked about (only where a track has none unless `--overwrite`;
@@ -362,9 +465,12 @@ A plugin goes online through locallibrary, which fetches only from the servers i
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
-such a request names it, filled in by locallibrary, never on to another server a redirect leads
-to, and is left out of the plugin's log and of the errors it's told (what a server answers is
-passed on as it is). A destination is given stored files to read, never the store's folder to
+such a request names it (an account's token, only where its manifest says it goes), filled in by
+locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
+and of the errors it's told. What a server answers is passed on as it is, but for an account's
+token sent in the address, which comes back as the placeholder that named it. The files a plugin
+sends are those in its request's folder (see below) and a set's recording while it publishes the
+set, nothing else. A destination is given stored files to read, never the store's folder to
 write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with

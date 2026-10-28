@@ -180,7 +180,10 @@ impl Operation for SetPublish {
             return Err(Error::stale(format!("set {}", p.set), "changed"));
         }
         let slot = p.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", p.plugin), "stopped"))?;
-        let Published { url, name, record, warnings } = slot.call(method::SET_PUBLISH, &p.publish, Some(store), ctx)?;
+        // Lent its recording: what it sends of it is the publishing's progress.
+        let lent = [p.publish.recording.as_path()];
+        let Published { url, name, record, warnings } =
+            slot.call_lending(method::SET_PUBLISH, &p.publish, &lent, Some(store), ctx)?;
         if let Some(url) = &url {
             crate::opener::web_address(url).map_err(|_| {
                 slot.misbehaved(format!("it says the set is at {url:?}, which isn't an https:// address"))

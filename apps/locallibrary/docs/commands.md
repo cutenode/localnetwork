@@ -159,7 +159,7 @@ its drives.
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
 | `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, with `--transcode` as copies its players play, see [Drives for a set](editing.md#drives-for-a-set) |
 | `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
-| `locallibrary clean <library>` | Remove useless tracks (rekordbox's bundled demo samples, which pile up with every export) with their files, analysis and playlist entries |
+| `locallibrary clean <library>` | Remove rekordbox's bundled demo tracks (which pile up with every export) with their files, analysis and playlist entries: the demos plugin's, see [Clean](editing.md#clean) |
 | `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings, see [Settings](settings.md) |
 
 **Plays and players**

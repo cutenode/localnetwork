@@ -102,7 +102,11 @@ fn merge_convert_and_clean_show_their_plan_and_how_to_undo() {
     assert!(env.ok(&["drive", "info", "A"]).contains("databases   export.pdb and OneLibrary agree"));
 
     // rekordbox's demo samples, the same one exported twice, in a playlist.
-    assert_eq!(env.ok(&["clean", "A"]).trim(), "✓ nothing to clean");
+    let none = env.ok(&["clean", "A"]);
+    assert!(
+        none.contains("no demo tracks from rekordbox on the drive") && none.contains("✓ nothing to change"),
+        "{none}"
+    );
     let a = env.volumes.join("A");
     let mut ed = rekordbox_pdb::PdbEditor::from_file(a.join(PDB)).unwrap();
     let samples = ed.create_playlist("Samples", 0, false).unwrap();
@@ -120,10 +124,11 @@ fn merge_convert_and_clean_show_their_plan_and_how_to_undo() {
     }
     ed.save(a.join(PDB)).unwrap();
     let plan = env.ok(&["clean", "A", "--dry-run"]);
-    assert!(plan.starts_with("A: remove 2 track(s) and 2 file(s), "), "{plan}");
-    assert!(plan.contains("    - rekordbox - House 1  ×2"), "the same sample, listed once: {plan}");
-    assert!(plan.contains("  remove 2 entries from playlist Samples"), "{plan}");
+    assert!(plan.contains("remove 2 of rekordbox's demo track(s) and their files"), "{plan}");
+    assert!(plan.contains("  - delete 2 track(s)"), "{plan}");
+    assert!(plan.contains("    - 2 track(s) removed, 2 file(s), "), "{plan}");
+    assert!(plan.contains("~ Samples -2, 2 -> 0 entries"), "{plan}");
     let done = env.ok(&["--yes", "clean", "A"]);
-    assert!(done.contains("✓ removed 2 track(s) and 2 file(s), "), "{done}");
-    assert!(done.contains("undo with: locallibrary undo \"A\" (backup "), "{done}");
+    assert!(done.contains("; 2 file(s) deleted, "), "{done}");
+    assert!(done.contains("Undo with `locallibrary undo A`"), "{done}");
 }

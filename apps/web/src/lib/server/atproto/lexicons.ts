@@ -23,6 +23,7 @@ import directoryDefs from '../../../../../../lexicons/computer/localnetwork/dire
 import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
 import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/content.json' with { type: 'json' };
 import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
+import epkDraft from '../../../../../../lexicons/computer/localnetwork/epk/draft.json' with { type: 'json' };
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
 import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
@@ -56,6 +57,7 @@ import plannerShow from '../../../../../../lexicons/computer/localnetwork/planne
 import project from '../../../../../../lexicons/computer/localnetwork/project.json' with { type: 'json' };
 import projectDetails from '../../../../../../lexicons/computer/localnetwork/project/details.json' with { type: 'json' };
 import spaceAudit from '../../../../../../lexicons/computer/localnetwork/space/audit.json' with { type: 'json' };
+import spaceBackstage from '../../../../../../lexicons/computer/localnetwork/space/backstage.json' with { type: 'json' };
 import spaceBooking from '../../../../../../lexicons/computer/localnetwork/space/booking.json' with { type: 'json' };
 import spaceEpk from '../../../../../../lexicons/computer/localnetwork/space/epk.json' with { type: 'json' };
 import spaceIndustry from '../../../../../../lexicons/computer/localnetwork/space/industry.json' with { type: 'json' };
@@ -83,6 +85,7 @@ export const LEXICON_DOCS = [
 	epkContent,
 	epkRequest,
 	epkGrant,
+	epkDraft,
 	spaceAudit,
 	spaceModeration,
 	spaceStaff,
@@ -90,6 +93,7 @@ export const LEXICON_DOCS = [
 	spaceBooking,
 	spacePlanner,
 	spaceEpk,
+	spaceBackstage,
 	permissions,
 	directoryDefs,
 	searchProjects,

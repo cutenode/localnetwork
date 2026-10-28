@@ -584,7 +584,7 @@ fn exports_the_list_shown(
     if blocked.is_file() {
         wait(app, |a| a.job.is_none());
         assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(app));
-        return assert!(last_message(app).contains(&blocked.display().to_string()));
+        return assert!(last_message(app).contains(&blocked.display().to_string()), "{}", last_message(app));
     }
     if typed.starts_with(&root.display().to_string()) {
         assert_eq!(last_message(app), "not onto the drive: somewhere on this computer");
@@ -813,5 +813,5 @@ fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(&app));
-    assert!(last_message(&app).contains("OTHER"));
+    assert!(last_message(&app).contains("OTHER"), "{}", last_message(&app));
 }

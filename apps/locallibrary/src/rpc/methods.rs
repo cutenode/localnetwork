@@ -567,8 +567,6 @@ fn build() -> Registry {
     r.apply("push.apply", Required, |c, req| Ok(api::push_apply(&c.store()?, &req, c.ctx)?)).long().destructive();
     r.plan("merge.plan", |c, req| Ok(api::merge_plan(&req, c.ctx)?)).long();
     r.apply("merge.apply", PlanStore::None, |c, req| Ok(api::merge_apply(&req, c.ctx)?)).long();
-    r.plan("clean.plan", |c, req| Ok(api::clean_plan(&req, c.ctx)?)).long().destructive();
-    r.apply("clean.apply", PlanStore::None, |c, req| Ok(api::clean_apply(&req, c.ctx)?)).long().destructive();
     r.plan("convert.plan", |c, req| Ok(api::convert_plan(&req, c.ctx)?)).long().destructive();
     r.apply("convert.apply", PlanStore::None, |c, req| Ok(api::convert_apply(&req, c.ctx)?)).long().destructive();
 
@@ -751,6 +749,9 @@ fn build() -> Registry {
         })
         .long()
         .destructive();
+        r.immediate("sets.lookup", |c, req| Ok(crate::plugins::roles::set_lookup(c.root, &req, c.ctx)?))
+            .long()
+            .keeps_cache();
         r.plan("sets.publish.plan", |c, req| Ok(api::set_publish_plan(c.root, &req)?)).destructive();
         r.apply("sets.publish.apply", PlanStore::None, |c, req| Ok(api::set_publish_apply(c.root, &req)?))
             .destructive();

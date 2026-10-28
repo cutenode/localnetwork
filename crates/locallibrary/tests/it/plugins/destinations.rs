@@ -739,3 +739,130 @@ fn a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied(tc: TestCase
         false => assert_eq!(copied.unwrap_err().code(), "conflict"),
     }
 }
+
+/// The test plugin reaching servers on this computer, uploading as its `upload` setting says.
+fn uploading() -> Fixture {
+    let upload = "\n[[contributes.settings]]\nkey = \"upload\"\ntitle = \"Upload\"\ntype = \"string\"\n";
+    super::net::fixture(&format!("{}{upload}", super::net::talking(100.0)), &[], Options::default())
+}
+
+/// For any recording and any way of cutting it into parts, each sent by a request of its own (as
+/// the Internet Archive takes them), publishing a set sends each part of the recording itself,
+/// named as the plugin was given it, saying how long it is, and the bytes sent are the
+/// publishing's progress, between the plugin's start and end of the upload. Its dry run may send
+/// none of it, and once it's published, nothing may.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
+    use locallibrary::progress::{CancelToken, Event, Phase};
+    let server = super::net::Server::new(|_, _| super::net::ok(""));
+    let f = uploading();
+    let s = set(&f.store, f.store.root());
+    let recording = s.recording.unwrap().path;
+    let size = tc.draw(gs::integers::<usize>().max_value(300_000));
+    std::fs::write(&recording, super::net::letters(size)).unwrap();
+    let mut cuts: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(size)).max_size(2));
+    cuts.sort_unstable();
+    let starts: Vec<usize> = std::iter::once(0).chain(cuts.iter().copied()).collect();
+    let ends: Vec<usize> = cuts.iter().copied().chain(std::iter::once(size)).collect();
+    // The last part to the recording's end, saying no length.
+    let fetches: Vec<Value> = (0..starts.len())
+        .map(|i| {
+            let range = match i + 1 == starts.len() {
+                true => json!({ "offset": starts[i] }),
+                false => json!({ "offset": starts[i], "length": ends[i] - starts[i] }),
+            };
+            let url = format!("{}/part/{i}", server.url);
+            json!({ "url": url, "method": "PUT", "body_blob": "recording", "body_range": range })
+        })
+        .collect();
+    let upload = serde_json::to_string(&fetches).unwrap();
+    f.plugins.set_setting("echo", &f.store, "upload", Some(upload.into())).unwrap();
+
+    let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
+    let refused =
+        format!("{} isn't in the scratch folder of a request under way, nor a file one was given", recording.display());
+    assert!(plan.warnings.iter().any(|w| w.ends_with(&refused)), "{:?}", plan.warnings);
+    assert!(server.got().is_empty(), "the dry run sent nothing");
+
+    let events = Mutex::new(Vec::new());
+    let progress = |e: &Event| events.lock().unwrap().push(e.clone());
+    plan.apply(Some(&f.store), &Ctx::new(&progress, CancelToken::new())).unwrap();
+    let got = server.got();
+    let all = super::net::letters(size);
+    for (i, got) in got.iter().enumerate() {
+        assert_eq!(got.target, format!("/part/{i}"));
+        assert_eq!(got.body.as_bytes(), &all[starts[i]..ends[i]]);
+        assert_eq!(got.headers["content-length"], (ends[i] - starts[i]).to_string());
+    }
+    assert_eq!(got.len(), fetches.len());
+    let events = events.into_inner().unwrap();
+    let upload: Vec<&Event> = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Event::PhaseStart { phase: Phase::Upload, .. }
+                    | Event::Bytes { phase: Phase::Upload, .. }
+                    | Event::PhaseEnd { phase: Phase::Upload }
+            )
+        })
+        .collect();
+    assert!(matches!(upload.first(), Some(Event::PhaseStart { bytes, .. }) if *bytes == size as u64), "{upload:?}");
+    assert!(matches!(upload.last(), Some(Event::PhaseEnd { .. })), "{upload:?}");
+    let sent: u64 = upload[1..upload.len() - 1]
+        .iter()
+        .map(|e| match e {
+            Event::Bytes { bytes, .. } => *bytes,
+            other => panic!("only bytes sent between: {other:?}"),
+        })
+        .sum();
+    assert_eq!(sent, size as u64);
+
+    // Published, its recording is no longer the plugin's to send.
+    let fetch = json!({ "url": server.url.clone(), "method": "PUT", "body_blob": recording });
+    let e = f.fetch(fetch);
+    assert!(e["error"]["message"].as_str().unwrap().ends_with(&refused), "{e}");
+    assert_eq!(server.got().len(), fetches.len());
+}
+
+/// Publishing cancelled while the recording is being sent stops sending it.
+#[test]
+fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    use locallibrary::progress::{CancelToken, NoProgress};
+    // A server reading slowly, noting how much it read and once the upload stopped.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (read, stopped) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
+    let (reading, stopping) = (read.clone(), stopped.clone());
+    std::thread::spawn(move || {
+        let mut stream = listener.incoming().next().unwrap().unwrap();
+        let mut buf = [0; 8192];
+        while let Ok(n @ 1..) = stream.read(&mut buf) {
+            reading.fetch_add(n, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        stopping.store(true, Ordering::SeqCst);
+    });
+    let f = uploading();
+    let s = set(&f.store, f.store.root());
+    let size = 32 << 20;
+    std::fs::write(&s.recording.unwrap().path, vec![0; size]).unwrap();
+    let upload = json!([{ "url": format!("{url}/mix"), "method": "PUT", "body_blob": "recording" }]).to_string();
+    f.plugins.set_setting("echo", &f.store, "upload", Some(upload.into())).unwrap();
+    let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
+    let cancel = CancelToken::new();
+    let cancelling = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        cancelling.cancel();
+    });
+    let e = plan.apply(Some(&f.store), &Ctx::new(&NoProgress, cancel)).unwrap_err();
+    assert_eq!(e.code(), "cancelled", "{e}");
+    eventually("the upload stopped", || stopped.load(Ordering::SeqCst));
+    assert!(read.load(Ordering::SeqCst) < size / 2, "{} of {size} sent", read.load(Ordering::SeqCst));
+    assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
+}

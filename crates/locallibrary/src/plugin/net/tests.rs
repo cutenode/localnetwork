@@ -48,8 +48,7 @@ fn scrubbed_text_never_holds_a_secret(tc: TestCase) {
     }
     let scrubbed = state.scrub(&text);
     for s in &secrets {
-        // Not echoed on failure (hegel shows what it drew): CodeQL takes it for logging the secrets.
-        assert!(!scrubbed.contains(s.as_str()) && !scrubbed.contains(&encoded(s)));
+        assert!(!scrubbed.contains(s.as_str()) && !scrubbed.contains(&encoded(s)), "{s:?} in {scrubbed:?}");
     }
     assert_eq!(state.scrub(&plain), plain);
     let mut v = serde_json::json!({ "message": text, "fields": [text] });

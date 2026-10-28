@@ -392,14 +392,6 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove useless tracks (rekordbox's bundled demo samples) and their files from a library
-    Clean {
-        #[arg(help = LIBRARY_HELP)]
-        drive: String,
-        /// Show what would be removed without removing anything
-        #[arg(long)]
-        dry_run: bool,
-    },
     /// Which of a drive's tracks a recorded mix plays, and when; drawn as an interactive HTML report
     Mix(mix_cmd::MixArgs),
     /// What your sets, collection and settings say about how you play, and what a public profile would show
@@ -1329,22 +1321,6 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
             let report = plan.apply(None, &ctx)?;
             return Ok(out.applied(&plan, &report, Outcome::Applied, || render::convert_report(&report, &req.drive)));
-        }
-        Command::Clean { drive, dry_run } => {
-            let req = api::DriveRef { drive };
-            let plan = api::clean_plan(&req, &ctx)?;
-            if plan.noop {
-                return Ok(out.nothing(&plan, "nothing to clean"));
-            }
-            if !out.json {
-                render::clean_plan(&plan);
-                output::clones(&plan);
-            }
-            if let Some(o) = out.decide(dry_run, "Remove them?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let report = plan.apply(None, &ctx)?;
-            return Ok(out.applied(&plan, &report, Outcome::Applied, || render::clean_report(&report, &req.drive)));
         }
         Command::Tags(args) => return tags_cmd::run(args, out, &ctx),
         Command::Pull { drive, library, new_library, message, label, force } => match drive {
