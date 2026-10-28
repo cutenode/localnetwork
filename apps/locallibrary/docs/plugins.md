@@ -99,14 +99,36 @@ are:
   gives Local Network's Google client a number of uploads a day (100 for now), shared by everyone
   publishing through it: once they're used up, publishing says so, and works again the next day.
 
-coverart, musicbrainz, plyr, archive and youtube are the only ones that go online, and only for these,
-through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first
-two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed
-in, with `--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup`
-(or `plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish
---to plyr:track`, `--to archive:item` or `--to youtube:video` once you confirm it. `analyze` alone
-leaves out the analyzers that go online, and says so. youtube is the only one that runs another
-program (FFmpeg), as you, like any plugin.
+- **mixcloud**: a set destination, `show`: `locallibrary sets publish SET --to mixcloud:show`
+  uploads the set's recording to Mixcloud as a show on your account and keeps its page as the
+  set's link. Mixcloud takes MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, MP2 and WMA recordings up to
+  4 GB, and another is refused before anything goes. The show is titled after the set (else its
+  venue and date), its description says where and when it was played, and its tracklist is the
+  set's, a track an entry with its artist, title (`ID` for one published unnamed) and the second
+  it starts at: a time no later than the one before it is left off, and the dry run says how
+  many. The `tags` setting (`locallibrary plugin settings mixcloud tags "house, disco"`) tags it,
+  five at most; the `picture` setting is its picture (10 MB at most); and `unlisted` keeps it
+  private. Sign in first with `locallibrary plugin account mixcloud mixcloud sign-in`. The
+  recording goes up in one request, as Mixcloud has no upload in parts: one that doesn't arrive,
+  or that Mixcloud fails, is sent again whole, a few times at most, and when Mixcloud says it's
+  over its rate limit, publishing waits as long as it asks, up to 15 minutes, else says when to
+  publish again.
+
+  Mixcloud licenses the music in DJ mixes, so the artists you play get paid royalties, under
+  rules for what a show may play that `sets export SET --format mixcloud` checks. A free account
+  keeps 10 shows published at once: to publish another, move an older one to your drafts, or go
+  Pro ([Mixcloud](https://www.mixcloud.com/blog/2026/10/21/what-are-unlimited-uploads-and-why-do-they-matter/)).
+  And listeners without Premium can rewind a show only a few times an hour
+  ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
+
+coverart, musicbrainz, plyr, archive, youtube and mixcloud are the only ones that go online, and
+only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
+between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
+publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
+unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
+musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video` or
+`--to mixcloud:show` once you confirm it. `analyze` alone leaves out the analyzers that go online,
+and says so. youtube is the only one that runs another program (FFmpeg), as you, like any plugin.
 
 ## What you have
 
