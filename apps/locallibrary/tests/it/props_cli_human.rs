@@ -986,7 +986,6 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
     (&["set", "A"], &[]),
     (&["sets", "--no-eject"], &[]),
     (&["store", "fetch", "not-a-code"], &[]),
-    (&["settings", "import", "A", "--pds", "https://pds.example.com"], &[]),
     (&["settings", "import", "A", "--replace"], &[]),
     (&["format", "A", "--dry-run"], &[]),
     (&["drive", "format", "A", "--filesystem", "fat32", "--cluster-size", "64KiB", "--dry-run"], &[]),

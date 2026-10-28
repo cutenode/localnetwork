@@ -299,14 +299,15 @@ fn shares_and_tempos_become_whole_numbers_in_order(tc: hegel::TestCase) {
     }
 }
 
-/// Two records are the same exactly when they differ in nothing but when they were made:
-/// changing or dropping `updatedAt`, `generatedAt` or `createdAt` changes nothing, and any
+/// Two records are the same exactly when they differ in nothing but when they were made, or in
+/// fields their Lexicon doesn't define (the directory's own, and `$type`): changing or dropping
+/// `updatedAt`, `generatedAt`, `createdAt`, `trackCount` or `$type` changes nothing, and any
 /// other change does.
 #[hegel::test(test_cases = 300)]
 fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
     use hegel::Generator;
     use hegel::generators as gs;
-    let field = || gs::sampled_from(vec!["title", "date", "tracks", "updatedAt", "generatedAt", "createdAt"]);
+    let field = || gs::sampled_from(vec!["title", "date", "tracks", "updatedAt", "createdAt", "$type", "trackCount"]);
     let value = || {
         hegel::one_of!(
             gs::integers::<i64>().max_value(3).map(Value::from),
@@ -317,21 +318,21 @@ fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
     let fields: Vec<(&str, Value)> = tc.draw(gs::vecs(gs::tuples!(field(), value())).max_size(6));
     let a = Value::Object(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect());
     let mut b = a.clone();
-    for time in TIME_FIELDS {
+    for ignored in TIME_FIELDS.into_iter().chain(["$type", "trackCount", "namedTracks"]) {
         match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => {}
             1 => {
-                b.as_object_mut().unwrap().remove(time);
+                b.as_object_mut().unwrap().remove(ignored);
             }
-            _ => b[time] = tc.draw(gs::text().max_size(24)).into(),
+            _ => b[ignored] = tc.draw(gs::text().max_size(24)).into(),
         }
     }
-    assert!(same_content(&a, &b) && same_content(&b, &a), "{a} {b}");
+    let same = |a: &Value, b: &Value| same_content(lexicon::SET, a, b);
+    assert!(same(&a, &b) && same(&b, &a), "{a} {b}");
     // Wrapping a value in a list changes it, whatever it was.
     let other = tc.draw(gs::sampled_from(vec!["title", "date", "tracks", "venue"]));
     b[other] = json!([a.get(other)]);
-    assert!(!same_content(&a, &b) && !same_content(&b, &a), "{a} {b}");
-    assert!(same_content(&json!([1]), &json!([1])) && !same_content(&json!(1), &json!("1")));
+    assert!(!same(&a, &b) && !same(&b, &a), "{a} {b}");
 }
 
 /// The `transitionIn` a model of the record expects for the transition `t`: a blend from 8

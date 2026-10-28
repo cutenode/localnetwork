@@ -240,7 +240,14 @@ describe('set record script', () => {
 			title: 'Closing',
 			kind: 'club',
 			venue: 'Tresor',
-			location: { $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin', street: 'Köpenicker' }
+			location: {
+				$type: 'community.lexicon.location.address',
+				country: 'DE',
+				locality: 'Berlin',
+				street: 'Köpenicker'
+			},
+			// Only locallibrary reads these, through getRecords, so setViews leave them out.
+			sources: [{ kind: 'history' }]
 		});
 
 		const bare = await publishSet(hv, 'did:plc:dj', { location: { $type: 'other.place', name: 'Somewhere' } });
@@ -258,7 +265,12 @@ describe('set record script', () => {
 				date: '2026-01-01',
 				kind: 'club',
 				venue: 'Tresor',
-				location: { country: 'DE', locality: 'Berlin' },
+				location: {
+					$type: 'community.lexicon.location.address',
+					country: 'DE',
+					locality: 'Berlin',
+					street: 'Köpenicker'
+				},
 				trackCount: 2
 			}
 		]);
@@ -270,7 +282,7 @@ describe('set record script', () => {
 		expect((await query<Sets>(hv, 'getSets', { uris: kept.uri })).sets).toHaveLength(1);
 	});
 
-	it('keeps what the DJ sets block shows: the tracklist as written, who it was played with, and where to listen', async () => {
+	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, sources and address as written', async () => {
 		const hv = new FakeHappyView(ROOT);
 
 		const tracks = [
@@ -283,7 +295,8 @@ describe('set record script', () => {
 			playedWith: [{ name: 'Two Rooms' }],
 			links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
 			event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
-			sources: [{ kind: 'history' }]
+			sources: [{ kind: 'history' }],
+			location: address('Berlin')
 		});
 
 		const [record] = (await query<Records>(hv, 'getRecords', { uris: set.uri })).records;
@@ -295,10 +308,12 @@ describe('set record script', () => {
 				playedWith: [{ name: 'Two Rooms' }],
 				links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
 				event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
+				sources: [{ kind: 'history' }],
+				location: address('Berlin'),
+				createdAt: '2026-10-01T00:00:00.000Z',
 				trackCount: 2
 			})
 		});
-		expect(record.value).not.toHaveProperty('sources');
 	});
 
 	it('removes a deleted set', async () => {
@@ -715,7 +730,7 @@ describe('getArtist and searchArtists', () => {
 							date: '2026-09-26',
 							kind: 'club',
 							venue: 'Halle Nord',
-							location: { country: 'DE', locality: 'Berlin' },
+							location: address('Berlin'),
 							trackCount: 2
 						}
 					},

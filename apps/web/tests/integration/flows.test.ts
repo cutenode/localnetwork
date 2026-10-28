@@ -3,7 +3,15 @@ import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
 import { ACCESS_PRESETS, type EpkFields } from '../../src/lib/epk.ts';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
-import { BSKY_FOLLOW, BSKY_PROFILE, CALENDAR_EVENT, COLLECTION, SPACE_TYPE, VERIFICATION } from '../../src/lib/nsid.ts';
+import {
+	BSKY_FOLLOW,
+	BSKY_PROFILE,
+	CALENDAR_EVENT,
+	COLLECTION,
+	REQUEST_INDEX,
+	SPACE_TYPE,
+	VERIFICATION
+} from '../../src/lib/nsid.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
@@ -20,6 +28,7 @@ import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+pa
 import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
 import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
+import { POST as requestIndex } from '../../src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
 
@@ -602,6 +611,33 @@ describe('Local Network on a real atproto spaces network', () => {
 		await net.app.epks.remove(viewer, (await net.app.epks.get(project, epk.rkey))!);
 		expect(await net.app.epks.get(project, epk.rkey)).toBeNull();
 		expect(await net.app.epks.forProject(project)).toEqual([]);
+	});
+
+	it("has HappyView re-read a locallibrary account's records when it asks with service auth from its PDS", async () => {
+		const kai = net.user('kai');
+		const audience = net.app.config.serviceDid;
+		const { data } = await kai.agent.com.atproto.server.getServiceAuth({ aud: audience, lxm: REQUEST_INDEX });
+
+		const call = async (token: string) => {
+			const request = new Request(`${net.app.config.publicUrl}/xrpc/${REQUEST_INDEX}`, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${token}` }
+			});
+
+			const response = await requestIndex({ request, locals: { app: net.app, log: silentLogger } });
+
+			return { status: response.status, body: await response.json() };
+		};
+
+		expect(await call(data.token)).toEqual({ status: 200, body: { indexed: true } });
+
+		// A token for another method, as a PDS signs one for any lxm it's asked for, is turned away.
+		const other = await kai.agent.com.atproto.server.getServiceAuth({
+			aud: audience,
+			lxm: 'com.atproto.space.notifyWrite'
+		});
+
+		expect((await call(other.data.token)).status).toBe(401);
 	});
 
 	it("reads a project's managers' Bluesky follows through HappyView, for its press kits", async () => {

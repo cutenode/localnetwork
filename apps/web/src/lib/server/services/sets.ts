@@ -2,13 +2,8 @@ import { COLLECTION } from '#lib/nsid.ts';
 import type { DjSetView, ProjectProfile, StrongRef } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
+import { Backfills } from '../happyview/backfills';
 import { type HappyViewClient, HappyViewError } from '../happyview/client';
-
-/** How long the set picker waits for HappyView to read an account's sets from its PDS. */
-const BACKFILL_WAIT_MS = 5_000;
-
-/** How often one account's sets are re-read at most. Jetstream keeps them current in between. */
-const BACKFILL_EVERY_MS = 10 * 60_000;
 
 /** The most sets the picker offers. */
 const PICKER_LIMIT = 100;
@@ -22,14 +17,13 @@ const sameRef = (a: StrongRef | undefined, b: StrongRef) => a?.uri === b.uri && 
  */
 export class SetService {
 	/**
-	 * When each account's sets were last re-read, and that re-read, so reopening the picker doesn't crawl their repo
-	 * again, and a picker opened while one is running waits for it instead of listing what HappyView had before.
+	 * `backfills` is shared with the app's other re-reads, so reopening the picker doesn't crawl an account's repo
+	 * again, and a picker opened while a re-read is running waits for it instead of listing what HappyView had before.
 	 */
-	private readonly backfilled = new Map<string, { at: number; done: Promise<void> }>();
-
 	constructor(
 		private readonly core: Core,
-		private readonly directory: HappyViewClient
+		private readonly directory: HappyViewClient,
+		private readonly backfills = new Backfills(directory, core.logger)
 	) {}
 
 	/**
@@ -123,32 +117,6 @@ export class SetService {
 	 * while it was down.
 	 */
 	async refresh(accounts: string[]): Promise<void> {
-		await Promise.all(accounts.map((did) => this.backfill(did)));
-	}
-
-	private async backfill(did: string): Promise<void> {
-		if (!this.directory.admin) return;
-		const last = this.backfilled.get(did);
-
-		if (last && Date.now() - last.at < BACKFILL_EVERY_MS) return last.done;
-		const done = this.read(did);
-		this.backfilled.set(did, { at: Date.now(), done });
-
-		return done;
-	}
-
-	private async read(did: string): Promise<void> {
-		try {
-			const job = await this.directory.backfill(COLLECTION.djSet, did);
-			const status = await this.directory.awaitBackfill(job, BACKFILL_WAIT_MS);
-
-			if (status === 'failed' || status === 'cancelled') throw new Error(`HappyView's re-read ${status}`);
-
-			if (status !== 'completed') this.core.logger.info({ did, status }, 'HappyView is still reading sets');
-		} catch (error) {
-			// The picker still lists what HappyView has, and the next open tries again.
-			this.backfilled.delete(did);
-			this.core.logger.warn({ err: error, did }, 'could not have HappyView read sets');
-		}
+		await Promise.all(accounts.map((did) => this.backfills.backfill(COLLECTION.djSet, did)));
 	}
 }

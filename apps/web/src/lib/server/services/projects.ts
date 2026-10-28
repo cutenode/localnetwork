@@ -17,6 +17,7 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import type { Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
@@ -113,12 +114,14 @@ export class ProjectService {
 	/** The spaces whose members follow each project's managers, which `publish` updates. */
 	private readonly managerSpaces: ManagerSpaces;
 
+	/** `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it). */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		backfills?: Backfills
 	) {
-		this.sets = new SetService(core, directory);
+		this.sets = new SetService(core, directory, backfills);
 		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
 	}
 

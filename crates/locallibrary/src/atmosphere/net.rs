@@ -4,9 +4,9 @@
 //! server, that server's metadata names its authorization server and endpoints, and any of them
 //! can answer with a redirect. Those requests only go to public https addresses
 //! ([`crate::net::public`]). So do signing in and a client document the user names. The
-//! signed-in account's own servers, and a data server named to import settings from (which may be
-//! on this computer, for testing), are taken as they are, but their redirects too only go to
-//! public https addresses. Answers are read up to [`MAX_BODY`].
+//! signed-in account's own servers, and Local Network's directory and website (which may be on
+//! this computer, for testing), are taken as they are, but their redirects too only go to public
+//! https addresses. Answers are read up to [`MAX_BODY`].
 
 use jacquard_common::SmolStr;
 use jacquard_common::http_client::HttpClient;

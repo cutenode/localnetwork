@@ -16,16 +16,18 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the three record types it publishes, not to delete them, and nothing else in the
-account. `account login --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
+and replace the three record types it publishes, not to delete them, and to ask Local Network's
+directory to read them again, and nothing else in the account. `account login --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
 the same way, the first time, for permission to post bug reports and nothing else.
 
 - **Publishing's permission is a permission set**, the Lexicon
   [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
   sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
   set's title and description when you approve, and the session is granted what the set lists in
-  its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and
-  the same for `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`). Servers
+  its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, the
+  same for `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`, and
+  `rpc:computer.localnetwork.directory.requestIndex?aud=*`, a token for that one method of Local
+  Network's website; see [Where records are read](#where-records-are-read)). Servers
   look the set up when you sign in and every time the session is refreshed, so it has to be
   published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
   DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
@@ -76,8 +78,9 @@ locallibrary sets publish last --no-lookup    # without looking up MusicBrainz I
 Publishing writes a record to your account's repository, where anyone can read it and other
 apps can show it. Each command shows exactly what it will publish (`--dry-run` stops there,
 and works signed out; `--json` prints the record) and asks first, then publishes exactly that,
-to the account it named: if the record was published from somewhere else in between, or
-another account signed in, nothing is replaced. Like every write, it exits with status 3 when
+to the account it named: it replaces only the version the plan showed, so if the record was
+published from somewhere else in between, or another account signed in, nothing is replaced. Like
+every write, it exits with status 3 when
 it wasn't confirmed (see `locallibrary --help`). The first time, it asks you to sign in again to
 allow publishing (`--paste`, `--no-browser` and `--timeout` work as for `account login`), then
 shows the plan again for the account you approved. Publishing again replaces the record.
@@ -94,9 +97,9 @@ computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your
 only their place in the set and when it starts. The venue, city and country also go out as a
 `community.lexicon.location.address`, which needs a country: without one, the city stays out. A
 set built from a single history list that an earlier version published with `plays publish`
-takes that list's key as its id the first time it's published, and the time the old record says
-it first went out. The old record stays where `plays publish` wrote it
-(`computer.localnetwork.locallibrary.set`), since publishing may only write today's set records.
+takes that list's key as its id the first time it's published. The old record stays where `plays
+publish` wrote it (`computer.localnetwork.locallibrary.set`), since publishing may only write
+today's set records.
 
 A track's artists go out one by one (split as the profile counts them) when its credit names
 several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
@@ -131,6 +134,27 @@ they use is [Lexicon Community](https://tangled.org/lexicon.community/lexicons)'
 [`lexicons/community/`](../../../lexicons/community/lexicon/location/address.json) as it publishes
 it. Each record is checked against its Lexicon before it's written. Everything published is public
 and copied around the network: deleting a record later doesn't delete the copies.
+
+## Where records are read
+
+Everything locallibrary reads from the network comes from Local Network's directory, the
+[HappyView](https://happyview.localnetwork.computer) AppView the website uses, never from an
+account's data server or Bluesky's: what's published in a record's place before a publish, My
+Settings for `settings import --from-handle` and `--from-account`, and the space bug reports go
+to. Writes still go to your account's data server. A handle is found from its own DNS record or
+`https://<handle>/.well-known/atproto-did`, never by asking Bluesky.
+
+The directory hears of each record as it's written, a moment later. Publishing replaces only the
+version the directory showed, so a publish made in that moment, or over a record the directory
+doesn't have, is refused with nothing written: run it again in a minute. Records you published
+before the directory kept them aren't there until it reads your account again: the first publish
+or import from your account on a computer asks Local Network's website to have it do that, with a
+token your account's server signs for that one request, and waits a few seconds. If that can't be
+done (the website doesn't answer, the directory is still reading, or the session was signed in
+before publishing's permission set allowed it), the plan says so and the next one asks again.
+Someone else's settings the directory doesn't have can't be imported until they publish from locallibrary again.
+`LOCALLIBRARY_HAPPYVIEW_URL` and `LOCALLIBRARY_WEBSITE_URL` name another directory and website
+(for development).
 
 ## Reporting a bug
 
@@ -167,4 +191,4 @@ The space reports go to is set in the source: `SPACE` in
 It's unset until Local Network has one, so for now every report goes to GitHub.
 `LOCALLIBRARY_USERINPUT_SPACE` names another (`at://<DID>/app.userinput.space/<record key>`;
 anything else is refused). The report points at the space's current version, which locallibrary
-reads from its owner's data server when it posts.
+reads from Local Network's directory when it posts.
