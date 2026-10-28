@@ -270,6 +270,13 @@
 	outline-offset: 2px;
 }
 
+/* While a gate is walked for it (content.js saveGate): the same button, a
+   shade quieter, so it says it heard without anything in the row moving. */
+.tbx-dl[aria-busy='true'] {
+	cursor: progress;
+	opacity: 0.7;
+}
+
 .tbx-dl:active {
 	transform: translateY(1px);
 }

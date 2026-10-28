@@ -70,7 +70,9 @@ Current tools:
   queue, from a tab on one of those sites, or from pasted text, and works
   through them one after another. Not every site ends in a file, and it says
   which: a link that resolves to somewhere to go rather than something to save
-  says so and offers to open it.
+  says so and offers to open it. A Hypeddit, Droploud or Pump Your Sound link
+  is also walked and saved straight from the SoundCloud page, when its
+  Download button there is pressed.
 - **artists** — keeps a **list of artists**: the uploaders behind the tracks
   you add, from the page in front, from the Manager's list or from the session
   queue, and asks SoundCloud about each one for their public profile and their
@@ -130,8 +132,8 @@ src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
   popup.html           the page the toolbar icon opens; main.ts mounts App
-  background.ts        the background worker: walks a download gate and saves
-                       its file, for a caller outside the popup
+  background.ts        the background worker: saves a gate the page's Download
+                       button was pressed on (see "Walking a gate from the page")
   offscreen.html, offscreen.ts  the page that worker walks the gate in
   app.css              the shared Local Network theme and fonts, plus what only
                        the popup needs (its width, `field`, `icon-btn`)
@@ -723,8 +725,8 @@ Permissions: `activeTab` (to read the active tab's URL when you click the
 icon), `clipboardWrite` (for the Copy button), `storage` (the Manager tool's own
 list of tracks and its set of downloaded ones; see that tool), `downloads` (the third-party
 downloader saves the files it unlocks), and `offscreen` (the page the background
-worker walks a download gate in, since a service worker cannot parse HTML; see
-`src/background.ts`). The host patterns are the content
+worker walks a gate in when the page's Download button is pressed on one; see
+[Walking a gate from the page](#walking-a-gate-from-the-page)). The host patterns are the content
 script's match on `soundcloud.com`, plus one `host_permissions` entry per site
 the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
 `fanlink.tv`, `droploud.com` and its `api.` host, `pumpyoursound.com`,
@@ -1243,11 +1245,11 @@ same page at all.
 
 The controls are not quite alike underneath:
 
-| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page)                                                                       |
-| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                             |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was |
+| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
+| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was                                                                |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1300,6 +1302,38 @@ space where a download button was. The More menu renders only when it is
 opened, so for the tenth of a second the repaint is coalesced into, a
 freshly-opened menu shows SoundCloud's own button; clicking it in that moment
 does what it always did.
+
+### Walking a gate from the page
+
+A purchase link to Hypeddit, Droploud or Pump Your Sound is a gate the
+[third-party downloader](#third-party-downloader) can always walk to a file,
+so a plain click on this extension's button there does what that tool's
+**Get** does: the gate is walked, the file lands in the site's folder under the
+download directory, and the track is marked downloaded (unless **mark the
+SoundCloud track downloaded** is off in Settings). The button dims while the
+walk runs and ignores another click until it ends. Nothing goes into the
+session queue, since nothing is left to mark.
+
+When the walk does not end in a saved file, the gate opens in a tab beside the
+page and the track is queued, which is what the button did before. That covers
+a gate that wants an email address Settings does not have yet, a Spotify step
+that needs pressing **Connect** once, a CAPTCHA, a Droploud gate pointed at a
+page, and a transfer Chrome refused (then it is the file that opens). A click
+with ⌘, Ctrl, Shift or Alt held is someone asking for the link itself, and is
+followed as before. The other gate sites (ToneDen, FanLink, Laylo,
+Feature.fm) often end in a page or a signup rather than a file, so their links
+are followed as before too.
+
+The walk runs in two places because neither the page nor a service worker can
+run it alone. A content script fetches as the page it is in, so every gate is
+an origin it is refused; a service worker has no `DOMParser`, which the
+Hypeddit and Pump Your Sound walks read pages with. So the button sends the
+link to the background worker (`src/background.ts`), which opens an offscreen
+page (`src/offscreen.ts`, Chrome's `DOM_PARSER` reason) and has the site module
+walk it there, with the address, name and mark setting the popup keeps. The
+worker does the parts that need a tab or the downloads API: the Spotify trip,
+the download, and the tab the gate opens in. Walks run one at a time, and the
+offscreen page is closed once none is waiting.
 
 ### The signed-in track page
 
