@@ -602,11 +602,12 @@ fn a_cut_tracklist_keeps_every_line_that_fits() {
 #[test]
 fn the_recordings_name_is_encoded_in_the_url() {
     let dir = tempfile::tempdir().unwrap();
-    let path = recording(dir.path(), "Café #1 (live)?.wav", 10);
+    // Characters a URL reserves but every OS takes in a file name (Windows refuses `?`).
+    let path = recording(dir.path(), "Café #1 (live) & more.wav", 10);
     let s = start(Archive::new());
     s.publish(&set(), &path, &[], false).0.unwrap();
     let r = s.stop();
-    assert_eq!(r.puts[0].url, format!("{S3}/{ID}/Caf%C3%A9%20%231%20%28live%29%3F.wav"));
+    assert_eq!(r.puts[0].url, format!("{S3}/{ID}/Caf%C3%A9%20%231%20%28live%29%20%26%20more.wav"));
 }
 
 /// Any name, in any script: words drawn from these, some only space or punctuation.
