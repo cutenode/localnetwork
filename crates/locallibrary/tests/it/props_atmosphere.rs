@@ -106,13 +106,17 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
 }
 
 /// Publishing asks for `atproto` and the permission set, which a server grants as one
-/// create-and-replace scope per record type, and a session granted them may write each of
-/// locallibrary's record types and nothing else's.
+/// create-and-replace scope per record type and one for asking the directory to read them again,
+/// and a session granted them may write each of locallibrary's record types and nothing else's.
 #[hegel::test(test_cases = 50)]
 fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
     assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}")]);
     let granted = crate::mock_pds::granted(&publish_scopes());
-    assert_eq!(granted, [&PUBLISH_SCOPES[..], &["atproto"]].concat());
+    let mut want: Vec<String> = PUBLISH_SCOPES.map(String::from).to_vec();
+    // Servers write the `rpc` one with the audience jacquard leaves out.
+    want[3] += "?aud=*";
+    want.push("atproto".into());
+    assert_eq!(granted, want);
     let order = tc.draw(gs::permutations(granted));
     let account = info("did:plc:abc", None, order, Utc::now());
     for c in [SETTINGS, PROFILE, SET] {
@@ -429,6 +433,7 @@ fn account_file(tc: &TestCase) -> AccountFile {
         left_behind: (0..tc.draw(gs::integers::<usize>().max_value(3)))
             .map(|_| (storage(tc), tc.draw(gs::sampled_from(DIDS.to_vec())).to_string()))
             .collect(),
+        indexed: tc.draw(gs::subsequences(DIDS.to_vec())).into_iter().map(String::from).collect(),
     }
 }
 

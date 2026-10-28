@@ -145,9 +145,10 @@ local function setView(record, uri, cid)
 end
 
 -- SQL for a stored set's view fields: its record without the tracklist, who it was played with, where to listen and
--- its event, which only the DJ sets block reads, or the named tracks the support queries count.
-local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '$.event', '$.namedTracks')"
-	.. ' AS record'
+-- its event, which only the DJ sets block reads, the named tracks the support queries count, or the sources and
+-- createdAt only locallibrary reads (through getRecords).
+local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '$.event', '$.namedTracks',"
+	.. " '$.sources', '$.createdAt') AS record"
 
 -- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, tracklist,
 -- and named tracks. It keeps every account's, so only sets by accounts that manage one of the root's projects, in any

@@ -46,6 +46,58 @@ are:
   MusicBrainz IDs from, and the default for `identity` too (see [Roles](#roles)), and each track
   is looked up once: a track without an ISRC, or one MusicBrainz doesn't know, is kept as having
   none, while MusicBrainz being busy or refusing the lookup is a warning, tried again next time.
+- **plyr**: a set destination, `track`: `locallibrary sets publish SET --to plyr:track` uploads
+  the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
+  (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
+  as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
+  set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
+  and the plugin refuses others before anything goes. It needs a developer token from
+  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
+  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
+  sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
+  plyr.fm after a day, and publishing again starts over.
+- **archive**: a set destination, `item`: `locallibrary sets publish SET --to archive:item`
+  uploads the set's recording to the [Internet Archive](https://archive.org) as an item of yours in
+  Community Audio, titled after the set (else its venue and date), by the DJ name you give it
+  (`locallibrary plugin settings archive creator NAME`), with its tracklist as the description
+  (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
+  `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
+  is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
+  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
+  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
+  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
+  would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
+  new item while it processes it, and the link works once it has. The Archive is only for what
+  you have the rights to share: it takes down mixes of other people's records when the rights
+  holders ask.
+
+- **youtube**: a set destination, `video`: `locallibrary sets publish SET --to youtube:video`
+  uploads the set to YouTube as a video on your channel and keeps its page as the set's link.
+  YouTube takes videos, not audio, so the plugin runs [FFmpeg](https://ffmpeg.org/download.html)
+  (`ffprobe` and `ffmpeg`, which have to be installed) to make one first: a still picture over the
+  whole recording, the `picture` setting's (`locallibrary plugin settings youtube picture
+  FILE`, fitted into a 1080p frame) or a black frame, at a frame a second, with the audio as AAC
+  (copied when it's AAC already, else encoded, which takes a few minutes for a long WAV). The
+  video is made in the request's folder and removed once it has gone. It's titled after the set
+  (else its venue and date), in YouTube's category for music, and the tracklist is the
+  description, a `05:30 Artist - Title` line a track, the first at `00:00`: YouTube makes those
+  chapters when there are three or more, in order, each at least ten seconds long, so a time that
+  would break that is left off its line (the dry run says how many). Who can watch it is the
+  `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
+  `locallibrary plugin account youtube google sign-in`: it asks Google only to upload videos.
+  The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
+  to, a few times at most; an upload that stops partway starts over when you publish again.
+
+  What YouTube does once it has the video is up to YouTube. It processes it for a while after the
+  upload, so the link can take some minutes to play, longer in HD. Its Content ID matches every
+  upload against the labels' records, and a mix of other people's records is likely to be
+  matched: a label can block the video (in some countries or all), put ads on it and take what
+  they earn, or only track it. YouTube takes videos over 15 minutes only from verified accounts
+  ([youtube.com/verify](https://www.youtube.com/verify)). And YouTube
+  gives Local Network's Google client a number of uploads a day (100 for now), shared by everyone
+  publishing through it: once they're used up, publishing says so, and works again the next day.
 
 - **mixcloud**: a set destination, `show`: `locallibrary sets publish SET --to mixcloud:show`
   uploads the set's recording to Mixcloud as a show on your account and keeps its page as the
@@ -69,13 +121,14 @@ are:
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
 
-coverart, musicbrainz and mixcloud are the only ones that go online, and only for these, through
-locallibrary (see [Safety](#safety)), a request a second to MusicBrainz between the first two, as
-it asks: `art fetch` and `track fetch`; `sets publish` when it's about to publish (signed in, with
-`--yes` or a terminal to ask in), for the tracks it names without IDs, unless `--no-lookup` (or
-`plugin roles recording --none`, for good); `analyze --plugin musicbrainz`; and `sets publish --to
-mixcloud:show` once you confirm it. `analyze` alone leaves out the analyzers that go online, and
-says so.
+coverart, musicbrainz, plyr, archive, youtube and mixcloud are the only ones that go online, and
+only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
+between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
+publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
+unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
+musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video` or
+`--to mixcloud:show` once you confirm it. `analyze` alone leaves out the analyzers that go online,
+and says so. youtube is the only one that runs another program (FFmpeg), as you, like any plugin.
 
 ## What you have
 

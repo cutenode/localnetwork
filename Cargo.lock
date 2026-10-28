@@ -3948,13 +3948,16 @@ dependencies = [
  "jsonschema",
  "libc",
  "locallibrary",
+ "locallibrary-plugin-archive",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-demos",
  "locallibrary-plugin-interop",
  "locallibrary-plugin-mixcloud",
  "locallibrary-plugin-musicbrainz",
+ "locallibrary-plugin-plyr",
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
+ "locallibrary-plugin-youtube",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
@@ -3980,6 +3983,21 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "locallibrary-plugin-archive"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
+ "percent-encoding",
+ "quick-xml 0.42.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -4058,6 +4076,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "locallibrary-plugin-plyr"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "locallibrary-plugin-sound"
 version = "0.1.0"
 dependencies = [
@@ -4079,6 +4110,18 @@ dependencies = [
  "loclib-model",
  "loclib-plugin",
  "loclib-tracklist",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-youtube"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
  "serde",
  "serde_json",
  "tempfile",

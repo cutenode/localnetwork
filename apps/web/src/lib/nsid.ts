@@ -20,6 +20,8 @@ export const COLLECTION = {
 	djProfile: `${NS}.dj.profile`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
 	djSet: `${NS}.dj.set`,
+	/** A DJ's rekordbox settings, written by locallibrary to the DJ's own repo. */
+	locallibrarySettings: `${NS}.locallibrary.settings`,
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
@@ -39,6 +41,9 @@ export const VERIFICATION = 'app.bsky.graph.verification' as const;
 
 /** Bluesky's profile record, where an account's display name lives. */
 export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;
+
+/** Bluesky's follow record, which press kits' "people you follow" audience reads. */
+export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
 
 /**
  * Queries served by the directory, the HappyView AppView that indexes published projects, their managers' DJ records,
@@ -61,6 +66,12 @@ export const DIRECTORY = {
 	getRecords: `${NS}.directory.getRecords`,
 	listRecords: `${NS}.directory.listRecords`
 } as const;
+
+/**
+ * The directory procedure this app answers itself rather than HappyView (it needs the app's HappyView API key): has
+ * HappyView read a caller's locallibrary records again.
+ */
+export const REQUEST_INDEX = `${NS}.directory.requestIndex` as const;
 
 export const SPACE_TYPE = {
 	audit: `${NS}.space.audit`,

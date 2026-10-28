@@ -261,6 +261,8 @@ export class AgentRepoClient implements RepoClient {
 
 	async getRecord(input: { collection: string; rkey: string }) {
 		try {
+			// The account's own repo; callers are checked where they read (see no-direct-pds-read).
+			// ast-grep-ignore: no-direct-pds-read
 			const { data } = await this.agent.com.atproto.repo.getRecord({ repo: this.did, ...input });
 
 			return { uri: data.uri, cid: data.cid ?? '', value: asJson(data.value) };
@@ -316,6 +318,8 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		let cursor: string | undefined;
 
 		do {
+			// The root's own repo; callers are checked where they read (see no-direct-pds-read).
+			// ast-grep-ignore: no-direct-pds-read
 			const { data } = await this.agent.com.atproto.repo.listRecords({
 				repo: this.did,
 				collection,

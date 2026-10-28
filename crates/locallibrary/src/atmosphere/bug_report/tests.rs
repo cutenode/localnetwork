@@ -86,17 +86,21 @@ fn reporting_needs_only_the_report_scope() {
 #[test]
 fn a_report_is_posted_from_the_account_to_the_spaces_current_version() {
     let pds = MockPds::start();
+    crate::testing::directory_on_this_thread(Some(pds.url.clone()));
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     crate::store::Store::open_or_init(root).unwrap();
     let did = "did:plc:abc";
     save_session(root, did, &pds.url, &format!("atproto {REPORT_SCOPE}"));
     let account = status(root).unwrap().unwrap();
-    // A space the account owns: found on its own data server.
-    let space = Space::parse(&format!("at://{did}/app.userinput.space/3lspace")).unwrap();
+    // The space's version is the one Local Network's directory has, never read from a data server.
+    let space = Space::parse("at://did:plc:owner/app.userinput.space/3lspace").unwrap();
+    pds.put_unindexed("did:plc:owner", SPACE_COLLECTION, "3lspace", json!({ "name": "locallibrary" }));
     let err = post(root, &account, &space, "Sync stops", "It stopped.").unwrap_err();
     assert_eq!(err.code(), "not_found", "{err}");
-    let space_cid = pds.put(did, SPACE_COLLECTION, "3lspace", json!({ "name": "locallibrary" }));
+    assert!(err.to_string().ends_with("Local Network's directory doesn't have it yet)"), "{err}");
+    let space_cid = pds.put("did:plc:owner", SPACE_COLLECTION, "3lspace", json!({ "name": "locallibrary" }));
+    assert!(pds.calls("com.atproto.repo.getRecord").is_empty());
 
     let posted = post(root, &account, &space, "Sync stops", "It stopped.").unwrap();
     let rkey = posted.uri.rsplit('/').next().unwrap();

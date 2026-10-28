@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::repo::{self, Written};
-use super::{AccountInfo, lexicon};
+use super::{AccountInfo, directory, lexicon};
 use crate::export::one_line;
 use crate::{Error, Result};
 
@@ -134,23 +134,22 @@ pub fn link(did: &str, rkey: &str) -> String {
 /// account signed in.
 pub fn post(root: &Path, account: &AccountInfo, space: &Space, title: &str, body: &str) -> Result<Posted> {
     check(title, body)?;
-    let cid = space_cid(account, space)?;
+    let cid = space_cid(space)?;
     let record = record(space, &cid, title, body, Utc::now());
     let Written { uri, cid } = repo::create_record(root, &account.did, lexicon::DISCUSSION, &record)?;
     let rkey = uri.rsplit('/').next().unwrap_or_default();
     Ok(Posted { url: link(&account.did, rkey), uri, cid })
 }
 
-/// The CID of `space` as its owner's data server has it now: the version a report points at.
-/// The signed-in account's data server is known; anyone else's is found from their DID, and
-/// only at a public https address.
-fn space_cid(account: &AccountInfo, space: &Space) -> Result<String> {
-    let pds = if space.did == account.did { account.pds.clone() } else { repo::resolve(&space.did)?.pds };
-    let found = repo::get_record(&pds, &space.did, SPACE_COLLECTION, &space.rkey)?
-        .ok_or_else(|| Error::NotFound(format!("the space bug reports go to ({})", space.uri())))?;
-    found
-        .cid
-        .ok_or_else(|| Error::Account(format!("the space's server didn't say which version it has ({})", space.uri())))
+/// The CID of `space` as Local Network's directory has it now: the version a report points at.
+fn space_cid(space: &Space) -> Result<String> {
+    let found = directory::get_record(&space.did, SPACE_COLLECTION, &space.rkey)?.ok_or_else(|| {
+        Error::NotFound(format!(
+            "the space bug reports go to ({}; Local Network's directory doesn't have it yet)",
+            space.uri()
+        ))
+    })?;
+    Ok(found.cid)
 }
 
 #[cfg(test)]

@@ -40,6 +40,8 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
+plugins/archive/            the archive plugin: the `item` set destination, a set's recording uploaded to the
+                            Internet Archive in one PUT as an item, its tracklist the description, its page the link
 plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
                             all, asked to), each album looked up on MusicBrainz and its cover fetched from
                             the Cover Art Archive, offered as candidates locallibrary plans the edits of
@@ -52,12 +54,16 @@ plugins/mixcloud/           the mixcloud plugin: the `show` set destination, a s
                             Mixcloud in one form, its tracklist the show's sections
 plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
                             and artist IDs, looked up by its ISRC and kept where they fit the track
+plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
+                            in parts as a track, its tracklist the description, the track's page its link
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
                             as an importer (keys, tempos, cues) and a library source to build drives from
+plugins/youtube/            the youtube plugin: the `video` set destination, a set's recording made into a
+                            video by FFmpeg and uploaded to YouTube, its tracklist the description's chapters
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the

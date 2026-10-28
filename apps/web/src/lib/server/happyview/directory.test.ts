@@ -2,7 +2,7 @@ import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
 import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -240,7 +240,14 @@ describe('set record script', () => {
 			title: 'Closing',
 			kind: 'club',
 			venue: 'Tresor',
-			location: { $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin', street: 'Köpenicker' }
+			location: {
+				$type: 'community.lexicon.location.address',
+				country: 'DE',
+				locality: 'Berlin',
+				street: 'Köpenicker'
+			},
+			// Only locallibrary reads these, through getRecords, so setViews leave them out.
+			sources: [{ kind: 'history' }]
 		});
 
 		const bare = await publishSet(hv, 'did:plc:dj', { location: { $type: 'other.place', name: 'Somewhere' } });
@@ -258,7 +265,12 @@ describe('set record script', () => {
 				date: '2026-01-01',
 				kind: 'club',
 				venue: 'Tresor',
-				location: { country: 'DE', locality: 'Berlin' },
+				location: {
+					$type: 'community.lexicon.location.address',
+					country: 'DE',
+					locality: 'Berlin',
+					street: 'Köpenicker'
+				},
 				trackCount: 2
 			}
 		]);
@@ -270,7 +282,7 @@ describe('set record script', () => {
 		expect((await query<Sets>(hv, 'getSets', { uris: kept.uri })).sets).toHaveLength(1);
 	});
 
-	it('keeps what the DJ sets block shows: the tracklist as written, who it was played with, and where to listen', async () => {
+	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, sources and address as written', async () => {
 		const hv = new FakeHappyView(ROOT);
 
 		const tracks = [
@@ -283,7 +295,8 @@ describe('set record script', () => {
 			playedWith: [{ name: 'Two Rooms' }],
 			links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
 			event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
-			sources: [{ kind: 'history' }]
+			sources: [{ kind: 'history' }],
+			location: address('Berlin')
 		});
 
 		const [record] = (await query<Records>(hv, 'getRecords', { uris: set.uri })).records;
@@ -295,10 +308,12 @@ describe('set record script', () => {
 				playedWith: [{ name: 'Two Rooms' }],
 				links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
 				event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
+				sources: [{ kind: 'history' }],
+				location: address('Berlin'),
+				createdAt: '2026-10-01T00:00:00.000Z',
 				trackCount: 2
 			})
 		});
-		expect(record.value).not.toHaveProperty('sources');
 	});
 
 	it('removes a deleted set', async () => {
@@ -715,7 +730,7 @@ describe('getArtist and searchArtists', () => {
 							date: '2026-09-26',
 							kind: 'club',
 							venue: 'Halle Nord',
-							location: { country: 'DE', locality: 'Berlin' },
+							location: address('Berlin'),
 							trackCount: 2
 						}
 					},
@@ -1173,6 +1188,41 @@ describe('show record script', () => {
 		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toHaveLength(1);
 		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.show, rkey, cid: '', record: null });
 		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toEqual([]);
+	});
+});
+
+describe('calendar event record script', () => {
+	const event = (fields: JsonObject = {}) => ({
+		name: 'Tidal Hours',
+		startsAt: '2026-11-07T23:00:00+01:00',
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	});
+
+	it("keeps calendar events as written, by an account that manages one of the root's projects", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const before = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'before', event());
+		await publish(hv, {}, { managers: ['did:plc:other', 'did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+
+		// No show has to name it, so it doesn't matter which of the two HappyView hears of first.
+		const kept = await ingest(hv, 'did:plc:dj', CALENDAR_EVENT, 'kept', event({ description: 'Doors at 22:00' }));
+
+		const uris = [
+			// From before they managed a project, until a re-read.
+			before.uri,
+			kept.uri,
+			(await ingest(hv, 'did:plc:nobody', CALENDAR_EVENT, 'theirs', event())).uri,
+			(await ingest(hv, 'did:plc:faker', CALENDAR_EVENT, 'fake', event())).uri
+		];
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { $type: CALENDAR_EVENT, ...event({ description: 'Doors at 22:00' }) } }
+		]);
+
+		await hv.ingest({ did: 'did:plc:dj', collection: CALENDAR_EVENT, rkey: 'kept', cid: '', record: null });
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([]);
 	});
 });
 

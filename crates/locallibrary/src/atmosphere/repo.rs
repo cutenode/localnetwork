@@ -5,12 +5,12 @@
 //! has run out. Before a write, the record is checked against its Lexicon and the session's
 //! scopes against what it needs, so a session signed in without permission to publish fails here,
 //! not at the server.
-//! Reads ([`get_record`]) need no session: anyone can read a repository, so they go straight to
-//! the PDS, found from a handle or DID with [`resolve`]. What another account's servers answer is
-//! read up to a limit, and shown on one line without control characters.
+//! Reads need no session, and come from Local Network's directory ([`super::directory`]), never
+//! the PDS: a write that replaces a record names the version the directory had ([`put_record`]'s
+//! `swap`), so it only lands on what the DJ saw. [`resolve`] finds an account's DID from its
+//! handle.
 
 use std::path::Path;
-use std::time::Duration;
 
 use jacquard_api::com_atproto::repo::create_record::{CreateRecord, CreateRecordError};
 use jacquard_api::com_atproto::repo::put_record::{PutRecord, PutRecordError};
@@ -27,7 +27,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{
-    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, missing_scope, net, not_signed_in, resolver,
+    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, missing_scope, not_signed_in, resolver,
     restore, status, store,
 };
 use crate::error::{Action, Reason};
@@ -127,10 +127,13 @@ pub fn put_record(
     let status = response.status();
     match response.into_output() {
         Ok(out) => Ok(Written { uri: out.uri.to_string(), cid: out.cid.to_string() }),
+        // The swap is the version the directory had, which lags behind the PDS for a moment after
+        // each write (and misses what was published before it kept the record type).
         Err(XrpcError::Xrpc(PutRecordError::InvalidSwap(_))) => Err(Error::conflict(
             Reason::Changed,
             format!(
-                "{} changed on {} while locallibrary was publishing; run it again to see what's there now",
+                "{} on {} isn't the version Local Network's directory has; run it again in a minute, once the \
+                 directory has caught up",
                 what(collection),
                 host(&info.pds)
             ),
@@ -238,63 +241,12 @@ fn client_error(info: &AccountInfo, collection: &str, e: ClientError) -> Error {
     }
 }
 
-/// A record read from a repository.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Fetched {
-    pub uri: String,
-    /// The record's content hash (servers always send it).
-    pub cid: Option<String>,
-    pub value: Value,
-}
-
-/// Read `collection/rkey` from `repo` (a DID or handle) on the PDS at `pds`, without signing in.
-/// `None` when there's no such record. `pds` is the signed-in account's, one the user named, or
-/// one [`resolve`] found; redirects only go to public https addresses.
-pub fn get_record(pds: &str, repo: &str, collection: &str, rkey: &str) -> Result<Option<Fetched>> {
-    let base = pds.trim_end_matches('/');
-    let unreachable = |e: net::NetError| Error::Account(one_line(&format!("couldn't reach {} ({e})", host(base))));
-    block_on(async {
-        let http = net::client().timeout(Duration::from_secs(20)).build().map_err(|e| unreachable(e.into()))?;
-        let response = http
-            .get(format!("{base}/xrpc/com.atproto.repo.getRecord"))
-            .query(&[("repo", repo), ("collection", collection), ("rkey", rkey)])
-            .send()
-            .await
-            .map_err(|e| unreachable(e.into()))?;
-        let status = response.status();
-        let bytes = net::body(response).await.map_err(unreachable)?;
-        let body: Value = serde_json::from_slice(&bytes).unwrap_or_default();
-        if status.is_success() && body["value"].is_object() {
-            return Ok(Some(Fetched {
-                uri: body["uri"].as_str().map_or_else(|| at_uri(repo, collection, rkey), one_line),
-                cid: body["cid"].as_str().map(one_line),
-                value: body["value"].clone(),
-            }));
-        }
-        if body["error"] == "RecordNotFound" {
-            return Ok(None);
-        }
-        let why = match (body["error"].as_str(), body["message"].as_str()) {
-            (Some(e), Some(m)) => format!("{e}: {m}"),
-            (Some(e), None) => e.to_string(),
-            _ => status.to_string(),
-        };
-        Err(Error::Account(one_line(&format!(
-            "{} couldn't give {} ({why})",
-            host(base),
-            at_uri(repo, collection, rkey)
-        ))))
-    })
-}
-
 /// An account found from its handle or DID.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Resolved {
     pub did: String,
     /// When it was found by handle.
     pub handle: Option<String>,
-    /// Its data server.
-    pub pds: String,
 }
 
 impl Resolved {
@@ -304,24 +256,20 @@ impl Resolved {
     }
 }
 
-/// Find an account's DID and data server from its handle (`dj.example.com`, `@` optional) or DID.
-/// Its DID document is someone else's say-so: the data server has to be a public https address.
+/// Find an account's DID from its handle (`dj.example.com`, `@` optional), or take a DID as it is.
+/// The handle's DNS and web server are someone else's say-so: only public https addresses.
 pub fn resolve(input: &str) -> Result<Resolved> {
     let input = input.trim().trim_start_matches('@');
     let not_found = |why: String| Error::NotFound(one_line(&format!("the Atmosphere account {input:?} ({why})")));
+    if input.starts_with("did:") {
+        let did = Did::<SmolStr>::new_owned(input).map_err(|e| not_found(e.to_string()))?;
+        return Ok(Resolved { did: did.as_str().to_string(), handle: None });
+    }
+    let h: Handle = Handle::new_owned(input).map_err(|e| not_found(format!("not a handle: {e}")))?;
     let resolver = resolver(true)?;
-    block_on(async {
-        let (did, handle) = if input.starts_with("did:") {
-            (Did::<SmolStr>::new_owned(input).map_err(|e| not_found(e.to_string()))?, None)
-        } else {
-            let h: Handle = Handle::new_owned(input).map_err(|e| not_found(format!("not a handle: {e}")))?;
-            (resolver.resolve_handle(&h).await.map_err(|e| not_found(e.to_string()))?, Some(input.to_lowercase()))
-        };
-        let pds = resolver.pds_for_did(&did).await.map_err(|e| not_found(e.to_string()))?;
-        net::public(pds.as_str()).map_err(|why| not_found(format!("its data server can't be used: {why}")))?;
-        Ok(Resolved { did: did.as_str().to_string(), handle, pds: pds.as_str().trim_end_matches('/').to_string() })
-    })
+    let did = block_on(resolver.resolve_handle(&h)).map_err(|e| not_found(e.to_string()))?;
+    Ok(Resolved { did: did.as_str().to_string(), handle: Some(input.to_lowercase()) })
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

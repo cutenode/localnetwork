@@ -71,7 +71,7 @@ mod posting {
     #[test]
     fn signed_in_it_posts_the_report_from_the_account() {
         let (pds, space) = server_with_a_space();
-        let env = Env::new();
+        let env = Env::new().with_directory(&pds.url);
         sign_in(&env.store, &pds.url, &REPORTING, json!({}));
         let args = ["--no-browser", "--title", "Sync stops", "-m", "It stopped."];
 
@@ -112,7 +112,7 @@ mod posting {
     #[test]
     fn when_it_cant_post_it_gives_githubs_form_with_what_was_typed() {
         let (pds, space) = server_with_a_space();
-        let env = Env::new();
+        let env = Env::new().with_directory(&pds.url);
         let args = ["--yes", "--no-browser", "--title", "Sync stops", "-m", "It stopped."];
 
         // Signed in only to publish, without a terminal to sign in again on.

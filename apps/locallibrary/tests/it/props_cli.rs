@@ -775,7 +775,7 @@ fn published_records_are_what_was_planned(tc: TestCase) {
     use crate::mock_pds::MockPds;
     use crate::support::account::{DID, PUBLISHING, sign_in};
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, serde_json::json!({}));
     // Records written: the server turns away the first write of a session to hand out a DPoP
     // nonce, and accepts the ones that carry it.
