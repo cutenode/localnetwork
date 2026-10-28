@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAnnouncement } from './announce';
+import { parseAnnouncement, parseEdit } from './announce';
 
 const valid = {
 	name: 'Tidal Hours',
@@ -69,5 +69,26 @@ describe('parseAnnouncement', () => {
 		expect(fails({ tickets: 'javascript:alert(1)' })).toThrow(/web address/);
 		expect(fails({ tickets: 'tickets.example' })).toThrow(/web address/);
 		expect(fails({ name: 'x'.repeat(121) })).toThrow('Show name can be at most 120 characters');
+	});
+});
+
+describe('parseEdit', () => {
+	const cid = 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm';
+
+	it('reads the versions the edit form showed, with no event as null', () => {
+		expect(parseEdit(form({ showCid: cid, eventCid: cid }), 'k')).toEqual({ rkey: 'k', showCid: cid, eventCid: cid });
+		expect(parseEdit(form({ showCid: cid, eventCid: '' }), 'k')).toEqual({ rkey: 'k', showCid: cid, eventCid: null });
+	});
+
+	it('refuses a form without them, or with anything but CIDs', () => {
+		const forms: Record<string, string>[] = [
+			{},
+			{ showCid: '' },
+			{ showCid: 'at://x' },
+			{ showCid: cid, eventCid: 'x' }
+		];
+
+		for (const fields of forms)
+			expect(() => parseEdit(form(fields), 'k')).toThrow('This form is out of date. Reload the show and try again.');
 	});
 });

@@ -40,6 +40,9 @@ export const VERIFICATION = 'app.bsky.graph.verification' as const;
 /** Bluesky's profile record, where an account's display name lives. */
 export const BSKY_PROFILE = 'app.bsky.actor.profile' as const;
 
+/** Bluesky's follow record, which press kits' "people you follow" audience reads. */
+export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
+
 /**
  * Queries served by the directory, the HappyView AppView that indexes published projects, their managers' DJ records,
  * press kits and shows, and follows.

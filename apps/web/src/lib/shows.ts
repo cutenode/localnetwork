@@ -21,6 +21,9 @@ export type ShowFormValues = {
 	lngE6: string;
 	tickets: string;
 	cancelled: boolean;
+	/** The versions of the show and its calendar event the edit form shows, which its save swaps on. Empty for none. */
+	showCid: string;
+	eventCid: string;
 };
 
 export const showFormDefaults: ShowFormValues = {
@@ -35,7 +38,9 @@ export const showFormDefaults: ShowFormValues = {
 	latE6: '',
 	lngE6: '',
 	tickets: '',
-	cancelled: false
+	cancelled: false,
+	showCid: '',
+	eventCid: ''
 };
 
 /** The venue's day of a show time, YYYY-MM-DD: show times are written with the venue's offset. */

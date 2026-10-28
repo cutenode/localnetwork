@@ -1,4 +1,4 @@
-import { type Agent, schemas } from '@atproto/api';
+import type { Agent } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { jsonToLex, lexPermissionSet, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
@@ -13,6 +13,11 @@ import geo from '../../../../../../lexicons/community/lexicon/location/geo.json'
 import hthree from '../../../../../../lexicons/community/lexicon/location/hthree.json' with { type: 'json' };
 import strongRef from '../../../../../../lexicons/com/atproto/repo/strongRef.json' with { type: 'json' };
 import discussion from '../../../../../../lexicons/app/userinput/discussion.json' with { type: 'json' };
+import userinputSpace from '../../../../../../lexicons/app/userinput/space.json' with { type: 'json' };
+import bskyProfile from '../../../../../../lexicons/app/bsky/actor/profile.json' with { type: 'json' };
+import bskyFollow from '../../../../../../lexicons/app/bsky/graph/follow.json' with { type: 'json' };
+import verification from '../../../../../../lexicons/app/bsky/graph/verification.json' with { type: 'json' };
+import labelDefs from '../../../../../../lexicons/com/atproto/label/defs.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
 import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
@@ -58,7 +63,6 @@ import spaceModeration from '../../../../../../lexicons/computer/localnetwork/sp
 import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space/planner.json' with { type: 'json' };
 import spaceStaff from '../../../../../../lexicons/computer/localnetwork/space/staff.json' with { type: 'json' };
 import staffRole from '../../../../../../lexicons/computer/localnetwork/staff/role.json' with { type: 'json' };
-import { VERIFICATION } from '#lib/nsid.ts';
 
 /** Every Local Network lexicon this app uses, for validation and publishing. */
 export const LEXICON_DOCS = [
@@ -117,18 +121,26 @@ export const LEXICON_DOCS = [
 export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
 
 /**
- * Other authorities' lexicons that ours reference or this app writes (calendar events, the locations they can hold, and
- * strongRef), copied into lexicons/ as they publish them.
+ * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events, the
+ * locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles refer
+ * to, and userinput.app's space), copied into lexicons/ as they publish them.
  */
-export const REFERENCED_DOCS = [address, geo, fsq, hthree, calendarEvent, strongRef].map((doc) => parseLexiconDoc(doc));
+export const REFERENCED_DOCS = [
+	address,
+	geo,
+	fsq,
+	hthree,
+	calendarEvent,
+	strongRef,
+	labelDefs,
+	verification,
+	bskyProfile,
+	bskyFollow,
+	userinputSpace
+].map((doc) => parseLexiconDoc(doc));
 
-/**
- * Other apps' records this app writes: bug reports on userinput.app for its users, and Bluesky verifications from the
- * root account, as the AT Protocol's client library ships that lexicon. Only validated, never published or indexed.
- */
-const WRITTEN_DOCS = [discussion, ...schemas.filter((doc) => doc.id === VERIFICATION)].map((doc) =>
-	parseLexiconDoc(doc)
-);
+/** Other apps' records this app writes but nothing indexes: bug reports on userinput.app. Only validated, never published. */
+const WRITTEN_DOCS = [parseLexiconDoc(discussion)];
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
 export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...REFERENCED_DOCS, ...WRITTEN_DOCS]));

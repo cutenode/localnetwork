@@ -217,6 +217,7 @@ atstore:
           - "apps/locallibrary/docs/{account,sets}.md"
           - "plugins/archive/**"
           - "plugins/musicbrainz/**"
+          - "plugins/plyr/**"
           - "lexicons/computer/localnetwork/{dj,locallibrary}/**"
           - "lexicons/computer/localnetwork/locallibraryPublishing.json"
 

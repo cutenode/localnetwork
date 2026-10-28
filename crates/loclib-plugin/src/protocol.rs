@@ -221,9 +221,10 @@ pub struct Partial {
 /// `net/fetch`: an HTTP request the host makes for the plugin, to a host its `net:<host>`
 /// capabilities grant (https only, redirects checked hop by hop), as `locallibrary/<version>`.
 /// `{secret:<key>}` in a header's value, a query value, `body` or a `multipart` part's value
-/// stands for the plugin's secret setting `key`, and `{account:<id>}` as the `Authorization`
-/// header's whole value for its account `id` (feature `accounts`): the host fills them in after
-/// the checks (an account as `Bearer` and its access token), and the plugin never sees either.
+/// stands for the plugin's secret setting `key`, and `{account:<id>}` as the whole value of the
+/// `Authorization` header, or of the query parameter the account names, for its account `id`
+/// (feature `accounts`): the host fills them in after the checks (an account's access token after
+/// `Bearer`, or the scheme the account names, in the header), and the plugin never sees either.
 /// The host says how long the body is (`Content-Length`), and for `multipart`, its type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Fetch {
