@@ -9,7 +9,7 @@
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import ScoreBar from '#lib/components/ScoreBar.svelte';
-	import { feeLabel, kindLabel, placeLabel } from '#lib/format.ts';
+	import { feeSummary, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { MatchBreakdown } from '#lib/matching.ts';
 	import { FEE_TIERS, FORMATS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
@@ -132,7 +132,7 @@
 										<Avatar src={project.avatarUrl} name={project.profile.name} />
 										<div class="min-w-0 flex-1">
 											<a class="text-emphasis font-semibold text-fg no-underline hover:underline" href="/projects/{project.slug}">{project.profile.name}</a>
-											<p class="m-0 text-label text-fg-muted">{[kindLabel(project.profile.kind), placeLabel(project.profile), project.profile.fee && feeLabel(project.profile)].filter(Boolean).join(' · ')}</p>
+											<p class="m-0 text-label text-fg-muted">{[kindLabel(project.profile.kind), placeLabel(project.profile), feeSummary(project.profile)].filter(Boolean).join(' · ')}</p>
 										</div>
 									</div>
 									<ul class="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-small text-fg-soft">

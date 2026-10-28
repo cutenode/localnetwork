@@ -1,5 +1,5 @@
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
-import type { AccountView, DjSetView, ProjectProfile } from './types';
+import type { AccountView, DjSetView, ProjectFee, ProjectProfile } from './types';
 
 export function shortDid(did: string): string {
 	if (did.length <= 24) return did;
@@ -58,10 +58,13 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 	return formatDate(iso, options);
 }
 
-export function feeLabel(profile: ProjectProfile): string {
-	const fee = profile.fee;
+/** A profile's fee levels, reading a record written before `fees` as one level. */
+export function feeLevels(profile: ProjectProfile): ProjectFee[] {
+	return profile.fees ?? (profile.fee ? [profile.fee] : []);
+}
 
-	if (!fee) return '';
+/** A fee level's tier and range, like "Established · €600–1,500". */
+export function feeLabel(fee: ProjectFee): string {
 	const tier = labelFor(FEE_TIERS, fee.tier);
 
 	if (fee.minAmount === undefined && fee.maxAmount === undefined) return tier;
@@ -81,6 +84,15 @@ export function feeLabel(profile: ProjectProfile): string {
 				: `up to ${money(fee.maxAmount!)}`;
 
 	return `${tier} · ${range}`;
+}
+
+/** The first fee level, and how many more there are, for one-line listings. Empty without fees. */
+export function feeSummary(profile: ProjectProfile): string {
+	const [first, ...rest] = feeLevels(profile);
+
+	if (!first) return '';
+
+	return rest.length ? `${feeLabel(first)} +${rest.length}` : feeLabel(first);
 }
 
 export function kindLabel(kind: string): string {

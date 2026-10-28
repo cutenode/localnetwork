@@ -112,7 +112,12 @@ export function wholeNumber(raw: string, name: string, min: number, max: number)
 
 /** An optional three-letter currency code, uppercased. */
 export function optionalCurrency(form: FormData, name: string): string | undefined {
-	const value = text(form, name, 32).toUpperCase();
+	return currencyCode(text(form, name, 32));
+}
+
+/** An optional three-letter currency code from a raw (trimmed) form value, uppercased. */
+export function currencyCode(raw: string): string | undefined {
+	const value = raw.toUpperCase();
 
 	if (value && !/^[A-Z]{3}$/.test(value))
 		throw new UserError('Use a three-letter currency code (like USD, EUR, or GBP)');

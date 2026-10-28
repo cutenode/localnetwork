@@ -69,7 +69,16 @@ function handle()
 	if country then filter("upper(json_extract(record, '$.profile.location.country')) = upper(?)", { country }) end
 	local kinds, tiers = list(params.kinds, 10), list(params.feeTiers, 10)
 	if #kinds > 0 then filter("json_extract(record, '$.profile.kind') IN (" .. marks(#kinds) .. ')', kinds) end
-	if #tiers > 0 then filter("json_extract(record, '$.profile.fee.tier') IN (" .. marks(#tiers) .. ')', tiers) end
+	if #tiers > 0 then
+		-- Any fee level's tier, or the one fee of a record written before `fees`.
+		local inTiers, both = ' IN (' .. marks(#tiers) .. ')', {}
+		for i, tier in ipairs(tiers) do both[i], both[#tiers + i] = tier, tier end
+		filter(
+			"(EXISTS (SELECT 1 FROM json_each(record, '$.profile.fees') WHERE json_extract(value, '$.tier')" .. inTiers
+				.. ") OR json_extract(record, '$.profile.fee.tier')" .. inTiers .. ')',
+			both
+		)
+	end
 	if params.unclaimed == true then filter("json_array_length(record, '$.managers') = 0") end
 	local manager = text(params.manager)
 	if manager then filter("EXISTS (SELECT 1 FROM json_each(record, '$.managers') WHERE value = ?)", { manager }) end

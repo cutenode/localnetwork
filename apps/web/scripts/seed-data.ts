@@ -17,7 +17,11 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		setLength: { minMinutes: 120, maxMinutes: 480 },
 		activeSince: 2014,
 		capacity: { min: 150, max: 1500 },
-		fee: { tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
+		fees: [
+			{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
+			{ label: 'Festivals', tier: 'headliner', currency: 'EUR', minAmount: 2000 },
+			{ label: 'Community and benefit events', tier: 'community' }
+		],
 		links: [{ kind: 'soundcloud', url: 'https://soundcloud.com/example-neon-tide' }],
 		mixes: [{ title: 'Tidal Hours 004', url: 'https://soundcloud.com/example-neon-tide/tidal-hours-004' }],
 		highlights: ['Four-year residency at Halle Nord', 'Closing set, Fusion-adjacent rave 2024']
@@ -32,7 +36,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['vinyl'],
 		setTypes: ['daytime', 'warmup', 'b2b'],
 		capacity: { min: 50, max: 600 },
-		fee: { tier: 'emerging' },
+		fees: [{ tier: 'emerging' }],
 		lookingFor: 'Open-air day parties, rooftop sessions, and cafe Sundays.'
 	},
 	{
@@ -45,7 +49,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['cdj', 'controller'],
 		setTypes: ['peak', 'b2b', 'allNight'],
 		capacity: { min: 200, max: 2500 },
-		fee: { tier: 'established', currency: 'GBP', minAmount: 500, maxAmount: 2000 },
+		fees: [{ tier: 'established', currency: 'GBP', minAmount: 500, maxAmount: 2000 }],
 		activeSince: 2019
 	},
 	{
@@ -58,7 +62,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['vinyl', 'cdj'],
 		setTypes: ['peak', 'afterhours'],
 		capacity: { min: 80, max: 800 },
-		fee: { tier: 'emerging', currency: 'GBP', minAmount: 150, maxAmount: 400 }
+		fees: [{ tier: 'emerging', currency: 'GBP', minAmount: 150, maxAmount: 400 }]
 	},
 	{
 		name: 'Velvet Static',
@@ -70,7 +74,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['cdj', 'controller'],
 		setTypes: ['peak', 'warmup'],
 		capacity: { min: 100, max: 1200 },
-		fee: { tier: 'established', currency: 'USD', minAmount: 400, maxAmount: 1200 },
+		fees: [{ tier: 'established', currency: 'USD', minAmount: 400, maxAmount: 1200 }],
 		pronouns: 'she/they'
 	},
 	{
@@ -83,7 +87,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['vinyl', 'hybrid'],
 		setTypes: ['opener', 'daytime', 'warmup'],
 		capacity: { min: 40, max: 500 },
-		fee: { tier: 'community' }
+		fees: [{ tier: 'community' }]
 	},
 	{
 		name: 'Footwork Fever',
@@ -95,7 +99,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['cdj'],
 		setTypes: ['peak', 'b2b'],
 		capacity: { min: 50, max: 900 },
-		fee: { tier: 'emerging', currency: 'USD', minAmount: 200, maxAmount: 600 }
+		fees: [{ tier: 'emerging', currency: 'USD', minAmount: 200, maxAmount: 600 }]
 	},
 	{
 		name: 'Moss & Marrow',
@@ -107,7 +111,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		setTypes: ['liveSet', 'peak'],
 		setLength: { minMinutes: 45, maxMinutes: 90 },
 		capacity: { min: 50, max: 700 },
-		fee: { tier: 'emerging' }
+		fees: [{ tier: 'emerging' }]
 	},
 	{
 		name: 'Harbour Lights',
@@ -119,7 +123,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['cdj'],
 		setTypes: ['warmup', 'peak', 'closing'],
 		capacity: { min: 100, max: 3000 },
-		fee: { tier: 'headliner', currency: 'AUD', minAmount: 2000, maxAmount: 6000 }
+		fees: [{ tier: 'headliner', currency: 'AUD', minAmount: 2000, maxAmount: 6000 }]
 	},
 	{
 		name: 'Coyote Cumbia Club',
@@ -131,7 +135,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['controller', 'cdj'],
 		setTypes: ['peak', 'b2b', 'allNight'],
 		capacity: { min: 100, max: 2000 },
-		fee: { tier: 'emerging' }
+		fees: [{ tier: 'emerging' }]
 	},
 	{
 		name: 'Glasshouse',
@@ -143,7 +147,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['controller'],
 		setTypes: ['allNight', 'warmup'],
 		capacity: { min: 50, max: 800 },
-		fee: { tier: 'established', currency: 'CAD', minAmount: 800, maxAmount: 2500 }
+		fees: [{ tier: 'established', currency: 'CAD', minAmount: 800, maxAmount: 2500 }]
 	},
 	{
 		name: 'Halflight',
@@ -155,7 +159,7 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		formats: ['vinyl'],
 		setTypes: ['opener', 'warmup'],
 		capacity: { min: 30, max: 300 },
-		fee: { tier: 'community' }
+		fees: [{ tier: 'community' }]
 	}
 ];
 

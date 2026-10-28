@@ -31,6 +31,10 @@ local function optional(check, value)
 	return value == nil or check(value)
 end
 
+local function isFee(value)
+	return isObject(value) and optional(isString, value.tier)
+end
+
 -- Why the directory can't serve this record, or nil when every field its queries read has the type they expect.
 local function problem(value)
 	local profile = isObject(value) and value.profile
@@ -53,9 +57,12 @@ local function problem(value)
 	for _, field in ipairs({ 'highlights', 'formats', 'setTypes' }) do
 		if not optional(isStrings, profile[field]) then return 'bad ' .. field end
 	end
-	local travel, fee, capacity = profile.travel or {}, profile.fee or {}, profile.capacity or {}
+	local travel, fees, capacity = profile.travel or {}, profile.fees or {}, profile.capacity or {}
 	if not (isObject(travel) and optional(isInteger, travel.radiusKm)) then return 'bad travel' end
-	if not (isObject(fee) and optional(isString, fee.tier)) then return 'bad fee' end
+	if not (isObject(fees) and optional(isFee, profile.fee)) then return 'bad fee' end
+	for _, fee in ipairs(fees) do
+		if not isFee(fee) then return 'bad fee' end
+	end
 	if not (isObject(capacity) and optional(isInteger, capacity.min) and optional(isInteger, capacity.max)) then
 		return 'bad capacity'
 	end
