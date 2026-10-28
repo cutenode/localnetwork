@@ -1,8 +1,9 @@
+import { USERINPUT } from '#lib/bug-report.ts';
+import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
 import type { Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
-import { PublicRepo } from './atproto/public-repo';
 import type { RepoClient } from './atproto/repo-client';
 import { RootAccount } from './atproto/root';
 import { rootSpaces } from './atproto/spaces';
@@ -13,9 +14,10 @@ import { type Config, getConfig } from './config';
 import type { Core } from './core';
 import { type Db, nowIso, openDatabase } from './db';
 import { Geocoder } from './geocode';
+import { Backfills } from './happyview/backfills';
 import { happyViewBundle } from './happyview/bundle';
 import { HappyViewClient } from './happyview/client';
-import { IndexedRepo } from './happyview/indexed';
+import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
@@ -124,6 +126,8 @@ export async function createApp(options: CreateAppOptions) {
 		},
 		readSpaceRecord: (input) => credentials.readRecord(input),
 		fetchBlob: async (did, cid, maxBytes) => {
+			// Blobs come from the account's PDS until HappyView serves them.
+			// ast-grep-ignore: no-direct-pds-read
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
@@ -141,29 +145,28 @@ export async function createApp(options: CreateAppOptions) {
 	};
 
 	const happyView = new HappyViewClient(config.happyView);
-	const projects = new ProjectService(core, happyView);
+	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
+	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
 	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
-	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
-	const epks = new EpkService(core, projects, indexedRepo, publicRepo, (identifier) =>
-		identity.resolveIdentifier(identifier)
-	);
+	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
 
-	const shows = new ShowService(core, projects, happyView, publicRepo);
+	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
-	const verifications = new VerificationService(core, publicRepo, identity);
+	const verifications = new VerificationService(core, indexedRepo, projects, identity);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
-		repos: publicRepo,
+		indexed: indexedRepo,
 		userClient,
 		accounts,
 		logger: logger.child({ component: 'bug-reports' })
@@ -223,6 +226,7 @@ export async function createApp(options: CreateAppOptions) {
 		credentials,
 		syncer,
 		happyView,
+		backfills,
 		audit,
 		accounts,
 		projects,
@@ -274,21 +278,20 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Uploads this app's lexicons and scripts to HappyView where they changed and backfills the root's
-		 * projects, then each manager's shows and (once per record script) their records the site reads, when there's an
-		 * API key. A failure is
-		 * logged and kept for the System page rather than thrown: the rest of the app works without the directory, and
-		 * HappyView keeps its last scripts.
+		 * projects, then each manager's shows and (once per record script) the older records the site reads from other
+		 * repos, when there's an API key. A failure is logged and kept for the System page rather than thrown: the rest of
+		 * the app works without the directory, and HappyView keeps its last scripts.
 		 */
 		async syncDirectory() {
 			if (!config.happyView.apiKey) return;
 
 			try {
-				const uploaded = await syncHappyView(happyView, happyViewBundle(rootDid), rootDid);
+				const uploaded = await syncHappyView(happyView, bundle(), rootDid);
 				logger.info(uploaded, 'synced the HappyView directory');
 				directorySync = { at: nowIso(), error: null };
 				// In the background: the shows Jetstream missed don't hold the app up.
 				void shows.reindexManagers().catch((error) => logger.warn({ err: error }, 'could not re-read shows'));
-				await app.refreshManagers(uploaded.scripts);
+				await app.refreshRecords(uploaded.scripts);
 			} catch (error) {
 				logger.error({ err: error }, 'could not sync the HappyView directory');
 				directorySync = { at: nowIso(), error: error instanceof Error ? error.message : String(error) };
@@ -296,28 +299,36 @@ export async function createApp(options: CreateAppOptions) {
 		},
 
 		/**
-		 * Has HappyView re-read the managers' records of each of MANAGER_COLLECTIONS, and the root's (which holds press
-		 * kits), once for its current record script (`uploaded` lists the scripts it just got). A failure is logged and tried again on the next round, without
+		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
+		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
+		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
+		 * root's verifications, and the bug report space. A failure is logged and tried again on the next round, without
 		 * marking the directory sync failed.
 		 */
-		async refreshManagers(uploaded: string[] = []) {
+		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
-			const { scripts } = happyViewBundle(rootDid);
+			const { scripts } = bundle();
 			let managers: Promise<string[]> | undefined;
+			const spaceOwner = config.userinputSpace?.split('/')[2];
 
-			for (const collection of MANAGER_COLLECTIONS) {
-				const id = `record.index:${collection}`;
+			const refreshes = [
+				...MANAGER_COLLECTIONS.map((collection) => ({
+					collection,
+					accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
+				})),
+				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
+				{ collection: VERIFICATION, accounts: async () => [rootDid] },
+				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
+			];
+
+			for (const refresh of refreshes) {
+				const id = `record.index:${refresh.collection}`;
 				const script = scripts.find((candidate) => candidate.id === id)!.body;
 
 				try {
-					await refreshForScript(core, happyView, {
-						collection,
-						script,
-						uploaded: uploaded.includes(id),
-						accounts: () => (managers ??= projects.managers().then((dids) => [rootDid, ...dids]))
-					});
+					await refreshForScript(core, happyView, { ...refresh, script, uploaded: uploaded.includes(id) });
 				} catch (error) {
-					logger.warn({ err: error, collection }, "could not have HappyView re-read managers' records");
+					logger.warn({ err: error, collection: refresh.collection }, 'could not have HappyView re-read older records');
 				}
 			}
 		},
@@ -337,12 +348,12 @@ export async function createApp(options: CreateAppOptions) {
 			every(config.syncPollIntervalMs, () => (bootstrapped ? syncer.syncAll() : app.bootstrap()), 'sync');
 			every(15_000, () => audit.processPending(), 'audit-retry');
 			// Retries a failed directory sync, so a HappyView that was down at boot still gets this app's scripts, and
-			// the managers' records until HappyView has re-read them all.
+			// the older records until HappyView has re-read them all.
 			every(
 				config.syncPollIntervalMs,
 				async () => {
 					if (directorySync?.error) await app.syncDirectory();
-					else if (directorySync) await app.refreshManagers();
+					else if (directorySync) await app.refreshRecords();
 				},
 				'directory-sync'
 			);

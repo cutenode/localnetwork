@@ -8,6 +8,8 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 | [locallibrary](apps/locallibrary) | A command line tool and terminal player that keeps rekordbox USB drives in sync, backed up and edited                  | Rust                      |
 | [localtoolbox](apps/localtoolbox) | A Chrome extension for digging on SoundCloud: track lists, download links, artists' socials, and a queue to batch them | Svelte, Manifest V3       |
 
+The website and locallibrary read every atproto record through Local Network's [HappyView](https://happyview.dev) AppView, never straight from an account's PDS or from Bluesky's AppView, and write to the PDS. The exceptions are the website's space sync, blobs (until HappyView serves them), identity and sign-in, and dev tooling and tests. ast-grep's [`no-direct-pds-read`](tools/ast-grep/rules/no-direct-pds-read.yml) rule lists them and fails any other read, and `clippy.toml` bans jacquard's typed requests for the same reads.
+
 ## Layout
 
 ```
@@ -36,6 +38,7 @@ pnpm install                 # every TypeScript app's dependencies and the git h
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
 pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
+pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary
 cargo test --workspace --locked

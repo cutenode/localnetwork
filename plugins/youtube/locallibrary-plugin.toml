@@ -1,0 +1,39 @@
+id = "youtube"
+name = "YouTube"
+version = "0.1.0"
+protocol = "^0.2"
+# It sends the set's video, title and tracklist to YouTube's upload API, and nowhere else.
+capabilities = ["net:www.googleapis.com"]
+
+# `sets publish SET --to youtube:video`: the recording becomes a video on the signed-in account's
+# channel, a still picture over the audio, its tracklist the description's chapters, and the
+# video's page the set's link.
+[[contributes.destinations]]
+name = "video"
+title = "A video on YouTube"
+kind = "set"
+
+# Google wants a client secret when a code is traded for tokens, so the trade goes through Local
+# Network's token exchange, which holds it. Uploading is all the plugin asks to do.
+[[contributes.accounts]]
+id = "google"
+title = "Google (YouTube)"
+authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_exchange = "https://localnetwork.computer/api/token-exchange/google"
+scopes = ["https://www.googleapis.com/auth/youtube.upload"]
+# PLACEHOLDER: Local Network's Google client isn't registered yet. Once it is, this is its client
+# id (public), the same as the website's GOOGLE_CLIENT_ID, which the token exchange sends with it.
+client_id = "PLACEHOLDER-unregistered.apps.googleusercontent.com"
+revoke_url = "https://oauth2.googleapis.com/revoke"
+
+[[contributes.settings]]
+key = "privacy"
+title = "Who can watch a set's video"
+type = "enum"
+choices = ["private", "unlisted", "public"]
+default = "unlisted"
+
+[[contributes.settings]]
+key = "picture"
+title = "Picture shown in a set's video (else a black frame)"
+type = "file"

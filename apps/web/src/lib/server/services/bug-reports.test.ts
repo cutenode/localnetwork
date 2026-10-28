@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { USERINPUT } from '#lib/bug-report.ts';
 import { RecordValidationError } from '../atproto/lexicons';
-import { PublicRepo } from '../atproto/public-repo';
 import { SCOPES } from '../atproto/oauth';
 import { type Db, openDatabase } from '../db';
+import { happyViewBundle } from '../happyview/bundle';
+import { HappyViewClient, HappyViewError } from '../happyview/client';
+import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { FakeNetwork } from '../testing/fakes';
+import { FakeHappyView } from '../testing/happyview';
 import { AccountService } from './accounts';
 import { browserLabel, BugReportService } from './bug-reports';
 
@@ -37,11 +40,15 @@ describe('BugReportService', () => {
 	let db: Db;
 	let net: FakeNetwork;
 	let accounts: AccountService;
+	let happyView: FakeHappyView;
 
-	const service = (space: string | undefined, sessions = [USER]) =>
+	const directory = (fetch: typeof globalThis.fetch = happyView.fetch) =>
+		new IndexedRepo(new HappyViewClient({ url: 'http://happyview.test', apiKey: 'hv_test', fetch }), silentLogger, 0);
+
+	const service = (space: string | undefined, sessions = [USER], indexed = directory()) =>
 		new BugReportService({
 			space,
-			repos: new PublicRepo({ resolve: async () => ({ pds: 'https://pds.test' }) }, silentLogger, net.publicFetch),
+			indexed,
 			userClient: async (did) => (sessions.includes(did) ? net.client(did) : null),
 			accounts,
 			logger: silentLogger
@@ -61,6 +68,9 @@ describe('BugReportService', () => {
 		db = await openDatabase(':memory:');
 		net = new FakeNetwork();
 		accounts = new AccountService(db, silentLogger);
+		happyView = new FakeHappyView('did:plc:root', happyViewBundle('did:plc:root', SPACE));
+		net.onRecord = (event) => happyView.ingest(event);
+		happyView.repo = (did, collection) => net.listed(did, collection);
 		await net.client(OWNER).putRecord({
 			collection: USERINPUT.space,
 			rkey: '3mspace',
@@ -107,6 +117,24 @@ describe('BugReportService', () => {
 			RecordValidationError
 		);
 		expect(net.records.keys().some((key) => key.startsWith(`${USER}|`))).toBe(false);
+	});
+
+	it("has HappyView re-read a space it doesn't have yet, and won't post while it's down", async () => {
+		// The space from before HappyView kept spaces, which Jetstream won't bring again.
+		const space = net.records.get(`${OWNER}|${USERINPUT.space}|3mspace`)!;
+		happyView = new FakeHappyView('did:plc:root', happyViewBundle('did:plc:root', SPACE));
+		happyView.repo = (did, collection) => net.listed(did, collection);
+
+		await service(SPACE).post(USER, { title: 'Blank map', body: '' });
+		expect(net.records.values().find((record) => record.uri.includes(USERINPUT.discussion))?.value.space).toEqual({
+			uri: space.uri,
+			cid: space.cid
+		});
+
+		const down = directory(async () => new Response('down', { status: 503 }));
+		await expect(service(SPACE, [USER], down).post(USER, { title: 't', body: '' })).rejects.toBeInstanceOf(
+			HappyViewError
+		);
 	});
 
 	it('fails without a space to point at or a session to post with', async () => {

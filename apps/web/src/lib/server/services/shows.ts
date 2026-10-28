@@ -6,13 +6,12 @@ import { CALENDAR_EVENT, COLLECTION } from '#lib/nsid.ts';
 import { EVENT_STATUS, type ShowFormValues, venueClock, venueDay } from '#lib/shows.ts';
 import type { Location, ProjectView, ShowRecord, ShowView, StrongRef, Viewer } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import type { PublicRepo } from '../atproto/public-repo';
-import { recordCid, type RepoClient, type RepoWrite } from '../atproto/repo-client';
+import { recordCid, xrpcErrorName } from '../atproto/repo-client';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { DirectoryShow, HappyViewClient } from '../happyview/client';
-import { awaitIndexed, INDEX_WAIT_MS, reindex } from '../happyview/indexed';
+import { awaitIndexed, INDEX_WAIT_MS, type IndexedRepo, reindex } from '../happyview/indexed';
 import { atVenue, venueTime } from '../venue-time';
 import { writeOwn } from './own-repo';
 import type { ProjectService } from './projects';
@@ -35,6 +34,9 @@ export type ShowInput = {
 	cancelled: boolean;
 };
 
+/** An edit of the show at `rkey`, made over the versions of it and its calendar event (null: none) the form showed. */
+export type ShowEdit = { rkey: string; showCid: string; eventCid: string | null };
+
 export type ShowQuery = {
 	project?: string;
 	follower?: string;
@@ -46,6 +48,8 @@ export type ShowQuery = {
 };
 
 const REAUTH = 'Sign in again to announce shows';
+
+const CHANGED = 'This show changed since you opened it. Reload and try again.';
 
 const ADDRESS = 'community.lexicon.location.address';
 
@@ -189,7 +193,7 @@ export function showRecord(
 }
 
 /** The announce form's values for a show: its event as it is now, with the show's copy filling what the event lacks. */
-function formValues(show: ShowRecord, event: EventRecord | null): ShowFormValues {
+function formValues(show: ShowRecord, event: EventRecord | null): Omit<ShowFormValues, 'showCid' | 'eventCid'> {
 	const address = event?.locations?.find((place) => place.$type === ADDRESS);
 	const geo = event?.locations?.find((place) => place.$type === GEO);
 	const lat = Number(geo?.latitude);
@@ -227,15 +231,15 @@ function formValues(show: ShowRecord, event: EventRecord | null): ShowFormValues
 /**
  * Shows projects announce. Each is a `community.lexicon.calendar.event` in the announcing manager's own repo, so
  * calendar apps can read it, beside a `computer.localnetwork.show` with the same key that ties it to the project and
- * copies what listings need. HappyView indexes the shows (lua/computer/localnetwork/show.lua) and answers every
- * listing; the events stay in the managers' repos.
+ * copies what listings need. HappyView indexes both (lua/computer/localnetwork/show.lua and
+ * lua/community/lexicon/calendar/event.lua), answers every listing, and is where the app reads them back.
  */
 export class ShowService {
 	constructor(
 		private readonly core: Core,
 		private readonly projects: ProjectService,
 		private readonly directory: HappyViewClient,
-		private readonly repos: PublicRepo,
+		private readonly indexed: IndexedRepo,
 		private readonly indexWaitMs = INDEX_WAIT_MS
 	) {}
 
@@ -262,109 +266,140 @@ export class ShowService {
 	}
 
 	/**
-	 * A show `actor` announced for `project`, as the announce form's values, read from their repo: the calendar
-	 * event as it is now, since another app may have changed it. Null when there's no such show.
+	 * A show `actor` announced for `project`, as the announce form's values, read from HappyView: the calendar event
+	 * as it is now, since another app may have changed it. Null when there's no such show.
 	 */
 	async values(actor: Viewer, project: ProjectView, rkey: string): Promise<ShowFormValues | null> {
-		const [show, event] = await Promise.all([
-			this.repos.getRecord(actor.did, COLLECTION.show, rkey),
-			this.repos.getRecord(actor.did, CALENDAR_EVENT, rkey)
-		]);
-
+		const [show, event] = await this.stored(actor.did, rkey);
 		const record = show && readShow(show.value);
 
-		if (record?.project !== project.uri) return null;
+		if (!show || record?.project !== project.uri) return null;
 
-		return formValues(record, event && readEvent(event.value));
+		return { ...formValues(record, event && readEvent(event.value)), showCid: show.cid, eventCid: event?.cid ?? '' };
 	}
 
 	/**
-	 * Of `did`'s shows in `shows`, the ones whose calendar event changed after the show copied it, read from their
-	 * repo. A PDS that doesn't answer reads as no change, since a missing event and an unreachable one look the same.
+	 * Of `did`'s shows in `shows`, the ones whose calendar event changed after the show copied it, as HappyView has
+	 * the events. An event it doesn't have, or a HappyView that's down, reads as no change.
 	 */
 	async edited(did: string, shows: ShowView[]): Promise<string[]> {
-		const own = shows.filter((show) => show.did === did);
+		const own = shows.filter((show) => show.did === did && parsePublicRecordUri(show.record.event.uri)?.did === did);
+		const events = await this.indexed.getRecords(own.map((show) => show.record.event.uri));
 
-		const events = await Promise.all(
-			own.map(async (show) => {
-				const parts = parsePublicRecordUri(show.record.event.uri);
+		return own.flatMap((show) => {
+			const event = events.get(show.record.event.uri);
 
-				return parts?.did === did ? this.repos.getRecord(did, parts.collection, parts.rkey) : null;
-			})
-		);
-
-		return own.flatMap((show, i) => (events[i] && events[i].cid !== show.record.event.cid ? [show.uri] : []));
+			return event && event.cid !== show.record.event.cid ? [show.uri] : [];
+		});
 	}
 
 	/**
-	 * Announces a show, or updates one `actor` announced: the calendar event and the show copying it, in one write, so
-	 * neither is ever left without the other. The event's CID is worked out here, the way the PDS works it out.
+	 * Announces a show, or makes `edit` to one `actor` announced: the calendar event and the show copying it. A new show
+	 * is one write, so neither is ever left without the other. An edit only lands on the versions its form showed. The
+	 * event's CID is worked out here, the way the PDS works it out.
 	 */
-	async save(actor: Viewer, project: ProjectView, input: ShowInput, rkey?: string): Promise<StrongRef> {
+	async save(actor: Viewer, project: ProjectView, input: ShowInput, edit?: ShowEdit): Promise<StrongRef> {
 		if (!project.managers.includes(actor.did))
 			throw new ForbiddenError("Only this project's managers can announce its shows");
 
 		if (project.status !== 'active') throw new UserError('Only listed projects can announce shows');
-		const key = rkey ?? TID.nextStr();
+		const key = edit?.rkey ?? TID.nextStr();
 		const uri = `at://${actor.did}/${COLLECTION.show}/${key}`;
+		const [show, event] = edit ? await this.stored(actor.did, edit.rkey) : [null, null];
+		const listed = show && readShow(show.value);
 
-		const cid = await writeOwn(this.core, actor.did, REAUTH, async (client) => {
-			const [show, event] = rkey ? await this.stored(client, rkey) : [null, null];
-			const listed = show && readShow(show.value);
+		if (edit && listed?.project !== project.uri) throw new NotFoundError('That show does not exist');
 
-			if (rkey && listed?.project !== project.uri) throw new NotFoundError('That show does not exist');
-			const written = validateRecord(CALENDAR_EVENT, eventRecord(input, event?.value, listed));
-			const eventRef = { uri: `at://${actor.did}/${CALENDAR_EVENT}/${key}`, cid: await recordCid(written) };
-			const copy = showRecord(project.uri, eventRef, input, written, listed?.createdAt);
-			const record = validateRecord(COLLECTION.show, JSON.parse(JSON.stringify(copy)));
+		// The new event is built over the version HappyView has, so that has to be the one the form showed: a change
+		// HappyView picked up while the form was open is refused here, before anything is written.
+		if (edit && (show?.cid !== edit.showCid || (event?.cid ?? null) !== edit.eventCid)) {
+			this.core.logger.info({ uri }, 'a show or its event changed since its form was opened');
+			throw new UserError(CHANGED, 409);
+		}
 
-			await client.applyWrites([
-				{ action: event ? 'update' : 'create', collection: CALENDAR_EVENT, rkey: key, record: written },
-				{ action: show ? 'update' : 'create', collection: COLLECTION.show, rkey: key, record }
-			]);
+		const written = validateRecord(CALENDAR_EVENT, eventRecord(input, event?.value, listed));
+		const eventRef = { uri: `at://${actor.did}/${CALENDAR_EVENT}/${key}`, cid: await recordCid(written) };
+		const copy = showRecord(project.uri, eventRef, input, written, listed?.createdAt);
+		const record = validateRecord(COLLECTION.show, JSON.parse(JSON.stringify(copy)));
 
-			return recordCid(record);
+		await writeOwn(this.core, actor.did, REAUTH, async (client) => {
+			if (!edit)
+				return client.applyWrites([
+					{ action: 'create', collection: CALENDAR_EVENT, rkey: key, record: written },
+					{ action: 'create', collection: COLLECTION.show, rkey: key, record }
+				]);
+
+			// applyWrites can't swap single records, so an edit writes them one at a time, the event first: other calendar
+			// apps change only the event and this app's edits change both, so either trips the first swap, before anything
+			// is written. A show that changed alone stops the edit with its copy behind the new event, which the project's
+			// dashboard marks for the manager to review.
+			try {
+				await client.putRecord({
+					collection: CALENDAR_EVENT,
+					rkey: key,
+					record: written,
+					swapRecord: edit.eventCid
+				});
+				await client.putRecord({ collection: COLLECTION.show, rkey: key, record, swapRecord: edit.showCid });
+			} catch (error) {
+				if (xrpcErrorName(error) !== 'InvalidSwap') throw error;
+				this.core.logger.info({ uri }, 'a show or its event changed on the PDS since HappyView served it');
+				// Changed somewhere HappyView hasn't caught up with yet, so a reload would show the same old version.
+				await Promise.all([
+					this.indexed.reindex(actor.did, CALENDAR_EVENT),
+					this.indexed.reindex(actor.did, COLLECTION.show)
+				]);
+				throw new UserError(CHANGED, 409);
+			}
 		});
 
-		await this.awaitServed(actor.did, async () => (await this.served(uri))?.cid === cid);
+		const cid = await recordCid(record);
+
+		await Promise.all([
+			this.awaitServed(actor.did, async () => (await this.served(uri))?.cid === cid),
+			this.indexed.awaitWrite(actor.did, CALENDAR_EVENT, key, eventRef.cid)
+		]);
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
 			action: 'show.save',
 			subject: uri,
 			subjectKind: 'show',
-			summary: `${rkey ? 'Updated' : 'Announced'} the show “${input.name}” for ${project.profile.name}`,
+			summary: `${edit ? 'Updated' : 'Announced'} the show “${input.name}” for ${project.profile.name}`,
 			details: { project: project.uri, event: `at://${actor.did}/${CALENDAR_EVENT}/${key}` }
 		});
 
 		return { uri, cid };
 	}
 
-	/** Deletes a show `actor` announced, and its calendar event, in one write. */
+	/**
+	 * Deletes a show `actor` announced, and its calendar event: the event first, since deleting a record that isn't
+	 * there does nothing. So it doesn't matter whether HappyView has the event yet, and a delete that fails partway
+	 * leaves the show listed, to delete again.
+	 */
 	async remove(actor: Viewer, project: ProjectView, rkey: string): Promise<void> {
 		const uri = `at://${actor.did}/${COLLECTION.show}/${rkey}`;
+		const show = await this.indexed.getRecord(actor.did, COLLECTION.show, rkey, { strict: true });
+		const listed = show && readShow(show.value);
 
-		const name = await writeOwn(this.core, actor.did, REAUTH, async (client) => {
-			const [show, event] = await this.stored(client, rkey);
-			const listed = show && readShow(show.value);
+		if (listed?.project !== project.uri) throw new NotFoundError('That show does not exist');
 
-			if (listed?.project !== project.uri) throw new NotFoundError('That show does not exist');
-			const writes: RepoWrite[] = [{ action: 'delete', collection: COLLECTION.show, rkey }];
-
-			if (event) writes.push({ action: 'delete', collection: CALENDAR_EVENT, rkey });
-			await client.applyWrites(writes);
-
-			return listed.name;
+		await writeOwn(this.core, actor.did, REAUTH, async (client) => {
+			await client.deleteRecord({ collection: CALENDAR_EVENT, rkey });
+			await client.deleteRecord({ collection: COLLECTION.show, rkey });
 		});
 
-		await this.awaitServed(actor.did, async () => (await this.served(uri)) === null);
+		await Promise.all([
+			this.awaitServed(actor.did, async () => (await this.served(uri)) === null),
+			this.indexed.awaitWrite(actor.did, CALENDAR_EVENT, rkey, null)
+		]);
 		await this.core.audit.record({
 			actor: actor.did,
 			actorRole: actorRole(actor),
 			action: 'show.delete',
 			subject: uri,
 			subjectKind: 'show',
-			summary: `Deleted the show “${name}” for ${project.profile.name}`,
+			summary: `Deleted the show “${listed.name}” for ${project.profile.name}`,
 			details: { project: project.uri }
 		});
 	}
@@ -378,12 +413,15 @@ export class ShowService {
 			await reindex(this.directory, this.core.logger, COLLECTION.show, did);
 	}
 
-	/** The show with key `rkey` in the client's own repo, and its calendar event. */
-	private stored(client: RepoClient, rkey: string) {
-		return Promise.all([
-			client.getRecord({ collection: COLLECTION.show, rkey }),
-			client.getRecord({ collection: CALENDAR_EVENT, rkey })
-		]);
+	/**
+	 * `did`'s show with key `rkey` and its calendar event, as HappyView has them. Strict, since a write goes on what
+	 * this reads, and a HappyView that's down would look like a show that isn't there.
+	 */
+	private async stored(did: string, rkey: string) {
+		const uris = [COLLECTION.show, CALENDAR_EVENT].map((collection) => `at://${did}/${collection}/${rkey}`);
+		const records = await this.indexed.getRecords(uris, { strict: true });
+
+		return uris.map((uri) => records.get(uri) ?? null);
 	}
 
 	private async served(uri: string): Promise<DirectoryShow | null> {

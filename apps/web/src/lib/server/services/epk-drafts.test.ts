@@ -300,13 +300,7 @@ describe('EpkDrafts', () => {
 			}
 		});
 
-		const epks = new EpkService(
-			f.t.core,
-			f.t.projects,
-			new IndexedRepo(admin, silentLogger, 0),
-			f.t.publicRepo,
-			async (id) => id
-		);
+		const epks = new EpkService(f.t.core, f.t.projects, new IndexedRepo(admin, silentLogger, 0), async (id) => id);
 
 		const epk = await f.publish(DJ);
 		const dj = await f.t.viewer(DJ);

@@ -200,6 +200,14 @@ pub mod testing {
     pub fn os_on_this_thread(os: Option<&'static str>) {
         crate::format::THREAD_OS.with(|o| o.set(os));
     }
+
+    /// Local Network's directory and website are both at `url` for requests from this thread
+    /// (`None`: where `$LOCALLIBRARY_HAPPYVIEW_URL` and `$LOCALLIBRARY_WEBSITE_URL` say), as those
+    /// variables would have them for the whole process: one stand-in server for each test.
+    #[cfg(feature = "account")]
+    pub fn directory_on_this_thread(url: Option<String>) {
+        crate::atmosphere::directory::THREAD_DIRECTORY.with(|d| *d.borrow_mut() = url);
+    }
 }
 
 pub use loclib_model::{harmony, model, theme, tokens};

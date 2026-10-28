@@ -2,8 +2,9 @@
 -- them are kept, since anyone can come to manage a project; the queries read only managers' sets. What's kept is what
 -- the site shows: when and where the set was played, who with, where to listen, and its tracklist as written (tempo,
 -- keys and transitions included), plus each named track's title, artists, IDs and start, with the key the support
--- queries group a track by when it has no IDs. A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView
--- keeps the event's CID either way.
+-- queries group a track by when it has no IDs. Its address, sources and createdAt are kept as written too, since
+-- locallibrary reads its own sets back through getRecords before replacing them, and keeps a set's first createdAt.
+-- A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView keeps the event's CID either way.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
 local ADDRESS = 'community.lexicon.location.address'
@@ -117,18 +118,13 @@ local function view(value)
 		tracks = toarray(value.tracks),
 		playedWith = type(value.playedWith) == 'table' and toarray(value.playedWith) or nil,
 		links = type(value.links) == 'table' and toarray(value.links) or nil,
+		sources = type(value.sources) == 'table' and toarray(value.sources) or nil,
 		event = text(value.event),
+		createdAt = text(value.createdAt),
 		namedTracks = toarray(named)
 	}
 	local place = value.location
-	if type(place) == 'table' and place['$type'] == ADDRESS and text(place.country) then
-		out.location = {
-			country = place.country,
-			name = text(place.name),
-			locality = text(place.locality),
-			region = text(place.region)
-		}
-	end
+	if type(place) == 'table' and place['$type'] == ADDRESS and text(place.country) then out.location = place end
 	return out
 end
 

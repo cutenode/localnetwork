@@ -7,7 +7,6 @@ import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { AccountService } from '../services/accounts';
-import { PublicRepo } from '../atproto/public-repo';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
 import { FollowService } from '../services/follows';
@@ -33,7 +32,9 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const happyView = new FakeHappyView(ROOT);
 	// HappyView hears of every public-repo write over Jetstream, and its record script keeps the root's projects.
 	net.onRecord = (event) => happyView.ingest(event);
-	const directory = new HappyViewClient({ url: 'http://happyview.test', fetch: happyView.fetch });
+	happyView.repo = (did, collection) => net.listed(did, collection);
+	// With an API key, as the app runs, so its re-reads go through the record scripts.
+	const directory = new HappyViewClient({ url: 'http://happyview.test', apiKey: 'hv_test', fetch: happyView.fetch });
 	const spaces = rootSpaces(ROOT);
 	const accounts = new AccountService(db, silentLogger);
 	const capable = new Set(options.capable ?? []);
@@ -96,27 +97,21 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const tracklists = new TracklistService(core);
 	const supports = new SupportService(directory, accounts, silentLogger);
 
-	const publicRepo = new PublicRepo(
-		{ resolve: async () => ({ pds: 'https://pds.test' }) },
-		silentLogger,
-		net.publicFetch
-	);
-
 	// Writes are indexed in-process here, so a write that isn't served at once never will be.
 	const indexedRepo = new IndexedRepo(directory, silentLogger, 0);
 
-	const epks = new EpkService(core, projects, indexedRepo, publicRepo, async (identifier) => {
+	const epks = new EpkService(core, projects, indexedRepo, async (identifier) => {
 		if (identifier.startsWith('did:')) return identifier;
 		throw new Error(`no such handle ${identifier}`);
 	});
 
-	const shows = new ShowService(core, projects, directory, publicRepo, 0);
+	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
 	const handles = new Map<string, string>();
 
-	const verifications = new VerificationService(core, publicRepo, {
+	const verifications = new VerificationService(core, indexedRepo, projects, {
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
@@ -157,7 +152,6 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		follows,
 		verifications,
 		handles,
-		publicRepo,
 		indexedRepo,
 		viewer,
 		capable,

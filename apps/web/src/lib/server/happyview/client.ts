@@ -78,7 +78,7 @@ const BACKFILL_POLL_MS = 250;
 
 const BACKFILL_DONE = new Set(['completed', 'failed', 'cancelled']);
 
-/** The admin permissions `syncHappyView` and the set picker's backfills use, so HAPPYVIEW_API_KEY needs exactly these. */
+/** The admin permissions `syncHappyView` and the re-reads (Backfills, reindex) use, so HAPPYVIEW_API_KEY needs exactly these. */
 export const HAPPYVIEW_PERMISSIONS = [
 	'lexicons:read',
 	'lexicons:create',
@@ -102,7 +102,8 @@ export class HappyViewError extends Error {
 
 /**
  * Talks to the HappyView instance that indexes published projects, their managers' DJ records, press kits and shows,
- * and follows: directory queries over XRPC, plus the admin calls that keep its lexicons and scripts in step with this app.
+ * follows, and the Bluesky and userinput.app records the site reads: directory queries over XRPC, plus the admin calls
+ * that keep its lexicons and scripts in step with this app.
  */
 export class HappyViewClient {
 	readonly url: string;

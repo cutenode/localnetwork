@@ -46,6 +46,10 @@ pub struct AccountFile {
     /// them or signing out removed them, by where they are and whose: signing out tries again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub left_behind: Vec<(Storage, String)>,
+    /// The accounts whose earlier records Local Network's directory has read again
+    /// ([`super::directory::request_index`]), by DID, so it's asked once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub indexed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

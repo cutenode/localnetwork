@@ -1,0 +1,32 @@
+id = "archive"
+name = "Internet Archive"
+version = "0.1.0"
+protocol = "^0.2"
+# It checks whether an identifier is free on archive.org, and sends the set's recording, title and
+# tracklist to the Archive's S3 API, and nowhere else.
+capabilities = ["net:archive.org", "net:s3.us.archive.org"]
+
+# `sets publish SET --to archive:item`: the recording becomes an item in Community Audio of the
+# account the keys are for, its tracklist the description, and the item's page the set's link.
+[[contributes.destinations]]
+name = "item"
+title = "An item on the Internet Archive"
+kind = "set"
+
+# The Archive's S3 API signs requests in with an account's pair of keys. The host keeps them in the
+# keychain and fills them into the plugin's requests to the Archive; the plugin never sees them.
+[[contributes.settings]]
+key = "access"
+title = "S3 access key (from archive.org/account/s3.php)"
+type = "secret"
+
+[[contributes.settings]]
+key = "secret"
+title = "S3 secret key (from archive.org/account/s3.php)"
+type = "secret"
+
+# Who the item is by, and what its identifier starts with.
+[[contributes.settings]]
+key = "creator"
+title = "Your DJ name, as the item's creator"
+type = "string"

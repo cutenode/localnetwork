@@ -2,7 +2,7 @@ import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -17,6 +17,7 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import type { Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
@@ -113,12 +114,14 @@ export class ProjectService {
 	/** The spaces whose members follow each project's managers, which `publish` updates. */
 	private readonly managerSpaces: ManagerSpaces;
 
+	/** `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it). */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
-		private readonly indexWaitMs = INDEX_WAIT_MS
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		backfills?: Backfills
 	) {
-		this.sets = new SetService(core, directory);
+		this.sets = new SetService(core, directory, backfills);
 		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
 	}
 
@@ -128,6 +131,8 @@ export class ProjectService {
 	 * recent change.
 	 */
 	async reconcileManagerSpaces(): Promise<void> {
+		// The root's own repo decides who's in a thread: a directory that's behind could let a removed manager back in.
+		// ast-grep-ignore: no-direct-pds-read
 		const records = await (await this.core.root()).listRecords(COLLECTION.project);
 
 		for (const { uri, cid, value } of records) {
@@ -175,6 +180,8 @@ export class ProjectService {
 		const rkey = this.projectRkey(uri);
 
 		if (!rkey) return null;
+		// The root's own repo decides who's in a new thread, as in reconcileManagerSpaces.
+		// ast-grep-ignore: no-direct-pds-read
 		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.project, rkey });
 
 		return stored && this.toView({ uri: stored.uri, cid: stored.cid, record: stored.value });
@@ -385,11 +392,12 @@ export class ProjectService {
 
 		// A new manager's older records are read in the background, once HappyView serves the project that lets their
 		// press kits in; until then that re-read would be turned away, so the set picker reads their sets later. Sets go
-		// through the picker's own re-reads, which it waits for.
+		// through the picker's own re-reads, which it waits for. Their Bluesky follows are re-read too, which HappyView
+		// keeps when one of the project's press kits reads follows.
 		if (indexed) {
 			void this.sets.refresh(added);
 
-			for (const collection of MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet))
+			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
 				for (const did of added) void reindex(this.directory, this.core.logger, collection, did);
 		}
 

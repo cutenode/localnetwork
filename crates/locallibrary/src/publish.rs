@@ -8,10 +8,11 @@
 //! unnamed. The AT Protocol has no fractional numbers: shares become whole percents and tempos
 //! whole BPM (a set's tracks keep hundredths of a BPM).
 //!
-//! Publishing is a [`plan`] (the exact record, what's published in its place now, and whether
-//! the session may write it) and then [`apply`], which writes it only to the account the plan was
-//! for, and only if what's published hasn't changed since the plan read it (a first publish only
-//! if there's still nothing there). [`import_plan`] reads someone's published My Settings.
+//! Publishing is a [`plan`] (the exact record, what's published in its place now as Local
+//! Network's directory has it, and whether the session may write it) and then [`apply`], which
+//! writes it only to the account the plan was for, and only over the version the plan read (a
+//! first publish only if there's still nothing there). [`import_plan`] reads someone's published
+//! My Settings from the directory.
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -23,7 +24,8 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use crate::atmosphere::repo::{self, Fetched, Resolved};
+use crate::atmosphere::directory::{self, Fetched};
+use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::harmony::Camelot;
 use crate::mix::{MixReport, Play, Transition};
@@ -437,10 +439,6 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, report: Option<&MixReport
 /// from one of those lists alone takes over its key (see [`crate::api::set_publish_plan`]).
 pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
 
-/// The collection `plays publish` wrote those sets to, before sets moved to [`lexicon::SET`].
-/// Only read, for when a set first went out; nothing writes it now.
-pub const PLAYS_PUBLISH_COLLECTION: &str = "computer.localnetwork.locallibrary.set";
-
 /// The key `did` published the history list (session) `fingerprint` under with `plays publish`,
 /// if it did.
 pub fn published_set_key(root: &Path, did: &str, fingerprint: &str) -> Result<Option<String>> {
@@ -464,7 +462,8 @@ pub struct PublishPlan {
     pub uri: Option<String>,
     /// The record exactly as it will be written.
     pub record: Value,
-    /// What's published there now (`None`: nothing yet).
+    /// What's published there now, as Local Network's directory has it (`None`: nothing yet, as
+    /// far as it knows).
     pub current: Option<Fetched>,
     /// Whether publishing changes anything (time stamps aside).
     pub changed: bool,
@@ -480,7 +479,7 @@ pub struct PublishPlan {
 pub struct Published {
     pub uri: String,
     /// Its content hash.
-    pub cid: Option<String>,
+    pub cid: String,
     /// False when what's published was already the same, so nothing was written.
     pub written: bool,
     pub record: Value,
@@ -489,28 +488,36 @@ pub struct Published {
 /// Fields that only say when: two records that differ in nothing else are the same.
 const TIME_FIELDS: [&str; 3] = ["updatedAt", "generatedAt", "createdAt"];
 
-fn same_content(a: &Value, b: &Value) -> bool {
-    let strip = |v: &Value| {
-        let mut v = v.clone();
-        if let Some(m) = v.as_object_mut() {
-            for f in TIME_FIELDS {
-                m.remove(f);
-            }
-        }
-        v
+/// Whether `published`, as the directory keeps it, says what `record` (of `collection`) does, time
+/// stamps aside. The directory's record scripts may add fields of their own and leave `$type`
+/// out, so only the fields `collection`'s Lexicon defines count.
+fn same_content(collection: &str, published: &Value, record: &Value) -> bool {
+    let defined = lexicon::document(collection).map(|d| &d["defs"]["main"]["record"]["properties"]);
+    let strip = |v: &Value| -> Map<String, Value> {
+        let fields = v.as_object().into_iter().flatten();
+        fields
+            .filter(|(k, _)| defined.is_some_and(|d| d.get(k.as_str()).is_some()) && !TIME_FIELDS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     };
-    strip(a) == strip(b)
+    strip(published) == strip(record)
 }
 
 /// Plan publishing `record` as `collection/rkey` in the signed-in account's repository (reading
-/// what's there now from its server). A record replacing one keeps its `createdAt`.
+/// what's there now from Local Network's directory). A record replacing one keeps its `createdAt`.
 pub fn plan(root: &Path, collection: &str, rkey: &str, record: Value) -> Result<PublishPlan> {
     let account = atmosphere::status(root)?;
+    let mut notes = Vec::new();
     let current = match &account {
-        Some(info) => repo::get_record(&info.pds, &info.did, collection, rkey)?,
+        Some(info) => {
+            notes.extend(directory::request_index(root, info)?);
+            directory::get_record(&info.did, collection, rkey)?
+        }
         None => None,
     };
-    plan_over(account, collection, rkey, record, current)
+    let mut plan = plan_over(account, collection, rkey, record, current)?;
+    plan.notes = notes;
+    Ok(plan)
 }
 
 /// [`plan`], for `account` (the signed-in one), with what's published as `collection/rkey` in its
@@ -544,14 +551,14 @@ pub fn plan_over(
         {
             record["createdAt"] = created.clone();
         }
-        plan.changed = plan.current.as_ref().is_none_or(|c| !same_content(&c.value, &record));
+        plan.changed = plan.current.as_ref().is_none_or(|c| !same_content(collection, &c.value, &record));
     }
     plan.record = record;
     Ok(plan)
 }
 
 /// Publish a plan's record: written only when it changes something, only to the account the plan
-/// is for, and only if what's published is still what the plan read (otherwise a conflict).
+/// is for, and only over the version the plan read (otherwise a conflict).
 pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
     let info = plan.account.as_ref().ok_or_else(atmosphere::not_signed_in)?;
     if let Some(current) = plan.current.as_ref().filter(|_| !plan.changed) {
@@ -565,9 +572,9 @@ pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
     if plan.missing_scope.is_some() {
         return Err(repo::scope_error(info, &plan.collection));
     }
-    let swap = plan.current.as_ref().and_then(|c| c.cid.as_deref());
+    let swap = plan.current.as_ref().map(|c| c.cid.as_str());
     let written = repo::put_record(root, &info.did, &plan.collection, &plan.rkey, &plan.record, swap)?;
-    Ok(Published { uri: written.uri, cid: Some(written.cid), written: true, record: plan.record.clone() })
+    Ok(Published { uri: written.uri, cid: written.cid, written: true, record: plan.record.clone() })
 }
 
 /// Someone's published My Settings, and how importing them changes the settings profile.
@@ -575,7 +582,7 @@ pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
 pub struct SettingsImportPlan {
     pub from: Resolved,
     pub uri: String,
-    pub cid: Option<String>,
+    pub cid: String,
     pub published: PublishedSettings,
     /// Whether importing replaces the whole base, so settings they didn't publish become unset.
     /// Otherwise their settings are added to the base, over the values it has for them.
@@ -594,11 +601,15 @@ impl SettingsImportPlan {
     }
 }
 
-/// Read the My Settings `from` published, and work out how importing them (adding them to `base`,
-/// or with `replace` replacing it) changes `base`.
+/// Read the My Settings `from` published, from Local Network's directory, and work out how
+/// importing them (adding them to `base`, or with `replace` replacing it) changes `base`.
 pub fn import_plan(from: Resolved, base: &IndexMap<String, String>, replace: bool) -> Result<SettingsImportPlan> {
-    let fetched = repo::get_record(&from.pds, &from.did, lexicon::SETTINGS, "self")?
-        .ok_or_else(|| Error::NotFound(format!("My Settings published by {}", from.name())))?;
+    let fetched = directory::get_record(&from.did, lexicon::SETTINGS, "self")?.ok_or_else(|| {
+        Error::NotFound(format!(
+            "My Settings published by {} (Local Network's directory doesn't have them yet)",
+            from.name()
+        ))
+    })?;
     let published = settings_from_record(&fetched.value)?;
     let mut plan =
         SettingsImportPlan { from, uri: fetched.uri, cid: fetched.cid, published, replace, changes: Vec::new() };

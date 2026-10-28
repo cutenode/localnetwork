@@ -62,8 +62,12 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] Sign rekordbox out of Dropbox and back in: a session printed the OAuth tokens from
       `rekordbox3.settings` into its transcript, and the file hasn't changed since Oct 8.
 - [ ] HappyView keys: the web app reads `HAPPYVIEW_API_KEY` (`apps/web/.env.local` has the local
-      dev one), and nothing reads `HAPPYVIEW_ADMIN_TOKEN` in `apps/locallibrary/.env`. Give the
-      deployed web app the hosted HappyView's token under `HAPPYVIEW_API_KEY`.
+      dev one); locallibrary must never hold HappyView's admin key, so delete
+      `apps/locallibrary/.env` (its `HAPPYVIEW_ADMIN_TOKEN` and `HAPPYVIEW_PUBLIC_URL` are read by
+      nothing; locallibrary's HappyView is `LOCALLIBRARY_HAPPYVIEW_URL`, defaulting to production)
+      and rotate that token if it's the hosted HappyView's. Give the deployed web app the hosted
+      HappyView's token under `HAPPYVIEW_API_KEY`: without it, `requestIndex` can't have HappyView
+      read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
 - [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
@@ -273,7 +277,10 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       `ROOT_IDENTIFIER=localnetwork.computer ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm -C
       apps/web lexicons:publish`. Sign-in to publish fails with `invalid_scope` until
       `computer.localnetwork.locallibraryPublishing` resolves, and so does the website's until
-      `computer.localnetwork.permissions` and the space types do.
+      `computer.localnetwork.permissions` and the space types do. Until the set is published with
+      its `rpc:computer.localnetwork.directory.requestIndex?aud=*` permission, sessions can't have
+      the directory read an account again (plans say so); deploy the web app's `requestIndex` and
+      `dj/set.lua` with it.
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.

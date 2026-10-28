@@ -5,7 +5,7 @@
 		"main": {
 			"type": "permission-set",
 			"title": "Publish from locallibrary",
-			"detail": "Publish and update your DJ profile, your sets and your locallibrary settings.",
+			"detail": "Publish and update your DJ profile, your sets and your locallibrary settings, and ask Local Network's directory to read them again.",
 			"permissions": [
 				{
 					"type": "permission",
@@ -24,6 +24,12 @@
 					"resource": "repo",
 					"collection": ["computer.localnetwork.dj.set"],
 					"action": ["create", "update"]
+				},
+				{
+					"type": "permission",
+					"resource": "rpc",
+					"lxm": ["computer.localnetwork.directory.requestIndex"],
+					"aud": "*"
 				}
 			]
 		}

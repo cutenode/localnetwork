@@ -1,5 +1,3 @@
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -39,86 +37,10 @@ fn a_session_without_permission_to_publish_is_stopped_before_the_server() {
 }
 
 #[test]
-fn reading_from_a_server_that_isnt_there_says_so() {
-    let err = get_record("http://127.0.0.1:9", "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("couldn't reach 127.0.0.1:9"), "{err}");
+fn a_did_is_taken_as_it_is_and_what_isnt_a_handle_isnt_looked_up() {
+    let found = resolve(" @did:plc:abc ").unwrap();
+    assert_eq!((found.did.as_str(), found.handle), ("did:plc:abc", None));
     assert!(resolve("not a handle").unwrap_err().to_string().contains("not a handle"));
-}
-
-/// A server on 127.0.0.1 that answers each connection with the next of `answers`, and the
-/// number of connections it got.
-fn server(answers: Vec<Vec<u8>>) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let got = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counted = got.clone();
-    std::thread::spawn(move || {
-        for (conn, answer) in listener.incoming().zip(answers) {
-            let mut conn = conn.unwrap();
-            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let mut reader = BufReader::new(conn.try_clone().unwrap());
-            let mut line = String::new();
-            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
-                line.clear();
-            }
-            let _ = conn.write_all(&answer);
-        }
-    });
-    (url, got)
-}
-
-fn answer(head: &str, body: &[u8]) -> Vec<u8> {
-    let mut out =
-        format!("HTTP/1.1 {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).into_bytes();
-    out.extend_from_slice(body);
-    out
-}
-
-#[test]
-fn someone_elses_server_is_read_with_care() {
-    // A redirect to plain http, or to this computer, isn't followed.
-    let (elsewhere, reached) = server(vec![answer("200 OK", b"{}")]);
-    let (pds, _) = server(vec![answer(&format!("302 Found\r\nlocation: {elsewhere}/x"), b"")]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("isn't an https address"), "{err}");
-    let (pds, _) = server(vec![answer("302 Found\r\nlocation: https://127.0.0.1:9/x", b"")]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("on this computer or its local network"), "{err}");
-    assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0);
-
-    // An answer that doesn't stop isn't read whole.
-    let (pds, _) = server(vec![answer("200 OK", &vec![b' '; net::MAX_BODY + 1])]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("the answer is over 1 MB"), "{err}");
-
-    // What it says goes to a terminal: no escape sequences.
-    let record = json!({
-        "uri": "at://did:plc:abc/x/self\u{1b}]0;owned\u{7}",
-        "cid": "bafy\u{1b}[2J",
-        "value": { "version": 1 },
-    });
-    let refusal = json!({ "error": "Nope\u{1b}[2J", "message": "really\u{1b}]52;c;Zm9v\u{7}" });
-    let (pds, _) = server(vec![
-        answer("200 OK", record.to_string().as_bytes()),
-        answer("400 Bad Request", refusal.to_string().as_bytes()),
-    ]);
-    let fetched = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap().unwrap();
-    assert!(!fetched.uri.chars().chain(fetched.cid.unwrap().chars()).any(char::is_control), "{}", fetched.uri);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(!err.chars().any(char::is_control) && err.contains("Nope [2J: really ]52;c;Zm9v "), "{err:?}");
-}
-
-/// A refusal to give a record says what it can: its error, else the status.
-#[test]
-fn a_refusal_to_read_says_its_error_or_status() {
-    let (pds, _) = server(vec![
-        answer("400 Bad Request", br#"{"error":"RepoDeactivated"}"#),
-        answer("502 Bad Gateway", b"<html>"),
-    ]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(RepoDeactivated)"), "{err}");
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(502 Bad Gateway)"), "{err}");
 }
 
 /// However the account's server refuses a write, the error says what to do about it: sign
@@ -170,12 +92,12 @@ fn a_missing_scope_names_what_couldnt_be_published() {
     assert!(said("app.example.thing").contains("publish records;"));
 }
 
-type Answer = (u16, String, Value);
+pub(crate) type Answer = (u16, String, Value);
 /// A server's base URL, what it answers every request with, and how many requests it got.
-type Shared = (String, Arc<Mutex<Answer>>, Arc<AtomicUsize>);
+pub(crate) type Shared = (String, Arc<Mutex<Answer>>, Arc<AtomicUsize>);
 
 /// One server for all of a test's cases (a server per case would leave a thread behind each).
-fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
+pub(crate) fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
     server.get_or_init(|| {
         let next = Arc::new(Mutex::new((200, String::new(), json!({}))));
         let got = Arc::new(AtomicUsize::new(0));
@@ -189,7 +111,7 @@ fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
 }
 
 /// Short text, sometimes one of `words`.
-fn word(words: Vec<&'static str>) -> impl hegel::PrintableGenerator<String> {
+pub(crate) fn word(words: Vec<&'static str>) -> impl hegel::PrintableGenerator<String> {
     hegel::one_of!(gs::sampled_from(words).map(String::from), gs::text().max_size(8))
 }
 
@@ -262,59 +184,6 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
     if scope || session {
         let again = &err.detail().actions[0];
         assert_eq!((again.method.as_deref(), &again.params["publish"]), (Some("account.login.begin"), &json!(true)));
-    }
-}
-
-/// Whatever a server answers a read with, what's read is what it said: the record (its URI and
-/// CID on one line, or the URI asked for when it gives none) when it answers with one, nothing
-/// when it says RecordNotFound, and otherwise an error on one line giving its error and
-/// message, or its status.
-#[hegel::test(test_cases = 3)]
-#[hegel::explicit_test_case(status = 500u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = None::<String>)]
-#[hegel::explicit_test_case(status = 400u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = Some("gone".to_string()))]
-#[hegel::explicit_test_case(status = 502u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = None::<String>, message = None::<String>)]
-#[hegel::explicit_test_case(status = 200u16, uri = None::<String>, cid = Some("bafy".to_string()), value = Some(json!({ "n": 1 })), error = None::<String>, message = None::<String>)]
-fn a_read_gives_what_the_server_answered(tc: hegel::TestCase) {
-    static SERVER: OnceLock<Shared> = OnceLock::new();
-    let (pds, next, _) = shared(&SERVER);
-    let status = tc.draw(gs::sampled_from(vec![200u16, 400, 404, 500, 502]));
-    let uri = tc.draw(gs::optional(word(vec!["at://did:plc:abc/x/self\u{1b}]0;owned\u{7}"])));
-    let cid = tc.draw(gs::optional(word(vec!["bafy\u{1b}[2J"])));
-    let values = vec![json!({ "$type": lexicon::SETTINGS, "n": 1 }), json!("x"), json!([]), Value::Null, json!(1)];
-    let value: Option<Value> = tc.draw(gs::optional(gs::sampled_from(values)));
-    let said = || gs::optional(word(vec!["RecordNotFound", "RepoDeactivated", "Nope\u{1b}[2J"]));
-    let error = tc.draw(said());
-    let message = tc.draw(said());
-    let mut body = serde_json::Map::new();
-    for (field, v) in [("uri", uri.map(Value::from)), ("cid", cid.map(Value::from)), ("value", value)] {
-        body.extend(v.map(|v| (field.to_string(), v)));
-    }
-    for (field, v) in [("error", error), ("message", message)] {
-        body.extend(v.map(|v| (field.to_string(), Value::from(v))));
-    }
-    let body = Value::Object(body);
-    *next.lock().unwrap() = (status, String::new(), body.clone());
-
-    let asked = at_uri("did:plc:abc", lexicon::SETTINGS, "self");
-    let is_record = status == 200 && body["value"].is_object();
-    match get_record(pds, "did:plc:abc", lexicon::SETTINGS, "self") {
-        Ok(Some(f)) => {
-            assert!(is_record, "{body}");
-            assert_eq!(f.value, body["value"]);
-            assert_eq!(f.uri, body["uri"].as_str().map_or(asked, one_line));
-            assert_eq!(f.cid, body["cid"].as_str().map(one_line));
-        }
-        Ok(None) => assert!(!is_record && body["error"] == "RecordNotFound", "{body}"),
-        Err(e) => {
-            assert!(!is_record && body["error"] != "RecordNotFound", "{body}");
-            let why = match (body["error"].as_str(), body["message"].as_str()) {
-                (Some(e), Some(m)) => format!("{e}: {m}"),
-                (Some(e), None) => e.to_string(),
-                _ => reqwest::StatusCode::from_u16(status).unwrap().to_string(),
-            };
-            assert_eq!(e.code(), "account");
-            assert_eq!(e.to_string(), one_line(&format!("{} couldn't give {asked} ({why})", host(pds))));
-        }
     }
 }
 
@@ -514,22 +383,4 @@ fn what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
     let text = err.to_string();
     assert!(text.contains(&one_line(&format!("the Atmosphere account {asked:?} ("))), "{text}");
     assert!(!text.chars().any(char::is_control), "{text:?}");
-}
-
-/// A read from a server nobody answers at fails saying which server couldn't be reached, on
-/// one line, whatever was asked for and however the address ends.
-#[hegel::test(test_cases = 20)]
-fn a_read_from_a_server_nobody_answers_at_says_so(tc: hegel::TestCase) {
-    // A port that was just free: nothing listens there now.
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let slashes = "/".repeat(tc.draw(gs::integers::<usize>().max_value(2)));
-    let pds = format!("http://127.0.0.1:{port}{slashes}");
-    let repo = tc.draw(word(vec!["did:plc:abc", "dj.example.com"]));
-    let collection = tc.draw(gs::sampled_from(lexicon::COLLECTIONS.to_vec()));
-    let rkey = tc.draw(word(vec!["self", "3m2abcdefgh22"]));
-    let err = get_record(&pds, &repo, collection, &rkey).unwrap_err();
-    assert_eq!(err.code(), "account");
-    let text = err.to_string();
-    assert!(text.starts_with(&format!("couldn't reach 127.0.0.1:{port} (")), "{text}");
-    assert!(!text.contains('\n'), "{text}");
 }

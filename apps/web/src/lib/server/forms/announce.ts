@@ -1,6 +1,6 @@
 import { UserError } from '../core';
-import { isWebUrl, limit, optionalInt, optionalText, text } from '../http';
-import type { ShowInput, Venue } from '../services/shows';
+import { CID, isWebUrl, limit, optionalInt, optionalText, text } from '../http';
+import type { ShowEdit, ShowInput, Venue } from '../services/shows';
 
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -42,4 +42,18 @@ export function parseAnnouncement(form: FormData): ShowInput {
 	if (tickets) input.tickets = tickets;
 
 	return input;
+}
+
+/**
+ * The edit of the show at `rkey` from the edit form: the versions of the show and its event the form was filled in
+ * from, which the save only lands on. The event's is empty when there was none.
+ */
+export function parseEdit(form: FormData, rkey: string): ShowEdit {
+	const showCid = text(form, 'showCid', 200);
+	const eventCid = text(form, 'eventCid', 200);
+
+	if (!CID.test(showCid) || (eventCid && !CID.test(eventCid)))
+		throw new UserError('This form is out of date. Reload the show and try again.');
+
+	return { rkey, showCid, eventCid: eventCid || null };
 }
