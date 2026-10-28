@@ -21,7 +21,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::browser::BrowserArgs;
-use crate::output::{Outcome, Output, dim, heading, ok, plural, warn};
+use crate::output::{Outcome, Output, dim, envelope, heading, ok, plural, print_json, warn};
 
 fn root(store: &Option<PathBuf>) -> PathBuf {
     store.clone().unwrap_or_else(Store::default_root)
@@ -38,17 +38,34 @@ struct Run<'a> {
     ctx: &'a Ctx<'a>,
 }
 
-/// Nothing published (or imported): `--json` prints the plan, not applied, and the outcome.
-fn stop(out: Output, plan: &impl Serialize, outcome: Outcome) -> ExitCode {
-    out.not_applied(plan, outcome)
+/// What publishing a record came to, its human output already printed: the outcome, and the
+/// `--json` envelope saying so, which another command's can hold.
+pub struct Done {
+    pub outcome: Outcome,
+    pub envelope: Value,
+}
+
+impl Done {
+    /// `--json` prints the envelope. Returns the exit status.
+    pub fn print(self, out: Output) -> ExitCode {
+        if out.json {
+            print_json(self.envelope);
+        }
+        self.outcome.exit()
+    }
+}
+
+/// Nothing published (or imported): the plan, not applied, and the outcome.
+fn stop(plan: &impl Serialize, outcome: Outcome) -> Done {
+    Done { outcome, envelope: envelope(plan, &Value::Null, false, outcome) }
 }
 
 /// Nothing to publish: what's published is the same.
-fn unchanged(out: Output, p: &PlannedPublish, what: &str) -> ExitCode {
+fn unchanged(out: Output, p: &PlannedPublish, what: &str) -> Done {
     if !out.json {
         ok(format!("{what} already published, unchanged"));
     }
-    stop(out, p, Outcome::NothingToDo)
+    stop(p, Outcome::NothingToDo)
 }
 
 /// The plan, then (once confirmed, and signed in again if the session may not publish) exactly
@@ -58,16 +75,16 @@ fn publish_flow(
     what: &str,
     plan: impl Fn() -> locallibrary::Result<PlannedPublish>,
     show: impl Fn(&Value, Option<&Value>),
-) -> Result<ExitCode> {
+) -> Result<Done> {
     let mut p = plan()?;
     if !out.json {
         render_plan(&p, what, &show);
     }
     if dry_run {
-        return Ok(stop(out, &p, Outcome::DryRun));
+        return Ok(stop(&p, Outcome::DryRun));
     }
     if out.json && !out.yes {
-        return Ok(stop(out, &p, Outcome::NotConfirmed));
+        return Ok(stop(&p, Outcome::NotConfirmed));
     }
     let Some(account) = p.account.clone() else {
         bail!("not signed in to an Atmosphere account: `locallibrary account login <handle> --publish` signs in");
@@ -88,7 +105,7 @@ fn publish_flow(
              sets to your account, and nothing else. That means signing in again."
         );
         if let Some(o) = out.decide(false, "Sign in again to allow publishing?") {
-            return Ok(stop(out, &p, o));
+            return Ok(stop(&p, o));
         }
         let publishing = locallibrary::atmosphere::publish_scopes();
         let signed_in =
@@ -107,14 +124,14 @@ fn publish_flow(
     }
     let account = p.account.as_ref().map_or_else(|| account.name(), |a| a.name());
     if let Some(o) = out.decide(false, &format!("Publish {what} as {account}? Anyone can read it")) {
-        return Ok(stop(out, &p, o));
+        return Ok(stop(&p, o));
     }
     let published = p.apply(None, ctx)?;
-    let uri = published.uri.clone();
-    Ok(out.applied(&p, &published, Outcome::Applied, || {
+    if !out.json {
         ok(format!("published {what}"));
-        say!("  {}", dim(uri));
-    }))
+        say!("  {}", dim(&published.uri));
+    }
+    Ok(Done { outcome: Outcome::Applied, envelope: envelope(&p, &published, true, Outcome::Applied) })
 }
 
 /// A record's time stamp as a day on this computer's calendar.
@@ -216,12 +233,13 @@ pub fn settings_publish(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let root = root(store);
-    publish_flow(
+    let done = publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "your My Settings",
         || api::settings_publish_plan(&root),
         render_settings,
-    )
+    )?;
+    Ok(done.print(out))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -394,12 +412,13 @@ pub fn profile_publish(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let root = root(store);
-    publish_flow(
+    let done = publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "your profile",
         || api::profile_publish_plan(&root, req, ctx),
         render_profile,
-    )
+    )?;
+    Ok(done.print(out))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -456,6 +475,7 @@ fn set_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
         ("playedWith", "With", Some(with.join(", "))),
         ("event", "Event", text("event")),
         ("links", "Listen", Some(links.join(", "))),
+        ("recording", "Audio", r["recording"]["uri"].as_str().map(String::from)),
         ("sources", "From", Some(names(&r["sources"], "kind"))),
     ]
     .into_iter()
@@ -483,10 +503,11 @@ fn render_set(record: &Value, current: Option<&Value>) {
     }
 }
 
-/// `locallibrary sets publish SET`. With `lookup`, MusicBrainz IDs are looked up first for the
-/// tracks it names (kept in the set, whether it's published or not), when it can be published
-/// from here: not when it's only shown, no one is asked to confirm it (without `--yes`, or a
-/// terminal), or no account is signed in (which the plan says first). What the lookup did is
+/// `locallibrary sets publish SET`, and the record `sets publish SET --to PLUGIN:DESTINATION`
+/// offers once the plugin has published the set. With `lookup`, MusicBrainz IDs are looked up
+/// first for the tracks it names (kept in the set, whether it's published or not), when it can be
+/// published from here: not when it's only shown, no one is asked to confirm it (without `--yes`,
+/// or a terminal), or no account is signed in (which the plan says first). What the lookup did is
 /// among the plan's notes.
 pub fn set_publish(
     store: &Option<PathBuf>,
@@ -496,7 +517,7 @@ pub fn set_publish(
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
-) -> Result<ExitCode> {
+) -> Result<Done> {
     let root = root(store);
     let confirmable = out.yes || (!out.json && std::io::stdin().is_terminal());
     let notes = match lookup && !dry_run && confirmable && locallibrary::atmosphere::status(&root)?.is_some() {
@@ -565,10 +586,10 @@ pub fn settings_import(
         );
     }
     if plan.noop {
-        return Ok(stop(out, &plan, Outcome::NothingToDo));
+        return Ok(out.not_applied(&plan, Outcome::NothingToDo));
     }
     if let Some(o) = out.decide(dry_run, "Import these settings?") {
-        return Ok(stop(out, &plan, o));
+        return Ok(out.not_applied(&plan, o));
     }
     let profile = plan.apply(None, ctx)?;
     let (count, from) = (plan.published.values.len(), plan.from.name());

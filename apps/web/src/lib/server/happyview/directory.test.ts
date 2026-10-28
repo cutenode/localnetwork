@@ -256,8 +256,9 @@ describe('set record script', () => {
 				locality: 'Berlin',
 				street: 'Köpenicker'
 			},
-			// Only locallibrary reads these, through getRecords, so setViews leave them out.
-			sources: [{ kind: 'history' }]
+			// These are read through getRecords, never from a setView, so setViews leave them out.
+			sources: [{ kind: 'history' }],
+			recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' }
 		});
 
 		const bare = await publishSet(hv, 'did:plc:dj', { location: { $type: 'other.place', name: 'Somewhere' } });
@@ -292,7 +293,7 @@ describe('set record script', () => {
 		expect((await query<Sets>(hv, 'getSets', { uris: kept.uri })).sets).toHaveLength(1);
 	});
 
-	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, sources and address as written', async () => {
+	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, recording, sources and address as written', async () => {
 		const hv = new FakeHappyView(ROOT);
 
 		const tracks = [
@@ -304,6 +305,7 @@ describe('set record script', () => {
 			tracks,
 			playedWith: [{ name: 'Two Rooms' }],
 			links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+			recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' },
 			event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
 			sources: [{ kind: 'history' }],
 			location: address('Berlin')
@@ -317,6 +319,7 @@ describe('set record script', () => {
 				tracks,
 				playedWith: [{ name: 'Two Rooms' }],
 				links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+				recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' },
 				event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
 				sources: [{ kind: 'history' }],
 				location: address('Berlin'),

@@ -88,6 +88,10 @@ impl SetFields {
         if let Some(d) = date {
             set.date = d;
         }
+        // The name the plugin gave the link it published names that link alone.
+        if link.is_some() {
+            set.link_name = None;
+        }
         let fields = [
             (&mut set.title, text(&self.title)),
             (&mut set.kind, text(&self.kind)),

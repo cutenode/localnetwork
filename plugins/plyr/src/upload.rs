@@ -19,7 +19,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError};
+use loclib_plugin::{ByteRange, Fetch, Fetched, Host, RpcError, StrongRef};
 use loclib_progress::{Ctx, Phase};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -63,10 +63,21 @@ struct Progress {
     /// `pending`, `processing`, `completed` or `failed`.
     status: String,
     track_id: Option<u64>,
+    /// The `fm.plyr.track` record plyr.fm wrote to the user's repo, once it's `completed`.
+    atproto_uri: Option<String>,
+    atproto_cid: Option<String>,
     message: Option<String>,
     error: Option<String>,
     #[serde(default)]
     warnings: Vec<String>,
+}
+
+/// The track an upload became: its id, its record when plyr.fm says which (and which version), and
+/// what plyr.fm warns of.
+pub(crate) struct Uploaded {
+    pub id: u64,
+    pub record: Option<StrongRef>,
+    pub warnings: Vec<String>,
 }
 
 /// The parts of a file of `size` bytes in parts of `part` bytes: each one's number (from 1), where
@@ -78,15 +89,14 @@ pub(crate) fn parts(size: u64, part: u64) -> impl Iterator<Item = (u64, u64, u64
     })
 }
 
-/// Uploads `recording` (`size` bytes, named `filename`) as `track`: the track's id once plyr.fm
-/// has published it, and what plyr.fm warns of.
+/// Uploads `recording` (`size` bytes, named `filename`) as `track`, once plyr.fm has published it.
 pub(crate) fn upload(
     host: &Host,
     recording: &Path,
     size: u64,
     filename: &str,
     track: &Track,
-) -> Result<(u64, Vec<String>), RpcError> {
+) -> Result<Uploaded, RpcError> {
     let start = json!({ "filename": filename, "size_bytes": size }).to_string();
     let start = Fetch { body: Some(start), ..request("POST", "/tracks/uploads", Some("application/json")) };
     let session: Session = read(&ask(host, &start, "the upload", 1)?)?;
@@ -125,15 +135,23 @@ pub(crate) fn upload(
     published(host, &ctx, &queued.upload_id)
 }
 
-/// The track the upload `id` became, once plyr.fm has published it, and what it warns of.
-fn published(host: &Host, ctx: &Ctx<'_>, id: &str) -> Result<(u64, Vec<String>), RpcError> {
+/// The track the upload `id` became, once plyr.fm has published it. Its last event names the
+/// track's record (`backend/src/backend/api/tracks/uploads.py`'s `upload_progress`), which is
+/// left out when either half is missing.
+fn published(host: &Host, ctx: &Ctx<'_>, id: &str) -> Result<Uploaded, RpcError> {
     let progress = request("GET", &format!("/tracks/uploads/{id}/progress"), None);
     for _ in 0..TRIES {
         let stream = ask(host, &progress, "the upload's progress", TRIES)?;
         let last = stream.lines().rev().find_map(|l| l.strip_prefix("data:"));
         match last.map(|event| serde_json::from_str::<Progress>(event.trim())) {
-            Some(Ok(Progress { status, track_id: Some(track), warnings, .. })) if status == "completed" => {
-                return Ok((track, warnings));
+            Some(Ok(Progress { status, track_id: Some(id), atproto_uri, atproto_cid, warnings, .. }))
+                if status == "completed" =>
+            {
+                let record = atproto_uri.zip(atproto_cid).map(|(uri, cid)| StrongRef { uri, cid });
+                if record.is_none() {
+                    eprintln!("plyr.fm didn't say which record track {id} is");
+                }
+                return Ok(Uploaded { id, record, warnings });
             }
             Some(Ok(Progress { status, message, error, .. })) if status == "failed" => {
                 let why = error.or(message).unwrap_or_default();

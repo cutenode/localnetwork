@@ -6394,6 +6394,13 @@ export type Set = {
   with?: Partner[];
   /** Where people can listen to it (Mixcloud, SoundCloud, YouTube...). */
   link?: string | null;
+  /** What the link is, as the plugin that published the set there named it (`plyr.fm`). */
+  link_name?: string | null;
+  /**
+   * The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin
+   * that published it there said.
+   */
+  recording_record?: StrongRef | null;
   /** The recording on this computer the tracklist was found in. */
   recording?: SetRecording | null;
   /** The DJ's own notes. Never published. */
@@ -6411,6 +6418,14 @@ export type Partner = {
   name: string;
   /** Their Atmosphere account, when known. */
   did?: string | null;
+};
+
+/** An Atmosphere record and the version of it meant, as `com.atproto.repo.strongRef` has them. */
+export type StrongRef = {
+  /** Its at:// URI. */
+  uri: string;
+  /** Its CID. */
+  cid: string;
 };
 
 /** A recording of a set. */
@@ -8536,6 +8551,10 @@ export type SetPublished = {
   set: string;
   /** Where it can be heard, which is the set's link now; none when the plugin didn't say. */
   url?: string | null;
+  /** What the link is (`plyr.fm`), when the plugin named it. */
+  name?: string | null;
+  /** The Atmosphere record holding the recording, when the plugin keeps it as one. */
+  record?: StrongRef | null;
   warnings?: string[];
 };
 

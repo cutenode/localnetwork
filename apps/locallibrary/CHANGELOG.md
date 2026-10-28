@@ -333,9 +333,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `plyr`: a set destination, `sets publish SET --to plyr:track`, uploading the set's recording
     to plyr.fm as a track in the parts plyr.fm asks for (each sent again a few times when it
     doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
-    and keeping the track's page as the set's link. A recording plyr.fm wouldn't take (another
-    format, or over 1536 MiB) is refused before anything goes. It signs in with a plyr.fm
-    developer token, kept as a secret setting, and goes online only to publish.
+    and keeping the track's page as the set's link and its `fm.plyr.track` record as the set's
+    recording. A recording plyr.fm wouldn't take (another format, or over 1536 MiB) is refused
+    before anything goes. It signs in with a plyr.fm developer token, kept as a secret setting, and
+    goes online only to publish.
   - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
     recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
     no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
@@ -399,6 +400,12 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
   `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+- **Where a set's recording plays.** A set destination may name the link it answers (plyr's
+  `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
+  Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
+  set keeps both, and its record names the link and points to that record as `recording`, a field
+  the set Lexicon gains. Signed in, `sets publish SET --to` offers to publish the set's record next, in the same
+  run (`--dry-run`, `--yes` and `--json` cover both).
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
