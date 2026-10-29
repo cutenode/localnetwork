@@ -178,6 +178,7 @@ its drives.
 | `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |
 | `locallibrary sets publish <SET>` | Publish a set on your Atmosphere account (alpha), see [Publishing](account.md#publishing) |
+| `locallibrary sets publish <SET> --upload [--max-mib N] [--dry-run]` | Upload the set's recording to your Atmosphere account (encoded as AAC by ffmpeg when it has to be), then publish the set pointing to it, see [Sets](sets.md#sets) |
 | `locallibrary sets publish <SET> --to PLUGIN:DESTINATION [--dry-run]` | Publish a set with its recording at a plugin's set destination: the plugin's dry run is shown and you're always asked; the link it answers becomes the set's, see [Plugins](plugins.md) |
 | `locallibrary mix <recording>... [--drive LIB] [--html PATH] [--export PATH] [--open]` | Which of a drive's tracks a recorded set plays, when, at what speed and in what key, as a tracklist and an interactive report, see [Mixes](sets.md#mixes) |
 | `locallibrary mix <recording> --format FORMAT --export PATH [--option KEY=VALUE]...` | A mix's tracklist in a format a plugin adds for mixes (its report kept in the store), see [Plugins](plugins.md#export-formats) |

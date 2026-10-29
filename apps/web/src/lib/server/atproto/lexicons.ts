@@ -42,6 +42,7 @@ import listRecords from '../../../../../../lexicons/computer/localnetwork/direct
 import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
 import requestIndex from '../../../../../../lexicons/computer/localnetwork/directory/requestIndex.json' with { type: 'json' };
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
+import djRecording from '../../../../../../lexicons/computer/localnetwork/dj/recording.json' with { type: 'json' };
 import djProfile from '../../../../../../lexicons/computer/localnetwork/dj/profile.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
@@ -114,6 +115,7 @@ export const LEXICON_DOCS = [
 	djDefs,
 	djProfile,
 	djSet,
+	djRecording,
 	show,
 	follow,
 	locallibrarySettings

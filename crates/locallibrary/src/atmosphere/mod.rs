@@ -20,8 +20,9 @@
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
 //! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them). Reading anyone's
-//!   needs no session, and goes through Local Network's directory ([`directory`]).
+//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and uploading a
+//!   set's recording, which needs [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes
+//!   through Local Network's directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
 //!
@@ -94,18 +95,25 @@ pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
 /// permission's audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
 /// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
 /// (`account login --publish`, or a publish command that signs in again).
-pub const PUBLISH_SCOPES: [&str; 4] = [
+pub const PUBLISH_SCOPES: [&str; 5] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
     "repo:computer.localnetwork.dj.set?action=create&action=update",
+    "repo:computer.localnetwork.dj.recording?action=create&action=update",
     "rpc:computer.localnetwork.directory.requestIndex",
 ];
 
-/// `atproto` and [`PUBLISH_SET`]: what a sign-in that allows publishing asks for. The hosted
-/// client document has to allow them before a release asks: sign-in checks, and refuses while it
-/// doesn't.
+/// What uploading a set's recording needs besides [`PUBLISH_SCOPES`]: to upload audio files to the
+/// account, and no other kind of file. A permission set can't grant uploads, so publishing asks for
+/// it on its own.
+pub const UPLOAD_SCOPE: &str = "blob:audio/*";
+
+/// `atproto`, [`PUBLISH_SET`] and [`UPLOAD_SCOPE`]: what a sign-in that allows publishing asks
+/// for. The hosted client document has to allow them before a release asks: sign-in checks, and
+/// refuses while it doesn't.
 pub fn publish_scopes() -> Vec<String> {
-    DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain([format!("include:{PUBLISH_SET}")]).collect()
+    let publishing = [format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.to_string()];
+    DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain(publishing).collect()
 }
 
 /// What filing a bug report needs besides `atproto`: to create the records a bug report is
@@ -134,11 +142,17 @@ pub fn may_create(info: &AccountInfo, collection: &str) -> bool {
     grants(info, [Scope::repo_create(collection)])
 }
 
+/// Whether the session may upload a file of the type `mime` (`audio/mp4`).
+pub fn may_upload(info: &AccountInfo, mime: &str) -> bool {
+    grants(info, [Scope::parse(&format!("blob:{mime}"))])
+}
+
 /// What signing `info`'s account in again asks for, so the session keeps what it may do now:
-/// `atproto`, publishing ([`PUBLISH_SET`]) when it may publish, and [`REPORT_SCOPE`] when it may
-/// file bug reports. Add what the new sign-in is for.
+/// `atproto`, publishing ([`PUBLISH_SET`]) when it may publish (any of the record types: a
+/// session from before the set granted one more still publishes the rest), and [`REPORT_SCOPE`]
+/// when it may file bug reports. Add what the new sign-in is for.
 pub fn kept_scopes(info: &AccountInfo) -> Vec<String> {
-    let publishes = lexicon::COLLECTIONS.iter().all(|c| missing_scope(info, c).is_none());
+    let publishes = lexicon::COLLECTIONS.iter().any(|c| missing_scope(info, c).is_none());
     let mut kept = if publishes { publish_scopes() } else { DEFAULT_SCOPES.map(String::from).to_vec() };
     if may_create(info, lexicon::DISCUSSION) {
         kept.push(REPORT_SCOPE.to_string());

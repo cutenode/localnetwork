@@ -20,6 +20,8 @@ export const COLLECTION = {
 	djProfile: `${NS}.dj.profile`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
 	djSet: `${NS}.dj.set`,
+	/** A DJ set's recording, uploaded by locallibrary to the DJ's own repo. */
+	djRecording: `${NS}.dj.recording`,
 	/** A DJ's rekordbox settings, written by locallibrary to the DJ's own repo. */
 	locallibrarySettings: `${NS}.locallibrary.settings`,
 	epk: `${NS}.epk`,

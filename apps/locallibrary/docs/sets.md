@@ -165,6 +165,19 @@ the record and asks once, as `sets publish SET` does, with the same `--hide` and
 record for `sets publish SET` later, and a record that fails to publish says why and exits 5, the
 set still published at the destination.
 
+`sets publish SET --upload` puts the set's recording on your Atmosphere account instead, as a
+`computer.localnetwork.dj.recording` record under the set's id, and then publishes the set's
+record pointing to it, one question for both. An MP3 or an AAC M4A goes up as it is; anything
+else (WAV, AIFF, FLAC, ALAC), or a file too big for the account's data server, is encoded first by
+[ffmpeg](https://ffmpeg.org/download.html), which has to be installed, as AAC in an M4A file at
+128 kbit/s, or less to fit, down to 64. No data server says how big a file it takes: the reference
+one takes 5 MiB unless whoever runs it raises `PDS_BLOB_UPLOAD_LIMIT` (its installer allows 300
+MiB), so locallibrary aims for 300 MiB, and `--max-mib` for less when your server refuses that
+(the refusal names the size it was sent). `--dry-run` shows how it would go up and sends nothing,
+and `--json` puts the set record's plan and outcome in the same document as `record`. Uploading
+again replaces the recording. The set's record keeps pointing to it once it's published, so the
+next `sets publish SET` keeps it too.
+
 ## Mixes
 
 ```bash
