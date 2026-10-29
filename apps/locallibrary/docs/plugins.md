@@ -121,8 +121,8 @@ are:
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
 
-- **google-account**: an account plugin, the `google` account type, signed in to through Local
-  Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
+- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
+  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
 - **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
   token exchange. Its scope `upload` uploads shows to Mixcloud.
 - **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
@@ -158,6 +158,20 @@ playlist, with a form for what it takes, a param the plugin fills from what's se
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
+
+## Account plugins
+
+An account plugin provides one account type (Google, say) and nothing else. It's a manifest
+alone, its `[[contributes.account_types]]`: how to sign in to the service, how to ask it who
+signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
+code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
+tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
+locallibrary ships may use Local Network's token exchange. Those are google-account,
+mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
+account type each adds, and `plugin info` its scopes.
+
+Plugins don't use account types yet: each still declares its own accounts (below), which are what
+you sign in to, until they move onto account types.
 
 ## Accounts
 

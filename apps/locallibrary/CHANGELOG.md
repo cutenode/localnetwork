@@ -391,6 +391,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
   `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+- **Account plugins.** An account plugin provides one account type and nothing else: a manifest
+  (`[[contributes.account_types]]`) saying how to sign in to the service, who signed in, and the
+  scopes a plugin may be given, each with the requests it covers. It has no code, so locallibrary
+  never starts one (`plugin serve` refuses), and only the ones it ships may use Local Network's
+  token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
+  `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
+  `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
+  `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
+  for now.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
