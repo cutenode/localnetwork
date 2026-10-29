@@ -21,6 +21,7 @@ import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
+import { Notifier } from './notifications/notifier';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
@@ -88,6 +89,8 @@ export async function createApp(options: CreateAppOptions) {
 		maxAttempts: config.auditMaxAttempts
 	});
 
+	const notifications = new Notifier({ db, logger: logger.child({ component: 'notifications' }) });
+
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
 		identity,
@@ -104,6 +107,7 @@ export async function createApp(options: CreateAppOptions) {
 		userClient,
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		// Services only call this from their methods, which run after `syncer` below exists.
 		watchSpace: async (space) => {
 			await syncer.watch(space);
@@ -229,6 +233,7 @@ export async function createApp(options: CreateAppOptions) {
 		backfills,
 		audit,
 		accounts,
+		notifications,
 		projects,
 		sets: projects.sets,
 		requests,
@@ -368,6 +373,7 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
 			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
+			every(60 * 60_000, () => notifications.prune(), 'inbox-retention');
 		},
 
 		async stop() {

@@ -317,6 +317,20 @@ export type BookingEventView = {
 	show?: ShowDetails;
 };
 
+/** What an inbox item is about, which its icon shows. Email and DM opt-ins choose among these too. */
+export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
+
+/** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
+export type NotificationView = {
+	id: string;
+	topic: NotificationTopic | null;
+	title: string;
+	body?: string;
+	href: string;
+	occurredAt: string;
+	read: boolean;
+};
+
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };
 
 export type PlannerShowView = {

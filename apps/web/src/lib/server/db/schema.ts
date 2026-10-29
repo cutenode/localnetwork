@@ -2,9 +2,10 @@ import type { Selectable } from 'kysely';
 import type { RequestKind } from '#lib/types.ts';
 
 /**
- * Local index. Everything here except sessions and the audit outbox is derived
- * from records stored in atproto repos and spaces, and can be rebuilt by
- * re-syncing. Published projects aren't here: HappyView indexes them.
+ * Local index. Everything here except sessions, the audit outbox, and people's
+ * inboxes is derived from records stored in atproto repos and spaces, and can be
+ * rebuilt by re-syncing, so those need backing up. Published projects aren't
+ * here: HappyView indexes them.
  * Column names are snake_case in SQLite and camelCase in code.
  */
 export interface Database {
@@ -28,6 +29,7 @@ export interface Database {
 	epkGrant: EpkGrantTable;
 	epkDraft: EpkDraftTable;
 	geocodeCache: GeocodeCacheTable;
+	notification: NotificationTable;
 }
 
 export interface KvTable {
@@ -255,6 +257,25 @@ export interface GeocodeCacheTable {
 	createdAt: string;
 }
 
+/** An item in someone's inbox (notifications/notifier.ts). */
+export interface NotificationTable {
+	id: string;
+	recipientDid: string;
+	/** A key of notifications/kinds.ts KINDS, or one a later version dropped. */
+	kind: string;
+	/** What notified them, like a record's URI, so each source reaches each person once. */
+	dedupeKey: string;
+	/** The thread, event or space it's about, whose page marks it read. */
+	subjectUri: string;
+	/** The site path it opens. */
+	href: string;
+	/** The kind's data as JSON, rendered into words when it's read. */
+	data: string;
+	occurredAt: string;
+	createdAt: string;
+	readAt: string | null;
+}
+
 export type RequestRow = Selectable<RequestTable>;
 
 export type AuditEntryRow = Selectable<AuditEntryTable>;
@@ -262,3 +283,5 @@ export type AuditEntryRow = Selectable<AuditEntryTable>;
 export type AccountRow = Selectable<AccountTable>;
 
 export type BookingThreadRow = Selectable<BookingThreadTable>;
+
+export type NotificationRow = Selectable<NotificationTable>;

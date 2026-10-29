@@ -216,6 +216,26 @@ const epkDrafts = statements(
 	`CREATE INDEX epk_draft_space ON epk_draft (space_uri, epk_rkey)`
 );
 
+/** People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of. */
+const inbox = statements(
+	`CREATE TABLE notification (
+		id TEXT PRIMARY KEY,
+		recipient_did TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		dedupe_key TEXT NOT NULL,
+		subject_uri TEXT NOT NULL,
+		href TEXT NOT NULL,
+		data TEXT NOT NULL,
+		occurred_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		read_at TEXT,
+		UNIQUE (recipient_did, dedupe_key)
+	)`,
+	`CREATE INDEX notification_recipient ON notification (recipient_did, occurred_at DESC, id DESC)`,
+	// The unread badge counts these on every dashboard page.
+	`CREATE INDEX notification_unread ON notification (recipient_did) WHERE read_at IS NULL`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
@@ -242,6 +262,11 @@ const migrations = {
 	'005_refresh_keys': {
 		async up(db) {
 			await sql.raw("DELETE FROM kv WHERE key = 'happyview_set_script_refreshed'").execute(db);
+		}
+	},
+	'007_inbox': {
+		async up(db) {
+			for (const statement of inbox) await sql.raw(statement).execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;
