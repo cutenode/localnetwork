@@ -1,0 +1,23 @@
+[package]
+name = "locallibrary-plugin-soundcloud"
+description = "locallibrary's SoundCloud plugin: a set's recording uploaded to SoundCloud as a track, with its tracklist"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true
+
+[dependencies]
+chrono.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	accountLabel,
 	feeLabel,
+	feeLevels,
+	feeSummary,
 	formatDate,
 	formatShowDate,
 	hueFor,
@@ -14,12 +16,12 @@ import {
 } from './format';
 import type { ProjectProfile } from './types';
 
-const profile = (fee?: ProjectProfile['fee']): ProjectProfile => ({
+const profile = (fees?: ProjectProfile['fees']): ProjectProfile => ({
 	name: 'X',
 	kind: 'duo',
 	genres: [],
 	location: { city: 'Leeds', region: 'England', country: 'GB' },
-	fee
+	fees
 });
 
 describe('format helpers', () => {
@@ -40,14 +42,27 @@ describe('format helpers', () => {
 		expect(formatDate('nonsense')).toBe('');
 	});
 
+	it('reads fee levels, and a record from before fee levels as one', () => {
+		expect(feeLevels(profile())).toEqual([]);
+		expect(feeLevels(profile([{ tier: 'emerging' }, { tier: 'headliner' }]))).toHaveLength(2);
+		expect(feeLevels({ ...profile(), fee: { tier: 'established' } })).toEqual([{ tier: 'established' }]);
+		expect(feeLevels({ ...profile([{ tier: 'emerging' }]), fee: { tier: 'established' } })).toEqual([
+			{ tier: 'emerging' }
+		]);
+	});
+
 	it('formats fees, kinds, places, and counts', () => {
-		expect(feeLabel(profile())).toBe('');
-		expect(feeLabel(profile({ tier: 'emerging' }))).toBe('Emerging');
-		expect(feeLabel(profile({ tier: 'established', currency: 'GBP', minAmount: 200, maxAmount: 500 }))).toBe(
+		expect(feeLabel({ tier: 'emerging' })).toBe('Emerging');
+		expect(feeLabel({ tier: 'established', currency: 'GBP', minAmount: 200, maxAmount: 500 })).toBe(
 			'Established · £200–£500'
 		);
-		expect(feeLabel(profile({ tier: 'community', minAmount: 50 }))).toBe('Community · from 50');
-		expect(feeLabel(profile({ tier: 'community', maxAmount: 80 }))).toBe('Community · up to 80');
+		expect(feeLabel({ tier: 'community', minAmount: 50 })).toBe('Community · from 50');
+		expect(feeLabel({ tier: 'community', maxAmount: 80 })).toBe('Community · up to 80');
+		expect(feeSummary(profile())).toBe('');
+		expect(feeSummary(profile([{ tier: 'emerging' }]))).toBe('Emerging');
+		expect(feeSummary(profile([{ tier: 'emerging' }, { tier: 'headliner' }, { tier: 'community' }]))).toBe(
+			'Emerging +2'
+		);
 		expect(kindLabel('duo')).toBe('Duo / B2B pair');
 		expect(placeLabel(profile())).toBe('Leeds, England, GB');
 		expect(placeLabel({ ...profile(), location: { city: 'Berlin', region: 'Berlin', country: 'DE' } })).toBe(
