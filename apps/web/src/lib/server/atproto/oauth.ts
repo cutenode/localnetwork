@@ -12,6 +12,7 @@ import { IncludeScope, isDidString, normalizeAtprotoOauthScopeValue, SpacePermis
 import { PERMISSIONS } from '#lib/nsid.ts';
 import type { Config } from '../config';
 import { type Db, nowIso } from '../db';
+import type { AccountRow } from '../db/schema';
 import type { Logger } from '../logger';
 import { PERMISSION_SET } from './lexicons';
 import { AgentRepoClient, type RepoClient } from './repo-client';
@@ -45,8 +46,8 @@ const PUBLIC_RECORDS = [
  * for its own namespace. Nothing grants reading other users' data; the app reads shared spaces with
  * credentials issued to the root authority. The base fallback, for a PDS without spaces, asks for
  * the public records anyone can write (follows, and shows with their events); the root account
- * writes and uploads everything else on the user's behalf. Posting a bug report to userinput.app is
- * asked for only when someone first sends one, so it stays out of `full` and never sends anyone back
+ * writes and uploads everything else on the user's behalf. The rest are OPTIONAL_SCOPES, asked for only
+ * when someone opts in to what needs them, so they stay out of `full` and never send anyone back
  * through sign-in.
  */
 export const SCOPES = {
@@ -60,8 +61,52 @@ export const SCOPES = {
 	base: `atproto ${PUBLIC_RECORDS}`,
 	/** For a PDS that refuses even the base scopes' granular permissions. */
 	minimal: 'atproto',
-	bugReport: 'repo:app.userinput.discussion?action=create'
+	/** Posting a bug report to userinput.app, asked for when someone first sends one. */
+	bugReport: 'repo:app.userinput.discussion?action=create',
+	/** Reading the account's email address, asked for when someone turns on email notifications. */
+	email: 'account:email',
+	/** The same, from a PDS that knows only the scopes from before granular permissions. */
+	emailLegacy: 'transition:email'
 };
+
+/** The scope tiers sign-in falls back through, most first. */
+const TIERS = [SCOPES.full, SCOPES.base, SCOPES.minimal];
+
+/**
+ * The scopes asked for only once someone opts in to what needs them, each with the forms a PDS may know it by, in
+ * the order to try them.
+ */
+export const OPTIONAL_SCOPES = {
+	bugReport: [SCOPES.bugReport],
+	email: [SCOPES.email, SCOPES.emailLegacy]
+} as const;
+
+export type OptionalScope = keyof typeof OPTIONAL_SCOPES;
+
+/** Thrown when an account's PDS refuses every form of an optional scope at the tier the account signed in with. */
+export class OptionalScopeUnsupported extends Error {
+	constructor(readonly scope: OptionalScope) {
+		super(`The PDS refused the ${scope} scope`);
+		this.name = 'OptionalScopeUnsupported';
+	}
+}
+
+/** What `authorize` reads of the account signing in: its last grant, and the tier that grant counted as. */
+export type SignedInAccount = Pick<AccountRow, 'did' | 'grantedScope' | 'spacesCapable' | 'publicWrites'>;
+
+/** The tier an account's last grant counted as, which the callback recorded. */
+function tierOf(account: SignedInAccount): string {
+	if (account.spacesCapable === 1) return SCOPES.full;
+
+	return account.publicWrites === 1 ? SCOPES.base : SCOPES.minimal;
+}
+
+/** The forms of OPTIONAL_SCOPES a grant holds. */
+export function heldOptionalScopes(granted: string | undefined | null, did: string): string[] {
+	return Object.values(OPTIONAL_SCOPES)
+		.flat()
+		.filter((scope) => grantsAll(granted, scope, did));
+}
 
 /** Every scope the app may ask for. A PDS refuses an authorization for any scope its client metadata doesn't list. */
 export const DECLARED_SCOPES = [...new Set(Object.values(SCOPES).flatMap((scope) => scope.split(' ')))].join(' ');
@@ -186,24 +231,43 @@ export class OAuthService {
 	}
 
 	/**
-	 * Starts an authorization, asking for `extra` scopes too. If the user's PDS rejects the spaces
-	 * scopes (it does not run the spaces alpha yet), falls back to the base scopes and the root
-	 * account writes on the user's behalf, then to plain `atproto` for a PDS that doesn't know
-	 * granular scopes at all.
+	 * Starts an authorization for `identifier` (a handle or DID). If the user's PDS rejects the spaces scopes (it does
+	 * not run the spaces alpha yet), falls back to the base scopes and the root account writes on the user's behalf,
+	 * then to plain `atproto` for a PDS that doesn't know granular scopes at all.
+	 *
+	 * A grant replaces the one before it, so the optional scopes `account` already holds are asked for again, or
+	 * approving one would drop another. Asking for `optional` too never falls back below the tier `account` signed in
+	 * with: the callback would record the lesser grant and the account would lose its spaces. When the PDS refuses
+	 * every form of it there, this throws OptionalScopeUnsupported.
 	 */
-	async authorize(handle: string, state: string, extra?: string): Promise<URL> {
-		const [first, ...fallbacks] = [this.scopes.full, this.scopes.base, this.scopes.minimal];
+	async authorize(
+		identifier: string,
+		state: string,
+		options: { account?: SignedInAccount; optional?: OptionalScope } = {}
+	): Promise<URL> {
+		const { account, optional } = options;
+		const held = account ? heldOptionalScopes(account.grantedScope, account.did) : [];
+		const floor = optional && account ? TIERS.indexOf(tierOf(account)) : TIERS.length - 1;
+		const extras = optional ? OPTIONAL_SCOPES[optional] : [''];
+
+		const attempts = TIERS.slice(0, floor + 1).flatMap((tier) =>
+			extras.map((extra) => [...new Set([tier, ...held, extra].filter(Boolean).join(' ').split(' '))].join(' '))
+		);
+
+		const [first, ...rest] = attempts;
 		let scope = first;
 
 		for (;;) {
 			try {
-				return await this.client.authorize(handle, { scope: extra ? `${scope} ${extra}` : scope, state });
+				return await this.client.authorize(identifier, { scope, state });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				const next = fallbacks.shift();
+				const next = rest.shift();
 
-				if (!next || !/scope/i.test(message)) throw error;
-				this.deps.logger.info({ handle, err: error, scope: next }, 'PDS rejected scopes; asking for fewer');
+				if (!/scope/i.test(message)) throw error;
+
+				if (!next) throw optional ? new OptionalScopeUnsupported(optional) : error;
+				this.deps.logger.info({ identifier, err: error, scope: next }, 'PDS rejected scopes; asking for fewer');
 				scope = next;
 			}
 		}

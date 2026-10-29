@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { type HappyView, startHappyView } from '../../scripts/lib/happyview.ts';
 import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
-import { grantsPublicRecords, grantsSpaces } from '../../src/lib/server/atproto/oauth.ts';
+import { grantsPublicRecords, grantsSpaces, type OptionalScope } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { type App, createApp } from '../../src/lib/server/app.ts';
 import { loadConfig } from '../../src/lib/server/config.ts';
@@ -16,7 +16,7 @@ import type { Viewer } from '../../src/lib/types.ts';
 export type TestUser = { did: string; handle: string; client: RepoClient; agent: AtpAgent };
 
 /** What a test sign-in asks for besides the app's own sign-in: other scopes `requested` instead, or `extra` ones too. */
-type ScopeRequest = { requested?: string; extra?: string };
+type ScopeRequest = { requested?: string; optional?: OptionalScope };
 
 /**
  * A real atproto network: in-process, a PLC directory and an alpha PDS with
@@ -112,8 +112,8 @@ export class TestNetwork {
 	/**
 	 * Signs a user in through the app's OAuth client and records the login like the callback does.
 	 * `approve` narrows what they consent to, as the PDS lets people do. `requested` asks for other scopes
-	 * than the app's first choice, like the fallback for a PDS without spaces, and `extra` asks for more
-	 * than sign-in does. Returns the granted scope.
+	 * than the app's first choice, like the fallback for a PDS without spaces, and `optional` asks for one
+	 * of the optional scopes too, as opting in does. Returns the granted scope.
 	 */
 	async signInWithOAuth(name: string, approve?: string, scopes: ScopeRequest = {}): Promise<string> {
 		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, scopes);
@@ -179,11 +179,11 @@ async function signInWithOAuth(
 	user: TestUser,
 	password: string,
 	approve?: string,
-	{ requested, extra }: ScopeRequest = {}
+	{ requested, optional }: ScopeRequest = {}
 ): Promise<string> {
 	const page = requested
 		? await app.oauth.client.authorize(user.handle, { scope: requested, state: '{}' })
-		: await app.oauth.authorize(user.handle, '{}', extra);
+		: await app.oauth.authorize(user.handle, '{}', { account: await app.accounts.get(user.did), optional });
 
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);
