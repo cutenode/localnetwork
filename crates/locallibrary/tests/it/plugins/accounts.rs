@@ -21,20 +21,31 @@ use super::*;
 /// What the mock service hands out: access tokens `at-<n>` and refresh tokens `rt-<n>`, each
 /// valid `expires_in` seconds, and the code challenge the browser was sent with.
 #[derive(Default)]
-struct Service {
-    expires_in: Option<u64>,
+pub(super) struct Service {
+    pub(super) expires_in: Option<u64>,
     /// Whether a refresh answers a new refresh token.
-    rotates: bool,
+    pub(super) rotates: bool,
     /// An error the token endpoint answers instead (`invalid_grant`), with its description.
-    refuses: Option<(String, String)>,
+    pub(super) refuses: Option<(String, String)>,
     /// The token endpoint answers what can't be read as tokens instead.
-    garbles: bool,
-    challenge: String,
-    issued: usize,
+    pub(super) garbles: bool,
+    pub(super) challenge: String,
+    pub(super) issued: usize,
+    /// Who the browser signs in as next: what `/userinfo` answers the tokens its code trades for.
+    pub(super) signing_in_as: Value,
+    /// What `/userinfo` answers each access token `at-<n>` with, by `n`: a refresh's are its
+    /// refresh token's.
+    pub(super) who: IndexMap<usize, Value>,
+    /// A refresh token is refused once it has refreshed.
+    pub(super) single_use: bool,
+    /// The refresh tokens that have refreshed.
+    pub(super) spent: Vec<String>,
+    /// The token endpoint doesn't say what it granted.
+    pub(super) unscoped: bool,
 }
 
 /// The form a request sent, by name.
-fn form(got: &Got) -> IndexMap<String, String> {
+pub(super) fn form(got: &Got) -> IndexMap<String, String> {
     form_urlencoded::parse(got.body.as_bytes()).into_owned().collect()
 }
 
@@ -54,12 +65,24 @@ fn json_reply(status: u16, body: Value) -> Reply {
     Reply { status, headers: vec![("Content-Type", "application/json".into())], body: body.to_string().into_bytes() }
 }
 
+/// The `n` of the access token `at-<n>` a request was sent, in its `Authorization` header (after
+/// `Bearer`) or its query (as `access_token`).
+fn sent_at(got: &Got) -> Option<usize> {
+    let query = got.target.split_once('?').map(|(_, q)| q).unwrap_or_default();
+    let mut query = form_urlencoded::parse(query.as_bytes());
+    let token = got.headers.get("authorization").and_then(|a| a.strip_prefix("Bearer ")).map(String::from);
+    let token = token.or_else(|| query.find(|(k, _)| k == "access_token").map(|(_, v)| v.into_owned()));
+    token?.strip_prefix("at-")?.parse().ok()
+}
+
 /// A mock OAuth service: `/token` trades a code (checked against the PKCE challenge) or a refresh
 /// token for tokens, and so does Local Network's token exchange for it, taking the same as JSON;
-/// `/revoke` takes one back, and anything else answers what it was sent.
-fn service(state: Arc<Mutex<Service>>) -> Server {
+/// `/revoke` takes one back; `/userinfo` says who an access token is for, and
+/// `/userinfo/moved` sends there; and anything else answers what it was sent.
+pub(super) fn service(state: Arc<Mutex<Service>>) -> Server {
     Server::new(move |base, got| {
         let mut s = state.lock().unwrap();
+        let path = got.target.split('?').next().unwrap_or_default();
         match got.target.as_str() {
             "/token" | EXCHANGE => {
                 let json = got.headers.get("content-type").is_some_and(|t| t == "application/json");
@@ -85,10 +108,26 @@ fn service(state: Arc<Mutex<Service>>) -> Server {
                 if !fits || f.get("client_id").map(String::as_str) != Some("locallibrary-test") {
                     return json_reply(400, json!({ "error": "invalid_request" }));
                 }
+                let refresh = f.get("refresh_token").cloned();
+                if let Some(refresh) = &refresh {
+                    if s.single_use && s.spent.contains(refresh) {
+                        return json_reply(400, json!({ "error": "invalid_grant" }));
+                    }
+                    s.spent.push(refresh.clone());
+                }
                 s.issued += 1;
                 let n = s.issued;
+                let refreshed = refresh.and_then(|r| r.strip_prefix("rt-")?.parse::<usize>().ok());
+                let who = match refreshed {
+                    Some(m) => s.who.get(&m).cloned().unwrap_or_default(),
+                    None => s.signing_in_as.clone(),
+                };
+                s.who.insert(n, who);
                 let mut answer =
                     json!({ "access_token": format!("at-{n}"), "token_type": "bearer", "scope": "read write" });
+                if s.unscoped {
+                    answer.as_object_mut().unwrap().remove("scope");
+                }
                 if f["grant_type"] == "authorization_code" || s.rotates {
                     answer["refresh_token"] = format!("rt-{n}").into();
                 }
@@ -98,6 +137,13 @@ fn service(state: Arc<Mutex<Service>>) -> Server {
                 json_reply(200, answer)
             }
             "/revoke" => ok(""),
+            _ if path == "/userinfo/moved" => {
+                Reply { status: 307, headers: vec![("Location", format!("{base}/userinfo"))], body: Vec::new() }
+            }
+            _ if path == "/userinfo" => match sent_at(got).and_then(|n| s.who.get(&n)) {
+                Some(who) => json_reply(200, who.clone()),
+                None => json_reply(401, json!({ "error": "invalid_token" })),
+            },
             // Elsewhere in its own origin.
             "/home" => Reply { status: 307, headers: vec![("Location", format!("{base}/here"))], body: Vec::new() },
             _ => ok(format!("{} {}", got.target, got.headers.get("authorization").map_or("-", String::as_str))),
@@ -137,17 +183,26 @@ fn exchanging(server: &str) -> String {
         .replace(&format!("token_url = \"{server}/token\""), &format!("token_exchange = \"{server}{EXCHANGE}\""))
 }
 
+/// The query of the address a sign-in opens in the browser (`url`), by name.
+pub(super) fn opened_at(url: &str) -> IndexMap<String, String> {
+    reqwest::Url::parse(url).unwrap().query_pairs().into_owned().collect()
+}
+
 /// The query of the address a sign-in opens in the browser, by name.
 fn opened(start: &SignIn) -> IndexMap<String, String> {
-    let url = reqwest::Url::parse(&start.url).unwrap();
-    url.query_pairs().into_owned().collect()
+    opened_at(&start.url)
 }
 
 /// Comes back from the browser to a sign-in with `query` (or the code and state it was sent with),
 /// once it's waited for.
 fn come_back(start: &SignIn, query: Option<String>) -> std::thread::JoinHandle<String> {
     let query = query.unwrap_or_else(|| format!("code=c0de&state={}", opened(start)["state"]));
-    let url = format!("{}?{query}", start.redirect_uri);
+    come_back_to(&start.redirect_uri, query)
+}
+
+/// Comes back from the browser to `redirect_uri` with `query`, once it's waited for.
+pub(super) fn come_back_to(redirect_uri: &str, query: String) -> std::thread::JoinHandle<String> {
+    let url = format!("{redirect_uri}?{query}");
     std::thread::spawn(move || reqwest::blocking::get(url).unwrap().text().unwrap())
 }
 
@@ -169,7 +224,7 @@ impl Fixture {
 
     /// Everything here that might hold a token: the plugin's logs, its answers so far, and every
     /// file in the store but its secrets.
-    fn seen(&self, answers: &[&Value]) -> String {
+    pub(super) fn seen(&self, answers: &[&Value]) -> String {
         let logs: Vec<String> = self.logs.lock().unwrap().iter().map(|(_, l)| l.clone()).collect();
         let files = walkdir::WalkDir::new(self.store.root()).into_iter().flatten().filter(|e| e.file_type().is_file());
         let secrets = self.store.root().join("secrets");
@@ -187,7 +242,7 @@ fn sent_token(answer: &Value, path: &str, n: usize) -> bool {
 }
 
 /// Whether a request's form has `value` as `key` (a token, never printed).
-fn has(form: &IndexMap<String, String>, key: &str, value: &str) -> bool {
+pub(super) fn has(form: &IndexMap<String, String>, key: &str, value: &str) -> bool {
     form.get(key).is_some_and(|v| v == value)
 }
 

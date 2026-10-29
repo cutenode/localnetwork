@@ -71,6 +71,7 @@ use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
 use crate::{Error, Result};
 
+pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut};
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
@@ -232,7 +233,9 @@ impl Default for Options {
 /// The plugins the app has, by id.
 pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
-    /// Sign-ins to plugins' accounts waiting for the browser.
+    /// What every plugin is hosted with.
+    host: Arc<process::Host>,
+    /// Sign-ins to plugins' accounts and to accounts of a type waiting for the browser.
     signing_in: accounts::SigningIn,
 }
 
@@ -262,7 +265,7 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
-        Ok(Plugins { plugins, signing_in: Default::default() })
+        Ok(Plugins { plugins, host, signing_in: Default::default() })
     }
 
     /// Each plugin's manifest, in the order the app gave them.

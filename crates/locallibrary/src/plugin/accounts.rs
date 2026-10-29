@@ -11,6 +11,9 @@
 //! tests), following no redirect. An account whose service wants a client secret for its tokens
 //! names Local Network's token exchange instead of the service's token endpoint: the host sends it
 //! the same request as JSON, and it adds the secret and answers as the service.
+//!
+//! Accounts of a type, signed in to through account plugins and kept once per store, are
+//! [`shared`]'s: they're signed in to, refreshed and revoked the same way.
 
 use std::io::Read;
 use std::net::TcpListener;
@@ -18,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use endpoints::Endpoints;
+use indexmap::IndexMap;
 use loclib_plugin::{Account, RpcError};
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::{
@@ -40,6 +44,9 @@ use crate::store::Store;
 use crate::{Error, Result, lock};
 
 mod endpoints;
+mod kept;
+pub(super) mod shared;
+mod whoami;
 
 /// How long before its access token expires an account's is refreshed.
 pub const REFRESH_BEFORE: Duration = Duration::from_secs(60);
@@ -132,10 +139,18 @@ pub struct SignedOut {
     pub revoked: bool,
 }
 
-/// A sign-in waiting for the browser (see [`Plugins::begin_sign_in`]).
+/// What a sign-in waiting for the browser signs in to.
+pub(crate) enum To {
+    /// One of a plugin's accounts.
+    Plugin { plugin: String, account: String },
+    /// An account of a type, through an account plugin.
+    Type(shared::Asked),
+}
+
+/// A sign-in waiting for the browser (see [`Plugins::begin_sign_in`] and
+/// [`Plugins::begin_account_sign_in`]).
 pub(crate) struct Pending {
-    plugin: String,
-    account: String,
+    to: To,
     store: Store,
     listener: TcpListener,
     client: Client,
@@ -263,11 +278,49 @@ impl Plugin {
     fn read_tokens(&self, id: &str, kept: &str) -> Result<Tokens> {
         let tokens: Tokens = serde_json::from_str(kept)
             .map_err(|_| Error::Account(format!("the {id} account's sign-in can't be read: sign in again")))?;
-        self.net.saw(&tokens.access_token);
-        if let Some(refresh) = &tokens.refresh_token {
-            self.net.saw(refresh);
-        }
+        self.seen(&tokens);
         Ok(tokens)
+    }
+
+    /// Keeps `tokens` out of what [`super::net::State::scrub`] gives.
+    fn seen(&self, tokens: &Tokens) {
+        self.net.saw(&tokens.access_token);
+        tokens.refresh_token.iter().for_each(|t| self.net.saw(t));
+    }
+
+    /// What `at`'s service answered for the code the browser came back with in `query`, traded
+    /// with `client` and the PKCE `verifier`; what it said, when it didn't sign in.
+    fn traded(
+        &self,
+        at: &Endpoints,
+        client: &Client,
+        verifier: PkceCodeVerifier,
+        query: &CallbackQuery,
+    ) -> Result<BasicTokenResponse> {
+        if let Some(why) = query.refusal() {
+            return Err(Error::Account(why));
+        }
+        let code = query.code.clone().ok_or_else(|| Error::Account("the browser came back without a code".into()))?;
+        let send = |r: HttpRequest| self.send_token(at, r);
+        let exchange = client.exchange_code(AuthorizationCode::new(code)).set_pkce_verifier(verifier);
+        exchange.request(&send).map_err(|e| self.refused(at, e))
+    }
+
+    /// `had` refreshed with its `refresh` token at `at`'s service, told to
+    /// [`super::net::State::scrub`]: `None` when the service won't refresh it any more
+    /// (`invalid_grant`), and signing in again will do.
+    fn refreshed(&self, at: &Endpoints, refresh: String, had: Tokens) -> Result<Option<Tokens>> {
+        let client = self.sign_in_client(at, None)?;
+        let send = |r: HttpRequest| self.send_token(at, r);
+        match client.exchange_refresh_token(&RefreshToken::new(refresh)).request(&send) {
+            Ok(answer) => {
+                let fresh = Tokens::from(&answer, Some(had));
+                self.seen(&fresh);
+                Ok(Some(fresh))
+            }
+            Err(RequestTokenError::ServerResponse(r)) if r.error().as_ref() == "invalid_grant" => Ok(None),
+            Err(e) => Err(self.refused(at, e)),
+        }
     }
 
     fn keep(&self, store: &Store, id: &str, tokens: &Tokens) -> Result<()> {
@@ -308,22 +361,11 @@ impl Plugin {
             return Ok(tokens.access_token);
         }
         let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
-        let at = Endpoints::from(account);
-        let client = self.sign_in_client(&at, None).map_err(external)?;
-        let send = |r: HttpRequest| self.send_token(&at, r);
-        let answer = client.exchange_refresh_token(&RefreshToken::new(refresh)).request(&send);
-        let answer = match answer {
-            Ok(answer) => answer,
+        let Some(fresh) = self.refreshed(&Endpoints::from(account), refresh, tokens).map_err(external)? else {
             // The service won't refresh it: it's signed out, and signing in again will do.
-            Err(RequestTokenError::ServerResponse(r)) if r.error().as_ref() == "invalid_grant" => {
-                self.set_secret(store, &key(id), None).map_err(external)?;
-                return Err(signed_out());
-            }
-            Err(e) => return Err(external(self.refused(&at, e))),
+            self.set_secret(store, &key(id), None).map_err(external)?;
+            return Err(signed_out());
         };
-        let fresh = Tokens::from(&answer, Some(tokens));
-        self.net.saw(&fresh.access_token);
-        fresh.refresh_token.iter().for_each(|t| self.net.saw(t));
         self.keep(store, id, &fresh).map_err(external)?;
         Ok(fresh.access_token)
     }
@@ -358,45 +400,61 @@ impl Plugins {
     pub fn begin_sign_in(&self, plugin: &str, account: &str, store: &Store) -> Result<SignIn> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared_sign_in(account)?;
-        let at = Endpoints::from(declared);
         // The keychain can be used, before the browser is sent anywhere. Only whether it can, what
         // it keeps dropped first: CodeQL follows a `?` on it into the sign-in link. A kept sign-in
         // that can't be read is replaced.
         slot.secret(store, &key(account)).map(drop)?;
+        let (plugin, account) = (plugin.to_string(), account.to_string());
+        let to = To::Plugin { plugin: plugin.clone(), account: account.clone() };
+        let at = Endpoints::from(declared);
+        let (id, url, redirect_uri) = self.begin(slot, &at, &declared.scopes, &IndexMap::new(), to, store)?;
+        Ok(SignIn { id, plugin, account, url, redirect_uri })
+    }
+
+    /// Starts a sign-in to `to` in `store` at `at`'s service (of `slot`), asking for `scopes` and
+    /// sending the authorize `params` besides: its id, the address to open in the browser, and
+    /// where the browser comes back to.
+    fn begin(
+        &self,
+        slot: &Plugin,
+        at: &Endpoints,
+        scopes: &[String],
+        params: &IndexMap<String, String>,
+        to: To,
+        store: &Store,
+    ) -> Result<(String, String, String)> {
         if let Some(port) = at.redirect_port {
             // A sign-in still waiting on its port gives way: the browser comes back to the newest.
             lock(&self.signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
         }
         let (listener, redirect_uri) = callback::bind(at.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
-        let client = slot.sign_in_client(&at, Some(redirect))?;
+        let client = slot.sign_in_client(at, Some(redirect))?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-        let scopes = declared.scopes.iter().cloned().map(Scope::new);
-        let (url, state) =
-            client.authorize_url(CsrfToken::new_random).add_scopes(scopes).set_pkce_challenge(challenge).url();
+        let scopes = scopes.iter().cloned().map(Scope::new);
+        let mut request = client.authorize_url(CsrfToken::new_random).add_scopes(scopes).set_pkce_challenge(challenge);
+        for (name, value) in params {
+            request = request.add_extra_param(name, value);
+        }
+        let (url, state) = request.url();
         if let Some(why) = unreachable(&url, slot.loopback()) {
             return Err(slot.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", at.title)));
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut pending = lock(&self.signing_in);
         pending.retain(|_, p| p.started.elapsed() < PENDING_LIMIT);
-        let (plugin, account) = (plugin.to_string(), account.to_string());
-        let waiting = Pending {
-            plugin: plugin.clone(),
-            account: account.clone(),
-            store: store.clone(),
-            listener,
-            client,
-            state,
-            verifier,
-            started: Instant::now(),
-        };
+        let waiting = Pending { to, store: store.clone(), listener, client, state, verifier, started: Instant::now() };
         pending.insert(id.clone(), waiting);
-        Ok(SignIn { id, plugin, account, url: url.to_string(), redirect_uri })
+        Ok((id, url.to_string(), redirect_uri))
     }
 
-    fn pending(&self, id: &str) -> Result<Pending> {
-        lock(&self.signing_in).remove(id).ok_or_else(|| {
+    /// Takes sign-in `id` from those waiting for the browser, when `of` finds in what it signs in
+    /// to what it's finished with.
+    fn pending<T>(&self, id: &str, of: fn(&To) -> Option<T>) -> Result<(T, Pending)> {
+        let mut waiting = lock(&self.signing_in);
+        let found = waiting.get(id).and_then(|p| of(&p.to));
+        let taken = found.and_then(|t| Some((t, waiting.remove(id)?)));
+        taken.ok_or_else(|| {
             Error::NotFound(format!(
                 "sign-in {id:?} (it finished, was cancelled, or is over {} minutes old)",
                 PENDING_LIMIT.as_secs() / 60
@@ -408,53 +466,33 @@ impl Plugins {
     /// then trades its code for the account's tokens and keeps them. The browser is told how it
     /// went.
     pub fn finish_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountStatus> {
-        let p = self.pending(id)?;
-        let request = callback::wait(&p.listener, timeout, ctx, |state| state == p.state.secret())?;
-        let finished = self.signed_in(p, &request.query);
-        match &finished {
-            Ok(status) => request.respond(true, &format!("{} is signed in.", status.title)),
-            Err(e) => request.respond(false, &e.to_string()),
-        }
-        finished
+        let (named, p) = self.pending(id, plugin_account)?;
+        come_back(p, timeout, ctx, |p, query| self.signed_in(named, p, query), |s| s.title.clone())
     }
 
     /// Finishes sign-in `id` with the address the browser ended up on, pasted from another
     /// computer.
     pub fn finish_sign_in_with_url(&self, id: &str, url: &str) -> Result<AccountStatus> {
-        let p = self.pending(id)?;
-        let query = CallbackQuery::from_url(url)?;
-        if query.state.as_deref() != Some(p.state.secret()) {
-            return Err(Error::Account("that address is from another sign-in: sign in again".into()));
-        }
-        self.signed_in(p, &query)
+        let (named, p) = self.pending(id, plugin_account)?;
+        let query = pasted(&p, url)?;
+        self.signed_in(named, p, &query)
     }
 
-    /// Forgets sign-in `id`, if it's waiting.
+    /// Forgets sign-in `id`, if it's waiting: to a plugin's account or to an account of a type.
     pub fn cancel_sign_in(&self, id: &str) -> bool {
         lock(&self.signing_in).remove(id).is_some()
     }
 
-    /// The account signed in, from what the browser came back with.
-    fn signed_in(&self, p: Pending, query: &CallbackQuery) -> Result<AccountStatus> {
-        let slot = self.slot(&p.plugin)?;
-        let account = slot.declared_sign_in(&p.account)?;
-        if let Some(why) = query.refusal() {
-            return Err(Error::Account(why));
-        }
-        let code = query.code.clone().ok_or_else(|| Error::Account("the browser came back without a code".into()))?;
-        let at = Endpoints::from(account);
-        let send = |r: HttpRequest| slot.send_token(&at, r);
-        let answer = p
-            .client
-            .exchange_code(AuthorizationCode::new(code))
-            .set_pkce_verifier(p.verifier)
-            .request(&send)
-            .map_err(|e| slot.refused(&at, e))?;
-        let tokens = Tokens::from(&answer, None);
-        slot.net.saw(&tokens.access_token);
-        tokens.refresh_token.iter().for_each(|t| slot.net.saw(t));
-        slot.keep(&p.store, &p.account, &tokens)?;
-        Ok(slot.status(account, Some(&tokens)))
+    /// The plugin's account `named` signed in, from what the browser came back to `p` with.
+    fn signed_in(&self, named: (String, String), p: Pending, query: &CallbackQuery) -> Result<AccountStatus> {
+        let (plugin, account) = named;
+        let slot = self.slot(&plugin)?;
+        let declared = slot.declared_sign_in(&account)?;
+        let at = Endpoints::from(declared);
+        let tokens = Tokens::from(&slot.traded(&at, &p.client, p.verifier, query)?, None);
+        slot.seen(&tokens);
+        slot.keep(&p.store, &account, &tokens)?;
+        Ok(slot.status(declared, Some(&tokens)))
     }
 
     /// Signs out of one of a plugin's accounts: its tokens are forgotten here, and revoked at the
@@ -470,6 +508,42 @@ impl Plugins {
         slot.set_secret(store, &key(account), None)?;
         Ok(SignedOut { status: slot.status(declared, None), was_signed_in: kept.is_some(), revoked })
     }
+}
+
+/// The plugin and account a sign-in to one of a plugin's accounts signs in to.
+fn plugin_account(to: &To) -> Option<(String, String)> {
+    match to {
+        To::Plugin { plugin, account } => Some((plugin.clone(), account.clone())),
+        To::Type(_) => None,
+    }
+}
+
+/// Waits for the browser to come back to `p` (at most `timeout`, an hour at most), finishes it
+/// with `done`, and tells the browser how it went: that `who` is signed in, or why not.
+fn come_back<T>(
+    p: Pending,
+    timeout: Duration,
+    ctx: &Ctx<'_>,
+    done: impl FnOnce(Pending, &CallbackQuery) -> Result<T>,
+    who: impl FnOnce(&T) -> String,
+) -> Result<T> {
+    let request = callback::wait(&p.listener, timeout, ctx, |state| state == p.state.secret())?;
+    let finished = done(p, &request.query);
+    match &finished {
+        Ok(signed_in) => request.respond(true, &format!("{} is signed in.", who(signed_in))),
+        Err(e) => request.respond(false, &e.to_string()),
+    }
+    finished
+}
+
+/// What the browser came back to `p` with, from the address it ended up on, pasted from another
+/// computer.
+fn pasted(p: &Pending, url: &str) -> Result<CallbackQuery> {
+    let query = CallbackQuery::from_url(url)?;
+    if query.state.as_deref() != Some(p.state.secret()) {
+        return Err(Error::Account("that address is from another sign-in: sign in again".into()));
+    }
+    Ok(query)
 }
 
 #[cfg(test)]

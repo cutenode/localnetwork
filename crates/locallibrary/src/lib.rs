@@ -189,6 +189,18 @@ pub mod testing {
         crate::fields::roles::THREAD_OFFERED.with(|o| *o.borrow_mut() = offered);
     }
 
+    /// The access token of the account `subject` that the account plugin `with` signed in to in
+    /// `store`, refreshed as a plugin's request would have it: plugins' requests don't name these
+    /// accounts yet.
+    pub fn account_token(
+        plugins: &crate::plugin::Plugins,
+        store: &crate::store::Store,
+        with: &str,
+        subject: &str,
+    ) -> crate::Result<String> {
+        plugins.account_token(store, with, subject)
+    }
+
     /// Plugins started from this thread are refused as from an elevated process (`Some(true)`),
     /// or not (`Some(false)`), whatever this process is (`None`: as it is).
     pub fn elevated_on_this_thread(elevated: Option<bool>) {

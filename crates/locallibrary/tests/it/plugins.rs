@@ -19,6 +19,7 @@ mod props;
 mod providers;
 mod roles;
 mod services;
+mod shared_accounts;
 mod sources;
 
 use std::path::{Path, PathBuf};
