@@ -10485,6 +10485,11 @@
         },
         {
           "type": "string",
+          "const": "chapters",
+          "description": "Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time."
+        },
+        {
+          "type": "string",
           "const": "csv",
           "description": "`#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`."
         },

@@ -13,6 +13,10 @@ use locallibrary::progress::Ctx;
 use locallibrary::publish::recording::Encoding;
 use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
+use lofty::config::ParseOptions;
+use lofty::id3::v2::Frame;
+use lofty::mpeg::MpegFile;
+use lofty::prelude::*;
 use serde_json::json;
 use sha2::Digest;
 
@@ -54,7 +58,61 @@ fn save_set(root: &Path, name: &str, recording: Option<&[u8]>) -> std::path::Pat
 }
 
 fn upload_request() -> SetUploadRequest {
-    SetUploadRequest { set: ID.into(), max_bytes: None }
+    SetUploadRequest { set: ID.into(), max_bytes: None, hide: vec![] }
+}
+
+/// An MP3 goes up with the set's timed tracks as ID3 chapters, named as the set's record names
+/// them (`--hide` too), each ending where the next starts, and the last where the recording does.
+/// The plan lists them, and says which tracks get none.
+#[test]
+fn an_mp3_goes_up_with_its_tracks_as_chapters() {
+    let pds = network();
+    pds.set_account(DID, "dj.example.com");
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    let audio = mp3(200);
+    let file = save_set(&root, "friday.mp3", Some(&audio));
+    let store = Store::open(&root).unwrap();
+    let mut book = SetBook::load(&store).unwrap();
+    let timed = |name: &str, start: Option<u32>| SetEntry { start_seconds: start, ..SetEntry::added(name) };
+    book.sets[0].tracks = vec![
+        timed("Bicep - Glue", Some(0)),
+        timed("Floorplan - Never Grow Old", Some(3)),
+        timed("Late - Track", Some(60)),
+        timed("Untimed - Track", None),
+    ];
+    book.save(&store).unwrap();
+
+    let plan = api::set_upload_plan(&root, &SetUploadRequest { hide: vec![2], ..upload_request() }).unwrap();
+    let titles: Vec<(u32, &str)> = plan.chapters.iter().map(|c| (c.start, c.title.as_str())).collect();
+    assert_eq!(titles, [(0, "Bicep - Glue"), (3, "ID - ID")]);
+    assert_eq!(
+        plan.notes[..2],
+        [
+            "track 4 has no start time, so no chapter",
+            "track 3 starts at 0:01:00, after the recording ends, so no chapter"
+        ]
+    );
+    plan.apply(None, &Ctx::silent()).unwrap();
+
+    let (record, _) = pds.record(DID, RECORDING, ID).unwrap();
+    let (mime, sent) = pds.blob(record["audio"]["ref"]["$link"].as_str().unwrap()).unwrap();
+    assert_eq!(mime, "audio/mpeg");
+    assert!(sent.ends_with(&audio) && sent.len() > audio.len(), "the same audio, after a tag");
+    assert_eq!(record["audio"]["size"].as_u64(), Some(sent.len() as u64));
+    let read = MpegFile::read_from(&mut std::io::Cursor::new(&sent), ParseOptions::new()).unwrap();
+    let chapters: Vec<_> = read
+        .id3v2()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Chapter(c) => Some((c.times.clone(), c.title().unwrap().to_string())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chapters, [(0..3000, "Bicep - Glue".to_string()), (3000..5000, "ID - ID".to_string())]);
+    assert_eq!(std::fs::read(&file).unwrap(), audio, "the recording itself is left alone");
 }
 
 /// An MP3 goes up as it is: the server is asked who's signed in first (which refreshes the session
@@ -229,7 +287,7 @@ fn an_upload_goes_as_planned_or_stops_saying_why(tc: hegel::TestCase) {
     let max_bytes = tc.draw(gs::optional(gs::integers::<u64>().min_value(8_000).max_value(2 * audio.len() as u64)));
     let limit = max_bytes.map_or(MAX_BYTES, |m| m.min(MAX_BYTES));
     let as_is = is_mp3 && audio.len() as u64 <= limit;
-    let plan = match api::set_upload_plan(&root, &SetUploadRequest { set: ID.into(), max_bytes }) {
+    let plan = match api::set_upload_plan(&root, &SetUploadRequest { max_bytes, ..upload_request() }) {
         Ok(plan) => plan,
         Err(e) => {
             // Too long to fit the limit even at 64 kbit/s.

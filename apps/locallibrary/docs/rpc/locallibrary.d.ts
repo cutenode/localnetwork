@@ -1752,6 +1752,8 @@ export type SetFormat =
    * paste format, so this is the cue-time style tracklists are usually written in.
    */
   | "1001"
+  /** Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time. */
+  | "chapters"
   /** `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`. */
   | "csv"
   /** A playlist of the tracks on a drive. */
