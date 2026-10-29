@@ -61,7 +61,16 @@
 					"description": "Year the project started playing out."
 				},
 				"capacity": { "type": "ref", "ref": "#capacity" },
-				"fee": { "type": "ref", "ref": "#fee" },
+				"fees": {
+					"type": "array",
+					"description": "The project's fee levels, like one per kind of booking. Each tier counts for budget matching.",
+					"items": { "type": "ref", "ref": "#fee" }
+				},
+				"fee": {
+					"type": "ref",
+					"ref": "#fee",
+					"description": "Deprecated: use fees. Records written before fees existed carry their one fee level here."
+				},
 				"links": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#link" } },
 				"mixes": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#mix" } },
 				"highlights": {
@@ -145,8 +154,15 @@
 		},
 		"fee": {
 			"type": "object",
+			"description": "One fee level: a tier, and optionally what it covers and an amount range.",
 			"required": ["tier"],
 			"properties": {
+				"label": {
+					"type": "string",
+					"maxLength": 640,
+					"maxGraphemes": 64,
+					"description": "What this level covers, like club nights, festivals, or private events."
+				},
 				"tier": {
 					"type": "string",
 					"maxLength": 32,

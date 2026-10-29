@@ -1477,6 +1477,18 @@ fn a_seek_as_the_next_track_starts_moves_that_one() {
     assert_eq!((title(&app), app.position()), (Some("Track 2".into()), ms(250)));
 }
 
+/// The queued track can play out too before a tick catches up (a short one, or a slow tick):
+/// the tick goes on past both, so n from there doesn't skip the track after them.
+#[test]
+fn a_tick_after_the_queued_track_played_out_goes_on_past_it() {
+    let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000, 8000, 8000]);
+    wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.queued));
+    // Tracks 1 and 2 play out (half a second each at 8 kHz), with no tick since.
+    (&mut out).take(8100).for_each(drop);
+    app.tick();
+    assert_eq!((app.queue.pos, title(&app)), (2, Some("Track 3".into())));
+}
+
 /// Picking another output, the track carries on as it was: paused or playing, where it was
 /// (or was going, while it opens), with its loop; a recorded set too, and the queue stays.
 #[test]

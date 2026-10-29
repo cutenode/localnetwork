@@ -50,6 +50,8 @@ plugins/demos/              the demos plugin: rekordbox's demo tracks on a drive
 plugins/interop/            the interop plugin: exporters for Traktor, Serato, Engine DJ and rekordbox XML,
                             writing a drive's library with loclib-interop on this computer, and an importer
                             and a library source reading Traktor's collection.nml back
+plugins/mixcloud/           the mixcloud plugin: the `show` set destination, a set's recording uploaded to
+                            Mixcloud in one form, its tracklist the show's sections
 plugins/musicbrainz/        the musicbrainz plugin: the `ids` analyzer, a track's MusicBrainz recording, release
                             and artist IDs, looked up by its ISRC and kept where they fit the track
 plugins/plyr/               the plyr plugin: the `track` set destination, a set's recording uploaded to plyr.fm
@@ -57,6 +59,8 @@ plugins/plyr/               the plyr plugin: the `track` set destination, a set'
 plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
                             loudness measured with loclib-analysis, as doctor's `--analyze` measures them,
                             and its three-band waveform
+plugins/soundcloud/         the soundcloud plugin: the `track` set destination, a set's recording uploaded to
+                            SoundCloud as a track, its tracklist the description, the track's page its link
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit; and rekordbox XML collections,
                             as an importer (keys, tempos, cues) and a library source to build drives from

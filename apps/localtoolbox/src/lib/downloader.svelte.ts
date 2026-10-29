@@ -18,8 +18,10 @@
 // is what makes what was typed in the sheet the answer the panel gives a gate.
 //
 // Not in chrome.storage, where settings.svelte.ts's live: those are there
-// because the content script has to read them, and nothing outside the popup
-// has any use for these. Nor are they in the exported state file — the keys it
+// because the content script has to read them, and nothing outside the
+// extension's own pages has any use for these. The one other page that reads
+// them is the offscreen page that walks a gate for the page's Download button
+// (src/offscreen.ts), which shares the popup's origin and so its localStorage. Nor are they in the exported state file — the keys it
 // carries are listed in state-transfer.ts, and an address is not something to
 // ship to another install with somebody's marks.
 

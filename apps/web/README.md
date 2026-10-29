@@ -24,7 +24,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - List a new project, or claim one an admin added. Several managers per project (crews, agents).
 - When a project's managers change, a new manager joins its booking threads that are still being worked out or confirmed for an upcoming show, and a manager who leaves is taken out of all of them. The promoter always stays. The same step keeps the project's backstage and its press kit spaces to the current managers, leaving the people granted a press kit. The app repeats this at startup, every hour, and on the System page's bootstrap, so a change that failed part way still finishes. A thread follows the project named in the root's opening record, which the promoter can't rewrite, or for a thread opened before that record named one, in its `booking.create` audit entry (written by the app, and rebuilt only from the root's copy). A thread with neither, or where the two disagree, is left as it is.
-- Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, fee tier and range, links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
+- Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, any number of fee levels (each a tier, with an optional label and range), links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
@@ -295,7 +295,7 @@ The services are in [`src/lib/server/token-exchange/services.json`](src/lib/serv
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).
-- Uploaded images are type- and magic-byte-checked and capped at 1 MB; images are served from a dedicated route with a locked-down CSP.
+- Uploaded images are type- and magic-byte-checked and capped at 1 MB for avatars and 5 MB for press kit photos. Stored images are served only if their blob's type is one their lexicon accepts (PNG, JPEG or WebP), since a PDS doesn't check, with a sandboxing CSP and `nosniff`. ast-grep's [`stored-type-response`](../../tools/ast-grep/rules/stored-type-response.yml) rule fails any other response that takes its content type from data.
 - Rate limits on sign-in, writes, and city search.
 - The [token exchange](#token-exchange) only sends requests to the token endpoints `services.json` lists, and never logs what it relays.
 - Spaces are access control, not end-to-end encryption: the hosting PDSes and this app can read the data they handle.

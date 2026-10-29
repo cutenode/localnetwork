@@ -25,7 +25,8 @@ export class FakeNetwork {
 		string,
 		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
 	>();
-	readonly blobs = new Map<string, Uint8Array>();
+	/** Each blob, by CID, with the type its uploader gave, which a PDS serves it as. */
+	readonly blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
 	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
 	readonly blobHolders = new Map<string, Set<string>>();
 	failures = new Map<string, { count: number; error: XRPCError }>();
@@ -168,7 +169,7 @@ export class FakeRootClient implements RootRepoClient {
 
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
 		const cid = await recordCid({ bytes: Buffer.from(bytes).toString('base64') });
-		this.net.blobs.set(cid, bytes);
+		this.net.blobs.set(cid, { bytes, mimeType });
 		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };

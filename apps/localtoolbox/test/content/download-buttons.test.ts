@@ -13,7 +13,7 @@
 // this reads; test/consistency.test.ts holds the key and the default together.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { loadContentScript, disposeContentScripts } from '../helpers/load.ts';
-import { createChrome, type ChromeMock } from '../helpers/chrome.ts';
+import { createChrome, type ChromeMock, type PageReply } from '../helpers/chrome.ts';
 import { flush } from '../helpers/flush.ts';
 import {
 	render,
@@ -28,7 +28,7 @@ import {
 	type LikedSoundOptions,
 	type V2TrackPageOptions
 } from '../helpers/dom.ts';
-import type { KnownDetails } from '$lib/types';
+import type { KnownDetails, SaveGateAnswer } from '$lib/types';
 
 declare const chrome: ChromeMock;
 
@@ -41,6 +41,9 @@ let listening: AbortController;
 beforeEach(() => {
 	vi.useFakeTimers();
 	listening = new AbortController();
+	// A gate link pressed with no background worker answering opens itself
+	// (see "a gate the extension walks"), and jsdom has no windows to open.
+	vi.spyOn(window, 'open').mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -419,7 +422,8 @@ describe('how tall our button is', () => {
 describe('what a click on it does', () => {
 	it('queues the track and lets the browser follow the link', async () => {
 		globalThis.chrome = createChrome();
-		render(likesWithPurchase(), '/dj/likes');
+		// A shop rather than a gate the extension walks: those are the next section.
+		render(likesWithPurchase({ purchase: { url: 'https://buy.test/x', label: 'Buy' } }), '/dj/likes');
 		await loadContentScript();
 		stopNavigation();
 		// Whether the click is still the browser's to follow once ours has had
@@ -845,5 +849,109 @@ describe('the signed-in layout’s cart', () => {
 		await chrome.storage.local.set({ settings: { replaceDownloadButtons: true } });
 		await flush();
 		expect(allOurs()).toHaveLength(1);
+	});
+});
+
+// A purchase link to a gate the Downloader always walks to a file (Hypeddit,
+// Droploud, Pump Your Sound) is walked where it is clicked, by the background
+// worker (test/background.test.ts), instead of followed. Here the worker is
+// whatever answers SAVE_GATE.
+describe('a gate the extension walks', () => {
+	const GATE = 'https://hypeddit.com/x';
+
+	const asked = () => chrome.runtime.sendMessage.mock.calls.filter(([message]) => message.type === 'SAVE_GATE');
+
+	/** The Likes row with the gate link, and a worker that answers when the test says. */
+	async function setUp() {
+		globalThis.chrome = createChrome();
+		render(likesWithPurchase(), '/dj/likes');
+		await loadContentScript();
+		stopNavigation();
+
+		let answer: (reply: PageReply) => void = () => {};
+
+		chrome.runtime.sendMessage.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+
+		return (reply: SaveGateAnswer) => answer({ ...reply });
+	}
+
+	it('asks the worker to save it instead of following it, and marks the track once it has', async () => {
+		const answer = await setUp();
+		const followed: boolean[] = [];
+		ours().parentElement!.addEventListener('click', (event) => followed.push(!event.defaultPrevented));
+
+		await click(ours());
+		expect(followed).toEqual([false]);
+		expect(asked()).toEqual([[{ type: 'SAVE_GATE', url: GATE }]]);
+		expect(ours().getAttribute('aria-busy')).toBe('true');
+
+		answer({ saved: true, mark: true });
+		await flush();
+		expect(ours().hasAttribute('aria-busy')).toBe(false);
+		expect(Object.keys(downloadedStore())).toEqual(['/l/one']);
+		// Saved is further than queued gets a track: nothing waits to be marked.
+		expect(queueIn() ?? []).toEqual([]);
+	});
+
+	it('leaves the track unmarked when saving a file is set not to mark it', async () => {
+		const answer = await setUp();
+
+		await click(ours());
+		answer({ saved: true, mark: false });
+		await flush();
+		expect(downloadedStore()).toBeUndefined();
+		expect(queueIn() ?? []).toEqual([]);
+	});
+
+	it('queues the track when the worker opened the gate instead', async () => {
+		const answer = await setUp();
+
+		await click(ours());
+		answer({ saved: false, mark: false });
+		await flush();
+		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
+		expect(downloadedStore()).toBeUndefined();
+	});
+
+	it('walks it once however often it is clicked while it walks', async () => {
+		await setUp();
+
+		await click(ours());
+		await click(ours());
+		expect(asked()).toHaveLength(1);
+	});
+
+	it('takes a click that is not a mouse’s as a plain one', async () => {
+		await setUp();
+
+		ours().dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
+		await flush();
+		expect(asked()).toHaveLength(1);
+	});
+
+	it('lets a click with a modifier follow the link, as one to any other site does', async () => {
+		await setUp();
+		const followed: boolean[] = [];
+		ours().parentElement!.addEventListener('click', (event) => followed.push(!event.defaultPrevented));
+
+		for (const key of ['metaKey', 'ctrlKey', 'shiftKey', 'altKey']) {
+			ours().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, [key]: true }));
+		}
+
+		await flush();
+		expect(followed).toEqual([true, true, true, true]);
+		expect(asked()).toEqual([]);
+		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
+	});
+
+	it('opens the link itself, and queues the track, when there is no worker to ask', async () => {
+		globalThis.chrome = createChrome();
+		render(likesWithPurchase(), '/dj/likes');
+		await loadContentScript();
+		stopNavigation();
+		await click(ours());
+		expect(window.open).toHaveBeenCalledWith(GATE, '_blank', 'noopener');
+		expect(queueIn()).toEqual([expect.objectContaining({ permalink: '/l/one' })]);
+		expect(ours().hasAttribute('aria-busy')).toBe(false);
 	});
 });

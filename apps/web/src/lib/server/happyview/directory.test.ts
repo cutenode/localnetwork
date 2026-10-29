@@ -119,13 +119,23 @@ describe('record script', () => {
 		const paused = await publish(hv, { name: 'Paused' }, { status: 'paused' });
 		const placeless = await publish(hv, { location: { city: 'Berlin' } });
 		const stringly = await publish(hv, { capacity: { min: '100' } });
+		const badLevel = await publish(hv, { fees: [{ tier: 'emerging' }, { tier: 2 }] });
+		const badFee = await publish(hv, { fee: 'emerging' });
 		const valid = await publish(hv, { name: 'Valid' });
+		const levels = await publish(hv, { fees: [{ tier: 'emerging' }, { label: 'Festivals', tier: 'headliner' }] });
+		const legacy = await publish(hv, { fee: { tier: 'emerging' } });
 
-		expect(await (await hv.fetch('http://happyview.test/xrpc/test.fake.stored')).json()).toEqual([{ uri: valid }]);
+		expect(await (await hv.fetch('http://happyview.test/xrpc/test.fake.stored')).json()).toEqual([
+			{ uri: valid },
+			{ uri: levels },
+			{ uri: legacy }
+		]);
 		expect(hv.logs).toEqual([
 			`skipped ${paused}: bad slug, status, or managers`,
 			`skipped ${placeless}: bad place`,
-			`skipped ${stringly}: bad capacity`
+			`skipped ${stringly}: bad capacity`,
+			`skipped ${badLevel}: bad fee`,
+			`skipped ${badFee}: bad fee`
 		]);
 	});
 
@@ -835,7 +845,7 @@ describe('searchProjects', () => {
 		await publish(hv, {
 			name: 'Deep Current',
 			genres: ['deep house'],
-			fee: { tier: 'emerging' },
+			fees: [{ tier: 'emerging' }],
 			formats: ['vinyl'],
 			setTypes: ['warmup']
 		});
@@ -846,6 +856,7 @@ describe('searchProjects', () => {
 		});
 		await publish(hv, { name: 'No Coords', genres: ['house'], location: { city: 'Somewhere', country: 'US' } });
 		const search = (params: Params) => query<Page>(hv, 'searchProjects', params);
+		const byTier = async (feeTiers: string | string[]) => names(await search({ feeTiers, sort: 'name' }));
 
 		expect(names(await search({ q: 'current' }))).toEqual(['Deep Current']);
 		expect((await search({ q: 'zzz' })).total).toBe(0);
@@ -855,13 +866,21 @@ describe('searchProjects', () => {
 		expect(near.projects[0].distanceM).toBeLessThan(1000);
 		const wide = await search({ latE6: 52_520_000, lngE6: 13_400_000, radiusKm: 400, sort: 'distance' });
 		expect(names(wide)).toEqual(['Deep Current', 'Iron Pulse']);
-		expect((await search({ feeTiers: 'emerging' })).total).toBe(1);
+		expect(await byTier('emerging')).toEqual(['Deep Current']);
 		expect((await search({ formats: 'vinyl', setTypes: ['warmup'] })).total).toBe(1);
 		expect((await search({ country: 'us' })).total).toBe(1);
 		expect((await search({ unclaimed: true })).total).toBe(3);
 		expect(names(await search({ sort: 'name', limit: 2, cursor: '2' }))).toEqual(['No Coords']);
 		expect((await query<{ genres: { count: number }[] }>(hv, 'getStats')).genres[0]).toMatchObject({ count: 1 });
 		expect(await query(hv, 'getStats')).toMatchObject({ total: 3, active: 3, unclaimed: 3 });
+
+		// Any fee level's tier matches, and so does the one fee of a record written before fee levels.
+		await publish(hv, { name: 'Two Rates', fees: [{ tier: 'community' }, { label: 'Festivals', tier: 'headliner' }] });
+		await publish(hv, { name: 'Old Record', fee: { tier: 'headliner' } });
+		expect(await byTier('headliner')).toEqual(['Old Record', 'Two Rates']);
+		expect(await byTier('community')).toEqual(['Two Rates']);
+		expect(await byTier(['emerging', 'community'])).toEqual(['Deep Current', 'Two Rates']);
+		expect(await byTier('established')).toEqual([]);
 	});
 
 	it('shows active projects unless asked for a status or inactive ones, and filters by kind and manager', async () => {
@@ -924,7 +943,7 @@ describe('matchProjects', () => {
 		genres: ['techno'],
 		location: { city: 'Berlin', country: 'DE', ...BERLIN },
 		travel: { radiusKm: 50 },
-		fee: { tier: 'emerging' },
+		fees: [{ tier: 'emerging' }],
 		capacity: { min: 100, max: 800 },
 		setTypes: ['peak'],
 		formats: ['vinyl']
@@ -993,14 +1012,23 @@ describe('matchProjects', () => {
 	});
 
 	it('scores budget tiers', async () => {
-		const budget = async (feeTier?: string, budgetTier = 'established') =>
-			(await score({ radiusKm: 10, budgetTier }, { fee: feeTier ? { tier: feeTier } : undefined })).breakdown.budget;
+		const budget = async (tiers: string[], budgetTier = 'established') =>
+			(await score({ radiusKm: 10, budgetTier }, { fees: tiers.map((tier) => ({ tier })) })).breakdown.budget;
 
-		expect(await budget('established')).toBe(100);
-		expect(await budget('emerging')).toBe(90);
-		expect(await budget('headliner')).toBe(35);
-		expect(await budget()).toBe(60);
-		expect(await budget('headliner', 'community')).toBe(0);
+		expect(await budget(['established'])).toBe(100);
+		expect(await budget(['emerging'])).toBe(90);
+		expect(await budget(['headliner'])).toBe(35);
+		expect(await budget([])).toBe(60);
+		expect(await budget(['headliner'], 'community')).toBe(0);
+		// The cheapest level counts: a project fits a budget when any of its levels does.
+		expect(await budget(['headliner', 'established', 'nonsense'])).toBe(100);
+		expect(await budget(['nonsense'])).toBe(60);
+
+		const legacy = async (tier: string) =>
+			(await score({ radiusKm: 10, budgetTier: 'established' }, { fees: undefined, fee: { tier } })).breakdown.budget;
+
+		expect(await legacy('emerging')).toBe(90);
+		expect(await legacy('headliner')).toBe(35);
 	});
 
 	it('scores capacity, set type, and format fit', async () => {
@@ -1032,7 +1060,7 @@ describe('matchProjects', () => {
 				setType: 'peak',
 				formats: ['cdj', 'vinyl']
 			},
-			{ location: { city: 'Potsdam', country: 'DE', ...POTSDAM }, fee: { tier: 'headliner' } }
+			{ location: { city: 'Potsdam', country: 'DE', ...POTSDAM }, fees: [{ tier: 'headliner' }] }
 		);
 
 		expect(result.reasons).toEqual([
@@ -1411,9 +1439,13 @@ describe('listShows and getShows', () => {
 });
 
 describe('instruction budget', () => {
-	it('searches and matches 1,000 projects well under the limit', { tags: ['budget'] }, async () => {
+	const tiers = ['community', 'emerging', 'established', 'headliner'];
+
+	const show = { ...BERLIN, budgetTier: 'emerging', capacity: 300, setType: 'peak', formats: 'vinyl' };
+
+	/** A directory of 1,000 projects with `levels` fee levels each. */
+	async function directory(levels: number): Promise<FakeHappyView> {
 		const hv = new FakeHappyView(ROOT);
-		const tiers = ['community', 'emerging', 'established', 'headliner'];
 
 		// Stored without running the record script 1,000 times: it keeps valid records as they are, and only the
 		// queries over them are measured.
@@ -1431,7 +1463,7 @@ describe('instruction budget', () => {
 					lngE6: 6_000_000 + ((i * 104_729) % 9_000_000)
 				},
 				travel: { radiusKm: i % 500 },
-				fee: { tier: tiers[i % 4] },
+				fees: Array.from({ length: levels }, (_, j) => ({ label: `Level ${j}`, tier: tiers[(i + j) % 4] })),
 				capacity: { min: 100, max: 800 + i },
 				formats: i % 2 ? ['vinyl'] : ['cdj', 'vinyl'],
 				setTypes: ['peak', 'closing']
@@ -1443,17 +1475,11 @@ describe('instruction budget', () => {
 
 		hv.seed(records.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })));
 
-		const show = { ...BERLIN, budgetTier: 'emerging', capacity: 300, setType: 'peak', formats: 'vinyl' };
+		return hv;
+	}
 
-		const queries: [keyof typeof DIRECTORY, Params][] = [
-			['searchProjects', {}],
-			['searchProjects', { q: 'deep grooves' }],
-			['searchProjects', { ...BERLIN, radiusKm: 2000, genres: ['techno', 'house'] }],
-			['searchProjects', { ...BERLIN, radiusKm: 2000, sort: 'distance' }],
-			['matchProjects', { ...show, genres: ['techno', 'house', 'disco'], includeOutOfRange: true }],
-			['matchProjects', { ...show, genres: KNOWN_GENRES.slice(0, 12), includeOutOfRange: true }]
-		];
-
+	/** The queries in `queries` that used 750,000 Lua instructions or more, of the 1,000,000 allowed. */
+	async function overBudget(hv: FakeHappyView, queries: [keyof typeof DIRECTORY, Params][]) {
 		const used: Record<string, number> = {};
 
 		for (const [name, params] of queries) {
@@ -1461,8 +1487,35 @@ describe('instruction budget', () => {
 			used[`${name} ${JSON.stringify(params)}`] = hv.instructions;
 		}
 
-		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
+		return Object.entries(used).filter(([, instructions]) => instructions >= 750_000);
+	}
+
+	it('searches and matches 1,000 projects well under the limit', { tags: ['budget'] }, async () => {
+		const queries: [keyof typeof DIRECTORY, Params][] = [
+			['searchProjects', {}],
+			['searchProjects', { q: 'deep grooves' }],
+			['searchProjects', { ...BERLIN, radiusKm: 2000, genres: ['techno', 'house'] }],
+			['searchProjects', { ...BERLIN, radiusKm: 2000, sort: 'distance' }],
+			['searchProjects', { feeTiers: ['emerging', 'established'] }],
+			['matchProjects', { ...show, genres: ['techno', 'house', 'disco'], includeOutOfRange: true }],
+			['matchProjects', { ...show, genres: KNOWN_GENRES.slice(0, 12), includeOutOfRange: true }]
+		];
+
+		expect(await overBudget(await directory(1), queries)).toEqual([]);
 	});
+
+	it(
+		'filters and matches 1,000 projects with 10 fee levels each well under the limit',
+		{ tags: ['budget'] },
+		async () => {
+			const queries: [keyof typeof DIRECTORY, Params][] = [
+				['searchProjects', { feeTiers: ['headliner'] }],
+				['matchProjects', { ...show, genres: ['techno', 'house', 'disco'], includeOutOfRange: true }]
+			];
+
+			expect(await overBudget(await directory(10), queries)).toEqual([]);
+		}
+	);
 
 	it('lists from 1,000 upcoming shows well under the limit', { tags: ['budget'] }, async () => {
 		const hv = new FakeHappyView(ROOT);

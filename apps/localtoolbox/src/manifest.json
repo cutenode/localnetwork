@@ -3,7 +3,7 @@
 	"name": "localtoolbox",
 	"version": "2.11.0",
 	"description": "small tools for SoundCloud: track lists, download links, cover art, and a queue to batch them.",
-	"permissions": ["activeTab", "clipboardWrite", "storage", "downloads"],
+	"permissions": ["activeTab", "clipboardWrite", "storage", "downloads", "offscreen"],
 	"host_permissions": [
 		"https://hypeddit.com/*",
 		"https://*.toneden.io/*",
@@ -17,6 +17,10 @@
 		"https://events.laylo.com/*",
 		"https://ffm.to/*"
 	],
+	"background": {
+		"service_worker": "background.js",
+		"type": "module"
+	},
 	"content_scripts": [
 		{
 			"matches": ["https://soundcloud.com/*"],
