@@ -13,7 +13,7 @@ import {
 import { COLLECTION } from '#lib/nsid.ts';
 import type { AccountView, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
-import type { RootRepoClient } from '../atproto/repo-client';
+import type { RepoWrite, RootRepoClient } from '../atproto/repo-client';
 import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
@@ -38,9 +38,9 @@ const personRecord = z.object({
 	updatedAt: z.string()
 });
 
-type PersonRecord = z.infer<typeof personRecord>;
+export type PersonRecord = z.infer<typeof personRecord>;
 
-const inviteRecord = z.object({
+export const inviteRecord = z.object({
 	subject: z.string(),
 	role: z.string(),
 	capabilities: z.array(z.string()),
@@ -50,7 +50,7 @@ const inviteRecord = z.object({
 	expiresAt: z.string().optional()
 });
 
-const inviteLinkRecord = z.object({
+export const inviteLinkRecord = z.object({
 	tokenHash: z.string(),
 	role: z.string(),
 	capabilities: z.array(z.string()),
@@ -59,7 +59,12 @@ const inviteLinkRecord = z.object({
 	expiresAt: z.string().optional()
 });
 
-const joinRequestRecord = z.object({ subject: z.string(), message: z.string().optional(), createdAt: z.string() });
+export const joinRequestRecord = z.object({
+	subject: z.string(),
+	message: z.string().optional(),
+	hidden: z.boolean().optional(),
+	createdAt: z.string()
+});
 
 const listingStatusRecord = z.object({
 	listed: z.boolean(),
@@ -88,7 +93,7 @@ export type PersonView = AccountView & {
 type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject };
 
 /** What a change sees and does: the space's kind, and its people as the root's repo has them now, by DID. */
-type Live = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
+export type LiveSpace = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
 
 const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
 	!!person && capabilitiesIn(kind, person.capabilities).includes(capability);
@@ -543,7 +548,7 @@ export class SharedSpaces {
 	 * Runs `task` in the space's lock with its people as the root's repo has them now, then brings the space's members in
 	 * line with the people the task left.
 	 */
-	private async change(space: string, task: (live: Live) => Promise<void>): Promise<void> {
+	async change(space: string, task: (live: LiveSpace) => Promise<void>): Promise<void> {
 		const previous = this.locks.get(space);
 
 		const run = (async () => {
@@ -564,7 +569,7 @@ export class SharedSpaces {
 	}
 
 	/** The space's people as the root's own repo has them, since the index can be behind. */
-	private async live(space: string): Promise<Live> {
+	private async live(space: string): Promise<LiveSpace> {
 		const ref = parseSpaceUri(space);
 		const kind = ref?.authority === this.core.rootDid ? sharedSpaceKind(ref.type) : null;
 
@@ -588,15 +593,20 @@ export class SharedSpaces {
 		return { space, kind, root, people };
 	}
 
+	/** The actor role to audit `viewer`'s change with, from the space's people as the root's repo has them now. */
+	async assertCan(viewer: Viewer, space: string, capability: Capability): Promise<ActorRole> {
+		return this.authorize(viewer, await this.live(space), capability);
+	}
+
 	/** The actor role to audit `actor`'s change with, when they hold `capability` in the space or are staff. */
-	private authorize(actor: Viewer, live: Live, capability: Capability): ActorRole {
+	authorize(actor: Viewer, live: LiveSpace, capability: Capability): ActorRole {
 		if (hasCapability(live.kind, live.people.get(actor.did), capability)) return 'member';
 
 		if (actor.isStaff) return actorRole(actor);
 		throw new ForbiddenError();
 	}
 
-	private personIn(live: Live, did: string): PersonRecord {
+	private personIn(live: LiveSpace, did: string): PersonRecord {
 		const person = live.people.get(did);
 
 		if (!person) throw new NotFoundError("They're not in it");
@@ -604,7 +614,7 @@ export class SharedSpaces {
 		return person;
 	}
 
-	private without(live: Live, did: string): Map<string, PersonRecord> {
+	private without(live: LiveSpace, did: string): Map<string, PersonRecord> {
 		const people = new Map(live.people);
 		people.delete(did);
 
@@ -615,7 +625,7 @@ export class SharedSpaces {
 	 * Refuses a change that would leave nobody able to manage the space's people, unless staff make it. Returns whether
 	 * it does, so the audit entry notes it.
 	 */
-	private checkManagers(actor: Viewer, live: Live, after: Map<string, PersonRecord>): boolean {
+	private checkManagers(actor: Viewer, live: LiveSpace, after: Map<string, PersonRecord>): boolean {
 		const manages = (people: Map<string, PersonRecord>) =>
 			[...people.values()].some((person) => hasCapability(live.kind, person, 'people.manage'));
 
@@ -627,7 +637,7 @@ export class SharedSpaces {
 		return true;
 	}
 
-	private async writePerson(live: Live, person: PersonRecord): Promise<void> {
+	private async writePerson(live: LiveSpace, person: PersonRecord): Promise<void> {
 		await live.root.putSpaceRecord({
 			space: live.space,
 			collection: COLLECTION.person,
@@ -638,14 +648,37 @@ export class SharedSpaces {
 		await this.savePerson(live.space, live.kind, person);
 	}
 
-	private async deletePerson(live: Live, did: string): Promise<void> {
+	/**
+	 * Adds `person` to the space in one batch with `writes`, like deleting the invite they accepted, so either both
+	 * happen or neither does.
+	 */
+	async admit(live: LiveSpace, person: PersonRecord, writes: RepoWrite[]): Promise<void> {
+		await live.root.applySpaceWrites(live.space, [
+			{
+				action: live.people.has(person.subject) ? 'update' : 'create',
+				collection: COLLECTION.person,
+				rkey: person.subject,
+				record: validateRecord(COLLECTION.person, person)
+			},
+			...writes
+		]);
+		live.people.set(person.subject, person);
+		await this.savePerson(live.space, live.kind, person);
+
+		for (const write of writes) {
+			if (write.action === 'delete') await this.unindex({ space: live.space, ...write });
+			else await this.index({ space: live.space, collection: write.collection, rkey: write.rkey, value: write.record });
+		}
+	}
+
+	private async deletePerson(live: LiveSpace, did: string): Promise<void> {
 		await live.root.deleteSpaceRecord({ space: live.space, collection: COLLECTION.person, rkey: did });
 		live.people.delete(did);
 		await this.unindex({ space: live.space, collection: COLLECTION.person, rkey: did });
 	}
 
 	/** Everyone in the space reads it; those with a capability that writes also write. */
-	private async syncPeople(live: Live): Promise<void> {
+	private async syncPeople(live: LiveSpace): Promise<void> {
 		const wanted = new Map(
 			[...live.people.values()].map((person) => [
 				person.subject,
@@ -685,13 +718,15 @@ export class SharedSpaces {
 			.execute();
 	}
 
-	private async name(did: string): Promise<string> {
+	/** How the audit log's summaries name someone. */
+	async name(did: string): Promise<string> {
 		const { handle } = await this.core.accounts.view(did);
 
 		return handle ? `@${handle}` : did;
 	}
 
-	private async record(
+	/** Records a change to the space in the audit log. */
+	async record(
 		actor: Viewer,
 		role: ActorRole,
 		action: AuditAction,

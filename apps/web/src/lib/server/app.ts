@@ -33,6 +33,7 @@ import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
 import { SharedSpaces } from './services/shared-spaces';
+import { SpaceJoins } from './services/space-joins';
 import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
 import { SupportService } from './services/supports';
@@ -166,6 +167,14 @@ export async function createApp(options: CreateAppOptions) {
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
 	const sharedSpaces = new SharedSpaces(core);
 
+	const limits = {
+		login: new RateLimiter(10, 10 / 60),
+		write: new RateLimiter(30, 30 / 60),
+		search: new RateLimiter(60, 2)
+	};
+
+	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
+
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
 		indexed: indexedRepo,
@@ -249,14 +258,11 @@ export async function createApp(options: CreateAppOptions) {
 		follows,
 		verifications,
 		sharedSpaces,
+		spaceJoins,
 		bugReports,
 		sessions,
 		geocoder,
-		limits: {
-			login: new RateLimiter(10, 10 / 60),
-			write: new RateLimiter(30, 30 / 60),
-			search: new RateLimiter(60, 2)
-		},
+		limits,
 
 		/**
 		 * The account behind a web session, or null when it has to sign in again: it was granted

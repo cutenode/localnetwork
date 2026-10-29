@@ -85,3 +85,6 @@ export function isWriter(capabilities: readonly Capability[]): boolean {
 export const CREATOR_ROLE = { performer: 'member', party: 'host', venue: 'owner' } as const satisfies {
 	[K in SpaceKind]: Role<K>;
 };
+
+/** What an invite link never gives: anyone can pass a link on, so it can't let them manage the space's people. */
+export const LINK_FORBIDDEN: readonly Capability[] = ['people.manage'];

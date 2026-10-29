@@ -239,6 +239,17 @@ describe('SharedSpaces', () => {
 		).toEqual(['listing.unlist', 'listing.list']);
 	});
 
+	it("tells which role someone acts in for a capability, from the root's records", async () => {
+		const space = await party('door');
+
+		expect(await t.sharedSpaces.assertCan(await t.viewer(ADA), space, 'people.manage')).toBe('member');
+		expect(await t.sharedSpaces.assertCan(await t.viewer(ADMIN), space, 'people.manage')).toBe('admin');
+		expect(await t.sharedSpaces.assertCan(await t.viewer(BO), space, 'guests.checkin')).toBe('member');
+		await expect(t.sharedSpaces.assertCan(await t.viewer(BO), space, 'events.manage')).rejects.toBeInstanceOf(
+			ForbiddenError
+		);
+	});
+
 	it("refuses spaces that aren't a shared space under the root", async () => {
 		const ada = await t.viewer(ADA);
 

@@ -12,6 +12,10 @@
 				"properties": {
 					"subject": { "type": "string", "format": "did" },
 					"message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"hidden": {
+						"type": "boolean",
+						"description": "Whether they want to be hidden from everyone outside the space once they're in."
+					},
 					"createdAt": { "type": "string", "format": "datetime" }
 				}
 			}

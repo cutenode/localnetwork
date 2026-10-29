@@ -6,6 +6,7 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
+import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
@@ -15,6 +16,7 @@ import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
 import { SharedSpaces } from '../services/shared-spaces';
+import { SpaceJoins } from '../services/space-joins';
 import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
@@ -115,6 +117,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	});
 
 	const sharedSpaces = new SharedSpaces(core);
+	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
 
 	await ensureRootSpaces(core);
 	await audit.idle();
@@ -153,6 +156,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		follows,
 		verifications,
 		sharedSpaces,
+		spaceJoins,
 		handles,
 		indexedRepo,
 		viewer,
