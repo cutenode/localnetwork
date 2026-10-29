@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "any",
-			"description": "An invite to join a performer's, party's or venue's space, keyed by the invitee's DID. Written by the Local Network root account for someone with people.manage. The invitee isn't a member until they accept, which replaces it with a computer.localnetwork.people.person record.",
+			"description": "An invite to join a performer's, party's or venue's space, keyed by the invitee's DID. Written by the Local Network root account for someone with people.manage, and deleted when they lose it. The invitee isn't a member until they accept, which replaces it with a computer.localnetwork.people.person record.",
 			"record": {
 				"type": "object",
 				"required": ["subject", "role", "capabilities", "invitedBy", "createdAt"],
@@ -14,6 +14,10 @@
 					"role": { "type": "ref", "ref": "computer.localnetwork.people.defs#role" },
 					"capabilities": { "type": "ref", "ref": "computer.localnetwork.people.defs#capabilities" },
 					"invitedBy": { "type": "string", "format": "did" },
+					"staff": {
+						"type": "boolean",
+						"description": "Set when staff made it. It works whoever is in the space, where one someone in it made stops working once they can't add people."
+					},
 					"message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
 					"createdAt": { "type": "string", "format": "datetime" },
 					"expiresAt": { "type": "string", "format": "datetime" }

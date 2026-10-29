@@ -20,6 +20,7 @@ import {
 	inviteLinkRecord,
 	inviteRecord,
 	joinRequestRecord,
+	hasCapability,
 	type LiveSpace,
 	type PersonRecord,
 	type SharedSpaces
@@ -41,17 +42,28 @@ export type JoinRequestView = AccountView & { message: string | null; createdAt:
 /** What someone gets in a space, and for how long an invite or link offering it lasts. */
 type Offer = { role: string; capabilities?: string[]; expiresInDays?: number };
 
-/** A person coming in, and the records that brought them, which go in the same batch. */
-type Admission = Omit<PersonRecord, 'subject' | 'createdAt' | 'updatedAt'> & { writes: RepoWrite[] };
+/** A person coming in, and how. */
+type Admission = Omit<PersonRecord, 'subject' | 'createdAt' | 'updatedAt'>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** How long an invite or link lasts when its maker doesn't say, and at most. */
+const INVITE_DAYS = 30;
+
+const LINK_DAYS = 7;
+
+const MAX_DAYS = 90;
 
 const isLinkForbidden = (capability: string) => LINK_FORBIDDEN.some((forbidden) => forbidden === capability);
 
 const isExpired = (expiresAt: string | null | undefined) => !!expiresAt && Date.parse(expiresAt) <= Date.now();
 
-const expiry = (days: number | undefined) =>
-	days === undefined ? {} : { expiresAt: new Date(Date.now() + days * DAY_MS).toISOString() };
+function expiry(days: number): string {
+	if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS)
+		throw new UserError(`It can last from 1 to ${MAX_DAYS} days`);
+
+	return new Date(Date.now() + days * DAY_MS).toISOString();
+}
 
 /**
  * How people come into a performer's, party's or venue's space: an invite to their DID, an invite link, or a request
@@ -77,8 +89,10 @@ export class SpaceJoins {
 			if (live.people.has(input.did)) throw new UserError("They're already in it");
 
 			if (await this.stored(live, COLLECTION.invite, input.did)) throw new UserError("They're already invited");
-			const offer = this.offer(live, input);
+			const offer = this.offer(live, input, INVITE_DAYS);
 			const record = { subject: input.did, ...offer, invitedBy: actor.did, createdAt: nowIso() };
+
+			if (actingAs !== 'member') Object.assign(record, { staff: true });
 
 			if (input.message) Object.assign(record, { message: input.message });
 			await this.write(live, COLLECTION.invite, input.did, validateRecord(COLLECTION.invite, record));
@@ -124,11 +138,7 @@ export class SpaceJoins {
 			const invite = inviteRecord.safeParse((await this.stored(live, COLLECTION.invite, viewer.did))?.value);
 
 			if (!invite.success || isExpired(invite.data.expiresAt)) throw new NotFoundError('That invite is gone');
-			const writes: RepoWrite[] = [{ action: 'delete', collection: COLLECTION.invite, rkey: viewer.did }];
-
-			// A request they made before the invite is answered too.
-			if (await this.stored(live, COLLECTION.joinRequest, viewer.did))
-				writes.push({ action: 'delete', collection: COLLECTION.joinRequest, rkey: viewer.did });
+			this.assertStands(live, invite.data.invitedBy, invite.data.staff, 'invite');
 
 			await this.join(live, viewer, {
 				role: invite.data.role,
@@ -136,8 +146,7 @@ export class SpaceJoins {
 				hidden: options.hidden,
 				via: 'invite',
 				addedBy: invite.data.invitedBy,
-				source: spaceRecordUri(space, live.root.did, COLLECTION.invite, viewer.did),
-				writes
+				source: spaceRecordUri(space, live.root.did, COLLECTION.invite, viewer.did)
 			});
 		});
 	}
@@ -165,9 +174,11 @@ export class SpaceJoins {
 
 		await this.spaces.change(space, async (live) => {
 			const actingAs = this.spaces.authorize(actor, live, 'people.manage');
-			const offer = this.offer(live, input);
+			const offer = this.offer(live, input, LINK_DAYS);
 			const capabilities = offer.capabilities.filter((capability) => !isLinkForbidden(capability));
 			const record = { tokenHash: hashToken(token), ...offer, capabilities, createdBy: actor.did, createdAt: nowIso() };
+
+			if (actingAs !== 'member') Object.assign(record, { staff: true });
 
 			await this.write(live, COLLECTION.inviteLink, rkey, validateRecord(COLLECTION.inviteLink, record));
 			await this.spaces.record(actor, actingAs, 'people.link', space, 'Made an invite link', {
@@ -214,8 +225,7 @@ export class SpaceJoins {
 			const link = inviteLinkRecord.safeParse((await this.stored(live, COLLECTION.inviteLink, row.rkey))?.value);
 
 			if (!link.success || link.data.tokenHash !== hashToken(token) || isExpired(link.data.expiresAt)) throw gone;
-
-			if (live.people.has(viewer.did)) throw new UserError("You're already in it");
+			this.assertStands(live, link.data.createdBy, link.data.staff, 'link');
 
 			await this.join(live, viewer, {
 				role: link.data.role,
@@ -223,8 +233,7 @@ export class SpaceJoins {
 				hidden: options.hidden,
 				via: 'link',
 				addedBy: link.data.createdBy,
-				source: spaceRecordUri(row.spaceUri, live.root.did, COLLECTION.inviteLink, row.rkey),
-				writes: []
+				source: spaceRecordUri(row.spaceUri, live.root.did, COLLECTION.inviteLink, row.rkey)
 			});
 		});
 
@@ -260,11 +269,9 @@ export class SpaceJoins {
 			const request = joinRequestRecord.safeParse((await this.stored(live, COLLECTION.joinRequest, did))?.value);
 
 			if (!request.success) throw new NotFoundError('That request is gone');
-			const offer = this.offer(live, { role });
-			const writes: RepoWrite[] = [{ action: 'delete', collection: COLLECTION.joinRequest, rkey: did }];
 
-			if (await this.stored(live, COLLECTION.invite, did))
-				writes.push({ action: 'delete', collection: COLLECTION.invite, rkey: did });
+			if (live.people.has(did)) throw new UserError("They're already in it");
+			const offer = this.offer(live, { role });
 
 			const person = await this.admit(live, did, {
 				role: offer.role,
@@ -272,8 +279,7 @@ export class SpaceJoins {
 				hidden: request.data.hidden ?? false,
 				via: 'request',
 				addedBy: actor.did,
-				source: spaceRecordUri(space, live.root.did, COLLECTION.joinRequest, did),
-				writes
+				source: spaceRecordUri(space, live.root.did, COLLECTION.joinRequest, did)
 			});
 
 			await this.spaces.record(actor, actingAs, 'people.approve', space, `Let ${await this.spaces.name(did)} in`, {
@@ -345,8 +351,11 @@ export class SpaceJoins {
 			throw new UserError('Too many requests. Try again in a minute.', 429);
 	}
 
-	/** A role of the space's kind with its capabilities, or the ones given (that the kind offers), and an expiry. */
-	private offer(live: LiveSpace, input: Offer) {
+	/**
+	 * A role of the space's kind with its capabilities, or the ones given (that the kind offers). An invite or link
+	 * (`days` is how long it lasts by default) also gets an expiry.
+	 */
+	private offer(live: LiveSpace, input: Offer, days?: number) {
 		const { role } = input;
 
 		if (!isRole(live.kind, role)) throw new UserError(`A ${live.kind} has no ${role} role`);
@@ -356,12 +365,23 @@ export class SpaceJoins {
 			capabilities: input.capabilities
 				? capabilitiesIn(live.kind, input.capabilities)
 				: capabilitiesFor(live.kind, role),
-			...expiry(input.expiresInDays)
+			...(days !== undefined && { expiresAt: expiry(input.expiresInDays ?? days) })
 		};
+	}
+
+	/**
+	 * Refuses an invite or link whose maker can't add people anymore. Their invites and links go when they lose the
+	 * right, but one made before that was checked, or whose deletion failed, could still be there. Staff's stand.
+	 */
+	private assertStands(live: LiveSpace, maker: string, byStaff: boolean | undefined, what: 'invite' | 'link'): void {
+		if (byStaff || hasCapability(live.kind, live.people.get(maker), 'people.manage')) return;
+
+		throw new UserError(`That ${what} no longer works: whoever made it can't add people anymore`);
 	}
 
 	/** The person joining as `viewer`, then the audit entry. */
 	private async join(live: LiveSpace, viewer: Viewer, admission: Admission): Promise<void> {
+		if (live.people.has(viewer.did)) throw new UserError("You're already in it");
 		const person = await this.admit(live, viewer.did, admission);
 
 		await this.spaces.record(viewer, 'member', 'people.join', live.space, 'Joined', {
@@ -373,12 +393,18 @@ export class SpaceJoins {
 		});
 	}
 
-	/** Adds `subject` with what they were offered, applying the admission's writes in the same batch. */
+	/**
+	 * Adds `subject` with what they were offered. Their invite and request to join, whichever they have, go in the same
+	 * batch, however they came in.
+	 */
 	private async admit(live: LiveSpace, subject: string, admission: Admission): Promise<PersonRecord> {
-		const { writes, ...rest } = admission;
 		const now = nowIso();
-		const capabilities = capabilitiesIn(live.kind, rest.capabilities);
-		const person: PersonRecord = { ...rest, subject, capabilities, createdAt: now, updatedAt: now };
+		const capabilities = capabilitiesIn(live.kind, admission.capabilities);
+		const person: PersonRecord = { ...admission, subject, capabilities, createdAt: now, updatedAt: now };
+		const writes: RepoWrite[] = [];
+
+		for (const collection of [COLLECTION.invite, COLLECTION.joinRequest])
+			if (await this.stored(live, collection, subject)) writes.push({ action: 'delete', collection, rkey: subject });
 
 		await this.spaces.admit(live, person, writes);
 

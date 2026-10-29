@@ -12,12 +12,18 @@ const BO = 'did:plc:bo';
 
 const CY = 'did:plc:cy';
 
+const DI = 'did:plc:di';
+
+const ADMIN = 'did:plc:admin';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 describe('SpaceJoins', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
 	let space: string;
 
 	beforeEach(async () => {
-		t = await createTestServices();
+		t = await createTestServices({ admins: [ADMIN] });
 		space = await t.sharedSpaces.create(await t.viewer(ADA), 'party');
 	});
 	afterEach(async () => {
@@ -227,6 +233,142 @@ describe('SpaceJoins', () => {
 			expect([stored(COLLECTION.joinRequest, CY), stored(COLLECTION.invite, CY)]).toEqual([undefined, undefined]);
 			expect(await t.spaceJoins.requestsFor(space)).toEqual([]);
 		});
+	});
+
+	describe('when whoever made an invite or link can no longer add people', () => {
+		/** Bo, added by staff as a host, invites Cy and makes a link; staff invite Di and make a link too. */
+		const offers = async () => {
+			const [admin, bo] = [await t.viewer(ADMIN), await t.viewer(BO)];
+
+			await t.sharedSpaces.addPerson(admin, space, { did: BO, role: 'host' });
+			await t.spaceJoins.invite(bo, space, { did: CY, role: 'door' });
+			const link = await t.spaceJoins.createLink(bo, space, { role: 'door' });
+			await t.spaceJoins.invite(admin, space, { did: DI, role: 'door' });
+			const staffLink = await t.spaceJoins.createLink(admin, space, { role: 'door' });
+
+			return { link, staffLink };
+		};
+
+		const left = (links: { rkey: string }[]) => ({
+			invites: [CY, DI].filter((did) => stored(COLLECTION.invite, did)),
+			links: links.filter(({ rkey }) => stored(COLLECTION.inviteLink, rkey)).length
+		});
+
+		it.each([
+			['are removed', async () => t.sharedSpaces.removePerson(await t.viewer(ADA), space, BO)],
+			['leave', async () => t.sharedSpaces.leave(await t.viewer(BO), space)],
+			[
+				'loses people.manage',
+				async () => t.sharedSpaces.updatePerson(await t.viewer(ADA), space, BO, { role: 'cohost' })
+			]
+		])("drops the invites and links they made when they %s, keeping staff's", async (_how, change) => {
+			const { link, staffLink } = await offers();
+
+			await change();
+
+			expect(left([link, staffLink])).toEqual({ invites: [DI], links: 1 });
+			expect(await t.spaceJoins.invitesFor(CY)).toEqual([]);
+			expect(await t.db.selectFrom('spaceInviteLink').select('rkey').execute()).toEqual([{ rkey: staffLink.rkey }]);
+		});
+
+		it('keeps their invites and links while they can still add people', async () => {
+			const { link, staffLink } = await offers();
+
+			await t.sharedSpaces.setHidden(await t.viewer(BO), space, BO, true);
+			await t.sharedSpaces.updatePerson(await t.viewer(ADA), space, BO, { capabilities: ['people.manage'] });
+
+			expect(left([link, staffLink])).toEqual({ invites: [CY, DI], links: 2 });
+		});
+
+		it("refuses one that's still there, apart from staff's", async () => {
+			const { link, staffLink } = await offers();
+			// Bo's record changes without the app, as a write that missed the cleanup would leave it.
+			const key = `${space}|${ROOT}|${COLLECTION.person}|${BO}`;
+			const bo = t.net.spaceRecords.get(key)!;
+			t.net.spaceRecords.set(key, { ...bo, value: { ...bo.value, role: 'door', capabilities: ['guests.checkin'] } });
+
+			await expect(t.spaceJoins.accept(await t.viewer(CY), space, { hidden: false })).rejects.toThrow(
+				"whoever made it can't add people anymore"
+			);
+			await expect(t.spaceJoins.joinByLink(await t.viewer(CY), link.token, { hidden: false })).rejects.toThrow(
+				"whoever made it can't add people anymore"
+			);
+
+			await t.spaceJoins.accept(await t.viewer(DI), space, { hidden: false });
+			await t.spaceJoins.joinByLink(await t.viewer(CY), staffLink.token, { hidden: false });
+			expect(members()).toEqual([ADA, BO, CY, DI].sort());
+		});
+	});
+
+	describe('someone already in', () => {
+		/** Writes `record` as the root would have, for Bo, who's in already. */
+		const pending = async (collection: string, record: Record<string, string | string[]>) =>
+			t.net.client(ROOT).putSpaceRecord({
+				space,
+				collection,
+				rkey: BO,
+				record: { subject: BO, createdAt: new Date().toISOString(), ...record }
+			});
+
+		beforeEach(async () => {
+			await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'door' });
+		});
+
+		it("can't accept an invite, be approved or join by link, which would rewrite their role", async () => {
+			await pending(COLLECTION.invite, { role: 'host', capabilities: ['people.manage'], invitedBy: ADA });
+			await pending(COLLECTION.joinRequest, {});
+			const { token } = await t.spaceJoins.createLink(await t.viewer(ADA), space, { role: 'cohost' });
+			const bo = await t.viewer(BO);
+
+			await expect(t.spaceJoins.accept(bo, space, { hidden: false })).rejects.toThrow('already in it');
+			await expect(t.spaceJoins.approve(await t.viewer(ADA), space, BO, 'host')).rejects.toThrow('already in it');
+			await expect(t.spaceJoins.joinByLink(bo, token, { hidden: false })).rejects.toThrow('already in it');
+			expect(stored(COLLECTION.person, BO)?.value).toMatchObject({ role: 'door', capabilities: ['guests.checkin'] });
+		});
+
+		it('has their invite and request answered by joining any way', async () => {
+			const { token } = await t.spaceJoins.createLink(await t.viewer(ADA), space, { role: 'door' });
+
+			await t.spaceJoins.requestToJoin(await t.viewer(CY), space, { hidden: false });
+			await t.net.client(ROOT).putSpaceRecord({
+				space,
+				collection: COLLECTION.invite,
+				rkey: CY,
+				record: { subject: CY, role: 'door', capabilities: [], invitedBy: ADA, createdAt: new Date().toISOString() }
+			});
+			await t.spaceJoins.joinByLink(await t.viewer(CY), token, { hidden: false });
+
+			expect([stored(COLLECTION.invite, CY), stored(COLLECTION.joinRequest, CY)]).toEqual([undefined, undefined]);
+			expect(await t.spaceJoins.requestsFor(space)).toEqual([]);
+		});
+	});
+
+	it('gives invites 30 days and links 7 unless told otherwise, and at most 90', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		const ada = await t.viewer(ADA);
+		const now = Date.now();
+
+		await t.spaceJoins.invite(ada, space, { did: BO, role: 'door' });
+		const { rkey } = await t.spaceJoins.createLink(ada, space, { role: 'door' });
+		const [invite] = await t.spaceJoins.invitesFor(BO);
+
+		const link = await t.db
+			.selectFrom('spaceInviteLink')
+			.select('expiresAt')
+			.where('rkey', '=', rkey)
+			.executeTakeFirstOrThrow();
+
+		expect(Date.parse(invite.expiresAt ?? '') - now).toBe(30 * DAY_MS);
+		expect(Date.parse(link.expiresAt ?? '') - now).toBe(7 * DAY_MS);
+
+		for (const expiresInDays of [0, 91, 1.5])
+			await expect(t.spaceJoins.invite(ada, space, { did: CY, role: 'door', expiresInDays })).rejects.toThrow(
+				'from 1 to 90 days'
+			);
+		await expect(t.spaceJoins.createLink(ada, space, { role: 'door', expiresInDays: 91 })).rejects.toBeInstanceOf(
+			UserError
+		);
+		await t.spaceJoins.createLink(ada, space, { role: 'door', expiresInDays: 90 });
 	});
 
 	it('limits how often one account joins, invites or asks', async () => {

@@ -5,7 +5,7 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "An invite link to a performer's, party's or venue's space. Written by the Local Network root account, which shows the link's token once and keeps only its hash. Deleting it revokes the link.",
+			"description": "An invite link to a performer's, party's or venue's space. Written by the Local Network root account, which shows the link's token once and keeps only its hash. Deleting it revokes the link, which happens too when whoever made it can no longer add people.",
 			"record": {
 				"type": "object",
 				"required": ["tokenHash", "role", "capabilities", "createdBy", "createdAt"],
@@ -22,6 +22,10 @@
 						"description": "What joining with the link gives. Never people.manage."
 					},
 					"createdBy": { "type": "string", "format": "did" },
+					"staff": {
+						"type": "boolean",
+						"description": "Set when staff made it. It works whoever is in the space, where one someone in it made stops working once they can't add people."
+					},
 					"createdAt": { "type": "string", "format": "datetime" },
 					"expiresAt": { "type": "string", "format": "datetime" }
 				}

@@ -45,6 +45,7 @@ export const inviteRecord = z.object({
 	role: z.string(),
 	capabilities: z.array(z.string()),
 	invitedBy: z.string(),
+	staff: z.boolean().optional(),
 	message: z.string().optional(),
 	createdAt: z.string(),
 	expiresAt: z.string().optional()
@@ -55,6 +56,7 @@ export const inviteLinkRecord = z.object({
 	role: z.string(),
 	capabilities: z.array(z.string()),
 	createdBy: z.string(),
+	staff: z.boolean().optional(),
 	createdAt: z.string(),
 	expiresAt: z.string().optional()
 });
@@ -77,6 +79,13 @@ const listingStatusRecord = z.object({
 
 type ListingStatusRecord = z.infer<typeof listingStatusRecord>;
 
+/** Who made an invite or invite link, and whether they made it as staff. */
+const offerMaker = z.object({
+	invitedBy: z.string().optional(),
+	createdBy: z.string().optional(),
+	staff: z.boolean().optional()
+});
+
 export type SharedSpaceView = { uri: string; kind: SpaceKind; listed: boolean; createdBy: string; createdAt: string };
 
 export type PersonView = AccountView & {
@@ -95,7 +104,7 @@ type SpaceRecordChange = { space: string; collection: string; rkey: string; valu
 /** What a change sees and does: the space's kind, and its people as the root's repo has them now, by DID. */
 export type LiveSpace = { space: string; kind: SpaceKind; root: RootRepoClient; people: Map<string, PersonRecord> };
 
-const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
+export const hasCapability = (kind: SpaceKind, person: PersonRecord | undefined, capability: Capability) =>
 	!!person && capabilitiesIn(kind, person.capabilities).includes(capability);
 
 /**
@@ -637,15 +646,13 @@ export class SharedSpaces {
 		return true;
 	}
 
+	/** Writes `person`, dropping the invites and links they made if they can no longer add people. */
 	private async writePerson(live: LiveSpace, person: PersonRecord): Promise<void> {
-		await live.root.putSpaceRecord({
-			space: live.space,
-			collection: COLLECTION.person,
-			rkey: person.subject,
-			record: validateRecord(COLLECTION.person, person)
-		});
-		live.people.set(person.subject, person);
-		await this.savePerson(live.space, live.kind, person);
+		const loses =
+			hasCapability(live.kind, live.people.get(person.subject), 'people.manage') &&
+			!hasCapability(live.kind, person, 'people.manage');
+
+		await this.commit(live, person.subject, person, loses ? await this.offersBy(live, person.subject) : []);
 	}
 
 	/**
@@ -653,28 +660,64 @@ export class SharedSpaces {
 	 * happen or neither does.
 	 */
 	async admit(live: LiveSpace, person: PersonRecord, writes: RepoWrite[]): Promise<void> {
-		await live.root.applySpaceWrites(live.space, [
-			{
-				action: live.people.has(person.subject) ? 'update' : 'create',
-				collection: COLLECTION.person,
-				rkey: person.subject,
-				record: validateRecord(COLLECTION.person, person)
-			},
-			...writes
-		]);
-		live.people.set(person.subject, person);
-		await this.savePerson(live.space, live.kind, person);
-
-		for (const write of writes) {
-			if (write.action === 'delete') await this.unindex({ space: live.space, ...write });
-			else await this.index({ space: live.space, collection: write.collection, rkey: write.rkey, value: write.record });
-		}
+		await this.commit(live, person.subject, person, writes);
 	}
 
+	/** Takes `did` out, with the invites and links they made, which no longer stand. */
 	private async deletePerson(live: LiveSpace, did: string): Promise<void> {
-		await live.root.deleteSpaceRecord({ space: live.space, collection: COLLECTION.person, rkey: did });
-		live.people.delete(did);
-		await this.unindex({ space: live.space, collection: COLLECTION.person, rkey: did });
+		await this.commit(live, did, null, await this.offersBy(live, did));
+	}
+
+	/** Deletes of the invites and invite links `did` made, apart from ones they made as staff, which stand. */
+	private async offersBy(live: LiveSpace, did: string): Promise<RepoWrite[]> {
+		const writes: RepoWrite[] = [];
+
+		for (const collection of [COLLECTION.invite, COLLECTION.inviteLink]) {
+			let cursor: string | undefined;
+
+			do {
+				const page = await live.root.listSpaceRecords({ space: live.space, repo: live.root.did, collection, cursor });
+
+				for (const { rkey, value } of page.records) {
+					const offer = offerMaker.safeParse(value);
+
+					if (offer.success && !offer.data.staff && (offer.data.invitedBy ?? offer.data.createdBy) === did)
+						writes.push({ action: 'delete', collection, rkey });
+				}
+
+				cursor = page.cursor;
+			} while (cursor);
+		}
+
+		return writes;
+	}
+
+	/**
+	 * Writes `did`'s person record, or deletes it when `person` is null, in one batch with `writes`, then brings the
+	 * index in line with all of them.
+	 */
+	private async commit(live: LiveSpace, did: string, person: PersonRecord | null, writes: RepoWrite[]): Promise<void> {
+		const own: RepoWrite = person
+			? {
+					action: live.people.has(did) ? 'update' : 'create',
+					collection: COLLECTION.person,
+					rkey: did,
+					record: validateRecord(COLLECTION.person, person)
+				}
+			: { action: 'delete', collection: COLLECTION.person, rkey: did };
+
+		await live.root.applySpaceWrites(live.space, [own, ...writes]);
+
+		if (person) {
+			live.people.set(did, person);
+			await this.savePerson(live.space, live.kind, person);
+		} else live.people.delete(did);
+
+		for (const write of [own, ...writes]) {
+			if (write.action === 'delete') await this.unindex({ space: live.space, ...write });
+			else if (write !== own)
+				await this.index({ space: live.space, collection: write.collection, rkey: write.rkey, value: write.record });
+		}
 	}
 
 	/** Everyone in the space reads it; those with a capability that writes also write. */
