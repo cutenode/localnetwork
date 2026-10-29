@@ -833,16 +833,20 @@ fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     use locallibrary::progress::{CancelToken, NoProgress};
-    // A server reading slowly, noting how much it read and once the upload stopped.
+    // A server reading slowly, noting how much it read and once the upload stopped. It cancels
+    // publishing once the recording is being sent: a timer can go off before the plugin has
+    // started, and then nothing is sent to stop.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let (read, stopped) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
-    let (reading, stopping) = (read.clone(), stopped.clone());
+    let cancel = CancelToken::new();
+    let (reading, stopping, cancelling) = (read.clone(), stopped.clone(), cancel.clone());
     std::thread::spawn(move || {
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut buf = [0; 8192];
         while let Ok(n @ 1..) = stream.read(&mut buf) {
             reading.fetch_add(n, Ordering::SeqCst);
+            cancelling.cancel();
             std::thread::sleep(Duration::from_millis(10));
         }
         stopping.store(true, Ordering::SeqCst);
@@ -854,12 +858,6 @@ fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
     let upload = json!([{ "url": format!("{url}/mix"), "method": "PUT", "body_blob": "recording" }]).to_string();
     f.plugins.set_setting("echo", &f.store, "upload", Some(upload.into())).unwrap();
     let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
-    let cancel = CancelToken::new();
-    let cancelling = cancel.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
-        cancelling.cancel();
-    });
     let e = plan.apply(Some(&f.store), &Ctx::new(&NoProgress, cancel)).unwrap_err();
     assert_eq!(e.code(), "cancelled", "{e}");
     eventually("the upload stopped", || stopped.load(Ordering::SeqCst));
