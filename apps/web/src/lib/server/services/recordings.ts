@@ -1,24 +1,14 @@
-import { type Accept, BlobPermission } from '@atproto/oauth-scopes';
 import { z } from 'zod';
-import recordingLexicon from '../../../../../../lexicons/computer/localnetwork/dj/recording.json' with { type: 'json' };
 import type { DjSet } from '#lib/dj.ts';
 import { djSetSchema } from '#lib/dj-schema.ts';
 import { linkSources, PLYR_TRACK, type PlayerSource, preferred } from '#lib/mix/source.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ProjectMix } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
+import { RECORDING_MAX_BYTES, RECORDING_TYPES } from '../audio';
 import type { IndexedRepo } from '../happyview/indexed';
 import type { Logger } from '../logger';
 import type { PlyrClient } from '../plyr';
-
-const { accept, maxSize } = recordingLexicon.defs.main.record.properties.audio;
-
-/** The largest recording served: the recording lexicon's `audio` maxSize, 300 MiB. */
-export const RECORDING_MAX_BYTES = maxSize;
-
-/** The types the recording lexicon accepts for its audio, matched the way a PDS matches a `blob:` scope. */
-// SAFETY: the lexicon's accept list isn't empty, and each entry is a MIME type or a `type/*` pattern.
-const ACCEPTED = new BlobPermission(accept as [Accept, ...Accept[]]);
 
 /**
  * How long a lookup the audio route makes is reused. A playing <audio> asks for a new range on every seek, and each
@@ -43,7 +33,7 @@ const recordingSchema = z.object({
 		mimeType: z
 			.string()
 			.regex(/^[\w.+-]+\/[\w.+-]+$/)
-			.refine((mime) => ACCEPTED.matches({ mime })),
+			.refine((mime) => RECORDING_TYPES.matches({ mime })),
 		size: z.number().int().min(1).max(RECORDING_MAX_BYTES)
 	})
 });

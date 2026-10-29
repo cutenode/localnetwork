@@ -8,7 +8,7 @@ import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
 import { PlyrClient } from '../plyr';
 import { FakeHappyView } from '../testing/happyview';
-import { RECORDING_MAX_BYTES, RecordingService } from './recordings';
+import { RecordingService } from './recordings';
 
 const DJ = 'did:plc:dj';
 
@@ -178,8 +178,6 @@ describe('RecordingService.source', () => {
 	});
 
 	it("takes a recording of the lexicon's maxSize, and not a byte more", async () => {
-		expect(RECORDING_MAX_BYTES).toBe(MAX_SIZE);
-
 		const { recordings } = await service([
 			{ collection: COLLECTION.djRecording, rkey: 'cap', record: recording({ cid: 'bafycap', size: MAX_SIZE }) },
 			{ collection: COLLECTION.djRecording, rkey: 'over', record: recording({ cid: 'bafyover', size: MAX_SIZE + 1 }) }

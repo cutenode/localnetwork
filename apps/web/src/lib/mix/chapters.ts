@@ -1,9 +1,6 @@
 import { type DjSet, setPlace } from '#lib/dj.ts';
 import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
 
-/** The Podcasting 2.0 JSON chapters format's media type. */
-export const CHAPTERS_TYPE = 'application/json+chapters';
-
 type Chapter = { startTime: number; title: string; url?: string };
 
 /** A chapters document (version 1.2.0): the set's name, when it has one, and a chapter per timed track. */

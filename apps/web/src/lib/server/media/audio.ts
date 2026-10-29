@@ -1,3 +1,4 @@
+import { audioResponse, refuse } from '../audio';
 import type { Logger } from '../logger';
 import type { RecordingAudio } from '../services/recordings';
 
@@ -85,19 +86,8 @@ export type AudioRequest = {
 };
 
 /**
- * The type a recording goes out as. A PDS names a blob's type by sniffing its bytes, and an M4A whose header doesn't
- * brand it as audio comes back as video/mp4, which the recording lexicon accepts for that reason. It's a recording
- * all the same, so the <audio> element (and anyone opening the link, who'd otherwise get a video page) gets audio/mp4.
- */
-const servedType = (mimeType: string) => (mimeType === 'video/mp4' ? 'audio/mp4' : mimeType);
-
-/** A plain answer for a refusal, so a browser shows the status rather than a media error page. */
-const refuse = (status: number, message: string, headers: Record<string, string> = {}) =>
-	new Response(message, { status, headers: { 'content-type': 'text/plain; charset=utf-8', ...headers } });
-
-/**
  * Streams a DJ's recording from their PDS through the site, for the set player: only a blob a recording record they
- * published references, served as the type (see servedType) and size that record declares, with Range answered here
+ * published references, served as the type (see audioResponse) and size that record declares, with Range answered here
  * since `com.atproto.sync.getBlob` ignores it. Nothing is stored; every request reads the PDS again, and browsers cache
  * the answers, since a CID's bytes never change.
  */
@@ -148,19 +138,15 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	const status = range ? 206 : 200;
 	log.info({ status, bytes: length }, 'serving a recording');
 
-	return new Response(slice(upstream.body, start, length), {
+	return audioResponse(slice(upstream.body, start, length), audio.mimeType, {
 		status,
 		headers: {
-			'content-type': servedType(audio.mimeType),
 			'content-length': String(length),
 			'accept-ranges': 'bytes',
 			...(range && { 'content-range': `bytes ${start}-${end}/${audio.size}` }),
 			etag: `"${cid}"`,
-			'cache-control': 'public, max-age=31536000, immutable',
-			// Opened on its own, it's a bare media document that loads nothing else. No `sandbox`: its opaque origin
-			// would make the document's own request for the audio cross-origin, and Chromium refuses it.
-			'content-security-policy': "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'",
-			'x-content-type-options': 'nosniff'
-		}
+			'cache-control': 'public, max-age=31536000, immutable'
+		},
+		log
 	});
 }

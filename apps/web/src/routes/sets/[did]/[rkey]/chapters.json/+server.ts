@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { CHAPTERS_TYPE, setChapters } from '#lib/mix/chapters.ts';
+import { setChapters } from '#lib/mix/chapters.ts';
 import type { RequestHandler } from './$types';
 
 /** A set's tracklist as Podcasting 2.0 JSON chapters, for podcast apps playing its recording. */
@@ -8,7 +8,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
 	if (!set) error(404, 'No set here');
 
+	// The Podcasting 2.0 JSON chapters format's media type.
 	return new Response(JSON.stringify(setChapters(set)), {
-		headers: { 'content-type': CHAPTERS_TYPE, 'cache-control': 'public, max-age=300' }
+		headers: { 'content-type': 'application/json+chapters', 'cache-control': 'public, max-age=300' }
 	});
 };
