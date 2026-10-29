@@ -19,14 +19,15 @@ fn main() {
 fn built_in() {
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));
     let dir = here.join("../../plugins");
-    let accounts = dir.join("accounts");
+    let manifest_only = dir.join("accounts");
     let manifest = here.join("Cargo.toml");
     // Cargo looks through a directory and everything in it for changes: a plugin's folder added
     // or removed reruns this, an account plugin's too.
     println!("cargo:rerun-if-changed={}", dir.display());
     println!("cargo:rerun-if-changed={}", manifest.display());
 
-    let ids: Vec<String> = folders(&dir).into_iter().filter(|(_, path)| *path != accounts).map(|(id, _)| id).collect();
+    let ids: Vec<String> =
+        folders(&dir).into_iter().filter(|(_, path)| *path != manifest_only).map(|(id, _)| id).collect();
     let cargo: toml::Table = toml::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
     let dependencies = cargo["dependencies"].as_table().unwrap();
     let mut wrong = Vec::new();
@@ -52,7 +53,7 @@ fn built_in() {
             (id, row)
         })
         .collect();
-    for (id, path) in folders(&accounts) {
+    for (id, path) in folders(&manifest_only) {
         let file = path.join("locallibrary-plugin.toml");
         match file.is_file() {
             // Written as a string literal, which escapes Windows' backslashes.
