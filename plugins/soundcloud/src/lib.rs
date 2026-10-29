@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 
 use loclib_plugin::{FormPart, Hooks, Host, PublishSet, Published, RpcError};
 
+/// What the set's link is, as its record names it.
+const NAME: &str = "SoundCloud";
+
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 
@@ -79,7 +82,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
             what += &format!(", its {} tracks in the description", req.tracklist.len());
         }
         let lines = [vec![what], track.notes, vec![RIGHTS.into(), FREE_TIER.into()]].concat();
-        return Ok(Published { url: None, warnings: lines });
+        return Ok(Published { warnings: lines, ..Published::default() });
     }
     let text = |name: &str, value: &str| FormPart {
         name: format!("track[{name}]"),
@@ -126,7 +129,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
     }
     let uploaded = upload::upload(host, &track.title, form, sending)?;
     let warnings = [track.notes, vec![TRANSCODING.into()]].concat();
-    Ok(Published { url: Some(uploaded.permalink_url), warnings })
+    Ok(Published { url: Some(uploaded.permalink_url), name: Some(NAME.into()), warnings, ..Published::default() })
 }
 
 /// The artwork setting's `picture`'s size, once it's one SoundCloud takes.
