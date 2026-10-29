@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { feeLabel } from '#lib/format.ts';
+	import { feeLabel, feeLevels } from '#lib/format.ts';
 	import { FORMATS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import type { ProjectProfile } from '#lib/types.ts';
 
 	/** What a promoter checks first: fee, slots, formats, set length, room sizes and travel. */
 	let { profile }: { profile: ProjectProfile } = $props();
 
+	// One line per fee level, led by what it covers.
+	const fees = $derived(feeLevels(profile).map((fee) => (fee.label ? `${fee.label}: ${feeLabel(fee)}` : feeLabel(fee))));
+
 	const facts = $derived(
 		[
-			{ term: 'Fee', value: profile.fee ? feeLabel(profile) : null },
+			{ term: fees.length > 1 ? 'Fees' : 'Fee', value: fees.length ? fees : null },
 			{ term: 'Slots', value: profile.setTypes?.length ? profile.setTypes.map((value) => labelFor(SET_TYPES, value)).join(', ') : null },
 			{ term: 'Plays on', value: profile.formats?.length ? profile.formats.map((value) => labelFor(FORMATS, value)).join(', ') : null },
 			{ term: 'Set length', value: profile.setLength ? `${profile.setLength.minMinutes ?? '?'}–${profile.setLength.maxMinutes ?? '?'} minutes` : null },
@@ -28,7 +31,7 @@
 		{#each facts as fact (fact.term)}
 			<div class="flex flex-col gap-0.5 border-b border-line py-2.5 first:pt-0 last:border-b-0 last:pb-0">
 				<dt class="eyebrow text-fg-subtle">{fact.term}</dt>
-				<dd class="m-0 text-small">{fact.value}</dd>
+				{#each [fact.value].flat() as line, index (index)}<dd class="m-0 text-small">{line}</dd>{/each}
 				{#if fact.note}<dd class="m-0 text-label text-fg-muted">{fact.note}</dd>{/if}
 			</div>
 		{/each}

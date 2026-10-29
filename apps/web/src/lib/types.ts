@@ -76,6 +76,9 @@ export type ArtistSupports = {
 /** The charts: the most supported tracks and artists, and the cities with sets. */
 export type Charts = { tracks: SupportedTrack[]; artists: SupportedArtist[]; places: DirectoryPlace[] };
 
+/** One fee level (`#fee`): its tier counts for budget matching; amounts are whole currency units. */
+export type ProjectFee = { tier: string; label?: string; currency?: string; minAmount?: number; maxAmount?: number };
+
 export type ProjectProfile = {
 	name: string;
 	kind: string;
@@ -90,7 +93,9 @@ export type ProjectProfile = {
 	setLength?: { minMinutes?: number; maxMinutes?: number };
 	activeSince?: number;
 	capacity?: { min?: number; max?: number };
-	fee?: { tier: string; currency?: string; minAmount?: number; maxAmount?: number };
+	fees?: ProjectFee[];
+	/** Deprecated: the one fee level of records written before `fees`. Read both through `feeLevels`. */
+	fee?: ProjectFee;
 	links?: ProjectLink[];
 	mixes?: ProjectMix[];
 	highlights?: string[];
@@ -105,6 +110,9 @@ export type ProjectDetails = {
 	techRider?: string;
 	hospitality?: string;
 };
+
+/** A fee level's row in the project form, as the text its inputs hold. */
+export type FeeFormRow = Record<'label' | 'tier' | 'currency' | 'minAmount' | 'maxAmount', string>;
 
 /**
  * The project form's fields by input name, for filling the form back in: a saved profile from
@@ -132,17 +140,14 @@ export type ProjectFormValues = ProjectDetails & {
 	activeSince?: number | string;
 	capacityMin?: number | string;
 	capacityMax?: number | string;
-	feeTier?: string;
-	feeCurrency?: string;
-	feeMin?: number | string;
-	feeMax?: number | string;
+	fees?: FeeFormRow[];
 	links?: ProjectLink[];
 	mixes?: ProjectMix[];
 	highlights?: string;
 	lookingFor?: string;
 	message?: string;
 	/** Fields only some forms have, like the admin form's `managers`, echo back as text too. */
-	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | undefined;
+	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | FeeFormRow[] | undefined;
 };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';

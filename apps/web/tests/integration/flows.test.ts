@@ -37,7 +37,7 @@ const profile = (name: string, overrides: Partial<ProjectProfile> = {}): Project
 	kind: 'solo',
 	genres: ['techno', 'electro'],
 	location: { city: 'Berlin', country: 'DE', latE6: 52_520_000, lngE6: 13_405_000 },
-	fee: { tier: 'emerging' },
+	fees: [{ tier: 'emerging' }],
 	setTypes: ['peak'],
 	...overrides
 });

@@ -3,9 +3,12 @@ import { parseMixReportText } from '#lib/mix/schema.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, FORMATS, isOneOf, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
+import { feeLevels } from '#lib/format.ts';
 import type {
 	BlobRefJson,
+	FeeFormRow,
 	ProjectDetails,
+	ProjectFee,
 	ProjectFormValues,
 	ProjectLink,
 	ProjectMix,
@@ -14,9 +17,8 @@ import type {
 } from '#lib/types.ts';
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { UserError } from '../core';
-import { all, CID, limit, optionalCurrency, optionalInt, optionalText, text, wholeNumber } from '../http';
-
-const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+import { all, CID, currencyCode, limit, optionalInt, optionalText, text, wholeNumber } from '../http';
+import { AVATAR_TYPES } from '../images';
 
 const AVATAR_MAX_BYTES = 1_000_000;
 
@@ -64,6 +66,23 @@ function setRef(value: string): StrongRef | undefined {
 		throw new UserError('Pick a set from the list');
 
 	return { uri, cid };
+}
+
+/** The project form's fee rows, trimmed. Each row posts one of each field. */
+function feeRows(form: FormData): FeeFormRow[] {
+	const fields = ['feeLabel', 'feeTier', 'feeCurrency', 'feeMin', 'feeMax'].map((field) =>
+		strings(form, field).map((value) => value.trim())
+	);
+
+	const [labels, tiers, currencies, mins, maxes] = fields;
+
+	return Array.from({ length: Math.max(...fields.map((values) => values.length)) }, (_, row) => ({
+		label: labels[row] ?? '',
+		tier: tiers[row] ?? '',
+		currency: currencies[row] ?? '',
+		minAmount: mins[row] ?? '',
+		maxAmount: maxes[row] ?? ''
+	}));
 }
 
 /** Parses the shared project form into a lexicon-shaped profile, with friendly errors. */
@@ -144,13 +163,35 @@ export function parseProfile(form: FormData): ProjectProfile {
 		throw new UserError('Smallest room is bigger than the biggest room');
 	}
 
-	const feeTier = text(form, 'feeTier', 32);
-	const feeMin = optionalInt(form, 'feeMin', 0, 10_000_000);
-	const feeMax = optionalInt(form, 'feeMax', 0, 10_000_000);
-	const currency = optionalCurrency(form, 'feeCurrency');
+	const fees = feeRows(form).flatMap((row): ProjectFee[] => {
+		const label = limit('A fee label', row.label || undefined, 64);
+		const currency = currencyCode(row.currency);
+		const minAmount = wholeNumber(row.minAmount, 'feeMin', 0, 10_000_000);
+		const maxAmount = wholeNumber(row.maxAmount, 'feeMax', 0, 10_000_000);
 
-	if (feeMin !== undefined && feeMax !== undefined && feeMin > feeMax)
-		throw new UserError('Minimum fee is above the maximum');
+		if (!row.tier) {
+			if (label || currency || minAmount !== undefined || maxAmount !== undefined)
+				throw new UserError('Pick a fee tier for each fee, or clear its row');
+
+			return [];
+		}
+
+		if (!isOneOf(FEE_TIERS, row.tier)) throw new UserError('Pick a fee tier');
+
+		if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount)
+			throw new UserError('Minimum fee is above the maximum');
+		const fee: ProjectFee = { tier: row.tier };
+
+		if (label) fee.label = label;
+
+		if (currency) fee.currency = currency;
+
+		if (minAmount !== undefined) fee.minAmount = minAmount;
+
+		if (maxAmount !== undefined) fee.maxAmount = maxAmount;
+
+		return [fee];
+	});
 
 	const radiusKm = optionalInt(form, 'travelRadiusKm', 0, 20_000);
 	const international = form.get('international') === 'on';
@@ -210,18 +251,7 @@ export function parseProfile(form: FormData): ProjectProfile {
 		if (capacityMax !== undefined) profile.capacity.max = capacityMax;
 	}
 
-	if (feeTier) {
-		if (!isOneOf(FEE_TIERS, feeTier)) throw new UserError('Pick a fee tier');
-		profile.fee = { tier: feeTier };
-
-		if (currency) profile.fee.currency = currency;
-
-		if (feeMin !== undefined) profile.fee.minAmount = feeMin;
-
-		if (feeMax !== undefined) profile.fee.maxAmount = feeMax;
-	} else if (currency || feeMin !== undefined || feeMax !== undefined) {
-		throw new UserError('Pick a fee tier, or clear the fee amounts and currency');
-	}
+	if (fees.length) profile.fees = fees;
 
 	if (links.length) profile.links = links;
 
@@ -384,10 +414,13 @@ export function profileToValues(profile: ProjectProfile | undefined, details?: P
 		activeSince: profile.activeSince,
 		capacityMin: profile.capacity?.min,
 		capacityMax: profile.capacity?.max,
-		feeTier: profile.fee?.tier,
-		feeCurrency: profile.fee?.currency,
-		feeMin: profile.fee?.minAmount,
-		feeMax: profile.fee?.maxAmount,
+		fees: feeLevels(profile).map((fee) => ({
+			label: fee.label ?? '',
+			tier: fee.tier,
+			currency: fee.currency ?? '',
+			minAmount: String(fee.minAmount ?? ''),
+			maxAmount: String(fee.maxAmount ?? '')
+		})),
 		links: profile.links ?? [],
 		mixes: profile.mixes ?? [],
 		highlights: (profile.highlights ?? []).join('\n'),
@@ -414,7 +447,12 @@ export function formValues(form: FormData) {
 				'mixDuration',
 				'mixYear',
 				'mixTracklistCid',
-				'mixSet'
+				'mixSet',
+				'feeLabel',
+				'feeTier',
+				'feeCurrency',
+				'feeMin',
+				'feeMax'
 			].includes(key)
 		)
 			continue;
@@ -455,6 +493,7 @@ export function formValues(form: FormData) {
 			return mix;
 		})
 		.filter((mix) => mix.url);
+	values.fees = feeRows(form);
 	values.international = form.get('international') === 'on';
 
 	return values;
