@@ -15,6 +15,15 @@ const CONFIRM_MS = 24 * 60 * 60_000;
 /** Confirmation links are kept hashed: unlike the unsubscribe link, one turns email on. */
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
+/** Which address a confirmation link went to, the same however its letters are cased. */
+const hashAddress = (address: string) => createHash('sha256').update(address.toLowerCase()).digest('hex');
+
+/**
+ * Limits on confirmation emails, so the site can't be used to flood an address: per account, per address (keyed by
+ * its hash), and overall.
+ */
+export type ConfirmLimits = { account: RateLimiter; address: RateLimiter; all: RateLimiter };
+
 /** What a session's `com.atproto.server.getSession` says about the account's email, with the permission to read it. */
 export type SessionEmail = { email?: string; emailConfirmed?: boolean };
 
@@ -29,8 +38,7 @@ export class NotificationChannels {
 			logger: Logger;
 			/** Emails `address` the link that confirms it, carrying `token`. Unset when the site can't send email. */
 			sendConfirmation?: (address: string, token: string) => Promise<void>;
-			/** How many confirmation emails one account can have sent. */
-			confirmLimit: RateLimiter;
+			limits: ConfirmLimits;
 		}
 	) {}
 
@@ -46,14 +54,15 @@ export class NotificationChannels {
 	/**
 	 * Reads the account's email address on sign-in when the grant allows it, for someone turning email on (`optIn`) or
 	 * who has it on, so a changed or newly confirmed address is picked up. Says 'declined' when they were turning it on
-	 * and didn't allow it. A host that won't say leaves email as it was rather than failing the sign-in.
+	 * and didn't allow it, and 'limited' when the address needed a confirmation email the site wouldn't send now. A host
+	 * that won't say leaves email as it was rather than failing the sign-in.
 	 */
 	async onSignIn(input: {
 		did: string;
 		scope: string;
 		optIn: boolean;
 		session: () => Promise<SessionEmail>;
-	}): Promise<'declined' | 'read' | 'skipped'> {
+	}): Promise<'declined' | 'read' | 'limited' | 'skipped'> {
 		const { did, optIn } = input;
 
 		if (!grantsEmail(input.scope, did)) return optIn ? 'declined' : 'skipped';
@@ -61,9 +70,7 @@ export class NotificationChannels {
 		if (!optIn && !(await this.get(did, 'email'))) return 'skipped';
 
 		try {
-			await this.readEmail(did, await input.session(), optIn);
-
-			return 'read';
+			return (await this.readEmail(did, await input.session(), optIn)) ? 'read' : 'limited';
 		} catch (error) {
 			this.deps.logger.warn({ err: error, did }, 'could not read the email address');
 
@@ -75,18 +82,14 @@ export class NotificationChannels {
 	 * Keeps the email address a sign-in with the permission to read it found, for someone who turned email on
 	 * (`optIn`) or had it on already. The site only sends to an address it confirmed itself, since a host can call any
 	 * address confirmed: a new or changed one waits on the link in one confirmation email, which goes again when they
-	 * turn email on again. An address their host hasn't confirmed either waits on that first. Returns the channel as it
-	 * is now, or undefined when email stays off.
+	 * turn email on again. An address their host hasn't confirmed either waits on that first. Returns false when the
+	 * address needed a confirmation email the limits held back.
 	 */
-	private async readEmail(
-		did: string,
-		session: SessionEmail,
-		optIn: boolean
-	): Promise<NotificationChannelRow | undefined> {
+	private async readEmail(did: string, session: SessionEmail, optIn: boolean): Promise<boolean> {
 		const { db } = this.deps;
 		const existing = await this.get(did, 'email');
 
-		if (!existing && !optIn) return undefined;
+		if (!existing && !optIn) return true;
 		const now = nowIso();
 		const address = session.email ?? null;
 		const hostConfirmed = Boolean(address && session.emailConfirmed);
@@ -108,7 +111,12 @@ export class NotificationChannels {
 		// A link goes out when the address first needs one (it's new, changed, or the host just confirmed it), or they ask.
 		const firstNeeded = existing?.address !== address || existing.pausedReason !== 'email_unverified';
 		const sendLink = pausedReason === 'email_unverified' && (optIn || firstNeeded);
-		const token = sendLink && this.mayConfirm(did) ? randomBytes(32).toString('base64url') : null;
+
+		const token =
+			sendLink && address && (await this.mayConfirm(did, address)) ? randomBytes(32).toString('base64url') : null;
+
+		// A link out for this address keeps working until it's replaced or expires; one for another address never does.
+		const keepLink = pausedReason === 'email_unverified' && existing?.address === address;
 
 		const values = {
 			status: pausedReason ? ('paused' as const) : ('active' as const),
@@ -116,12 +124,15 @@ export class NotificationChannels {
 			address,
 			addressReadAt: now,
 			updatedAt: now,
-			// A link already out for this address keeps working until it's replaced or expires.
-			...(token
-				? { confirmTokenHash: hashToken(token), confirmExpiresAt: new Date(Date.now() + CONFIRM_MS).toISOString() }
-				: pausedReason === 'email_unverified'
+			...(token && address
+				? {
+						confirmTokenHash: hashToken(token),
+						confirmAddressHash: hashAddress(address),
+						confirmExpiresAt: new Date(Date.now() + CONFIRM_MS).toISOString()
+					}
+				: keepLink
 					? {}
-					: { confirmTokenHash: null, confirmExpiresAt: null })
+					: { confirmTokenHash: null, confirmAddressHash: null, confirmExpiresAt: null })
 		};
 
 		await db
@@ -130,6 +141,7 @@ export class NotificationChannels {
 				did,
 				channel: 'email',
 				confirmTokenHash: null,
+				confirmAddressHash: null,
 				confirmExpiresAt: null,
 				...values,
 				unsubscribeToken: randomBytes(32).toString('base64url'),
@@ -143,17 +155,36 @@ export class NotificationChannels {
 
 		if (token && address) await this.deps.sendConfirmation?.(address, token);
 
-		return this.get(did, 'email');
+		return !sendLink || Boolean(token);
 	}
 
-	/** Whether `did` can be sent another confirmation email now. Asking past the limit leaves the last link working. */
-	private mayConfirm(did: string): boolean {
-		if (!this.deps.sendConfirmation) return false;
+	/**
+	 * Whether a confirmation email can go to `address` for `did` now: not while another account's link to it waits,
+	 * and within the limits. Asking past them leaves the last link working.
+	 */
+	private async mayConfirm(did: string, address: string): Promise<boolean> {
+		const { sendConfirmation, limits, logger } = this.deps;
 
-		if (this.deps.confirmLimit.take(`confirm:${did}`)) return true;
-		this.deps.logger.warn({ did }, 'not sending another email confirmation yet');
+		if (!sendConfirmation) return false;
+		const addressKey = hashAddress(address);
 
-		return false;
+		const elsewhere = await this.deps.db
+			.selectFrom('notificationChannel')
+			.select('did')
+			.where('confirmAddressHash', '=', addressKey)
+			.where('did', '!=', did)
+			.where('confirmExpiresAt', '>', nowIso())
+			.executeTakeFirst();
+
+		const allowed =
+			!elsewhere &&
+			limits.account.take(`confirm:${did}`) &&
+			limits.address.take(`confirm-addr:${addressKey}`) &&
+			limits.all.take('confirm');
+
+		if (!allowed) logger.warn({ did, pendingElsewhere: Boolean(elsewhere) }, 'not sending an email confirmation');
+
+		return allowed;
 	}
 
 	/** Whether a confirmation link still works, without using it. */
@@ -173,12 +204,16 @@ export class NotificationChannels {
 				status: 'active',
 				pausedReason: null,
 				confirmTokenHash: null,
+				confirmAddressHash: null,
 				confirmExpiresAt: null,
 				updatedAt: nowIso()
 			})
 			.where('did', '=', row.did)
 			.where('channel', '=', 'email')
 			.where('confirmTokenHash', '=', hashToken(token))
+			// Only while the address is still the one the link went to.
+			.where('address', '=', row.address)
+			.where('confirmAddressHash', '=', hashAddress(row.address))
 			.execute();
 		this.deps.logger.info({ did: row.did }, 'confirmed an email address');
 
@@ -187,19 +222,23 @@ export class NotificationChannels {
 
 	private async byConfirmToken(
 		token: string
-	): Promise<{ state: 'invalid' } | { state: 'valid' | 'expired'; row: { did: string } }> {
+	): Promise<{ state: 'invalid' } | { state: 'valid' | 'expired'; row: { did: string; address: string } }> {
 		const row = token
 			? await this.deps.db
 					.selectFrom('notificationChannel')
-					.select(['did', 'pausedReason', 'confirmExpiresAt'])
+					.select(['did', 'address', 'pausedReason', 'confirmAddressHash', 'confirmExpiresAt'])
 					.where('channel', '=', 'email')
 					.where('confirmTokenHash', '=', hashToken(token))
 					.executeTakeFirst()
 			: undefined;
 
-		if (!row || row.pausedReason !== 'email_unverified') return { state: 'invalid' };
+		const forThisAddress = row?.address && row.confirmAddressHash === hashAddress(row.address);
 
-		return { row, state: !row.confirmExpiresAt || row.confirmExpiresAt < nowIso() ? 'expired' : 'valid' };
+		if (!row?.address || !forThisAddress || row.pausedReason !== 'email_unverified') return { state: 'invalid' };
+
+		const state = !row.confirmExpiresAt || row.confirmExpiresAt < nowIso() ? 'expired' : 'valid';
+
+		return { row: { did: row.did, address: row.address }, state };
 	}
 
 	/** Stops sending by `channel` until something fixes `reason`. */

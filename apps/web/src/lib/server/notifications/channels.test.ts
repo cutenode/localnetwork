@@ -2,13 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
 import { RateLimiter } from '../rate-limit';
-import { NotificationChannels, type SessionEmail } from './channels';
+import { type ConfirmLimits, NotificationChannels, type SessionEmail } from './channels';
 
 const neon = 'did:plc:neon';
 
 const withEmail = 'atproto account:email?action=read';
 
 const confirmed = (email: string): SessionEmail => ({ email, emailConfirmed: true });
+
+/** The site's limits on confirmation emails: per account, per address, and overall. */
+const confirmLimits = (overrides: Partial<ConfirmLimits> = {}): ConfirmLimits => ({
+	account: new RateLimiter(3, 3 / 3600),
+	address: new RateLimiter(3, 3 / 86_400),
+	all: new RateLimiter(100, 100 / 3600),
+	...overrides
+});
 
 describe('NotificationChannels', () => {
 	let channels: NotificationChannels;
@@ -39,7 +47,7 @@ describe('NotificationChannels', () => {
 			sendConfirmation: async (address, token) => {
 				links.push({ address, token });
 			},
-			confirmLimit: new RateLimiter(3, 3 / 3600)
+			limits: confirmLimits()
 		});
 	});
 
@@ -101,6 +109,70 @@ describe('NotificationChannels', () => {
 			pausedReason: 'email_unverified',
 			address: 'neon@other.example'
 		});
+	});
+
+	it('only lets a link confirm the address it went to', async () => {
+		channels = new NotificationChannels({
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			sendConfirmation: async (address, token) => {
+				links.push({ address, token });
+			},
+			limits: confirmLimits({ account: new RateLimiter(1, 1 / 3600) })
+		});
+
+		await signIn(confirmed('neon@example.test'), { optIn: true });
+		// The address changes while the link is out, and the limit holds back a new one.
+		expect(await signIn(confirmed('neon@new.example'))).toBe('limited');
+		expect(links).toHaveLength(1);
+
+		expect(await channels.confirmation(links[0].token)).toBe('invalid');
+		expect(await channels.confirmEmail(links[0].token)).toBe('invalid');
+		expect(await email()).toMatchObject({
+			status: 'paused',
+			pausedReason: 'email_unverified',
+			address: 'neon@new.example'
+		});
+	});
+
+	it("won't email confirmations to one address for many accounts, or past a few a day, or too many overall", async () => {
+		const db = await openDatabase(':memory:');
+		const limits = confirmLimits({ account: new RateLimiter(10, 10 / 3600), all: new RateLimiter(5, 5 / 3600) });
+
+		const as = (did: string) =>
+			new NotificationChannels({
+				db,
+				logger: silentLogger,
+				sendConfirmation: async (address, token) => {
+					links.push({ address, token });
+				},
+				limits
+			}).onSignIn({ did, scope: withEmail, optIn: true, session: async () => confirmed('Victim@Example.test') });
+
+		expect(await as('did:plc:one')).toBe('read');
+		// Another account asking for the same address, any case, while a link to it waits, is refused.
+		expect(await as('did:plc:two')).toBe('limited');
+		expect(links).toHaveLength(1);
+
+		vi.setSystemTime(Date.now() + 25 * 3_600_000);
+
+		for (const _ of [1, 2, 3]) expect(await as('did:plc:two')).toBe('read');
+		// The address had three today.
+		expect(await as('did:plc:two')).toBe('limited');
+		expect(links).toHaveLength(4);
+
+		const other = (n: number) =>
+			new NotificationChannels({ db, logger: silentLogger, sendConfirmation: async () => {}, limits }).onSignIn({
+				did: `did:plc:other${n}`,
+				scope: withEmail,
+				optIn: true,
+				session: async () => confirmed(`other${n}@example.test`)
+			});
+
+		expect(await other(1)).toBe('read');
+		expect(await other(2)).toBe('read');
+		// Five overall in the hour.
+		expect(await other(3)).toBe('limited');
 	});
 
 	it('waits for the host to confirm an address before emailing it anything, and keeps a refused one paused', async () => {

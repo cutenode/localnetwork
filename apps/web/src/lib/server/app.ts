@@ -107,7 +107,11 @@ export async function createApp(options: CreateAppOptions) {
 		sendConfirmation: emailSender
 			? confirmationSender(emailSender, config.publicUrl, logger.child({ component: 'email' }))
 			: undefined,
-		confirmLimit: new RateLimiter(3, 3 / 3600)
+		limits: {
+			account: new RateLimiter(3, 3 / 3600),
+			address: new RateLimiter(3, 3 / 86_400),
+			all: new RateLimiter(100, 100 / 3600)
+		}
 	});
 
 	const outbox = new Outbox({

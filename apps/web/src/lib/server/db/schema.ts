@@ -300,6 +300,8 @@ export interface NotificationChannelTable {
 	updatedAt: string;
 	/** SHA-256 of the single-use link that confirms `address`, while it waits to be opened. */
 	confirmTokenHash: string | null;
+	/** SHA-256 of the lowercased address that link went to: it confirms only that one. */
+	confirmAddressHash: string | null;
 	confirmExpiresAt: string | null;
 }
 

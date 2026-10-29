@@ -314,6 +314,15 @@ const migrations = {
 			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_token_hash TEXT').execute(db);
 			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_expires_at TEXT').execute(db);
 		}
+	},
+	// Which address a confirmation link went to, so it can't confirm another, and so one address's links are counted.
+	'010_confirm_address': {
+		async up(db) {
+			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_address_hash TEXT').execute(db);
+			await sql
+				.raw('CREATE INDEX notification_channel_confirm_address ON notification_channel (confirm_address_hash)')
+				.execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

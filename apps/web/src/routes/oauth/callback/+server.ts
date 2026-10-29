@@ -53,7 +53,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			session: async () => (await new Agent(session).com.atproto.server.getSession()).data
 		});
 
-		if (email === 'declined') next = withQuery(next, { email: 'declined' });
+		if (email === 'declined' || email === 'limited') next = withQuery(next, { email });
 		const previous = cookies.get(SESSION_COOKIE);
 
 		if (previous) await app.sessions.destroy(previous);
