@@ -121,7 +121,15 @@ fn a_set_goes_up_in_one_form_and_answers_its_page() {
     let s = start(SoundCloud::new());
     let (answer, events) = s.publish(&set(), &path, &tracklist, json!({ "sharing": "private" }), false);
     let r = s.stop();
-    assert_eq!(answer.unwrap(), Published { url: Some(PAGE.into()), warnings: vec![TRANSCODING.into()] });
+    assert_eq!(
+        answer.unwrap(),
+        Published {
+            url: Some(PAGE.into()),
+            name: Some("SoundCloud".into()),
+            warnings: vec![TRANSCODING.into()],
+            ..Published::default()
+        }
+    );
     let [form] = &r.forms[..] else { panic!("{r:?}") };
     assert_eq!(form.authorization, format!("OAuth {TOKEN}"));
     let description =
@@ -236,7 +244,10 @@ fn a_dry_run_sends_nothing() {
     let (answer, events) = s.publish(&set(), &path, &tracklist, settings, true);
     let line = "set.mp3 (1.6 MB) would go to SoundCloud as the public track \"Closing set\" with cover.png as its \
                 artwork, its 2 tracks in the description";
-    assert_eq!(answer.unwrap(), Published { url: None, warnings: vec![line.into(), RIGHTS.into(), FREE_TIER.into()] });
+    assert_eq!(
+        answer.unwrap(),
+        Published { warnings: vec![line.into(), RIGHTS.into(), FREE_TIER.into()], ..Published::default() }
+    );
     assert!(events.is_empty(), "{events:?}");
     let long = PublishedSet { title: Some("x".repeat(MAX_TITLE + 1)), ..set() };
     let (answer, _) = s.publish(&long, &path, &[], json!({}), true);
