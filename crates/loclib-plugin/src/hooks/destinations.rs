@@ -3,7 +3,8 @@
 //! and its records by name (`libraries.json`, `snapshots/<id>.json`...), each given as a file and
 //! fetched into the request's scratch folder; the host decides what goes there, in what order,
 //! and checks everything it fetches back. A set destination publishes a set's recording with its
-//! tracklist, saying where it can be heard; the host keeps that link.
+//! tracklist, saying where it can be heard (and, when it keeps the recording as an Atmosphere
+//! record, which one); the host keeps both.
 
 use std::path::PathBuf;
 
@@ -206,8 +207,25 @@ pub struct TracklistEntry {
 pub struct Published {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// What `url` is, as the set's published record names its link: `plyr.fm`, `Mixcloud`. 64
+    /// characters at most.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The Atmosphere record holding the recording, when the destination keeps it as one (a
+    /// plyr.fm track, `fm.plyr.track`): the set's published record points to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<StrongRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+}
+
+/// An Atmosphere record and the version of it meant, as `com.atproto.repo.strongRef` has them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StrongRef {
+    /// Its at:// URI.
+    pub uri: String,
+    /// Its CID.
+    pub cid: String,
 }
 
 /// For a store destination.

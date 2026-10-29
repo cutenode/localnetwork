@@ -29,7 +29,7 @@ pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck,
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::destinations::{
     Destination, DestinationKind, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Kept, Missing, PublishSet,
-    Published, PublishedSet, PutBlob, PutManifest, TracklistEntry,
+    Published, PublishedSet, PutBlob, PutManifest, StrongRef, TracklistEntry,
 };
 pub use hooks::events::{
     AnalyzeAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,

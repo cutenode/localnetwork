@@ -8,7 +8,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
     ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer,
-    ProgressReport, Progressed, PublishedSet, SettingType, TracklistEntry, method,
+    ProgressReport, Progressed, PublishedSet, SettingType, StrongRef, TracklistEntry, method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
@@ -17,9 +17,11 @@ use super::track::{MAX_DESCRIPTION, MAX_TITLE};
 use super::upload::{API, AUTHORIZATION, TRIES, parts};
 use super::*;
 
-/// The upload the fake plyr.fm opens, and the track it publishes.
+/// The upload the fake plyr.fm opens, and the track it publishes, with its record.
 const UPLOAD: &str = "0b7c";
 const TRACK: u64 = 4242;
+const TRACK_URI: &str = "at://did:plc:dj/fm.plyr.track/3m4tr4ck";
+const TRACK_CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
 
 /// How plyr.fm answers a request through the host, in place of what it would: a status and body,
 /// or the host failing to reach it.
@@ -169,7 +171,13 @@ fn as_plyr(part_size: u64, r: &mut Received, route: &str, fetch: &Fetch, sent: O
         }
         "progress" => {
             let processing = json!({ "upload_id": UPLOAD, "status": "processing", "phase": "pds_upload" });
-            let completed = json!({ "upload_id": UPLOAD, "status": "completed", "track_id": TRACK });
+            let completed = json!({
+                "upload_id": UPLOAD,
+                "status": "completed",
+                "track_id": TRACK,
+                "atproto_uri": TRACK_URI,
+                "atproto_cid": TRACK_CID,
+            });
             (200, format!("data: {processing}\n\ndata: {completed}\n\n"))
         }
         part => {
@@ -317,7 +325,8 @@ fn the_manifest_is_a_built_in_set_destination_on_plyr() {
 }
 
 /// The recording goes up in plyr.fm's parts, in order, each its size but the last; then the
-/// track's title, tracklist and tag, and once plyr.fm has published it, its page is the answer.
+/// track's title, tracklist and tag, and once plyr.fm has published it, its page, named plyr.fm,
+/// and its record are the answer.
 #[test]
 fn a_set_goes_up_in_parts_and_answers_its_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -332,7 +341,11 @@ fn a_set_goes_up_in_parts_and_answers_its_page() {
     let (answer, upload) = s.publish(&set(), &path, &tracklist, false);
     let r = s.stop();
     let published = answer.unwrap();
-    assert_eq!(published, Published { url: Some(format!("https://plyr.fm/track/{TRACK}")), warnings: Vec::new() });
+    let record = StrongRef { uri: TRACK_URI.into(), cid: TRACK_CID.into() };
+    let page = format!("https://plyr.fm/track/{TRACK}");
+    let answer =
+        Published { url: Some(page), name: Some("plyr.fm".into()), record: Some(record), warnings: Vec::new() };
+    assert_eq!(published, answer);
     assert_eq!(r.opened, Some((2500, "Closing Set.FLAC".into())));
     let sizes: Vec<(u64, usize)> = r.parts.iter().map(|(n, b)| (*n, b.len())).collect();
     assert_eq!(sizes, [(1, 1024), (2, 1024), (3, 452)]);
@@ -397,7 +410,7 @@ fn a_dry_run_sends_nothing() {
     let tracklist = [entry(Some("A"), Some("B"), Some(1)), entry(None, None, None)];
     let (answer, upload) = s.publish(&untitled, &path, &tracklist, true);
     let line = "set.mp3 (1.5 MiB) would go to plyr.fm as \"Warehouse, 2026-10-03\", tagged dj mix, its 2 tracks in the description";
-    assert_eq!(answer.unwrap(), Published { url: None, warnings: vec![line.into()] });
+    assert_eq!(answer.unwrap(), Published { warnings: vec![line.into()], ..Published::default() });
     let (answer, _) = s.publish(&untitled, &path, &[], true);
     let line = "set.mp3 (1.5 MiB) would go to plyr.fm as \"Warehouse, 2026-10-03\", tagged dj mix";
     assert_eq!(answer.unwrap().warnings, [line]);
@@ -510,7 +523,8 @@ fn plyr_refusing_says_why() {
 }
 
 /// The track plyr.fm fails to publish fails the publish, saying why; a progress that stops before
-/// the upload does is read again, and plyr.fm's warnings come with the page.
+/// the upload does is read again, and plyr.fm's warnings come with the page. A record plyr.fm
+/// names only half of isn't answered.
 #[test]
 fn the_progress_says_how_publishing_went() {
     let dir = tempfile::tempdir().unwrap();
@@ -523,7 +537,13 @@ fn the_progress_says_how_publishing_went() {
     s.stop();
     assert_eq!(kind(&e), ("external", "plyr.fm couldn't publish the track: duplicate of track 7"));
 
-    let done = json!({ "status": "completed", "track_id": 9, "warnings": ["the PDS refused the blob"] });
+    let done = json!({
+        "status": "completed",
+        "track_id": 9,
+        "atproto_uri": TRACK_URI,
+        "atproto_cid": null,
+        "warnings": ["the PDS refused the blob"],
+    });
     let s = start(Plyr::scripted(1024, move |route, asked| match (route, asked) {
         ("progress", 0) => Some(Reply::Status(200, "data: {\"status\": \"processing\"}\n\n".into())),
         ("progress", 1) => Some(Reply::Unreachable),
@@ -534,7 +554,12 @@ fn the_progress_says_how_publishing_went() {
     let r = s.stop();
     assert_eq!(
         published,
-        Published { url: Some("https://plyr.fm/track/9".into()), warnings: vec!["the PDS refused the blob".into()] }
+        Published {
+            url: Some("https://plyr.fm/track/9".into()),
+            name: Some("plyr.fm".into()),
+            record: None,
+            warnings: vec!["the PDS refused the blob".into()],
+        }
     );
     assert_eq!(r.requests.iter().filter(|(m, _)| m == "GET").count(), 3);
 
@@ -674,10 +699,11 @@ const REFUSALS: [(u16, &str); 5] = [
 ];
 
 /// Whatever plyr.fm's part size, and however often each part fails to arrive before it does,
-/// the file arrives whole, in order, and the publish answers the track's page. A part failing
-/// every time stops it there, and plyr.fm refusing a step (or failing it every time) stops it at
-/// that step, saying why, nothing finished past it. A dry run, or a recording plyr.fm wouldn't
-/// take, or a host without the token, sends nothing.
+/// the file arrives whole, in order, and the publish answers the track's page, and its record when
+/// plyr.fm names both its URI and CID. A part failing every time stops it there, and plyr.fm
+/// refusing a step (or failing it every time) stops it at that step, saying why, nothing finished
+/// past it. A dry run, or a recording plyr.fm wouldn't take, or a host without the token, sends
+/// nothing.
 #[hegel::test(test_cases = 100)]
 fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let format = tc.draw(gs::sampled_from(vec!["flac", "WAV", "aif", "mp3", "ogg", "aac"]));
@@ -704,6 +730,8 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let dry_run = tc.draw(gs::weighted_booleans(0.1));
     let tracklist = tracklist(&tc, 3);
     let unreachable = tc.draw(gs::booleans());
+    // Which halves of the track's record plyr.fm's last event names: its URI, its CID.
+    let names = (tc.draw(gs::weighted_booleans(0.75)), tc.draw(gs::weighted_booleans(0.75)));
     let dir = tempfile::tempdir().unwrap();
     let path = recording(dir.path(), &format!("set.{format}"), if shape == 0 { 0 } else { size });
     match shape {
@@ -720,6 +748,11 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
                 _ => body.to_string(),
             };
             return Some(Reply::Status(code, body));
+        }
+        if route == "progress" {
+            let (uri, cid) = (names.0.then_some(TRACK_URI), names.1.then_some(TRACK_CID));
+            let completed = json!({ "status": "completed", "track_id": TRACK, "atproto_uri": uri, "atproto_cid": cid });
+            return Some(Reply::Status(200, format!("data: {completed}\n\n")));
         }
         let n: usize = route.strip_prefix("part ")?.parse().ok()?;
         let failing = (asked as u32) < script_fails[n - 1];
@@ -796,7 +829,10 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
             assert_eq!(gets, if said { 1 } else { TRIES });
         }
         (None, None) => {
-            assert_eq!(answer.unwrap().url, Some(format!("https://plyr.fm/track/{TRACK}")));
+            let published = answer.unwrap();
+            assert_eq!(published.url, Some(format!("https://plyr.fm/track/{TRACK}")));
+            let record = (names == (true, true)).then(|| StrongRef { uri: TRACK_URI.into(), cid: TRACK_CID.into() });
+            assert_eq!(published.record, record);
             assert_eq!(r.file(), std::fs::read(&path).unwrap());
             let description = track::of(&set(), &tracklist).description;
             assert_eq!(r.field("description"), Some(description.as_str()).filter(|d| !d.is_empty()));

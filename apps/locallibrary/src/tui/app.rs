@@ -2620,8 +2620,11 @@ impl App {
                 (Some(up), None) => self.went_on(up),
                 (None, _) => {}
             }
-        } else if self.now.is_some() && self.audio.as_ref().is_some_and(Audio::finished) {
-            match (self.upcoming.take(), broken) {
+        }
+        // Not `else`: the queued track can have played through as well since the last look (a
+        // short one, or a slow tick), and keys and the screen must not act on it as playing.
+        if self.now.is_some() && self.audio.as_ref().is_some_and(Audio::finished) {
+            match (self.upcoming.take(), self.audio.as_ref().and_then(Audio::broken)) {
                 (_, Some(why)) => self.cut_short(why),
                 // Opened already: straight on with it.
                 (Some(mut up), None) if up.file.is_some() => {

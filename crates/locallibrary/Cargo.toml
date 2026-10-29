@@ -23,11 +23,11 @@ doc = false
 default = ["account", "peers"]
 # The Atmosphere account (AT Protocol OAuth sign-in) and publishing to it: the `atmosphere` and
 # `publish` modules and the `account_*` and `*_publish_*` API. Its async runtime, AT Protocol
-# clients and DNS are for this alone (the HTTP client and the keychain are plugins' too).
+# clients and DNS are for this alone (the HTTP client, the keychain and the AT Protocol's types,
+# which check the records a set destination answers, are plugins' too).
 account = [
     "dep:http",
     "dep:jacquard-api",
-    "dep:jacquard-common",
     "dep:jacquard-identity",
     "dep:jacquard-oauth",
     "dep:tokio",
@@ -52,7 +52,7 @@ hmac.workspace = true
 image.workspace = true
 http = { workspace = true, optional = true }
 jacquard-api = { workspace = true, optional = true }
-jacquard-common = { workspace = true, optional = true }
+jacquard-common.workspace = true
 jacquard-identity = { workspace = true, optional = true }
 jacquard-oauth = { workspace = true, optional = true }
 # The keychain, for the account's session and plugins' secrets.

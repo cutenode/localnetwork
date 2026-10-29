@@ -89,7 +89,7 @@ shows the plan again for the account you approved. Publishing again replaces the
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
 | `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
-| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
+| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`, each with its name) and the record its recording plays from (`recording`, such as a plyr.fm track), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
 
 A set's notes, its recording, the sessions it came from and the files' paths stay on this
 computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides

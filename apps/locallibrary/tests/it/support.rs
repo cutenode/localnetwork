@@ -290,6 +290,20 @@ impl Env {
         self.exits(0, args)
     }
 
+    /// `args` run with a terminal for stdin, on which `typed` was typed ahead (stdout and stderr
+    /// piped, so it isn't a terminal for output).
+    #[cfg(unix)]
+    pub fn typed_ahead(&self, args: &[&str], typed: &str) -> Run {
+        let (mut keyboard, stdin) = terminal();
+        keyboard.write_all(typed.as_bytes()).unwrap();
+        let out = self.command().args(args).stdin(Stdio::from(stdin)).output().unwrap();
+        Run {
+            out: String::from_utf8(out.stdout).unwrap(),
+            err: String::from_utf8(out.stderr).unwrap(),
+            code: out.status.code().unwrap(),
+        }
+    }
+
     /// `--json` output of a run that succeeds.
     pub fn json(&self, args: &[&str]) -> Value {
         let out = self.ok(&[&["--json"], args].concat());

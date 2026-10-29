@@ -192,6 +192,10 @@ fn with_details(set: &Set, d: &Details) -> Option<Set> {
     if let Some(with) = &d.with {
         s.with = with.clone();
     }
+    // A link given, the name a plugin gave the one before goes with it.
+    if d.want[6].is_some() {
+        s.link_name = None;
+    }
     Some(s)
 }
 
@@ -684,8 +688,8 @@ fn sets_through_the_api_match_the_model(tc: TestCase) {
 }
 
 /// Details are written into a set as the model has them: given, trimmed, cleared when blank, a
-/// country upper-cased, partners with a DID kept as accounts; all of them, or (when any is
-/// refused) none.
+/// country upper-cased, partners with a DID kept as accounts, a link without the name a plugin
+/// gave the one before; all of them, or (when any is refused) none.
 #[hegel::test(test_cases = 300)]
 fn details_are_written_whole_or_not_at_all(tc: TestCase) {
     let base = Set {
@@ -696,6 +700,8 @@ fn details_are_written_whole_or_not_at_all(tc: TestCase) {
         city: Some("London".into()),
         country: Some("GB".into()),
         with: vec![Partner { name: "Old".into(), did: None }],
+        link: Some("https://plyr.fm/track/1".into()),
+        link_name: Some("plyr.fm".into()),
         ..Default::default()
     };
     let d = details(&tc);
@@ -774,6 +780,8 @@ fn any_set(tc: &TestCase) -> Set {
         event: maybe_text(tc),
         with: (0..few(2)).map(|_| Partner { name: text(tc), did: maybe_text(tc) }).collect(),
         link: maybe_text(tc),
+        link_name: maybe_text(tc),
+        recording_record: tc.draw(gs::booleans()).then(|| loclib_plugin::StrongRef { uri: text(tc), cid: text(tc) }),
         recording: tc.draw(gs::booleans()).then(|| Recording { path: text(tc).into(), report: maybe_text(tc) }),
         notes: maybe_text(tc),
         sessions: (0..few(2)).map(|_| text(tc)).collect(),

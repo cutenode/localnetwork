@@ -366,10 +366,15 @@ content of: stored files by their BLAKE3 hash (in hex) and the store's records b
 
 A set destination publishes a set: `set/publish {destination, set: {id, date, title?, kind?,
 venue?, city?, country?}, recording, tracklist: [{artist?, title?, start_seconds?}], dry_run}` ->
-`{url?, warnings}`. `recording` is the set's audio file (absolute, to read), a track the DJ
-publishes unnamed has no artist or title, and the DJ's notes never go. The host always asks for a
-dry run first (which publishes nothing and may say where the set would be), shows it to the user
-and asks, then publishes and keeps `url` (https) as the set's link.
+`{url?, name?, record?, warnings}`. `recording` is the set's audio file (absolute, to read), a
+track the DJ publishes unnamed has no artist or title, and the DJ's notes never go. The host always
+asks for a dry run first (which publishes nothing and may say where the set would be), shows it to
+the user and asks, then publishes and keeps `url` (https) as the set's link, `name` as what that
+link is (`plyr.fm`, 64 characters at most, kept only with a `url`), and `record` (`{uri, cid}`, a
+`com.atproto.repo.strongRef`: an at:// URI and a CID) as the Atmosphere record the recording is,
+when the destination keeps it as one (a plyr.fm track). The set's published record names the link
+and points to the record. An answer with a link that isn't https, a name too long or a record that
+isn't one is the plugin misbehaving, and the host keeps none of it.
 
 - `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
   only for a destination of its kind.
