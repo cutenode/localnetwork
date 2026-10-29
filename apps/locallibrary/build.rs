@@ -5,16 +5,16 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    first_party();
+    built_in();
     stack();
 }
 
-/// Writes `first_party.rs` to `OUT_DIR`, the table `plugins.rs` includes: every folder in the
+/// Writes `built_in.rs` to `OUT_DIR`, the table `plugins.rs` includes: every folder in the
 /// repository's `plugins/` is a plugin crate, `locallibrary-plugin-<id>`, exporting `MANIFEST` and
 /// `serve`, in alphabetical order (the order `plugin list` shows them in). Cargo only links a crate
 /// this one depends on, so a folder without a dependency here, or a dependency without a folder,
 /// fails the build saying what to change.
-fn first_party() {
+fn built_in() {
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));
     let dir = here.join("../../plugins");
     let manifest = here.join("Cargo.toml");
@@ -56,7 +56,7 @@ fn first_party() {
             format!("    ({krate}::MANIFEST, {krate}::serve),\n")
         })
         .collect();
-    let out = Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("first_party.rs");
+    let out = Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("built_in.rs");
     std::fs::write(&out, format!("&[\n{table}]\n")).unwrap_or_else(|e| panic!("writing {}: {e}", out.display()));
 }
 

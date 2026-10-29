@@ -35,7 +35,7 @@ const MANIFEST: &str = r#"
 /// A host for a plugin with a secret setting, keeping secrets in `secrets`, and a store.
 fn host(secrets: Storage) -> (Plugins, tempfile::TempDir, Store) {
     let launch = Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() };
-    let spec = PluginSpec::first_party(MANIFEST, launch).unwrap();
+    let spec = PluginSpec::built_in(MANIFEST, launch).unwrap();
     let plugins = Plugins::new(vec![spec], std::sync::Arc::new(NoReads), Options { secrets, ..Options::default() });
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path()).unwrap();

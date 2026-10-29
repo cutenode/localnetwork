@@ -148,7 +148,7 @@ assert!(manifest.validate(false).is_err());
   for. Each host is limited once.
 - `where` is which menus offer a command or an operation: `track` (the tracks selected),
   `playlist` and `drive`, `["drive"]` unless it says. A palette has every one.
-- `cli` (first-party plugins only) is a command's or operation's own place on the command line:
+- `cli` (built-in plugins only) is a command's or operation's own place on the command line:
   one name (`import`) or two, the first a group of the host's commands (`playlist import`).
   Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
   line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`) and `positional = true`

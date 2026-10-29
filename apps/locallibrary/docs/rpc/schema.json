@@ -30850,7 +30850,7 @@
             "string",
             "null"
           ],
-          "description": "Its own place on the command line, rather than `locallibrary <plugin> <name>`: a\ntop-level command (`import`), or one in a group of the host's (`playlist import`).\nFirst-party plugins only."
+          "description": "Its own place on the command line, rather than `locallibrary <plugin> <name>`: a\ntop-level command (`import`), or one in a group of the host's (`playlist import`).\nBuilt-in plugins only."
         }
       },
       "required": [

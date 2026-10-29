@@ -30,7 +30,7 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
 /// through Local Network's token exchange with the token in the query, and keeps the tags, the
 /// picture and whether a show is unlisted as settings.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_mixcloud() {
+fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     assert_eq!(manifest.capabilities, [Capability::Net("api.mixcloud.com".into())]);

@@ -558,11 +558,11 @@ impl Manifest {
     }
 
     /// Checks what parsing doesn't: names, titles, versions, capabilities, schemas and settings.
-    /// `first_party`: the host ships this plugin itself, so its commands and operations may have
+    /// `built_in`: the host ships this plugin itself, so its commands and operations may have
     /// places of their own on the command line (`cli`), and a key it doesn't know is a mistake,
     /// refused (another plugin's is left out, see [`Manifest::unknown`]).
-    pub fn validate(&self, first_party: bool) -> Result<(), ManifestError> {
-        if let Some(key) = self.unknown.first().filter(|_| first_party) {
+    pub fn validate(&self, built_in: bool) -> Result<(), ManifestError> {
+        if let Some(key) = self.unknown.first().filter(|_| built_in) {
             return Err(invalid(key, "isn't a key locallibrary knows"));
         }
         if !is_name(&self.id) {
@@ -584,7 +584,7 @@ impl Manifest {
         let mut places = FxHashSet::default();
         for (at, i, cli) in commands.chain(operations).filter_map(|(at, i, cli)| Some((at, i, cli?))) {
             let at = format!("{at}[{i}].cli");
-            if !first_party {
+            if !built_in {
                 return Err(invalid(at, "only plugins locallibrary ships add CLI commands"));
             }
             if !is_cli_path(cli) {

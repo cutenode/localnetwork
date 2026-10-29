@@ -3,7 +3,7 @@ use serde_json::json;
 use super::*;
 use crate::export_cmd::FormatArg;
 
-/// A first-party manifest with the id `id` and `contributes` (TOML) added.
+/// A built-in plugin's manifest with the id `id` and `contributes` (TOML) added.
 fn manifest(id: &str, contributes: &str) -> Manifest {
     let m = Manifest::parse(&format!(
         "id = \"{id}\"\nname = \"Test\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n{contributes}"
@@ -39,16 +39,16 @@ fn refused(manifests: &[Manifest]) -> String {
 fn the_plugins_locallibrary_ships_are_accepted() {
     let launch = Launch { program: "locallibrary".into(), args: Vec::new(), env_remove: Vec::new() };
     let specs: Vec<PluginSpec> =
-        FIRST_PARTY.iter().map(|(m, _)| PluginSpec::first_party(m, launch.clone()).unwrap()).collect();
-    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; FIRST_PARTY.len()]);
+        BUILT_IN.iter().map(|(m, _)| PluginSpec::built_in(m, launch.clone()).unwrap()).collect();
+    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; BUILT_IN.len()]);
 }
 
 /// The manifests locallibrary links in are valid, their JSON Schemas included: a release build
-/// doesn't check them as it starts (see `PluginSpec::first_party`), so this does, whatever the
+/// doesn't check them as it starts (see `PluginSpec::built_in`), so this does, whatever the
 /// build.
 #[test]
 fn the_manifests_locallibrary_ships_are_valid() {
-    for (manifest, _) in FIRST_PARTY {
+    for (manifest, _) in BUILT_IN {
         let m = Manifest::parse(manifest).unwrap();
         m.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", m.id));
     }

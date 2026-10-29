@@ -8020,7 +8020,7 @@ export type Operation = {
   /**
    * Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
    * top-level command (`import`), or one in a group of the host's (`playlist import`).
-   * First-party plugins only.
+   * Built-in plugins only.
    */
   cli?: string | null;
 };

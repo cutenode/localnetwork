@@ -36,7 +36,7 @@ type Serve = fn(std::io::Stdin, std::io::Stdout);
 /// The plugins linked into locallibrary: each one's manifest (its crate's
 /// `locallibrary-plugin.toml`) and how it serves. build.rs writes it from the folders in
 /// `plugins/`, so adding one is its folder and a dependency on its crate.
-const FIRST_PARTY: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/first_party.rs"));
+const BUILT_IN: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/built_in.rs"));
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):
@@ -104,7 +104,7 @@ fn load() -> Result<Loaded> {
     // Only the test plugins are added to it, and a release has none.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut found: Vec<(String, Serves)> =
-        FIRST_PARTY.iter().map(|&(m, serve)| (m.into(), Serves::Linked(serve))).collect();
+        BUILT_IN.iter().map(|&(m, serve)| (m.into(), Serves::Linked(serve))).collect();
     #[cfg(debug_assertions)]
     for file in std::env::var_os(TEST_PLUGINS).iter().flat_map(std::env::split_paths) {
         let manifest = std::fs::read_to_string(&file)
@@ -118,7 +118,7 @@ fn load() -> Result<Loaded> {
         // The shell's completion request would have it answer that instead of serving.
         let env_remove = vec![crate::completion::VAR.into()];
         let mut spec =
-            PluginSpec::first_party(&manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
+            PluginSpec::built_in(&manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
         spec.launch.args = vec!["plugin".into(), "serve".into(), spec.manifest.id.clone().into()];
         all.push((spec, how));
     }

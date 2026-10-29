@@ -27,7 +27,7 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
 /// Local Network's token exchange asking to upload and nothing else, and keeps who can watch and
 /// the picture as settings.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_youtube() {
+fn the_manifest_is_a_built_in_set_destination_on_youtube() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     assert_eq!(manifest.capabilities, [Capability::Net("www.googleapis.com".into())]);

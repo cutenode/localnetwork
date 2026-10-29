@@ -42,7 +42,7 @@ fn a_manifest_reads_back_from_json_unchanged() {
 }
 
 #[test]
-fn only_first_party_plugins_add_cli_commands() {
+fn only_built_in_plugins_add_cli_commands() {
     let m = Manifest::parse(&format!(
         "{HEAD}[[contributes.commands]]\nname = \"import\"\ntitle = \"Import\"\nmode = \"headless\"\ncli = \"import\"\n"
     ))
@@ -68,7 +68,7 @@ fn cli_names_are_names_and_unique() {
 }
 
 #[test]
-fn only_first_party_plugins_give_operations_a_cli_place() {
+fn only_built_in_plugins_give_operations_a_cli_place() {
     let m = Manifest::parse(&format!(
         "{HEAD}[[contributes.operations]]\nname = \"import\"\ntitle = \"Import\"\ncli = \"playlist import\"\n"
     ))
@@ -236,7 +236,7 @@ fn unknown_capabilities_are_refused() {
 /// A key a manifest has that this side doesn't know is left out, saying where it was: a mistake
 /// in a plugin locallibrary ships, refused; another plugin's may be a newer locallibrary's.
 #[test]
-fn unknown_keys_are_left_out_and_refused_only_first_party() {
+fn unknown_keys_are_left_out_and_refused_only_built_in() {
     // The host works out whether an operation is destructive from its edits.
     let toml = format!(
         "{HEAD}homepage = \"https://example.com\"\n[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\n\
@@ -1030,8 +1030,8 @@ fn hints_show_numbers_as_they_are(tc: TestCase) {
 // Properties: manifests drawn whole, then broken in one place each.
 
 /// What `validate` says about `m` (`""`: nothing).
-fn problem_with(m: &Manifest, first_party: bool) -> String {
-    m.validate(first_party).err().map(|e| e.to_string()).unwrap_or_default()
+fn problem_with(m: &Manifest, built_in: bool) -> String {
+    m.validate(built_in).err().map(|e| e.to_string()).unwrap_or_default()
 }
 
 /// A name as drawn: at most 12 bytes, so the ones [`add`] makes (longer) never clash with it.
@@ -1331,12 +1331,12 @@ fn tokens(tc: &TestCase) -> Map<String, Value> {
 }
 
 /// A manifest that keeps every rule: commands and operations with places on the command line
-/// only for a first-party plugin.
+/// only for a built-in plugin.
 #[hegel::test_helper]
-fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
+fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
     let mut places = FxHashSet::default();
     let mut place = |tc: &TestCase| {
-        if !first_party || !tc.draw(gs::booleans()) {
+        if !built_in || !tc.draw(gs::booleans()) {
             return None;
         }
         let cli = tc.draw(gs::from_regex("[a-z][a-z0-9_-]{0,7}( [a-z][a-z0-9_-]{0,7})?"));
@@ -1589,12 +1589,12 @@ fn first_cli(m: &Manifest) -> Option<String> {
 
 /// Any manifest that keeps the rules validates, reads back as it was written from TOML and from
 /// JSON (what `describe` sends), and fits the manifest's JSON Schema. One that gives commands or
-/// operations places on the command line is valid only for a first-party plugin.
+/// operations places on the command line is valid only for a built-in plugin.
 #[hegel::test(test_cases = 60)]
 fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
-    let first_party = tc.draw(gs::booleans());
-    let m = manifest(&tc, first_party);
-    assert_eq!(problem_with(&m, first_party), "");
+    let built_in = tc.draw(gs::booleans());
+    let m = manifest(&tc, built_in);
+    assert_eq!(problem_with(&m, built_in), "");
     let toml = toml_of(&serde_json::to_value(&m).unwrap());
     assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
     let json = serde_json::to_value(&m).unwrap();
@@ -1786,8 +1786,8 @@ fn index(tc: &TestCase, len: usize) -> usize {
 /// what's wrong with it: the first thing `validate` finds is that.
 #[hegel::test(test_cases = 150)]
 fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
-    let mut first_party = tc.draw(gs::booleans());
-    let mut m = manifest(&tc, first_party);
+    let mut built_in = tc.draw(gs::booleans());
+    let mut m = manifest(&tc, built_in);
     let mistakes = vec![
         "id",
         "name",
@@ -1902,8 +1902,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     .map(|(i, x)| (format!("contributes.operations[{i}].cli"), &mut x.cli)),
             );
             let i = index(&tc, places.len());
-            // Only a first-party plugin's places are checked further.
-            first_party = true;
+            // Only a built-in plugin's places are checked further.
+            built_in = true;
             match mistake {
                 "cli" => {
                     places[i].1.get_or_insert_with(|| "added-place".into());
@@ -1987,7 +1987,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     ];
                     *slot = Some(tc.draw(gs::sampled_from(wrong)));
                     return assert_eq!(
-                        problem_with(&m, first_party),
+                        problem_with(&m, built_in),
                         format!("{at}: must be a JSON Schema for an object (type = \"object\")")
                     );
                 }
@@ -1999,7 +1999,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     ];
                     *slot = Some(tc.draw(gs::sampled_from(wrong)));
                     return assert!(
-                        problem_with(&m, first_party).starts_with(&format!("{at}: isn't a valid JSON Schema: "))
+                        problem_with(&m, built_in).starts_with(&format!("{at}: isn't a valid JSON Schema: "))
                     );
                 }
                 "param name" => {
@@ -2051,7 +2051,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     s["properties"]["added_param_two"] = positional;
                     *slot = Some(s);
                     return assert_eq!(
-                        problem_with(&m, first_party),
+                        problem_with(&m, built_in),
                         format!("{at}.properties.added_param_two.x-cli: \"added_param_one\" is positional already")
                     );
                 }
@@ -2369,7 +2369,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     // Longer than any drawn name, so none of its fields.
                     a.display.insert("added-display-field".into(), d);
                     return assert_eq!(
-                        problem_with(&m, first_party),
+                        problem_with(&m, built_in),
                         format!("{at}.added-display-field: \"added-display-field\" isn't its field")
                     );
                 }
@@ -2527,7 +2527,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             }
         }
     };
-    let problem = problem_with(&m, first_party);
+    let problem = problem_with(&m, built_in);
     match prefix {
         true => assert!(problem.starts_with(&said), "{problem:?} doesn't start with {said:?}"),
         false => assert_eq!(problem, said),
