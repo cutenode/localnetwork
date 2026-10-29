@@ -19,10 +19,12 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 const hashAddress = (address: string) => createHash('sha256').update(address.toLowerCase()).digest('hex');
 
 /**
- * Limits on confirmation emails, so the site can't be used to flood an address: per account, per address (keyed by
- * its hash), and overall.
+ * Limits on confirmation emails, so the site can't be used to flood an address: per account and address, per address
+ * across every account, and overall. Nothing holds an address for whoever asked first, so someone claiming another
+ * person's address can't keep them from confirming it; the most they can do is use up the address's allowance, which
+ * blocks its owner for a day at worst, while the same allowance caps what the address gets.
  */
-export type ConfirmLimits = { account: RateLimiter; address: RateLimiter; all: RateLimiter };
+export type ConfirmLimits = { accountAddress: RateLimiter; address: RateLimiter; all: RateLimiter };
 
 /** What a session's `com.atproto.server.getSession` says about the account's email, with the permission to read it. */
 export type SessionEmail = { email?: string; emailConfirmed?: boolean };
@@ -112,8 +114,7 @@ export class NotificationChannels {
 		const firstNeeded = existing?.address !== address || existing.pausedReason !== 'email_unverified';
 		const sendLink = pausedReason === 'email_unverified' && (optIn || firstNeeded);
 
-		const token =
-			sendLink && address && (await this.mayConfirm(did, address)) ? randomBytes(32).toString('base64url') : null;
+		const token = sendLink && address && this.mayConfirm(did, address) ? randomBytes(32).toString('base64url') : null;
 
 		// A link out for this address keeps working until it's replaced or expires; one for another address never does.
 		const keepLink = pausedReason === 'email_unverified' && existing?.address === address;
@@ -158,31 +159,19 @@ export class NotificationChannels {
 		return !sendLink || Boolean(token);
 	}
 
-	/**
-	 * Whether a confirmation email can go to `address` for `did` now: not while another account's link to it waits,
-	 * and within the limits. Asking past them leaves the last link working.
-	 */
-	private async mayConfirm(did: string, address: string): Promise<boolean> {
+	/** Whether a confirmation email can go to `address` for `did` now. Asking past the limits leaves the last link working. */
+	private mayConfirm(did: string, address: string): boolean {
 		const { sendConfirmation, limits, logger } = this.deps;
 
 		if (!sendConfirmation) return false;
 		const addressKey = hashAddress(address);
 
-		const elsewhere = await this.deps.db
-			.selectFrom('notificationChannel')
-			.select('did')
-			.where('confirmAddressHash', '=', addressKey)
-			.where('did', '!=', did)
-			.where('confirmExpiresAt', '>', nowIso())
-			.executeTakeFirst();
-
 		const allowed =
-			!elsewhere &&
-			limits.account.take(`confirm:${did}`) &&
+			limits.accountAddress.take(`confirm:${addressKey}:${did}`) &&
 			limits.address.take(`confirm-addr:${addressKey}`) &&
 			limits.all.take('confirm');
 
-		if (!allowed) logger.warn({ did, pendingElsewhere: Boolean(elsewhere) }, 'not sending an email confirmation');
+		if (!allowed) logger.warn({ did }, 'not sending an email confirmation');
 
 		return allowed;
 	}

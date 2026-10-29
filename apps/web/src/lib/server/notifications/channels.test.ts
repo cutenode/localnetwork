@@ -12,8 +12,8 @@ const confirmed = (email: string): SessionEmail => ({ email, emailConfirmed: tru
 
 /** The site's limits on confirmation emails: per account, per address, and overall. */
 const confirmLimits = (overrides: Partial<ConfirmLimits> = {}): ConfirmLimits => ({
-	account: new RateLimiter(3, 3 / 3600),
-	address: new RateLimiter(3, 3 / 86_400),
+	accountAddress: new RateLimiter(3, 3 / 86_400),
+	address: new RateLimiter(10, 10 / 86_400),
 	all: new RateLimiter(100, 100 / 3600),
 	...overrides
 });
@@ -82,7 +82,7 @@ describe('NotificationChannels', () => {
 		expect(await channels.confirmEmail(token)).toBe('invalid');
 	});
 
-	it('lets a link work for a day, and sends a new one for a changed address or when asked again, a few an hour', async () => {
+	it('lets a link work for a day, and sends a new one for a changed address or when asked again, a few a day', async () => {
 		await signIn(confirmed('neon@example.test'), { optIn: true });
 		vi.setSystemTime(Date.now() + 25 * 3_600_000);
 		expect(await channels.confirmEmail(links[0].token)).toBe('expired');
@@ -96,7 +96,7 @@ describe('NotificationChannels', () => {
 		expect(await channels.confirmation(links[0].token)).toBe('invalid');
 
 		for (const _ of [1, 2, 3]) await signIn(confirmed('neon@new.example'), { optIn: true });
-		// Three in the hour, so the third ask sends nothing.
+		// Three to that address today, so the third ask sends nothing.
 		expect(links).toHaveLength(4);
 		expect(await email()).toMatchObject({ status: 'paused', pausedReason: 'email_unverified' });
 
@@ -118,7 +118,7 @@ describe('NotificationChannels', () => {
 			sendConfirmation: async (address, token) => {
 				links.push({ address, token });
 			},
-			limits: confirmLimits({ account: new RateLimiter(1, 1 / 3600) })
+			limits: confirmLimits({ all: new RateLimiter(1, 1 / 3600) })
 		});
 
 		await signIn(confirmed('neon@example.test'), { optIn: true });
@@ -135,44 +135,60 @@ describe('NotificationChannels', () => {
 		});
 	});
 
-	it("won't email confirmations to one address for many accounts, or past a few a day, or too many overall", async () => {
+	it('lets nobody hold up the real owner of an address, and only confirms the account each link went to', async () => {
 		const db = await openDatabase(':memory:');
-		const limits = confirmLimits({ account: new RateLimiter(10, 10 / 3600), all: new RateLimiter(5, 5 / 3600) });
+		const sent = new Map<string, string>();
 
 		const as = (did: string) =>
 			new NotificationChannels({
 				db,
 				logger: silentLogger,
-				sendConfirmation: async (address, token) => {
-					links.push({ address, token });
+				sendConfirmation: async (_address, token) => {
+					sent.set(did, token);
 				},
-				limits
-			}).onSignIn({ did, scope: withEmail, optIn: true, session: async () => confirmed('Victim@Example.test') });
-
-		expect(await as('did:plc:one')).toBe('read');
-		// Another account asking for the same address, any case, while a link to it waits, is refused.
-		expect(await as('did:plc:two')).toBe('limited');
-		expect(links).toHaveLength(1);
-
-		vi.setSystemTime(Date.now() + 25 * 3_600_000);
-
-		for (const _ of [1, 2, 3]) expect(await as('did:plc:two')).toBe('read');
-		// The address had three today.
-		expect(await as('did:plc:two')).toBe('limited');
-		expect(links).toHaveLength(4);
-
-		const other = (n: number) =>
-			new NotificationChannels({ db, logger: silentLogger, sendConfirmation: async () => {}, limits }).onSignIn({
-				did: `did:plc:other${n}`,
-				scope: withEmail,
-				optIn: true,
-				session: async () => confirmed(`other${n}@example.test`)
+				limits: confirmLimits()
 			});
 
-		expect(await other(1)).toBe('read');
-		expect(await other(2)).toBe('read');
-		// Five overall in the hour.
-		expect(await other(3)).toBe('limited');
+		const ask = (did: string) =>
+			as(did).onSignIn({ did, scope: withEmail, optIn: true, session: async () => confirmed('Owner@Example.test') });
+
+		// Someone else asked first, for an address that isn't theirs.
+		expect(await ask('did:plc:squatter')).toBe('read');
+		expect(await ask('did:plc:owner')).toBe('read');
+
+		const owner = as('did:plc:owner');
+		expect(await owner.confirmEmail(sent.get('did:plc:owner') ?? '')).toBe('confirmed');
+		expect((await owner.get('did:plc:owner', 'email'))?.status).toBe('active');
+		expect((await owner.get('did:plc:squatter', 'email'))?.status).toBe('paused');
+	});
+
+	it('emails one address a few links a day per account, ten across all of them, and the site a hundred an hour', async () => {
+		const db = await openDatabase(':memory:');
+		const limits = confirmLimits({ all: new RateLimiter(14, 14 / 3600) });
+		let count = 0;
+
+		const ask = (did: string, address = 'victim@example.test') =>
+			new NotificationChannels({
+				db,
+				logger: silentLogger,
+				sendConfirmation: async () => {
+					count += 1;
+				},
+				limits
+			}).onSignIn({ did, scope: withEmail, optIn: true, session: async () => confirmed(address) });
+
+		for (const _ of [1, 2, 3]) expect(await ask('did:plc:one')).toBe('read');
+		expect(await ask('did:plc:one')).toBe('limited');
+
+		for (const n of [2, 3, 4, 5, 6, 7, 8]) expect(await ask(`did:plc:other${n}`)).toBe('read');
+		// Ten to the address today, from any accounts.
+		expect(await ask('did:plc:other9')).toBe('limited');
+		expect(count).toBe(10);
+
+		for (const n of [1, 2, 3, 4]) expect(await ask(`did:plc:else${n}`, `else${n}@example.test`)).toBe('read');
+		// Fourteen overall in the hour.
+		expect(await ask('did:plc:else5', 'else5@example.test')).toBe('limited');
+		expect(count).toBe(14);
 	});
 
 	it('waits for the host to confirm an address before emailing it anything, and keeps a refused one paused', async () => {
