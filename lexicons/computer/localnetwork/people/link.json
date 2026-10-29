@@ -1,0 +1,31 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.people.link",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "An invite link to a performer's, party's or venue's space. Written by the Local Network root account, which shows the link's token once and keeps only its hash. Deleting it revokes the link.",
+			"record": {
+				"type": "object",
+				"required": ["tokenHash", "role", "capabilities", "createdBy", "createdAt"],
+				"properties": {
+					"tokenHash": {
+						"type": "string",
+						"maxLength": 64,
+						"description": "The base64url SHA-256 of the link's token."
+					},
+					"role": { "type": "ref", "ref": "computer.localnetwork.people.defs#role" },
+					"capabilities": {
+						"type": "ref",
+						"ref": "computer.localnetwork.people.defs#capabilities",
+						"description": "What joining with the link gives. Never people.manage."
+					},
+					"createdBy": { "type": "string", "format": "did" },
+					"createdAt": { "type": "string", "format": "datetime" },
+					"expiresAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

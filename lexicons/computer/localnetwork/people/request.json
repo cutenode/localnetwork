@@ -1,0 +1,20 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.people.request",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "A request to join a performer's, party's or venue's space, keyed by the requester's DID. Written by the Local Network root account for the requester, who isn't a member until someone with people.manage approves it.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "createdAt"],
+				"properties": {
+					"subject": { "type": "string", "format": "did" },
+					"message": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}
