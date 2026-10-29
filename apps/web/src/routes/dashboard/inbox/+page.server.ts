@@ -11,12 +11,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const items = await locals.app.notifications.list(viewer.did, { before, limit: PAGE_SIZE + 1 });
 	const page = items.slice(0, PAGE_SIZE);
 
-	const email = await locals.app.notificationChannels.view(viewer.did, 'email');
+	const [email, dm] = await Promise.all([
+		locals.app.notificationChannels.view(viewer.did, 'email'),
+		locals.app.notificationChannels.view(viewer.did, 'dm')
+	]);
 
 	return {
 		items: page,
 		older: items.length > PAGE_SIZE ? page.at(-1)?.id : undefined,
-		emailPaused: email?.status === 'paused' ? email.pausedReason : null
+		// Why each paused channel is, for a banner pointing at the settings.
+		paused: [email, dm].flatMap((channel) =>
+			channel?.status === 'paused' && channel.pausedReason ? [channel.pausedReason] : []
+		)
 	};
 };
 

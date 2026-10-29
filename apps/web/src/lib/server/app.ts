@@ -1,6 +1,6 @@
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
-import type { Viewer } from '#lib/types.ts';
+import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
@@ -24,7 +24,8 @@ import { createLogger, type Logger } from './logger';
 import { NotificationChannels } from './notifications/channels';
 import { confirmationSender, emailChannel, LogEmailSender, ResendEmailSender } from './notifications/email';
 import { Notifier } from './notifications/notifier';
-import { Outbox } from './notifications/outbox';
+import { dmChannel, LogDmSender, RootDmSender } from './notifications/dm';
+import { type ChannelSender, Outbox } from './notifications/outbox';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
@@ -115,11 +116,30 @@ export async function createApp(options: CreateAppOptions) {
 		}
 	});
 
+	const dmLogger = logger.child({ component: 'dm' });
+
+	const dm =
+		config.dm.provider === 'bluesky'
+			? new RootDmSender({
+					chat: () => rootAccount.chat(config.dm.chatService),
+					bluesky: () => rootAccount.bluesky,
+					logger: dmLogger
+				})
+			: config.dm.provider === 'log'
+				? new LogDmSender(dmLogger)
+				: null;
+
+	const senders: Partial<Record<NotificationChannel, ChannelSender>> = {};
+
+	if (emailSender) senders.email = emailChannel(emailSender, config.publicUrl);
+
+	if (dm) senders.dm = dmChannel(dm, config.publicUrl);
+
 	const outbox = new Outbox({
 		db,
 		logger: logger.child({ component: 'outbox' }),
 		channels: notificationChannels,
-		senders: emailSender ? { email: emailChannel(emailSender, config.publicUrl) } : {}
+		senders
 	});
 
 	const notifications = new Notifier({ db, logger: logger.child({ component: 'notifications' }), outbox });
@@ -269,6 +289,8 @@ export async function createApp(options: CreateAppOptions) {
 		notifications,
 		notificationChannels,
 		outbox,
+		/** Bluesky DMs from the root, or null when this site doesn't send them. */
+		dm,
 		projects,
 		sets: projects.sets,
 		requests,

@@ -22,6 +22,7 @@
 		<p>We keep a search index derived from the records above, OAuth tokens needed to act on your behalf (encrypted at rest by your host's disk encryption), hashed browser session tokens, and an outbox of audit entries waiting to be written. Signing out revokes our OAuth session.</p>
 		<p>Your inbox lives only on our server. Each item says what happened and where (a new inquiry or message in one of your booking threads, say) but not what anyone wrote. Read items are deleted after 90 days and unread ones after 180.</p>
 		<p>If you turn on email for your inbox, we keep the email address your account's host shares with us, to send it to, and delete it as soon as you turn email off. We send one email with a link to confirm the address is yours, and nothing else until you open it. Each email goes through our email provider, Resend, and has a link that turns email off without signing in.</p>
+		<p>If you turn on Bluesky DMs for your inbox, they come from Local Network's own Bluesky account. Bluesky's chat service carries and keeps them like any other DM, and all we keep is that you turned them on.</p>
 		<h2>Deleting data</h2>
 		<p>Your requests, messages, and audit copies live in your own repo; you can delete them with any atproto tool. Ask an admin to archive a project you manage.</p>
 	</div>

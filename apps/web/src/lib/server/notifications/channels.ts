@@ -262,6 +262,40 @@ export class NotificationChannels {
 		return { row: { did: row.did, address: row.address }, state };
 	}
 
+	/**
+	 * Turns DMs on for `did`, or holds them while Bluesky chat won't deliver the root's DMs to them (`canDm` false), so
+	 * the settings page can ask them to follow the root. Their DID is the address.
+	 */
+	async enableDm(did: string, canDm: boolean): Promise<void> {
+		const now = nowIso();
+
+		const values = {
+			status: canDm ? ('active' as const) : ('paused' as const),
+			pausedReason: canDm ? null : ('dm_not_allowed' as const),
+			updatedAt: now
+		};
+
+		await this.deps.db
+			.insertInto('notificationChannel')
+			.values({
+				did,
+				channel: 'dm',
+				...values,
+				address: null,
+				addressReadAt: null,
+				unsubscribeToken: null,
+				topics: JSON.stringify(TOPICS),
+				lastSentAt: null,
+				createdAt: now,
+				confirmTokenHash: null,
+				confirmAddressHash: null,
+				confirmExpiresAt: null
+			})
+			.onConflict((oc) => oc.columns(['did', 'channel']).doUpdateSet(values))
+			.execute();
+		this.deps.logger.info({ did, status: values.status }, 'set up Bluesky DMs for the inbox');
+	}
+
 	/** Stops sending by `channel` until something fixes `reason`. */
 	async pause(did: string, channel: NotificationChannel, reason: PausedReason): Promise<void> {
 		await this.deps.db

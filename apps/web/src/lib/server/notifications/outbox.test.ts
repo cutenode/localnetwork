@@ -248,6 +248,24 @@ describe('Outbox', () => {
 		expect(await outbox.sendTest(neon, 'email')).toBeNull();
 	});
 
+	it('sends by every channel someone turned on, each on its own clock', async () => {
+		const dm = Object.assign(new FakeSender(), { windowMs: MINUTE });
+		outbox = new Outbox({ db, logger: silentLogger, channels, senders: { email: sender, dm } });
+		inbox = new Notifier({ db, logger: silentLogger, outbox });
+		await channels.enableDm(neon, true);
+		expect(outbox.configured).toEqual(['email', 'dm']);
+
+		await message('both');
+		later(MINUTE);
+		await outbox.processDue();
+		expect([sender.messages.length, dm.messages.length]).toEqual([0, 1]);
+		expect(dm.messages[0].to).toMatchObject({ did: neon, address: null });
+
+		later(MINUTE);
+		await outbox.processDue();
+		expect([sender.messages.length, dm.messages.length]).toEqual([1, 1]);
+	});
+
 	it('keeps finished deliveries for 30 days', async () => {
 		await message('done');
 		later(2 * MINUTE);

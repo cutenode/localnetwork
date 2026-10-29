@@ -268,6 +268,25 @@ describe('NotificationChannels', () => {
 		expect(await channels.view(neon, 'email')).toBeNull();
 	});
 
+	it('turns DMs on, or holds them until Bluesky chat will deliver them, with no address to keep', async () => {
+		await channels.enableDm(neon, false);
+		expect(await channels.view(neon, 'dm')).toEqual({
+			status: 'paused',
+			pausedReason: 'dm_not_allowed',
+			address: null,
+			topics: ['bookings', 'guests', 'waitlist', 'events']
+		});
+
+		await channels.setTopics(neon, 'dm', ['bookings']);
+		await channels.enableDm(neon, true);
+		expect(await channels.view(neon, 'dm')).toMatchObject({
+			status: 'active',
+			pausedReason: null,
+			topics: ['bookings']
+		});
+		expect(await channels.view(neon, 'email')).toBeNull();
+	});
+
 	it('turns email off from its unsubscribe link once, forgetting the address', async () => {
 		await signIn(confirmed('neon@example.test'), { optIn: true });
 		const token = (await email())?.unsubscribeToken ?? '';

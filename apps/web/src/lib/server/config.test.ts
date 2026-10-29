@@ -56,6 +56,15 @@ describe('loadConfig', () => {
 		expect(() => loadConfig({ ...base, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY/);
 	});
 
+	it('logs DMs in development, and sends them through Bluesky chat only once set', () => {
+		expect(loadConfig(base).dm).toEqual({ provider: 'log', chatService: 'did:web:api.bsky.chat' });
+		expect(loadConfig({ ...base, NODE_ENV: 'production' }).dm.provider).toBe('none');
+		expect(loadConfig({ ...base, DM_PROVIDER: 'bluesky', CHAT_SERVICE_DID: 'did:web:chat.test' }).dm).toEqual({
+			provider: 'bluesky',
+			chatService: 'did:web:chat.test'
+		});
+	});
+
 	it('reports every problem at once', () => {
 		expect(() => loadConfig({ ADMIN_DIDS: 'alice', SYNC_POLL_INTERVAL_MS: '5' })).toThrow(
 			/ROOT_IDENTIFIER[\s\S]*ROOT_PASSWORD[\s\S]*ADMIN_DIDS[\s\S]*HAPPYVIEW_URL[\s\S]*SYNC_POLL_INTERVAL_MS/

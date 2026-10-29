@@ -80,7 +80,9 @@ const envSchema = z.object({
 	SESSION_DAYS: intString(30, 1, 365),
 	EMAIL_PROVIDER: z.enum(['resend', 'log', 'none']).optional(),
 	RESEND_API_KEY: z.string().min(1).optional(),
-	EMAIL_FROM: z.string().min(1).optional()
+	EMAIL_FROM: z.string().min(1).optional(),
+	DM_PROVIDER: z.enum(['bluesky', 'log', 'none']).optional(),
+	CHAT_SERVICE_DID: z.string().startsWith('did:').default('did:web:api.bsky.chat')
 });
 
 export type Config = {
@@ -112,6 +114,12 @@ export type Config = {
 	 * all, in which case the settings page says email isn't set up here.
 	 */
 	email: { provider: 'resend'; apiKey: string; from: string } | { provider: 'log' | 'none'; from: string };
+	/**
+	 * How inbox items go out as Bluesky DMs from the root account: through Bluesky chat (`chatService`), the log
+	 * (development, which has no chat service), or not at all. Off in production until set, since Bluesky's relay and
+	 * AppView have to know the root account first.
+	 */
+	dm: { provider: 'bluesky' | 'log' | 'none'; chatService: string };
 };
 
 export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
@@ -181,7 +189,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
 		sessionDays: value.SESSION_DAYS,
-		email: emailConfig(value, dev)
+		email: emailConfig(value, dev),
+		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID }
 	};
 }
 

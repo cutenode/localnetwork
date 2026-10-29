@@ -55,7 +55,7 @@ const STALE_MS = 2 * 60_000;
 /** How long finished deliveries are kept, for looking into a complaint. */
 const KEEP_MS = 30 * 86_400_000;
 
-const CHANNELS: NotificationChannel[] = ['email'];
+const CHANNELS: NotificationChannel[] = ['email', 'dm'];
 
 type Due = {
 	id: string;

@@ -44,6 +44,23 @@ export class RootAccount {
 		return this.connecting;
 	}
 
+	/**
+	 * The root account's agent with its calls proxied to the Bluesky chat service `serviceDid`. Chat calls need the
+	 * full-access session the root signs in with; an app password without DM access can't make them.
+	 */
+	chat(serviceDid: string): AtpAgent {
+		if (!this.agent) throw new Error('Root account is not connected');
+
+		return this.agent.withProxy('bsky_chat', serviceDid);
+	}
+
+	/** The root account's agent, for reading Bluesky's AppView through its PDS. */
+	get bluesky(): AtpAgent {
+		if (!this.agent) throw new Error('Root account is not connected');
+
+		return this.agent;
+	}
+
 	/** The root account's DID; throws if `connect` has not completed. */
 	get rootDid(): string {
 		if (!this.did) throw new Error('Root account is not connected');

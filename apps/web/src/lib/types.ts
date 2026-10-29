@@ -321,10 +321,21 @@ export type BookingEventView = {
 export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
 
 /** Where the inbox is also sent, when someone opts in. */
-export type NotificationChannel = 'email';
+export type NotificationChannel = 'email' | 'dm';
 
 /** Why a channel stopped sending, which the settings page explains. */
-export type PausedReason = 'address_rejected' | 'email_unconfirmed' | 'email_unverified';
+export type PausedReason =
+	| 'address_rejected'
+	| 'email_unconfirmed'
+	| 'email_unverified'
+	/** Bluesky chat won't deliver the root's DMs to them: they don't follow it, or allow no DMs. */
+	| 'dm_not_allowed';
+
+/**
+ * Whether the root account can DM someone on Bluesky now: yes, once they follow it (their chat allows only accounts
+ * they follow), not at all (it allows none), or unknown because Bluesky chat didn't answer.
+ */
+export type DmAvailability = 'ok' | 'needs_follow' | 'closed' | 'unavailable';
 
 /** One person's setting for a channel, as the settings page shows it. */
 export type ChannelView = {

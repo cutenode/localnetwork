@@ -38,6 +38,40 @@ describe('RootAccount', () => {
 			logger: silentLogger
 		}).connect();
 
+	it("hands out its agent, and one that sends chat calls to Bluesky chat, once it's connected", async () => {
+		const proxied: (string | null)[] = [];
+
+		// The PDS as above, which also answers chat calls, noting where each was to be proxied.
+		vi.stubGlobal('fetch', async (input: Request | URL, init?: RequestInit) => {
+			const request = new Request(input, init);
+
+			if (request.url.endsWith('createSession')) {
+				return Response.json({ did: DID, handle: 'root.test', accessJwt: 'a', refreshJwt: 'r' });
+			}
+
+			proxied.push(request.headers.get('atproto-proxy'));
+
+			return Response.json({ canChat: true });
+		});
+
+		const root = new RootAccount({
+			identifier: DID,
+			password: 'pw',
+			service: 'https://pds.test',
+			db,
+			identity: new IdentityResolver({ plcUrl: 'https://plc.test', allowPrivateNetwork: false, logger: silentLogger }),
+			logger: silentLogger
+		});
+
+		expect(() => root.chat('did:web:api.bsky.chat')).toThrow('not connected');
+		expect(() => root.bluesky).toThrow('not connected');
+		await root.connect();
+
+		await root.chat('did:web:api.bsky.chat').chat.bsky.convo.getConvoAvailability({ members: ['did:plc:neon'] });
+		expect(proxied).toEqual(['did:web:api.bsky.chat#bsky_chat']);
+		expect(root.bluesky.did).toBe(DID);
+	});
+
 	it('resumes the stored session, and signs in again once the password changes', async () => {
 		await connect('first');
 		await connect('first');

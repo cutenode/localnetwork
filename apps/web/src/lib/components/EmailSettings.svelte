@@ -1,14 +1,6 @@
 <script module lang="ts">
 	import type { NotificationTopic, PausedReason } from '#lib/types.ts';
 
-	/** What each topic covers, as a checkbox label. */
-	const TOPIC_LABELS: Record<NotificationTopic, string> = {
-		bookings: 'Booking inquiries, messages and status changes',
-		guests: 'Guests',
-		waitlist: 'Waitlist spots',
-		events: 'New events'
-	};
-
 	const PAUSED: Partial<Record<PausedReason, (address: string) => string>> = {
 		email_unverified: (address) => `We emailed a link to ${address}. Open it within a day to start getting email there.`,
 		email_unconfirmed: (address) => `Your account's host hasn't confirmed ${address} yet. Confirm it there, then check again.`,
@@ -20,6 +12,7 @@
 	import { Mail } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
 	import type { ChannelView } from '#lib/types.ts';
+	import ChannelTopics from './ChannelTopics.svelte';
 	import FormMessage from './FormMessage.svelte';
 
 	/**
@@ -71,7 +64,7 @@
 	<FormMessage {form} />
 	{#if returned === 'limited' && !form}<p class="notice m-0">We can't send a confirmation link to that address right now. Try again tomorrow.</p>{/if}
 	{#if !available}
-		<p class="m-0 text-small text-fg-muted">Your inbox here still gets everything.</p>
+		<!-- The status line says so; the inbox itself still gets everything, as the page says. -->
 	{:else if !channel}
 		{#if returned === 'declined'}<p class="notice m-0">You didn't allow sharing your email address, so email is still off.</p>{/if}
 		<form method="POST" action="?/emailOn" class="flex flex-col items-start gap-2">
@@ -85,15 +78,7 @@
 			<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>
 		</div>
 	{:else}
-		<form method="POST" action="?/emailTopics" use:enhance={() => async ({ update }) => update({ reset: false })} class="flex flex-col items-start gap-3">
-			<fieldset class="m-0 flex flex-col gap-2.5 border-0 p-0">
-				<legend class="mb-2.5 p-0 text-small font-medium text-fg">What to email</legend>
-				{#each topics as topic (topic)}
-					<label class="flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="topic" value={topic} checked={channel.topics.includes(topic)} />{TOPIC_LABELS[topic]}</label>
-				{/each}
-			</fieldset>
-			<button type="submit" class="btn-secondary btn-sm">Save</button>
-		</form>
+		<ChannelTopics action="?/emailTopics" legend="What to email" {topics} selected={channel.topics} />
 		<div class="flex flex-wrap gap-3 border-t border-line pt-4">
 			<form method="POST" action="?/emailTest" use:enhance><button type="submit" class="btn-secondary btn-sm">Send a test</button></form>
 			<form method="POST" action="?/emailOff" use:enhance><button type="submit" class="btn-ghost btn-sm">Turn off email</button></form>

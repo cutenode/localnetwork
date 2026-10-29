@@ -14,6 +14,7 @@
 	import { enhance } from '$app/forms';
 	import { formatDateTime, timeAgo } from '#lib/format.ts';
 	import type { NotificationView } from '#lib/types.ts';
+	import Button from '#lib/ui/Button.svelte';
 	import EmptyState from './EmptyState.svelte';
 
 	/**
@@ -25,7 +26,7 @@
 
 {#if items.length === 0}
 	<EmptyState title="Nothing yet" body="Booking inquiries and messages show up here.">
-		<a href="/dashboard/inbox/settings" class="text-small">Get them by email too</a>
+		<Button variant="secondary" size="sm" href="/dashboard/inbox/settings">Get them by email or DM</Button>
 	</EmptyState>
 {:else}
 	<ol class="card m-0 list-none divide-y divide-line overflow-hidden p-0">
