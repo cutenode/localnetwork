@@ -64,6 +64,11 @@ export default defineConfig({
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
+		// Every browser test worker is a Chromium of its own, and Vitest's default is one per core but one
+		// (fourteen on a 15-core Mac), so a few checkouts testing at once open dozens. Three is CI's default on
+		// its 4-core runners, and locally the suites ran no slower with it. Vitest sizes one pool for projects
+		// that run together, so the cap is set here for all of them rather than on the browser projects.
+		maxWorkers: 3,
 		expect: { requireAssertions: true },
 		tags: [
 			{

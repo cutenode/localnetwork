@@ -154,6 +154,17 @@ publishing: a track marked unnamed or one your profile hides (`profile hide`) is
 `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks,
 looking up its tracks' MusicBrainz IDs first when a plugin works them out (`--no-lookup` doesn't).
 
+`sets publish SET --to PLUGIN:DESTINATION` has a plugin publish the set's recording (see
+[Plugins](plugins.md)), and the set keeps where the plugin says it can be heard as its link, with
+the name the plugin gives it. When the plugin keeps the recording as an Atmosphere record (a
+plyr.fm track, `fm.plyr.track`), the set keeps that too, and its record points to it as
+`recording`. Signed in, the same run then offers to publish the set's record with them: it shows
+the record and asks once, as `sets publish SET` does, with the same `--hide` and `--no-lookup`.
+`--dry-run` publishes neither and says the record will be offered, `--yes` publishes both, and
+`--json` puts the record's plan and outcome in the same document as `record`. Saying no leaves the
+record for `sets publish SET` later, and a record that fails to publish says why and exits 5, the
+set still published at the destination.
+
 ## Mixes
 
 ```bash

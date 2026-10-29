@@ -64,6 +64,15 @@ describe('djSetSchema', () => {
 
 		expect(set.links).toBeUndefined();
 	});
+
+	it('keeps the record its recording plays from, and leaves out one that isn’t an at:// URI', () => {
+		const recording = { uri: 'at://did:plc:dj/fm.plyr.track/3m4n5o6p7q8r9', cid: 'bafyreie5737gdxlw' };
+
+		expect(djSetSchema.parse({ ...DEMO_DJ_SETS[2], recording }).recording).toEqual(recording);
+		expect(
+			djSetSchema.parse({ ...DEMO_DJ_SETS[2], recording: { ...recording, uri: 'https://plyr.fm/track/1' } }).recording
+		).toBeUndefined();
+	});
 });
 
 describe('labels', () => {

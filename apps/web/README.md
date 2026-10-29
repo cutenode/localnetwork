@@ -294,7 +294,7 @@ The services are in [`src/lib/server/token-exchange/services.json`](src/lib/serv
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).
-- Uploaded images are type- and magic-byte-checked and capped at 1 MB; images are served from a dedicated route with a locked-down CSP.
+- Uploaded images are type- and magic-byte-checked and capped at 1 MB for avatars and 5 MB for press kit photos. Stored images are served only if their blob's type is one their lexicon accepts (PNG, JPEG or WebP), since a PDS doesn't check, with a sandboxing CSP and `nosniff`. ast-grep's [`stored-type-response`](../../tools/ast-grep/rules/stored-type-response.yml) rule fails any other response that takes its content type from data.
 - Rate limits on sign-in, writes, and city search.
 - The [token exchange](#token-exchange) only sends requests to the token endpoints `services.json` lists, and never logs what it relays.
 - Spaces are access control, not end-to-end encryption: the hosting PDSes and this app can read the data they handle.

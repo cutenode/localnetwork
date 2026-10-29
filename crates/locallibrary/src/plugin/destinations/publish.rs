@@ -1,13 +1,17 @@
 //! Publishing a set at a plugin's set destination (`set/publish`): planned with a dry run, which
 //! says what would happen and publishes nothing, then applied once the user confirms (publishing
 //! reaches outside this computer, so it's always asked). The plugin answers where the set can be
-//! heard, and the host keeps that as the set's link.
+//! heard, and the host keeps that as the set's link, with the link's name and the Atmosphere
+//! record holding the recording when the plugin gives them.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use chrono::{DateTime, Utc};
-use loclib_plugin::{DestinationKind, PublishSet, Published, PublishedSet, TracklistEntry, method};
+use jacquard_common::SmolStr;
+use jacquard_common::types::aturi::AtUri;
+use jacquard_common::types::cid::Cid;
+use loclib_plugin::{DestinationKind, PublishSet, Published, PublishedSet, StrongRef, TracklistEntry, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -56,9 +60,19 @@ pub struct SetPublished {
     /// Where it can be heard, which is the set's link now; none when the plugin didn't say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// What the link is (`plyr.fm`), when the plugin named it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The Atmosphere record holding the recording, when the plugin keeps it as one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<StrongRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
+
+/// The longest name a link has, in characters: the set record's Lexicon takes 64 graphemes, and
+/// a grapheme is at least one character.
+const LINK_NAME_CHARS: usize = 64;
 
 /// The set as it's published: its details and tracklist, never its notes, and the tracks at
 /// `unnamed`'s positions as only their place.
@@ -116,7 +130,7 @@ impl Plugins {
         let (context, _) = slot.context(loclib_plugin::Context::default(), Some(store))?;
         let mut publish =
             PublishSet { destination: destination.clone(), set: details, recording, tracklist, dry_run: true, context };
-        let Published { url, warnings } = slot.call(method::SET_PUBLISH, &publish, Some(store), ctx)?;
+        let Published { url, warnings, .. } = slot.call(method::SET_PUBLISH, &publish, Some(store), ctx)?;
         publish.dry_run = false;
         let title =
             &slot.manifest.contributes.destinations.iter().find(|d| d.name == destination).expect("declared").title;
@@ -155,7 +169,9 @@ impl Operation for SetPublish {
     type Report = SetPublished;
 
     /// Has the plugin publish the set, then keeps where it says it can be heard as the set's
-    /// link: an https address, or none.
+    /// link (an https address, or none) with the link's name, and the record it says holds the
+    /// recording (an at:// URI and a CID). An answer that isn't those is the plugin misbehaving,
+    /// and nothing of it is kept.
     fn apply(planned: &Planned<Self>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<SetPublished> {
         let p = &planned.plan;
         let store = store.ok_or_else(|| Error::invalid("publishing a set needs the store"))?;
@@ -166,19 +182,43 @@ impl Operation for SetPublish {
         let slot = p.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", p.plugin), "stopped"))?;
         // Lent its recording: what it sends of it is the publishing's progress.
         let lent = [p.publish.recording.as_path()];
-        let Published { url, warnings } =
+        let Published { url, name, record, warnings } =
             slot.call_lending(method::SET_PUBLISH, &p.publish, &lent, Some(store), ctx)?;
         if let Some(url) = &url {
             crate::opener::web_address(url).map_err(|_| {
                 slot.misbehaved(format!("it says the set is at {url:?}, which isn't an https:// address"))
             })?;
+        }
+        // A name goes with the link it names.
+        let name = url.as_ref().and(name.map(|n| n.trim().to_string())).filter(|n| !n.is_empty());
+        if let Some(name) = &name
+            && name.chars().count() > LINK_NAME_CHARS
+        {
+            return Err(
+                slot.misbehaved(format!("it names the link {name:?}, longer than {LINK_NAME_CHARS} characters"))
+            );
+        }
+        if let Some(r) = &record
+            && !(AtUri::<SmolStr>::new_owned(&r.uri).is_ok() && Cid::str(&r.cid).is_valid())
+        {
+            return Err(slot.misbehaved(format!(
+                "it says the recording is the record {:?} ({:?}), which isn't an at:// URI and a CID",
+                r.uri, r.cid
+            )));
+        }
+        if url.is_some() || record.is_some() {
             let _lock = store.lock()?;
             let mut book = SetBook::load(store)?;
             let set = book.find_mut(&p.set)?;
-            set.link = Some(url.clone());
+            if url.is_some() {
+                (set.link, set.link_name) = (url.clone(), name.clone());
+            }
+            if record.is_some() {
+                set.recording_record = record.clone();
+            }
             set.updated_at = Utc::now();
             book.save(store)?;
         }
-        Ok(SetPublished { set: p.set.clone(), url, warnings })
+        Ok(SetPublished { set: p.set.clone(), url, name, record, warnings })
     }
 }

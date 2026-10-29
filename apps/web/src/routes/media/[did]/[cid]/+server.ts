@@ -1,10 +1,11 @@
 import { error } from '@sveltejs/kit';
+import { AVATAR_TYPES, imageResponse } from '#lib/server/images.ts';
 import type { RequestHandler } from './$types';
 
 const CID = /^[a-z2-7]{20,100}$/;
 
 /**
- * Serves public project images from the root account's PDS through our
+ * Serves public project avatars from the root account's PDS through our
  * origin (CIDs are immutable, so responses cache forever).
  */
 export const GET: RequestHandler = async ({ params, locals, fetch }) => {
@@ -22,14 +23,8 @@ export const GET: RequestHandler = async ({ params, locals, fetch }) => {
 	if (!upstream.ok || !upstream.body) error(upstream.status === 404 ? 404 : 502, 'Image unavailable');
 	const type = upstream.headers.get('content-type') ?? 'application/octet-stream';
 
-	if (!type.startsWith('image/')) error(415, 'Not an image');
-
-	return new Response(upstream.body, {
-		headers: {
-			'content-type': type,
-			'cache-control': 'public, max-age=31536000, immutable',
-			'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
-			'x-content-type-options': 'nosniff'
-		}
+	return imageResponse(upstream.body, type, AVATAR_TYPES, {
+		cacheControl: 'public, max-age=31536000, immutable',
+		log: locals.log
 	});
 };
