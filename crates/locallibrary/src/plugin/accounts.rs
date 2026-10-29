@@ -17,6 +17,7 @@ use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
+use endpoints::Endpoints;
 use loclib_plugin::{Account, RpcError};
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::{
@@ -37,6 +38,8 @@ use crate::net::with_causes;
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result, lock};
+
+mod endpoints;
 
 /// How long before its access token expires an account's is refreshed.
 pub const REFRESH_BEFORE: Duration = Duration::from_secs(60);
@@ -162,15 +165,15 @@ impl Plugin {
         self.declared("account", id, &self.manifest.contributes.accounts, |a| &a.id)
     }
 
-    /// `account`'s client, coming back to `redirect` from the browser when it's given.
-    fn sign_in_client(&self, account: &Account, redirect: Option<RedirectUrl>) -> Result<Client> {
+    /// An account's client, coming back to `redirect` from the browser when it's given.
+    fn sign_in_client(&self, at: &Endpoints, redirect: Option<RedirectUrl>) -> Result<Client> {
         let bad = |what: &str, e: oauth2::url::ParseError| {
-            self.misbehaved(format!("its {} account's {what} can't be used: {e}", account.title))
+            self.misbehaved(format!("its {} account's {what} can't be used: {e}", at.title))
         };
-        let token_url = account.token_url.as_ref().or(account.token_exchange.as_ref()).cloned().unwrap_or_default();
-        let client = BasicClient::new(ClientId::new(account.client_id.clone()))
-            .set_auth_uri(AuthUrl::new(account.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
-            .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
+        let token_url = at.token_url.or(at.token_exchange).unwrap_or_default();
+        let client = BasicClient::new(ClientId::new(at.client_id.into()))
+            .set_auth_uri(AuthUrl::new(at.authorize_url.into()).map_err(|e| bad("authorize_url", e))?)
+            .set_token_uri(TokenUrl::new(token_url.into()).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
             Some(redirect) => client.set_redirect_uri(redirect),
             None => client,
@@ -201,11 +204,11 @@ impl Plugin {
         answer.body(body).map_err(|e| Unanswered(e.to_string()))
     }
 
-    /// Sends a request for `account`'s tokens: to its service's token endpoint as it is, or to
+    /// Sends a request for an account's tokens: to its service's token endpoint as it is, or to
     /// Local Network's token exchange as a JSON object of the same fields, since SvelteKit refuses
     /// a form posted without an `Origin` header (as it would a browser's from another site).
-    fn send_token(&self, account: &Account, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
-        if account.token_exchange.is_none() {
+    fn send_token(&self, at: &Endpoints, request: HttpRequest) -> std::result::Result<HttpResponse, Unanswered> {
+        if at.token_exchange.is_none() {
             return self.send(request);
         }
         let (mut parts, form) = request.into_parts();
@@ -216,11 +219,11 @@ impl Plugin {
         self.send(HttpRequest::from_parts(parts, serde_json::Value::Object(fields).to_string().into_bytes()))
     }
 
-    /// Asks `account`'s service to forget `tokens` (RFC 7009: the refresh token, which takes the
+    /// Asks an account's service to forget `tokens` (RFC 7009: the refresh token, which takes the
     /// access tokens with it, else the access token), when it has a revocation endpoint: whether
     /// it answered that it has.
-    fn revoke(&self, account: &Account, tokens: &Tokens) -> bool {
-        let Some(url) = &account.revoke_url else { return false };
+    fn revoke(&self, at: &Endpoints, tokens: &Tokens) -> bool {
+        let Some(url) = at.revoke_url else { return false };
         let (token, hint) = match &tokens.refresh_token {
             Some(refresh) => (refresh, "refresh_token"),
             None => (&tokens.access_token, "access_token"),
@@ -228,17 +231,17 @@ impl Plugin {
         let form = form_urlencoded::Serializer::new(String::new())
             .append_pair("token", token)
             .append_pair("token_type_hint", hint)
-            .append_pair("client_id", &account.client_id)
+            .append_pair("client_id", at.client_id)
             .finish();
-        let request = oauth2::http::Request::post(url.as_str())
+        let request = oauth2::http::Request::post(url)
             .header(oauth2::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(form.into_bytes());
         request.ok().and_then(|r| self.send(r).ok()).is_some_and(|answer| answer.status().is_success())
     }
 
-    /// What a token endpoint's failure says to the user, of `account`: what the service said (but
+    /// What a token endpoint's failure says to the user, of an account: what the service said (but
     /// any token the host holds), never what it answered otherwise.
-    fn refused(&self, account: &Account, e: RequestTokenError<Unanswered, BasicErrorResponse>) -> Error {
+    fn refused(&self, at: &Endpoints, e: RequestTokenError<Unanswered, BasicErrorResponse>) -> Error {
         let why = match e {
             RequestTokenError::ServerResponse(r) => match r.error_description() {
                 Some(d) => format!("{}: {}", r.error().as_ref(), one_line(d)),
@@ -248,7 +251,7 @@ impl Plugin {
             RequestTokenError::Parse(..) => "its answer couldn't be read".into(),
             RequestTokenError::Other(why) => why,
         };
-        Error::Account(self.net.scrub(&format!("signing in to {}: {why}", account.title)))
+        Error::Account(self.net.scrub(&format!("signing in to {}: {why}", at.title)))
     }
 
     /// The account's tokens, if it's signed in, each told to [`super::net::State::scrub`].
@@ -305,8 +308,9 @@ impl Plugin {
             return Ok(tokens.access_token);
         }
         let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
-        let client = self.sign_in_client(account, None).map_err(external)?;
-        let send = |r: HttpRequest| self.send_token(account, r);
+        let at = Endpoints::from(account);
+        let client = self.sign_in_client(&at, None).map_err(external)?;
+        let send = |r: HttpRequest| self.send_token(&at, r);
         let answer = client.exchange_refresh_token(&RefreshToken::new(refresh)).request(&send);
         let answer = match answer {
             Ok(answer) => answer,
@@ -315,7 +319,7 @@ impl Plugin {
                 self.set_secret(store, &key(id), None).map_err(external)?;
                 return Err(signed_out());
             }
-            Err(e) => return Err(external(self.refused(account, e))),
+            Err(e) => return Err(external(self.refused(&at, e))),
         };
         let fresh = Tokens::from(&answer, Some(tokens));
         self.net.saw(&fresh.access_token);
@@ -354,25 +358,24 @@ impl Plugins {
     pub fn begin_sign_in(&self, plugin: &str, account: &str, store: &Store) -> Result<SignIn> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared_sign_in(account)?;
+        let at = Endpoints::from(declared);
         // The keychain can be used, before the browser is sent anywhere. Only whether it can, what
         // it keeps dropped first: CodeQL follows a `?` on it into the sign-in link. A kept sign-in
         // that can't be read is replaced.
         slot.secret(store, &key(account)).map(drop)?;
-        if let Some(port) = declared.redirect_port {
+        if let Some(port) = at.redirect_port {
             // A sign-in still waiting on its port gives way: the browser comes back to the newest.
             lock(&self.signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
         }
-        let (listener, redirect_uri) = callback::bind(declared.redirect_port.unwrap_or(0))?;
+        let (listener, redirect_uri) = callback::bind(at.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
-        let client = slot.sign_in_client(declared, Some(redirect))?;
+        let client = slot.sign_in_client(&at, Some(redirect))?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
         let scopes = declared.scopes.iter().cloned().map(Scope::new);
         let (url, state) =
             client.authorize_url(CsrfToken::new_random).add_scopes(scopes).set_pkce_challenge(challenge).url();
         if let Some(why) = unreachable(&url, slot.loopback()) {
-            return Err(
-                slot.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", declared.title))
-            );
+            return Err(slot.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", at.title)));
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
         let mut pending = lock(&self.signing_in);
@@ -439,13 +442,14 @@ impl Plugins {
             return Err(Error::Account(why));
         }
         let code = query.code.clone().ok_or_else(|| Error::Account("the browser came back without a code".into()))?;
-        let send = |r: HttpRequest| slot.send_token(account, r);
+        let at = Endpoints::from(account);
+        let send = |r: HttpRequest| slot.send_token(&at, r);
         let answer = p
             .client
             .exchange_code(AuthorizationCode::new(code))
             .set_pkce_verifier(p.verifier)
             .request(&send)
-            .map_err(|e| slot.refused(account, e))?;
+            .map_err(|e| slot.refused(&at, e))?;
         let tokens = Tokens::from(&answer, None);
         slot.net.saw(&tokens.access_token);
         tokens.refresh_token.iter().for_each(|t| slot.net.saw(t));
@@ -462,7 +466,7 @@ impl Plugins {
         let kept = slot.secret(store, &key(account))?;
         // One that can't be read is forgotten all the same, with nothing to revoke it with.
         let tokens = kept.as_deref().and_then(|kept| slot.read_tokens(account, kept).ok());
-        let revoked = tokens.as_ref().is_some_and(|t| slot.revoke(declared, t));
+        let revoked = tokens.as_ref().is_some_and(|t| slot.revoke(&Endpoints::from(declared), t));
         slot.set_secret(store, &key(account), None)?;
         Ok(SignedOut { status: slot.status(declared, None), was_signed_in: kept.is_some(), revoked })
     }
