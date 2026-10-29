@@ -1,8 +1,8 @@
-import { AtpAgent } from '@atproto/api';
+import { AppBskyRichtextFacet, AtpAgent } from '@atproto/api';
 import { describe, expect, it } from 'vitest';
 import type { NotificationView } from '#lib/types.ts';
 import { silentLogger } from '../logger';
-import { dmChannel, LogDmSender, renderDm, RootDmSender } from './dm';
+import { type DmMessage, dmChannel, LogDmSender, renderDm, RootDmSender } from './dm';
 
 const neon = 'did:plc:neon';
 
@@ -68,11 +68,14 @@ const convo = () =>
 		}
 	});
 
-const message = (text: string) =>
+const sentMessage = (text: string) =>
 	Response.json({ id: 'msg-1', rev: '2', text, sender: { did: 'did:plc:root' }, sentAt: '2026-10-29T12:00:00.000Z' });
 
 const profile = (allowIncoming: string) =>
 	Response.json({ did: neon, handle: 'neon.test', associated: { chat: { allowIncoming } } });
+
+/** An error chat answers with, by its lexicon name. */
+const named = (status: number, error: string) => Response.json({ error, message: error }, { status });
 
 const refused = (status: number) =>
 	Response.json({ error: 'InvalidRequest', message: 'recipient has disabled incoming messages' }, { status });
@@ -96,31 +99,26 @@ describe('RootDmSender', () => {
 		expect(requests[0].proxy).toBe('did:web:api.bsky.chat#bsky_chat');
 	});
 
-	it('sends into the conversation with them, linking the links and nothing else', async () => {
+	it('sends into the conversation with them, with the links the message made', async () => {
 		const { sender, requests } = network({
 			'chat.bsky.convo.getConvoForMembers': [convo()],
-			'chat.bsky.convo.sendMessage': [message('hi')]
+			'chat.bsky.convo.sendMessage': [sentMessage('hi')]
 		});
 
-		const text = 'Hi @neon.test, see https://localnetwork.computer/dashboard/inbox';
-		expect(await sender.send(neon, text)).toEqual({ kind: 'sent', providerId: 'msg-1' });
+		const dm = renderDm([item('Hi @neon.test')], 'https://localnetwork.computer');
+		expect(await sender.send(neon, dm)).toEqual({ kind: 'sent', providerId: 'msg-1' });
 
 		const send = requests.find((request) => request.method === 'chat.bsky.convo.sendMessage');
 		expect(send?.proxy).toBe('did:web:api.bsky.chat#bsky_chat');
 		expect(send?.body).toMatchObject({
 			convoId: 'convo-1',
-			message: {
-				text,
-				facets: [
-					{
-						features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://localnetwork.computer/dashboard/inbox' }]
-					}
-				]
-			}
+			message: { text: dm.text, facets: dm.facets }
 		});
 	});
 
 	it("tries again when chat is busy or unreachable before sending, and won't risk a second copy after", async () => {
+		const hi = renderDm([item('Hi')], 'https://localnetwork.computer');
+
 		const { sender } = network({
 			'chat.bsky.convo.getConvoForMembers': [
 				new TypeError('fetch failed'),
@@ -130,26 +128,66 @@ describe('RootDmSender', () => {
 				convo(),
 				convo()
 			],
-			'chat.bsky.convo.sendMessage': [new TypeError('socket hang up'), refused(400), refused(401), refused(503)]
+			'chat.bsky.convo.sendMessage': [
+				new TypeError('socket hang up'),
+				named(400, 'ConvoLocked'),
+				refused(401),
+				refused(503)
+			]
 		});
 
-		expect(await sender.send(neon, 'hi')).toMatchObject({ kind: 'retryable' });
-		expect(await sender.send(neon, 'hi')).toMatchObject({ kind: 'retryable' });
-		expect(await sender.send(neon, 'hi')).toMatchObject({
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'retryable' });
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'retryable' });
+		expect(await sender.send(neon, hi)).toMatchObject({
 			kind: 'failed',
 			error: expect.stringContaining('socket hang up')
 		});
-		expect(await sender.send(neon, 'hi')).toMatchObject({ kind: 'rejected', reason: 'dm_not_allowed' });
-		expect(await sender.send(neon, 'hi')).toMatchObject({ kind: 'failed' });
-		expect(await sender.send(neon, 'hi')).toMatchObject({ kind: 'retryable' });
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'rejected', reason: 'dm_not_allowed' });
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'failed' });
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'retryable' });
+	});
+
+	it('pauses DMs only when chat says the recipient refused them, and fails anything else without pausing', async () => {
+		const hi = renderDm([item('Hi')], 'https://localnetwork.computer');
+		const refusals = ['BlockedActor', 'BlockedSubject', 'MessagesDisabled', 'NotFollowedBySender', 'RecipientNotFound'];
+
+		const { sender } = network({
+			'chat.bsky.convo.getConvoForMembers': [
+				...refusals.map((name) => named(400, name)),
+				named(400, 'AccountSuspended'),
+				convo(),
+				convo()
+			],
+			'chat.bsky.convo.sendMessage': [named(400, 'InvalidRequest'), refused(403)]
+		});
+
+		for (const _ of refusals)
+			expect(await sender.send(neon, hi)).toMatchObject({ kind: 'rejected', reason: 'dm_not_allowed' });
+		// The root's own account, a message chat won't take, or a refusal it doesn't name: not the recipient's doing.
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'failed' });
+		expect(await sender.send(neon, hi)).toMatchObject({
+			kind: 'failed',
+			error: expect.stringContaining('InvalidRequest')
+		});
+		expect(await sender.send(neon, hi)).toMatchObject({ kind: 'failed' });
 	});
 });
 
 describe('renderDm', () => {
-	it('words one item with its link, and several as a list pointing at the inbox', () => {
-		const url = 'https://localnetwork.computer';
+	const url = 'https://localnetwork.computer';
+	const bytes = (text: string) => new TextEncoder().encode(text);
 
-		expect(renderDm([item('Neon Tide sent a message')], url)).toBe(
+	/** The text each link facet covers, read back from its byte offsets, and where it goes. */
+	const links = ({ text, facets }: DmMessage) =>
+		facets.map(({ index, features: [feature] }) => ({
+			covers: new TextDecoder().decode(bytes(text).slice(index.byteStart, index.byteEnd)),
+			uri: AppBskyRichtextFacet.isLink(feature) ? feature.uri : null
+		}));
+
+	it('words one item with its link, and several as a list pointing at the inbox', () => {
+		const one = renderDm([item('Neon Tide sent a message')], url);
+
+		expect(one.text).toBe(
 			[
 				'Neon Tide sent a message: Warehouse night',
 				`${url}/dashboard/bookings/3mabc`,
@@ -158,8 +196,48 @@ describe('renderDm', () => {
 		);
 
 		const several = renderDm([item('One'), item('Two', { body: undefined })], url);
-		expect(several).toContain('2 new things in your Local Network inbox:\n\n• One: Warehouse night\n• Two');
-		expect(several).toContain(`${url}/dashboard/inbox\n\n`);
+		expect(several.text).toContain('2 new things in your Local Network inbox:\n\n• One: Warehouse night\n• Two');
+		expect(links(several)).toEqual([
+			{ covers: `${url}/dashboard/inbox`, uri: `${url}/dashboard/inbox` },
+			{ covers: `${url}/dashboard/inbox/settings`, uri: `${url}/dashboard/inbox/settings` }
+		]);
+	});
+
+	it('links only its own pages, and breaks up addresses in what people wrote so no app links them', () => {
+		const message = renderDm(
+			[item('New booking inquiry for https://evil.example', { body: 'Party at evil.example/win' })],
+			url
+		);
+
+		expect(links(message)).toEqual([
+			{ covers: `${url}/dashboard/bookings/3mabc`, uri: `${url}/dashboard/bookings/3mabc` },
+			{ covers: `${url}/dashboard/inbox/settings`, uri: `${url}/dashboard/inbox/settings` }
+		]);
+		expect(message.text).not.toContain('https://evil.example');
+		expect(message.text).not.toContain('evil.example');
+		expect(message.text).toContain('evil[.]example');
+	});
+
+	it("stays within chat's limits of 1,000 graphemes and 10,000 bytes, saying how many more there are", () => {
+		// Each of these is one grapheme of 25 bytes.
+		const family = '👩‍👩‍👧‍👦';
+		const long = item(family.repeat(2000), { body: 'x'.repeat(5000) });
+
+		const one = renderDm([long], url);
+
+		const many = renderDm(
+			Array.from({ length: 30 }, (_, n) => item(`Message ${n} ${'y'.repeat(80)}`)),
+			url
+		);
+
+		for (const { text } of [one, many]) {
+			expect([...new Intl.Segmenter().segment(text)].length).toBeLessThanOrEqual(1000);
+			expect(bytes(text).length).toBeLessThanOrEqual(10_000);
+		}
+
+		expect(one.text).toContain('…');
+		expect(many.text).toMatch(/\nand \d+ more\n/);
+		expect(links(many).map((link) => link.uri)).toEqual([`${url}/dashboard/inbox`, `${url}/dashboard/inbox/settings`]);
 	});
 });
 
