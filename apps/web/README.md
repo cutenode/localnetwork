@@ -10,7 +10,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Dashboard
 
-- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your requests, booking threads, planner, and activity. Staff work in the staff console at `/admin`, on the same sidebar layout.
+- Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, requests, booking threads, planner, and activity. Staff work in the staff console at `/admin`, on the same sidebar layout.
+- The inbox (`/dashboard/inbox`) tells each participant in a booking thread about a new inquiry, message or status change from someone else in it, with a count of unread items in the sidebar. An item names the project, never which of its managers wrote, and holds none of what was written. Opening an item, or its thread, marks it read. Read items go after 90 days and unread ones after 180.
 - Public pages only read, apart from Follow and Save. A project's managers get a Manage link to its dashboard there, and staff one to the staff console. A project that isn't public shows its managers and staff a "Not public yet" banner; everyone else gets a 404.
 
 ### Promoters
