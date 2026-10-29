@@ -28,6 +28,9 @@ pub struct Manifest {
     /// What it may call back for (see [`Capability`]).
     #[serde(default)]
     pub capabilities: Vec<Capability>,
+    /// The account types it asks for, and the scopes of each it needs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<hooks::accounts::AccountNeed>,
     #[serde(default)]
     pub contributes: Contributions,
     /// How often the host may send `net/fetch` requests to some of the hosts it talks to.

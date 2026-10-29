@@ -30436,6 +30436,13 @@
           "description": "What it may call back for (see [`Capability`]).",
           "default": []
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountNeed"
+          },
+          "description": "The account types it asks for, and the scopes of each it needs."
+        },
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
@@ -30474,6 +30481,58 @@
         "contributes"
       ],
       "description": "Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses\nit only in a plugin locallibrary ships (see [`Manifest::unknown`])."
+    },
+    "AccountNeed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The account type (`google`), which an account plugin provides."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes it needs, by name (`youtube-upload`)."
+        },
+        "why": {
+          "type": "string",
+          "description": "Why it needs them, shown when the user gives it access."
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptionalScopes"
+          },
+          "description": "Scopes it asks for besides, which the user may leave out."
+        }
+      },
+      "required": [
+        "type",
+        "scopes",
+        "why"
+      ],
+      "description": "`[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those\nit can do without."
+    },
+    "OptionalScopes": {
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "why"
+      ],
+      "description": "`optional = [{ scopes = [\"read\"], why = \"...\" }]`: scopes a plugin can do without, and what\nthey're for."
     },
     "Contributions": {
       "type": "object",

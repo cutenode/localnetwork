@@ -6,19 +6,38 @@
 //! the request is checked, refreshing it first when it's about to expire. A service whose token
 //! endpoint wants a client secret is reached through Local Network's token exchange, which holds
 //! the secret: a secret can't ship inside an app people download.
+//!
+//! A plugin can also ask for accounts by type, `[[accounts]]`, and for the scopes of each type it
+//! needs, saying why. The host is to sign in through an account plugin that provides the type
+//! (see `account_types`) and fill in `{account:<type>}`; until it does, plugins sign in with
+//! `[[contributes.accounts]]`.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::{Host, Url};
 
-use crate::manifest::{invalid, shown, unique_names};
+use crate::manifest::{NAME_RULE, invalid, is_name, shown, unique_names};
 use crate::{Capability, Feature, Manifest, ManifestError};
 
 /// What a `net/fetch` request says to name an account, as the whole of a header's or a query
-/// parameter's value: `{account:<id>}`.
+/// parameter's value: `{account:<id>}`, or by type (see [`account_placeholder`]).
 pub const ACCOUNT_PLACEHOLDER: &str = "{account:";
+
+/// What `value` names when it's an account's placeholder by type, `{account:<type>}` or
+/// `{account:<type>/<access id>}`: the account type (a name), and the access when it says which
+/// (8 lowercase hex digits). `None` for anything else.
+pub fn account_placeholder(value: &str) -> Option<(&str, Option<&str>)> {
+    let named = value.strip_prefix(ACCOUNT_PLACEHOLDER)?.strip_suffix('}')?;
+    let (kind, access) = match named.split_once('/') {
+        Some((kind, access)) => (kind, Some(access)),
+        None => (named, None),
+    };
+    let is_access = |a: &str| a.len() == 8 && a.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    (is_name(kind) && access.is_none_or(is_access)).then_some((kind, access))
+}
 
 /// Where Local Network's token exchange is, the only one an account may name: its path, then the
 /// service's id. The host posts it what it would have sent the service's token endpoint, and the
@@ -27,8 +46,36 @@ const EXCHANGE_ORIGIN: &str = "https://localnetwork.computer";
 const EXCHANGE_PATH: &str = "/api/token-exchange/";
 
 // Every plugin written with the SDK has it: what's an account in a request is the host's to fill.
-pub(crate) const FEATURE: Feature =
-    Feature { name: "accounts", methods: &[], sends: &[], contributed: |m| !m.contributes.accounts.is_empty() };
+pub(crate) const FEATURE: Feature = Feature {
+    name: "accounts",
+    methods: &[],
+    sends: &[],
+    contributed: |m| !m.accounts.is_empty() || !m.contributes.accounts.is_empty(),
+};
+
+/// `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
+/// it can do without.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct AccountNeed {
+    /// The account type (`google`), which an account plugin provides.
+    #[serde(rename = "type")]
+    pub name: String,
+    /// The type's scopes it needs, by name (`youtube-upload`).
+    pub scopes: Vec<String>,
+    /// Why it needs them, shown when the user gives it access.
+    pub why: String,
+    /// Scopes it asks for besides, which the user may leave out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional: Vec<OptionalScopes>,
+}
+
+/// `optional = [{ scopes = ["read"], why = "..." }]`: scopes a plugin can do without, and what
+/// they're for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct OptionalScopes {
+    pub scopes: Vec<String>,
+    pub why: String,
+}
 
 /// `[[contributes.accounts]]`: an account on a service, signed in to in the browser.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -132,7 +179,7 @@ fn is_exchange(url: &str) -> bool {
 
 /// `[[contributes.accounts]]`: ids, titles, endpoints (a token endpoint or Local Network's token
 /// exchange), scopes, PKCE, where its token goes and the port the browser comes back to, and a
-/// `net:` capability for the requests its token goes into.
+/// `net:` capability for the requests its token goes into; then `[[accounts]]` (see [`needs`]).
 pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
     let (at, c) = ("contributes.accounts", &m.contributes);
     unique_names(at, "id", c.accounts.iter().map(|x| x.id.as_str()).enumerate())?;
@@ -156,11 +203,45 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
         token_place(&at, &x.token)?;
         redirect_port(&at, x.redirect_port)?;
     }
-    if !c.accounts.is_empty() && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))) {
-        let message = "goes into net/fetch requests, which needs a net:<host> capability";
-        return Err(invalid(format!("{at}[0]"), message));
+    granted_net(m, at, !c.accounts.is_empty())?;
+    needs(m)
+}
+
+/// `[[accounts]]`: each type a name, asked for once; its scopes and each optional group's, one at
+/// least, names, none asked for twice; why, for each; and a `net:` capability for the requests
+/// their tokens go into.
+fn needs(m: &Manifest) -> Result<(), ManifestError> {
+    let at = "accounts";
+    unique_names(at, "type", m.accounts.iter().map(|x| x.name.as_str()).enumerate())?;
+    for (i, x) in m.accounts.iter().enumerate() {
+        let at = format!("{at}[{i}]");
+        let optional = x.optional.iter().enumerate().map(|(k, o)| (format!("{at}.optional[{k}]"), &o.scopes, &o.why));
+        let mut asked = FxHashSet::default();
+        for (at, scopes, why) in [(at.clone(), &x.scopes, &x.why)].into_iter().chain(optional) {
+            shown(format!("{at}.why"), why)?;
+            if scopes.is_empty() {
+                return Err(invalid(format!("{at}.scopes"), "asks for a scope at least"));
+            }
+            for (j, scope) in scopes.iter().enumerate() {
+                let at = format!("{at}.scopes[{j}]");
+                if !is_name(scope) {
+                    return Err(invalid(at, format!("{scope:?} isn't a name: {NAME_RULE}")));
+                }
+                if !asked.insert(scope) {
+                    return Err(invalid(at, format!("{scope:?} is asked for twice")));
+                }
+            }
+        }
     }
-    Ok(())
+    granted_net(m, at, !m.accounts.is_empty())
+}
+
+/// A `net:` capability, when there are accounts at `at`, for the requests their tokens go into.
+fn granted_net(m: &Manifest, at: &str, any: bool) -> Result<(), ManifestError> {
+    match any && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))) {
+        true => Err(invalid(format!("{at}[0]"), "goes into net/fetch requests, which needs a net:<host> capability")),
+        false => Ok(()),
+    }
 }
 
 /// Each of `urls` (`at.key`), where it's given, an [`endpoint`].

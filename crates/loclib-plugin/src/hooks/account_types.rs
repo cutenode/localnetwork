@@ -132,8 +132,10 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
         return Err(invalid(format!("{at}[1]"), "is a second account type: an account plugin provides one"));
     }
     let others = Contributions { account_types: Vec::new(), ..c.clone() };
-    if !m.capabilities.is_empty() || !m.net.is_empty() || others != Contributions::default() {
-        let why = "makes an account plugin, which has nothing else: no capabilities, net limits or other contributions";
+    let alone = m.capabilities.is_empty() && m.accounts.is_empty() && m.net.is_empty();
+    if !alone || others != Contributions::default() {
+        let why = "makes an account plugin, which has nothing else: no capabilities, accounts, net limits or other \
+                   contributions";
         return Err(invalid(format!("{at}[0]"), why));
     }
     let at = format!("{at}[0]");

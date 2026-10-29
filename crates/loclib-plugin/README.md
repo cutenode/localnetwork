@@ -178,7 +178,8 @@ manifest contributes for it. A plugin has a family's feature once it implements 
 ### account types
 
 Data alone: no feature, no method. An account plugin is a manifest that provides one account type
-and nothing else (no capabilities, `[[net]]` or other contributions), so anyone can publish one.
+and nothing else (no capabilities, `[[accounts]]`, `[[net]]` or other contributions), so anyone
+can publish one.
 The host runs every sign-in from it (with PKCE, always), keeps the tokens and fills them only into
 requests a scope covers. Only an account plugin locallibrary ships may use Local Network's token
 exchange, since that signs people in as Local Network.
@@ -269,6 +270,16 @@ given back as `{account:<id>}`, so the link can be fetched as it is. An answer w
   client at the service. The services it knows are in
   [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
+
+A plugin can also ask for an account by type, in a top-level `[[accounts]]`: the account type
+(`type = "google"`), the `scopes` of it it needs by name (`["youtube-upload"]`), `why` it needs
+them, and `optional` groups of scopes it can do without, each with its own `scopes` and `why`.
+The host is to sign the user in through an account plugin that provides the type and fill in
+`{account:<type>}` (or `{account:<type>/<access id>}`, the access's 8 hex digits) where the
+type's token goes. That isn't there yet: until it is, plugins sign in with
+`[[contributes.accounts]]`. Each type is a name, asked for once; each scope is a name, asked for
+once, and each list has one at least; a `why` isn't empty. A plugin asking for accounts needs a
+`net:` capability too.
 
 ### analysis
 

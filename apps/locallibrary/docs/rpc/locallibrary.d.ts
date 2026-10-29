@@ -7871,9 +7871,35 @@ export type Manifest = {
   protocol: string;
   /** What it may call back for (see [`Capability`]). */
   capabilities: Capability[];
+  /** The account types it asks for, and the scopes of each it needs. */
+  accounts?: AccountNeed[];
   contributes: Contributions;
   /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
   net?: NetLimit[];
+};
+
+/**
+ * `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
+ * it can do without.
+ */
+export type AccountNeed = {
+  /** The account type (`google`), which an account plugin provides. */
+  type: string;
+  /** The type's scopes it needs, by name (`youtube-upload`). */
+  scopes: string[];
+  /** Why it needs them, shown when the user gives it access. */
+  why: string;
+  /** Scopes it asks for besides, which the user may leave out. */
+  optional?: OptionalScopes[];
+};
+
+/**
+ * `optional = [{ scopes = ["read"], why = "..." }]`: scopes a plugin can do without, and what
+ * they're for.
+ */
+export type OptionalScopes = {
+  scopes: string[];
+  why: string;
 };
 
 export type Contributions = {

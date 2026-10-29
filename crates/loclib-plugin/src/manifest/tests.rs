@@ -7,10 +7,10 @@ use url::Url;
 use super::*;
 use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
 use crate::{
-    Account, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources,
-    Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode,
-    Operation, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Service, Theme,
-    TokenPlace, When, Whoami, code,
+    Account, AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
+    ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource,
+    Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope,
+    ScopeRequest, Service, Theme, TokenPlace, When, Whoami, account_placeholder, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -580,9 +580,17 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
     });
     assert_eq!(own_client, "");
     let alone = format!(
-        "{at}: makes an account plugin, which has nothing else: no capabilities, net limits or other contributions"
+        "{at}: makes an account plugin, which has nothing else: no capabilities, accounts, net limits or other \
+         contributions"
     );
     assert_eq!(google_with(|m| m.capabilities.push(Capability::Net("googleapis.com".into()))), alone);
+    let need = AccountNeed {
+        name: "google".into(),
+        scopes: vec!["youtube-upload".into()],
+        why: "To upload".into(),
+        optional: Vec::new(),
+    };
+    assert_eq!(google_with(|m| m.accounts.push(need)), alone);
     let limit = NetLimit { host: "googleapis.com".into(), per_second: 1.0 };
     assert_eq!(google_with(|m| m.net.push(limit)), alone);
     for kind in CONTRIBUTIONS {
@@ -1717,7 +1725,8 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         })
         .collect();
     // Granted a server for the accounts' requests.
-    if !accounts.is_empty() && hosts.is_empty() {
+    let needs: Vec<AccountNeed> = drawn_names(tc, 2).into_iter().map(|name| account_need(tc, name)).collect();
+    if (!accounts.is_empty() || !needs.is_empty()) && hosts.is_empty() {
         capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
     }
     capabilities.extend(hosts.into_iter().map(Capability::Net));
@@ -1730,6 +1739,7 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
+        accounts: needs,
         contributes: Contributions {
             account_types: Vec::new(),
             accounts,
@@ -3143,6 +3153,7 @@ fn account_plugin(tc: &TestCase, built_in: bool) -> Manifest {
         version: "0.1.0".into(),
         protocol: "^0.2".into(),
         capabilities: Vec::new(),
+        accounts: Vec::new(),
         contributes: Contributions { account_types: vec![account_type(tc, built_in)], ..Contributions::default() },
         net: Vec::new(),
         unknown: Vec::new(),
@@ -3215,12 +3226,13 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
             "contributes.account_types[1]: is a second account type: an account plugin provides one".into()
         }
         "beside" => {
-            match tc.draw(gs::sampled_from(vec!["capability", "net", "contribution"])) {
+            match tc.draw(gs::sampled_from(vec!["capability", "accounts", "net", "contribution"])) {
                 "capability" => m.capabilities.push(tc.draw(gs::sampled_from(Capability::NAMED.to_vec()))),
+                "accounts" => m.accounts.push(account_need(&tc, tc.draw(gs::from_regex(DRAWN_NAME)))),
                 "net" => m.net.push(NetLimit { host: "a.example".into(), per_second: 1.0 }),
                 _ => add(&mut m.contributes, tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec())), 1),
             }
-            let others = "no capabilities, net limits or other contributions";
+            let others = "no capabilities, accounts, net limits or other contributions";
             format!("{at}: makes an account plugin, which has nothing else: {others}")
         }
         _ => {
@@ -3468,4 +3480,182 @@ fn a_pattern_covers_exactly_the_urls_it_prefixes(tc: TestCase) {
     assert!(!covers(method, &format!("https://{host}@evil.example/{path}{more}")));
     assert!(!covers(method, &format!("http://{host}/{path}{more}")));
     assert_eq!(covers(method, &format!("https://{host}/~{path}{more}")), star && path.is_empty());
+}
+
+// Plugins asking for accounts by type, drawn whole, then broken in one place each.
+
+/// A plugin asks for an account type and the scopes it needs, saying why, and needs a `net:`
+/// capability for the requests their tokens go into.
+#[test]
+fn a_plugin_asking_for_accounts_needs_a_net_capability() {
+    let asking = |capabilities: &str| {
+        problem(&format!(
+            "capabilities = [{capabilities}]\n[[accounts]]\ntype = \"google\"\nscopes = [\"youtube-upload\"]\n\
+             why = \"To upload your sets\"\noptional = [{{ scopes = [\"read\"], why = \"To find an upload\" }}]\n"
+        ))
+    };
+    assert_eq!(asking("\"net:www.googleapis.com\""), "");
+    let said = "accounts[0]: goes into net/fetch requests, which needs a net:<host> capability";
+    assert_eq!(asking(""), said);
+    assert_eq!(asking("\"library:read\""), said);
+}
+
+/// What a plugin asks for of an account type: its scopes, then groups of them it can do without,
+/// none asked for twice.
+#[hegel::test_helper]
+fn account_need(tc: &TestCase, name: String) -> AccountNeed {
+    let mut scopes = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(1).max_size(6).unique(true));
+    let mut rest = scopes.split_off(tc.draw(gs::integers::<usize>().min_value(1).max_value(scopes.len())));
+    let mut optional = Vec::new();
+    while !rest.is_empty() {
+        let after = rest.split_off(tc.draw(gs::integers::<usize>().min_value(1).max_value(rest.len())));
+        optional.push(OptionalScopes { scopes: rest, why: title(tc) });
+        rest = after;
+    }
+    AccountNeed { name, scopes, why: title(tc), optional }
+}
+
+/// A plugin asking for an account type or more, granted a server for their requests, and nothing
+/// else.
+#[hegel::test_helper]
+fn asking_plugin(tc: &TestCase) -> Manifest {
+    let types = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(1).max_size(3).unique(true));
+    Manifest {
+        id: tc.draw(gs::from_regex(DRAWN_NAME)),
+        name: title(tc),
+        version: "0.1.0".into(),
+        protocol: "^0.2".into(),
+        capabilities: vec![Capability::Net(ACCOUNT_HOST.into())],
+        accounts: types.into_iter().map(|name| account_need(tc, name)).collect(),
+        contributes: Contributions::default(),
+        net: Vec::new(),
+        unknown: Vec::new(),
+    }
+}
+
+/// Any plugin asking for accounts that keeps the rules validates, has the `accounts` feature,
+/// reads back as it was written from TOML and from JSON, and fits the manifest's JSON Schema.
+#[hegel::test(test_cases = 100)]
+fn a_drawn_plugin_asking_for_accounts_is_valid_and_reads_back(tc: TestCase) {
+    let m = asking_plugin(&tc);
+    assert_eq!(problem_with(&m, tc.draw(gs::booleans())), "");
+    assert!(!m.is_account_plugin());
+    assert!((hooks::accounts::FEATURE.contributed)(&m));
+    let json = serde_json::to_value(&m).unwrap();
+    let toml = toml_of(&json);
+    assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
+    assert_eq!(serde_json::from_value::<Manifest>(json.clone()).unwrap(), m);
+    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&json), "{json}");
+}
+
+/// Group `g` of `x`'s scopes, as a mistake breaks it: where it is, its scopes and why. `scopes` is
+/// the first, then each optional group.
+fn scope_group<'a>(x: &'a mut AccountNeed, at: &str, g: usize) -> (String, &'a mut Vec<String>, &'a mut String) {
+    match g {
+        0 => (at.into(), &mut x.scopes, &mut x.why),
+        _ => {
+            let o = &mut x.optional[g - 1];
+            (format!("{at}.optional[{}]", g - 1), &mut o.scopes, &mut o.why)
+        }
+    }
+}
+
+/// Any one thing wrong with a plugin asking for accounts that's otherwise right is refused, saying
+/// where it is and what's wrong with it.
+#[hegel::test(test_cases = 300)]
+fn each_kind_of_accounts_mistake_is_refused_saying_where(tc: TestCase) {
+    let mut m = asking_plugin(&tc);
+    let mistakes =
+        vec!["type", "type twice", "why", "no scopes", "scope name", "scope twice", "no net", "account plugin"];
+    let mistake = tc.draw(gs::sampled_from(mistakes));
+    if mistake == "type twice" && m.accounts.len() < 2 {
+        m.accounts.push(account_need(&tc, "added-account-type".into()));
+    }
+    let i = index(&tc, m.accounts.len());
+    let at = format!("accounts[{i}]");
+    let said = match mistake {
+        "type" => {
+            let wrong = bad_name(&tc);
+            m.accounts[i].name = wrong.clone();
+            format!("{at}.type: {wrong:?} isn't a name: {NAME_RULE}")
+        }
+        "type twice" => {
+            // The same as one before it, or a later one the same as it.
+            let (j, k) = match i {
+                0 => (0, 1 + index(&tc, m.accounts.len() - 1)),
+                _ => (index(&tc, i), i),
+            };
+            m.accounts[k].name = m.accounts[j].name.clone();
+            format!("accounts[{k}].type: {:?} is used twice", m.accounts[j].name)
+        }
+        "why" | "no scopes" | "scope name" => {
+            let x = &mut m.accounts[i];
+            let g = index(&tc, 1 + x.optional.len());
+            let (at, scopes, why) = scope_group(x, &at, g);
+            match mistake {
+                "why" => {
+                    *why = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    format!("{at}.why: is empty")
+                }
+                "no scopes" => {
+                    scopes.clear();
+                    format!("{at}.scopes: asks for a scope at least")
+                }
+                _ => {
+                    let wrong = bad_name(&tc);
+                    scopes.push(wrong.clone());
+                    format!("{at}.scopes[{}]: {wrong:?} isn't a name: {NAME_RULE}", scopes.len() - 1)
+                }
+            }
+        }
+        "scope twice" => {
+            // One of its own scopes, or of a group before it, again at its end.
+            let x = &mut m.accounts[i];
+            let g = index(&tc, 1 + x.optional.len());
+            let from = scope_group(x, &at, index(&tc, g + 1)).1.clone();
+            let again = tc.draw(gs::sampled_from(from));
+            let (at, scopes, _) = scope_group(x, &at, g);
+            scopes.push(again.clone());
+            format!("{at}.scopes[{}]: {again:?} is asked for twice", scopes.len() - 1)
+        }
+        "no net" => {
+            m.capabilities.clear();
+            "accounts[0]: goes into net/fetch requests, which needs a net:<host> capability".into()
+        }
+        _ => {
+            m.capabilities.clear();
+            m.contributes.account_types.push(account_type(&tc, false));
+            let others = "no capabilities, accounts, net limits or other contributions";
+            format!("contributes.account_types[0]: makes an account plugin, which has nothing else: {others}")
+        }
+    };
+    assert_eq!(problem_with(&m, false), said);
+}
+
+/// A request names an account by type as `{account:<type>}`, or one access to it as
+/// `{account:<type>/<access id>}`, the access's 8 lowercase hex digits; anything else names none.
+#[hegel::test(test_cases = 100)]
+fn an_account_placeholder_names_a_type_and_maybe_an_access(tc: TestCase) {
+    let kind = tc.draw(gs::from_regex(DRAWN_NAME));
+    let access = tc.draw(gs::optional(gs::from_regex("[0-9a-f]{8}").fullmatch(true)));
+    let named = match &access {
+        Some(access) => format!("{kind}/{access}"),
+        None => kind.clone(),
+    };
+    assert_eq!(account_placeholder(&format!("{{account:{named}}}")), Some((kind.as_str(), access.as_deref())));
+    let short_or_long = tc.draw(gs::from_regex("[0-9a-f]{0,7}|[0-9a-f]{9,12}").fullmatch(true));
+    let not_hex = tc.draw(gs::from_regex("[0-9a-f]{0,7}[A-Fg-z/}][0-9a-f]{0,7}").fullmatch(true));
+    let wrong = tc.draw(gs::sampled_from(vec![
+        format!("{{account:{}}}", bad_name(&tc)),
+        format!("{{account:{kind}/{short_or_long}}}"),
+        format!("{{account:{kind}/{not_hex}}}"),
+        format!("{{account:{named}/}}"),
+        format!("{{account:{named}"),
+        format!("account:{named}}}"),
+        format!("{{account:{named}}}x"),
+        format!("x{{account:{named}}}"),
+        format!("Bearer {{account:{named}}}"),
+    ]));
+    assert_eq!(account_placeholder(&wrong), None, "{wrong}");
 }
