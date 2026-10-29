@@ -92,7 +92,7 @@ impl Default for TokenPlace {
 }
 
 impl TokenPlace {
-    fn is_bearer(&self) -> bool {
+    pub(crate) fn is_bearer(&self) -> bool {
         *self == TokenPlace::default()
     }
 }
@@ -196,15 +196,29 @@ pub(crate) fn token_endpoint(
     }
 }
 
-/// `token` (at `at.token`) a place a request can name it: a scheme is an HTTP token (RFC 9110); a
-/// parameter's name is kept to what no query has to escape, so the request names it as the
+/// What [`is_query_name`] takes.
+pub(crate) const QUERY_NAME_RULE: &str = "a query parameter's name: letters, digits, -, ., _ and ~";
+
+/// Whether `name` is letters, digits and `allowed`, one at least.
+fn spelled(name: &str, allowed: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || allowed.as_bytes().contains(&b))
+}
+
+/// A query parameter's name, kept to what no query has to escape, so a request names it as the
 /// service does.
+pub(crate) fn is_query_name(name: &str) -> bool {
+    spelled(name, "-._~")
+}
+
+/// `token` (at `at.token`) a place a request can name it: a scheme is an HTTP token (RFC 9110),
+/// a parameter's name an [`is_query_name`].
 pub(crate) fn token_place(at: &str, token: &TokenPlace) -> Result<(), ManifestError> {
-    let (key, name, allowed, rule) = match token {
-        TokenPlace::Scheme(s) => ("scheme", s, "!#$%&'*+-.^_`|~", "a scheme: one word, like Bearer or OAuth"),
-        TokenPlace::Query(q) => ("query", q, "-._~", "a query parameter's name: letters, digits, -, ., _ and ~"),
+    let (key, name, fits, rule) = match token {
+        TokenPlace::Scheme(s) => {
+            ("scheme", s, spelled(s, "!#$%&'*+-.^_`|~"), "a scheme: one word, like Bearer or OAuth")
+        }
+        TokenPlace::Query(q) => ("query", q, is_query_name(q), QUERY_NAME_RULE),
     };
-    let fits = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || allowed.as_bytes().contains(&b));
     match fits {
         true => Ok(()),
         false => Err(invalid(format!("{at}.token.{key}"), format!("{name:?} isn't {rule}"))),

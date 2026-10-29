@@ -2,12 +2,15 @@ use hegel::TestCase;
 use hegel::generators::{self as gs, Generator};
 use indexmap::IndexMap;
 use serde_json::{Map, json};
+use url::Url;
 
 use super::*;
+use crate::hooks::account_types::{HOST_PARAMS, METHODS};
 use crate::{
-    Account, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources, Exporter,
-    FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode, Operation,
-    Panel, Provider, ProviderKind, Role, Service, Theme, TokenPlace, When, code,
+    Account, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources,
+    Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode,
+    Operation, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Service, Theme,
+    TokenPlace, When, Whoami, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -523,6 +526,193 @@ fn an_account_trades_its_tokens_at_one_place_and_exchanges_only_at_local_network
          authorize_url = \"https://auth.example/authorize\"\n{token}client_id = \"demo\"\n"
     );
     assert_eq!(problem(&manifest), said, "{token}");
+}
+
+/// An account plugin as locallibrary ships one: Google, with a scope for uploading videos.
+const GOOGLE: &str = r#"
+[[contributes.account_types]]
+type = "google"
+title = "Google"
+authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_exchange = "https://localnetwork.computer/api/token-exchange/google"
+client_id = "local-network.apps.googleusercontent.com"
+revoke_url = "https://oauth2.googleapis.com/revoke"
+always = ["openid", "email"]
+whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
+one_account = { login_hint = "{subject}" }
+another_account = { prompt = "select_account" }
+
+[contributes.account_types.scopes.youtube-upload]
+title = "upload videos to YouTube"
+asks = ["https://www.googleapis.com/auth/youtube.upload"]
+requests = [{ method = "POST", url = "https://www.googleapis.com/upload/youtube/v3/videos*" }]
+"#;
+
+/// What's wrong with [`GOOGLE`] once `change` has been made to it, for a built-in plugin.
+fn google_with(change: impl FnOnce(&mut Manifest)) -> String {
+    let mut m = Manifest::parse(&format!("{HEAD}{GOOGLE}")).unwrap();
+    change(&mut m);
+    problem_with(&m, true)
+}
+
+/// An account plugin provides one account type and nothing else, and uses Local Network's token
+/// exchange only when locallibrary ships it.
+#[test]
+fn an_account_plugin_provides_one_account_type_and_nothing_else() {
+    let m = Manifest::parse(&format!("{HEAD}{GOOGLE}")).unwrap();
+    m.validate(true).unwrap();
+    assert!(m.is_account_plugin());
+    assert!(!Manifest::parse(ECHO).unwrap().is_account_plugin());
+    let google = &m.contributes.account_types[0];
+    assert_eq!((google.name.as_str(), &google.token, google.redirect_port), ("google", &TokenPlace::default(), None));
+    assert_eq!(google.one_account["login_hint"], "{subject}");
+    assert_eq!(google.scopes["youtube-upload"].asks, ["https://www.googleapis.com/auth/youtube.upload"]);
+    let at = "contributes.account_types[0]";
+    assert_eq!(
+        problem_with(&m, false),
+        format!(
+            "{at}.token_exchange: is only for account plugins locallibrary ships: it signs people in as Local Network"
+        )
+    );
+    let own_client = google_with(|m| {
+        let google = &mut m.contributes.account_types[0];
+        (google.token_url, google.token_exchange) = (Some("https://oauth2.googleapis.com/token".into()), None);
+    });
+    assert_eq!(own_client, "");
+    let alone = format!(
+        "{at}: makes an account plugin, which has nothing else: no capabilities, net limits or other contributions"
+    );
+    assert_eq!(google_with(|m| m.capabilities.push(Capability::Net("googleapis.com".into()))), alone);
+    let limit = NetLimit { host: "googleapis.com".into(), per_second: 1.0 };
+    assert_eq!(google_with(|m| m.net.push(limit)), alone);
+    for kind in CONTRIBUTIONS {
+        assert_eq!(google_with(|m| add(&mut m.contributes, kind, 1)), alone, "{kind}");
+    }
+    let twice = google_with(|m| m.contributes.account_types.push(m.contributes.account_types[0].clone()));
+    assert_eq!(twice, "contributes.account_types[1]: is a second account type: an account plugin provides one");
+}
+
+/// An account type's authorize params leave the ones locallibrary sets alone, are named as a
+/// query names them, and name the account only as `{subject}`, only to sign in to it again.
+#[test]
+fn an_account_types_params_name_the_account_only_as_its_subject() {
+    let at = "contributes.account_types[0]";
+    let one = |key: &str, value: &str| {
+        google_with(|m| _ = m.contributes.account_types[0].one_account.insert(key.into(), value.into()))
+    };
+    let another = |key: &str, value: &str| {
+        google_with(|m| _ = m.contributes.account_types[0].another_account.insert(key.into(), value.into()))
+    };
+    assert_eq!(one("login_hint", "id:{subject}{subject}"), "");
+    assert_eq!(another("hd", "example.com"), "");
+    for key in
+        ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method"]
+    {
+        assert_eq!(one(key, "x"), format!("{at}.one_account.{key}: is locallibrary's to set"));
+        assert_eq!(another(key, "x"), format!("{at}.another_account.{key}: is locallibrary's to set"));
+    }
+    let said = "\"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~";
+    assert_eq!(one("a=b", "x"), format!("{at}.one_account.a=b: {said}"));
+    for value in ["{email}", "{subject", "{sub{subject}ject}", "}"] {
+        let said = format!("{at}.one_account.login_hint: {value:?} has a {{ or }} besides {{subject}}");
+        assert_eq!(one("login_hint", value), said);
+    }
+    assert_eq!(
+        another("login_hint", "{subject}"),
+        format!("{at}.another_account.login_hint: \"{{subject}}\" has a {{ or }}: there's no account yet to name")
+    );
+}
+
+/// Who signed in is read from the whoami endpoint's answer at JSON pointers (RFC 6901).
+#[test]
+fn whoami_says_where_in_its_answer_with_json_pointers() {
+    let at = "contributes.account_types[0].whoami";
+    let subject = |pointer: &str| google_with(|m| m.contributes.account_types[0].whoami.subject = pointer.into());
+    for pointer in ["", "/", "/sub", "/a~0b~1c/0", "/~01"] {
+        assert_eq!(subject(pointer), "", "{pointer}");
+    }
+    for pointer in ["sub", "#/sub", "/a~2", "/a~", "/~/b"] {
+        assert_eq!(subject(pointer), format!("{at}.subject: {pointer:?} isn't a JSON pointer, like /sub"));
+    }
+    let name = google_with(|m| m.contributes.account_types[0].whoami.name = "email".into());
+    assert_eq!(name, format!("{at}.name: \"email\" isn't a JSON pointer, like /sub"));
+    let url = google_with(|m| m.contributes.account_types[0].whoami.url = "http://example.com/me".into());
+    let said = "\"http://example.com/me\" isn't an https:// address without a user name or password";
+    assert_eq!(url, format!("{at}.url: {said}"));
+}
+
+/// A scope is named, titled, asks for the service's scopes as OAuth 2 writes them, each once, and
+/// covers some requests, each a method and an address written as it's read.
+#[test]
+fn a_scope_names_the_requests_it_covers_as_they_are_read() {
+    let at = "contributes.account_types[0].scopes";
+    let scope =
+        |change: fn(&mut Scope)| google_with(|m| change(&mut m.contributes.account_types[0].scopes["youtube-upload"]));
+    let at_scope = format!("{at}.youtube-upload");
+    assert_eq!(scope(|s| s.title = " ".into()), format!("{at_scope}.title: is empty"));
+    assert_eq!(scope(|s| s.asks.clear()), "");
+    let word = "isn't a scope: printable ASCII without spaces, \" or \\";
+    assert_eq!(scope(|s| s.asks.push("a b".into())), format!("{at_scope}.asks[1]: \"a b\" {word}"));
+    assert_eq!(scope(|s| s.asks.push("a\"b".into())), format!("{at_scope}.asks[1]: \"a\\\"b\" {word}"));
+    let twice = scope(|s| s.asks.push(s.asks[0].clone()));
+    assert_eq!(twice, format!("{at_scope}.asks[1]: \"https://www.googleapis.com/auth/youtube.upload\" is there twice"));
+    let always = google_with(|m| m.contributes.account_types[0].always.push("email".into()));
+    assert_eq!(always, "contributes.account_types[0].always[2]: \"email\" is there twice");
+    assert_eq!(scope(|s| s.requests.clear()), format!("{at_scope}.requests: a scope covers a request at least"));
+    let get = scope(|s| s.requests[0].method = "get".into());
+    assert_eq!(get, format!("{at_scope}.requests[0].method: \"get\" isn't one of GET, HEAD, POST, PUT, PATCH, DELETE"));
+    let named = google_with(|m| {
+        let google = &mut m.contributes.account_types[0];
+        google.scopes = google.scopes.drain(..).map(|(_, s)| ("Upload".to_string(), s)).collect();
+    });
+    assert_eq!(named, format!("{at}.Upload: isn't a name: {NAME_RULE}"));
+    let pattern = |url: &str| {
+        let url = url.to_string();
+        google_with(move |m| m.contributes.account_types[0].scopes["youtube-upload"].requests[0].url = url)
+    };
+    for url in ["https://a.example/", "https://a.example/*", "https://a.example/v1?x=1*", "http://127.0.0.1:8080/u"] {
+        assert_eq!(pattern(url), "", "{url}");
+    }
+    let rule = "isn't an https:// address without a user name, password or fragment, maybe ending in *";
+    for url in ["http://a.example/*", "https://u@a.example/*", "https://a.example/*/v", "https://a.example/#x", "*"] {
+        assert_eq!(pattern(url), format!("{at_scope}.requests[0].url: {url:?} {rule}"), "{url}");
+    }
+    for (url, read) in [
+        ("https://a.example*", "https://a.example/*"),
+        ("https://a.example:443/v", "https://a.example/v"),
+        ("https://A.example/", "https://a.example/"),
+        ("https://a.example/v/../w*", "https://a.example/w*"),
+    ] {
+        let said = format!("{at_scope}.requests[0].url: {url:?} is read as {read:?}: write it that way");
+        assert_eq!(pattern(url), said);
+    }
+}
+
+/// A scope covers a request with one of its methods, in any case, to one of its addresses, or to
+/// one starting with it when it ends in `*`: never to a host whose name starts the same, with a
+/// user name, or to another path.
+#[test]
+fn a_scope_covers_the_requests_it_names_and_no_others() {
+    let upload = |url: &str| ScopeRequest { method: "POST".into(), url: url.into() };
+    let scope = Scope {
+        title: "Upload".into(),
+        asks: Vec::new(),
+        requests: vec![upload("https://a.example/upload/*"), upload("https://a.example/me")],
+    };
+    let covers = |method: &str, url: &str| scope.covers(method, &Url::parse(url).unwrap());
+    assert!(covers("POST", "https://a.example/upload/"));
+    assert!(covers("post", "https://a.example/upload/videos?part=snippet"));
+    assert!(covers("POST", "https://A.example:443/upload/x"));
+    assert!(covers("POST", "https://a.example/me"));
+    assert!(!covers("GET", "https://a.example/upload/x"));
+    assert!(!covers("POST", "https://a.example/me/more"));
+    assert!(!covers("POST", "https://a.example/upload"));
+    assert!(!covers("POST", "https://a.example.evil/upload/x"));
+    assert!(!covers("POST", "https://a.example@evil.example/upload/x"));
+    assert!(!covers("POST", "https://someone@a.example/upload/x"));
+    assert!(!covers("POST", "https://a.example/uploads/x"));
+    assert!(!covers("POST", "https://a.example/elsewhere/../upload2/x"));
+    assert!(!covers("POST", "http://a.example/upload/x"));
 }
 
 /// A library source reads files in the folders the user grants it: it's granted that.
@@ -1530,6 +1720,7 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
         contributes: Contributions {
+            account_types: Vec::new(),
             accounts,
             commands,
             destinations,
@@ -2855,4 +3046,415 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         (Err(e), Err(said)) => assert!(e.to_string().contains(&said), "{e}"),
         (m, c) => panic!("{m:?} {c:?}"),
     }
+}
+
+// Account plugins, drawn whole, then broken in one place each.
+
+/// A scope as OAuth 2 writes one (RFC 6749): printable ASCII but for spaces, `"` and `\`.
+const SERVICE_SCOPE: &str = r#"[!#-\[\]-~]{1,16}"#;
+
+#[hegel::test_helper]
+fn service_scopes(tc: &TestCase) -> Vec<String> {
+    tc.draw(gs::vecs(gs::from_regex(SERVICE_SCOPE)).max_size(3).unique(true))
+}
+
+/// A JSON pointer: empty, or `/` and its parts, with `~` escaped.
+#[hegel::test_helper]
+fn pointer(tc: &TestCase) -> String {
+    tc.draw(gs::from_regex("(/([a-z0-9]|~[01]){0,6}){0,3}"))
+}
+
+/// Authorize params locallibrary doesn't set, their values naming the account (only as
+/// `{subject}`) where `subject`.
+#[hegel::test_helper]
+fn authorize_params(tc: &TestCase, subject: bool) -> IndexMap<String, String> {
+    let key = gs::from_regex("[A-Za-z0-9._~-]{1,12}").filter(|k: &String| !HOST_PARAMS.contains(&k.as_str()));
+    let parts = if subject { 3 } else { 1 };
+    let keys = tc.draw(gs::vecs(key).max_size(3).unique(true));
+    keys.into_iter()
+        .map(|key| {
+            let parts = tc.draw(gs::vecs(gs::text().max_size(6)).min_size(1).max_size(parts));
+            let parts: Vec<String> = parts.iter().map(|p| p.replace(['{', '}'], "")).collect();
+            (key, parts.join(SUBJECT_PLACEHOLDER))
+        })
+        .collect()
+}
+
+/// An address a scope's request may name, written as it's read, maybe ending in `*`.
+#[hegel::test_helper]
+fn request_pattern(tc: &TestCase) -> String {
+    let read = Url::parse(&endpoint(tc)).unwrap();
+    let star = if tc.draw(gs::booleans()) { "*" } else { "" };
+    format!("{read}{star}")
+}
+
+/// A scope covering a request or more.
+#[hegel::test_helper]
+fn scope(tc: &TestCase) -> Scope {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let requests = (0..n)
+        .map(|_| ScopeRequest { method: tc.draw(gs::sampled_from(METHODS.to_vec())).into(), url: request_pattern(tc) })
+        .collect();
+    Scope { title: title(tc), asks: service_scopes(tc), requests }
+}
+
+/// An account type with endpoints it may have (Local Network's token exchange only when
+/// `built_in`), authorize params, pointers into who signed in and some scopes.
+#[hegel::test_helper]
+fn account_type(tc: &TestCase, built_in: bool) -> AccountType {
+    let exchanges = built_in && tc.draw(gs::booleans());
+    AccountType {
+        name: tc.draw(gs::from_regex(DRAWN_NAME)),
+        title: title(tc),
+        authorize_url: endpoint(tc),
+        token_url: (!exchanges).then(|| endpoint(tc)),
+        token_exchange: exchanges.then(|| exchange(tc)),
+        client_id: title(tc),
+        revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
+        token: token_place(tc),
+        redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
+        always: service_scopes(tc),
+        whoami: Whoami { url: endpoint(tc), subject: pointer(tc), name: pointer(tc) },
+        one_account: authorize_params(tc, true),
+        another_account: authorize_params(tc, false),
+        scopes: drawn_names(tc, 3).into_iter().map(|name| (name, scope(tc))).collect(),
+    }
+}
+
+/// An account plugin: an account type and nothing else.
+#[hegel::test_helper]
+fn account_plugin(tc: &TestCase, built_in: bool) -> Manifest {
+    Manifest {
+        id: tc.draw(gs::from_regex(DRAWN_NAME)),
+        name: title(tc),
+        version: "0.1.0".into(),
+        protocol: "^0.2".into(),
+        capabilities: Vec::new(),
+        contributes: Contributions { account_types: vec![account_type(tc, built_in)], ..Contributions::default() },
+        net: Vec::new(),
+        unknown: Vec::new(),
+    }
+}
+
+/// What a plugin locallibrary doesn't ship is told when its account type names the token exchange.
+const NOT_OURS: &str = "contributes.account_types[0].token_exchange: is only for account plugins locallibrary \
+                        ships: it signs people in as Local Network";
+
+/// Any account plugin that keeps the rules validates, reads back as it was written from TOML and
+/// from JSON, and fits the manifest's JSON Schema. One using Local Network's token exchange is
+/// valid only for a built-in plugin.
+#[hegel::test(test_cases = 100)]
+fn a_drawn_account_plugin_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
+    let built_in = tc.draw(gs::booleans());
+    let m = account_plugin(&tc, built_in);
+    assert_eq!(problem_with(&m, built_in), "");
+    assert!(m.is_account_plugin());
+    let json = serde_json::to_value(&m).unwrap();
+    let toml = toml_of(&json);
+    assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
+    assert_eq!(serde_json::from_value::<Manifest>(json.clone()).unwrap(), m);
+    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&json), "{json}");
+    let exchanges = m.contributes.account_types[0].token_exchange.is_some();
+    assert_eq!(problem_with(&m, false), if exchanges { NOT_OURS } else { "" });
+}
+
+/// Any one thing wrong with an account plugin that's otherwise right is refused, saying where it
+/// is and what's wrong with it.
+#[hegel::test(test_cases = 500)]
+fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
+    let mut built_in = tc.draw(gs::booleans());
+    let mut m = account_plugin(&tc, built_in);
+    let mistakes = vec![
+        "second",
+        "beside",
+        "type",
+        "title",
+        "client",
+        "endpoint",
+        "token endpoint",
+        "exchange",
+        "token place",
+        "port",
+        "service scope",
+        "pointer",
+        "param name",
+        "host param",
+        "placeholder",
+        "scope name",
+        "scope title",
+        "no requests",
+        "method",
+        "pattern",
+        "unread pattern",
+    ];
+    let mistake = tc.draw(gs::sampled_from(mistakes));
+    let at = "contributes.account_types[0]";
+    let word = |tc: &TestCase| tc.draw(gs::from_regex("[a-z0-9]{0,4}"));
+    // Empty, or one of `bad` between words.
+    let spoilt = |tc: &TestCase, bad: Vec<&str>| match tc.draw(gs::booleans()) {
+        true => String::new(),
+        false => format!("{}{}{}", word(tc), tc.draw(gs::sampled_from(bad)), word(tc)),
+    };
+    let said = match mistake {
+        "second" => {
+            let another = account_type(&tc, built_in);
+            m.contributes.account_types.push(another);
+            "contributes.account_types[1]: is a second account type: an account plugin provides one".into()
+        }
+        "beside" => {
+            match tc.draw(gs::sampled_from(vec!["capability", "net", "contribution"])) {
+                "capability" => m.capabilities.push(tc.draw(gs::sampled_from(Capability::NAMED.to_vec()))),
+                "net" => m.net.push(NetLimit { host: "a.example".into(), per_second: 1.0 }),
+                _ => add(&mut m.contributes, tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec())), 1),
+            }
+            let others = "no capabilities, net limits or other contributions";
+            format!("{at}: makes an account plugin, which has nothing else: {others}")
+        }
+        _ => {
+            let x = &mut m.contributes.account_types[0];
+            // A scope to break, adding one when there's none.
+            let scope_key = |x: &mut AccountType| {
+                if x.scopes.is_empty() {
+                    x.scopes.insert("added-scope-name".into(), scope(&tc));
+                }
+                tc.draw(gs::sampled_from(x.scopes.keys().cloned().collect::<Vec<_>>()))
+            };
+            match mistake {
+                "type" => {
+                    x.name = bad_name(&tc);
+                    format!("{at}.type: {:?} isn't a name: {NAME_RULE}", x.name)
+                }
+                "title" | "client" => {
+                    let (text, key) = match mistake {
+                        "title" => (&mut x.title, "title"),
+                        _ => (&mut x.client_id, "client_id"),
+                    };
+                    *text = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    format!("{at}.{key}: is empty")
+                }
+                "endpoint" => {
+                    let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url", "whoami.url"]));
+                    let wrong = tc.draw(gs::sampled_from(vec![
+                        "http://a.example/",
+                        "https://someone@a.example/",
+                        "https://someone:secret@a.example/",
+                        "ftp://a.example/",
+                        "a.example",
+                        "https://a.example/a b",
+                    ]));
+                    match key {
+                        "authorize_url" => x.authorize_url = wrong.into(),
+                        "token_url" => (x.token_url, x.token_exchange) = (Some(wrong.into()), None),
+                        "revoke_url" => x.revoke_url = Some(wrong.into()),
+                        _ => x.whoami.url = wrong.into(),
+                    }
+                    format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password")
+                }
+                "token endpoint" => match tc.draw(gs::sampled_from(vec!["neither", "both", "elsewhere"])) {
+                    "neither" => {
+                        (x.token_url, x.token_exchange) = (None, None);
+                        format!("{at}.token_url: is missing, and so is token_exchange")
+                    }
+                    "both" => {
+                        (x.token_url, x.token_exchange) = (Some(endpoint(&tc)), Some(exchange(&tc)));
+                        format!("{at}.token_exchange: goes in token_url's place, not beside it")
+                    }
+                    _ => {
+                        let wrong = endpoint(&tc);
+                        (x.token_url, x.token_exchange) = (None, Some(wrong.clone()));
+                        let rule = "https://localnetwork.computer/api/token-exchange/<service>";
+                        format!("{at}.token_exchange: {wrong:?} isn't Local Network's token exchange ({rule})")
+                    }
+                },
+                "exchange" => {
+                    built_in = false;
+                    (x.token_url, x.token_exchange) = (None, Some(exchange(&tc)));
+                    NOT_OURS.into()
+                }
+                "token place" => match tc.draw(gs::booleans()) {
+                    true => {
+                        let wrong = tc.draw(gs::sampled_from(vec!["", "Bearer token", "a=b", "(x)"]));
+                        x.token = TokenPlace::Scheme(wrong.into());
+                        format!("{at}.token.scheme: {wrong:?} isn't a scheme: one word, like Bearer or OAuth")
+                    }
+                    false => {
+                        let wrong = tc.draw(gs::sampled_from(vec!["", "a=b", "a b", "a&b"]));
+                        x.token = TokenPlace::Query(wrong.into());
+                        let rule = "a query parameter's name: letters, digits, -, ., _ and ~";
+                        format!("{at}.token.query: {wrong:?} isn't {rule}")
+                    }
+                },
+                "port" => {
+                    let port = tc.draw(gs::integers::<u16>().max_value(1023));
+                    x.redirect_port = Some(port);
+                    format!("{at}.redirect_port: is 1024 or more: {port} is a system service's")
+                }
+                "service scope" => {
+                    let (list, at) = match tc.draw(gs::booleans()) {
+                        true => (&mut x.always, format!("{at}.always")),
+                        false => {
+                            let key = scope_key(x);
+                            (&mut x.scopes[&key].asks, format!("{at}.scopes.{key}.asks"))
+                        }
+                    };
+                    let wrong = match tc.draw(gs::booleans()) {
+                        true => spoilt(&tc, vec![" ", "\"", "\\", "\t", "é"]),
+                        false => {
+                            if list.is_empty() {
+                                list.push("openid".into());
+                            }
+                            list[index(&tc, list.len())].clone()
+                        }
+                    };
+                    list.push(wrong.clone());
+                    let j = list.len() - 1;
+                    match list[..j].contains(&wrong) {
+                        true => format!("{at}[{j}]: {wrong:?} is there twice"),
+                        false => {
+                            format!("{at}[{j}]: {wrong:?} isn't a scope: printable ASCII without spaces, \" or \\")
+                        }
+                    }
+                }
+                "pointer" => {
+                    let key = tc.draw(gs::sampled_from(vec!["subject", "name"]));
+                    let w = word(&tc);
+                    let wrong = tc.draw(gs::sampled_from(vec![
+                        format!("{w}x"),
+                        format!("/{w}~"),
+                        format!("/{w}~2"),
+                        format!("/~x{w}"),
+                    ]));
+                    match key {
+                        "subject" => x.whoami.subject = wrong.clone(),
+                        _ => x.whoami.name = wrong.clone(),
+                    }
+                    format!("{at}.whoami.{key}: {wrong:?} isn't a JSON pointer, like /sub")
+                }
+                "param name" | "host param" | "placeholder" => {
+                    let (params, which) = match tc.draw(gs::booleans()) {
+                        true => (&mut x.one_account, "one_account"),
+                        false => (&mut x.another_account, "another_account"),
+                    };
+                    let (key, value, said) = match mistake {
+                        "param name" => {
+                            let key = spoilt(&tc, vec!["=", "&", " ", "/", "{"]);
+                            let said =
+                                format!("{key:?} isn't a query parameter's name: letters, digits, -, ., _ and ~");
+                            (key, "x".to_string(), said)
+                        }
+                        "host param" => {
+                            let key = tc.draw(gs::sampled_from(HOST_PARAMS.to_vec()));
+                            (key.to_string(), "x".to_string(), "is locallibrary's to set".to_string())
+                        }
+                        _ => {
+                            let (named, bad) = match which {
+                                "one_account" => {
+                                    (SUBJECT_PLACEHOLDER, vec!["{", "}", "{email}", "{subject", "subject}"])
+                                }
+                                _ => ("", vec!["{", "}", "{subject}"]),
+                            };
+                            let bad = tc.draw(gs::sampled_from(bad));
+                            let value = format!("{}{named}{bad}{}", word(&tc), word(&tc));
+                            let said = match which {
+                                "one_account" => format!("{value:?} has a {{ or }} besides {{subject}}"),
+                                _ => format!("{value:?} has a {{ or }}: there's no account yet to name"),
+                            };
+                            ("login_hint-added".to_string(), value, said)
+                        }
+                    };
+                    params.insert(key.clone(), value);
+                    format!("{at}.{which}.{key}: {said}")
+                }
+                "scope name" => {
+                    let name = bad_name(&tc);
+                    x.scopes.insert(name.clone(), scope(&tc));
+                    format!("{at}.scopes.{name}: isn't a name: {NAME_RULE}")
+                }
+                "scope title" | "no requests" => {
+                    let key = scope_key(x);
+                    let s = &mut x.scopes[&key];
+                    match mistake {
+                        "scope title" => {
+                            s.title = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                            format!("{at}.scopes.{key}.title: is empty")
+                        }
+                        _ => {
+                            s.requests.clear();
+                            format!("{at}.scopes.{key}.requests: a scope covers a request at least")
+                        }
+                    }
+                }
+                _ => {
+                    let key = scope_key(x);
+                    let requests = &mut x.scopes[&key].requests;
+                    let j = index(&tc, requests.len());
+                    let r = &mut requests[j];
+                    let at = format!("{at}.scopes.{key}.requests[{j}]");
+                    match mistake {
+                        "method" => {
+                            let wrong =
+                                tc.draw(gs::sampled_from(vec!["get", "Post", "CONNECT", "OPTIONS", "TRACE", ""]));
+                            r.method = wrong.into();
+                            let methods = METHODS.join(", ");
+                            format!("{at}.method: {wrong:?} isn't one of {methods}")
+                        }
+                        "pattern" => {
+                            let start = r.url.strip_suffix('*').unwrap_or(&r.url);
+                            r.url = tc.draw(gs::sampled_from(vec![
+                                format!("{start}#x"),
+                                start.replacen("://", "://someone@", 1),
+                                format!("{start}*x*"),
+                                format!("*{start}"),
+                                "ftp://a.example/*".into(),
+                                "http://a.example/*".into(),
+                            ]));
+                            let rule = "isn't an https:// address without a user name, password or fragment, maybe ending in *";
+                            format!("{at}.url: {:?} {rule}", r.url)
+                        }
+                        _ => {
+                            let (wrong, read) = tc.draw(gs::sampled_from(vec![
+                                ("https://a.example*", "https://a.example/*"),
+                                ("https://a.example:443/v", "https://a.example/v"),
+                                ("https://A.example/", "https://a.example/"),
+                                ("https://a.example/v/../w*", "https://a.example/w*"),
+                                ("http://LOCALHOST:80", "http://localhost/"),
+                            ]));
+                            r.url = wrong.into();
+                            format!("{at}.url: {wrong:?} is read as {read:?}: write it that way")
+                        }
+                    }
+                }
+            }
+        }
+    };
+    assert_eq!(problem_with(&m, built_in), said);
+}
+
+/// A scope's request covers its method (in any case) to its address, or to any address starting
+/// with it when it ends in `*`: never another method, a host whose name starts the same, a user
+/// name, another scheme or a path beside it.
+#[hegel::test(test_cases = 100)]
+fn a_pattern_covers_exactly_the_urls_it_prefixes(tc: TestCase) {
+    let host = tc.draw(gs::from_regex("[a-z][a-z0-9]{0,7}(\\.[a-z][a-z0-9]{0,7}){0,2}"));
+    let path = tc.draw(gs::from_regex("[a-z0-9/]{0,12}"));
+    let start = format!("https://{host}/{path}");
+    assert_eq!(Url::parse(&start).unwrap().as_str(), start, "a pattern is written as it's read");
+    let star = tc.draw(gs::booleans());
+    let method = tc.draw(gs::sampled_from(METHODS.to_vec()));
+    let url = format!("{start}{}", if star { "*" } else { "" });
+    let scope =
+        Scope { title: "Scope".into(), asks: Vec::new(), requests: vec![ScopeRequest { method: method.into(), url }] };
+    let covers = |method: &str, url: &str| scope.covers(method, &Url::parse(url).unwrap());
+    let more = tc.draw(gs::from_regex("[a-z0-9/]{1,8}(\\?[a-z]=[a-z0-9]{0,4})?"));
+    assert!(covers(method, &start));
+    assert!(covers(&method.to_lowercase(), &start));
+    assert_eq!(covers(method, &format!("{start}{more}")), star);
+    let others: Vec<&str> = METHODS.iter().copied().filter(|m| *m != method).collect();
+    assert!(!covers(tc.draw(gs::sampled_from(others)), &start));
+    assert!(!covers(method, &format!("https://{host}.evil.example/{path}{more}")));
+    assert!(!covers(method, &format!("https://someone@{host}/{path}{more}")));
+    assert!(!covers(method, &format!("https://{host}@evil.example/{path}{more}")));
+    assert!(!covers(method, &format!("http://{host}/{path}{more}")));
+    assert_eq!(covers(method, &format!("https://{host}/~{path}{more}")), star && path.is_empty());
 }

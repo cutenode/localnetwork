@@ -307,6 +307,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "protocol": "^0.2",
         "capabilities": capabilities,
         "contributes": {
+            "account_types": [],
             "accounts": accounts,
             "commands": commands,
             "destinations": destinations,

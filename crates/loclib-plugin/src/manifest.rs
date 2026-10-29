@@ -44,6 +44,7 @@ pub struct Manifest {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Contributions {
+    pub account_types: Vec<hooks::account_types::AccountType>,
     pub accounts: Vec<hooks::accounts::Account>,
     pub commands: Vec<hooks::commands::Command>,
     pub destinations: Vec<hooks::destinations::Destination>,
@@ -557,10 +558,17 @@ impl Manifest {
         &self.unknown
     }
 
+    /// Whether it's an account plugin: one that provides an account type, and (valid) nothing
+    /// else.
+    pub fn is_account_plugin(&self) -> bool {
+        !self.contributes.account_types.is_empty()
+    }
+
     /// Checks what parsing doesn't: names, titles, versions, capabilities, schemas and settings.
     /// `built_in`: the host ships this plugin itself, so its commands and operations may have
-    /// places of their own on the command line (`cli`), and a key it doesn't know is a mistake,
-    /// refused (another plugin's is left out, see [`Manifest::unknown`]).
+    /// places of their own on the command line (`cli`), its account type may use Local Network's
+    /// token exchange, and a key it doesn't know is a mistake, refused (another plugin's is left
+    /// out, see [`Manifest::unknown`]).
     pub fn validate(&self, built_in: bool) -> Result<(), ManifestError> {
         if let Some(key) = self.unknown.first().filter(|_| built_in) {
             return Err(invalid(key, "isn't a key locallibrary knows"));
@@ -597,6 +605,7 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
+        hooks::account_types::validate(self, built_in)?;
         hooks::accounts::validate(self)?;
         hooks::analysis::validate(self)?;
         hooks::commands::validate(self)?;
