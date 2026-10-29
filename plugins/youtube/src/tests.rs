@@ -53,6 +53,20 @@ fn the_manifest_is_a_built_in_set_destination_on_youtube() {
     assert_eq!(manifest.contributes.settings[0].choices, ["private", "unlisted", "public"]);
 }
 
+/// The Google account plugin's `youtube-upload` scope covers the requests an upload makes:
+/// starting its session, and sending the video to the address YouTube answers with (as Google's
+/// guide to the resumable upload shows one), and not YouTube's other API.
+#[test]
+fn googles_youtube_upload_scope_covers_the_upload() {
+    let google = Manifest::parse(include_str!("../../accounts/google-account/locallibrary-plugin.toml")).unwrap();
+    let scope = &google.contributes.account_types[0].scopes["youtube-upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    let session = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=xa298sd_f&part=snippet,status,contentDetails";
+    assert!(covers("POST", upload::START));
+    assert!(covers("PUT", session));
+    assert!(!covers("PUT", "https://www.googleapis.com/youtube/v3/videos?part=snippet"));
+}
+
 /// A tracklist of up to `most` entries, each maybe named (some with what YouTube doesn't take),
 /// maybe timed, in any order.
 #[hegel::test_helper]

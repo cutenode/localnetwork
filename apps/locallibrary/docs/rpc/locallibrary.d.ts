@@ -7780,10 +7780,11 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its accounts by id, its commands, destinations, operations, panels,
-   * analyzers, checks, providers, services, library sources and themes by name, the events it
-   * listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its accounts by id, its commands, destinations,
+   * operations, panels, analyzers, checks, providers, services, library sources and themes by
+   * name, the events it listens for, its export and import formats and its settings' keys.
    */
+  account_types: string[];
   accounts: string[];
   commands: string[];
   destinations: string[];

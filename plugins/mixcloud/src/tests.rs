@@ -60,6 +60,18 @@ fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
     );
 }
 
+/// The Mixcloud account plugin's `upload` scope covers the upload, the token in its query or
+/// not, and nothing else of Mixcloud's API.
+#[test]
+fn mixclouds_upload_scope_covers_the_upload() {
+    let mixcloud = Manifest::parse(include_str!("../../accounts/mixcloud-account/locallibrary-plugin.toml")).unwrap();
+    let scope = &mixcloud.contributes.account_types[0].scopes["upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    assert!(covers("POST", upload::UPLOAD));
+    assert!(covers("POST", "https://api.mixcloud.com/upload/"));
+    assert!(!covers("POST", "https://api.mixcloud.com/upload/dj/show/edit/"));
+}
+
 /// A set without a title is named for where and when it was played, the description says where
 /// it was, an unnamed track is `ID`, and a time before the one before it is left off.
 #[test]

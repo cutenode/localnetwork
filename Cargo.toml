@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["apps/locallibrary", "crates/*", "plugins/*", "vendor/rekordbox-pdb"]
+# Account plugins are a manifest alone, with no crate (see apps/locallibrary/build.rs).
+exclude = ["plugins/accounts"]
 
 [workspace.package]
 version = "0.1.0"

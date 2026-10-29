@@ -30135,12 +30135,18 @@
             "$ref": "#/$defs/Granted"
           }
         },
-        "accounts": {
+        "account_types": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its accounts by id, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
+          "description": "What it adds: its account types by type, its accounts by id, its commands, destinations,\noperations, panels, analyzers, checks, providers, services, library sources and themes by\nname, the events it listens for, its export and import formats and its settings' keys."
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "commands": {
           "type": "array",
@@ -30243,6 +30249,7 @@
         "name",
         "version",
         "capabilities",
+        "account_types",
         "accounts",
         "commands",
         "destinations",

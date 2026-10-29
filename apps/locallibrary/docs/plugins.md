@@ -121,6 +121,14 @@ are:
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
 
+- **google-account**: an account plugin, the `google` account type, signed in to through Local
+  Network's token exchange. Its scope `youtube-upload` uploads videos to YouTube.
+- **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
+  token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
+  the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
+  reading from SoundCloud as you.
+
 coverart, musicbrainz, plyr, archive, youtube and mixcloud are the only ones that go online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
 between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to

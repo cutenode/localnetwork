@@ -1,7 +1,8 @@
 //! The plugins locallibrary ships, and the host the CLI, the player and the sidecar run them in
 //! (see [`locallibrary::plugin`]). Only plugins linked into this binary run: each is started as
 //! `locallibrary plugin serve <id>`, a process of its own speaking the plugin protocol over its
-//! stdin and stdout. A plugin whose id or contributions locallibrary couldn't tell from its own
+//! stdin and stdout. An account plugin is its manifest alone, which locallibrary signs in from and
+//! never starts. A plugin whose id or contributions locallibrary couldn't tell from its own
 //! commands, the sidecar's methods or another plugin's is left out (see [`check`]): the command
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
@@ -33,10 +34,11 @@ use params::properties;
 /// Serves a plugin over stdin and stdout until its input closes (the SDK's `serve`).
 type Serve = fn(std::io::Stdin, std::io::Stdout);
 
-/// The plugins linked into locallibrary: each one's manifest (its crate's
-/// `locallibrary-plugin.toml`) and how it serves. build.rs writes it from the folders in
-/// `plugins/`, so adding one is its folder and a dependency on its crate.
-const BUILT_IN: &[(&str, Serve)] = include!(concat!(env!("OUT_DIR"), "/built_in.rs"));
+/// The plugins built into locallibrary: each one's manifest (its `locallibrary-plugin.toml`) and
+/// how it serves, which an account plugin doesn't: locallibrary signs in from its manifest and
+/// never starts it. build.rs writes it from the folders in `plugins/`, so adding one is its folder
+/// and a dependency on its crate, or an account plugin's folder in `plugins/accounts/`.
+const BUILT_IN: &[(&str, Option<Serve>)] = include!(concat!(env!("OUT_DIR"), "/built_in.rs"));
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):
@@ -103,13 +105,13 @@ pub fn left_out() -> &'static [(Manifest, String)] {
 fn load() -> Result<Loaded> {
     // Only the test plugins are added to it, and a release has none.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
-    let mut found: Vec<(String, Serves)> =
-        BUILT_IN.iter().map(|&(m, serve)| (m.into(), Serves::Linked(serve))).collect();
+    let mut found: Vec<(String, Option<Serves>)> =
+        BUILT_IN.iter().map(|&(m, serve)| (m.into(), serve.map(Serves::Linked))).collect();
     #[cfg(debug_assertions)]
     for file in std::env::var_os(TEST_PLUGINS).iter().flat_map(std::env::split_paths) {
         let manifest = std::fs::read_to_string(&file)
             .map_err(|e| Error::Invalid(format!("the test plugin {}: {e}", file.display())))?;
-        found.push((manifest.clone(), Serves::Test(manifest)));
+        found.push((manifest.clone(), Some(Serves::Test(manifest))));
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
     let program = exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
@@ -127,7 +129,9 @@ fn load() -> Result<Loaded> {
         match clash {
             Some(why) => left_out.push((spec.manifest, why)),
             None => {
-                serves.insert(spec.manifest.id.clone(), how);
+                if let Some(how) = how {
+                    serves.insert(spec.manifest.id.clone(), how);
+                }
                 specs.push(spec);
             }
         }
@@ -312,10 +316,17 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
 }
 
 /// `plugin serve <id>`: serves the plugin over stdin and stdout until its input closes, writing
-/// nothing else to stdout.
+/// nothing else to stdout. An account plugin has nothing to serve.
 pub fn serve(id: &str) -> Result<()> {
     let loaded = loaded()?;
-    let serves = loaded.serves.get(id).ok_or_else(|| Error::NotFound(format!("plugin {id:?}")))?;
+    let Some(serves) = loaded.serves.get(id) else {
+        return Err(match loaded.plugins.manifest(id).is_ok_and(Manifest::is_account_plugin) {
+            true => Error::Invalid(format!(
+                "the {id} plugin is an account plugin, which nothing runs: locallibrary signs in from its manifest"
+            )),
+            false => Error::NotFound(format!("plugin {id:?}")),
+        });
+    };
     match serves {
         Serves::Linked(serve) => serve(std::io::stdin(), std::io::stdout()),
         #[cfg(debug_assertions)]
@@ -439,9 +450,10 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its accounts by id, its commands, destinations, operations, panels,
-    /// analyzers, checks, providers, services, library sources and themes by name, the events it
-    /// listens for, its export and import formats and its settings' keys.
+    /// What it adds: its account types by type, its accounts by id, its commands, destinations,
+    /// operations, panels, analyzers, checks, providers, services, library sources and themes by
+    /// name, the events it listens for, its export and import formats and its settings' keys.
+    pub account_types: Vec<String>,
     pub accounts: Vec<String>,
     pub commands: Vec<String>,
     pub destinations: Vec<String>,
@@ -472,6 +484,7 @@ impl Listed {
             name: m.name.clone(),
             version: m.version.clone(),
             capabilities: Granted::all(m),
+            account_types: c.account_types.iter().map(|x| x.name.clone()).collect(),
             accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),

@@ -124,3 +124,46 @@ fn a_plugins_progress_reaches_the_caller_as_it_says(tc: TestCase) {
 fn a_backslash_after_a_string_ended_by_bel_prints() {
     assert_eq!(printable("\u{1b}]0;title\u{7}\\Music"), "\\Music");
 }
+
+/// Reads for a plugin that never starts.
+struct NoReads;
+
+impl Reads for NoReads {
+    fn read(&self, method: &str, _: Value, _: &Ctx<'_>) -> std::result::Result<Value, api::RpcFailure> {
+        unreachable!("never started: {method}")
+    }
+}
+
+/// An account plugin is never started, whatever it would be started as: the host signs in from
+/// its manifest.
+#[test]
+fn an_account_plugin_is_never_started() {
+    let manifest = Manifest::parse(
+        r#"
+        id = "example-account"
+        name = "Example Account"
+        version = "0.1.0"
+        protocol = "^0.2"
+
+        [[contributes.account_types]]
+        type = "example"
+        title = "Example"
+        authorize_url = "https://auth.example/authorize"
+        token_url = "https://auth.example/token"
+        client_id = "demo"
+        whoami = { url = "https://api.example/me", subject = "/id", name = "/name" }
+        "#,
+    )
+    .unwrap();
+    manifest.validate(false).unwrap();
+    let host = Arc::new(Host { reads: Arc::new(NoReads), options: Options::default(), turns: Mutex::default() });
+    // A program that isn't there: starting it would fail otherwise.
+    let launch = Launch { program: "no-such-program".into(), args: Vec::new(), env_remove: Vec::new() };
+    let slot = Arc::new(Slot::new(manifest, launch, host));
+    let Err(e) = slot.start(None) else { panic!("started") };
+    assert_eq!(
+        e.to_string(),
+        "the Example Account plugin is an account plugin, which nothing runs: locallibrary signs in from its manifest"
+    );
+    assert!(!slot.is_running());
+}
