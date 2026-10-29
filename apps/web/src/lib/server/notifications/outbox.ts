@@ -33,6 +33,16 @@ export type ChannelSender = {
 	send(to: Recipient, items: NotificationView[], key: string): Promise<SendOutcome>;
 };
 
+/** What a test message says. */
+const TEST_ITEM: Omit<NotificationView, 'occurredAt'> = {
+	id: 'test',
+	topic: null,
+	title: 'This is a test from Local Network',
+	body: 'Updates from your inbox will look like this.',
+	href: '/dashboard/inbox',
+	read: false
+};
+
 /** How long after it happened something still goes out by email or DM. Older ones (a slow sync) stay on the site. */
 const DELIVER_MS = 6 * 60 * 60_000;
 
@@ -166,6 +176,23 @@ export class Outbox {
 			});
 
 		return this.running;
+	}
+
+	/**
+	 * Sends `did` a test message by `channel` right away, outside the outbox. Returns how it went, or null when the
+	 * channel isn't on and working for them.
+	 */
+	async sendTest(did: string, channel: NotificationChannel): Promise<SendOutcome | null> {
+		const sender = this.deps.senders[channel];
+		const recipient = await this.deps.channels.get(did, channel);
+
+		if (!sender || recipient?.status !== 'active') return null;
+		const outcome = await sender.send(recipient, [{ ...TEST_ITEM, occurredAt: nowIso() }], `test-${TID.nextStr()}`);
+
+		if (outcome.kind === 'rejected') await this.deps.channels.pause(did, channel, outcome.reason);
+		this.deps.logger.info({ did, channel, outcome: outcome.kind }, 'sent a test notification');
+
+		return outcome;
 	}
 
 	/** Waits for a run that's going to finish. */

@@ -231,6 +231,23 @@ describe('Outbox', () => {
 		expect(new Outbox({ db, logger: silentLogger, channels, senders: {} }).configured).toEqual([]);
 	});
 
+	it('sends a test right away to someone with email on, and pauses an address that refuses it', async () => {
+		expect(await outbox.sendTest(neon, 'email')).toEqual(sent);
+		expect(sender.messages).toEqual([
+			{
+				to: expect.objectContaining({ did: neon }),
+				titles: ['This is a test from Local Network'],
+				key: expect.stringMatching(/^test-/)
+			}
+		]);
+		expect(await outbox.sendTest(remy, 'email')).toBeNull();
+
+		sender.outcomes = [{ kind: 'rejected', reason: 'address_rejected', error: 'invalid to' }];
+		expect(await outbox.sendTest(neon, 'email')).toMatchObject({ kind: 'rejected' });
+		expect((await channels.get(neon, 'email'))?.pausedReason).toBe('address_rejected');
+		expect(await outbox.sendTest(neon, 'email')).toBeNull();
+	});
+
 	it('keeps finished deliveries for 30 days', async () => {
 		await message('done');
 		later(2 * MINUTE);

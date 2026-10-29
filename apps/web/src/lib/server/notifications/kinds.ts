@@ -71,6 +71,9 @@ export const KINDS = {
 
 export type NotificationKind = keyof typeof KINDS;
 
+/** The topics some kind is about, which are the ones worth offering a choice of. */
+export const KIND_TOPICS: NotificationTopic[] = [...new Set(Object.values(KINDS).map((kind) => kind.topic))];
+
 /** The data a kind's producer passes, before its schema fills anything in. */
 export type NotificationData<K extends NotificationKind> = z.input<(typeof KINDS)[K]['data']>;
 

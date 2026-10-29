@@ -289,7 +289,10 @@ export async function createApp(options: CreateAppOptions) {
 		limits: {
 			login: new RateLimiter(10, 10 / 60),
 			write: new RateLimiter(30, 30 / 60),
-			search: new RateLimiter(60, 2)
+			search: new RateLimiter(60, 2),
+			/** Turning email or DMs on, or checking again, which asks other services each time. */
+			optIn: new RateLimiter(5, 5 / 600),
+			testSend: new RateLimiter(3, 3 / 3600)
 		},
 
 		/**

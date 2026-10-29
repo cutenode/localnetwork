@@ -83,6 +83,7 @@ export class LogEmailSender implements EmailSender {
 /** A batch of inbox items as one email, with a link to turn email off. */
 export function renderEmail(items: NotificationView[], to: Recipient & { address: string }, publicUrl: string): Email {
 	const inbox = `${publicUrl}/dashboard/inbox`;
+	const settings = `${publicUrl}/dashboard/inbox/settings`;
 	const unsubscribe = `${publicUrl}/notifications/unsubscribe?t=${encodeURIComponent(to.unsubscribeToken ?? '')}`;
 	const subject = items.length === 1 ? items[0].title : `${items.length} new things in your Local Network inbox`;
 	const line = (item: NotificationView) => [item.title, item.body].filter(Boolean).join(': ');
@@ -90,6 +91,7 @@ export function renderEmail(items: NotificationView[], to: Recipient & { address
 	const text = [
 		...items.map((item) => `${line(item)}\n${publicUrl}${item.href}`),
 		`Your inbox: ${inbox}`,
+		`What gets emailed: ${settings}`,
 		`Turn these emails off: ${unsubscribe}`
 	].join('\n\n');
 
@@ -98,7 +100,7 @@ export function renderEmail(items: NotificationView[], to: Recipient & { address
 	const html = [
 		'<div style="font-family: system-ui, sans-serif; line-height: 1.5">',
 		...items.map((item) => `<p>${link(`${publicUrl}${item.href}`, line(item))}</p>`),
-		`<p style="color: #666; font-size: 13px">${link(inbox, 'Your inbox')} · ${link(unsubscribe, 'Turn these emails off')}</p>`,
+		`<p style="color: #666; font-size: 13px">${link(inbox, 'Your inbox')} · ${link(settings, 'What gets emailed')} · ${link(unsubscribe, 'Turn these emails off')}</p>`,
 		'</div>'
 	].join('\n');
 

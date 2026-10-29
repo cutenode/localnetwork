@@ -24,7 +24,9 @@
 </script>
 
 {#if items.length === 0}
-	<EmptyState title="Nothing yet" body="Booking inquiries and messages show up here." />
+	<EmptyState title="Nothing yet" body="Booking inquiries and messages show up here.">
+		<a href="/dashboard/inbox/settings" class="text-small">Get them by email too</a>
+	</EmptyState>
 {:else}
 	<ol class="card m-0 list-none divide-y divide-line overflow-hidden p-0">
 		{#each items as item (item.id)}

@@ -249,6 +249,25 @@ describe('NotificationChannels', () => {
 		expect(await email()).toMatchObject({ status: 'paused', address: null });
 	});
 
+	it('shows the setting for the settings page, and narrows what it sends to the topics picked', async () => {
+		expect(await channels.view(neon, 'email')).toBeNull();
+		await signIn(confirmed('neon@example.test'), { optIn: true });
+		await channels.confirmEmail(links[0].token);
+
+		await channels.setTopics(neon, 'email', ['events', 'bookings']);
+		expect(await channels.view(neon, 'email')).toEqual({
+			status: 'active',
+			pausedReason: null,
+			address: 'neon@example.test',
+			topics: ['bookings', 'events']
+		});
+
+		await channels.setTopics(neon, 'email', []);
+		expect((await channels.view(neon, 'email'))?.topics).toEqual([]);
+		await channels.disable(neon, 'email');
+		expect(await channels.view(neon, 'email')).toBeNull();
+	});
+
 	it('turns email off from its unsubscribe link once, forgetting the address', async () => {
 		await signIn(confirmed('neon@example.test'), { optIn: true });
 		const token = (await email())?.unsubscribeToken ?? '';

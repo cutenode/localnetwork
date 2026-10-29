@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { NotificationChannel, NotificationTopic, PausedReason } from '#lib/types.ts';
+import type { ChannelView, NotificationChannel, NotificationTopic, PausedReason } from '#lib/types.ts';
 import { grantsEmail } from '../atproto/oauth';
-import { type Db, nowIso } from '../db';
+import { type Db, nowIso, parseJson } from '../db';
 import type { NotificationChannelRow } from '../db/schema';
 import type { Logger } from '../logger';
 import type { RateLimiter } from '../rate-limit';
@@ -57,6 +57,31 @@ export class NotificationChannels {
 			.where('did', '=', did)
 			.where('channel', '=', channel)
 			.executeTakeFirst();
+	}
+
+	/** `did`'s setting for `channel` as the settings page shows it, or null when it's off. */
+	async view(did: string, channel: NotificationChannel): Promise<ChannelView | null> {
+		const row = await this.get(did, channel);
+
+		if (!row) return null;
+		const topics = new Set(parseJson<string[]>(row.topics, []));
+
+		return {
+			status: row.status,
+			pausedReason: row.pausedReason,
+			address: row.address,
+			topics: TOPICS.filter((topic) => topics.has(topic))
+		};
+	}
+
+	/** Sends `channel` only `topics` from now on. */
+	async setTopics(did: string, channel: NotificationChannel, topics: NotificationTopic[]): Promise<void> {
+		await this.deps.db
+			.updateTable('notificationChannel')
+			.set({ topics: JSON.stringify(TOPICS.filter((topic) => topics.includes(topic))), updatedAt: nowIso() })
+			.where('did', '=', did)
+			.where('channel', '=', channel)
+			.execute();
 	}
 
 	/**

@@ -326,6 +326,14 @@ export type NotificationChannel = 'email';
 /** Why a channel stopped sending, which the settings page explains. */
 export type PausedReason = 'address_rejected' | 'email_unconfirmed' | 'email_unverified';
 
+/** One person's setting for a channel, as the settings page shows it. */
+export type ChannelView = {
+	status: 'active' | 'paused';
+	pausedReason: PausedReason | null;
+	address: string | null;
+	topics: NotificationTopic[];
+};
+
 /** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
 export type NotificationView = {
 	id: string;
