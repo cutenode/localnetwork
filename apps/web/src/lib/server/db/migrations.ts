@@ -216,7 +216,11 @@ const epkDrafts = statements(
 	`CREATE INDEX epk_draft_space ON epk_draft (space_uri, epk_rkey)`
 );
 
-/** People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of. */
+/**
+ * People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of; how each person wants
+ * them sent on by email or DM (notifications/channels.ts); and the outbox of what's waiting to go
+ * (notifications/outbox.ts).
+ */
 const inbox = statements(
 	`CREATE TABLE notification (
 		id TEXT PRIMARY KEY,
@@ -233,11 +237,7 @@ const inbox = statements(
 	)`,
 	`CREATE INDEX notification_recipient ON notification (recipient_did, occurred_at DESC, id DESC)`,
 	// The unread badge counts these on every dashboard page.
-	`CREATE INDEX notification_unread ON notification (recipient_did) WHERE read_at IS NULL`
-);
-
-/** How each person wants the inbox sent on by email (and later DM), and the outbox of what's waiting to go. */
-const delivery = statements(
+	`CREATE INDEX notification_unread ON notification (recipient_did) WHERE read_at IS NULL`,
 	`CREATE TABLE notification_channel (
 		did TEXT NOT NULL,
 		channel TEXT NOT NULL,
@@ -250,6 +250,9 @@ const delivery = statements(
 		last_sent_at TEXT,
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL,
+		confirm_token_hash TEXT,
+		confirm_address_hash TEXT,
+		confirm_expires_at TEXT,
 		PRIMARY KEY (did, channel)
 	)`,
 	`CREATE TABLE notification_delivery (
@@ -301,24 +304,6 @@ const migrations = {
 	'007_inbox': {
 		async up(db) {
 			for (const statement of inbox) await sql.raw(statement).execute(db);
-		}
-	},
-	'008_notification_delivery': {
-		async up(db) {
-			for (const statement of delivery) await sql.raw(statement).execute(db);
-		}
-	},
-	// The link that confirms an email address is theirs, which the site checks itself rather than trusting the host.
-	'009_email_confirmation': {
-		async up(db) {
-			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_token_hash TEXT').execute(db);
-			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_expires_at TEXT').execute(db);
-		}
-	},
-	// Which address a confirmation link went to, so it can't confirm another.
-	'010_confirm_address': {
-		async up(db) {
-			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_address_hash TEXT').execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;
