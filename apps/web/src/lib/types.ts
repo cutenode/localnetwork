@@ -324,7 +324,7 @@ export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
 export type NotificationChannel = 'email';
 
 /** Why a channel stopped sending, which the settings page explains. */
-export type PausedReason = 'address_rejected' | 'email_unconfirmed';
+export type PausedReason = 'address_rejected' | 'email_unconfirmed' | 'email_unverified';
 
 /** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
 export type NotificationView = {

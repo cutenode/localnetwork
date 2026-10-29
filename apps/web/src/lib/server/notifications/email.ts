@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { NotificationView } from '#lib/types.ts';
 import type { Logger } from '../logger';
@@ -102,6 +103,41 @@ export function renderEmail(items: NotificationView[], to: Recipient & { address
 	].join('\n');
 
 	return { to: to.address, subject, text, html, headers: { 'List-Unsubscribe': `<${unsubscribe}>` } };
+}
+
+/**
+ * Sends the one email that confirms an address is theirs, with a link carrying `token`. It says nothing else, and
+ * nothing more goes to the address until the link is opened. A failure is only logged; turning email on again sends a
+ * new link.
+ */
+export function confirmationSender(
+	sender: EmailSender,
+	publicUrl: string,
+	logger: Logger
+): (address: string, token: string) => Promise<void> {
+	return async (address, token) => {
+		const url = `${publicUrl}/notifications/confirm?t=${encodeURIComponent(token)}`;
+
+		const text = [
+			'Open this link to get your Local Network inbox by email:',
+			url,
+			"It works for a day. If you didn't ask for this, ignore this email and we won't send another."
+		].join('\n\n');
+
+		const html = [
+			'<div style="font-family: system-ui, sans-serif; line-height: 1.5">',
+			`<p><a href="${escapeHtml(url)}">Get your Local Network inbox by email</a></p>`,
+			`<p style="color: #666; font-size: 13px">The link works for a day. If you didn't ask for this, ignore this email and we won't send another.</p>`,
+			'</div>'
+		].join('\n');
+
+		const key = `confirm-${createHash('sha256').update(token).digest('hex')}`;
+		const subject = 'Confirm your email for Local Network';
+		const outcome = await sender.send({ to: address, subject, text, html, headers: {} }, key);
+
+		if (outcome.kind !== 'sent')
+			logger.warn({ outcome: outcome.kind, error: outcome.error }, 'could not send an email confirmation');
+	};
 }
 
 /** Email as an outbox channel: items wait two minutes for others, so a burst of replies is one email. */

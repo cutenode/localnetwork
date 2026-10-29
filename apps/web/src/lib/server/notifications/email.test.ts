@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NotificationView } from '#lib/types.ts';
 import { silentLogger } from '../logger';
-import { emailChannel, LogEmailSender, renderEmail, ResendEmailSender } from './email';
+import { confirmationSender, type Email, emailChannel, LogEmailSender, renderEmail, ResendEmailSender } from './email';
 
 const item = (title: string, overrides: Partial<NotificationView> = {}): NotificationView => ({
 	id: title,
@@ -115,5 +115,37 @@ describe('emailChannel', () => {
 			kind: 'rejected',
 			reason: 'email_unconfirmed'
 		});
+	});
+});
+
+describe('confirmationSender', () => {
+	it('emails just the link that confirms the address, once per link, and only logs a failure', async () => {
+		const sent: { email: Email; key: string }[] = [];
+
+		const confirm = confirmationSender(
+			{
+				send: async (email, key) => {
+					sent.push({ email, key });
+
+					return sent.length > 1 ? { kind: 'failed', error: 'down' } : { kind: 'sent', providerId: null };
+				}
+			},
+			'https://localnetwork.computer',
+			silentLogger
+		);
+
+		await confirm('neon@example.test', 'a+b');
+		await confirm('neon@example.test', 'c');
+
+		const [{ email, key }] = sent;
+		expect(email).toMatchObject({
+			to: 'neon@example.test',
+			subject: 'Confirm your email for Local Network',
+			headers: {}
+		});
+		expect(email.text).toContain('https://localnetwork.computer/notifications/confirm?t=a%2Bb');
+		expect(email.text).not.toContain('unsubscribe');
+		expect(key).toMatch(/^confirm-[0-9a-f]{64}$/);
+		expect(sent[1].key).not.toBe(key);
 	});
 });

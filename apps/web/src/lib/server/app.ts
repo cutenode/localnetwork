@@ -22,7 +22,7 @@ import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
 import { NotificationChannels } from './notifications/channels';
-import { emailChannel, LogEmailSender, ResendEmailSender } from './notifications/email';
+import { confirmationSender, emailChannel, LogEmailSender, ResendEmailSender } from './notifications/email';
 import { Notifier } from './notifications/notifier';
 import { Outbox } from './notifications/outbox';
 import { RateLimiter } from './rate-limit';
@@ -92,7 +92,6 @@ export async function createApp(options: CreateAppOptions) {
 		maxAttempts: config.auditMaxAttempts
 	});
 
-	const notificationChannels = new NotificationChannels({ db, logger: logger.child({ component: 'notifications' }) });
 	const { email } = config;
 
 	const emailSender =
@@ -101,6 +100,15 @@ export async function createApp(options: CreateAppOptions) {
 			: email.provider === 'log'
 				? new LogEmailSender(logger.child({ component: 'email' }))
 				: null;
+
+	const notificationChannels = new NotificationChannels({
+		db,
+		logger: logger.child({ component: 'notifications' }),
+		sendConfirmation: emailSender
+			? confirmationSender(emailSender, config.publicUrl, logger.child({ component: 'email' }))
+			: undefined,
+		confirmLimit: new RateLimiter(3, 3 / 3600)
+	});
 
 	const outbox = new Outbox({
 		db,

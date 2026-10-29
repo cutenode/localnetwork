@@ -4,19 +4,11 @@ import { z } from 'zod';
 import { grantsPublicRecords, grantsSpaces } from '#lib/server/atproto/oauth.ts';
 import { AgentRepoClient } from '#lib/server/atproto/repo-client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
-import { safeNext } from '#lib/server/http.ts';
+import { safeNext, withQuery } from '#lib/server/http.ts';
 import type { RequestHandler } from './$types';
 
 /** The app state the login action passes through `authorize`, and what the sign-in was for when it asked for more. */
 const loginState = z.object({ next: z.string().optional(), intent: z.enum(['email']).optional() });
-
-/** `path` with `name=value` added to its query. */
-const withParam = (path: string, name: string, value: string) => {
-	const url = new URL(path, 'http://same.site');
-	url.searchParams.set(name, value);
-
-	return url.pathname + url.search;
-};
 
 export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { app, log } = locals;
@@ -61,7 +53,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			session: async () => (await new Agent(session).com.atproto.server.getSession()).data
 		});
 
-		if (email === 'declined') next = withParam(next, 'email', 'declined');
+		if (email === 'declined') next = withQuery(next, { email: 'declined' });
 		const previous = cookies.get(SESSION_COOKIE);
 
 		if (previous) await app.sessions.destroy(previous);

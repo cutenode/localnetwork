@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationView } from '#lib/types.ts';
 import { type Db, openDatabase } from '../db';
 import { silentLogger } from '../logger';
+import { RateLimiter } from '../rate-limit';
 import { NotificationChannels } from './channels';
 import { Notifier, type NotifyInput } from './notifier';
 import { type ChannelSender, Outbox, type Recipient, type SendOutcome } from './outbox';
@@ -54,18 +55,35 @@ describe('Outbox', () => {
 	const statuses = async () =>
 		(await db.selectFrom('notificationDelivery').select('status').orderBy('id').execute()).map((row) => row.status);
 
-	/** Turns email on for `did`, as signing in with the permission does. */
-	const optIn = (did: string, session = { email: `${did.split(':').at(-1)}@example.test`, emailConfirmed: true }) =>
-		channels.onSignIn({ did, scope: 'atproto account:email', optIn: true, session: async () => session });
+	/** Turns email on for `did`, as signing in with the permission and opening the confirmation link do. */
+	const optIn = async (did: string) => {
+		const email = `${did.split(':').at(-1)}@example.test`;
+		let link = '';
+
+		channels = new NotificationChannels({
+			db,
+			logger: silentLogger,
+			sendConfirmation: async (_address, token) => {
+				link = token;
+			},
+			confirmLimit: new RateLimiter(1, 1)
+		});
+		await channels.onSignIn({
+			did,
+			scope: 'atproto account:email',
+			optIn: true,
+			session: async () => ({ email, emailConfirmed: true })
+		});
+		await channels.confirmEmail(link);
+	};
 
 	beforeEach(async () => {
 		vi.useFakeTimers({ toFake: ['Date'] });
 		db = await openDatabase(':memory:');
-		channels = new NotificationChannels({ db, logger: silentLogger });
+		await optIn(neon);
 		sender = new FakeSender();
 		outbox = new Outbox({ db, logger: silentLogger, channels, senders: { email: sender }, maxAttempts: 3 });
 		inbox = new Notifier({ db, logger: silentLogger, outbox });
-		await optIn(neon);
 	});
 
 	afterEach(async () => {

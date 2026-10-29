@@ -298,6 +298,9 @@ export interface NotificationChannelTable {
 	lastSentAt: string | null;
 	createdAt: string;
 	updatedAt: string;
+	/** SHA-256 of the single-use link that confirms `address`, while it waits to be opened. */
+	confirmTokenHash: string | null;
+	confirmExpiresAt: string | null;
 }
 
 /** One inbox item on its way out by one channel (notifications/outbox.ts). */

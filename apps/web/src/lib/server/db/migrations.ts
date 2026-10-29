@@ -307,6 +307,13 @@ const migrations = {
 		async up(db) {
 			for (const statement of delivery) await sql.raw(statement).execute(db);
 		}
+	},
+	// The link that confirms an email address is theirs, which the site checks itself rather than trusting the host.
+	'009_email_confirmation': {
+		async up(db) {
+			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_token_hash TEXT').execute(db);
+			await sql.raw('ALTER TABLE notification_channel ADD COLUMN confirm_expires_at TEXT').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
