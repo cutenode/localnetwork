@@ -104,7 +104,7 @@ const LOWEST_PORT: u16 = 1024;
 /// `url` as the host's HTTP client reads it, when an account's endpoint may be there: https, or
 /// http on this computer for a test server (which the host reaches only in tests), with no user
 /// name or password.
-fn endpoint(url: &str) -> Option<Url> {
+pub(crate) fn endpoint(url: &str) -> Option<Url> {
     let plain = !url.chars().any(|c| c.is_whitespace() || c.is_control());
     let parsed = Url::parse(url).ok().filter(|u| plain && u.username().is_empty() && u.password().is_none())?;
     let this_computer = match parsed.host()? {
@@ -140,52 +140,84 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
         let at = format!("{at}[{i}]");
         shown(format!("{at}.title"), &x.title)?;
         shown(format!("{at}.client_id"), &x.client_id)?;
-        let urls = [("authorize_url", Some(&x.authorize_url)), ("token_url", x.token_url.as_ref())];
-        for (key, url) in urls.into_iter().chain([("revoke_url", x.revoke_url.as_ref())]) {
-            if let Some(url) = url.filter(|u| endpoint(u).is_none()) {
-                return Err(invalid(
-                    format!("{at}.{key}"),
-                    format!("{url:?} isn't an https:// address without a user name or password"),
-                ));
-            }
-        }
-        match (&x.token_url, &x.token_exchange) {
-            (None, None) => return Err(invalid(format!("{at}.token_url"), "is missing, and so is token_exchange")),
-            (Some(_), Some(_)) => {
-                return Err(invalid(format!("{at}.token_exchange"), "goes in token_url's place, not beside it"));
-            }
-            (None, Some(url)) if !is_exchange(url) => {
-                let why =
-                    format!("{url:?} isn't Local Network's token exchange ({EXCHANGE_ORIGIN}{EXCHANGE_PATH}<service>)");
-                return Err(invalid(format!("{at}.token_exchange"), why));
-            }
-            _ => {}
-        }
+        let urls = [
+            ("authorize_url", Some(x.authorize_url.as_str())),
+            ("token_url", x.token_url.as_deref()),
+            ("revoke_url", x.revoke_url.as_deref()),
+        ];
+        endpoints(&at, urls)?;
+        token_endpoint(&at, x.token_url.as_deref(), x.token_exchange.as_deref())?;
         if let Some((j, scope)) = x.scopes.iter().enumerate().find(|(_, s)| s.is_empty() || s.contains(' ')) {
             return Err(invalid(format!("{at}.scopes[{j}]"), format!("{scope:?} isn't a scope: a word, no spaces")));
         }
         if !x.pkce {
             return Err(invalid(format!("{at}.pkce"), "is true: locallibrary signs in with PKCE only"));
         }
-        // A scheme is an HTTP token (RFC 9110); a parameter's name is kept to what no query has to
-        // escape, so the request names it as the service does.
-        let (key, name, allowed, rule) = match &x.token {
-            TokenPlace::Scheme(s) => ("scheme", s, "!#$%&'*+-.^_`|~", "a scheme: one word, like Bearer or OAuth"),
-            TokenPlace::Query(q) => ("query", q, "-._~", "a query parameter's name: letters, digits, -, ., _ and ~"),
-        };
-        let fits =
-            !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || allowed.as_bytes().contains(&b));
-        if !fits {
-            return Err(invalid(format!("{at}.token.{key}"), format!("{name:?} isn't {rule}")));
-        }
-        if let Some(port) = x.redirect_port.filter(|p| *p < LOWEST_PORT) {
-            let why = format!("is {LOWEST_PORT} or more: {port} is a system service's");
-            return Err(invalid(format!("{at}.redirect_port"), why));
-        }
+        token_place(&at, &x.token)?;
+        redirect_port(&at, x.redirect_port)?;
     }
     if !c.accounts.is_empty() && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))) {
         let message = "goes into net/fetch requests, which needs a net:<host> capability";
         return Err(invalid(format!("{at}[0]"), message));
     }
     Ok(())
+}
+
+/// Each of `urls` (`at.key`), where it's given, an [`endpoint`].
+pub(crate) fn endpoints<'a>(
+    at: &str,
+    urls: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> Result<(), ManifestError> {
+    for (key, url) in urls {
+        if let Some(url) = url.filter(|u| endpoint(u).is_none()) {
+            let why = format!("{url:?} isn't an https:// address without a user name or password");
+            return Err(invalid(format!("{at}.{key}"), why));
+        }
+    }
+    Ok(())
+}
+
+/// Tokens (at `at`) traded at one place: `token_url`, or `token_exchange` when that's Local
+/// Network's token exchange.
+pub(crate) fn token_endpoint(
+    at: &str,
+    token_url: Option<&str>,
+    token_exchange: Option<&str>,
+) -> Result<(), ManifestError> {
+    match (token_url, token_exchange) {
+        (None, None) => Err(invalid(format!("{at}.token_url"), "is missing, and so is token_exchange")),
+        (Some(_), Some(_)) => Err(invalid(format!("{at}.token_exchange"), "goes in token_url's place, not beside it")),
+        (None, Some(url)) if !is_exchange(url) => {
+            let why =
+                format!("{url:?} isn't Local Network's token exchange ({EXCHANGE_ORIGIN}{EXCHANGE_PATH}<service>)");
+            Err(invalid(format!("{at}.token_exchange"), why))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `token` (at `at.token`) a place a request can name it: a scheme is an HTTP token (RFC 9110); a
+/// parameter's name is kept to what no query has to escape, so the request names it as the
+/// service does.
+pub(crate) fn token_place(at: &str, token: &TokenPlace) -> Result<(), ManifestError> {
+    let (key, name, allowed, rule) = match token {
+        TokenPlace::Scheme(s) => ("scheme", s, "!#$%&'*+-.^_`|~", "a scheme: one word, like Bearer or OAuth"),
+        TokenPlace::Query(q) => ("query", q, "-._~", "a query parameter's name: letters, digits, -, ., _ and ~"),
+    };
+    let fits = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || allowed.as_bytes().contains(&b));
+    match fits {
+        true => Ok(()),
+        false => Err(invalid(format!("{at}.token.{key}"), format!("{name:?} isn't {rule}"))),
+    }
+}
+
+/// `port` (at `at.redirect_port`), where it's given, one a program may listen on.
+pub(crate) fn redirect_port(at: &str, port: Option<u16>) -> Result<(), ManifestError> {
+    match port.filter(|p| *p < LOWEST_PORT) {
+        Some(port) => {
+            let why = format!("is {LOWEST_PORT} or more: {port} is a system service's");
+            Err(invalid(format!("{at}.redirect_port"), why))
+        }
+        None => Ok(()),
+    }
 }
