@@ -30,10 +30,13 @@ fn allows(scopes: &[&str]) -> String {
     }
     match (publishes, reports) {
         (false, false) => "knows who you are; can't post or change anything".into(),
-        (true, false) => "can publish your My Settings, profile and sets; can't post or change anything else".into(),
+        (true, false) => {
+            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"
+                .into()
+        }
         (false, true) => "can post bug reports; can't post or change anything else".into(),
-        (true, true) => "can publish your My Settings, profile and sets and post bug reports; can't post or change \
-                         anything else"
+        (true, true) => "can publish your My Settings, profile, sets and their recordings and post bug reports; \
+                         can't post or change anything else"
             .into(),
     }
 }

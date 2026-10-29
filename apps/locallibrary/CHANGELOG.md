@@ -406,6 +406,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   set keeps both, and its record names the link and points to that record as `recording`, a field
   the set Lexicon gains. Signed in, `sets publish SET --to` offers to publish the set's record next, in the same
   run (`--dry-run`, `--yes` and `--json` cover both).
+- **A set's recording on your own account.** `sets publish SET --upload` uploads the set's
+  recording to your Atmosphere account and publishes it as a `computer.localnetwork.dj.recording`
+  record, a new Lexicon, then the set's record pointing to it, after one question. ffmpeg encodes a
+  recording browsers can't play, or one too big for the data server, as AAC in an M4A file (128
+  kbit/s, or down to 64 to fit 300 MiB, or `--max-mib`). The file is read as it's sent, and a server
+  that refuses its size says so. Publishing's sign-in now also asks for `blob:audio/*`, and its
+  permission set covers the new record type.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

@@ -1,5 +1,6 @@
 //! What locallibrary publishes to a DJ's Atmosphere account, as AT Protocol records: My Settings
-//! ([`settings_record`]), the public profile ([`profile_record`]) and sets ([`set_record`]).
+//! ([`settings_record`]), the public profile ([`profile_record`]), sets ([`set_record`]) and their
+//! recordings ([`recording`]).
 //!
 //! Each record fits its Lexicon ([`crate::atmosphere::lexicon`]). Everything in an account's
 //! repository is public and copied around the network, so records only carry what the DJ chose
@@ -33,6 +34,8 @@ use crate::profile::{Count, DocShare, ProfileDocument};
 use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
+
+pub mod recording;
 
 pub use crate::profile::camel;
 

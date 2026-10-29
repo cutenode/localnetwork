@@ -9712,7 +9712,7 @@
         },
         "publish": {
           "type": "boolean",
-          "description": "Also allow publishing: writing the My Settings, profile and set records to the account\n([`atmosphere::PUBLISH_SCOPES`]), and nothing else.",
+          "description": "Also allow publishing: writing the My Settings, profile, set and recording records to the\naccount ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings\n([`atmosphere::UPLOAD_SCOPE`]), and nothing else.",
           "default": false
         }
       }

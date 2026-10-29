@@ -518,8 +518,10 @@ pub mod account {
     pub use crate::session::DID;
     use crate::session::{session_json, sign_in_as};
 
-    /// What a sign-in that allows publishing asks for: locallibrary's permission set.
-    pub const PUBLISHING: [&str; 2] = ["atproto", "include:computer.localnetwork.locallibraryPublishing"];
+    /// What a sign-in that allows publishing asks for: locallibrary's permission set, and to upload
+    /// audio files.
+    pub const PUBLISHING: [&str; 3] =
+        ["atproto", "include:computer.localnetwork.locallibraryPublishing", "blob:audio/*"];
 
     /// A P-256 key made for these tests: it signs nothing but proofs sent to the pretend server.
     pub fn test_key() -> Value {

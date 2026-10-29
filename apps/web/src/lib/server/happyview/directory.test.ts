@@ -340,6 +340,58 @@ describe('set record script', () => {
 	});
 });
 
+describe('recording record script', () => {
+	const AUDIO = {
+		$type: 'blob',
+		ref: { $link: 'bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku' },
+		mimeType: 'audio/mp4',
+		size: 125_000_000
+	};
+
+	it("keeps every account's recordings with only what the site plays them by, and removes a deleted one", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const createdAt = '2026-10-01T00:00:00.000Z';
+
+		const recording = (rkey: string, record: JsonObject) =>
+			ingest(hv, 'did:plc:anyone', COLLECTION.djRecording, rkey, record);
+
+		const kept = await recording('3kept', {
+			audio: AUDIO,
+			durationSeconds: 7_200,
+			createdAt,
+			title: 'not in the lexicon'
+		});
+
+		const unmeasured = await recording('3unmeasured', { audio: AUDIO, durationSeconds: 0, createdAt });
+
+		const skipped = [
+			await recording('3link', { audio: 'https://mixes.test/one.m4a', createdAt }),
+			await recording('3unlinked', { audio: { ...AUDIO, ref: {} }, createdAt }),
+			await recording('3negative', { audio: { ...AUDIO, size: -1 }, createdAt }),
+			await recording('3silent', { createdAt })
+		];
+
+		const uris = [kept, unmeasured, ...skipped].map(({ uri }) => uri);
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { audio: AUDIO, durationSeconds: 7_200, createdAt } },
+			{ ...unmeasured, value: { audio: AUDIO, createdAt } }
+		]);
+		expect(hv.logs).toEqual(skipped.map(({ uri }) => `skipped ${uri}: no audio blob`));
+
+		await hv.ingest({
+			did: 'did:plc:anyone',
+			collection: COLLECTION.djRecording,
+			rkey: '3kept',
+			cid: '',
+			record: null
+		});
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...unmeasured, value: { audio: AUDIO, createdAt } }
+		]);
+	});
+});
+
 describe('getSets and listSets', () => {
 	it('returns sets in the order asked for, once each, without unknown ones', async () => {
 		const hv = new FakeHappyView(ROOT);
