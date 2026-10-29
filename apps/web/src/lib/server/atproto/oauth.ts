@@ -2,6 +2,7 @@ import { Agent } from '@atproto/api';
 import {
 	buildAtprotoLoopbackClientMetadata,
 	NodeOAuthClient,
+	OAuthCallbackError,
 	type NodeSavedSession,
 	type NodeSavedState,
 	type OAuthClientMetadataInput,
@@ -283,6 +284,20 @@ export class OAuthService {
 		const info = await session.getTokenInfo(false);
 
 		return { session, state, scope: info.scope };
+	}
+
+	/**
+	 * The app state an authorization was started with, for one that came back with an error such as the user
+	 * declining, so the app can send them back where it started. Undefined when the client doesn't know it.
+	 */
+	async failedState(params: URLSearchParams): Promise<string | undefined> {
+		try {
+			await this.client.callback(params);
+		} catch (error) {
+			if (error instanceof OAuthCallbackError) return error.state;
+		}
+
+		return undefined;
 	}
 
 	async restore(did: string): Promise<OAuthSession | null> {

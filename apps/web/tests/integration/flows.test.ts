@@ -1,4 +1,5 @@
 import { Agent } from '@atproto/api';
+import { isRedirect } from '@sveltejs/kit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
 import { ACCESS_PRESETS, type EpkFields } from '../../src/lib/epk.ts';
@@ -30,6 +31,7 @@ import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+pa
 import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
 import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
+import { GET as oauthCallback } from '../../src/routes/oauth/callback/+server.ts';
 import { POST as requestIndex } from '../../src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
@@ -982,6 +984,23 @@ describe('Local Network on a real atproto spaces network', () => {
 		await net.signInWithOAuth('sol');
 		expect(await holdsEmail()).toBe(true);
 		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
+	});
+
+	it('brings someone who turns down sharing their email back to the settings, and anyone else to sign-in', async () => {
+		const callback = async (url: URL) => {
+			try {
+				await oauthCallback({ url, locals: { app: net.app, log: silentLogger } });
+			} catch (thrown) {
+				return isRedirect(thrown) ? thrown.location : thrown;
+			}
+		};
+
+		const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+		const declined = await net.declineOAuth('sol', { optional: 'email', state });
+		expect(declined.searchParams.get('error')).toBe('access_denied');
+		expect(await callback(declined)).toBe('/dashboard/inbox/settings?email=declined');
+
+		expect(await callback(await net.declineOAuth('sol'))).toBe('/login?error=denied');
 	});
 
 	it('files on behalf of accounts whose PDS lacks spaces support, and says so in the audit log', async () => {

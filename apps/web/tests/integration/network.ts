@@ -16,7 +16,7 @@ import type { Viewer } from '../../src/lib/types.ts';
 export type TestUser = { did: string; handle: string; client: RepoClient; agent: AtpAgent };
 
 /** What a test sign-in asks for besides the app's own sign-in: other scopes `requested` instead, or `extra` ones too. */
-type ScopeRequest = { requested?: string; optional?: OptionalScope };
+type ScopeRequest = { requested?: string; optional?: OptionalScope; state?: string };
 
 /**
  * A real atproto network: in-process, a PLC directory and an alpha PDS with
@@ -116,10 +116,22 @@ export class TestNetwork {
 	 * of the optional scopes too, as opting in does. Returns the granted scope.
 	 */
 	async signInWithOAuth(name: string, approve?: string, scopes: ScopeRequest = {}): Promise<string> {
-		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, scopes);
+		const user = this.user(name);
+		const api = await authorizationScreen(this.app, user, `${name}-password`, scopes);
+		// Consent answers with the redirect back to the app's callback.
+		const { url } = z.object({ url: z.string() }).parse(await api('/consent', { did: user.did, scope: approve }));
+		const { scope } = await this.app.oauth.callback(new URL(url).searchParams);
+		user.client = (await this.app.oauth.repoClient(user.did))!;
 		await this.recordLogin(name, scope);
 
 		return scope;
+	}
+
+	/** Has a user turn down an authorization at their PDS, returning where it sends them back to on the app. */
+	async declineOAuth(name: string, scopes: ScopeRequest = {}): Promise<URL> {
+		const api = await authorizationScreen(this.app, this.user(name), `${name}-password`, scopes);
+
+		return new URL(z.object({ url: z.string() }).parse(await api('/reject', {})).url);
 	}
 
 	private recordLogin(name: string, grantedScope: string): Promise<void> {
@@ -170,20 +182,18 @@ export class TestNetwork {
 }
 
 /**
- * Signs a user in through the app's OAuth client by calling the PDS's sign-in and consent API the
- * way its authorization page does in a browser, then swaps their client for the OAuth session.
- * Returns the granted scope.
+ * Starts an authorization through the app's OAuth client and signs the user in at the PDS by calling the API its
+ * authorization page calls in a browser. Returns that API, for answering the consent screen.
  */
-async function signInWithOAuth(
+async function authorizationScreen(
 	app: App,
 	user: TestUser,
 	password: string,
-	approve?: string,
-	{ requested, optional }: ScopeRequest = {}
-): Promise<string> {
+	{ requested, optional, state = '{}' }: ScopeRequest = {}
+): Promise<(endpoint: string, body: JsonObject) => Promise<JsonValue>> {
 	const page = requested
-		? await app.oauth.client.authorize(user.handle, { scope: requested, state: '{}' })
-		: await app.oauth.authorize(user.handle, '{}', { account: await app.accounts.get(user.did), optional });
+		? await app.oauth.client.authorize(user.handle, { scope: requested, state })
+		: await app.oauth.authorize(user.handle, state, { account: await app.accounts.get(user.did), optional });
 
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);
@@ -235,10 +245,6 @@ async function signInWithOAuth(
 	};
 
 	await api('/sign-in', { locale: 'en', username: user.handle, password, remember: true });
-	// Consent answers with the redirect back to the app's callback.
-	const { url } = z.object({ url: z.string() }).parse(await api('/consent', { did: user.did, scope: approve }));
-	const { scope } = await app.oauth.callback(new URL(url).searchParams);
-	user.client = (await app.oauth.repoClient(user.did))!;
 
-	return scope;
+	return api;
 }
