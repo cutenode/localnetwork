@@ -19,12 +19,18 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 const hashAddress = (address: string) => createHash('sha256').update(address.toLowerCase()).digest('hex');
 
 /**
- * Limits on confirmation emails, so the site can't be used to flood an address: per account and address, per address
- * across every account, and overall. Nothing holds an address for whoever asked first, so someone claiming another
+ * Limits on confirmation emails, so the site can't be used to flood an address: per account, so one account changing
+ * its address can't spend the overall allowance; per account and address; per address across every account; and
+ * overall. Nothing holds an address for whoever asked first, so someone claiming another
  * person's address can't keep them from confirming it; the most they can do is use up the address's allowance, which
  * blocks its owner for a day at worst, while the same allowance caps what the address gets.
  */
-export type ConfirmLimits = { accountAddress: RateLimiter; address: RateLimiter; all: RateLimiter };
+export type ConfirmLimits = {
+	account: RateLimiter;
+	accountAddress: RateLimiter;
+	address: RateLimiter;
+	all: RateLimiter;
+};
 
 /** What a session's `com.atproto.server.getSession` says about the account's email, with the permission to read it. */
 export type SessionEmail = { email?: string; emailConfirmed?: boolean };
@@ -167,6 +173,7 @@ export class NotificationChannels {
 		const addressKey = hashAddress(address);
 
 		const allowed =
+			limits.account.take(`confirm:${did}`) &&
 			limits.accountAddress.take(`confirm:${addressKey}:${did}`) &&
 			limits.address.take(`confirm-addr:${addressKey}`) &&
 			limits.all.take('confirm');

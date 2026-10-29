@@ -12,6 +12,7 @@ const confirmed = (email: string): SessionEmail => ({ email, emailConfirmed: tru
 
 /** The site's limits on confirmation emails: per account, per address, and overall. */
 const confirmLimits = (overrides: Partial<ConfirmLimits> = {}): ConfirmLimits => ({
+	account: new RateLimiter(5, 5 / 86_400),
 	accountAddress: new RateLimiter(3, 3 / 86_400),
 	address: new RateLimiter(10, 10 / 86_400),
 	all: new RateLimiter(100, 100 / 3600),
@@ -181,6 +182,7 @@ describe('NotificationChannels', () => {
 		expect(await ask('did:plc:one')).toBe('limited');
 
 		for (const n of [2, 3, 4, 5, 6, 7, 8]) expect(await ask(`did:plc:other${n}`)).toBe('read');
+
 		// Ten to the address today, from any accounts.
 		expect(await ask('did:plc:other9')).toBe('limited');
 		expect(count).toBe(10);
@@ -189,6 +191,31 @@ describe('NotificationChannels', () => {
 		// Fourteen overall in the hour.
 		expect(await ask('did:plc:else5', 'else5@example.test')).toBe('limited');
 		expect(count).toBe(14);
+	});
+
+	it('stops one account that keeps changing its address at five confirmation emails a day', async () => {
+		let count = 0;
+
+		const rotating = new NotificationChannels({
+			db: await openDatabase(':memory:'),
+			logger: silentLogger,
+			sendConfirmation: async () => {
+				count += 1;
+			},
+			limits: confirmLimits()
+		});
+
+		const ask = (n: number) =>
+			rotating.onSignIn({
+				did: neon,
+				scope: withEmail,
+				optIn: true,
+				session: async () => confirmed(`victim${n}@example.test`)
+			});
+
+		for (const n of [1, 2, 3, 4, 5]) expect(await ask(n)).toBe('read');
+		expect(await ask(6)).toBe('limited');
+		expect(count).toBe(5);
 	});
 
 	it('waits for the host to confirm an address before emailing it anything, and keeps a refused one paused', async () => {

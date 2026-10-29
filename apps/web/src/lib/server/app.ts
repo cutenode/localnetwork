@@ -108,6 +108,7 @@ export async function createApp(options: CreateAppOptions) {
 			? confirmationSender(emailSender, config.publicUrl, logger.child({ component: 'email' }))
 			: undefined,
 		limits: {
+			account: new RateLimiter(5, 5 / 86_400),
 			accountAddress: new RateLimiter(3, 3 / 86_400),
 			address: new RateLimiter(10, 10 / 86_400),
 			all: new RateLimiter(100, 100 / 3600)

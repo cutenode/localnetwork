@@ -66,7 +66,12 @@ describe('Outbox', () => {
 			sendConfirmation: async (_address, token) => {
 				link = token;
 			},
-			limits: { accountAddress: new RateLimiter(1, 1), address: new RateLimiter(1, 1), all: new RateLimiter(1, 1) }
+			limits: {
+				account: new RateLimiter(1, 1),
+				accountAddress: new RateLimiter(1, 1),
+				address: new RateLimiter(1, 1),
+				all: new RateLimiter(1, 1)
+			}
 		});
 		await channels.onSignIn({
 			did,
