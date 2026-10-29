@@ -783,6 +783,9 @@ their old names.
   `older_than_store` error leaves out `fields.snapshot` when no snapshot holds the state).
   `status`, `drive ls --known` and the player say such a drive that isn't plugged in is
   behind, where they said it had changes not in the store.
+- When the track queued after the playing one is short enough to play out before the player next
+  looks, the player goes on past it at once. It showed it as playing until then, and `n` pressed
+  in that moment skipped the track after it.
 
 ### Security
 
