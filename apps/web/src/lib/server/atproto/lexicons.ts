@@ -1,153 +1,34 @@
 import type { Agent } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
-import { jsonToLex, lexPermissionSet, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
-import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/entry.json' with { type: 'json' };
-import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
-import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
-import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
-import calendarEvent from '../../../../../../lexicons/community/lexicon/calendar/event.json' with { type: 'json' };
-import address from '../../../../../../lexicons/community/lexicon/location/address.json' with { type: 'json' };
-import fsq from '../../../../../../lexicons/community/lexicon/location/fsq.json' with { type: 'json' };
-import geo from '../../../../../../lexicons/community/lexicon/location/geo.json' with { type: 'json' };
-import hthree from '../../../../../../lexicons/community/lexicon/location/hthree.json' with { type: 'json' };
-import strongRef from '../../../../../../lexicons/com/atproto/repo/strongRef.json' with { type: 'json' };
-import discussion from '../../../../../../lexicons/app/userinput/discussion.json' with { type: 'json' };
-import userinputSpace from '../../../../../../lexicons/app/userinput/space.json' with { type: 'json' };
-import bskyProfile from '../../../../../../lexicons/app/bsky/actor/profile.json' with { type: 'json' };
-import bskyFollow from '../../../../../../lexicons/app/bsky/graph/follow.json' with { type: 'json' };
-import verification from '../../../../../../lexicons/app/bsky/graph/verification.json' with { type: 'json' };
-import labelDefs from '../../../../../../lexicons/com/atproto/label/defs.json' with { type: 'json' };
-import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
-import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
-import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
-import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/content.json' with { type: 'json' };
-import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
-import epkDraft from '../../../../../../lexicons/computer/localnetwork/epk/draft.json' with { type: 'json' };
-import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
-import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
-import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
-import locallibrarySettings from '../../../../../../lexicons/computer/localnetwork/locallibrary/settings.json' with { type: 'json' };
-import getArtist from '../../../../../../lexicons/computer/localnetwork/directory/getArtist.json' with { type: 'json' };
-import getCharts from '../../../../../../lexicons/computer/localnetwork/directory/getCharts.json' with { type: 'json' };
-import getFollowStatus from '../../../../../../lexicons/computer/localnetwork/directory/getFollowStatus.json' with { type: 'json' };
-import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
-import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
-import getRecords from '../../../../../../lexicons/computer/localnetwork/directory/getRecords.json' with { type: 'json' };
-import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
-import getShows from '../../../../../../lexicons/computer/localnetwork/directory/getShows.json' with { type: 'json' };
-import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
-import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
-import listRecords from '../../../../../../lexicons/computer/localnetwork/directory/listRecords.json' with { type: 'json' };
-import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
-import requestIndex from '../../../../../../lexicons/computer/localnetwork/directory/requestIndex.json' with { type: 'json' };
-import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
-import djRecording from '../../../../../../lexicons/computer/localnetwork/dj/recording.json' with { type: 'json' };
-import djProfile from '../../../../../../lexicons/computer/localnetwork/dj/profile.json' with { type: 'json' };
-import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
-import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
-import searchArtists from '../../../../../../lexicons/computer/localnetwork/directory/searchArtists.json' with { type: 'json' };
-import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
-import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
-import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
-import show from '../../../../../../lexicons/computer/localnetwork/show.json' with { type: 'json' };
-import permissions from '../../../../../../lexicons/computer/localnetwork/permissions.json' with { type: 'json' };
-import plannerSave from '../../../../../../lexicons/computer/localnetwork/planner/save.json' with { type: 'json' };
-import plannerShow from '../../../../../../lexicons/computer/localnetwork/planner/show.json' with { type: 'json' };
-import project from '../../../../../../lexicons/computer/localnetwork/project.json' with { type: 'json' };
-import projectDetails from '../../../../../../lexicons/computer/localnetwork/project/details.json' with { type: 'json' };
-import spaceAudit from '../../../../../../lexicons/computer/localnetwork/space/audit.json' with { type: 'json' };
-import spaceBackstage from '../../../../../../lexicons/computer/localnetwork/space/backstage.json' with { type: 'json' };
-import spaceBooking from '../../../../../../lexicons/computer/localnetwork/space/booking.json' with { type: 'json' };
-import spaceEpk from '../../../../../../lexicons/computer/localnetwork/space/epk.json' with { type: 'json' };
-import spaceIndustry from '../../../../../../lexicons/computer/localnetwork/space/industry.json' with { type: 'json' };
-import spaceModeration from '../../../../../../lexicons/computer/localnetwork/space/moderation.json' with { type: 'json' };
-import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space/planner.json' with { type: 'json' };
-import spaceStaff from '../../../../../../lexicons/computer/localnetwork/space/staff.json' with { type: 'json' };
-import staffRole from '../../../../../../lexicons/computer/localnetwork/staff/role.json' with { type: 'json' };
+import { jsonToLex, type LexiconDoc, lexPermissionSet, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
+import { LEXICON_FILES } from '#lexicon-files';
+import { NS, PERMISSIONS } from '#lib/nsid.ts';
 
-/** Every Local Network lexicon this app uses, for validation and publishing. */
-export const LEXICON_DOCS = [
-	defs,
-	project,
-	projectDetails,
-	auditEntry,
-	request,
-	decision,
-	staffRole,
-	bookingInquiry,
-	bookingMessage,
-	bookingStatus,
-	plannerSave,
-	plannerShow,
-	epkDefs,
-	epk,
-	epkContent,
-	epkRequest,
-	epkGrant,
-	epkDraft,
-	spaceAudit,
-	spaceModeration,
-	spaceStaff,
-	spaceIndustry,
-	spaceBooking,
-	spacePlanner,
-	spaceEpk,
-	spaceBackstage,
-	permissions,
-	directoryDefs,
-	searchProjects,
-	matchProjects,
-	getProject,
-	getProjects,
-	getStats,
-	getSets,
-	listSets,
-	listShows,
-	getShows,
-	getFollowStatus,
-	getCharts,
-	getArtist,
-	searchArtists,
-	getRecords,
-	listRecords,
-	requestIndex,
-	djDefs,
-	djProfile,
-	djSet,
-	djRecording,
-	show,
-	follow,
-	locallibrarySettings
-].map((doc) => parseLexiconDoc(doc));
+/** Every document in lexicons/, by NSID, so the order doesn't depend on which loader read them. */
+const DOCS: LexiconDoc[] = LEXICON_FILES.map((file) => parseLexiconDoc(file)).toSorted((a, b) =>
+	a.id.localeCompare(b.id)
+);
+
+/** Ours are every Local Network tool's, all of lexicons/computer/; the other folders are other authorities'. */
+const isOurs = (doc: LexiconDoc) => doc.id.startsWith(`${NS}.`);
+
+/** Every Local Network lexicon, for validation and publishing. */
+export const LEXICON_DOCS = DOCS.filter(isOurs);
 
 /** The permission set as PDSes read it to expand `include:computer.localnetwork.permissions` at sign-in. */
-export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
+export const PERMISSION_SET = lexPermissionSet.parse(LEXICON_DOCS.find((doc) => doc.id === PERMISSIONS)?.defs.main);
 
 /**
- * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events, the
- * locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles refer
- * to, and userinput.app's space), copied into lexicons/ as they publish them.
+ * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events and
+ * the locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles
+ * refer to, and userinput.app's spaces and the bug reports posted to them), copied into lexicons/ as they publish
+ * them. They're validated against and offered to HappyView, never published.
  */
-export const REFERENCED_DOCS = [
-	address,
-	geo,
-	fsq,
-	hthree,
-	calendarEvent,
-	strongRef,
-	labelDefs,
-	verification,
-	bskyProfile,
-	bskyFollow,
-	userinputSpace
-].map((doc) => parseLexiconDoc(doc));
-
-/** Other apps' records this app writes but nothing indexes: bug reports on userinput.app. Only validated, never published. */
-const WRITTEN_DOCS = [parseLexiconDoc(discussion)];
+export const REFERENCED_DOCS = DOCS.filter((doc) => !isOurs(doc));
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
-export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...REFERENCED_DOCS, ...WRITTEN_DOCS]));
+export const lexicons = new Lexicons(structuredClone(DOCS));
 
 /** Publishes every lexicon as a com.atproto.lexicon.schema record in the agent's own repo. */
 export async function publishLexicons(agent: Agent): Promise<void> {
