@@ -21,6 +21,7 @@ import {
 	inviteRecord,
 	joinRequestRecord,
 	hasCapability,
+	isExpired,
 	type LiveSpace,
 	type PersonRecord,
 	type SharedSpaces
@@ -54,9 +55,10 @@ const LINK_DAYS = 7;
 
 const MAX_DAYS = 90;
 
-const isLinkForbidden = (capability: string) => LINK_FORBIDDEN.some((forbidden) => forbidden === capability);
+/** How many open invites and links one person can have in a space at once. */
+const MAX_OPEN_OFFERS = 50;
 
-const isExpired = (expiresAt: string | null | undefined) => !!expiresAt && Date.parse(expiresAt) <= Date.now();
+const isLinkForbidden = (capability: string) => LINK_FORBIDDEN.some((forbidden) => forbidden === capability);
 
 function expiry(days: number): string {
 	if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS)
@@ -89,6 +91,7 @@ export class SpaceJoins {
 			if (live.people.has(input.did)) throw new UserError("They're already in it");
 
 			if (await this.stored(live, COLLECTION.invite, input.did)) throw new UserError("They're already invited");
+			await this.assertRoomForOffer(live, actor);
 			const offer = this.offer(live, input, INVITE_DAYS);
 			const record = { subject: input.did, ...offer, invitedBy: actor.did, createdAt: nowIso() };
 
@@ -174,6 +177,7 @@ export class SpaceJoins {
 
 		await this.spaces.change(space, async (live) => {
 			const actingAs = this.spaces.authorize(actor, live, 'people.manage');
+			await this.assertRoomForOffer(live, actor);
 			const offer = this.offer(live, input, LINK_DAYS);
 			const capabilities = offer.capabilities.filter((capability) => !isLinkForbidden(capability));
 			const record = { tokenHash: hashToken(token), ...offer, capabilities, createdBy: actor.did, createdAt: nowIso() };
@@ -367,6 +371,12 @@ export class SpaceJoins {
 				: capabilitiesFor(live.kind, role),
 			...(days !== undefined && { expiresAt: expiry(input.expiresInDays ?? days) })
 		};
+	}
+
+	/** Refuses another invite or link from someone who has as many open as anyone can. */
+	private async assertRoomForOffer(live: LiveSpace, actor: Viewer): Promise<void> {
+		if ((await this.spaces.openOffersBy(live, actor.did)).length >= MAX_OPEN_OFFERS)
+			throw new UserError(`You can have ${MAX_OPEN_OFFERS} open invites and links at once. Take some back first.`);
 	}
 
 	/**

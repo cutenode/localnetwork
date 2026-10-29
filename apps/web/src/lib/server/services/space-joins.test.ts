@@ -371,6 +371,43 @@ describe('SpaceJoins', () => {
 		await t.spaceJoins.createLink(ada, space, { role: 'door', expiresInDays: 90 });
 	});
 
+	describe('open invites and links', () => {
+		it('never keep their maker from being removed, however many there are', async () => {
+			await t.sharedSpaces.addPerson(await t.viewer(ADMIN), space, { did: BO, role: 'host' });
+			const root = t.net.client(ROOT);
+			const expiresAt = new Date(Date.now() + DAY_MS).toISOString();
+
+			// More than one batch takes, as offers made before there was a limit could be.
+			for (let n = 0; n < 250; n += 1) {
+				const did = `did:plc:guest${n}`;
+				const record = { subject: did, role: 'door', capabilities: [], invitedBy: BO, createdAt: expiresAt, expiresAt };
+
+				await root.putSpaceRecord({ space, collection: COLLECTION.invite, rkey: did, record });
+			}
+
+			await t.sharedSpaces.removePerson(await t.viewer(ADA), space, BO);
+
+			expect(stored(COLLECTION.person, BO)).toBeUndefined();
+			expect(t.net.spaceRecordsIn(space, ROOT).filter((record) => record.uri.includes(COLLECTION.invite))).toEqual([]);
+		});
+
+		it('are capped per maker, counting only the ones that have not run out', async () => {
+			vi.useFakeTimers({ toFake: ['Date'] });
+			const joins = new SpaceJoins(t.core, t.sharedSpaces, new RateLimiter(1000, 1000));
+			const ada = await t.viewer(ADA);
+
+			await joins.invite(ada, space, { did: BO, role: 'door' });
+
+			for (let n = 0; n < 49; n += 1) await joins.createLink(ada, space, { role: 'door' });
+			await expect(joins.createLink(ada, space, { role: 'door' })).rejects.toThrow('50 open invites and links');
+			await expect(joins.invite(ada, space, { did: CY, role: 'door' })).rejects.toThrow('50 open invites and links');
+
+			// The links run out after 7 days, the invite after 30.
+			vi.setSystemTime(Date.now() + 8 * DAY_MS);
+			await joins.invite(ada, space, { did: CY, role: 'door' });
+		});
+	});
+
 	it('limits how often one account joins, invites or asks', async () => {
 		const joins = new SpaceJoins(t.core, t.sharedSpaces, new RateLimiter(1, 0));
 		const bo = await t.viewer(BO);

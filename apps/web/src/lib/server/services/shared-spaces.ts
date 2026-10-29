@@ -79,12 +79,24 @@ const listingStatusRecord = z.object({
 
 type ListingStatusRecord = z.infer<typeof listingStatusRecord>;
 
-/** Who made an invite or invite link, and whether they made it as staff. */
+/** Who made an invite or invite link, whether they made it as staff, and when it runs out. */
 const offerMaker = z.object({
 	invitedBy: z.string().optional(),
 	createdBy: z.string().optional(),
-	staff: z.boolean().optional()
+	staff: z.boolean().optional(),
+	expiresAt: z.string().optional()
 });
+
+/** An invite or invite link someone made that hasn't run out. */
+export type OpenOffer = { collection: string; rkey: string; staff: boolean };
+
+/**
+ * How many offers one batch deletes. The alpha PDS takes at most 200 writes in an applyWrites
+ * (MAX_WRITES in @atproto/pds dist/api/com/atproto/space/applyWrites.js), so this stays well under it.
+ */
+const OFFER_DELETE_BATCH = 100;
+
+export const isExpired = (expiresAt: string | null | undefined) => !!expiresAt && Date.parse(expiresAt) <= Date.now();
 
 export type SharedSpaceView = { uri: string; kind: SpaceKind; listed: boolean; createdBy: string; createdAt: string };
 
@@ -646,13 +658,15 @@ export class SharedSpaces {
 		return true;
 	}
 
-	/** Writes `person`, dropping the invites and links they made if they can no longer add people. */
+	/** Writes `person`, then drops the invites and links they made if they can no longer add people. */
 	private async writePerson(live: LiveSpace, person: PersonRecord): Promise<void> {
 		const loses =
 			hasCapability(live.kind, live.people.get(person.subject), 'people.manage') &&
 			!hasCapability(live.kind, person, 'people.manage');
 
-		await this.commit(live, person.subject, person, loses ? await this.offersBy(live, person.subject) : []);
+		await this.commit(live, person.subject, person, []);
+
+		if (loses) await this.dropOffers(live, person.subject);
 	}
 
 	/**
@@ -663,14 +677,33 @@ export class SharedSpaces {
 		await this.commit(live, person.subject, person, writes);
 	}
 
-	/** Takes `did` out, with the invites and links they made, which no longer stand. */
+	/** Takes `did` out, then the invites and links they made, which no longer stand. */
 	private async deletePerson(live: LiveSpace, did: string): Promise<void> {
-		await this.commit(live, did, null, await this.offersBy(live, did));
+		await this.commit(live, did, null, []);
+		await this.dropOffers(live, did);
 	}
 
-	/** Deletes of the invites and invite links `did` made, apart from ones they made as staff, which stand. */
-	private async offersBy(live: LiveSpace, did: string): Promise<RepoWrite[]> {
-		const writes: RepoWrite[] = [];
+	/**
+	 * Deletes the open invites and links `did` made, apart from ones they made as staff, in batches the PDS takes
+	 * however many there are. Their person record changed first, so they can always be removed. One that's left
+	 * behind, by a failure between batches, is refused at accept or join anyway, since its maker can't add people.
+	 */
+	private async dropOffers(live: LiveSpace, did: string): Promise<void> {
+		const writes: RepoWrite[] = (await this.openOffersBy(live, did))
+			.filter((offer) => !offer.staff)
+			.map(({ collection, rkey }) => ({ action: 'delete', collection, rkey }));
+
+		for (let start = 0; start < writes.length; start += OFFER_DELETE_BATCH) {
+			const batch = writes.slice(start, start + OFFER_DELETE_BATCH);
+			await live.root.applySpaceWrites(live.space, batch);
+
+			for (const write of batch) await this.unindex({ space: live.space, ...write });
+		}
+	}
+
+	/** The invites and links `did` made in the space that haven't run out, from the root's own repo. */
+	async openOffersBy(live: LiveSpace, did: string): Promise<OpenOffer[]> {
+		const offers: OpenOffer[] = [];
 
 		for (const collection of [COLLECTION.invite, COLLECTION.inviteLink]) {
 			let cursor: string | undefined;
@@ -681,20 +714,24 @@ export class SharedSpaces {
 				for (const { rkey, value } of page.records) {
 					const offer = offerMaker.safeParse(value);
 
-					if (offer.success && !offer.data.staff && (offer.data.invitedBy ?? offer.data.createdBy) === did)
-						writes.push({ action: 'delete', collection, rkey });
+					if (
+						offer.success &&
+						(offer.data.invitedBy ?? offer.data.createdBy) === did &&
+						!isExpired(offer.data.expiresAt)
+					)
+						offers.push({ collection, rkey, staff: offer.data.staff ?? false });
 				}
 
 				cursor = page.cursor;
 			} while (cursor);
 		}
 
-		return writes;
+		return offers;
 	}
 
 	/**
-	 * Writes `did`'s person record, or deletes it when `person` is null, in one batch with `writes`, then brings the
-	 * index in line with all of them.
+	 * Writes `did`'s person record, or deletes it when `person` is null, in one batch with `writes` (a few at most, so
+	 * the batch stays small), then brings the index in line with all of them.
 	 */
 	private async commit(live: LiveSpace, did: string, person: PersonRecord | null, writes: RepoWrite[]): Promise<void> {
 		const own: RepoWrite = person
