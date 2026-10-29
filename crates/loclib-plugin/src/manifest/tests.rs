@@ -2445,7 +2445,10 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         let wrong = tc.draw(gs::sampled_from(vec![
                             endpoint(&tc),
                             exchange(&tc).replace("/api/", "/apis/"),
-                            exchange(&tc).replace("localnetwork.computer", "localnetwork.computer.example"),
+                            format!(
+                                "https://localnetwork.computer.example/api/token-exchange/{}",
+                                tc.draw(gs::from_regex("[a-z0-9-]{1,12}"))
+                            ),
                             format!("{}/x", exchange(&tc)),
                             format!("{}?x", exchange(&tc)),
                             "https://localnetwork.computer/api/token-exchange/".into(),
