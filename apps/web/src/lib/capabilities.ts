@@ -43,25 +43,34 @@ export function capabilitiesIn(kind: SpaceKind, values: readonly string[]): Capa
 
 const every = (kind: SpaceKind) => ALL.filter((capability) => offeredBy(kind, capability));
 
+type RolePreset = {
+	capabilities: readonly Capability[];
+	/** Whether people in the role appear in the space's public listing, unless they hide. */
+	listed: boolean;
+};
+
 /**
  * Each kind's roles, the named starting sets of capabilities a person gets. A person's capabilities can change after
  * that; the record keeps both. The people defs lexicon lists every role name as #role's knownValues.
  */
 export const ROLES = {
 	performer: {
-		member: every('performer'),
-		manager: ['page.edit', 'listing.request', 'presskits.manage', 'bookings.answer', 'shows.manage']
+		member: { capabilities: every('performer'), listed: true },
+		manager: {
+			capabilities: ['page.edit', 'listing.request', 'presskits.manage', 'bookings.answer', 'shows.manage'],
+			listed: false
+		}
 	},
 	party: {
-		host: every('party'),
-		cohost: every('party').filter((capability) => capability !== 'people.manage'),
-		door: ['guests.checkin']
+		host: { capabilities: every('party'), listed: true },
+		cohost: { capabilities: every('party').filter((capability) => capability !== 'people.manage'), listed: true },
+		door: { capabilities: ['guests.checkin'], listed: false }
 	},
 	venue: {
-		owner: every('venue'),
-		booker: ['venue.approve']
+		owner: { capabilities: every('venue'), listed: false },
+		booker: { capabilities: ['venue.approve'], listed: false }
 	}
-} as const satisfies { [K in SpaceKind]: Record<string, readonly Capability[]> };
+} as const satisfies { [K in SpaceKind]: Record<string, RolePreset> };
 
 export type Role<K extends SpaceKind = SpaceKind> = K extends SpaceKind ? keyof (typeof ROLES)[K] & string : never;
 
@@ -71,9 +80,16 @@ export function isRole<K extends SpaceKind>(kind: K, value: string): value is Ro
 
 /** The capabilities `role` starts with, in catalog order. */
 export function capabilitiesFor<K extends SpaceKind>(kind: K, role: Role<K>): Capability[] {
-	const roles: Record<string, readonly Capability[]> = ROLES[kind];
+	const roles: Record<string, RolePreset> = ROLES[kind];
 
-	return capabilitiesIn(kind, roles[role]);
+	return capabilitiesIn(kind, roles[role].capabilities);
+}
+
+/** Whether someone in `role` (a role of `kind`, or any other value) appears in the public listing. */
+export function isListedRole(kind: SpaceKind, role: string): boolean {
+	const roles: Record<string, RolePreset> = ROLES[kind];
+
+	return Object.hasOwn(roles, role) && roles[role].listed;
 }
 
 /** Whether someone with these capabilities writes to the space, rather than only reading it. */

@@ -9,6 +9,7 @@ import type { BookingRecord, BookingService } from '../services/bookings';
 import type { EpkService } from '../services/epk';
 import type { ProjectService } from '../services/projects';
 import { isRequestKind, type RequestService } from '../services/requests';
+import type { ListingWriter } from '../services/listings';
 import type { SharedSpaces } from '../services/shared-spaces';
 import { type StaffService, staffRoleRecord } from '../services/staff';
 import type { ChangeHandler } from './engine';
@@ -38,8 +39,9 @@ export function createProjections(deps: {
 	bookings: BookingService;
 	epks: EpkService;
 	sharedSpaces: SharedSpaces;
+	listings: ListingWriter;
 }): ChangeHandler {
-	const { core, audit, projects, requests, staff, bookings, epks, sharedSpaces } = deps;
+	const { core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings } = deps;
 	const { spaces, rootDid } = core;
 
 	return async (change) => {
@@ -82,6 +84,7 @@ export function createProjections(deps: {
 				await epks.drafts.unindex(change.uri);
 			} else if (governs && SHARED_SPACE_COLLECTIONS.has(change.collection)) {
 				await sharedSpaces.unindex(change);
+				await listings.refresh(change.space);
 			}
 
 			return;
@@ -191,7 +194,9 @@ export function createProjections(deps: {
 			case COLLECTION.inviteLink:
 			case COLLECTION.joinRequest:
 			case COLLECTION.listingStatus:
-				if (governs) await sharedSpaces.index({ ...change, value });
+				if (!governs) return;
+				await sharedSpaces.index({ ...change, value });
+				await listings.refresh(change.space);
 
 				return;
 			case COLLECTION.epkDraft:

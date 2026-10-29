@@ -39,7 +39,9 @@ export const COLLECTION = {
 	inviteLink: `${NS}.people.link`,
 	joinRequest: `${NS}.people.request`,
 	/** Whether staff list a performer, party or venue in the directory, in its space. */
-	listingStatus: `${NS}.listing.status`
+	listingStatus: `${NS}.listing.status`,
+	/** A listed act's, party's or venue's directory listing, in the root's public repo. */
+	listing: `${NS}.listing`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */

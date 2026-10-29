@@ -1,5 +1,6 @@
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
+import type { SpaceKind } from '#lib/capabilities.ts';
 import type { Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
@@ -32,6 +33,7 @@ import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
+import { type ListingSource, ListingWriter } from './services/listings';
 import { SharedSpaces } from './services/shared-spaces';
 import { SpaceJoins } from './services/space-joins';
 import { ShowService } from './services/shows';
@@ -52,6 +54,8 @@ export type CreateAppOptions = {
 	userClient?: (did: string) => Promise<RepoClient | null>;
 	/** Start polling, audit retries, and directory sync retries. */
 	background?: boolean;
+	/** What each kind's listing shows. No kind has a public page yet, so only tests list anything. */
+	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
@@ -165,7 +169,8 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
-	const sharedSpaces = new SharedSpaces(core);
+	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const sharedSpaces = new SharedSpaces(core, listings);
 
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
@@ -188,7 +193,7 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'sync' }),
 		identity,
 		credentials,
-		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks, sharedSpaces }),
+		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings }),
 		onSpaceDropped: async (space) => {
 			await bookings.forget(space);
 			await sharedSpaces.forget(space);
@@ -259,6 +264,7 @@ export async function createApp(options: CreateAppOptions) {
 		verifications,
 		sharedSpaces,
 		spaceJoins,
+		listings,
 		bugReports,
 		sessions,
 		geocoder,
@@ -355,6 +361,8 @@ export async function createApp(options: CreateAppOptions) {
 			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
+			// After the sync, so the index has every space's people.
+			await listings.reconcile();
 		},
 
 		start() {
@@ -384,6 +392,9 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes member updates of performers', parties' and venues' spaces that failed part way: a listSpaces per
 			// kind, then one listRecords and one listMembers per space, all on the root's own PDS.
 			every(60 * 60_000, () => sharedSpaces.reconcile(), 'shared-spaces');
+			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
+			// where one differs.
+			every(60 * 60_000, () => listings.reconcile(), 'listings');
 		},
 
 		async stop() {

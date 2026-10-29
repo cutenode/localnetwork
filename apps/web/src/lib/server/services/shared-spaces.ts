@@ -11,13 +11,14 @@ import {
 	type SpaceKind
 } from '#lib/capabilities.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { AccountView, Viewer } from '#lib/types.ts';
+import type { SharedSpaceSummary, SpacePerson, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { RepoWrite, RootRepoClient } from '../atproto/repo-client';
 import { parseSpaceUri, SHARED_SPACE_TYPES, sharedSpace, sharedSpaceKind } from '../atproto/spaces';
 import type { ActorRole, AuditAction, AuditChange } from '../audit/log';
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
+import type { ListingWriter } from './listings';
 import { actorRole } from './requests';
 import { reconcileMembers } from './space-members';
 
@@ -100,16 +101,6 @@ export const isExpired = (expiresAt: string | null | undefined) => !!expiresAt &
 
 export type SharedSpaceView = { uri: string; kind: SpaceKind; listed: boolean; createdBy: string; createdAt: string };
 
-export type PersonView = AccountView & {
-	role: string;
-	capabilities: Capability[];
-	hidden: boolean;
-	via: string;
-	addedBy: string | null;
-	createdAt: string;
-	updatedAt: string;
-};
-
 /** A record in a shared space. */
 type SpaceRecordChange = { space: string; collection: string; rkey: string; value: JsonObject };
 
@@ -132,7 +123,10 @@ export class SharedSpaces {
 	 */
 	private readonly locks = new Map<string, Promise<void>>();
 
-	constructor(private readonly core: Core) {}
+	constructor(
+		private readonly core: Core,
+		private readonly listings: ListingWriter
+	) {}
 
 	/** Starts a space of `kind` with `actor` in it, in the role that gets every capability of its kind. */
 	async create(actor: Viewer, kind: SpaceKind): Promise<string> {
@@ -203,8 +197,38 @@ export class SharedSpaces {
 			: null;
 	}
 
+	/** Every shared space, newest first, for the staff console. */
+	async list(): Promise<SharedSpaceSummary[]> {
+		const rows = await this.core.db
+			.selectFrom('sharedSpace')
+			.leftJoin('spacePerson', 'spacePerson.spaceUri', 'sharedSpace.spaceUri')
+			.select((eb) => [
+				'sharedSpace.spaceUri',
+				'sharedSpace.kind',
+				'sharedSpace.listed',
+				'sharedSpace.createdBy',
+				'sharedSpace.createdAt',
+				eb.fn.count<number>('spacePerson.did').as('people')
+			])
+			.groupBy('sharedSpace.spaceUri')
+			.orderBy('sharedSpace.createdAt', 'desc')
+			.execute();
+
+		const accounts = await this.core.accounts.views(rows.map((row) => row.createdBy));
+
+		return rows.map((row) => ({
+			uri: row.spaceUri,
+			kind: row.kind,
+			skey: parseSpaceUri(row.spaceUri)?.skey ?? '',
+			listed: row.listed === 1,
+			people: Number(row.people),
+			createdBy: accounts.get(row.createdBy) ?? { did: row.createdBy, handle: null },
+			createdAt: row.createdAt
+		}));
+	}
+
 	/** The space's people, oldest first. Someone hidden is left out unless `viewer` is in the space or staff. */
-	async people(space: string, viewer: Viewer | null): Promise<PersonView[]> {
+	async people(space: string, viewer: Viewer | null): Promise<SpacePerson[]> {
 		const rows = await this.core.db
 			.selectFrom('spacePerson')
 			.selectAll()
@@ -559,15 +583,16 @@ export class SharedSpaces {
 			await db.deleteFrom('sharedSpace').where('spaceUri', '=', space).execute();
 	}
 
-	/** Forgets a space that's gone. */
+	/** Forgets a space that's gone, and takes down its listing. */
 	async forget(space: string): Promise<void> {
 		for (const table of ['spacePerson', 'spaceInvite', 'spaceInviteLink', 'spaceJoinRequest', 'sharedSpace'] as const)
 			await this.core.db.deleteFrom(table).where('spaceUri', '=', space).execute();
+		await this.listings.refresh(space);
 	}
 
 	/**
-	 * Runs `task` in the space's lock with its people as the root's repo has them now, then brings the space's members in
-	 * line with the people the task left.
+	 * Runs `task` in the space's lock with its people as the root's repo has them now, then brings the space's members
+	 * and listing in line with what the task left.
 	 */
 	async change(space: string, task: (live: LiveSpace) => Promise<void>): Promise<void> {
 		const previous = this.locks.get(space);
@@ -577,6 +602,7 @@ export class SharedSpaces {
 			const live = await this.live(space);
 			await task(live);
 			await this.syncPeople(live);
+			await this.listings.refresh(space);
 		})();
 
 		const settled = run.catch(() => undefined);

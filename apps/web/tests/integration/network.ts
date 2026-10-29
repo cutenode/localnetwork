@@ -8,7 +8,7 @@ import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
 import { grantsPublicRecords, grantsSpaces } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
-import { type App, createApp } from '../../src/lib/server/app.ts';
+import { type App, createApp, type CreateAppOptions } from '../../src/lib/server/app.ts';
 import { loadConfig } from '../../src/lib/server/config.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import type { Viewer } from '../../src/lib/types.ts';
@@ -36,7 +36,10 @@ export class TestNetwork {
 		readonly app: App
 	) {}
 
-	static async create(names: string[], options: { admins?: string[]; oauth?: string[] } = {}): Promise<TestNetwork> {
+	static async create(
+		names: string[],
+		options: { admins?: string[]; oauth?: string[]; listingSources?: CreateAppOptions['listingSources'] } = {}
+	): Promise<TestNetwork> {
 		const plc = await TestPlc.create({});
 		const pds = await TestPds.create({ didPlcUrl: plc.url, inviteRequired: false });
 		mockNetworkUtilities([pds]);
@@ -94,7 +97,8 @@ export class TestNetwork {
 			config,
 			logger: silentLogger,
 			userClient: async (did) => [...users.values()].find((user) => user.did === did)?.client ?? null,
-			background: false
+			background: false,
+			listingSources: options.listingSources
 		});
 
 		const net = new TestNetwork(plc, pds, happyView, root.data.did, users, app);

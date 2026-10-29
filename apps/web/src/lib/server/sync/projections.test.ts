@@ -23,7 +23,8 @@ describe('createProjections', () => {
 			staff: t.staff,
 			bookings: t.bookings,
 			epks: t.epks,
-			sharedSpaces: t.sharedSpaces
+			sharedSpaces: t.sharedSpaces,
+			listings: t.listings
 		});
 	});
 	afterEach(async () => {

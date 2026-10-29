@@ -8,7 +8,7 @@ import {
 	type SpaceKind
 } from '#lib/capabilities.ts';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { AccountView, Viewer } from '#lib/types.ts';
+import type { JoinRequestView, PendingInvite, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import type { JsonRecord, RepoWrite } from '../atproto/repo-client';
 import { spaceRecordUri } from '../atproto/spaces';
@@ -37,8 +37,6 @@ export type InviteView = {
 	createdAt: string;
 	expiresAt: string | null;
 };
-
-export type JoinRequestView = AccountView & { message: string | null; createdAt: string };
 
 /** What someone gets in a space, and for how long an invite or link offering it lasts. */
 type Offer = { role: string; capabilities?: string[]; expiresInDays?: number };
@@ -334,6 +332,27 @@ export class SpaceJoins {
 				space: spaceUri,
 				capabilities: parseJson<Capability[]>(capabilities, [])
 			}));
+	}
+
+	/** The invites to `space` nobody has answered, oldest first, and how many invite links work, for the staff console. */
+	async pendingIn(space: string): Promise<{ invites: PendingInvite[]; links: number }> {
+		const [invites, links] = await Promise.all([
+			this.core.db
+				.selectFrom('spaceInvite')
+				.select(['did', 'role', 'createdAt', 'expiresAt'])
+				.where('spaceUri', '=', space)
+				.orderBy('createdAt')
+				.execute(),
+			this.core.db.selectFrom('spaceInviteLink').select('expiresAt').where('spaceUri', '=', space).execute()
+		]);
+
+		const open = invites.filter((invite) => !isExpired(invite.expiresAt));
+		const accounts = await this.core.accounts.views(open.map((invite) => invite.did));
+
+		return {
+			invites: open.map((invite) => ({ ...invite, handle: accounts.get(invite.did)?.handle ?? null })),
+			links: links.filter((link) => !isExpired(link.expiresAt)).length
+		};
 	}
 
 	/** The requests to join `space` waiting on an answer, oldest first. */

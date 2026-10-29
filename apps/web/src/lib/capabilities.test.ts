@@ -6,6 +6,7 @@ import {
 	capabilitiesFor,
 	capabilitiesIn,
 	CREATOR_ROLE,
+	isListedRole,
 	isRole,
 	isWriter,
 	ROLES,
@@ -49,6 +50,16 @@ describe('roles', () => {
 		expect(isRole('party', 'host')).toBe(true);
 		expect(isRole('performer', 'host')).toBe(false);
 		expect(isRole('venue', 'toString')).toBe(false);
+	});
+
+	it("lists a performer's members and a party's hosts and cohosts, and nobody in a venue", () => {
+		const listed = roles
+			.filter(({ kind, role }) => isListedRole(kind, role))
+			.map(({ kind, role }) => `${kind}.${role}`);
+
+		expect(listed).toEqual(['performer.member', 'party.host', 'party.cohost']);
+		expect(isListedRole('party', 'member')).toBe(false);
+		expect(isListedRole('performer', 'hasOwnProperty')).toBe(false);
 	});
 
 	it('makes a writer of anyone with a capability that writes, and only them', () => {
