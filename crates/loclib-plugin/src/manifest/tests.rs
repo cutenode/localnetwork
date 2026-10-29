@@ -5,7 +5,7 @@ use serde_json::{Map, json};
 use url::Url;
 
 use super::*;
-use crate::hooks::account_types::{HOST_PARAMS, METHODS};
+use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
 use crate::{
     Account, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources,
     Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode,
@@ -592,8 +592,8 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
     assert_eq!(twice, "contributes.account_types[1]: is a second account type: an account plugin provides one");
 }
 
-/// An account type's authorize params leave the ones locallibrary sets alone, are named as a
-/// query names them, and name the account only as `{subject}`, only to sign in to it again.
+/// An account type sets only the authorize params that can't change where a code goes or what it's
+/// for, and names the account only as `{subject}`, only to sign in to it again.
 #[test]
 fn an_account_types_params_name_the_account_only_as_its_subject() {
     let at = "contributes.account_types[0]";
@@ -605,14 +605,25 @@ fn an_account_types_params_name_the_account_only_as_its_subject() {
     };
     assert_eq!(one("login_hint", "id:{subject}{subject}"), "");
     assert_eq!(another("hd", "example.com"), "");
-    for key in
-        ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method"]
-    {
-        assert_eq!(one(key, "x"), format!("{at}.one_account.{key}: is locallibrary's to set"));
-        assert_eq!(another(key, "x"), format!("{at}.another_account.{key}: is locallibrary's to set"));
+    let said = "isn't one of the params an account type may set: login_hint, prompt, hd, access_type";
+    for key in [
+        "client_id",
+        "redirect_uri",
+        "response_type",
+        "scope",
+        "state",
+        "code_challenge",
+        "code_challenge_method",
+        "request",
+        "request_uri",
+        "response_mode",
+        "nonce",
+        "claims",
+        "a=b",
+    ] {
+        assert_eq!(one(key, "x"), format!("{at}.one_account.{key}: {said}"));
+        assert_eq!(another(key, "x"), format!("{at}.another_account.{key}: {said}"));
     }
-    let said = "\"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~";
-    assert_eq!(one("a=b", "x"), format!("{at}.one_account.a=b: {said}"));
     for value in ["{email}", "{subject", "{sub{subject}ject}", "}"] {
         let said = format!("{at}.one_account.login_hint: {value:?} has a {{ or }} besides {{subject}}");
         assert_eq!(one("login_hint", value), said);
@@ -3064,18 +3075,17 @@ fn pointer(tc: &TestCase) -> String {
     tc.draw(gs::from_regex("(/([a-z0-9]|~[01]){0,6}){0,3}"))
 }
 
-/// Authorize params locallibrary doesn't set, their values naming the account (only as
+/// Authorize params an account type may set, their values naming the account (only as
 /// `{subject}`) where `subject`.
 #[hegel::test_helper]
 fn authorize_params(tc: &TestCase, subject: bool) -> IndexMap<String, String> {
-    let key = gs::from_regex("[A-Za-z0-9._~-]{1,12}").filter(|k: &String| !HOST_PARAMS.contains(&k.as_str()));
     let parts = if subject { 3 } else { 1 };
-    let keys = tc.draw(gs::vecs(key).max_size(3).unique(true));
+    let keys = tc.draw(gs::vecs(gs::sampled_from(AUTHORIZE_PARAMS.to_vec())).max_size(3).unique(true));
     keys.into_iter()
         .map(|key| {
             let parts = tc.draw(gs::vecs(gs::text().max_size(6)).min_size(1).max_size(parts));
             let parts: Vec<String> = parts.iter().map(|p| p.replace(['{', '}'], "")).collect();
-            (key, parts.join(SUBJECT_PLACEHOLDER))
+            (key.to_string(), parts.join(SUBJECT_PLACEHOLDER))
         })
         .collect()
 }
@@ -3178,8 +3188,7 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
         "port",
         "service scope",
         "pointer",
-        "param name",
-        "host param",
+        "param",
         "placeholder",
         "scope name",
         "scope title",
@@ -3331,21 +3340,20 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                     }
                     format!("{at}.whoami.{key}: {wrong:?} isn't a JSON pointer, like /sub")
                 }
-                "param name" | "host param" | "placeholder" => {
+                "param" | "placeholder" => {
                     let (params, which) = match tc.draw(gs::booleans()) {
                         true => (&mut x.one_account, "one_account"),
                         false => (&mut x.another_account, "another_account"),
                     };
                     let (key, value, said) = match mistake {
-                        "param name" => {
-                            let key = spoilt(&tc, vec!["=", "&", " ", "/", "{"]);
-                            let said =
-                                format!("{key:?} isn't a query parameter's name: letters, digits, -, ., _ and ~");
+                        "param" => {
+                            let key = tc.draw(
+                                gs::from_regex("[A-Za-z0-9._~=& {}-]{1,16}")
+                                    .filter(|k: &String| !AUTHORIZE_PARAMS.contains(&k.as_str())),
+                            );
+                            let allowed = AUTHORIZE_PARAMS.join(", ");
+                            let said = format!("isn't one of the params an account type may set: {allowed}");
                             (key, "x".to_string(), said)
-                        }
-                        "host param" => {
-                            let key = tc.draw(gs::sampled_from(HOST_PARAMS.to_vec()));
-                            (key.to_string(), "x".to_string(), "is locallibrary's to set".to_string())
                         }
                         _ => {
                             let (named, bad) = match which {
@@ -3360,7 +3368,7 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                                 "one_account" => format!("{value:?} has a {{ or }} besides {{subject}}"),
                                 _ => format!("{value:?} has a {{ or }}: there's no account yet to name"),
                             };
-                            ("login_hint-added".to_string(), value, said)
+                            ("login_hint".to_string(), value, said)
                         }
                     };
                     params.insert(key.clone(), value);

@@ -197,7 +197,7 @@ pub(crate) fn token_endpoint(
 }
 
 /// What [`is_query_name`] takes.
-pub(crate) const QUERY_NAME_RULE: &str = "a query parameter's name: letters, digits, -, ., _ and ~";
+const QUERY_NAME_RULE: &str = "a query parameter's name: letters, digits, -, ., _ and ~";
 
 /// Whether `name` is letters, digits and `allowed`, one at least.
 fn spelled(name: &str, allowed: &str) -> bool {
@@ -206,7 +206,7 @@ fn spelled(name: &str, allowed: &str) -> bool {
 
 /// A query parameter's name, kept to what no query has to escape, so a request names it as the
 /// service does.
-pub(crate) fn is_query_name(name: &str) -> bool {
+fn is_query_name(name: &str) -> bool {
     spelled(name, "-._~")
 }
 

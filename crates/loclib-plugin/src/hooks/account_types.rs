@@ -9,9 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::hooks::accounts::{
-    QUERY_NAME_RULE, endpoint, endpoints, is_query_name, redirect_port, token_endpoint, token_place,
-};
+use crate::hooks::accounts::{endpoint, endpoints, redirect_port, token_endpoint, token_place};
 use crate::manifest::{NAME_RULE, invalid, is_name, shown};
 use crate::{Contributions, Manifest, ManifestError, TokenPlace};
 
@@ -19,9 +17,9 @@ use crate::{Contributions, Manifest, ManifestError, TokenPlace};
 /// [`Whoami::subject`] found it.
 pub const SUBJECT_PLACEHOLDER: &str = "{subject}";
 
-/// The authorize params the host sets itself, which an account type's can't.
-pub(crate) const HOST_PARAMS: [&str; 7] =
-    ["client_id", "redirect_uri", "response_type", "scope", "state", "code_challenge", "code_challenge_method"];
+/// The authorize params an account type may set. Only these: the others are the host's
+/// (`redirect_uri`, `scope`, `state`...) or can replace them (`request_uri` brings a whole request).
+pub(crate) const AUTHORIZE_PARAMS: [&str; 4] = ["login_hint", "prompt", "hd", "access_type"];
 
 /// The methods a scope's requests may name.
 pub(crate) const METHODS: [&str; 6] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
@@ -211,16 +209,14 @@ fn is_pointer(pointer: &str) -> bool {
         && pointer.split('~').skip(1).all(|after| after.starts_with(['0', '1']))
 }
 
-/// Each of `params` (at `at.<key>`) one the host doesn't set itself, named as a query names it,
-/// its value naming the account only as [`SUBJECT_PLACEHOLDER`], and only where `subject`.
+/// Each of `params` (at `at.<key>`) one of [`AUTHORIZE_PARAMS`], its value naming the account only
+/// as [`SUBJECT_PLACEHOLDER`], and only where `subject`.
 fn params(at: &str, params: &IndexMap<String, String>, subject: bool) -> Result<(), ManifestError> {
     for (key, value) in params {
         let at = format!("{at}.{key}");
-        if !is_query_name(key) {
-            return Err(invalid(at, format!("{key:?} isn't {QUERY_NAME_RULE}")));
-        }
-        if HOST_PARAMS.contains(&key.as_str()) {
-            return Err(invalid(at, "is locallibrary's to set"));
+        if !AUTHORIZE_PARAMS.contains(&key.as_str()) {
+            let allowed = AUTHORIZE_PARAMS.join(", ");
+            return Err(invalid(at, format!("isn't one of the params an account type may set: {allowed}")));
         }
         let unnamed = match subject {
             true => value.replace(SUBJECT_PLACEHOLDER, ""),

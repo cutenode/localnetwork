@@ -224,8 +224,8 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   the account's `subject` (its id there) and `name` in the answer.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
-  (`prompt = "select_account"`). The host sets `client_id`, `redirect_uri`, `response_type`,
-  `scope`, `state`, `code_challenge` and `code_challenge_method` itself.
+  (`prompt = "select_account"`). They may be `login_hint`, `prompt`, `hd` and `access_type` only:
+  the host sets the rest itself, and others (`request_uri`) could replace what it sets.
 - `[contributes.account_types.scopes.<name>]`: `title`, `asks` (the service's scopes it needs,
   none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
   `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not
