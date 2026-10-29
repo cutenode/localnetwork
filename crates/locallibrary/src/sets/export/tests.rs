@@ -88,6 +88,40 @@ fn public_formats_hide_tracks_the_profile_hides() {
     assert_eq!(hidden(SetFormat::Csv), text(&s, SetFormat::Csv));
 }
 
+/// Podcasting 2.0 chapters: the set's name, and a chapter for each track with a start time, in
+/// the order they play, not naming what a published tracklist doesn't. Tracks without one are left
+/// out, saying so.
+#[test]
+fn chapters_are_podcasting_json() {
+    let mut s = friday();
+    s.tracks[0].start_seconds = None;
+    s.tracks.swap(1, 2);
+    let r = render(&s, SetFormat::Chapters, &ProfilePrefs::default(), None).unwrap();
+    assert_eq!(
+        r.text,
+        r#"{
+  "version": "1.2.0",
+  "title": "Friday",
+  "chapters": [
+    {
+      "startTime": 312,
+      "title": "ID - ID"
+    },
+    {
+      "startTime": 3725,
+      "title": "Daft Punk - Around the World"
+    }
+  ]
+}
+"#
+    );
+    assert_eq!((r.tracks, r.warnings.as_slice()), (2, &["track 1 has no start time, so no chapter".to_string()][..]));
+    let empty = set("3m2abcdefgh22", "2026-10-03", None);
+    let r = render(&empty, SetFormat::Chapters, &ProfilePrefs::default(), None).unwrap();
+    assert_eq!(r.text, "{\n  \"version\": \"1.2.0\",\n  \"title\": \"2026-10-03\",\n  \"chapters\": []\n}\n");
+    assert_eq!((r.tracks, r.warnings.len()), (0, 0));
+}
+
 #[test]
 fn m3u8_lists_the_tracks_on_the_drive() {
     let lib = Library {

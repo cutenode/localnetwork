@@ -26,6 +26,8 @@ describe('embedUrl', () => {
 		);
 		expect(embedUrl('https://www.youtube.com/watch?v=abc123')).toBe('https://www.youtube-nocookie.com/embed/abc123');
 		expect(embedUrl('https://youtu.be/abc123')).toBe('https://www.youtube-nocookie.com/embed/abc123');
+		expect(embedUrl('https://plyr.fm/track/1567')).toBe('https://plyr.fm/embed/track/1567');
+		expect(embedUrl('https://www.plyr.fm/track/1567/')).toBe('https://plyr.fm/embed/track/1567');
 	});
 
 	it('has no player for other sites or bad links', () => {
@@ -33,5 +35,8 @@ describe('embedUrl', () => {
 		expect(embedUrl('nope')).toBeNull();
 		expect(embedUrl('https://notsoundcloud.com/neon/tidal-hours')).toBeNull();
 		expect(embedUrl('https://www.youtube.com/@neon')).toBeNull();
+		expect(embedUrl('https://plyr.fm/u/neon')).toBeNull();
+		expect(embedUrl('https://plyr.fm/track/1567/comments')).toBeNull();
+		expect(embedUrl('https://notplyr.fm/track/1567')).toBeNull();
 	});
 });

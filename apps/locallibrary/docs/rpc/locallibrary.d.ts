@@ -1490,8 +1490,9 @@ export type AccountLoginRequest = {
   /** Scopes to ask for (default: `atproto`, which identifies you and nothing more). */
   scopes?: string[];
   /**
-   * Also allow publishing: writing the My Settings, profile and set records to the account
-   * ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.
+   * Also allow publishing: writing the My Settings, profile, set and recording records to the
+   * account ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings
+   * ([`atmosphere::UPLOAD_SCOPE`]), and nothing else.
    */
   publish?: boolean;
 };
@@ -1751,6 +1752,8 @@ export type SetFormat =
    * paste format, so this is the cue-time style tracklists are usually written in.
    */
   | "1001"
+  /** Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time. */
+  | "chapters"
   /** `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`. */
   | "csv"
   /** A playlist of the tracks on a drive. */

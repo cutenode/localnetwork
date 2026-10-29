@@ -9712,7 +9712,7 @@
         },
         "publish": {
           "type": "boolean",
-          "description": "Also allow publishing: writing the My Settings, profile and set records to the account\n([`atmosphere::PUBLISH_SCOPES`]), and nothing else.",
+          "description": "Also allow publishing: writing the My Settings, profile, set and recording records to the\naccount ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings\n([`atmosphere::UPLOAD_SCOPE`]), and nothing else.",
           "default": false
         }
       }
@@ -10482,6 +10482,11 @@
           "type": "string",
           "const": "1001",
           "description": "For 1001Tracklists: `[0:04:12] Artist - Title`. Unconfirmed: their site documents no\npaste format, so this is the cue-time style tracklists are usually written in."
+        },
+        {
+          "type": "string",
+          "const": "chapters",
+          "description": "Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time."
         },
         {
           "type": "string",
