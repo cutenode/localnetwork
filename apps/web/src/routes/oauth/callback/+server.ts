@@ -7,8 +7,16 @@ import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { safeNext } from '#lib/server/http.ts';
 import type { RequestHandler } from './$types';
 
-/** The app state the login action passes through `authorize`. */
-const loginState = z.object({ next: z.string().optional() });
+/** The app state the login action passes through `authorize`, and what the sign-in was for when it asked for more. */
+const loginState = z.object({ next: z.string().optional(), intent: z.enum(['email']).optional() });
+
+/** `path` with `name=value` added to its query. */
+const withParam = (path: string, name: string, value: string) => {
+	const url = new URL(path, 'http://same.site');
+	url.searchParams.set(name, value);
+
+	return url.pathname + url.search;
+};
 
 export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { app, log } = locals;
@@ -23,9 +31,12 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 	try {
 		const { session, state, scope } = await app.oauth.callback(url.searchParams);
 		did = session.did;
+		let intent: z.output<typeof loginState>['intent'];
 
 		try {
-			next = safeNext(loginState.safeParse(JSON.parse(state ?? '{}')).data?.next);
+			const parsed = loginState.safeParse(JSON.parse(state ?? '{}')).data;
+			next = safeNext(parsed?.next);
+			intent = parsed?.intent;
 		} catch {
 			next = '/dashboard';
 		}
@@ -42,6 +53,15 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			spacesCapable,
 			publicWrites: grantsPublicRecords(scope, did)
 		});
+
+		const email = await app.notificationChannels.onSignIn({
+			did,
+			scope,
+			optIn: intent === 'email',
+			session: async () => (await new Agent(session).com.atproto.server.getSession()).data
+		});
+
+		if (email === 'declined') next = withParam(next, 'email', 'declined');
 		const previous = cookies.get(SESSION_COOKIE);
 
 		if (previous) await app.sessions.destroy(previous);

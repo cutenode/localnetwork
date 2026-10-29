@@ -959,6 +959,22 @@ describe('Local Network on a real atproto spaces network', () => {
 		await net.signInWithOAuth('sol', undefined, { optional: 'email' });
 		expect(await holdsEmail()).toBe(true);
 		expect(await email()).toBe('sol@example.test');
+
+		// As the sign-in callback does for someone turning email on. The dev PDS never confirms an address.
+		const optIn = await net.app.notificationChannels.onSignIn({
+			did: sol.did,
+			scope: (await net.app.accounts.get(sol.did))?.grantedScope ?? '',
+			optIn: true,
+			session: async () =>
+				(await new Agent((await net.app.oauth.restore(sol.did))!).com.atproto.server.getSession()).data
+		});
+
+		expect(optIn).toBe('read');
+		expect(await net.app.notificationChannels.get(sol.did, 'email')).toMatchObject({
+			address: 'sol@example.test',
+			status: 'paused',
+			pausedReason: 'email_unconfirmed'
+		});
 		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
 		expect((await net.viewer('sol')).spacesCapable).toBe(true);
 

@@ -320,6 +320,12 @@ export type BookingEventView = {
 /** What an inbox item is about, which its icon shows. Email and DM opt-ins choose among these too. */
 export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
 
+/** Where the inbox is also sent, when someone opts in. */
+export type NotificationChannel = 'email';
+
+/** Why a channel stopped sending, which the settings page explains. */
+export type PausedReason = 'address_rejected' | 'email_unconfirmed';
+
 /** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
 export type NotificationView = {
 	id: string;

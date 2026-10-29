@@ -5,6 +5,7 @@ import type { NotificationRow } from '../db/schema';
 import { safeNext } from '../http';
 import type { Logger } from '../logger';
 import { isNotificationKind, KINDS, type NotificationData, type NotificationKind } from './kinds';
+import type { Outbox } from './outbox';
 
 const DAY_MS = 86_400_000;
 
@@ -41,7 +42,7 @@ export type NotifyInput<K extends NotificationKind> = {
 /** Generic words for an item whose kind or data this version doesn't know, which still opens what it's about. */
 const UNKNOWN = { title: 'Something changed' };
 
-function view(row: NotificationRow): NotificationView {
+export function view(row: NotificationRow): NotificationView {
 	const kind = isNotificationKind(row.kind) ? KINDS[row.kind] : null;
 	const rendered = kind?.view(row.data);
 
@@ -60,7 +61,8 @@ function view(row: NotificationRow): NotificationView {
  * so nobody can read or mark anyone else's.
  */
 export class Notifier {
-	constructor(private readonly deps: { db: Db; logger: Logger }) {}
+	/** `outbox` sends new items on to those who opted into email or DM. */
+	constructor(private readonly deps: { db: Db; logger: Logger; outbox?: Outbox }) {}
 
 	/** Puts an item in the inbox of everyone in `to` who hasn't had `key` yet. Returns how many it made. */
 	async notify<K extends NotificationKind>(input: NotifyInput<K>): Promise<number> {
@@ -70,30 +72,44 @@ export class Notifier {
 		const data = JSON.stringify(KINDS[input.kind].data.parse(input.data));
 		const createdAt = nowIso();
 
-		const result = await this.deps.db
-			.insertInto('notification')
-			.values(
-				recipients.map((recipientDid) => ({
-					id: TID.nextStr(),
-					recipientDid,
-					kind: input.kind,
-					dedupeKey: input.key,
-					subjectUri: input.subject,
-					href: safeNext(input.href, '/dashboard/inbox'),
-					data,
-					occurredAt: input.at,
-					createdAt,
-					readAt: null
-				}))
-			)
-			.onConflict((oc) => oc.columns(['recipientDid', 'dedupeKey']).doNothing())
-			.executeTakeFirst();
+		const { outbox } = this.deps;
 
-		const created = Number(result.numInsertedOrUpdatedRows ?? 0);
+		// The items and their deliveries go in together, so a crash can't leave an item that never goes out.
+		const created = await this.deps.db.transaction().execute(async (trx) => {
+			const rows = await trx
+				.insertInto('notification')
+				.values(
+					recipients.map((recipientDid) => ({
+						id: TID.nextStr(),
+						recipientDid,
+						kind: input.kind,
+						dedupeKey: input.key,
+						subjectUri: input.subject,
+						href: safeNext(input.href, '/dashboard/inbox'),
+						data,
+						occurredAt: input.at,
+						createdAt,
+						readAt: null
+					}))
+				)
+				.onConflict((oc) => oc.columns(['recipientDid', 'dedupeKey']).doNothing())
+				.returning(['id', 'recipientDid'])
+				.execute();
 
-		if (created > 0) this.deps.logger.debug({ kind: input.kind, key: input.key, created }, 'notified');
+			const queued = await outbox?.enqueue(trx, rows, KINDS[input.kind].topic, input.at);
 
-		return created;
+			return { rows: rows.length, queued };
+		});
+
+		if (created.queued) {
+			outbox
+				?.kick()
+				.catch((error) => this.deps.logger.warn({ err: error }, 'could not schedule notification delivery'));
+		}
+
+		if (created.rows > 0) this.deps.logger.debug({ kind: input.kind, key: input.key, ...created }, 'notified');
+
+		return created.rows;
 	}
 
 	/** `did`'s items, newest first, `limit` at a time, from the one after the item `before`. */

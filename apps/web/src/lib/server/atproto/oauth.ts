@@ -150,6 +150,11 @@ export function grantsSpaces(granted: string | undefined | null, did: string): b
 	return grantsAll(granted, SCOPES.full, did, PUBLIC_RECORDS.split(' '));
 }
 
+/** Whether a grant lets the app read the account's email address, in either form. */
+export function grantsEmail(granted: string | undefined | null, did: string): boolean {
+	return OPTIONAL_SCOPES.email.some((scope) => grantsAll(granted, scope, did));
+}
+
 /** Whether a grant lets the app write shows, calendar events, and follows to the account's public repo. */
 export function grantsPublicRecords(granted: string | undefined | null, did: string): boolean {
 	return grantsAll(granted, PUBLIC_RECORDS, did);

@@ -42,6 +42,20 @@ describe('loadConfig', () => {
 		});
 	});
 
+	it('logs email in development, and sends it in production only through Resend with a key', () => {
+		const production = { ...base, NODE_ENV: 'production', PUBLIC_URL: 'https://ln.example' };
+
+		expect(loadConfig(base).email).toEqual({ provider: 'log', from: 'Local Network <inbox@127.0.0.1>' });
+		expect(loadConfig(production).email).toEqual({ provider: 'none', from: 'Local Network <inbox@ln.example>' });
+		expect(loadConfig({ ...production, RESEND_API_KEY: 're_1', EMAIL_FROM: 'LN <hi@ln.example>' }).email).toEqual({
+			provider: 'resend',
+			apiKey: 're_1',
+			from: 'LN <hi@ln.example>'
+		});
+		expect(loadConfig({ ...base, EMAIL_PROVIDER: 'none', RESEND_API_KEY: 're_1' }).email.provider).toBe('none');
+		expect(() => loadConfig({ ...base, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY/);
+	});
+
 	it('reports every problem at once', () => {
 		expect(() => loadConfig({ ADMIN_DIDS: 'alice', SYNC_POLL_INTERVAL_MS: '5' })).toThrow(
 			/ROOT_IDENTIFIER[\s\S]*ROOT_PASSWORD[\s\S]*ADMIN_DIDS[\s\S]*HAPPYVIEW_URL[\s\S]*SYNC_POLL_INTERVAL_MS/

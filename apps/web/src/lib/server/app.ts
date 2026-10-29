@@ -21,7 +21,10 @@ import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
+import { NotificationChannels } from './notifications/channels';
+import { emailChannel, LogEmailSender, ResendEmailSender } from './notifications/email';
 import { Notifier } from './notifications/notifier';
+import { Outbox } from './notifications/outbox';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
@@ -89,7 +92,24 @@ export async function createApp(options: CreateAppOptions) {
 		maxAttempts: config.auditMaxAttempts
 	});
 
-	const notifications = new Notifier({ db, logger: logger.child({ component: 'notifications' }) });
+	const notificationChannels = new NotificationChannels({ db, logger: logger.child({ component: 'notifications' }) });
+	const { email } = config;
+
+	const emailSender =
+		email.provider === 'resend'
+			? new ResendEmailSender({ apiKey: email.apiKey, from: email.from })
+			: email.provider === 'log'
+				? new LogEmailSender(logger.child({ component: 'email' }))
+				: null;
+
+	const outbox = new Outbox({
+		db,
+		logger: logger.child({ component: 'outbox' }),
+		channels: notificationChannels,
+		senders: emailSender ? { email: emailChannel(emailSender, config.publicUrl) } : {}
+	});
+
+	const notifications = new Notifier({ db, logger: logger.child({ component: 'notifications' }), outbox });
 
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
@@ -234,6 +254,8 @@ export async function createApp(options: CreateAppOptions) {
 		audit,
 		accounts,
 		notifications,
+		notificationChannels,
+		outbox,
 		projects,
 		sets: projects.sets,
 		requests,
@@ -373,12 +395,18 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
 			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
-			every(60 * 60_000, () => notifications.prune(), 'inbox-retention');
+			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
+			every(15_000, () => outbox.processDue(), 'notification-delivery');
+			void outbox
+				.recover()
+				.then(() => outbox.processDue())
+				.catch((error) => logger.warn({ err: error }, 'could not resume notification delivery'));
 		},
 
 		async stop() {
 			for (const timer of timers) clearInterval(timer);
-			await audit.idle();
+			outbox.stop();
+			await Promise.all([audit.idle(), outbox.idle()]);
 			await db.destroy();
 		}
 	};

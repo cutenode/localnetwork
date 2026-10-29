@@ -1,5 +1,5 @@
 import type { Selectable } from 'kysely';
-import type { RequestKind } from '#lib/types.ts';
+import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
 /**
  * Local index. Everything here except sessions, the audit outbox, and people's
@@ -30,6 +30,8 @@ export interface Database {
 	epkDraft: EpkDraftTable;
 	geocodeCache: GeocodeCacheTable;
 	notification: NotificationTable;
+	notificationChannel: NotificationChannelTable;
+	notificationDelivery: NotificationDeliveryTable;
 }
 
 export interface KvTable {
@@ -276,6 +278,45 @@ export interface NotificationTable {
 	readAt: string | null;
 }
 
+/** Where the inbox also goes besides the site, for one person. No row means the channel is off. */
+export interface NotificationChannelTable {
+	did: string;
+	channel: NotificationChannel;
+	status: 'active' | 'paused';
+	/** Why it's paused, which the settings page explains with what to do. */
+	pausedReason: PausedReason | null;
+	/** The email address their account's host shared, deleted with the row when they turn email off. */
+	address: string | null;
+	addressReadAt: string | null;
+	/**
+	 * Turns email off from the link in each email, without signing in. Kept as is rather than hashed, since every email
+	 * carries it, and all it can do is turn email off.
+	 */
+	unsubscribeToken: string | null;
+	/** JSON array of the NotificationTopics sent on. */
+	topics: string;
+	lastSentAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/** One inbox item on its way out by one channel (notifications/outbox.ts). */
+export interface NotificationDeliveryTable {
+	id: string;
+	notificationId: string;
+	did: string;
+	channel: NotificationChannel;
+	status: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+	/** The items sent in one message, fixed once claimed so a retry sends the same message under the same key. */
+	batchId: string | null;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string | null;
+	providerId: string | null;
+	sentAt: string | null;
+	updatedAt: string;
+}
+
 export type RequestRow = Selectable<RequestTable>;
 
 export type AuditEntryRow = Selectable<AuditEntryTable>;
@@ -285,3 +326,5 @@ export type AccountRow = Selectable<AccountTable>;
 export type BookingThreadRow = Selectable<BookingThreadTable>;
 
 export type NotificationRow = Selectable<NotificationTable>;
+
+export type NotificationChannelRow = Selectable<NotificationChannelTable>;
