@@ -1,5 +1,7 @@
 /** View models shared between server and browser code. */
 
+import type { Capability, SpaceKind } from './capabilities.ts';
+
 export type BlobRefJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
 export type Location = {
@@ -365,3 +367,32 @@ export type PlannerShowView = {
 	createdAt: string;
 	updatedAt?: string;
 };
+
+/** Someone in a performer's, party's or venue's space. */
+export type SpacePerson = AccountView & {
+	role: string;
+	capabilities: Capability[];
+	hidden: boolean;
+	via: string;
+	addedBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A performer's, party's or venue's space, as the staff console lists them. */
+export type SharedSpaceSummary = {
+	uri: string;
+	kind: SpaceKind;
+	skey: string;
+	listed: boolean;
+	/** How many people are in it, hidden ones included. */
+	people: number;
+	createdBy: AccountView;
+	createdAt: string;
+};
+
+/** An invite to a space nobody has answered yet. */
+export type PendingInvite = AccountView & { role: string; createdAt: string; expiresAt: string | null };
+
+/** A request to join a space waiting on an answer. */
+export type JoinRequestView = AccountView & { message: string | null; createdAt: string };

@@ -217,6 +217,64 @@ const epkDrafts = statements(
 );
 
 /**
+ * Performers', parties' and venues' spaces and their people, invites, invite links and requests to join, all from the
+ * records the root writes into each space.
+ */
+const sharedSpaces = statements(
+	`CREATE TABLE shared_space (
+		space_uri TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		listed INTEGER NOT NULL,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE space_person (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		hidden INTEGER NOT NULL,
+		via TEXT NOT NULL,
+		added_by TEXT,
+		source TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, did)
+	)`,
+	`CREATE INDEX space_person_did ON space_person (did)`,
+	`CREATE TABLE space_invite (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		invited_by TEXT NOT NULL,
+		message TEXT,
+		created_at TEXT NOT NULL,
+		expires_at TEXT,
+		PRIMARY KEY (space_uri, did)
+	)`,
+	`CREATE INDEX space_invite_did ON space_invite (did)`,
+	`CREATE TABLE space_invite_link (
+		space_uri TEXT NOT NULL,
+		rkey TEXT NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		expires_at TEXT,
+		PRIMARY KEY (space_uri, rkey)
+	)`,
+	`CREATE TABLE space_join_request (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		message TEXT,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, did)
+	)`
+);
+
+/**
  * People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of; how each person wants
  * them sent on by email or DM (notifications/channels.ts); and the outbox of what's waiting to go
  * (notifications/outbox.ts).
@@ -299,6 +357,11 @@ const migrations = {
 	'005_refresh_keys': {
 		async up(db) {
 			await sql.raw("DELETE FROM kv WHERE key = 'happyview_set_script_refreshed'").execute(db);
+		}
+	},
+	'006_shared_spaces': {
+		async up(db) {
+			for (const statement of sharedSpaces) await sql.raw(statement).execute(db);
 		}
 	},
 	'007_inbox': {

@@ -1,6 +1,6 @@
 import { ROOT_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import { createSpaceIfMissing, type SimpleSpaceConfig } from './atproto/repo-client';
-import { parseSpaceUri } from './atproto/spaces';
+import { parseSpaceUri, SHARED_SPACE_TYPES } from './atproto/spaces';
 import type { Core } from './core';
 
 const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
@@ -87,8 +87,9 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		watched.push(space);
 	}
 
-	// The root's spaces per booking thread, press kit and project backstage, which it creates as they're needed.
-	for (const type of [SPACE_TYPE.booking, SPACE_TYPE.epk, SPACE_TYPE.backstage]) {
+	// The root's spaces per booking thread, press kit, project backstage, performer, party and venue, which it creates
+	// as they're needed.
+	for (const type of [SPACE_TYPE.booking, SPACE_TYPE.epk, SPACE_TYPE.backstage, ...Object.values(SHARED_SPACE_TYPES)]) {
 		try {
 			watched.push(...(await root.listSpaces(type)));
 		} catch (error) {
