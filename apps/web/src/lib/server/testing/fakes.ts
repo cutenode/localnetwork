@@ -145,6 +145,40 @@ export class FakeRootClient implements RootRepoClient {
 		this.net.spaceRecords.delete(`${input.space}|${this.did}|${input.collection}|${input.rkey}`);
 	}
 
+	/** Fails as a whole before writing anything, as the PDS does, checking each write against the ones before it. */
+	async applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void> {
+		this.net.maybeFail(this.did);
+		this.net.assertCanWrite(this.did, space);
+
+		if (space.startsWith(`at://${this.did}/`) && !this.net.spaces.has(space))
+			throw new XRPCError(400, 'SpaceNotFound', `${space} doesn't exist`);
+
+		const key = (write: RepoWrite) => `${space}|${this.did}|${write.collection}|${write.rkey}`;
+
+		const present = new Set(
+			this.net.spaceRecords.keys().filter((stored) => stored.startsWith(`${space}|${this.did}|`))
+		);
+
+		for (const write of writes) {
+			const exists = present.has(key(write));
+
+			if (write.action === 'create' && exists) throw new XRPCError(400, 'RecordAlreadyExists', key(write));
+
+			if (write.action !== 'create' && !exists) throw new XRPCError(400, 'RecordNotFound', key(write));
+
+			if (write.action === 'delete') present.delete(key(write));
+			else {
+				this.net.assertBlobsHeld(this.did, write.record);
+				present.add(key(write));
+			}
+		}
+
+		for (const write of writes) {
+			if (write.action === 'delete') this.net.spaceRecords.delete(key(write));
+			else await this.writeSpace(key(write), space, write.collection, write.rkey, write.record);
+		}
+	}
+
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
 		return this.net.spaceRecords.get(`${input.space}|${input.repo}|${input.collection}|${input.rkey}`) ?? null;
 	}

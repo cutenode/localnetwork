@@ -32,7 +32,14 @@ export const COLLECTION = {
 	epkDraft: `${NS}.epk.draft`,
 	/** A show a manager announced, in their own repo beside its calendar event. */
 	show: `${NS}.show`,
-	follow: `${NS}.follow`
+	follow: `${NS}.follow`,
+	/** Someone in a performer's, party's or venue's space, with their role and capabilities. */
+	person: `${NS}.people.person`,
+	invite: `${NS}.people.invite`,
+	inviteLink: `${NS}.people.link`,
+	joinRequest: `${NS}.people.request`,
+	/** Whether staff list a performer, party or venue in the directory, in its space. */
+	listingStatus: `${NS}.listing.status`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
@@ -83,7 +90,10 @@ export const SPACE_TYPE = {
 	booking: `${NS}.space.booking`,
 	planner: `${NS}.space.planner`,
 	epk: `${NS}.space.epk`,
-	backstage: `${NS}.space.backstage`
+	backstage: `${NS}.space.backstage`,
+	performer: `${NS}.space.performer`,
+	party: `${NS}.space.party`,
+	venue: `${NS}.space.venue`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];

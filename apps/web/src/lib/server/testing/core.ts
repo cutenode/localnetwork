@@ -14,6 +14,7 @@ import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
+import { SharedSpaces } from '../services/shared-spaces';
 import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
@@ -113,6 +114,8 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
+	const sharedSpaces = new SharedSpaces(core);
+
 	await ensureRootSpaces(core);
 	await audit.idle();
 
@@ -149,6 +152,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		shows,
 		follows,
 		verifications,
+		sharedSpaces,
 		handles,
 		indexedRepo,
 		viewer,

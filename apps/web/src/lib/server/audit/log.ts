@@ -45,6 +45,14 @@ export const AUDIT_ACTIONS = [
 	'show.delete',
 	'follow.create',
 	'follow.delete',
+	'space.create',
+	'people.add',
+	'people.update',
+	'people.remove',
+	'people.leave',
+	'people.hide',
+	'listing.list',
+	'listing.unlist',
 	'system.bootstrap',
 	'system.space'
 ] as const;

@@ -32,6 +32,7 @@ import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
+import { SharedSpaces } from './services/shared-spaces';
 import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
 import { SupportService } from './services/supports';
@@ -163,6 +164,7 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
+	const sharedSpaces = new SharedSpaces(core);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
@@ -177,8 +179,11 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'sync' }),
 		identity,
 		credentials,
-		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks }),
-		onSpaceDropped: (space) => bookings.forget(space),
+		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks, sharedSpaces }),
+		onSpaceDropped: async (space) => {
+			await bookings.forget(space);
+			await sharedSpaces.forget(space);
+		},
 		notifyService: config.syncNotify ? config.syncService : null
 	});
 
@@ -243,6 +248,7 @@ export async function createApp(options: CreateAppOptions) {
 		shows,
 		follows,
 		verifications,
+		sharedSpaces,
 		bugReports,
 		sessions,
 		geocoder,
@@ -340,6 +346,7 @@ export async function createApp(options: CreateAppOptions) {
 			for (const space of watched) await syncer.watch(space);
 			await staff.reconcileMembership();
 			await projects.reconcileManagerSpaces();
+			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
 		},
@@ -368,6 +375,9 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
 			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
+			// Finishes member updates of performers', parties' and venues' spaces that failed part way: a listSpaces per
+			// kind, then one listRecords and one listMembers per space, all on the root's own PDS.
+			every(60 * 60_000, () => sharedSpaces.reconcile(), 'shared-spaces');
 		},
 
 		async stop() {
