@@ -867,3 +867,23 @@ fn write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
         other => panic!("{other:?}"),
     }
 }
+
+/// Regression: under `$LOCALLIBRARY_VOLUMES`, the disk holding a drive folder was still looked up
+/// with the system's disk tools (`diskutil info`, `lsblk`), though that disk is this machine's
+/// own. It's refused without running any, as listing and formatting are.
+#[cfg(unix)]
+#[test]
+fn the_test_switch_runs_no_disk_tool_for_a_drive_folder() {
+    let mut fake = fake_tools::FakeTools::new();
+    let root = fake.dir().join("DNA");
+    std::fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    fake.volume_at(&root, "vfat", true);
+    assert!(disk_at(&root).is_ok(), "the fake tools answer for it");
+    let before = fake.calls().len();
+    crate::testing::volumes_on_this_thread(Some(Vec::new()));
+    let hidden = disk_at(&root);
+    crate::testing::volumes_on_this_thread(None);
+    assert!(matches!(&hidden, Err(Error::Invalid(m)) if m.starts_with("LOCALLIBRARY_VOLUMES is set")), "{hidden:?}");
+    assert_eq!(fake.calls().len(), before, "no tool ran");
+}

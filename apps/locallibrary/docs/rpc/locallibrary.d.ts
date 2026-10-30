@@ -3557,6 +3557,12 @@ export type EmbeddedFile = {
   /** The file once the art went in: it's only put back while it's still that. */
   size: number;
   mtime: number;
+  /**
+   * What it held once the art went in, by content: its size and mtime, taken moments after it
+   * was written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).
+   * Missing from embeds an earlier version made, which go by size and mtime alone.
+   */
+  hash?: Hash | null;
 };
 
 export type Comparison = {
@@ -7743,8 +7749,9 @@ export type CollectionExportPlan = {
    */
   unsaved: Unsaved | null;
   /**
-   * Space the export needs on the target: the files it copies, its new databases and the
-   * backup of what it replaces.
+   * Space the export needs on the target: the files it copies, its new databases, the backup
+   * of what it replaces, and the online-only files it downloads when their cloud folder is on
+   * the same disk.
    */
   needed_bytes: number;
   free_space: number | null;

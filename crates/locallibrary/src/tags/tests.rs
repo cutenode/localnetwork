@@ -220,7 +220,13 @@ fn new_categories_and_tags_get_ids_both_databases_can_share(tc: TestCase) {
             let got = ids.category(source, &tree, Some(&other), &name);
             match other.category(&name).map(|c| c.id).filter(|id| usable(*id)) {
                 Some(theirs) => assert_eq!(got, theirs, "{name}: the other database's id"),
-                None => assert!(got > max_category && !used.contains(&got), "{name}: {got}, used {used:?}"),
+                // The next id, or the smallest free one when that doesn't fit (LOC-37).
+                None => assert!(
+                    Ids::fits(source, got)
+                        && !used.contains(&got)
+                        && (got > max_category || !Ids::fits(source, max_category + 1)),
+                    "{name}: {got}, used {used:?}"
+                ),
             }
             for tag in NAMES {
                 let got = ids.tag(source, &tree, Some(&other), &name, tag);

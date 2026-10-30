@@ -234,19 +234,34 @@ pub(crate) fn keep_identity(from: &OneLibrary, to: &OneLibrary) -> Result<()> {
 /// drive's pending marker, so a run cut off before then (after taking the database off first, or
 /// after swapping the new one in) leaves them for the run that finishes the job: the drive's
 /// database may no longer hold them, and that run may have no database left to replace.
+///
+/// A drive with no `exportLibrary.db` has no name or colour to keep, and is left with none rather
+/// than the source's: a set stick packed from the main drive shouldn't show up on the players as
+/// the main drive (see [`no_name_note`]).
 pub fn stash(device: &mut Device, replaces: bool) -> Result<Option<DbIdentity>> {
     let kept = device.state().and_then(|s| s.pending.as_ref()).and_then(|p| p.player.clone());
     if kept.is_some() || !replaces {
         return Ok(kept);
     }
-    let now = db_identity(device.root());
-    if now.is_some()
-        && let Some(p) = device.state_mut()?.pending.as_mut()
-    {
+    let now = Some(db_identity(device.root()).unwrap_or_default());
+    if let Some(p) = device.state_mut()?.pending.as_mut() {
         p.player.clone_from(&now);
         device.save_state()?;
     }
     Ok(now)
+}
+
+/// A plan's note that `target`, which has no `exportLibrary.db`, gets one with no player name or
+/// colour (see [`stash`]), or `None` when it has one already.
+pub(crate) fn no_name_note(target: &Device) -> Option<String> {
+    let has = paths::to_fs(target.root(), paths::LIBRARY_PLUS_DB).is_file();
+    (!has).then(|| {
+        format!(
+            "{} has no exportLibrary.db, so it gets one without a player name or colour (not the source's); \
+             `locallibrary drive player` sets them",
+            target.name()
+        )
+    })
 }
 
 /// After a sync, push or pack replaced `exportLibrary.db`, put back the name and colour the
@@ -256,7 +271,9 @@ pub fn stash(device: &mut Device, replaces: bool) -> Result<Option<DbIdentity>> 
 pub fn preserve(device: &Device, before: Option<&DbIdentity>) -> Result<bool> {
     let Some(before) = before else { return Ok(false) };
     let Some(now) = db_identity(device.root()) else { return Ok(false) };
-    if &now == before {
+    // No name is no name, and colour 0 no colour, however the database stores them.
+    let shown = |id: &DbIdentity| (id.name.clone(), id.colour.unwrap_or(0));
+    if shown(&now) == shown(before) {
         return Ok(false);
     }
     onelibrary::write(device, &with_identity(&OneLibrary::open(device)?, before, false)?)?;

@@ -45,9 +45,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       `cargo about` in `locallibrary-release.yml`, plus rekordbox-pdb's MIT notice for the vendored
       code and `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in
       CONTRIBUTING.md's release checklist, not both.
-- [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
-      mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
-      drives this job already wrote; refuse otherwise.
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
@@ -179,15 +176,7 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 - [ ] Found while raising coverage, each a decision: `drive tidy` exits 0 when it couldn't remove
       some files (`recordings` says Partial); `setup --role` is ignored for the drive that becomes
-      the primary, even a bad value; a lenient replay that skips `DeleteHistoryLists` only says
-      "not found", dropping which list; merging the same drive twice in folder mode makes "(2)"
-      copies of every playlist; under `LOCALLIBRARY_VOLUMES`, `format::disk_at` still runs
-      read-only `diskutil info`/`lsblk` on the disk holding the test folder.
-- [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
-      undo then redo leaves edits that replay won't redo, and restoring an older backup then a
-      newer one puts back edits the journal has forgotten.
-- [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
-      finishes it, but taking it back needs `undo --force`.
+      the primary, even a bad value.
 - [ ] `prep` syncs one pair at a time; it could use the parallel multi-drive sync when no drive came
       back from a set.
 - [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
@@ -227,17 +216,14 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
-- [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
-      colour, since there's none to keep. For set sticks, clearing it may be better.
 - [ ] Type-check `docs/rpc/locallibrary.d.ts` with `tsc` in CI once something consumes the RPC.
 - [ ] Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
       `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) need a paid
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
-- [ ] `collection export`'s space check counts `written.needed_bytes` but not `download_bytes`
-      (online-only Dropbox files that download onto the boot disk): both the fit warning
-      (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
-      to `~/rekordbox-export` stopped at 1.8 of 25 GB.
+- [ ] `collection export` copies online-only files one at a time, so one that takes minutes to
+      download stalls the export (it now says which file it's waiting on). Start the next few
+      downloads while one copies (reading a file's first byte is enough).
 - [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
       CLI's `sets export` reads with `store_to_read`.
 - [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context

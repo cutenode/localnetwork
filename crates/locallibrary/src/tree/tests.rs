@@ -78,3 +78,29 @@ fn hash_index_avoids_rehashing() {
     entry.size += 1;
     assert_eq!(index.lookup(entry), None);
 }
+
+/// An entry recorded within moments of the file's mtime is racy: not looked up, and [`racy`]
+/// says so while the file still shows that size and mtime; recorded clearly later, it isn't.
+///
+/// [`racy`]: HashIndex::racy
+#[test]
+fn entries_recorded_as_the_file_was_written_are_racy() {
+    let now = chrono::Utc::now().timestamp();
+    let entry = |mtime: i64| FileEntry {
+        path: "Contents/a.mp3".into(),
+        size: 5,
+        mtime,
+        class: FileClass::Audio,
+        hash: Some(Hash::of(b"hello")),
+    };
+    // Racy entries' mtimes are ahead of now, so however slow the machine, they're recorded within
+    // the window.
+    for (mtime, racy) in [(now + 30, true), (now + 1, true), (now - 10, false), (1_600_000_000, false)] {
+        let mut index = HashIndex::default();
+        index.record(&entry(mtime));
+        let seen = FileEntry { hash: None, ..entry(mtime) };
+        assert_eq!(index.racy(&seen), racy, "mtime {} s from now", mtime - now);
+        assert_eq!(index.lookup(&seen).is_none(), racy);
+        assert!(!index.racy(&FileEntry { size: 6, ..seen.clone() }), "another size isn't the recorded file");
+    }
+}

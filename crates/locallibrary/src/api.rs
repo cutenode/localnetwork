@@ -1896,9 +1896,7 @@ pub fn artwork_unembed_plan(store: &Store, req: &UnembedRequest) -> Result<Plann
     let (mut restored, mut skipped) = (Vec::new(), Vec::new());
     for f in &backup.files {
         match std::fs::metadata(&f.path) {
-            Ok(m) if m.len() == f.size && fsutil::mtime_eq(fsutil::mtime_secs(&m), f.mtime) => {
-                restored.push(f.path.clone())
-            }
+            Ok(m) if f.unchanged(&m) => restored.push(f.path.clone()),
             Ok(_) => skipped.push(Skip::new(f.path.display().to_string(), "changed since the art went in")),
             Err(_) => skipped.push(Skip::new(f.path.display().to_string(), "gone")),
         }
