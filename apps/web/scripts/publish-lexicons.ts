@@ -18,12 +18,11 @@
  * points at the temporary dev network, and `pnpm dev` publishes the
  * lexicons there itself.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolveTxt } from 'node:dns/promises';
-import { join } from 'node:path';
 import { AtpAgent } from '@atproto/api';
 import Cloudflare from 'cloudflare';
-import { parseLexiconDoc } from '@atproto/lexicon';
+import { LEXICON_DOCS } from '../src/lib/server/atproto/lexicons.ts';
 import { canonicalJson } from '../src/lib/server/audit/chain.ts';
 import { IdentityResolver } from '../src/lib/server/atproto/identity.ts';
 import { AgentRootClient } from '../src/lib/server/atproto/repo-client.ts';
@@ -31,13 +30,6 @@ import { silentLogger } from '../src/lib/server/logger.ts';
 import { syncLexiconRecords } from './lib/lexicon-dns.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
-
-// Only lexicons/computer/ is ours: the other folders hold other authorities' lexicons, copied in as they publish them.
-const ours = join(import.meta.dirname, '../../../lexicons/computer');
-
-const docs = readdirSync(ours, { recursive: true, encoding: 'utf8' })
-	.filter((file) => file.endsWith('.json'))
-	.map((file) => parseLexiconDoc(JSON.parse(readFileSync(join(ours, file), 'utf8'))));
 
 const identifier = process.env.ROOT_IDENTIFIER;
 
@@ -65,7 +57,7 @@ await agent.login({ identifier: did, password });
 
 const root = new AgentRootClient(did, agent);
 
-for (const doc of docs) {
+for (const doc of LEXICON_DOCS) {
 	const record = { $type: 'com.atproto.lexicon.schema', ...JSON.parse(JSON.stringify(doc)) };
 
 	const existing = await root.getRecord({ collection: 'com.atproto.lexicon.schema', rkey: doc.id });
@@ -79,7 +71,7 @@ for (const doc of docs) {
 	console.log(`published  ${doc.id}`);
 }
 
-const authorities = new Set(docs.map((doc) => doc.id.split('.').slice(0, -1).toReversed().join('.')));
+const authorities = new Set(LEXICON_DOCS.map((doc) => doc.id.split('.').slice(0, -1).toReversed().join('.')));
 
 const names = [...authorities].map((authority) => `_lexicon.${authority}`).toSorted((a, b) => a.localeCompare(b));
 

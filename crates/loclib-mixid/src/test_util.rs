@@ -61,6 +61,38 @@ pub fn wav_of(rate: u32, bits: u16, samples: impl ExactSizeIterator<Item = i32>)
     out
 }
 
+/// Samples in an MPEG-1 Layer III frame.
+pub const MP3_FRAME_SAMPLES: u32 = 1152;
+
+/// `frames` silent MPEG-1 Layer III frames (128 kbit/s, 44.1 kHz, joint stereo, 417 bytes each).
+/// With `gapless` (the encoder's delay and padding, in samples), they follow an Info frame as
+/// FFmpeg writes one: their count, and the delay and padding in its LAME extension. Without it
+/// there's no header, and a reader times the file by its size, as a constant bit rate MP3.
+pub fn mp3(frames: u32, gapless: Option<(u32, u32)>) -> Vec<u8> {
+    const HEADER: [u8; 4] = [0xff, 0xfb, 0x90, 0x64];
+    let silent = [&HEADER[..], &[0; 413]].concat();
+    let mut out = Vec::new();
+    if let Some((delay, padding)) = gapless {
+        // After the header and the 32 bytes of side information a stereo frame has.
+        let mut info = silent.clone();
+        let mut tag = b"Info".to_vec();
+        tag.extend_from_slice(&1u32.to_be_bytes()); // flags: the frame count only
+        tag.extend_from_slice(&frames.to_be_bytes());
+        tag.extend_from_slice(b"Lavc61.19");
+        // Revision, lowpass, peak, radio and audiophile gain, flags and bit rate: none.
+        tag.extend_from_slice(&[0; 12]);
+        // Both count the decoder's own 529 samples, as LAME and FFmpeg write them.
+        let trim = ((delay - 529) << 12) | (padding + 529);
+        tag.extend_from_slice(&trim.to_be_bytes()[1..]);
+        info[36..36 + tag.len()].copy_from_slice(&tag);
+        out.extend_from_slice(&info);
+    }
+    for _ in 0..frames {
+        out.extend_from_slice(&silent);
+    }
+    out
+}
+
 /// `x` resampled from `from` Hz to `to` Hz.
 pub fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
     let mut r = Resampler::new(from, to);

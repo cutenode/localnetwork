@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ArrowDown } from '@lucide/svelte';
+	import { ArrowDown, AudioLines } from '@lucide/svelte';
 	import { clock, CONFIDENT, handoff, playColor, speed, tracklist, type MixReport } from '#lib/mix/report.ts';
 	import { onColour } from '#lib/ui/contrast.ts';
 	import TrackOverview from './TrackOverview.svelte';
 
-	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
+	/** `playing` is the play the player is at, by index, or -1. */
+	let { report, selected = $bindable(null), playing = -1 }: { report: MixReport; selected?: number | null; playing?: number } = $props();
 
 	const items = $derived(tracklist(report));
 
@@ -37,12 +38,12 @@
 			{@const swatch = onColour(playColor(i))}
 			{@const confidence = Math.round(play.confidence * 100)}
 			{@const shifted = play.key && play.playedKey && play.key !== play.playedKey}
-			<li id="mix-track-{i}" class="scroll-mt-20 border-t border-well">
+			<li id="mix-track-{i}" class="scroll-mt-20 border-t border-well" aria-current={playing === i || undefined}>
 				<div
 					role="button"
 					tabindex="0"
 					aria-pressed={selected === i}
-					aria-label="{i + 1}. {track.title}{track.artist ? ` by ${track.artist}` : ''}, {clock(play.start)} to {clock(play.end)}"
+					aria-label="{playing === i ? 'Playing now: ' : ''}{i + 1}. {track.title}{track.artist ? ` by ${track.artist}` : ''}, {clock(play.start)} to {clock(play.end)}"
 					class={[grid, 'cursor-pointer items-start rounded-md py-2.5 transition-colors hover:bg-raised', selected === i && 'bg-well hover:bg-well']}
 					style:box-shadow={selected === i ? `inset 3px 0 0 ${playColor(i)}` : undefined}
 					onclick={() => toggle(i)}
@@ -52,12 +53,12 @@
 						toggle(i);
 					}}
 				>
-					<span class="pl-2 font-mono text-caption leading-6 text-fg-subtle">{clock(play.start)}</span>
+					<span class={['pl-2 font-mono text-caption leading-6', playing === i ? 'font-semibold text-fg' : 'text-fg-subtle']}>{clock(play.start)}</span>
 					<div class="flex min-w-0 gap-3">
 						{#if track.artwork}<img src={track.artwork} alt="" class="size-10 shrink-0 rounded-md bg-well object-cover" loading="lazy" />{/if}
 						<div class="flex min-w-0 flex-col gap-1">
 							<p class="m-0 text-small leading-6">
-								<span class="mr-1 font-mono text-caption text-fg-subtle">{i + 1}</span><span class="font-semibold">{track.title}</span>
+								{#if playing === i}<AudioLines class="mr-1 inline size-3.5 align-[-2px]" aria-hidden="true" />{/if}<span class="mr-1 font-mono text-caption text-fg-subtle">{i + 1}</span><span class="font-semibold">{track.title}</span>
 								{#if track.artist}<span class="text-fg-muted max-sm:block"> {track.artist}</span>{/if}
 							</p>
 							{#if track.label || play.keyLock || pitched || play.jumps > 0 || play.confidence < CONFIDENT}

@@ -1,8 +1,8 @@
 # Test fixtures
 
 Real rekordbox device-export files, used to test locallibrary against what rekordbox actually
-writes. Tests generate the audio they need (WAV, AIFF and FLAC), and placeholder files at the
-paths the databases reference; only audio no test can make is committed.
+writes. Tests generate the audio they need (WAV, AIFF, FLAC and MP3), and placeholder files at
+the paths the databases reference; only audio no test can make is committed.
 
 | Directory | Source | License |
 | --- | --- | --- |

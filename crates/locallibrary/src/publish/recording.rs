@@ -8,14 +8,27 @@
 //! reference one takes 5 MiB unless whoever runs it sets `PDS_BLOB_UPLOAD_LIMIT` (its installer
 //! allows 300 MiB), and Bluesky's don't say. So the limit is the recording Lexicon's,
 //! [`MAX_BYTES`], unless the DJ names a smaller one.
+//!
+//! The set's timed tracks go into the file as chapters, for podcast apps and players to show and
+//! skip between: MP4 chapters in what ffmpeg encodes, and ID3 chapters (CHAP frames, listed in
+//! order by a CTOC) in a copy of an MP3 that goes up as it is. An AAC or M4A file that goes up as it
+//! is keeps no chapters: adding them would need ffmpeg, which it otherwise doesn't.
 
+use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use chrono::{DateTime, Utc};
+use lofty::TextEncoding;
+use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::FileType;
+use lofty::id3::v2::{
+    ChapterFrame, ChapterTableOfContentsFrame, CtocFlags, Frame, FrameId, FrameList, Id3v2Tag, TextInformationFrame,
+};
 use lofty::mp4::{Mp4Codec, Mp4File};
+use lofty::mpeg::MpegFile;
 use lofty::prelude::*;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -26,6 +39,7 @@ use crate::error::IoContext;
 use crate::export::one_line;
 use crate::op::bytes;
 use crate::progress::{Ctx, Event, Phase};
+use crate::sets::chapters::{Chapter, ends};
 use crate::{Error, Result};
 
 /// The most a recording may be: the recording Lexicon's `maxSize`, 300 MiB.
@@ -126,12 +140,12 @@ fn aac_bytes(kbps: u32, secs: u64) -> u64 {
     u64::from(kbps) * 125 * secs
 }
 
-/// The file that goes up, and its type: the recording itself, or ffmpeg's encoding of it in a
-/// temporary file that goes when this does.
+/// The file that goes up, and its type: the recording itself, or ffmpeg's encoding of it or a copy
+/// with chapters, in a temporary file that goes when this does.
 pub struct Upload {
     path: PathBuf,
     pub mime: String,
-    _encoded: Option<tempfile::TempPath>,
+    _made: Option<tempfile::TempPath>,
 }
 
 impl Upload {
@@ -148,44 +162,134 @@ pub fn mime(audio: &Audio, encoding: Encoding) -> &str {
     }
 }
 
-/// The file to upload for `audio`: itself, or encoded by ffmpeg as `encoding` says (reported in
-/// the write phase), and no bigger than `limit`.
-pub fn prepare(audio: &Audio, encoding: Encoding, limit: u64, ctx: &Ctx<'_>) -> Result<Upload> {
-    let mime = mime(audio, encoding).to_string();
-    let Encoding::Aac { kbps, bytes: about } = encoding else {
-        return Ok(Upload { path: audio.path.clone(), mime, _encoded: None });
+/// Whether `chapters` go into the file that goes up for `audio`, as `encoding` says: into what
+/// ffmpeg encodes, or a copy of an MP3. Otherwise it goes up as it is, without them.
+pub fn takes_chapters(audio: &Audio, encoding: Encoding) -> bool {
+    matches!(encoding, Encoding::Aac { .. }) || audio.playable.as_deref() == Some("audio/mpeg")
+}
+
+/// The file to upload for `audio`: itself, encoded by ffmpeg as `encoding` says (reported in the
+/// write phase), or for an MP3 with `chapters` a copy with them, and no bigger than `limit`.
+/// `chapters` are for a file [`takes_chapters`] says takes them.
+pub fn prepare(audio: &Audio, encoding: Encoding, limit: u64, chapters: &[Chapter], ctx: &Ctx<'_>) -> Result<Upload> {
+    let upload = |path: PathBuf, made| Upload { path, mime: mime(audio, encoding).to_string(), _made: made };
+    let as_it_is = || Ok(upload(audio.path.clone(), None));
+    let (ffmpeg_kbps, about) = match encoding {
+        Encoding::Aac { kbps, bytes } => (Some(kbps), bytes),
+        Encoding::AsIs if chapters.is_empty() => return as_it_is(),
+        Encoding::AsIs => (None, audio.bytes),
     };
-    let encoded = tempfile::Builder::new()
-        .prefix("locallibrary-recording-")
-        .suffix(".m4a")
-        .tempfile()
-        .map_err(|e| Error::invalid(format!("a temporary file for the encoded recording: {e}")))?
-        .into_temp_path();
+    let made = temporary(if ffmpeg_kbps.is_some() { ".m4a" } else { ".mp3" })?;
     ctx.phase_start(Phase::Write, 1, about);
     let name = audio.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     ctx.emit(Event::Item { phase: Phase::Write, path: name, bytes: about });
-    let ran = ffmpeg(audio, kbps, &encoded, ctx);
+    let ran = match ffmpeg_kbps {
+        Some(kbps) => ffmpeg(audio, kbps, chapters, &made, ctx),
+        None => tag_chapters(audio, chapters, &made)
+            .inspect(|_| ctx.emit(Event::Bytes { phase: Phase::Write, bytes: about })),
+    };
     ctx.phase_end(Phase::Write);
     ran?;
-    let size = std::fs::metadata(&encoded).at(&encoded)?.len();
-    if size > limit {
-        return Err(Error::invalid(format!(
+    let size = std::fs::metadata(&made).at(&made)?.len();
+    match ffmpeg_kbps {
+        Some(_) if size > limit => Err(Error::invalid(format!(
             "ffmpeg's encoding of the recording came to {}, more than {}",
             bytes(size),
             bytes(limit)
-        )));
+        ))),
+        // Chapters tip it over: it goes up without them, as it would have.
+        None if size > limit => {
+            ctx.emit(Event::Warning {
+                message: format!("the recording goes up without chapters: with them it's more than {}", bytes(limit)),
+            });
+            as_it_is()
+        }
+        _ => Ok(upload(made.to_path_buf(), Some(made))),
     }
-    let path = encoded.to_path_buf();
-    Ok(Upload { path, mime, _encoded: Some(encoded) })
 }
 
-/// Encode `audio` with ffmpeg as AAC at `kbps` in an M4A file at `to`, its index at the front,
-/// reporting what it has written as it goes (its `-progress` lines' `total_size`).
-fn ffmpeg(audio: &Audio, kbps: u32, to: &Path, ctx: &Ctx<'_>) -> Result<()> {
-    let mut child = Command::new("ffmpeg")
-        .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i"])
-        .arg(&audio.path)
-        .args(["-vn", "-c:a", "aac", "-b:a", &format!("{kbps}k"), "-movflags", "+faststart"])
+/// A temporary file for what goes up, or what ffmpeg's told to put in it, named with `suffix`.
+fn temporary(suffix: &str) -> Result<tempfile::TempPath> {
+    let file = tempfile::Builder::new().prefix("locallibrary-recording-").suffix(suffix).tempfile();
+    Ok(file.map_err(|e| Error::invalid(format!("a temporary file for the recording: {e}")))?.into_temp_path())
+}
+
+/// A copy at `to` of the MP3 `audio` with `chapters` in its ID3v2 tag, in place of any it had: a
+/// CHAP frame each, titled, and a CTOC listing them in order. Its other tags stay.
+fn tag_chapters(audio: &Audio, chapters: &[Chapter], to: &Path) -> Result<()> {
+    let failed = |e: &dyn std::fmt::Display| {
+        Error::invalid(one_line(&format!("adding chapters to a copy of {}: {e}", audio.path.display())))
+    };
+    std::fs::copy(&audio.path, to).at(to)?;
+    let mut file = std::fs::File::open(to).at(to)?;
+    let read = MpegFile::read_from(&mut file, ParseOptions::new().read_properties(false)).map_err(|e| failed(&e))?;
+    let mut tag = read.id3v2().cloned().unwrap_or_else(Id3v2Tag::new);
+    tag.retain(|f| !matches!(f, Frame::Chapter(_) | Frame::TableOfContents(_)));
+    let title = FrameId::Valid("TIT2".into());
+    let ms = |secs: u64| u32::try_from(secs.saturating_mul(1000)).unwrap_or(u32::MAX);
+    let mut ids: Vec<Cow<'static, str>> = Vec::new();
+    for (n, (c, end)) in (1..).zip(ends(chapters, audio.duration_secs)) {
+        let id = format!("chp{n}");
+        let mut named = FrameList::new();
+        named.insert(Frame::Text(TextInformationFrame::new(title.clone(), TextEncoding::UTF8, c.title.clone())));
+        // Times only: u32::MAX for both offsets says there are no byte offsets.
+        let chapter = ChapterFrame::new(id.clone(), ms(c.start.into())..ms(end), u32::MAX..u32::MAX, named);
+        tag.insert(Frame::Chapter(chapter));
+        ids.push(id.into());
+    }
+    let order = CtocFlags { top_level: true, ordered: true };
+    tag.insert(Frame::TableOfContents(ChapterTableOfContentsFrame::new("toc", order, ids, FrameList::new())));
+    // No padding: nothing edits the copy after this.
+    tag.save_to_path(to, WriteOptions::new().preferred_padding(0)).map_err(|e| failed(&e))
+}
+
+/// `chapters` of a recording `length` seconds long as an FFMETADATA file
+/// (<https://ffmpeg.org/ffmpeg-formats.html#Metadata-2>), for ffmpeg to write into what it encodes:
+/// times in milliseconds, each chapter ending where the next starts.
+fn ffmetadata(chapters: &[Chapter], length: u64) -> String {
+    let mut out = String::from(";FFMETADATA1\n");
+    for (c, end) in ends(chapters, length) {
+        let (start, title) = (u64::from(c.start) * 1000, escape(&c.title));
+        let _ = write!(out, "[CHAPTER]\nTIMEBASE=1/1000\nSTART={start}\nEND={}\ntitle={title}\n", end * 1000);
+    }
+    out
+}
+
+/// `s` as an FFMETADATA value: a backslash before each `=`, `;`, `#`, `\` and newline.
+fn escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '=' | ';' | '#' | '\\' | '\n') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Encode `audio` with ffmpeg as AAC at `kbps` in an M4A file at `to`, its index at the front and
+/// `chapters` in it, reporting what it has written as it goes (its `-progress` lines' `total_size`).
+fn ffmpeg(audio: &Audio, kbps: u32, chapters: &[Chapter], to: &Path, ctx: &Ctx<'_>) -> Result<()> {
+    let metadata = match chapters {
+        [] => None,
+        _ => {
+            let file = temporary(".ffmetadata")?;
+            std::fs::write(&file, ffmetadata(chapters, audio.duration_secs)).at(&file)?;
+            Some(file)
+        }
+    };
+    let mut command = Command::new("ffmpeg");
+    command.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i"]).arg(&audio.path);
+    if let Some(m) = &metadata {
+        command.args(["-f", "ffmetadata", "-i"]).arg(m);
+    }
+    command.args(["-vn", "-c:a", "aac", "-b:a", &format!("{kbps}k"), "-movflags", "+faststart"]);
+    if metadata.is_some() {
+        // The chapters come from the metadata file, and the recording's own tags from the
+        // recording, as ffmpeg maps them by default.
+        command.args(["-map_chapters", "1"]);
+    }
+    let mut child = command
         .args(["-progress", "pipe:1", "-nostats"])
         .arg(to)
         .stdin(Stdio::null())

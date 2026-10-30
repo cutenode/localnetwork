@@ -1,0 +1,28 @@
+id = "mixcloud-account"
+name = "Mixcloud Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# Mixcloud wants a client secret when a code is traded for a token, so the trade goes through Local
+# Network's token exchange, which holds it. Mixcloud has no scopes, and takes the token only as the
+# `access_token` query parameter. It compares the redirect URI with the authorize request's alone,
+# not with one registered for the client, so the browser can come back to any free port.
+[[contributes.account_types]]
+type = "mixcloud"
+title = "Mixcloud"
+authorize_url = "https://www.mixcloud.com/oauth/authorize"
+token_exchange = "https://localnetwork.computer/api/token-exchange/mixcloud"
+# PLACEHOLDER: Local Network's Mixcloud client isn't registered yet. Once it is, this is its client
+# id (public), the same as the website's MIXCLOUD_CLIENT_ID, which the token exchange sends with it.
+client_id = "PLACEHOLDER-unregistered"
+token = { query = "access_token" }
+# Mixcloud may answer /me/ with a redirect to /<username>/, which is followed: it's the same host.
+whoami = { url = "https://api.mixcloud.com/me/", subject = "/username", name = "/name" }
+
+# The upload endpoint, with the token in its query or without.
+[contributes.account_types.scopes.upload]
+title = "upload shows to Mixcloud"
+requests = [
+    { method = "POST", url = "https://api.mixcloud.com/upload/" },
+    { method = "POST", url = "https://api.mixcloud.com/upload/?*" },
+]
