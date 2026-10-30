@@ -329,9 +329,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Website (`apps/web`)
 
-- [ ] `planner.save()` can make duplicate save records when two saves of one project overlap: it
-      reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
-      fixed record key per project fixes it, but changes the data shape.
 - [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
 - [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
       backfill from Jetstream, so `dj.set` records are let in only from a published project's

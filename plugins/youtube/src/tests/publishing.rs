@@ -52,7 +52,7 @@ fn without_a_scratch_folder_nothing_goes() {
 
 /// A recording goes up as FFmpeg's video of a black frame over its audio (copied, being AAC
 /// already), its title and tracklist as YouTube takes them, unlisted, in YouTube's chunks; the
-/// answer is the video's page, and the video is gone from the scratch folder.
+/// answer is the video's page, named YouTube, and the video is gone from the scratch folder.
 #[test]
 fn a_set_goes_up_as_a_video_and_answers_its_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -76,6 +76,7 @@ fn a_set_goes_up_as_a_video_and_answers_its_page() {
 
     let published = answer.unwrap();
     assert_eq!(published.url.as_deref(), Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+    assert_eq!(published.name.as_deref(), Some("YouTube"));
     assert_eq!(published.warnings, [PROCESSING]);
     assert!(!mp4.exists(), "the video is gone once it's sent");
 
@@ -313,7 +314,7 @@ fn a_dry_run_makes_and_sends_nothing() {
         "YouTube shows chapters once there are 3, and the description has 2",
         CONTENT_ID,
     ];
-    assert_eq!(answer.unwrap(), Published { url: None, warnings: lines.map(String::from).to_vec() });
+    assert_eq!(answer.unwrap(), Published { warnings: lines.map(String::from).to_vec(), ..Published::default() });
     assert!(events.is_empty(), "{events:?}");
 
     let long = r#"{"streams": [{"codec_name": "aac"}], "format": {"duration": "3723.5"}}"#;

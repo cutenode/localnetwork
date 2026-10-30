@@ -50,8 +50,6 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		maxAttempts: 3
 	});
 
-	const blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
-
 	const core: Core = {
 		db,
 		logger: silentLogger,
@@ -64,11 +62,11 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		accounts,
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
-			const bytes = net.blobs.get(cid);
+			const blob = net.blobs.get(cid);
 
-			if (!bytes) throw new Error('missing blob');
+			if (!blob) throw new Error('missing blob');
 
-			return blobs.get(cid) ?? { bytes, mimeType: 'image/png' };
+			return blob;
 		},
 		// The root reads a space only once it's a member, as the space host checks its credential.
 		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
@@ -80,11 +78,11 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 			return net.spaceRecords.get(`${space}|${repo}|${collection}|${rkey}`) ?? null;
 		},
 		fetchBlob: async (_did, cid) => {
-			const bytes = net.blobs.get(cid);
+			const blob = net.blobs.get(cid);
 
-			if (!bytes) throw new Error('missing blob');
+			if (!blob) throw new Error('missing blob');
 
-			return { bytes, mimeType: 'application/json' };
+			return blob;
 		}
 	};
 

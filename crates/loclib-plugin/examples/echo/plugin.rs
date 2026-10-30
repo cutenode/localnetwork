@@ -206,9 +206,10 @@ pub fn get_manifest(req: GetManifest, _: &Host) -> Result<GotManifest, RpcError>
 pub fn publish_set(req: PublishSet, _: &Host) -> Result<Published, RpcError> {
     let tracks = req.tracklist.len();
     if req.dry_run {
-        return Ok(Published { url: None, warnings: vec![format!("{tracks} tracks would be published")] });
+        return Ok(Published { warnings: vec![format!("{tracks} tracks would be published")], ..Published::default() });
     }
-    Ok(Published { url: Some(format!("https://sets.example/{}", req.set.id)), warnings: Vec::new() })
+    let url = format!("https://sets.example/{}", req.set.id);
+    Ok(Published { url: Some(url), name: Some("Nowhere".into()), ..Published::default() })
 }
 
 /// `check/run`: the drive's tracks without a title, its fix making the playlist `Untitled` (its

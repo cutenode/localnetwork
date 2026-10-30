@@ -379,7 +379,7 @@ describe('services', () => {
 			const [warehouse, broken, plain] = project.profile.mixes ?? [];
 			// Re-serialized on the way to root, so unknown fields are gone and the CID changes.
 			expect(warehouse.tracklist?.ref.$link).not.toBe(proposed?.ref.$link);
-			const published = JSON.parse(new TextDecoder().decode(t.net.blobs.get(warehouse.tracklist!.ref.$link)));
+			const published = JSON.parse(new TextDecoder().decode(t.net.blobs.get(warehouse.tracklist!.ref.$link)!.bytes));
 			expect(published).not.toHaveProperty('extra');
 			expect((await t.tracklists.published(warehouse.tracklist!)).plays).toHaveLength(sampleReport.plays.length);
 			// An invalid upload is dropped rather than published.
@@ -616,6 +616,38 @@ describe('services', () => {
 			await t.planner.unsave(promoter, project.uri);
 			expect(await t.planner.saves(promoter)).toEqual([]);
 			await expect(t.planner.saves(await t.viewer(LEGACY))).rejects.toThrow(/spaces/);
+		});
+
+		it('writes one save record when saves of a project overlap', async () => {
+			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Twice') });
+			const promoter = await t.viewer(PROMOTER);
+
+			await Promise.all([t.planner.save(promoter, project.uri), t.planner.save(promoter, project.uri)]);
+
+			const stored = [...t.net.spaceRecords.keys()].filter((key) => key.includes(`|${COLLECTION.plannerSave}|`));
+			expect(stored).toHaveLength(1);
+		});
+
+		it('shows a project once when older saves wrote it twice, and unsaves every copy', async () => {
+			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Old') });
+			const promoter = await t.viewer(PROMOTER);
+
+			const legacySave = (createdAt: string) =>
+				t.net.client(PROMOTER).createSpaceRecord({
+					space: plannerSpace(PROMOTER),
+					collection: COLLECTION.plannerSave,
+					record: { $type: COLLECTION.plannerSave, project: project.uri, createdAt }
+				});
+
+			await t.planner.saves(promoter);
+			await legacySave('2026-01-01T00:00:00.000Z');
+			await legacySave('2026-02-01T00:00:00.000Z');
+
+			expect(await t.planner.saves(promoter)).toMatchObject([
+				{ project: project.uri, createdAt: '2026-01-01T00:00:00.000Z' }
+			]);
+			await t.planner.unsave(promoter, project.uri);
+			expect(await t.planner.saves(promoter)).toEqual([]);
 		});
 
 		it('creates the planner space when a fresh account loads saves and shows at once', async () => {

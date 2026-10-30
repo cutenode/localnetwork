@@ -161,10 +161,76 @@ fn a_set_is_published_at_a_plugins_destination_once_confirmed() {
     assert!(out.contains("track 1 isn't named: hidden as asked"), "{out}");
     assert_eq!(link(&env), Value::Null);
     let out = env.ok(&["--yes", "sets", "publish", "Friday", "--to", "echo:nowhere"]);
-    assert!(out.contains("published: https://sets.example/3m4n5o6p7q8r9"), "{out}");
+    assert!(out.contains("published at Nowhere: https://sets.example/3m4n5o6p7q8r9"), "{out}");
     assert_eq!(link(&env), json!("https://sets.example/3m4n5o6p7q8r9"));
     let err = env.fails(1, &["--yes", "sets", "publish", "Friday", "--to", "echo:folder"]);
     assert!(err.contains("isn't a destination for a set"), "{err}");
+}
+
+/// Signed in, publishing a set at a plugin's destination offers the set's record next, in the
+/// same run, with the link (named as the plugin names it) and the record the plugin says holds the
+/// recording. A dry run publishes neither and says the record will be offered; declining the
+/// record leaves the set published at the destination and its record for later; with `--yes` both
+/// are published, in one JSON document with `--json`; a record the server refuses is said to be
+/// unpublished (exit status 5) with the set still published there. Signed out, nothing more is
+/// offered.
+#[cfg(all(unix, feature = "account"))]
+#[test]
+fn signed_in_a_set_published_at_a_destination_offers_its_record_too() {
+    use crate::mock_pds::{MockPds, Writes};
+    use crate::support::account::{DID, PUBLISHING, sign_in};
+
+    let pds = MockPds::start();
+    let mut env = Env::new().with_directory(&pds.url);
+    let answer_setting = "\n[[contributes.settings]]\nkey = \"answer\"\ntitle = \"Answer\"\ntype = \"string\"\n";
+    env.plugins(&[&format!("{}{answer_setting}", echo_plugin())]);
+    env.pulled("A");
+    a_set(&env, None, &[false, true]);
+    let publish = ["sets", "publish", "Friday", "--to", "echo:nowhere"];
+    let out = env.ok(&[&publish[..], &["--dry-run"]].concat());
+    assert!(!out.contains("publishing its record"), "signed out: {out}");
+
+    sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
+    let track = json!({ "uri": format!("at://{DID}/fm.plyr.track/3m4n5o6p7q8r9"), "cid": "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm" });
+    let answer = json!({ "url": "https://plyr.fm/track/1", "name": "plyr.fm", "record": track });
+    env.ok(&["--yes", "plugin", "settings", "echo", "answer", &answer.to_string()]);
+    let puts = || pds.calls("com.atproto.repo.putRecord").len();
+    let published = || pds.record(DID, "computer.localnetwork.dj.set", "3m4n5o6p7q8r9").map(|(r, _)| r);
+
+    let out = env.ok(&[&publish[..], &["--dry-run"]].concat());
+    assert!(out.contains("then publishing its record as @dj.example.com is offered"), "{out}");
+    assert_eq!((link(&env), puts()), (Value::Null, 0), "a dry run publishes nothing");
+
+    // Yes to the plugin, no to the record.
+    let r = env.typed_ahead(&publish, "y\nn\n");
+    assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
+    assert!(r.out.contains("published at plyr.fm: https://plyr.fm/track/1"), "{}", r.out);
+    assert!(r.out.contains("Publish this set as @dj.example.com"), "{}", r.out);
+    assert!(r.out.contains("`locallibrary sets publish 3m4n5o6p7q8r9` publishes its record later"), "{}", r.out);
+    assert_eq!((link(&env), puts(), published()), (json!("https://plyr.fm/track/1"), 0, None));
+
+    let v = env.json(&["--yes", "sets", "publish", "Friday", "--to", "echo:nowhere"]);
+    assert_eq!(
+        (&v["outcome"], &v["report"]["name"], &v["report"]["record"]),
+        (&json!("applied"), &json!("plyr.fm"), &track)
+    );
+    assert_eq!(v["record"]["outcome"], "applied", "{v}");
+    let record = published().unwrap();
+    assert_eq!(v["record"]["plan"]["record"]["recording"], record["recording"]);
+    assert_eq!(record["links"], json!([{ "uri": "https://plyr.fm/track/1", "name": "plyr.fm" }]));
+    assert_eq!(record["recording"], track);
+
+    // Published somewhere else, its record has a new link to refuse.
+    let elsewhere = json!({ "url": "https://plyr.fm/track/2", "name": "plyr.fm", "record": track });
+    env.ok(&["--yes", "plugin", "settings", "echo", "answer", &elsewhere.to_string()]);
+    pds.set_writes(Writes::RefuseRecord);
+    let r = env.run(&["--yes", "sets", "publish", "Friday", "--to", "echo:nowhere"]);
+    assert_eq!(r.code, 5, "{}\n{}", r.out, r.err);
+    assert!(r.out.contains("published at plyr.fm") && r.out.contains("! its record wasn't published: "), "{}", r.out);
+    assert_eq!(
+        (link(&env), &published().unwrap()["links"][0]["uri"]),
+        (json!("https://plyr.fm/track/2"), &json!("https://plyr.fm/track/1"))
+    );
 }
 
 /// The sidecar copies the store to a destination and back, verifies and repairs a drive from it,
@@ -444,7 +510,11 @@ fn destinations_do_what_the_model_says_wherever_theyre_asked(tc: hegel::TestCase
                                 let warned = format!("{tracks} tracks would be published");
                                 assert!(r.out.contains(&warned) || r.err.contains(&warned), "step {i}: {}", r.out);
                                 if how == Publishing::Confirmed {
-                                    assert!(r.out.contains(&format!("published: {url}")), "step {i}: {}", r.out);
+                                    assert!(
+                                        r.out.contains(&format!("published at Nowhere: {url}")),
+                                        "step {i}: {}",
+                                        r.out
+                                    );
                                 }
                             }
                         }

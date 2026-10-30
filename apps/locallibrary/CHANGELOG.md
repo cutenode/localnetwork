@@ -4,7 +4,8 @@ All notable changes to locallibrary are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). The release workflow takes a version's notes from
 its section here, so rename "Unreleased" to the version (`## [0.1.0] - YYYY-MM-DD`) in the
-commit that gets tagged.
+commit that gets tagged. Pull requests add their lines in [`changes/`](changes/README.md), which
+a release moves in here.
 
 ## [Unreleased]
 
@@ -132,7 +133,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Settings.** One "My Settings" profile for every drive's player and mixer settings, with
   per-drive overrides. `settings publish` puts the profile's base on your Atmosphere account, and
   `settings import --from-account` (or `--from-handle`, for someone else's) adds published
-  settings to yours; `--replace` makes them the whole base.
+  settings to yours; `--replace` makes them the whole base. `settings export [FILE]` writes
+  everything set here to one JSON file (the settings profile, the players `check` uses, the
+  profile's preferences, the player's preferences such as its theme and columns, and every
+  plugin's settings, key bindings included), and `settings import
+  FILE` adds it to another computer's: it shows what it adds, skips what's there already and keeps
+  values that differ unless `--replace` (also `settings.export` and `settings.import_file.*` in the
+  sidecar; `docs/settings-export.schema.json` describes the file).
 - **Cover art** on drives and in audio files (`art auto` given no drive fills in each library
   plugged in, with one question), and rekordbox XML export (`xml`) to take a drive's library back
   into rekordbox.
@@ -333,9 +340,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `plyr`: a set destination, `sets publish SET --to plyr:track`, uploading the set's recording
     to plyr.fm as a track in the parts plyr.fm asks for (each sent again a few times when it
     doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
-    and keeping the track's page as the set's link. A recording plyr.fm wouldn't take (another
-    format, or over 1536 MiB) is refused before anything goes. It signs in with a plyr.fm
-    developer token, kept as a secret setting, and goes online only to publish.
+    and keeping the track's page as the set's link and its `fm.plyr.track` record as the set's
+    recording. A recording plyr.fm wouldn't take (another format, or over 1536 MiB) is refused
+    before anything goes. It signs in with a plyr.fm developer token, kept as a secret setting, and
+    goes online only to publish.
   - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
     recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
     no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
@@ -356,6 +364,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
     fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
     through Local Network's token exchange, with the token in the query as Mixcloud takes it.
+  - `soundcloud`: a set destination, `sets publish SET --to soundcloud:track`, uploading the set's
+    recording to SoundCloud as a track in one form, titled after the set, its tracklist as the
+    description, tagged `dj mix`, not downloadable and private unless the `sharing` setting says,
+    with the `genre` and `picture` settings as its genre and artwork, and keeping the track's page
+    as the set's link. A recording or artwork SoundCloud wouldn't take is refused before anything
+    goes. An upload that fails on the way is sent again whole a few times, once the plugin has
+    checked SoundCloud didn't make the track anyway. It signs in to SoundCloud through Local
+    Network's token exchange.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -391,6 +407,33 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
   `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+- **Where a set's recording plays.** A set destination may name the link it answers (plyr's
+  `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
+  Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
+  set keeps both, and its record names the link and points to that record as `recording`, a field
+  the set Lexicon gains. Signed in, `sets publish SET --to` offers to publish the set's record next, in the same
+  run (`--dry-run`, `--yes` and `--json` cover both).
+- **A set's recording on your own account.** `sets publish SET --upload` uploads the set's
+  recording to your Atmosphere account and publishes it as a `computer.localnetwork.dj.recording`
+  record, a new Lexicon, then the set's record pointing to it, after one question. ffmpeg encodes a
+  recording browsers can't play, or one too big for the data server, as AAC in an M4A file (128
+  kbit/s, or down to 64 to fit 300 MiB, or `--max-mib`). The file is read as it's sent, and a server
+  that refuses its size says so. Publishing's sign-in now also asks for `blob:audio/*`, and its
+  permission set covers the new record type.
+- **Chapters for a set's recording.** `sets export SET --format chapters` (or `-o FILE.json`)
+  writes Podcasting 2.0 JSON chapters for podcast apps, one per track with a start time. `sets
+  publish SET --upload` puts the same chapters in the file it sends: MP4 chapters in what ffmpeg
+  encodes, and ID3 chapters in a copy of an MP3 that goes up as it is (an AAC or M4A file that goes
+  up as it is gets none). They name tracks as the set's record does, `--hide` included.
+- **Account plugins.** An account plugin provides one account type and nothing else: a manifest
+  (`[[contributes.account_types]]`) saying how to sign in to the service, who signed in, and the
+  scopes a plugin may be given, each with the requests it covers. It has no code, so locallibrary
+  never starts one (`plugin serve` refuses), and only the ones it ships may use Local Network's
+  token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
+  `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
+  `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
+  `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
+  for now.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -768,9 +811,9 @@ their old names.
   `older_than_store` error leaves out `fields.snapshot` when no snapshot holds the state).
   `status`, `drive ls --known` and the player say such a drive that isn't plugged in is
   behind, where they said it had changes not in the store.
-- A plugin's suggestion reviewed or dismissed in the player stays gone from the palette. When
-  another change to the suggestions was saved first, the player listed what was kept before the
-  store forgot it, and offered it again.
+- When the track queued after the playing one is short enough to play out before the player next
+  looks, the player goes on past it at once. It showed it as playing until then, and `n` pressed
+  in that moment skipped the track after it.
 
 ### Security
 

@@ -19,6 +19,9 @@ use serde_json::json;
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 
+/// What the set's link is, as its record names it.
+const NAME: &str = "YouTube";
+
 /// Where YouTube shows a video, by its id.
 const WATCH: &str = "https://www.youtube.com/watch?v=";
 
@@ -62,6 +65,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
         return Ok(Published {
             url: None,
             warnings: dry_run(&req, &details, privacy, picture.as_deref(), audio.seconds),
+            ..Published::default()
         });
     }
     let scratch = req
@@ -94,7 +98,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
         warnings.push(format!("YouTube made the video {made} rather than {privacy}: change it in YouTube Studio"));
     }
     warnings.push(PROCESSING.into());
-    Ok(Published { url: Some(format!("{WATCH}{}", uploaded.id)), warnings })
+    Ok(Published { url: Some(format!("{WATCH}{}", uploaded.id)), name: Some(NAME.into()), warnings, record: None })
 }
 
 /// What a dry run says: what would go where, what was cut, and what YouTube does with it.

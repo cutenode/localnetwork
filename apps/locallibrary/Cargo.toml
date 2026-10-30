@@ -79,7 +79,7 @@ indexmap.workspace = true
 loclib-plugin.workspace = true
 # The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
 loclib-progress.workspace = true
-# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`: one
+# The plugins locallibrary ships (`plugins::BUILT_IN`), each served by `plugin serve <id>`: one
 # for every folder in plugins/, which build.rs checks.
 locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
 locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
@@ -97,6 +97,7 @@ locallibrary-plugin-plyr = { version = "0.1.0", path = "../../plugins/plyr" }
 locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive" }
 locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
 locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
+locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

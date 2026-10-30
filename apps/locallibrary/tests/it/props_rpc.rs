@@ -110,7 +110,8 @@ fn string_for(tc: &TestCase, fx: &Env, key: &str, format: Option<&str>) -> Strin
         "plan_id" => pick(s(&["", "0", "no-such-plan"])),
         "method" => pick(s(&["tracks.query", "drive.adopt", "nope"])),
         "path" | "output" | "file" | "to" | "db" | "image" | "dir" | "files" | "look_in" => {
-            pick(vec![outside("out.txt"), outside("missing.mp3"), a, "relative.txt".into(), String::new()])
+            let settings = outside("settings.json");
+            pick(vec![outside("out.txt"), outside("missing.mp3"), settings, a, "relative.txt".into(), String::new()])
         }
         "name" | "title" | "label" | "message" | "headline" | "venue" | "city" => {
             pick(s(&["Friday", "Ünïcödé 日本", "", " padded ", "Main"]))

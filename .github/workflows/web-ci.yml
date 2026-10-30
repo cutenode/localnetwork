@@ -130,7 +130,7 @@ jobs:
         run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
 
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
-  # client bundle within its budget.
+  # JavaScript every page loads and each page's own within their budgets.
   verify:
     name: Format, lint, types, unit tests, stories, build
     needs: changes

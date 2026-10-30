@@ -1,5 +1,6 @@
 //! What locallibrary publishes to a DJ's Atmosphere account, as AT Protocol records: My Settings
-//! ([`settings_record`]), the public profile ([`profile_record`]) and sets ([`set_record`]).
+//! ([`settings_record`]), the public profile ([`profile_record`]), sets ([`set_record`]) and their
+//! recordings ([`recording`]).
 //!
 //! Each record fits its Lexicon ([`crate::atmosphere::lexicon`]). Everything in an account's
 //! repository is public and copied around the network, so records only carry what the DJ chose
@@ -33,6 +34,8 @@ use crate::profile::{Count, DocShare, ProfileDocument};
 use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
+
+pub mod recording;
 
 pub use crate::profile::camel;
 
@@ -373,7 +376,9 @@ fn set_track(e: &SetEntry, unidentified: bool, transition_in: Option<Value>) -> 
 /// The set record for `set`. Its tracks marked `unnamed`, and those at the positions (from 1) in
 /// `hidden`, are published unidentified. `report`, the mix report of the recording the set was
 /// built from, says how each track came in, where the set still has two plays it heard one after
-/// the other. The DJ's notes, the recording, the sessions and the files' paths stay here.
+/// the other. Its link goes with the name the plugin that published it there gave it, and the
+/// record its recording can be played from (a plyr.fm track) with it. The DJ's notes, the
+/// recording on this computer, the sessions and the files' paths stay here.
 pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, report: Option<&MixReport>, now: DateTime<Utc>) -> Value {
     let text = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut r = Map::new();
@@ -405,7 +410,14 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, report: Option<&MixReport
             .collect();
         r.insert("playedWith".into(), played_with.into());
     }
-    put(&mut r, "links", text(&set.link).map(|uri| json!([{ "uri": uri }])));
+    let links = text(&set.link).map(|uri| {
+        let mut link = Map::new();
+        link.insert("uri".into(), uri.into());
+        put(&mut link, "name", text(&set.link_name));
+        json!([link])
+    });
+    put(&mut r, "links", links);
+    put(&mut r, "recording", set.recording_record.as_ref().map(|rec| json!(rec)));
     let sources: Vec<Value> =
         [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
             .into_iter()

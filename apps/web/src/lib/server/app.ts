@@ -21,6 +21,7 @@ import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
+import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
@@ -31,6 +32,7 @@ import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
+import { RecordingService } from './services/recordings';
 import { RequestService } from './services/requests';
 import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
@@ -128,10 +130,10 @@ export async function createApp(options: CreateAppOptions) {
 		fetchBlob: async (did, cid, maxBytes) => {
 			// Blobs come from the account's PDS until HappyView serves them.
 			// ast-grep-ignore: no-direct-pds-read
-			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
+			const url = new URL('/xrpc/com.atproto.sync.getBlob', await identity.safePds(did));
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
-			const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+			const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 
 			if (!response.ok) throw new Error(`getBlob ${cid}: HTTP ${response.status}`);
 
@@ -156,6 +158,14 @@ export async function createApp(options: CreateAppOptions) {
 	const tracklists = new TracklistService(core);
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
+
+	const recordings = new RecordingService(
+		indexedRepo,
+		new PlyrClient(logger.child({ component: 'plyr' })),
+		async (did) => (await projects.managedBy(did)).some((project) => project.status === 'active'),
+		logger.child({ component: 'recordings' })
+	);
+
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
@@ -238,6 +248,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectAdmin,
 		tracklists,
 		dj,
+		recordings,
 		supports,
 		epks,
 		shows,
