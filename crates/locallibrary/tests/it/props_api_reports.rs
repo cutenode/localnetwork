@@ -517,7 +517,7 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
         let mix = dir.path().join(format!("Set {n}.wav"));
         let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
         fs::write(&mix, common::media::wav_of(44_100, 16, channels, 0.5)).unwrap();
-        let identify = api::IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None };
+        let identify = api::IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None, cover: None };
         // The first is kept, so there's always one to read back.
         let save = n == 0 || tc.draw(gs::booleans());
         let req = api::IdentifyMixRequest { identify: identify.clone(), extras: tc.draw(gs::booleans()), save };

@@ -198,8 +198,9 @@ rather than as tracks of their own. Matches under 50% confidence are marked tent
 stretches nothing matches (a track that isn't on the drive) are marked as such. Things that hide
 a track from fingerprints: heavy effects, very long filtered intros, and speeds outside the range
 searched. A transition shorter than about 20 s often shows a small gap, since a track under heavy
-filtering isn't heard until it's nearly at full volume. Matching only looks at one drive's library
-at a time.
+filtering isn't heard until it's nearly at full volume, so a transition is called a blend only once
+both tracks are heard together for 8 seconds (the report, the TUI, the website and a published
+set's `technique` all agree on that). Matching only looks at one drive's library at a time.
 
 `--export PATH` writes the same report as data instead (`<title>_<hash>.mix.json` inside `PATH`
 when it's a folder or there are several recordings; the hash is of the recording's path, so two
@@ -213,8 +214,8 @@ software](other-software.md#sets-and-mixes)).
 
 The `--html` report and the export are made to be shared, so they hold what they show and no
 more: no file paths, no drive name or size, no My Tags, comments or ratings, and a cover only when
-it's embedded in the recording (an image found next to it shows in the TUI only). Tracks your
-profile hides (`profile hide`) are `ID - ID`.
+it's embedded in the recording or given with `--cover FILE` (an image found next to it shows in
+the TUI only). Tracks your profile hides (`profile hide`) are `ID - ID`.
 
 ## DJ profile
 

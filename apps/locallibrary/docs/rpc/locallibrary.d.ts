@@ -1821,6 +1821,11 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
   /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
+  /**
    * Also each play's overview waveform, hot cues and phrases (`extras`), for following
    * along without asking for every track's analysis.
    */
@@ -1838,6 +1843,11 @@ export type ExportMix = {
   drive?: string | null;
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
+  /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
   /** Also write the document to this file. */
   output?: string | null;
   /** Replace a file already at `output` (refused otherwise). */
@@ -6692,7 +6702,10 @@ export type MixInfo = {
   channels: number;
   /** Labels from an Audacity project's label tracks. */
   labels: Label[];
-  /** Cover image: embedded in the audio file, else an image next to it named like it. */
+  /**
+   * Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+   * next to it named like it.
+   */
   cover: CoverSource | null;
 };
 
@@ -6703,13 +6716,21 @@ export type Label = {
   title: string;
 };
 
-export type CoverSource = {
-  kind: "embedded";
-  path: string;
-} | {
-  kind: "file";
-  path: string;
-};
+export type CoverSource =
+  | {
+    kind: "embedded";
+    path: string;
+  }
+  /** An image found next to the recording. */
+  | {
+    kind: "file";
+    path: string;
+  }
+  /** An image the DJ gave for it. */
+  | {
+    kind: "given";
+    path: string;
+  };
 
 /** One track heard in the mix. */
 export type Play = {
@@ -6865,7 +6886,10 @@ export type ExportedMix = {
   /** The player that recorded it, when the file says. */
   recorder?: string | null;
   durationSecs: number;
-  /** The cover embedded in the recording: a JPEG `data:` URL, 320 px square. */
+  /**
+   * The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+   * 320 px square.
+   */
   cover?: string | null;
 };
 
