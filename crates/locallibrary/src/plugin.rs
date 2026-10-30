@@ -92,7 +92,7 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{host_settings, set_host_setting};
+pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
