@@ -191,10 +191,6 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
-    /// Sign in to a plugin's account in the browser (the plugin's id, the account's).
-    PluginSignIn(&'static str, &'static str),
-    /// Sign out of a plugin's account (the plugin's id, the account's).
-    PluginSignOut(&'static str, &'static str),
     /// Sign in to an account of a type in the browser (the type, the account plugin's id).
     AccountSignIn(&'static str, &'static str),
     /// Sign out of an account the store keeps, by its mark (see `tui::plugins::accounts::mark`).

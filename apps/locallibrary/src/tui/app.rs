@@ -3382,8 +3382,6 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
-            Act::PluginSignIn(plugin, account) => self.plugin_sign_in(plugin, account),
-            Act::PluginSignOut(plugin, account) => self.plugin_sign_out(plugin, account),
             Act::AccountSignIn(kind, with) => self.account_sign_in(kind, with),
             Act::AccountSignOut(mark) => self.account_sign_out(mark),
             Act::PluginAccess(plugin) => self.plugin_access(plugin),

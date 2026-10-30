@@ -29,7 +29,7 @@ pub(super) fn asking(needs: &[&str], optional: &[&str]) -> String {
 }
 
 /// How the host runs the plugins here: reaching this computer, secrets in files.
-fn options() -> Options {
+pub(super) fn options() -> Options {
     Options { test_loopback: true, secrets: Storage::File, ..Options::default() }
 }
 
@@ -49,12 +49,26 @@ fn mock_at(expires_in: u64, whoami: &str, token: &str) -> Mock {
 
 /// [`mock_at`], the echo plugin's manifest `echo`.
 pub(super) fn mock_for(expires_in: u64, whoami: &str, token: &str, echo: &str) -> Mock {
+    let manifest = |server: &str| {
+        let whoami = if whoami.starts_with('/') { format!("{server}{whoami}") } else { whoami.into() };
+        account_plugin(server, &whoami, token)
+    };
+    mock_with(expires_in, manifest, echo, options())
+}
+
+/// [`Mock`], its tokens lasting `expires_in` seconds, the account plugin's manifest what
+/// `account_plugin` makes of the service's address, the echo plugin's `echo`, run as `options` say.
+pub(super) fn mock_with(
+    expires_in: u64,
+    account_plugin: impl FnOnce(&str) -> String,
+    echo: &str,
+    options: Options,
+) -> Mock {
     let state = Arc::new(Mutex::new(Service { expires_in: Some(expires_in), ..Service::default() }));
     let server = service(state.clone());
-    let whoami = if whoami.starts_with('/') { format!("{}{whoami}", server.url) } else { whoami.into() };
-    let manifest = account_plugin(&server.url, &whoami, token);
+    let manifest = account_plugin(&server.url);
     let echo = echo.to_string();
-    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options());
+    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options);
     Mock { state, server, f }
 }
 
@@ -108,11 +122,11 @@ impl Mock {
         (done, query)
     }
 
-    fn listed(&self) -> Vec<Account> {
+    pub(super) fn listed(&self) -> Vec<Account> {
         self.f.plugins.store_accounts(&self.f.store).unwrap()
     }
 
-    fn token(&self, subject: &str) -> locallibrary::Result<String> {
+    pub(super) fn token(&self, subject: &str) -> locallibrary::Result<String> {
         locallibrary::testing::account_token(&self.f.plugins, &self.f.store, WITH, subject)
     }
 
@@ -295,15 +309,13 @@ fn whoami_follows_redirects_within_its_origin_only() {
         assert!(asked.len() == 2 && asked.iter().all(sent), "{token}: not followed with the token");
     }
 
-    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
-    let server = service(state.clone());
-    let to = format!("{}/userinfo", server.url);
-    let away =
-        Server::new(move |_, _| Reply { status: 302, headers: vec![("Location", to.clone())], body: Vec::new() });
-    let manifest = account_plugin(&server.url, &format!("{}/who", away.url), "");
-    let echo = asking(&["read"], &["write"]);
-    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options());
-    let m = Mock { state, server, f };
+    let away = |server: &str| {
+        let to = format!("{server}/userinfo");
+        let away =
+            Server::new(move |_, _| Reply { status: 302, headers: vec![("Location", to.clone())], body: Vec::new() });
+        account_plugin(server, &format!("{}/who", away.url), "")
+    };
+    let m = mock_with(3600, away, &asking(&["read"], &["write"]), options());
     let e = m.sign_in(who(json!("a"), None), None, &[]).0.unwrap_err();
     assert_eq!(
         e.to_string(),
@@ -372,14 +384,14 @@ fn signing_out_revokes_and_forgets_the_account() {
 }
 
 /// A refresh the service won't make any more (`invalid_grant`) signs the account out; one it
-/// can't make now leaves it signed in.
+/// can't make now leaves it signed in, saying what the service said but the refresh token.
 #[test]
 fn a_refresh_the_service_wont_make_signs_the_account_out() {
     let m = mock(30);
     m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
-    m.state.lock().unwrap().refuses = Some(("temporarily_unavailable".into(), "later".into()));
+    m.state.lock().unwrap().refuses = Some(("temporarily_unavailable".into(), "rt-1 can't be used now".into()));
     let e = m.token("a").unwrap_err();
-    assert_eq!(e.to_string(), "signing in to Mock: temporarily_unavailable: later");
+    assert_eq!(e.to_string(), "signing in to Mock: temporarily_unavailable: <secret> can't be used now");
     assert!(m.listed()[0].signed_in);
     m.state.lock().unwrap().refuses = Some(("invalid_grant".into(), "spent".into()));
     let e = m.token("a").unwrap_err();

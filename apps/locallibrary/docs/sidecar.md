@@ -383,12 +383,14 @@ calling `accounts.sign_in.begin` and `accounts.access.set_default`.
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
-each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, commands,
-destinations, events, operations, panels, analyzers, checks, exporters, importers, providers,
-services, sources, themes, settings, running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
-a plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
+each plugin's `{id, name, version, capabilities: [{capability, means}], accounts, account_types,
+commands, destinations, events, operations, panels, analyzers, checks, exporters, importers,
+providers, services, sources, themes, settings, running, left_out}`, `means` saying in plain words
+what a capability lets it do, `accounts` the account types it asks for, and `left_out` why a
+plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
 `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets, secrets_unknown?,
-running}`, the manifest with the JSON Schemas of each command's and operation's `params` and each
+accesses, running}`, `accesses` its access to your accounts (as `accounts.list` answers them),
+the manifest with the JSON Schemas of each command's and operation's `params` and each
 exporter's and importer's `options`, to draw forms from, and where to offer each command and
 operation (`where`: `track`, `playlist`, `drive`), each panel's title, each theme's colours
 (`tokens`) and how each analyzer's fields are shown (`display`). A param's
@@ -406,18 +408,6 @@ apart from the rest, so planning with plugins never pushes out a plan of localli
 plugin starts when it's first used and stops once it's idle a while, and when the sidecar exits. A
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
-
-### Accounts
-
-`plugins.accounts {plugin}` answers each of a plugin's accounts, `[{plugin, account, title,
-signed_in, expires?, refreshes, scopes}]` (never a token). `plugins.account.sign_in.begin {plugin,
-account}` answers `{id, plugin, account, url, redirect_uri}`: open `url` in the browser, then
-`plugins.account.sign_in.finish {id, timeout_secs?}` waits for it to come back (300 seconds unless
-it says, an hour at most; `$/cancel` stops it) and answers the account, signed in.
-`plugins.account.sign_in.paste {id, url}` finishes with the address the browser ended up on, when
-it runs on another computer, and `plugins.account.sign_in.cancel {id}` answers `{cancelled}`.
-`plugins.account.sign_out {plugin, account}` answers the account with `{was_signed_in,
-revoked}`.
 
 ### Analysis
 

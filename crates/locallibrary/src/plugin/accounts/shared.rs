@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use super::access::Access;
 use super::kept::{self, Kept};
-use super::{Endpoints, Pending, To, Tokens, come_back, pasted};
+use super::{Pending, Tokens, come_back, pasted};
 use crate::callback::CallbackQuery;
 use crate::error::Reason;
 use crate::keychain::Storage;
@@ -100,7 +100,6 @@ pub struct AccountSignedOut {
 }
 
 /// What a sign-in to an account of a type asks for (see [`Plugins::begin_account_sign_in`]).
-#[derive(Clone)]
 pub(crate) struct Asked {
     kind: String,
     /// The account plugin signing in.
@@ -111,14 +110,6 @@ pub(crate) struct Asked {
     account: Option<String>,
     /// The service's scopes.
     scopes: Vec<String>,
-}
-
-/// What a sign-in to an account of a type asks for.
-fn asked(to: &To) -> Option<Asked> {
-    match to {
-        To::Type(asked) => Some(asked.clone()),
-        To::Plugin { .. } => None,
-    }
 }
 
 /// `kept` as hosts show it.
@@ -180,7 +171,7 @@ impl Plugin {
         }
         let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
         let storage = self.host.options.secrets;
-        let Some(fresh) = self.refreshed(&Endpoints::from(t), refresh, tokens)? else {
+        let Some(fresh) = self.refreshed(t, refresh, tokens)? else {
             forget(store, storage, &k)?;
             return Err(signed_out());
         };
@@ -298,8 +289,8 @@ impl Plugins {
             None => IndexMap::new(),
         };
         if let Some(k) = again {
-            // The keychain can be used, before the browser is sent anywhere (see
-            // `begin_sign_in`): only whether it can.
+            // The keychain can be used, before the browser is sent anywhere. Only whether it can,
+            // what it keeps dropped first: CodeQL follows a `?` on it into the sign-in link.
             secret(self.host.options.secrets, &kept::place(store, with, &k.subject)).map(drop)?;
         }
         let scopes: Vec<String> = asking.into_iter().collect();
@@ -310,8 +301,7 @@ impl Plugins {
             account: account.map(String::from),
             scopes: scopes.clone(),
         };
-        let (id, url, redirect_uri) =
-            self.begin(slot, &Endpoints::from(t), &scopes, &params, To::Type(asked), store)?;
+        let (id, url, redirect_uri) = self.begin(slot, t, &scopes, &params, asked, store)?;
         Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri })
     }
 
@@ -319,23 +309,24 @@ impl Plugins {
     /// trades its code for the account's tokens, asks the service whose they are, and keeps the
     /// account. The browser is told how it went.
     pub fn finish_account_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountSignedIn> {
-        let (asked, p) = self.pending(id, asked)?;
-        come_back(p, timeout, ctx, |p, query| self.signed_in_account(asked, p, query), |s| s.account.name.clone())
+        let p = self.pending(id)?;
+        come_back(p, timeout, ctx, |p, query| self.signed_in_account(p, query), |s| s.account.name.clone())
     }
 
     /// Finishes sign-in `id` with the address the browser ended up on, pasted from another
     /// computer.
     pub fn finish_account_sign_in_with_url(&self, id: &str, url: &str) -> Result<AccountSignedIn> {
-        let (asked, p) = self.pending(id, asked)?;
+        let p = self.pending(id)?;
         let query = pasted(&p, url)?;
-        self.signed_in_account(asked, p, &query)
+        self.signed_in_account(p, &query)
     }
 
-    /// The account `asked` for, signed in from what the browser came back to `p` with.
-    fn signed_in_account(&self, asked: Asked, p: Pending, query: &CallbackQuery) -> Result<AccountSignedIn> {
+    /// The account `p` asked for, signed in from what the browser came back to it with.
+    fn signed_in_account(&self, p: Pending, query: &CallbackQuery) -> Result<AccountSignedIn> {
+        let asked = p.asked;
         let slot = self.slot(&asked.with)?;
         let t = slot.account_type(&asked.kind)?;
-        let answer = slot.traded(&Endpoints::from(t), &p.client, p.verifier, query)?;
+        let answer = slot.traded(t, &p.client, p.verifier, query)?;
         let mut tokens = Tokens::from(&answer, None);
         // A service that doesn't say what it granted granted what it was asked (RFC 6749 5.1).
         if answer.scopes().is_none() {
@@ -386,7 +377,7 @@ impl Plugins {
         let kept_secret = secret(storage, &kept::place(store, with, subject))?;
         // One that can't be read is forgotten all the same, with nothing to revoke it with.
         let tokens = kept_secret.as_deref().and_then(|s| slot.read_tokens(&k.name, s).ok());
-        let revoked = tokens.is_some_and(|tokens| slot.revoke(&Endpoints::from(t), &tokens));
+        let revoked = tokens.is_some_and(|tokens| slot.revoke(t, &tokens));
         forget(store, storage, &k)?;
         Ok(AccountSignedOut { account: listed(k, kept_secret.is_some()), revoked })
     }

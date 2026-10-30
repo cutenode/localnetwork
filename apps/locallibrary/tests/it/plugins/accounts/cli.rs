@@ -18,7 +18,7 @@ const COPY: [&str; 4] = ["store", "copy", "--to", "echo:folder"];
 
 impl Mock {
     /// What `args` exits with, and prints to stdout and stderr.
-    fn run(&self, args: &[&str]) -> (i32, String, String) {
+    pub(super) fn run(&self, args: &[&str]) -> (i32, String, String) {
         let out = self.command().args(args).output().unwrap();
         let said = |b: Vec<u8>| String::from_utf8(b).unwrap();
         (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
@@ -108,8 +108,9 @@ enum Step {
 
 /// For any steps signing in (on the command line or in the sidecar), out, making an account echo's
 /// default and taking its access away: `account --json` lists the accounts and accesses the
-/// sidecar's `accounts.list` does, which are those the model keeps, and `account` shows each; a
-/// step about what isn't there fails `not_found`; and nothing printed or answered holds a token.
+/// sidecar's `accounts.list` does, which are those the model keeps, `account` shows each and
+/// `plugin info echo` has echo's accesses; a step about what isn't there fails `not_found`; and
+/// nothing printed or answered holds a token.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
     let m = Mock::new();
@@ -177,7 +178,20 @@ fn an_account_reads_back_the_same_wherever_its_asked(tc: TestCase) {
             let heading = format!("Mock account {}\n", a["name"].as_str().unwrap());
             assert!(shown.contains(&heading), "step {i}: {shown}");
         }
-        said.push_str(&format!("{listed}{answered}{shown}"));
+        // `plugin info` has echo's accesses too, by name beside why it asks.
+        let (_, info, _) = m.run(&["--json", "plugin", "info", "echo"]);
+        let info: Value = serde_json::from_str(&info).unwrap();
+        let accesses = model.listed()["accesses"].clone();
+        assert_eq!(shape(&json!({ "accesses": info["accesses"] }))["accesses"], accesses, "step {i}: {step:?}");
+        let names: Vec<String> =
+            accesses.as_array().unwrap().iter().map(|a| format!("{}@mock.example", a[0].as_str().unwrap())).collect();
+        let access = match names.is_empty() {
+            true => "no access".to_string(),
+            false => format!("access to {}", names.join(", ")),
+        };
+        let (_, described, _) = m.run(&["plugin", "info", "echo"]);
+        assert!(described.contains(&format!("    mock  Tests (read; {access})\n")), "step {i}: {described}");
+        said.push_str(&format!("{listed}{answered}{shown}{info}{described}"));
     }
     assert!(!m.leaked(&said), "a token was printed or answered");
 }

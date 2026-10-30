@@ -227,24 +227,20 @@ In the player's palette, "sign in to a TYPE account…" signs in to one, "sign o
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
 uses, saying what for, or signing in to another.
 
-A plugin may also have accounts of its own. `locallibrary plugin account PLUGIN ACCOUNT sign-in`
-signs in to one as above; `status` says whether you're signed in and until when, and `sign-out`
-forgets the tokens. In the player, "sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the
-palette, beside the plugin's settings.
-
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
-and refreshed a minute before they expire. The plugin never sees them: a request it makes names
-the account (`{account:ID}`) where its token goes, the `Authorization` header unless the service
-only takes it in the address (Mixcloud), and locallibrary fills in the token once it has checked
-the request, never sending it on to another server a redirect leads to.
+and refreshed a minute before they expire. A plugin never sees them: a request it makes names the
+account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
+header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
+token once it has checked the request against the scopes of the plugin's access, never sending it
+on to another server a redirect leads to.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
-registered with, port included. A plugin's account on one of those names its port, and its
+registered with, port included. An account type on one of those names its port, and its
 service's app is registered with `http://127.0.0.1:PORT/callback`. Signing in then needs that port
 free on this computer, and says so when another program has it.
 
 Some services (Mixcloud, SoundCloud, Google) want a client secret when the code is traded for
-tokens, or when they're refreshed. A secret can't ship inside locallibrary, so a plugin's account
+tokens, or when they're refreshed. A secret can't ship inside locallibrary, so an account type
 on one of those is signed in to through Local Network's token exchange
 (`localnetwork.computer/api/token-exchange/<service>`), which adds the secret and passes the
 tokens back. The website never keeps them, and the exchange is the only server besides the
@@ -558,7 +554,8 @@ A plugin goes online through locallibrary, which fetches only from the servers i
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
-such a request names it (an account's token, only where its manifest says it goes), filled in by
+such a request names it (an account's token, only where its account type says it goes and a scope
+of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
 and of the errors it's told. What a server answers is passed on as it is, but for an account's
 token sent in the address, which comes back as the placeholder that named it. The files a plugin

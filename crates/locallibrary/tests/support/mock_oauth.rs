@@ -226,10 +226,11 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
 pub const WITH: &str = "mock-accounts";
 
 /// An account plugin providing the `mock` account type at `server`, asking `whoami` who signed
-/// in, its token going where `token` says (`Bearer` in the `Authorization` header when it's
-/// empty). Its scopes: `read` covers GETs under `/r/`, `write` POSTs under `/w/`, and `peek`, which
-/// asks the service for nothing, GETs under `/p/`.
-pub fn account_plugin(server: &str, whoami: &str, token: &str) -> String {
+/// in, with the type's keys `keys` besides: where its token goes (`token = { query =
+/// "access_token" }`; `Bearer` in the `Authorization` header when they don't say), or the port the
+/// browser comes back to. Its scopes: `read` covers GETs under `/r/`, `write` POSTs under `/w/`,
+/// and `peek`, which asks the service for nothing, GETs under `/p/`.
+pub fn account_plugin(server: &str, whoami: &str, keys: &str) -> String {
     format!(
         r#"id = "{WITH}"
 name = "Mock accounts"
@@ -247,7 +248,7 @@ always = ["openid"]
 whoami = {{ url = "{whoami}", subject = "/sub", name = "/email" }}
 one_account = {{ login_hint = "{{subject}}" }}
 another_account = {{ prompt = "select_account" }}
-{token}
+{keys}
 [contributes.account_types.scopes.read]
 title = "read"
 asks = ["read"]

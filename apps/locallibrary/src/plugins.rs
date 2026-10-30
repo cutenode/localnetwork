@@ -20,7 +20,7 @@ use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
 use locallibrary::mix::report::ShownField;
-use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{Access, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{AccountType, Capability, ExportFrom, Manifest, SettingType};
@@ -504,11 +504,12 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its account types by type, its accounts by id, its commands, destinations,
-    /// operations, panels, analyzers, checks, providers, services, library sources and themes by
-    /// name, the events it listens for, its export and import formats and its settings' keys.
-    pub account_types: Vec<String>,
+    /// The account types it asks for (`[[accounts]]`).
     pub accounts: Vec<String>,
+    /// What it adds: its account types by type, its commands, destinations, operations, panels,
+    /// analyzers, checks, providers, services, library sources and themes by name, the events it
+    /// listens for, its export and import formats and its settings' keys.
+    pub account_types: Vec<String>,
     pub commands: Vec<String>,
     pub destinations: Vec<String>,
     pub events: Vec<String>,
@@ -538,8 +539,8 @@ impl Listed {
             name: m.name.clone(),
             version: m.version.clone(),
             capabilities: Granted::all(m),
+            accounts: m.accounts.iter().map(|x| x.name.clone()).collect(),
             account_types: c.account_types.iter().map(|x| x.name.clone()).collect(),
-            accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
@@ -562,7 +563,7 @@ impl Listed {
 
 /// A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
 /// (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
-/// let it do, its settings now, and whether each of its accounts is signed in.
+/// let it do, its settings now, and the access it has to your accounts.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Described {
     pub manifest: Manifest,
@@ -570,9 +571,9 @@ pub struct Described {
     pub settings: IndexMap<String, Value>,
     #[serde(flatten)]
     pub secrets: Secrets,
-    /// Each of its accounts, and whether it's signed in (never a token): none signed in when the
-    /// keychain can't say (see `secrets_unknown`).
-    pub accounts: Vec<AccountStatus>,
+    /// Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)
+    /// or any other.
+    pub accesses: Vec<Access>,
     pub running: bool,
 }
 
@@ -580,14 +581,13 @@ impl Described {
     pub fn of(plugin: &str, plugins: &Plugins, store: Option<&locallibrary::Store>) -> Result<Described> {
         let manifest = plugins.manifest(plugin)?;
         let secrets = Secrets::of(plugins, plugin, store)?;
-        // As far as the keychain can say: why it can't is the secrets'.
-        let accounts = plugins.accounts(plugin, store).or_else(|_| plugins.accounts(plugin, None))?;
+        let accesses = store.map(|s| plugins.accesses(s, Some(plugin), None)).transpose()?.unwrap_or_default();
         Ok(Described {
             manifest: manifest.clone(),
             capabilities: Granted::all(manifest),
             settings: plugins.settings(plugin, store)?,
             secrets,
-            accounts,
+            accesses,
             running: plugins.is_running(plugin),
         })
     }

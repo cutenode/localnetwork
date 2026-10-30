@@ -45,7 +45,7 @@ fn some(tc: &TestCase) -> Vec<&'static str> {
 impl Mock {
     /// What the echo plugin's `method` request to `path` answered, naming an account as `named`
     /// in the query parameter `query`, or in the `Authorization` header.
-    fn fetch_as(&self, method: &str, path: &str, named: &str, query: Option<&str>) -> Value {
+    pub(super) fn fetch_as(&self, method: &str, path: &str, named: &str, query: Option<&str>) -> Value {
         let url = format!("{}{path}", self.server.url);
         self.f.fetch(match query {
             Some(name) => json!({ "url": format!("{url}?{name}={named}"), "method": method }),

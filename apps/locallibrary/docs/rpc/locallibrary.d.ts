@@ -2320,12 +2320,6 @@ export type SetPluginSetting = {
   value?: unknown;
 };
 
-export type AccountRef = {
-  plugin: string;
-  /** The account's id, as the plugin's manifest has it. */
-  account: string;
-};
-
 /** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
 export type ApplyAnalysis = {
   plugin: string;
@@ -7951,13 +7945,14 @@ export type Listed = {
   name: string;
   version: string;
   capabilities: Granted[];
+  /** The account types it asks for (`[[accounts]]`). */
+  accounts: string[];
   /**
-   * What it adds: its account types by type, its accounts by id, its commands, destinations,
-   * operations, panels, analyzers, checks, providers, services, library sources and themes by
-   * name, the events it listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its commands, destinations, operations, panels,
+   * analyzers, checks, providers, services, library sources and themes by name, the events it
+   * listens for, its export and import formats and its settings' keys.
    */
   account_types: string[];
-  accounts: string[];
   commands: string[];
   destinations: string[];
   events: string[];
@@ -7993,7 +7988,7 @@ export type Capability = string;
 /**
  * A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
  * (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
- * let it do, its settings now, and whether each of its accounts is signed in.
+ * let it do, its settings now, and the access it has to your accounts.
  */
 export type Described = {
   manifest: Manifest;
@@ -8007,10 +8002,10 @@ export type Described = {
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
   /**
-   * Each of its accounts, and whether it's signed in (never a token): none signed in when the
-   * keychain can't say (see `secrets_unknown`).
+   * Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)
+   * or any other.
    */
-  accounts: PluginAccountStatus[];
+  accesses: Access[];
   running: boolean;
 };
 
@@ -8536,23 +8531,6 @@ export type NetLimit = {
   per_second: number;
 };
 
-/** An account of a plugin's, as hosts show it: never a token. */
-export type PluginAccountStatus = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-};
-
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
@@ -8565,39 +8543,6 @@ export type Settings = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
-};
-
-/** A sign-in waiting for the browser. */
-export type SignIn = {
-  /** Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]. */
-  id: string;
-  plugin: string;
-  account: string;
-  /** Open this in the browser. */
-  url: string;
-  /** Where the browser comes back to. */
-  redirect_uri: string;
-};
-
-/** What signing out did. */
-export type SignedOut = {
-  plugin: string;
-  account: string;
-  title: string;
-  signed_in: boolean;
-  /**
-   * When its access token expires, when the service said: it's refreshed before then when it
-   * can be.
-   */
-  expires?: string | null;
-  /** It's refreshed without signing in again. */
-  refreshes: boolean;
-  /** What the service granted, as it names them. */
-  scopes: string[];
-  /** It was signed in. */
-  was_signed_in: boolean;
-  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
-  revoked: boolean;
 };
 
 /** What a command answers. */
@@ -10060,18 +10005,6 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
-  /** read method */
-  "plugins.accounts": { params: PluginRef; result: PluginAccountStatus[] };
-  /** immediate method */
-  "plugins.account.sign_in.begin": { params: AccountRef & WriteOptions; result: SignIn };
-  /** immediate method; long running: sends `progress`, can be cancelled */
-  "plugins.account.sign_in.finish": { params: FinishSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.paste": { params: PasteSignIn & WriteOptions; result: PluginAccountStatus };
-  /** immediate method */
-  "plugins.account.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
-  /** immediate method */
-  "plugins.account.sign_out": { params: AccountRef & WriteOptions; result: SignedOut };
   /** plan method; paired with `plugins.apply_analysis.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_analysis.plan": { params: ApplyAnalysis & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_analysis.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

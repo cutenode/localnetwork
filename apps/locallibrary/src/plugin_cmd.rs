@@ -1,12 +1,11 @@
-//! `plugin`: the plugins locallibrary has, their settings, accounts and access to yours, which analyzer each field
-//! role is read from, which checks run and when a provider's candidate is chosen for the user;
+//! `plugin`: the plugins locallibrary has, their settings and access to your accounts, which
+//! analyzer each field role is read from, which checks run and when a provider's candidate is chosen for the user;
 //! `analyze`, running their analyzers on a drive's tracks; `art fetch` and `track fetch`, what
 //! their providers find; `import`, what their importers read; their panels under `track show`'s
 //! details; and the commands and operations they add to the command line (`locallibrary <plugin>
 //! <name>`, or the place a manifest gives one, `playlist import`), whose flags come from their
 //! params' JSON Schemas.
 
-mod account;
 mod analyze;
 mod checks;
 pub(crate) mod choose;
@@ -23,7 +22,6 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use locallibrary::plugin::CheckChange;
-use locallibrary::progress::Ctx;
 
 use crate::output::Output;
 use crate::plugins::{self, Described, Listed};
@@ -70,9 +68,6 @@ enum PluginCommand {
         #[arg(long, requires = "key", conflicts_with_all = ["value", "reset"])]
         secret: bool,
     },
-    /// One of a plugin's accounts on another service: whether it's signed in (the default), signing
-    /// in in the browser, or out
-    Account(account::AccountArgs),
     /// A plugin's access to your accounts: show it, make an account its default for the account's
     /// type (--default ACCOUNT), or take its access to one away (--take-away ACCOUNT)
     Access {
@@ -156,7 +151,7 @@ impl PluginArgs {
     }
 }
 
-pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     match args.command.unwrap_or(PluginCommand::List) {
         PluginCommand::List => {
@@ -171,7 +166,6 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ct
             let change = listing::Change { value, reset, secret };
             return listing::settings(plugins, plugin, key, change, store_path, out);
         }
-        PluginCommand::Account(args) => return account::account(plugins, args, store_path, out, ctx),
         PluginCommand::Access { plugin, default, take_away } => {
             return crate::account_cmd::access::access(&plugin, default, take_away, store_path, out);
         }

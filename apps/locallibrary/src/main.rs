@@ -1451,7 +1451,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
         Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
-        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out, &ctx),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {

@@ -2,16 +2,15 @@
 //! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]), redirects
 //! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
 //! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
-//! say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
-//! accounts' access tokens only where a request names one (`{account:<id>}`, or by type
-//! `{account:<type>}`, see [`super::accounts`]) and the account says its token goes: the
-//! `Authorization` header, or a query parameter. An account of a type's token goes only into a
-//! request a scope of the plugin's access covers (see [`super::accounts::token`]). They're filled
-//! in once it's checked, never on to another server a redirect leads to, nor to an address no
-//! scope of the access covers, and left out of its log and the errors it's told (see
-//! [`State::scrub`]); what a server answers
-//! is passed on as it is, but for a token it was sent in the query, given back as the placeholder
-//! it was named with.
+//! say, together with every other plugin's to that host. Its secret settings go only where a
+//! request names them (`{secret:<key>}`), and its accounts' access tokens only where a request
+//! names one by type (`{account:<type>}`, see [`super::accounts`]) and the account type says its
+//! token goes: the `Authorization` header, or a query parameter; and only into a request a scope
+//! of the plugin's access covers (see [`super::accounts::token`]). They're filled in once it's
+//! checked, never on to another server a redirect leads to, nor to an address no scope of the
+//! access covers, and left out of its log and the errors it's told (see [`State::scrub`]); what a
+//! server answers is passed on as it is, but for a token it was sent in the query, given back as
+//! the placeholder it was named with.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 
@@ -63,9 +62,6 @@ pub(crate) struct State {
     /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
     /// them), while this host runs.
     seen: Mutex<Vec<String>>,
-    /// Held while one of its accounts' tokens is read and refreshed, so one refresh is made at a
-    /// time.
-    pub(crate) refreshing: Mutex<()>,
 }
 
 impl State {
@@ -122,12 +118,13 @@ fn invalid(why: impl Into<String>) -> RpcError {
 }
 
 /// Where an account's token goes, which is at `place` (the `Authorization` header when it's not
-/// known), saying how a request names it: by type when it's `typed`, else by id.
-fn misplaced(place: Option<&TokenPlace>, typed: bool) -> RpcError {
-    let named = if typed { "{account:<type>}" } else { "{account:<id>}" };
+/// known), saying how a request names it.
+fn misplaced(place: Option<&TokenPlace>) -> RpcError {
     match place {
-        Some(TokenPlace::Query(name)) => invalid(format!("this account goes only in the query: {name}={named}")),
-        _ => invalid(format!("an account goes only in the Authorization header: {named}")),
+        Some(TokenPlace::Query(name)) => {
+            invalid(format!("this account goes only in the query: {name}={{account:<type>}}"))
+        }
+        _ => invalid("an account goes only in the Authorization header: {account:<type>}"),
     }
 }
 
@@ -349,11 +346,10 @@ impl Plugin {
     }
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
-    /// account as the whole of `value`: in the `Authorization` header (`query` is `None`), its
-    /// scheme and access token; as the query parameter `query`, the token. Only where the account
-    /// says its token goes. An account by type, `{account:<type>}` of a type the plugin asks for,
-    /// goes only where its access may go, which `scopes` gets (see [`Plugin::usable`]); otherwise
-    /// it's `{account:<id>}`, one of the plugin's own.
+    /// account by type as the whole of `value`, `{account:<type>}` of a type the plugin asks for:
+    /// in the `Authorization` header (`query` is `None`), its scheme and access token; as the query
+    /// parameter `query`, the token. Only where the account type says its token goes, and where the
+    /// plugin's access may go, which `scopes` gets (see [`Plugin::usable`]).
     fn account(
         &self,
         live: &Live,
@@ -362,24 +358,23 @@ impl Plugin {
         asked: &(Method, Url),
         scopes: &mut Vec<Vec<Scope>>,
     ) -> Result<String, RpcError> {
-        let fill = |place: &TokenPlace, typed: bool, token: &dyn Fn() -> Result<String, RpcError>| match (place, query)
-        {
-            (TokenPlace::Scheme(scheme), None) => Ok(format!("{scheme} {}", token()?)),
-            (TokenPlace::Query(name), Some(query)) if name == query => token(),
-            _ => Err(misplaced(Some(place), typed)),
+        let Some((need, access)) = self.by_type(value) else {
+            return Err(match account_placeholder(value) {
+                Some((kind, _)) => invalid(format!("{kind:?} isn't an account type it asks for")),
+                None => self.misplaced(value),
+            });
         };
-        if let Some((need, access)) = self.by_type(value) {
-            let (method, url) = asked;
-            let usable = self.usable(live, need, access, method.as_str(), url)?;
-            let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
-            let filled = fill(&usable.place, true, &|| self.usable_token(&usable, need, store))?;
-            scopes.push(usable.scopes);
-            return Ok(filled);
-        }
-        let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
-        let Some(id) = id.filter(|id| !id.contains('}')) else { return Err(self.misplaced(value)) };
-        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
-        fill(&account.token, false, &|| self.access_token(live, account))
+        let (method, url) = asked;
+        let usable = self.usable(live, need, access, method.as_str(), url)?;
+        let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
+        let token = || self.usable_token(&usable, need, store);
+        let filled = match (&usable.place, query) {
+            (TokenPlace::Scheme(scheme), None) => format!("{scheme} {}", token()?),
+            (TokenPlace::Query(name), Some(query)) if name == query => token()?,
+            (place, _) => return Err(misplaced(Some(place))),
+        };
+        scopes.push(usable.scopes);
+        Ok(filled)
     }
 
     /// The account type `value` names as `{account:<type>}` or `{account:<type>/<access>}`, when
@@ -389,17 +384,14 @@ impl Plugin {
         Some((self.manifest.accounts.iter().find(|n| n.name == kind)?, access))
     }
 
-    /// Why `text`, which names an account, can't be where it is: where that account's token goes
-    /// (as the first account plugin providing its type says, for an account by type).
+    /// Why `text`, which names an account, can't be where it is: where that account's token goes,
+    /// as the first account plugin providing its type says.
     fn misplaced(&self, text: &str) -> RpcError {
         let named = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next()).unwrap_or_default();
-        if let Some((need, _)) = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")) {
-            let with = self.host.providing(&need.name).first().and_then(|id| self.host.account_plugin(id));
-            let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.token.clone()));
-            return misplaced(place.as_ref(), true);
-        }
-        let account = self.manifest.contributes.accounts.iter().find(|a| a.id == named);
-        misplaced(account.map(|a| &a.token), false)
+        let need = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")).map(|(need, _)| need);
+        let with = need.and_then(|n| self.host.providing(&n.name).first().and_then(|id| self.host.account_plugin(id)));
+        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.token.clone()));
+        misplaced(place.as_ref())
     }
 
     /// A form's parts, its text's secrets filled in and its files checked.

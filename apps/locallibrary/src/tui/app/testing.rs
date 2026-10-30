@@ -581,7 +581,7 @@ default = "calm"
 }
 
 /// An account plugin providing the `mock` account type (`read`, titled "read things"), whose
-/// sign-in page is on this computer, as Echo Cloud's is.
+/// sign-in page is on this computer.
 const MOCK_ACCOUNTS: &str = r#"id = "mock-accounts"
 name = "Mock accounts"
 version = "0.1.0"
@@ -601,10 +601,10 @@ asks = ["read"]
 requests = [{ method = "GET", url = "http://127.0.0.1:9/r/*" }]
 "#;
 
-/// The echo plugin [`echo_plugin`] wrote in `dir` given an account, Echo Cloud (`main`), whose
-/// sign-in page is on this computer, which only tests' plugin hosts reach: signing in fails
-/// before anything is opened; and asking for a `mock` account, which the account plugin
-/// [`MOCK_ACCOUNTS`] (written beside it) provides. Its secrets are kept in files.
+/// The echo plugin [`echo_plugin`] wrote in `dir` asking for a `mock` account, which the account
+/// plugin [`MOCK_ACCOUNTS`] (written beside it) provides, its sign-in page on this computer,
+/// which only tests' plugin hosts reach: signing in fails before anything is opened. Its secrets
+/// are kept in files.
 pub fn echo_account(dir: &Path) {
     let file = dir.join("echo.toml");
     let manifest = std::fs::read_to_string(&file).unwrap();
@@ -612,19 +612,12 @@ pub fn echo_account(dir: &Path) {
     let granted = "capabilities = [";
     assert!(manifest.contains(granted));
     let account = r#"
-[[contributes.accounts]]
-id = "main"
-title = "Echo Cloud"
-authorize_url = "http://127.0.0.1:9/authorize"
-token_url = "http://127.0.0.1:9/token"
-client_id = "echo"
-
 [[accounts]]
 type = "mock"
 scopes = ["read"]
 why = "Tests"
 "#;
-    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "net:127.0.0.1", "#, 1) + account;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:127.0.0.1", "#, 1) + account;
     std::fs::write(&file, manifest).unwrap();
     let mock = dir.join("mock-accounts.toml");
     std::fs::write(&mock, MOCK_ACCOUNTS).unwrap();

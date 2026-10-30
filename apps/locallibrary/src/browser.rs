@@ -1,6 +1,5 @@
 //! The browser's half of signing in, as the command line does it: an Atmosphere account's
-//! (`account login`), an account's through an account plugin (`account TYPE sign-in`) and a
-//! plugin's account's (`plugin account ... sign-in`).
+//! (`account login`), and an account's through an account plugin (`account TYPE sign-in`).
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::time::Duration;

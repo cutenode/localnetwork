@@ -33,30 +33,30 @@ struct BeginSignIn {
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub(super) struct FinishSignIn {
+struct FinishSignIn {
     /// What its `sign_in.begin` answered.
-    pub(super) id: String,
+    id: String,
     /// How long to wait for the browser (default 300, an hour at most).
     #[serde(default)]
-    pub(super) timeout_secs: Option<u64>,
+    timeout_secs: Option<u64>,
 }
 
 impl FinishSignIn {
-    pub(super) fn timeout(&self) -> Duration {
+    fn timeout(&self) -> Duration {
         Duration::from_secs(self.timeout_secs.unwrap_or(300))
     }
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub(super) struct PasteSignIn {
-    pub(super) id: String,
+struct PasteSignIn {
+    id: String,
     /// The address the browser ended up on after approving.
-    pub(super) url: String,
+    url: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
-pub(super) struct CancelSignIn {
-    pub(super) id: String,
+struct CancelSignIn {
+    id: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
