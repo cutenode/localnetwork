@@ -223,6 +223,10 @@ destination is used, a plugin with no access to a type it needs asks in the term
 accounts it may use, or to sign in to another. With `--json`, `--yes` or no terminal, and in the
 sidecar, nothing is asked: it fails and says how to give it access.
 
+In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
+out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
+uses, saying what for, or signing in to another.
+
 A plugin may also have accounts of its own. `locallibrary plugin account PLUGIN ACCOUNT sign-in`
 signs in to one as above; `status` says whether you're signed in and until when, and `sign-out`
 forgets the tokens. In the player, "sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the

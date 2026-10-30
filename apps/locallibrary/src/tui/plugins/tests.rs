@@ -1064,6 +1064,9 @@ fn plugins_own(act: &Act) -> bool {
             | Act::PluginSettings(_)
             | Act::PluginSignIn(..)
             | Act::PluginSignOut(..)
+            | Act::AccountSignIn(..)
+            | Act::AccountSignOut(_)
+            | Act::PluginAccess(_)
             | Act::ProviderSettings
             | Act::CheckSettings
             | Act::Fix(_)
@@ -1171,14 +1174,16 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         press(&mut app, "\u{1b}");
         press(&mut app, open);
 
-        // Only what runs here and now: the echo plugin's hooks, analyzer and sign-in; the others'
-        // hooks (each asks for params first, nothing run until they're given), writing an
-        // analyzer's values (a form first too), exports, settings and columns. Another plugin's
-        // sign-in would open its service's page in the browser.
+        // Only what runs here and now: the echo plugin's hooks, analyzer and sign-in, and signing
+        // in to a mock account; the others' hooks (each asks for params first, nothing run until
+        // they're given), writing an analyzer's values (a form first too), exports, settings,
+        // access and columns. Another plugin's sign-in, or an account plugin's, would open its
+        // service's page in the browser.
         let safe: Vec<usize> = (first..acts.len())
             .filter(|&i| match acts[i] {
                 Act::Plugin(p, n) => p == "echo" || !hook(p, n).1.is_empty(),
                 Act::Analyze(p, _) | Act::PluginSignIn(p, _) => p == "echo",
+                Act::AccountSignIn(_, with) => with == "mock-accounts",
                 _ => true,
             })
             .collect();
@@ -1329,6 +1334,19 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
             let account = m.contributes.accounts.iter().find(|x| x.id == a).unwrap();
             assert_eq!(last_message(app), format!("not signed in to {}", account.title));
+        }
+        // A mock account's sign-in page is on this computer too.
+        Act::AccountSignIn(..) => {
+            wait(app, |a| a.job.is_none());
+            assert!(last_message(app).starts_with("signing in: "), "signing in failed as it began");
+        }
+        // None is kept here, so none is offered.
+        Act::AccountSignOut(_) => unreachable!("no account is kept"),
+        Act::PluginAccess(p) => {
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let kinds: Vec<String> = m.accounts.iter().map(|n| n.name.clone()).collect();
+            assert_eq!(form_open(app), (format!("Access for {}", m.name), kinds));
+            press(app, "\u{1b}");
         }
         Act::CheckSettings => {
             let plugins = crate::plugins::host().unwrap();

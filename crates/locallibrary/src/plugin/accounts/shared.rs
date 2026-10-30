@@ -202,6 +202,13 @@ impl Plugins {
         kept::read(store)?.accounts.into_iter().map(listing).collect()
     }
 
+    /// The accounts `store` keeps, as [`Plugins::store_accounts`] lists them but without asking
+    /// where their tokens are kept (the keychain, which may stop to ask): each `signed_in`, as
+    /// it is unless the keychain lost its tokens.
+    pub fn kept_accounts(&self, store: &Store) -> Result<Vec<Account>> {
+        Ok(kept::read(store)?.accounts.into_iter().map(|k| listed(k, true)).collect())
+    }
+
     /// The accounts `store` keeps (see [`Plugins::store_accounts`]), then those signed out that
     /// plugins still have access to, signed out, and every access.
     pub fn accounts_and_accesses(&self, store: &Store) -> Result<Accounts> {

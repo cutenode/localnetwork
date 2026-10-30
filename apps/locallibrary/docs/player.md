@@ -77,6 +77,10 @@ listening to your library the way the players see it:
   to its default. A secret is never filled in: typed, it's kept in the system's keychain; left
   empty, it stays as it was. A plugin's services are switches there too: turned on, they run
   while the player does.
+- **Accounts**: "sign in to a Google account…" in the palette signs in in the browser, in the
+  background, and "sign out of NAME" signs out. "access for PLUGIN…" opens a form with the
+  account of each type the plugin uses, what it needs it for, and signing in to another; `enter`
+  makes the ones chosen its defaults (see [Accounts](plugins.md#accounts)).
 - **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
   drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; when it
   suggests fetching from its providers, exporting in its format or running its analyzer, "review:

@@ -1,8 +1,6 @@
 //! `account`, `account TYPE sign-in`, `account TYPE:NAME status|sign-out` and `plugin access` at
 //! the mock service, and what a plugin's destination does without access to an account it needs.
 
-use std::process::Stdio;
-
 use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::{Value, json};
@@ -41,7 +39,7 @@ impl Mock {
         let (mut keyboard, stdin) = crate::support::terminal();
         keyboard.write_all(typed.as_bytes()).unwrap();
         let mut c = self.command();
-        c.args(args).stdin(Stdio::from(stdin));
+        c.args(args).stdin(std::process::Stdio::from(stdin));
         self.approving(c, &who(subject))
     }
 }

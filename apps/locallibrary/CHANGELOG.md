@@ -433,7 +433,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   DJ account, `account TYPE sign-in` and `account TYPE:NAME sign-out` sign in and out, and
   `plugin access PLUGIN` makes an account its default or takes its access away. A plugin's
   destination asks in the terminal which account it may use when it has none; elsewhere it fails
-  saying how to give it one. The sidecar has them as `accounts.*`.
+  saying how to give it one. The player's palette signs in and out, and has a form for a
+  plugin's access. The sidecar has them as `accounts.*`.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
