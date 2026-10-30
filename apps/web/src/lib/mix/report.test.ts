@@ -12,6 +12,7 @@ import {
 	phraseColor,
 	phraseRole,
 	playColor,
+	playSpeed,
 	speed,
 	summarize,
 	tracklist
@@ -123,6 +124,15 @@ describe('display helpers', () => {
 		expect(clock(3725)).toBe('1:02:05');
 		expect(speed(1.023)).toBe('+2.3%');
 		expect(speed(0.99)).toBe('−1.0%');
+	});
+
+	it('gives a ridden pitch fader its slowest and fastest speeds', () => {
+		expect(playSpeed({ tempo: 1.02, speedRange: [1, 1.04] })).toBe('+0.0% to +4.0%');
+		expect(playSpeed({ tempo: 1.02 })).toBe('+2.0%');
+		const report = structuredClone(sampleReport);
+		report.plays[0] = { ...report.plays[0], speedRange: [0.99, 1.03] };
+		const result = parseMixReport(report);
+		expect(result.ok && result.report.plays[0].speedRange).toEqual([0.99, 1.03]);
 	});
 
 	it('summarizes a set', () => {

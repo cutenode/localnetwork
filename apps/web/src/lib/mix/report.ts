@@ -48,6 +48,11 @@ export function speed(tempo: number): string {
 	return `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
 }
 
+/** A play's speed, or the slowest and fastest when the pitch fader was ridden: `+0.0% to +4.0%`. */
+export function playSpeed(play: Pick<MixPlay, 'tempo' | 'speedRange'>): string {
+	return play.speedRange ? `${speed(play.speedRange[0])} to ${speed(play.speedRange[1])}` : speed(play.tempo);
+}
+
 /** Plays at or above this are shown as certain. */
 export const CONFIDENT = 0.5;
 
