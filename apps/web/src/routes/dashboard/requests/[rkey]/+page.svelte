@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { ArrowLeft } from '@lucide/svelte';
 	import ClaimFields from '#lib/components/ClaimFields.svelte';
@@ -7,6 +8,7 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
+	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
 	import { formatDateTime } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
@@ -25,6 +27,13 @@
 	);
 
 	let editing = $state(false);
+
+	const draft = $derived(draftKey(data.viewer, `request:${request.uri}`));
+
+	// Unsent changes to the request open the form they belong to.
+	onMount(() => {
+		if (editable && request.kind !== 'claim' && hasDraft(draft)) editing = true;
+	});
 
 	// A failed revise echoes what was typed; otherwise the form starts from the request.
 	const values = $derived(form?.values);
@@ -111,7 +120,7 @@
 					<button class="btn-primary self-start">Save and resubmit</button>
 				</form>
 			{:else}
-				<ProjectForm action="?/revise" values={values ?? { ...data.values, message: request.record.message }} sets={data.sets} avatarUrl={data.avatarUrl} showMessage submitLabel="Save and resubmit" geocoder={data.geocoder} />
+				<ProjectForm action="?/revise" values={values ?? { ...data.values, message: request.record.message }} sets={data.sets} avatarUrl={data.avatarUrl} showMessage submitLabel="Save and resubmit" geocoder={data.geocoder} {draft} />
 			{/if}
 		{/if}
 	{/if}

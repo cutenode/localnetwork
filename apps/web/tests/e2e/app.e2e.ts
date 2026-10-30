@@ -544,6 +544,41 @@ test.describe('keeps what people entered', () => {
 		await expect(page.locator('#notes')).toHaveValue('Bring records');
 	});
 
+	test('an inquiry from a planner show starts from its details, and keeps an unsent message', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass');
+		await page.goto('/match?go=1&title=Rooftop%20Rave&date=2026-12-19&lat=52.52&lng=13.405&radius=50&genres=techno');
+		await page.waitForLoadState('networkidle');
+		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
+		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await expect(page.locator('#date')).toHaveValue('2026-12-19');
+		await expect(page.getByText('in your planner')).toBeVisible();
+
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+		await page.reload();
+		await expect(page.locator('#message')).toHaveValue('Would you close our rooftop night?');
+		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
+		await expectAccessible(page);
+
+		// Signing out drops it, so the next person on this browser doesn't find it.
+		const inquiry = page.url();
+		await signOut(page);
+		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
+		expect(await page.evaluate(drafts)).toEqual([]);
+		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
+		// Sent, the draft is gone.
+		await page.goto(inquiry);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.locator('#message')).toHaveValue('');
+	});
+
 	test('a failed save from the matcher keeps the search and the lineup picks', async ({ page }) => {
 		const place = `${'Long venue name '.repeat(8)}Berlin`;
 		await signIn(page, 'pat.test', 'pat-pass');
