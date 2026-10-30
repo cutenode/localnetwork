@@ -116,6 +116,8 @@ jsonschema.workspace = true
 loclib-interop.workspace = true
 # The demos plugin, served in the tests that apply its plans to drives (`props_demos`).
 locallibrary-plugin-demos = { path = "../../plugins/demos" }
+# Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
+mio = { version = "1.2.4", features = ["os-poll", "net"] }
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
