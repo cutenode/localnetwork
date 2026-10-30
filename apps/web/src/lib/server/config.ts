@@ -77,7 +77,8 @@ const envSchema = z.object({
 	GEOCODER: z.enum(['open-meteo', 'nominatim', 'none']).default('open-meteo'),
 	ALLOW_PRIVATE_NETWORK: booleanString,
 	AUDIT_MAX_ATTEMPTS: intString(12, 1, 100),
-	SESSION_DAYS: intString(30, 1, 365)
+	SESSION_DAYS: intString(30, 1, 365),
+	EPK_VIEW_RETENTION_DAYS: intString(90, 1, 3650)
 });
 
 export type Config = {
@@ -104,6 +105,8 @@ export type Config = {
 	allowPrivateNetwork: boolean;
 	auditMaxAttempts: number;
 	sessionDays: number;
+	/** How long receipts of press kit views are kept before they expire. */
+	epkViewRetentionDays: number;
 };
 
 export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
@@ -159,7 +162,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		geocoder: value.GEOCODER,
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
-		sessionDays: value.SESSION_DAYS
+		sessionDays: value.SESSION_DAYS,
+		epkViewRetentionDays: value.EPK_VIEW_RETENTION_DAYS
 	};
 }
 

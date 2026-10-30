@@ -20,7 +20,7 @@
 			<li><strong>Audit log</strong>: anyone may write their own audit entries; staff read.</li>
 			<li><strong>Moderation</strong>: anyone may file requests; staff read.</li>
 			<li><strong>Staff</strong>: role assignments, written by the root account.</li>
-			<li><strong>Industry</strong>: private booking details, readable by any signed-in member.</li>
+			<li><strong>Industry</strong>: private booking details, readable by staff. Everyone else sees them through the site, in a press kit they've been let into.</li>
 			<li><strong>Booking threads</strong>: one space per inquiry, shared only by the promoter and the project's managers.</li>
 			<li><strong>Your planner</strong>: a personal space under your own DID, like bookmarks. We keep no copy.</li>
 		</ul>

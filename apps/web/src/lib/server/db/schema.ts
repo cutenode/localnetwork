@@ -2,7 +2,7 @@ import type { Selectable } from 'kysely';
 import type { RequestKind } from '#lib/types.ts';
 
 /**
- * Local index. Everything here except sessions and the audit outbox is derived
+ * Local index. Everything here except sessions, the audit outbox and press kit view receipts is derived
  * from records stored in atproto repos and spaces, and can be rebuilt by
  * re-syncing. Published projects aren't here: HappyView indexes them.
  * Column names are snake_case in SQLite and camelCase in code.
@@ -27,6 +27,7 @@ export interface Database {
 	epkRequest: EpkRequestTable;
 	epkGrant: EpkGrantTable;
 	epkDraft: EpkDraftTable;
+	epkView: EpkViewTable;
 	geocodeCache: GeocodeCacheTable;
 }
 
@@ -247,6 +248,22 @@ export interface EpkDraftTable {
 	 * a publish that failed part way finishes under the same key.
 	 */
 	publishedRkey: string | null;
+}
+
+/**
+ * Who viewed a press kit's private part. Only here, never on atproto: the audit chain holds an HMAC of the viewer's DID
+ * under `salt`, so deleting the row leaves the chain whole but no longer says who it was.
+ */
+export interface EpkViewTable {
+	/** The audit entry recording the view. */
+	id: string;
+	epkUri: string;
+	/** The press kit's title when it was viewed, so the receipt still reads after the press kit is gone. */
+	epkTitle: string;
+	projectUri: string;
+	viewerDid: string;
+	salt: string;
+	createdAt: string;
 }
 
 export interface GeocodeCacheTable {
