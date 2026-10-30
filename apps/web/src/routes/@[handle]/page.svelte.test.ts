@@ -34,14 +34,15 @@ const crew: ProjectView = {
 	avatarUrl: null
 };
 
-/** Renders the page for `profile`, as `viewer`. */
-const open = (profile: ProfileView, viewer: Viewer | null = null) =>
+/** Renders the page for `profile` (null for an account without one, shown as `name`), as `viewer`. */
+const open = (profile: ProfileView | null, viewer: Viewer | null = null, name = profile?.record.basics.name ?? '') =>
 	render(Page, {
 		params: { handle: 'neon.test' },
 		data: {
 			viewer,
 			pendingRequests: 0,
 			profile,
+			name,
 			account: { did: DID, handle: 'neon.test' },
 			canonical: 'https://localnetwork.test/@neon.test',
 			dj: Promise.resolve([]),
@@ -117,4 +118,14 @@ it("makes only web addresses clickable, since people write their profiles' links
 	await expect.element(page.getByRole('link', { name: 'Bandcamp' })).toHaveAttribute('href', 'https://neon.example/');
 	await expect.element(page.getByText('Trap')).toBeInTheDocument();
 	expect(document.querySelectorAll('a[href^="javascript:"]')).toHaveLength(0);
+});
+
+it("gives an account without a profile its name, what it plays in, and a line saying it hasn't set one up", async () => {
+	await open(null, null, 'Neon');
+
+	await expect.element(page.getByRole('heading', { level: 1, name: 'Neon' })).toBeInTheDocument();
+	await expect.element(page.getByText('@neon.test')).toBeInTheDocument();
+	await expect.element(page.getByText("Hasn't set up a profile yet.")).toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'Neon Crew' })).toHaveAttribute('href', '/projects/neon-crew');
+	await expect.element(page.getByRole('heading', { name: 'On the AT Protocol' })).not.toBeInTheDocument();
 });

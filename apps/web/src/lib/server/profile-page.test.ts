@@ -1,6 +1,6 @@
 import { isHttpError, isRedirect } from '@sveltejs/kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { COLLECTION } from '#lib/nsid.ts';
+import { BSKY_PROFILE, COLLECTION } from '#lib/nsid.ts';
 import { silentLogger } from './logger';
 import { loadProfilePage } from './profile-page';
 import { RateLimiter } from './rate-limit';
@@ -14,16 +14,21 @@ const BEA = 'did:plc:bea';
 /** An account without a verified handle. */
 const CY = 'did:plc:cy';
 
+/** An account with neither a profile nor a Bluesky name the directory keeps. */
+const DEE = 'did:plc:dee';
+
 /** Each DID document's verified handle (null for none), and where each handle points, as identity resolution says. */
 const HANDLES = new Map<string, string | null>([
 	[ADA, 'ada.test'],
 	[BEA, 'bea.test'],
-	[CY, null]
+	[CY, null],
+	[DEE, 'dee.test']
 ]);
 
 const RESOLVES = new Map([
 	['ada.test', ADA],
 	['bea.test', BEA],
+	['dee.test', DEE],
 	// Points at Ada, whose DID document names another handle.
 	['old-ada.test', ADA],
 	// Points at Cy, whose DID document doesn't name it back.
@@ -127,8 +132,23 @@ describe('loadProfilePage', () => {
 		expect(await open('cy.test')).toEqual({ status: 404 });
 	});
 
-	it("is a 404 for an account without a profile, or one that isn't there", async () => {
-		expect(await open('bea.test')).toEqual({ status: 404 });
+	it('gives an account without a profile a page with its Bluesky name, or else its handle', async () => {
+		const profile = { name: 'Bea Crew', kind: 'duo', genres: ['house'], location: { city: 'Leipzig', country: 'DE' } };
+		await t.projects.publish({ profile, managers: [BEA], status: 'active', createdBy: ROOT });
+		// The directory keeps Bluesky display names of accounts that manage a project.
+		await t.net.client(BEA).putRecord({
+			collection: BSKY_PROFILE,
+			rkey: 'self',
+			record: { $type: BSKY_PROFILE, displayName: 'Bea' }
+		});
+
+		const bea = await open('bea.test');
+		expect(bea).toMatchObject({ profile: null, name: 'Bea', account: { did: BEA, handle: 'bea.test' } });
+		expect('playsIn' in bea && (await bea.playsIn)?.map((project) => project.profile.name)).toEqual(['Bea Crew']);
+		expect(await open('dee.test')).toMatchObject({ profile: null, name: '@dee.test' });
+	});
+
+	it('is a 404 for an address that names no account', async () => {
 		expect(await open('nobody.test')).toEqual({ status: 404 });
 		expect(await open('did:plc:nobody')).toEqual({ status: 404 });
 		expect(await open('not a handle')).toEqual({ status: 404 });

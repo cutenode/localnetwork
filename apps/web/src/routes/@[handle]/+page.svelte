@@ -9,24 +9,25 @@
 	import { accountLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
-	import type { PageProps } from './$types';
 	import { webHref } from '#lib/web-url.ts';
+	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const basics = $derived(data.profile.record.basics);
+	// An account without a profile record still has this page, with only its name and what it plays in.
+	const basics = $derived(data.profile?.record.basics);
 
-	const performer = $derived(data.profile.record.performer);
+	const performer = $derived(data.profile?.record.performer);
 
-	const promoter = $derived(data.profile.record.promoter);
+	const promoter = $derived(data.profile?.record.promoter);
 
-	const place = $derived(basics.location && placeLabel({ location: basics.location }));
+	const place = $derived(basics?.location && placeLabel({ location: basics.location }));
 
-	const description = $derived(performer?.tagline ?? (place ? `${basics.name}, ${place}` : basics.name));
+	const description = $derived(performer?.tagline ?? (place ? `${data.name}, ${place}` : data.name));
 </script>
 
 <svelte:head>
-	<title>{basics.name} · Local Network</title>
+	<title>{data.name} · Local Network</title>
 	<meta name="description" content={description} />
 	<link rel="canonical" href={data.canonical} />
 </svelte:head>
@@ -34,16 +35,17 @@
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
 		<div class="flex flex-col gap-5 sm:flex-row sm:items-end">
-			<Avatar src={data.profile.avatarUrl} name={basics.name} size="xl" />
+			<Avatar src={data.profile?.avatarUrl} name={data.name} size="xl" />
 			<div class="flex min-w-0 flex-1 flex-col gap-2">
-				<h1 class="m-0 text-title font-semibold">{basics.name}</h1>
+				<h1 class="m-0 text-title font-semibold">{data.name}</h1>
 				{#if performer?.tagline}<p class="m-0 text-lede text-fg-soft sm:text-intro">{performer.tagline}</p>{/if}
 				<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
 					<span class="break-all">{accountLabel(data.account)}</span>
 					{#if place}<span class="inline-flex items-center gap-1.5"><MapPin class="size-4" />{place}</span>{/if}
-					{#if basics.pronouns}<span>{basics.pronouns}</span>{/if}
+					{#if basics?.pronouns}<span>{basics.pronouns}</span>{/if}
 					{#if performer?.activeSince}<span class="inline-flex items-center gap-1.5"><Clock class="size-4" />Playing since {performer.activeSince}</span>{/if}
 				</p>
+				{#if !data.profile}<p class="m-0 text-small text-fg-muted">Hasn't set up a profile yet.</p>{/if}
 			</div>
 		</div>
 		{#if performer?.genres?.length}
@@ -57,10 +59,10 @@
 
 <div class="container-page flex flex-wrap gap-x-10 gap-y-8 py-10">
 	<div class="flex min-w-0 flex-[999_1_34rem] flex-col gap-10">
-		{#if basics.bio || performer?.lookingFor}
+		{#if basics?.bio || performer?.lookingFor}
 			<section aria-labelledby="about" class="flex flex-col gap-3">
 				<h2 id="about" class="m-0 text-heading font-semibold">About</h2>
-				{#if basics.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
+				{#if basics?.bio}<p class="m-0 max-w-[65ch] whitespace-pre-line text-fg-soft">{basics.bio}</p>{/if}
 				{#if performer?.lookingFor}
 					<div class="flex flex-col gap-1">
 						<h3 class="m-0 eyebrow text-fg-subtle">Looking for</h3>
@@ -124,7 +126,7 @@
 				</ul>
 			</section>
 		{/if}
-		{#if basics.links?.length}
+		{#if basics?.links?.length}
 			<section aria-labelledby="links" class="card flex flex-col gap-3 p-5">
 				<h2 id="links" class="m-0 eyebrow text-fg-subtle">Links</h2>
 				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-small">
@@ -144,9 +146,11 @@
 				</section>
 			{/if}
 		{/await}
-		<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
-			<h2 id="record" class="m-0 eyebrow">On the AT Protocol</h2>
-			<p class="m-0 font-mono break-all">{data.profile.uri}</p>
-		</section>
+		{#if data.profile}
+			<section aria-labelledby="record" class="flex flex-col gap-1.5 px-1 text-caption text-fg-subtle">
+				<h2 id="record" class="m-0 eyebrow">On the AT Protocol</h2>
+				<p class="m-0 font-mono break-all">{data.profile.uri}</p>
+			</section>
+		{/if}
 	</aside>
 </div>

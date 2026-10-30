@@ -1,9 +1,12 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { COLLECTION } from '#lib/nsid.ts';
+import { z } from 'zod';
+import { BSKY_PROFILE, COLLECTION } from '#lib/nsid.ts';
 import type { ProfileRecord, ProfileView } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import type { IndexedRepo } from '../happyview/indexed';
 import type { Logger } from '../logger';
+
+const bskyProfile = z.object({ displayName: z.string().trim().min(1).optional() });
 
 /** Checks a profile the directory served against the profile lexicon. */
 function assertProfileRecord(value: JsonObject): asserts value is JsonObject & ProfileRecord {
@@ -47,5 +50,16 @@ export class ProfileService {
 			record,
 			avatarUrl: avatar ? `/media/${did}/${avatar}` : null
 		};
+	}
+
+	/**
+	 * The display name `did` set on Bluesky, for a page about an account without a profile, or null. Only the directory
+	 * is asked, which keeps it for accounts that manage a project or that the root verified; a public page never asks
+	 * the account's own PDS. A directory that's down reads as no name.
+	 */
+	async blueskyName(did: string): Promise<string | null> {
+		const found = await this.repos.getRecord(did, BSKY_PROFILE, 'self');
+
+		return bskyProfile.safeParse(found?.value).data?.displayName ?? null;
 	}
 }
