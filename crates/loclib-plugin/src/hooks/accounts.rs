@@ -8,9 +8,9 @@
 //! the secret: a secret can't ship inside an app people download.
 //!
 //! A plugin can also ask for accounts by type, `[[accounts]]`, and for the scopes of each type it
-//! needs, saying why. The host is to sign in through an account plugin that provides the type
-//! (see `account_types`) and fill in `{account:<type>}`; until it does, plugins sign in with
-//! `[[contributes.accounts]]`.
+//! needs, saying why. The host signs in through an account plugin that provides the type (see
+//! `account_types`), gives the plugin access to the account, and fills in `{account:<type>}` for
+//! a request a scope of that access covers.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 

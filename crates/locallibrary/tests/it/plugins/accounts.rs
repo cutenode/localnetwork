@@ -78,7 +78,8 @@ fn sent_at(got: &Got) -> Option<usize> {
 /// A mock OAuth service: `/token` trades a code (checked against the PKCE challenge) or a refresh
 /// token for tokens, and so does Local Network's token exchange for it, taking the same as JSON;
 /// `/revoke` takes one back; `/userinfo` says who an access token is for, and
-/// `/userinfo/moved` sends there; and anything else answers what it was sent.
+/// `/userinfo/moved` sends there; `/home` sends to `/here`, and `/r/go/<path>` to `/<path>`; and
+/// anything else answers what it was sent.
 pub(super) fn service(state: Arc<Mutex<Service>>) -> Server {
     Server::new(move |base, got| {
         let mut s = state.lock().unwrap();
@@ -146,6 +147,9 @@ pub(super) fn service(state: Arc<Mutex<Service>>) -> Server {
             },
             // Elsewhere in its own origin.
             "/home" => Reply { status: 307, headers: vec![("Location", format!("{base}/here"))], body: Vec::new() },
+            _ if path.starts_with("/r/go/") => {
+                Reply { status: 307, headers: vec![("Location", format!("{base}/{}", &path[6..]))], body: Vec::new() }
+            }
             _ => ok(format!("{} {}", got.target, got.headers.get("authorization").map_or("-", String::as_str))),
         }
     })

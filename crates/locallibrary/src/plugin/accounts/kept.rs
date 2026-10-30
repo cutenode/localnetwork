@@ -1,15 +1,15 @@
 //! Where a store keeps its accounts: `accounts.json` in the store's folder, readable only by the
-//! user and left out of its copies, has each account but its tokens, changed under
-//! `accounts.lock`. Its tokens are a secret (see [`Place`]): the keychain item
+//! user and left out of its copies, has each account but its tokens, and the accesses plugins were
+//! given to them, changed under `accounts.lock`. Its tokens are a secret (see [`Place`]): the keychain item
 //! `account:<account plugin>:<subject>@<store id>` of `locallibrary`, or with
 //! [`Storage::File`] in `secrets/accounts.json`. Each account's tokens are read and refreshed
 //! under a lock of their own, in `accounts/`.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::Tokens;
+use super::access::Access;
 use crate::error::IoContext;
 use crate::fsutil::{self, FileLock};
 use crate::hash::Hash;
@@ -20,6 +20,23 @@ use crate::{Error, Result};
 
 const FILE: &str = "accounts.json";
 const LOCK: &str = "accounts.lock";
+
+/// What `accounts.json` keeps: the accounts, and the accesses plugins were given to them, which
+/// outlast an account signed out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct Book {
+    #[serde(default)]
+    pub accounts: Vec<Kept>,
+    #[serde(default)]
+    pub accesses: Vec<Access>,
+}
+
+impl Book {
+    /// The account `subject` that `plugin` signed in, if it's kept.
+    pub fn account(&self, plugin: &str, subject: &str) -> Option<&Kept> {
+        self.accounts.iter().find(|k| k.is(plugin, subject))
+    }
+}
 
 /// An account as `accounts.json` keeps it: one for each account plugin and subject.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -37,9 +54,6 @@ pub(super) struct Kept {
     pub expires_at: Option<DateTime<Utc>>,
     /// It's refreshed without signing in again.
     pub refreshes: bool,
-    /// What plugins were given of it, kept as they're written.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub accesses: Vec<Value>,
 }
 
 impl Kept {
@@ -57,15 +71,15 @@ impl Kept {
     }
 }
 
-/// The accounts `store` keeps.
-pub(super) fn read(store: &Store) -> Result<Vec<Kept>> {
+/// The accounts `store` keeps, and the accesses to them.
+pub(super) fn read(store: &Store) -> Result<Book> {
     Ok(fsutil::read_json_opt(&store.root().join(FILE))?.unwrap_or_default())
 }
 
-/// Changes the accounts `store` keeps: `f` gets every one, and what it leaves is written back
-/// (when it changed anything), read and written under `accounts.lock` as
+/// Changes the accounts `store` keeps and the accesses to them: `f` gets them all, and what it
+/// leaves is written back (when it changed anything), read and written under `accounts.lock` as
 /// [`Store::update_drives`] does, so `f` can keep their tokens too.
-pub(super) fn update<T>(store: &Store, f: impl FnOnce(&mut Vec<Kept>) -> Result<T>) -> Result<T> {
+pub(super) fn update<T>(store: &Store, f: impl FnOnce(&mut Book) -> Result<T>) -> Result<T> {
     let _lock = FileLock::wait(&store.root().join(LOCK))?;
     let mut all = read(store)?;
     let before = all.clone();

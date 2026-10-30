@@ -190,8 +190,7 @@ pub mod testing {
     }
 
     /// The access token of the account `subject` that the account plugin `with` signed in to in
-    /// `store`, refreshed as a plugin's request would have it: plugins' requests don't name these
-    /// accounts yet.
+    /// `store`, refreshed as a plugin's request has it, without a plugin to make one.
     pub fn account_token(
         plugins: &crate::plugin::Plugins,
         store: &crate::store::Store,

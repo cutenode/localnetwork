@@ -16,11 +16,12 @@ use super::net::{Got, Reply, Server};
 use super::*;
 
 /// The account plugin's id.
-const WITH: &str = "mock-accounts";
+pub(super) const WITH: &str = "mock-accounts";
 
 /// An account plugin providing the `mock` account type at `server`, asking `whoami` who signed
 /// in, its token going where `token` says (`Bearer` in the `Authorization` header when it's
-/// empty).
+/// empty). Its scopes: `read` covers GETs under `/r/`, `write` POSTs under `/w/`, and `peek`, which
+/// asks the service for nothing, GETs under `/p/`.
 fn account_plugin(server: &str, whoami: &str, token: &str) -> String {
     format!(
         r#"id = "{WITH}"
@@ -43,14 +44,29 @@ another_account = {{ prompt = "select_account" }}
 [contributes.account_types.scopes.read]
 title = "read"
 asks = ["read"]
-requests = [{{ method = "GET", url = "https://mock.example/*" }}]
+requests = [{{ method = "GET", url = "{server}/r/*" }}]
 
 [contributes.account_types.scopes.write]
 title = "write"
 asks = ["write", "read"]
-requests = [{{ method = "POST", url = "https://mock.example/*" }}]
+requests = [{{ method = "POST", url = "{server}/w/*" }}]
+
+[contributes.account_types.scopes.peek]
+title = "peek"
+requests = [{{ method = "GET", url = "{server}/p/*" }}]
 "#
     )
+}
+
+/// The echo plugin, talking to this computer, asking for `mock` accounts: for the scopes
+/// `needs`, and `optional` besides when there are any.
+pub(super) fn asking(needs: &[&str], optional: &[&str]) -> String {
+    let optional = match optional {
+        [] => String::new(),
+        scopes => format!("optional = [{{ scopes = {scopes:?}, why = \"More\" }}]\n"),
+    };
+    let accounts = format!("\n[[accounts]]\ntype = \"mock\"\nscopes = {needs:?}\nwhy = \"Tests\"\n{optional}");
+    format!("{}{accounts}", granting(&["net:127.0.0.1"]))
 }
 
 /// How the host runs the plugins here: reaching this computer, secrets in files.
@@ -59,20 +75,27 @@ fn options() -> Options {
 }
 
 /// The mock service, and the echo plugin and an account plugin for it in a store.
-struct Mock {
-    state: Arc<Mutex<Service>>,
-    server: Server,
-    f: Fixture,
+pub(super) struct Mock {
+    pub(super) state: Arc<Mutex<Service>>,
+    pub(super) server: Server,
+    pub(super) f: Fixture,
 }
 
 /// [`Mock`], its tokens lasting `expires_in` seconds, the account plugin asking `whoami` (a path
-/// at the service, or an address) who signed in, its token going where `token` says.
+/// at the service, or an address) who signed in, its token going where `token` says, the echo
+/// plugin needing `read` of a mock account and maybe `write`.
 fn mock_at(expires_in: u64, whoami: &str, token: &str) -> Mock {
+    mock_for(expires_in, whoami, token, &asking(&["read"], &["write"]))
+}
+
+/// [`mock_at`], the echo plugin's manifest `echo`.
+pub(super) fn mock_for(expires_in: u64, whoami: &str, token: &str, echo: &str) -> Mock {
     let state = Arc::new(Mutex::new(Service { expires_in: Some(expires_in), ..Service::default() }));
     let server = service(state.clone());
     let whoami = if whoami.starts_with('/') { format!("{}{whoami}", server.url) } else { whoami.into() };
     let manifest = account_plugin(&server.url, &whoami, token);
-    let f = Fixture::new(move |dir| vec![spec(dir, ECHO, &[]), spec(dir, &manifest, &[])], options());
+    let echo = echo.to_string();
+    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options());
     Mock { state, server, f }
 }
 
@@ -82,7 +105,7 @@ fn mock(expires_in: u64) -> Mock {
 }
 
 /// Whom the service says signed in, by subject (a string or an integer) and email.
-fn who(subject: Value, email: Option<&str>) -> Value {
+pub(super) fn who(subject: Value, email: Option<&str>) -> Value {
     match email {
         Some(email) => json!({ "sub": subject, "email": email }),
         None => json!({ "sub": subject }),
@@ -92,14 +115,25 @@ fn who(subject: Value, email: Option<&str>) -> Value {
 impl Mock {
     /// Signs in for the echo plugin as `who`, again as the account `again` when it's given, asking
     /// for the type's `scopes`: what it did, and the query of the address the browser opened.
-    fn sign_in(
+    pub(super) fn sign_in(
         &self,
         who: Value,
         again: Option<&str>,
         scopes: &[&str],
     ) -> (locallibrary::Result<AccountSignedIn>, IndexMap<String, String>) {
+        self.sign_in_for(Some("echo"), who, again, scopes)
+    }
+
+    /// [`Mock::sign_in`], for `plugin` when it's given.
+    pub(super) fn sign_in_for(
+        &self,
+        plugin: Option<&str>,
+        who: Value,
+        again: Option<&str>,
+        scopes: &[&str],
+    ) -> (locallibrary::Result<AccountSignedIn>, IndexMap<String, String>) {
         let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
-        let start = self.f.plugins.begin_account_sign_in("mock", WITH, Some("echo"), again, &scopes, &self.f.store);
+        let start = self.f.plugins.begin_account_sign_in("mock", WITH, plugin, again, &scopes, &self.f.store);
         let start = match start {
             Ok(start) => start,
             Err(e) => return (Err(e), IndexMap::new()),
@@ -131,7 +165,7 @@ impl Mock {
 
     /// Whether any token the service gave is out in the plugins' logs, the store but its secrets,
     /// or `answers`.
-    fn leaked(&self, answers: &[Value]) -> bool {
+    pub(super) fn leaked(&self, answers: &[Value]) -> bool {
         let issued = self.state.lock().unwrap().issued;
         let seen = self.f.seen(&answers.iter().collect::<Vec<_>>());
         (1..=issued).any(|n| seen.contains(&format!("at-{n}")) || seen.contains(&format!("rt-{n}")))
@@ -307,7 +341,8 @@ fn whoami_follows_redirects_within_its_origin_only() {
     let away =
         Server::new(move |_, _| Reply { status: 302, headers: vec![("Location", to.clone())], body: Vec::new() });
     let manifest = account_plugin(&server.url, &format!("{}/who", away.url), "");
-    let f = Fixture::new(move |dir| vec![spec(dir, ECHO, &[]), spec(dir, &manifest, &[])], options());
+    let echo = asking(&["read"], &["write"]);
+    let f = Fixture::new(move |dir| vec![spec(dir, &echo, &[]), spec(dir, &manifest, &[])], options());
     let m = Mock { state, server, f };
     let e = m.sign_in(who(json!("a"), None), None, &[]).0.unwrap_err();
     assert_eq!(

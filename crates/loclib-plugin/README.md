@@ -95,7 +95,9 @@ A response is never answered, not even a bad one. Errors use the RPC sidecar's c
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
 `incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
 `not_found`, `conflict`, `stale_plan`, `permission`, and `io` or `parse` about the file
-`data.fields.path` names), with the plugin named; any other kind is the plugin failing.
+`data.fields.path` names), with the plugin named; `access` and `scope` (a request that couldn't
+use an account, see [accounts](#accounts)) are `account` errors; any other kind is the plugin
+failing.
 
 ## The manifest
 
@@ -274,12 +276,18 @@ given back as `{account:<id>}`, so the link can be fetched as it is. An answer w
 A plugin can also ask for an account by type, in a top-level `[[accounts]]`: the account type
 (`type = "google"`), the `scopes` of it it needs by name (`["youtube-upload"]`), `why` it needs
 them, and `optional` groups of scopes it can do without, each with its own `scopes` and `why`.
-The host is to sign the user in through an account plugin that provides the type and fill in
-`{account:<type>}` (or `{account:<type>/<access id>}`, the access's 8 hex digits) where the
-type's token goes. That isn't there yet: until it is, plugins sign in with
-`[[contributes.accounts]]`. Each type is a name, asked for once; each scope is a name, asked for
-once, and each list has one at least; a `why` isn't empty. A plugin asking for accounts needs a
-`net:` capability too.
+The host signs the user in through an account plugin that provides the type, gives the plugin
+access to the account (the scopes it needs, and the optional ones the user allows), and fills in
+`{account:<type>}` (the plugin's default access for the type) or `{account:<type>/<access id>}`
+(the access's 8 hex digits) where the type's token goes. It does only for a request one of the
+access's scopes covers, while the access has every scope the plugin needs; otherwise the request
+fails before it's sent, as `access` (no such access, or `reason` `signed_out`) or `scope`, its
+`fields` naming the `type`, the `scopes` and the `account_plugins`. Passed on, either is an
+`account` error saying how to sign in. Each type is a name, asked for once; each scope is a name,
+asked for once, and each list has one at least; a `why` isn't empty. A plugin asking for accounts
+needs a `net:` capability too, reaching every host its scopes' requests go to: locallibrary
+leaves out a plugin that asks for a scope no account plugin providing the type lists, or can't
+reach one of those hosts.
 
 ### analysis
 

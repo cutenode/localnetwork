@@ -93,7 +93,8 @@ pub(crate) struct Asked {
     kind: String,
     /// The account plugin signing in.
     with: String,
-    for_plugin: Option<String>,
+    /// The plugin it's for, and the type's scopes (by name) it's given of the account.
+    for_plugin: Option<(String, Vec<String>)>,
     /// The account signed in again, by subject.
     account: Option<String>,
     /// The service's scopes.
@@ -123,18 +124,18 @@ fn listed(kept: Kept, signed_in: bool) -> Account {
 }
 
 /// The account `subject` that `with` signed in isn't kept.
-fn not_kept(with: &str, subject: &str) -> Error {
+pub(super) fn not_kept(with: &str, subject: &str) -> Error {
     Error::NotFound(format!("the account {subject:?} signed in through the {with} plugin"))
 }
 
 /// The account `subject` that `with` signed in, of those `store` keeps.
 fn find(store: &Store, with: &str, subject: &str) -> Result<Kept> {
-    kept::read(store)?.into_iter().find(|k| k.is(with, subject)).ok_or_else(|| not_kept(with, subject))
+    kept::read(store)?.account(with, subject).cloned().ok_or_else(|| not_kept(with, subject))
 }
 
 impl Plugin {
     /// The account type `kind`, which it provides.
-    fn account_type(&self, kind: &str) -> Result<&AccountType> {
+    pub(super) fn account_type(&self, kind: &str) -> Result<&AccountType> {
         self.declared("account type", kind, &self.manifest.contributes.account_types, |t| &t.name)
     }
 
@@ -148,6 +149,35 @@ impl Plugin {
         };
         secret.map(read).transpose()
     }
+
+    /// The access token of the account `subject` it signed in to in `store`, refreshed first when
+    /// it's about to expire: one refresh at a time, whichever host on the store asks, each reading
+    /// the tokens again once it's its turn. One the service won't refresh any more is signed out.
+    pub(crate) fn account_token(&self, store: &Store, subject: &str) -> Result<String> {
+        let with = &self.manifest.id;
+        let _one = kept::hold(store, with, subject)?;
+        let k = find(store, with, subject)?;
+        let t = self.account_type(&k.kind)?;
+        let signed_out = || {
+            let why = format!("the {} account {} is signed out: sign in again", t.title, k.name);
+            Error::Account(why).because(Reason::SessionEnded)
+        };
+        let tokens = self.kept_tokens(store, &k)?.ok_or_else(signed_out)?;
+        if !tokens.expiring(Utc::now()) {
+            return Ok(tokens.access_token);
+        }
+        let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
+        let storage = self.host.options.secrets;
+        let Some(fresh) = self.refreshed(&Endpoints::from(t), refresh, tokens)? else {
+            forget(store, storage, &k)?;
+            return Err(signed_out());
+        };
+        kept::update(store, |book| {
+            book.accounts.iter_mut().filter(|x| x.is(with, subject)).for_each(|x| x.granted(&fresh));
+            kept::keep(storage, store, &k, Some(&fresh))
+        })?;
+        Ok(fresh.access_token)
+    }
 }
 
 impl Plugins {
@@ -157,7 +187,7 @@ impl Plugins {
             let signed_in = secret(self.host.options.secrets, &kept::place(store, &k.plugin, &k.subject))?.is_some();
             Ok(listed(k, signed_in))
         };
-        kept::read(store)?.into_iter().map(listing).collect()
+        kept::read(store)?.accounts.into_iter().map(listing).collect()
     }
 
     /// Starts signing in to an account of type `kind` in `store` through the account plugin
@@ -165,7 +195,9 @@ impl Plugins {
     /// which comes back to this computer. With `account`, it signs in again as that account (the
     /// subject of one `with` signed in); without, the service is asked to offer another than those
     /// it signed in, when there are any. It asks the service for what the type always asks for,
-    /// what `account` was granted, and what `scopes` (the type's, by name) ask for. Finished with
+    /// what `account` was granted, and what `scopes` (the type's, by name) ask for, and for a
+    /// plugin, what the scopes it needs ask for: it's given access to those, and to those of
+    /// `scopes` it can do without (see [`Plugins::give_access`]). Finished with
     /// [`Plugins::finish_account_sign_in`] (or [`Plugins::finish_account_sign_in_with_url`], when
     /// the browser runs on another computer), within a quarter of an hour.
     pub fn begin_account_sign_in(
@@ -179,14 +211,16 @@ impl Plugins {
     ) -> Result<AccountSignIn> {
         let slot = self.slot(with)?;
         let t = slot.account_type(kind)?;
-        for_plugin.map(|plugin| self.slot(plugin)).transpose()?;
-        let all = kept::read(store)?;
+        let all = kept::read(store)?.accounts;
         let again =
             account.map(|subject| all.iter().find(|k| k.is(with, subject)).ok_or_else(|| not_kept(with, subject)));
         let again = again.transpose()?;
         let mut asking: IndexSet<String> = t.always.iter().cloned().collect();
         asking.extend(again.iter().flat_map(|k| k.scopes.iter().cloned()));
-        for name in scopes {
+        let given =
+            for_plugin.map(|plugin| Ok::<_, Error>((plugin.to_string(), self.slot(plugin)?.given(kind, scopes)?)));
+        let given = given.transpose()?;
+        for name in scopes.iter().chain(given.iter().flat_map(|(_, given)| given)) {
             let scope = t.scopes.get(name);
             let scope = scope.ok_or_else(|| Error::NotFound(format!("the {kind} account type's scope {name:?}")))?;
             asking.extend(scope.asks.iter().cloned());
@@ -207,7 +241,7 @@ impl Plugins {
         let asked = Asked {
             kind: kind.into(),
             with: with.into(),
-            for_plugin: for_plugin.map(String::from),
+            for_plugin: given,
             account: account.map(String::from),
             scopes: scopes.clone(),
         };
@@ -246,7 +280,8 @@ impl Plugins {
         let (subject, name) = slot.whoami(t, &tokens.access_token)?;
         let (store, storage) = (&p.store, self.host.options.secrets);
         let _one = kept::hold(store, &asked.with, &subject)?;
-        let account = kept::update(store, |all| {
+        let account = kept::update(store, |book| {
+            let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
                 Some(i) => i,
                 None => {
@@ -258,45 +293,27 @@ impl Plugins {
             (k.kind, k.name) = (asked.kind, name);
             k.granted(&tokens);
             kept::keep(storage, store, k, Some(&tokens))?;
-            Ok(listed(k.clone(), true))
+            let k = k.clone();
+            book.renamed(&k);
+            if let Some((plugin, scopes)) = &asked.for_plugin {
+                book.give(plugin, &k, scopes);
+            }
+            Ok(listed(k, true))
         })?;
         let instead_of = asked.account.filter(|a| *a != subject);
-        Ok(AccountSignedIn { account, instead_of, for_plugin: asked.for_plugin })
+        Ok(AccountSignedIn { account, instead_of, for_plugin: asked.for_plugin.map(|(plugin, _)| plugin) })
     }
 
-    /// The access token of the account `subject` that `with` signed in to in `store`, refreshed
-    /// first when it's about to expire: one refresh at a time, whichever host on the store asks,
-    /// each reading the tokens again once it's its turn. One the service won't refresh any more is
-    /// signed out.
+    /// The access token of the account `subject` that `with` signed in to in `store`, as a
+    /// plugin's request gets it (see [`Plugin::account_token`]).
     pub(crate) fn account_token(&self, store: &Store, with: &str, subject: &str) -> Result<String> {
-        let slot = self.slot(with)?;
-        let _one = kept::hold(store, with, subject)?;
-        let k = find(store, with, subject)?;
-        let t = slot.account_type(&k.kind)?;
-        let signed_out = || {
-            let why = format!("the {} account {} is signed out: sign in again", t.title, k.name);
-            Error::Account(why).because(Reason::SessionEnded)
-        };
-        let tokens = slot.kept_tokens(store, &k)?.ok_or_else(signed_out)?;
-        if !tokens.expiring(Utc::now()) {
-            return Ok(tokens.access_token);
-        }
-        let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
-        let storage = self.host.options.secrets;
-        let Some(fresh) = slot.refreshed(&Endpoints::from(t), refresh, tokens)? else {
-            forget(store, storage, &k)?;
-            return Err(signed_out());
-        };
-        kept::update(store, |all| {
-            all.iter_mut().filter(|x| x.is(with, subject)).for_each(|x| x.granted(&fresh));
-            kept::keep(storage, store, &k, Some(&fresh))
-        })?;
-        Ok(fresh.access_token)
+        self.slot(with)?.account_token(store, subject)
     }
 
     /// Signs out of the account `subject` that `with` signed in to in `store`: it's forgotten here,
     /// and its tokens are revoked at the service when its type has a revocation endpoint (as far
-    /// as it answers: they're forgotten here all the same).
+    /// as it answers: they're forgotten here all the same). Plugins keep their accesses to it,
+    /// which have no token until it's signed in again.
     pub fn sign_out_account(&self, with: &str, subject: &str, store: &Store) -> Result<AccountSignedOut> {
         let slot = self.slot(with)?;
         let _one = kept::hold(store, with, subject)?;
@@ -312,10 +329,10 @@ impl Plugins {
     }
 }
 
-/// Forgets `kept` and its tokens.
+/// Forgets `kept` and its tokens, but not the accesses to it.
 fn forget(store: &Store, storage: Storage, kept: &Kept) -> Result<()> {
-    kept::update(store, |all| {
-        all.retain(|k| !k.is(&kept.plugin, &kept.subject));
+    kept::update(store, |book| {
+        book.accounts.retain(|k| !k.is(&kept.plugin, &kept.subject));
         kept::keep(storage, store, kept, None)
     })
 }

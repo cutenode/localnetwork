@@ -34276,7 +34276,7 @@
         {
           "type": "string",
           "const": "not_signed_in",
-          "description": "Not signed in to an Atmosphere account."
+          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout: sign in."
         },
         {
           "type": "string",
@@ -34286,7 +34286,12 @@
         {
           "type": "string",
           "const": "missing_scope",
-          "description": "The session may not publish: sign in again allowing it."
+          "description": "The session may not publish, or a plugin's access doesn't reach what it asked: sign in\nagain allowing it."
+        },
+        {
+          "type": "string",
+          "const": "no_access",
+          "description": "A plugin has no access to an account of the type it asked for (`fields.type`): sign in to\none for it, or make one its default."
         },
         {
           "type": "string",

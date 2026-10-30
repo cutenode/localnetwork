@@ -58,7 +58,7 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -71,6 +71,7 @@ use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
 use crate::{Error, Result};
 
+pub use accounts::access::{Access, AccountId};
 pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut};
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
@@ -245,7 +246,8 @@ impl Plugins {
     /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
+        let host =
+            Arc::new(process::Host { reads, options, turns: Mutex::default(), account_plugins: OnceLock::new() });
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
@@ -265,6 +267,10 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
+        let account_plugins = plugins.iter().filter(|(_, s)| s.manifest.is_account_plugin());
+        let account_plugins = account_plugins.map(|(id, s)| (id.clone(), Arc::downgrade(&s.plugin))).collect();
+        // Set here only, once every plugin is.
+        let _ = host.account_plugins.set(account_plugins);
         Ok(Plugins { plugins, host, signing_in: Default::default() })
     }
 

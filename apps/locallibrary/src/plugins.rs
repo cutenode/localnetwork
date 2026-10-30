@@ -23,7 +23,7 @@ use locallibrary::mix::report::ShownField;
 use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Capability, ExportFrom, Manifest, SettingType};
+use loclib_plugin::{AccountType, Capability, ExportFrom, Manifest, SettingType};
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -194,10 +194,11 @@ type Claim = (String, String);
 /// that's a namespace of the sidecar's methods (its plans would be named like theirs,
 /// `sync.group`), a command and an operation of one name, a param named like a flag its command
 /// has anyway, and an export format (or an import format) named like another, or like one of
-/// locallibrary's own for what it writes out (`export`'s, `sets export`'s). A place in a group
-/// is under its name, not an alias. Plugins that clash with each other are all left out, since
-/// none is more right than the others; one left out already (clashing with locallibrary) clashes
-/// with none.
+/// locallibrary's own for what it writes out (`export`'s, `sets export`'s), and an account type
+/// named like an `account` command. A place in a group is under its name, not an alias. Plugins
+/// that clash with each other are all left out, since none is more right than the others; one
+/// left out already (clashing with locallibrary) clashes with none. Then a plugin asking for
+/// accounts is left out when an account plugin kept would be no use to it (see [`unmet`]).
 fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let cli = crate::Cli::command();
     let names = |c: &clap::Command| -> Vec<String> {
@@ -285,6 +286,13 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
             let what = format!("the {id} plugin's import format {format:?}");
             claim(&mut imports, &FxHashMap::default(), format, format!("the {id} plugin's"), what)?;
         }
+        // `account <type>` names one of its accounts on the command line.
+        if let Some(t) = m.contributes.account_types.iter().find(|t| top.contains_key(&format!("account {}", t.name))) {
+            return Err(format!(
+                "the {id} plugin's account type {:?} is named like the account {} command",
+                t.name, t.name
+            ));
+        }
         Ok([places, exports, imports])
     };
     let mut left_out = Vec::new();
@@ -312,7 +320,46 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
             }
         }
     }
+    let kept = manifests.iter().zip(&left_out).filter(|(m, why)| why.is_none() && m.is_account_plugin());
+    let providers: Vec<&Manifest> = kept.map(|(m, _)| *m).collect();
+    for (m, why) in manifests.iter().zip(left_out.iter_mut()).filter(|(_, why)| why.is_none()) {
+        *why = unmet(m, &providers);
+    }
     left_out
+}
+
+/// Why `m` is no use asking for the accounts it asks for, if it is, with the account plugins
+/// `providers`: a scope of a type no account plugin providing the type lists, or a host a request
+/// of one goes to that none of its `net:` capabilities reaches.
+fn unmet(m: &Manifest, providers: &[&Manifest]) -> Option<String> {
+    let id = &m.id;
+    for need in &m.accounts {
+        let kind = &need.name;
+        let types: Vec<(&str, &AccountType)> = providers
+            .iter()
+            .filter_map(|p| Some((p.id.as_str(), p.contributes.account_types.iter().find(|t| t.name == *kind)?)))
+            .collect();
+        if types.is_empty() {
+            return Some(format!("the {id} plugin asks for {kind} accounts, which no account plugin provides"));
+        }
+        for scope in need.scopes.iter().chain(need.optional.iter().flat_map(|o| &o.scopes)) {
+            let listing: Vec<_> = types.iter().filter_map(|(_, t)| t.scopes.get(scope)).collect();
+            if listing.is_empty() {
+                let ids: Vec<&str> = types.iter().map(|(id, _)| *id).collect();
+                let ids = ids.join(", ");
+                return Some(format!(
+                    "the {id} plugin asks for {kind}'s scope {scope:?}, which no account plugin providing {kind} lists ({ids})"
+                ));
+            }
+            let hosts = listing.iter().flat_map(|s| &s.requests).filter_map(|r| r.host());
+            if let Some(host) = hosts.into_iter().find(|h| !m.capabilities.iter().any(|c| c.reaches(h))) {
+                return Some(format!(
+                    "the {id} plugin asks for {kind}'s scope {scope:?}, whose requests go to {host}, which it has no net:{host} capability for"
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// `plugin serve <id>`: serves the plugin over stdin and stdout until its input closes, writing

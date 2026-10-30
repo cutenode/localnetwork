@@ -107,6 +107,13 @@ pub struct ScopeRequest {
     pub url: String,
 }
 
+impl ScopeRequest {
+    /// The host its requests go to.
+    pub fn host(&self) -> Option<String> {
+        Url::parse(self.url.strip_suffix('*').unwrap_or(&self.url)).ok()?.host_str().map(String::from)
+    }
+}
+
 impl Scope {
     /// Whether it covers a `method` request (in any case) to `url`.
     pub fn covers(&self, method: &str, url: &Url) -> bool {

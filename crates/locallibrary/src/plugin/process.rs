@@ -20,12 +20,13 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use super::accounts::access;
 use super::blobs::{Scratch, Scratches};
 use super::events::Queue;
 use super::services::Running;
 use super::{Launch, Options, Reads, callbacks, net};
 use crate::device::Device;
-use crate::error::IoContext;
+use crate::error::{IoContext, Reason};
 use crate::progress::{Ctx, Event};
 use crate::store::Store;
 use crate::{Error, Result, api, lock};
@@ -47,12 +48,29 @@ pub(crate) struct Host {
     pub(crate) options: Options,
     /// When each host a `[[net]]` limit names lets a request go next, whichever plugin sends it.
     pub(crate) turns: Mutex<FxHashMap<String, Instant>>,
+    /// The account plugins, by id, once every plugin is: those whose accounts plugins' requests
+    /// name. Weak, since each holds the host.
+    pub(crate) account_plugins: OnceLock<IndexMap<String, Weak<Plugin>>>,
 }
 
 impl Host {
     /// Logs `line` as the plugin `id`'s.
     pub(crate) fn log(&self, id: &str, line: &str) {
         (self.options.log)(id, line);
+    }
+
+    /// The account plugin `id`, if it's one.
+    pub(crate) fn account_plugin(&self, id: &str) -> Option<Arc<Plugin>> {
+        self.account_plugins.get()?.get(id)?.upgrade()
+    }
+
+    /// The ids of the account plugins providing the type `kind`.
+    pub(crate) fn providing(&self, kind: &str) -> Vec<String> {
+        let all = self.account_plugins.get().into_iter().flatten();
+        let provides = |p: &Weak<Plugin>| {
+            p.upgrade().is_some_and(|p| p.manifest.contributes.account_types.iter().any(|t| t.name == kind))
+        };
+        all.filter(|(_, p)| provides(p)).map(|(id, _)| id.clone()).collect()
     }
 }
 
@@ -289,15 +307,26 @@ impl Slot {
     /// handles locallibrary's own. `io` and `parse` are about the file `fields.path` names.
     /// Another kind (or one of those without a file) is the plugin failing, `permission` (a
     /// plugin never runs elevated, so running locallibrary so can't help) and `stale_plan` (only
-    /// the host's plans go stale) too. Its connection closing means it stopped. The secrets the
-    /// host filled in for it are left out.
+    /// the host's plans go stale) too. `access` and `scope` (its request couldn't use an account,
+    /// see [`super::accounts::token`]) are `account` errors, whose actions come from its
+    /// manifest, never from what it says. Its connection closing means it stopped. The secrets
+    /// the host filled in for it are left out.
     fn error(&self, p: &Process, mut e: RpcError) -> Error {
         e.message = self.net.scrub(&e.message);
         let said = format!("{} ({})", e.message, self.label());
         let mut fields = e.data.as_ref().map(|d| d.fields.clone()).unwrap_or_default();
         fields.values_mut().for_each(|v| self.net.scrub_value(v));
         let file = fields.get("path").and_then(|p| p.as_str()).map(PathBuf::from);
+        let signed_out = e.data.as_ref().is_some_and(|d| d.reason.as_deref() == Some("signed_out"));
+        let account = |reason: Reason| {
+            let kind = fields.get("type").and_then(Value::as_str);
+            let actions = access::actions(&self.manifest, kind, p.live.store.as_ref());
+            actions.into_iter().fold(Error::Account(said.clone()).because(reason), Error::action)
+        };
         let error = match (e.kind(), file) {
+            (Some("access"), _) if signed_out => account(Reason::NotSignedIn),
+            (Some("access"), _) => account(Reason::NoAccess),
+            (Some("scope"), _) => account(Reason::MissingScope),
             (Some("cancelled"), _) => return Error::Cancelled,
             (Some("closed"), _) => {
                 p.dead.store(true, Ordering::SeqCst);

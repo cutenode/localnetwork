@@ -13,7 +13,8 @@
 //! the same request as JSON, and it adds the secret and answers as the service.
 //!
 //! Accounts of a type, signed in to through account plugins and kept once per store, are
-//! [`shared`]'s: they're signed in to, refreshed and revoked the same way.
+//! [`shared`]'s: they're signed in to, refreshed and revoked the same way. Plugins reach them
+//! through the [`access`]es they're given, as `{account:<type>}` (see [`token`]).
 
 use std::io::Read;
 use std::net::TcpListener;
@@ -43,9 +44,11 @@ use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result, lock};
 
+pub(super) mod access;
 mod endpoints;
 mod kept;
 pub(super) mod shared;
+mod token;
 mod whoami;
 
 /// How long before its access token expires an account's is refreshed.
