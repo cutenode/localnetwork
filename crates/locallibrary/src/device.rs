@@ -916,20 +916,7 @@ pub fn dunce_canonicalize(p: &Path) -> PathBuf {
     without_verbatim_prefix(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
 }
 
-/// `p` without the `\\?\` prefix [`Path::canonicalize`] adds on Windows (a `\\?\UNC\` share
-/// keeps it), so it stays readable and joinable. Elsewhere `p` itself.
-pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = p.to_string_lossy();
-        if let Some(rest) = s.strip_prefix(r"\\?\")
-            && !rest.starts_with("UNC\\")
-        {
-            return PathBuf::from(rest);
-        }
-    }
-    p
-}
+pub use loclib_model::paths::without_verbatim_prefix;
 
 // ---------------------------------------------------------------------------------------------
 // Detection

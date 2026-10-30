@@ -62,6 +62,31 @@ pub fn absolute_with(path: &Path, real: impl Fn(&Path) -> Option<PathBuf>) -> Pa
     out
 }
 
+/// `path` made absolute, with symlinks resolved as far as it exists (macOS's `/tmp` is
+/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
+/// without Windows' `\\?\` prefix. A `..` goes where the OS takes it, out of a link's target
+/// rather than back to the link's folder, so a path is inside a folder here exactly when what it
+/// opens is (once the folders that aren't there yet are made, `..` folded over them).
+pub fn resolved(path: &Path) -> PathBuf {
+    absolute_with(path, |p| p.canonicalize().ok().map(without_verbatim_prefix))
+}
+
+/// `p` without the `\\?\` prefix [`Path::canonicalize`] adds on Windows (a `\\?\UNC\` share
+/// keeps it), so it stays readable and joinable, and compares with the mount points the OS
+/// reports (`E:\`). Elsewhere `p` itself.
+pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = p.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\")
+            && !rest.starts_with("UNC\\")
+        {
+            return PathBuf::from(rest);
+        }
+    }
+    p
+}
+
 /// Normalise any path-ish string into a key.
 pub fn key(s: &str) -> String {
     let s: String = s.nfc().collect();
