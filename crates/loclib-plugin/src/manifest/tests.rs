@@ -383,6 +383,7 @@ always = ["openid", "email"]
 whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
 one_account = { login_hint = "{subject}" }
 another_account = { prompt = "select_account" }
+params = { access_type = "offline" }
 
 [contributes.account_types.scopes.youtube-upload]
 title = "upload videos to YouTube"
@@ -407,7 +408,10 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
     assert!(!Manifest::parse(ECHO).unwrap().is_account_plugin());
     let google = &m.contributes.account_types[0];
     assert_eq!((google.name.as_str(), &google.token, google.redirect_port), ("google", &TokenPlace::default(), None));
-    assert_eq!(google.one_account["login_hint"], "{subject}");
+    assert_eq!(
+        (google.one_account["login_hint"].as_str(), google.params["access_type"].as_str()),
+        ("{subject}", "offline")
+    );
     assert_eq!(google.scopes["youtube-upload"].asks, ["https://www.googleapis.com/auth/youtube.upload"]);
     let at = "contributes.account_types[0]";
     assert_eq!(
@@ -564,7 +568,7 @@ fn an_account_type_says_where_its_token_goes_and_where_the_browser_comes_back() 
 }
 
 /// An account type sets only the authorize params that can't change where a code goes or what it's
-/// for, and names the account only as `{subject}`, only to sign in to it again.
+/// for, each in one place, and names the account only as `{subject}`, only to sign in to it again.
 #[test]
 fn an_account_types_params_name_the_account_only_as_its_subject() {
     let at = "contributes.account_types[0]";
@@ -574,8 +578,15 @@ fn an_account_types_params_name_the_account_only_as_its_subject() {
     let another = |key: &str, value: &str| {
         google_with(|m| _ = m.contributes.account_types[0].another_account.insert(key.into(), value.into()))
     };
+    let every = |key: &str, value: &str| {
+        google_with(|m| _ = m.contributes.account_types[0].params.insert(key.into(), value.into()))
+    };
     assert_eq!(one("login_hint", "id:{subject}{subject}"), "");
     assert_eq!(another("hd", "example.com"), "");
+    assert_eq!(every("hd", "example.com"), "");
+    for (key, which) in [("login_hint", "one_account"), ("prompt", "another_account")] {
+        assert_eq!(every(key, "x"), format!("{at}.params.{key}: is in {which} too: set it in one place"));
+    }
     let said = "isn't one of the params an account type may set: login_hint, prompt, hd, access_type";
     for key in [
         "client_id",
@@ -594,6 +605,7 @@ fn an_account_types_params_name_the_account_only_as_its_subject() {
     ] {
         assert_eq!(one(key, "x"), format!("{at}.one_account.{key}: {said}"));
         assert_eq!(another(key, "x"), format!("{at}.another_account.{key}: {said}"));
+        assert_eq!(every(key, "x"), format!("{at}.params.{key}: {said}"));
     }
     for value in ["{email}", "{subject", "{sub{subject}ject}", "}"] {
         let said = format!("{at}.one_account.login_hint: {value:?} has a {{ or }} besides {{subject}}");
@@ -601,7 +613,7 @@ fn an_account_types_params_name_the_account_only_as_its_subject() {
     }
     assert_eq!(
         another("login_hint", "{subject}"),
-        format!("{at}.another_account.login_hint: \"{{subject}}\" has a {{ or }}: there's no account yet to name")
+        format!("{at}.another_account.login_hint: \"{{subject}}\" has a {{ or }}: only one_account names an account")
     );
 }
 
@@ -2887,13 +2899,14 @@ fn pointer(tc: &TestCase) -> String {
     tc.draw(gs::from_regex("(/([a-z0-9]|~[01]){0,6}){0,3}"))
 }
 
-/// Authorize params an account type may set, their values naming the account (only as
-/// `{subject}`) where `subject`.
+/// Authorize params an account type may set, but those `taken` sets, their values naming the
+/// account (only as `{subject}`) where `subject`.
 #[hegel::test_helper]
-fn authorize_params(tc: &TestCase, subject: bool) -> IndexMap<String, String> {
+fn authorize_params(tc: &TestCase, subject: bool, taken: &[&IndexMap<String, String>]) -> IndexMap<String, String> {
     let parts = if subject { 3 } else { 1 };
     let keys = tc.draw(gs::vecs(gs::sampled_from(AUTHORIZE_PARAMS.to_vec())).max_size(3).unique(true));
     keys.into_iter()
+        .filter(|key| !taken.iter().any(|set| set.contains_key(*key)))
         .map(|key| {
             let parts = tc.draw(gs::vecs(gs::text().max_size(6)).min_size(1).max_size(parts));
             let parts: Vec<String> = parts.iter().map(|p| p.replace(['{', '}'], "")).collect();
@@ -2925,6 +2938,8 @@ fn scope(tc: &TestCase) -> Scope {
 #[hegel::test_helper]
 fn account_type(tc: &TestCase, built_in: bool) -> AccountType {
     let exchanges = built_in && tc.draw(gs::booleans());
+    let (one_account, another_account) = (authorize_params(tc, true, &[]), authorize_params(tc, false, &[]));
+    let params = authorize_params(tc, false, &[&one_account, &another_account]);
     AccountType {
         name: tc.draw(gs::from_regex(DRAWN_NAME)),
         title: title(tc),
@@ -2937,8 +2952,9 @@ fn account_type(tc: &TestCase, built_in: bool) -> AccountType {
         redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
         always: service_scopes(tc),
         whoami: Whoami { url: endpoint(tc), subject: pointer(tc), name: pointer(tc) },
-        one_account: authorize_params(tc, true),
-        another_account: authorize_params(tc, false),
+        one_account,
+        another_account,
+        params,
         scopes: drawn_names(tc, 3).into_iter().map(|name| (name, scope(tc))).collect(),
     }
 }
@@ -3003,6 +3019,7 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
         "pointer",
         "param",
         "placeholder",
+        "clash",
         "scope name",
         "scope title",
         "no requests",
@@ -3155,10 +3172,12 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                     format!("{at}.whoami.{key}: {wrong:?} isn't a JSON pointer, like /sub")
                 }
                 "param" | "placeholder" => {
-                    let (params, which) = match tc.draw(gs::booleans()) {
-                        true => (&mut x.one_account, "one_account"),
-                        false => (&mut x.another_account, "another_account"),
-                    };
+                    let (params, which) =
+                        match tc.draw(gs::sampled_from(vec!["one_account", "another_account", "params"])) {
+                            "one_account" => (&mut x.one_account, "one_account"),
+                            "another_account" => (&mut x.another_account, "another_account"),
+                            _ => (&mut x.params, "params"),
+                        };
                     let (key, value, said) = match mistake {
                         "param" => {
                             let key = tc.draw(
@@ -3180,13 +3199,24 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
                             let value = format!("{}{named}{bad}{}", word(&tc), word(&tc));
                             let said = match which {
                                 "one_account" => format!("{value:?} has a {{ or }} besides {{subject}}"),
-                                _ => format!("{value:?} has a {{ or }}: there's no account yet to name"),
+                                _ => format!("{value:?} has a {{ or }}: only one_account names an account"),
                             };
                             ("login_hint".to_string(), value, said)
                         }
                     };
                     params.insert(key.clone(), value);
                     format!("{at}.{which}.{key}: {said}")
+                }
+                "clash" => {
+                    let key = tc.draw(gs::sampled_from(AUTHORIZE_PARAMS.to_vec()));
+                    let set = match tc.draw(gs::booleans()) {
+                        true => &mut x.one_account,
+                        false => &mut x.another_account,
+                    };
+                    set.entry(key.into()).or_insert_with(|| "x".into());
+                    x.params.insert(key.into(), "x".into());
+                    let which = if x.one_account.contains_key(key) { "one_account" } else { "another_account" };
+                    format!("{at}.params.{key}: is in {which} too: set it in one place")
                 }
                 "scope name" => {
                     let name = bad_name(&tc);

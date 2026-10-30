@@ -31163,6 +31163,13 @@
           },
           "description": "The authorize params that sign in to another account than those the browser has\n(`prompt = \"select_account\"`)."
         },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s."
+        },
         "scopes": {
           "type": "object",
           "additionalProperties": {

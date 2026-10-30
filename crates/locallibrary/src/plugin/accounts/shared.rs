@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use loclib_plugin::{AccountType, SUBJECT_PLACEHOLDER};
 use oauth2::TokenResponse;
 use schemars::JsonSchema;
@@ -250,10 +250,10 @@ impl Plugins {
     /// `with`, for the plugin `for_plugin` if it's for one: the address to open in the browser,
     /// which comes back to this computer. With `account`, it signs in again as that account (the
     /// subject of one `with` signed in); without, the service is asked to offer another than those
-    /// it signed in, when there are any. It asks the service for what the type always asks for,
-    /// what `account` was granted, and what `scopes` (the type's, by name) ask for, and for a
-    /// plugin, what the scopes it needs ask for: it's given access to those, and to those of
-    /// `scopes` it can do without (see [`Plugins::give_access`]). Finished with
+    /// it signed in, when there are any; the type's own params go with either. It asks the service
+    /// for what the type always asks for, what `account` was granted, and what `scopes` (the
+    /// type's, by name) ask for, and for a plugin, what the scopes it needs ask for: it's given
+    /// access to those, and to those of `scopes` it can do without (see [`Plugins::give_access`]). Finished with
     /// [`Plugins::finish_account_sign_in`] (or [`Plugins::finish_account_sign_in_with_url`], when
     /// the browser runs on another computer), within a quarter of an hour.
     pub fn begin_account_sign_in(
@@ -281,13 +281,14 @@ impl Plugins {
             let scope = scope.ok_or_else(|| Error::NotFound(format!("the {kind} account type's scope {name:?}")))?;
             asking.extend(scope.asks.iter().cloned());
         }
-        let params = match account {
+        let mut params = t.params.clone();
+        match account {
             Some(subject) => {
-                t.one_account.iter().map(|(k, v)| (k.clone(), v.replace(SUBJECT_PLACEHOLDER, subject))).collect()
+                params.extend(t.one_account.iter().map(|(k, v)| (k.clone(), v.replace(SUBJECT_PLACEHOLDER, subject))));
             }
-            None if all.iter().any(|k| k.plugin == with) => t.another_account.clone(),
-            None => IndexMap::new(),
-        };
+            None if all.iter().any(|k| k.plugin == with) => params.extend(t.another_account.clone()),
+            None => {}
+        }
         if let Some(k) = again {
             // The keychain can be used, before the browser is sent anywhere. Only whether it can,
             // what it keeps dropped first: CodeQL follows a `?` on it into the sign-in link.

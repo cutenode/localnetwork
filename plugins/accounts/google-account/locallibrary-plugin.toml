@@ -19,6 +19,9 @@ always = ["openid", "email"]
 whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
 one_account = { login_hint = "{subject}" }
 another_account = { prompt = "select_account" }
+# Google gives a web client (Local Network's, behind the token exchange) a refresh token only when
+# the sign-in asks for offline access.
+params = { access_type = "offline" }
 
 # YouTube's resumable upload: the POST that starts a session, and the PUTs that send the video to
 # the address it answers with, the same one with the session's `upload_id` in its query.

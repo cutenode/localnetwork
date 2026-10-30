@@ -8117,6 +8117,11 @@ export type AccountType = {
    * (`prompt = "select_account"`).
    */
   another_account?: { [key: string]: string };
+  /**
+   * The authorize params every sign-in sends besides (`access_type = "offline"`), none of
+   * `one_account`'s or `another_account`'s.
+   */
+  params?: { [key: string]: string };
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
