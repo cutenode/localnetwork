@@ -106,6 +106,12 @@ fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     let (_, out, _) = m.run(&["account"]);
     let signed_out = "  signed out: `locallibrary account mock sign-in` signs in again\n  access: echo (default)\n";
     assert!(out.contains(signed_out), "{out}");
+    // Signed out, it's still named for signing in to again: echo has access to it.
+    let mut c = m.command();
+    c.args(["account", "mock:a@mock.example", "sign-in", "--no-browser", "--timeout", "10"]);
+    let (code, out, err) = m.approving(c, &who("a"));
+    assert_eq!((code, out.as_str()), (0, "✓ Signed in to the Mock account a@mock.example\n"), "{err}");
+    assert_eq!(m.run(&["account", "mock:a", "sign-out"]).0, 0);
     let (code, out, _) = m.run(&["plugin", "access", "echo", "--take-away", "a"]);
     assert_eq!((code, out.as_str()), (0, "✓ Took echo's access to the Mock account a@mock.example away\n"));
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);

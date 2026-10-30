@@ -24,7 +24,8 @@ struct BeginSignIn {
     /// can do without.
     #[serde(default, rename = "for")]
     for_plugin: Option<String>,
-    /// An account the store keeps, by subject, to sign in to again (asking for more scopes, say).
+    /// An account the store keeps, or one signed out that plugins still have access to, by
+    /// subject, to sign in to again (asking for more scopes, say).
     #[serde(default)]
     account: Option<String>,
     /// The type's scopes to ask for besides, by name.

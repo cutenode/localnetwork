@@ -2260,7 +2260,10 @@ export type BeginSignIn = {
    * can do without.
    */
   for?: string | null;
-  /** An account the store keeps, by subject, to sign in to again (asking for more scopes, say). */
+  /**
+   * An account the store keeps, or one signed out that plugins still have access to, by
+   * subject, to sign in to again (asking for more scopes, say).
+   */
   account?: string | null;
   /** The type's scopes to ask for besides, by name. */
   scopes?: string[];

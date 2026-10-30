@@ -1,8 +1,9 @@
 //! Accounts of a type, signed in to through the account plugins that provide it and kept once per
 //! store (see [`kept`]), for plugins to be given access to. Signing in asks the service for what
-//! the type always asks for, what the account was granted before, and what the scopes asked for
-//! ask for; whoever signed in is then asked of the service (see [`Plugin::whoami`]), and the same
-//! account signed in again through the same account plugin is changed in place.
+//! the type always asks for, what the account was granted before and what every access to it
+//! needs, and what the scopes asked for ask for; whoever signed in is then asked of the service
+//! (see [`Plugin::whoami`]), and the same account signed in again through the same account plugin
+//! is changed in place, keeping its refresh token when the service answers none.
 
 use std::time::Duration;
 
@@ -249,13 +250,15 @@ impl Plugins {
     /// Starts signing in to an account of type `kind` in `store` through the account plugin
     /// `with`, for the plugin `for_plugin` if it's for one: the address to open in the browser,
     /// which comes back to this computer. With `account`, it signs in again as that account (the
-    /// subject of one `with` signed in); without, the service is asked to offer another than those
-    /// it signed in, when there are any; the type's own params go with either. It asks the service
-    /// for what the type always asks for, what `account` was granted, and what `scopes` (the
-    /// type's, by name) ask for, and for a plugin, what the scopes it needs ask for: it's given
-    /// access to those, and to those of `scopes` it can do without (see [`Plugins::give_access`]). Finished with
-    /// [`Plugins::finish_account_sign_in`] (or [`Plugins::finish_account_sign_in_with_url`], when
-    /// the browser runs on another computer), within a quarter of an hour.
+    /// subject of one `with` signed in, or of one signed out that plugins still have access to);
+    /// without, the service is asked to offer another than those it signed in, when there are
+    /// any; the type's own params go with either. It asks the service for what the type always
+    /// asks for, what `account` was granted and what every access to it needs, and what `scopes`
+    /// (the type's, by name) ask for, and for a plugin, what the scopes it needs ask for: it's
+    /// given access to those, and to those of `scopes` it can do without (see
+    /// [`Plugins::give_access`]). Finished with [`Plugins::finish_account_sign_in`] (or
+    /// [`Plugins::finish_account_sign_in_with_url`], when the browser runs on another computer),
+    /// within a quarter of an hour.
     pub fn begin_account_sign_in(
         &self,
         kind: &str,
@@ -267,12 +270,29 @@ impl Plugins {
     ) -> Result<AccountSignIn> {
         let slot = self.slot(with)?;
         let t = slot.account_type(kind)?;
-        let all = kept::read(store)?.accounts;
-        let again =
-            account.map(|subject| all.iter().find(|k| k.is(with, subject)).ok_or_else(|| not_kept(with, subject)));
-        let again = again.transpose()?;
+        let book = kept::read(store)?;
         let mut asking: IndexSet<String> = t.always.iter().cloned().collect();
-        asking.extend(again.iter().flat_map(|k| k.scopes.iter().cloned()));
+        let mut params = t.params.clone();
+        match account {
+            Some(subject) => {
+                let accesses: Vec<&Access> =
+                    book.accesses.iter().filter(|a| a.account.plugin == with && a.account.subject == subject).collect();
+                let k = book.account(with, subject);
+                if k.is_none() && accesses.is_empty() {
+                    return Err(not_kept(with, subject));
+                }
+                asking.extend(k.into_iter().flat_map(|k| k.scopes.iter().cloned()));
+                let needed = accesses.iter().flat_map(|a| &a.scopes).filter_map(|name| t.scopes.get(name));
+                asking.extend(needed.flat_map(|scope| scope.asks.iter().cloned()));
+                params.extend(t.one_account.iter().map(|(k, v)| (k.clone(), v.replace(SUBJECT_PLACEHOLDER, subject))));
+                // The keychain can be used, before the browser is sent anywhere. Only whether it
+                // can, what it keeps dropped first: CodeQL follows a `?` on it into the sign-in
+                // link.
+                secret(self.host.options.secrets, &kept::place(store, with, subject)).map(drop)?;
+            }
+            None if book.accounts.iter().any(|k| k.plugin == with) => params.extend(t.another_account.clone()),
+            None => {}
+        }
         let given =
             for_plugin.map(|plugin| Ok::<_, Error>((plugin.to_string(), self.slot(plugin)?.given(kind, scopes)?)));
         let given = given.transpose()?;
@@ -280,19 +300,6 @@ impl Plugins {
             let scope = t.scopes.get(name);
             let scope = scope.ok_or_else(|| Error::NotFound(format!("the {kind} account type's scope {name:?}")))?;
             asking.extend(scope.asks.iter().cloned());
-        }
-        let mut params = t.params.clone();
-        match account {
-            Some(subject) => {
-                params.extend(t.one_account.iter().map(|(k, v)| (k.clone(), v.replace(SUBJECT_PLACEHOLDER, subject))));
-            }
-            None if all.iter().any(|k| k.plugin == with) => params.extend(t.another_account.clone()),
-            None => {}
-        }
-        if let Some(k) = again {
-            // The keychain can be used, before the browser is sent anywhere. Only whether it can,
-            // what it keeps dropped first: CodeQL follows a `?` on it into the sign-in link.
-            secret(self.host.options.secrets, &kept::place(store, with, &k.subject)).map(drop)?;
         }
         let scopes: Vec<String> = asking.into_iter().collect();
         let asked = Asked {
@@ -328,15 +335,21 @@ impl Plugins {
         let slot = self.slot(&asked.with)?;
         let t = slot.account_type(&asked.kind)?;
         let answer = slot.traded(t, &p.client, p.verifier, query)?;
-        let mut tokens = Tokens::from(&answer, None);
+        let access_token = answer.access_token().secret();
+        slot.net.saw(access_token);
+        let (subject, name) = slot.whoami(t, access_token)?;
+        let (store, storage) = (&p.store, self.host.options.secrets);
+        let _one = kept::hold(store, &asked.with, &subject)?;
+        // Signed in again, it keeps the refresh token it had when the service answers none. One
+        // that can't be read is signed in to anew.
+        let had = kept::read(store)?.account(&asked.with, &subject).cloned();
+        let had = had.and_then(|k| slot.kept_tokens(store, &k).ok().flatten());
+        let mut tokens = Tokens::from(&answer, had);
         // A service that doesn't say what it granted granted what it was asked (RFC 6749 5.1).
         if answer.scopes().is_none() {
             tokens.scopes = asked.scopes;
         }
         slot.seen(&tokens);
-        let (subject, name) = slot.whoami(t, &tokens.access_token)?;
-        let (store, storage) = (&p.store, self.host.options.secrets);
-        let _one = kept::hold(store, &asked.with, &subject)?;
         let (account, access) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {

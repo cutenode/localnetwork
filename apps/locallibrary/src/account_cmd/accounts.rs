@@ -64,9 +64,9 @@ pub(super) fn run(
     }
     if action == Action::SignIn {
         let store = Store::open_or_init(root)?;
-        // Signed in again as an account kept; one signed out is signed in to anew.
-        let kept = plugins.store_accounts(&store)?;
-        let again = named.map(|named| find(&kept, kind, named)).transpose()?;
+        // Signed in again as an account kept, or one signed out that plugins still have access to.
+        let known = plugins.accounts_and_accesses(&store)?.accounts;
+        let again = named.map(|named| find(&known, kind, named)).transpose()?;
         let with = match (args.with, again) {
             (Some(with), _) => with,
             (None, Some(a)) => a.plugin.clone(),

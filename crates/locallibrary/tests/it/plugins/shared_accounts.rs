@@ -168,12 +168,12 @@ enum Step {
 }
 
 /// For any order of signing in as one person or another (by a string or an integer subject), in
-/// again as an account kept (the browser maybe signing in as another), out, and refreshing: the
-/// store keeps exactly the accounts signed in since they were last signed out, once each, in the
-/// order they were first signed in then, each changed in place; the browser is asked to sign in
-/// as the account signed in again, or to another when the account plugin has signed in any;
-/// signing in again as another says so; and no token gets into `accounts.json`, an error, a
-/// listing or a log.
+/// again as an account kept or one signed out that the plugin it's for still has access to (the
+/// browser maybe signing in as another), out, and refreshing: the store keeps exactly the
+/// accounts signed in since they were last signed out, once each, in the order they were first
+/// signed in then, each changed in place; the browser is asked to sign in as the account signed in
+/// again, or to another when the account plugin has signed in any; signing in again as another
+/// says so; and no token gets into `accounts.json`, an error, a listing or a log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let m = mock(30);
@@ -181,8 +181,9 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let each = people.clone().flat_map(|p| [Step::SignIn(p), Step::SignOut(p), Step::Refresh(p)]);
     let again = people.clone().flat_map(|of| people.clone().map(move |p| Step::Again(of, p)));
     let steps = tc.draw(gs::vecs(gs::sampled_from(each.chain(again).collect::<Vec<_>>())).max_size(6));
-    // The accounts kept: subject to name.
+    // The accounts kept: subject to name; and those echo has access to, which outlast signing out.
     let mut kept: IndexMap<String, String> = IndexMap::new();
+    let mut accessed: Vec<String> = Vec::new();
     let mut answers = Vec::new();
     for (i, step) in steps.into_iter().enumerate() {
         match step {
@@ -193,7 +194,7 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
                 };
                 let (subject, said, name) = person(p);
                 let (done, opened) = m.sign_in(said, again.as_deref(), &["read"]);
-                match again.as_ref().filter(|a| !kept.contains_key(*a)) {
+                match again.as_ref().filter(|a| !kept.contains_key(*a) && !accessed.contains(a)) {
                     Some(_) => {
                         let e = done.unwrap_err();
                         assert_eq!(e.code(), "not_found", "step {i}: {e}");
@@ -209,6 +210,9 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
                         assert_eq!((done.instead_of.clone(), given), (instead, Some("echo")));
                         assert_eq!((&done.account.subject, &done.account.name), (&subject, &name), "step {i}");
                         answers.push(serde_json::to_value(&done).unwrap());
+                        if !accessed.contains(&subject) {
+                            accessed.push(subject.clone());
+                        }
                         kept.insert(subject, name);
                     }
                 }

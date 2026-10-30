@@ -9,6 +9,8 @@ use hegel::generators as gs;
 use locallibrary::error::{Action, Reason};
 use locallibrary::plugin::AccountId;
 
+use super::accounts::{form, has};
+use super::net::Got;
 use super::shared_accounts::{Mock, WITH, asking, mock_for, who};
 use super::*;
 
@@ -276,6 +278,76 @@ fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
     m.sign_in(who(json!("a"), Some("a@mock.example")), None, &[]).0.unwrap();
     assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], "/r/x Bearer at-2");
     assert_eq!(m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap(), listed, "one access, as it was");
+}
+
+/// For an account granted what any of the mock type's scopes ask, echo's access to it and another
+/// plugin's (each with any scopes, or none), signed out or not, and signed in to again (for echo or
+/// not) asking for any scopes besides, the service answering a new refresh token or none: the
+/// browser is asked to sign in as the account, for what the type always asks, what the account
+/// was granted, what every access's scopes ask and what's asked for besides; the refresh token it
+/// had is kept when the service answers none; and one signed out that no plugin has access to
+/// can't be signed in to again.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
+    let m = mock_for(30, "/userinfo", "", &asking(&["read"], &["write", "peek"]));
+    m.state.lock().unwrap().unscoped = true;
+    let first = some(&tc);
+    m.sign_in_for(None, who(json!("a"), None), None, &first).0.unwrap();
+    // The scopes whose asks the sign-in again asks for.
+    let mut named: Vec<String> = Vec::new();
+    let echo = tc.draw(gs::booleans()).then(|| some(&tc));
+    if let Some(extra) = &echo {
+        let extra: Vec<String> = extra.iter().map(|s| s.to_string()).collect();
+        named.extend(m.f.plugins.give_access("echo", &account("a"), &extra, &m.f.store).unwrap().scopes);
+    }
+    let other = tc.draw(gs::booleans()).then(|| some(&tc));
+    if let Some(scopes) = &other {
+        let file = m.f.store.root().join("accounts.json");
+        let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let access = json!({ "id": "0a1b2c3d", "plugin": "other", "type": "mock", "account": account("a"),
+                             "name": "a", "scopes": scopes, "default": true });
+        kept["accesses"].as_array_mut().unwrap().push(access);
+        std::fs::write(&file, kept.to_string()).unwrap();
+        named.extend(scopes.iter().map(|s| s.to_string()));
+    }
+    let signed_out = tc.draw(gs::booleans());
+    match signed_out {
+        true => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
+        false => named.extend(first.iter().map(|s| s.to_string())),
+    }
+    let refreshless = tc.draw(gs::booleans());
+    m.state.lock().unwrap().refreshless = refreshless;
+    let for_echo = tc.draw(gs::booleans());
+    let added = some(&tc);
+    let (done, opened) = m.sign_in_for(for_echo.then_some("echo"), who(json!("a"), None), Some("a"), &added);
+    if signed_out && echo.is_none() && other.is_none() {
+        assert_eq!(done.unwrap_err().code(), "not_found");
+        return;
+    }
+    let done = done.unwrap();
+    named.extend(added.iter().map(|s| s.to_string()));
+    if for_echo {
+        named.push("read".into());
+    }
+    let mut expected: Vec<&str> = named.iter().flat_map(|s| asks(s)).copied().chain(["openid"]).collect();
+    expected.sort_unstable();
+    expected.dedup();
+    let mut asked: Vec<&str> = opened["scope"].split(' ').collect();
+    asked.sort_unstable();
+    assert_eq!((asked, opened["login_hint"].as_str()), (expected, "a"));
+    // Refreshed with the refresh token it had, when the service answered none.
+    let refreshes = !(refreshless && signed_out);
+    assert_eq!(done.account.refreshes, refreshes);
+    let token = m.token("a");
+    let tokens: Vec<Got> = m.server.got().into_iter().filter(|g| g.target == "/token").collect();
+    match refreshes {
+        true => {
+            assert!(token.is_ok_and(|t| t == "at-3"), "not refreshed");
+            let spent = if refreshless { "rt-1" } else { "rt-2" };
+            assert!(has(&form(tokens.last().unwrap()), "refresh_token", spent), "not the refresh token it had");
+        }
+        false => assert_eq!(token.unwrap_err().code(), "account"),
+    }
 }
 
 /// What resolves an `access` or `scope` error a plugin passes on comes from its manifest and the
