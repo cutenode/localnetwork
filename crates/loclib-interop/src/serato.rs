@@ -510,13 +510,23 @@ fn marked_tag(
     }
     if kind != FileType::Mpeg {
         // lofty reads an AIFF or WAV file cut off short of the size its header gives, but won't
-        // write into one.
+        // write into one. It writes its tag's chunk where that size says the chunks end, so a size
+        // ending anywhere but after a chunk (0, as a streamed file's header is left, puts it before
+        // `WAVE`) leaves a copy nothing can read.
+        let little = kind == FileType::Wav;
         let mut header = [0; 8];
         f.read_exact(&mut header).map_err(io)?;
-        let size = [header[4], header[5], header[6], header[7]];
-        let size = if kind == FileType::Wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
-        if f.metadata().map_err(io)?.len() < u64::from(size) + 8 {
+        let size = u64::from(chunk_size(&header, little));
+        let len = f.metadata().map_err(io)?.len();
+        if len < size + 8 {
             return Err(tag_error(named, &"it's cut off: shorter than its header says"));
+        }
+        if size < 4 {
+            return Err(tag_error(named, &format!("its header says it holds {size} bytes")));
+        }
+        // Bytes past that size (trailing junk) are fine if it ends after a chunk.
+        if size + 8 < len && !chunks_end_at(&mut f, size + 8, little).map_err(io)? {
+            return Err(tag_error(named, &"its header's size ends inside one of its chunks"));
         }
         f.rewind().map_err(io)?;
     }
@@ -557,6 +567,44 @@ fn marked_tag(
         tag.set_flags(flags);
     }
     Ok((tag, kind, WriteOptions::new().use_id3v23(v23)))
+}
+
+/// The size an AIFF or WAV chunk's 8-byte `header` gives, little-endian in a WAV.
+fn chunk_size(header: &[u8; 8], little: bool) -> u32 {
+    let size = [header[4], header[5], header[6], header[7]];
+    if little { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) }
+}
+
+/// Whether the chunks after an AIFF or WAV file's 12-byte header end at `end`. A chunk of odd size
+/// is followed by a 0 byte, which some encoders leave out: as lofty does, one followed by a chunk
+/// id instead is taken to have none.
+fn chunks_end_at(f: &mut std::fs::File, end: u64, little: bool) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut at = 12;
+    while at < end {
+        let mut header = [0; 8];
+        f.seek(SeekFrom::Start(at))?;
+        match f.read_exact(&mut header) {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+            r => r?,
+        }
+        let size = u64::from(chunk_size(&header, little));
+        at += 8 + size;
+        if size % 2 == 1 && at != end {
+            let mut next = [0; 4];
+            f.seek(SeekFrom::Start(at))?;
+            let unpadded = f.read_exact(&mut next).is_ok() && next[0] != 0 && is_chunk_id(next);
+            at += u64::from(!unpadded);
+        }
+    }
+    Ok(at == end)
+}
+
+/// Whether `id` reads as a chunk's: printable ASCII, any spaces only at the end (lofty's test).
+fn is_chunk_id(id: [u8; 4]) -> bool {
+    let first_space = id.iter().position(|&b| b == b' ').unwrap_or(4);
+    id.iter().all(|b| (0x20..=0x7e).contains(b)) && id[first_space..].iter().all(|&b| b == b' ')
 }
 
 /// The most bytes [`write_markers`] adds to the file at `path`: the whole new tag, in its chunk for
