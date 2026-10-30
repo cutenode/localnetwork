@@ -63,6 +63,7 @@ CodeQL scans the workflows, the TypeScript and the Rust on every pull request (`
 
 - Keep each pull request to one concern.
 - Fill in the template.
+- Link the issue it's for, as in [Issues and planning](#issues-and-planning), or add the `no-issue` label. The PR issue check fails otherwise.
 - For UI changes, add before and after screenshots at phone and wide widths.
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
 

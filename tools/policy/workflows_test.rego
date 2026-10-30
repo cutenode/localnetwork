@@ -27,6 +27,15 @@ test_no_changes_job if {
 	".github/workflows/site-ci.yml: add a `changes` job that runs dorny/paths-filter, which the other jobs need (see localtoolbox-ci.yml)" in workflows.deny with input as with_ci(broken)
 }
 
+test_unfiltered_workflow_needs_no_changes_job if {
+	unfiltered := json.patch(ci, [
+		{"op": "remove", "path": "/jobs/changes"},
+		{"op": "remove", "path": "/jobs/verify/needs"},
+		{"op": "replace", "path": "/jobs/passed/needs", "value": ["verify"]},
+	])
+	count(workflows.deny) == 0 with input as fixtures.with_file(".github/workflows/pr-issue.yml", unfiltered)
+}
+
 test_trigger_paths if {
 	broken := json.patch(ci, [{"op": "replace", "path": "/true/pull_request", "value": {"paths-ignore": ["docs/**"]}}])
 	".github/workflows/site-ci.yml: move `on.pull_request.paths-ignore` into the changes job's filter; the passed check has to report on every pull request" in workflows.deny with input as with_ci(broken)

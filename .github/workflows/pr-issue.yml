@@ -1,0 +1,50 @@
+name: PR issue
+
+# Fails a pull request that doesn't say which issue it's for, so Linear links the work to it
+# (.github/CONTRIBUTING.md, "Issues and planning"). It passes on `LOC-123`, `#123` or the issue's
+# URL in the description, a `bnb/loc-123-...` branch, or the no-issue label. It reads only the
+# event, never the code, so it has no files to filter and no changes job, and it runs again on each
+# edit and label change, which is why it isn't in repo-checks.yml.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Bots' pull requests, such as Dependabot's, have no issue, and the no-issue label marks others
+  # that don't.
+  issue:
+    if: github.event.pull_request.user.type != 'Bot' && !contains(github.event.pull_request.labels.*.name, 'no-issue')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          BODY: ${{ github.event.pull_request.body }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          shopt -s nocasematch
+          # The template's hints are HTML comments, and their example references would count.
+          body=$(perl -0pe 's/<!--.*?-->//gs' <<< "$BODY")
+          reference="(^|[^[:alnum:]_])(loc-[0-9]+|#[0-9]+)|https://github\.com/$REPO/issues/[0-9]+"
+          if [[ $body =~ $reference || $BRANCH =~ ^bnb/loc-[0-9]+- ]]; then
+            exit 0
+          fi
+          echo "::error::Reference the issue in the description (Fixes LOC-123, Part of LOC-123 or Fixes #123), name the branch bnb/loc-123-..., or add the no-issue label."
+          exit 1
+
+  # The check the "Protect Main" ruleset requires. It passes when the issue job was skipped.
+  passed:
+    name: PR issue passed
+    if: always()
+    needs: issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

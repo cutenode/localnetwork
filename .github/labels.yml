@@ -132,6 +132,9 @@
 - name: good first issue
   color: "7057ff"
   description: Good for newcomers
+- name: no-issue
+  color: "cfd3d7"
+  description: No issue to link, so the PR issue check passes
 - name: help wanted
   color: "008672"
   description: Extra attention is needed

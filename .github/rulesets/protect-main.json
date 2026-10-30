@@ -73,6 +73,9 @@
 					},
 					{
 						"context": "atstore CI passed"
+					},
+					{
+						"context": "PR issue passed"
 					}
 				]
 			}
