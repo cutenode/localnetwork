@@ -46,7 +46,6 @@ const network = (answers: Record<string, Answer[]>) => {
 
 	const sender = new RootDmSender({
 		chat: () => agent.withProxy('bsky_chat', 'did:web:api.bsky.chat'),
-		bluesky: () => agent,
 		logger: silentLogger
 	});
 
@@ -71,9 +70,6 @@ const convo = () =>
 const sentMessage = (text: string) =>
 	Response.json({ id: 'msg-1', rev: '2', text, sender: { did: 'did:plc:root' }, sentAt: '2026-10-29T12:00:00.000Z' });
 
-const profile = (allowIncoming: string) =>
-	Response.json({ did: neon, handle: 'neon.test', associated: { chat: { allowIncoming } } });
-
 /** An error chat answers with, by its lexicon name. */
 const named = (status: number, error: string) => Response.json({ error, message: error }, { status });
 
@@ -81,22 +77,21 @@ const refused = (status: number) =>
 	Response.json({ error: 'InvalidRequest', message: 'recipient has disabled incoming messages' }, { status });
 
 describe('RootDmSender', () => {
-	it('asks Bluesky chat whether the root can DM someone, and why not', async () => {
+	it('asks Bluesky chat alone whether the root can DM someone, reading nothing from the AppView', async () => {
 		const { sender, requests } = network({
 			'chat.bsky.convo.getConvoAvailability': [
 				Response.json({ canChat: true }),
 				Response.json({ canChat: false }),
-				Response.json({ canChat: false }),
 				Response.json({ error: 'InternalServerError' }, { status: 500 })
-			],
-			'app.bsky.actor.getProfile': [profile('following'), profile('none')]
+			]
 		});
 
 		expect(await sender.availability(neon)).toBe('ok');
-		expect(await sender.availability(neon)).toBe('needs_follow');
-		expect(await sender.availability(neon)).toBe('closed');
+		expect(await sender.availability(neon)).toBe('not_allowed');
 		expect(await sender.availability(neon)).toBe('unavailable');
-		expect(requests[0].proxy).toBe('did:web:api.bsky.chat#bsky_chat');
+		expect(requests.map((request) => [request.method, request.proxy])).toEqual(
+			Array.from({ length: 3 }, () => ['chat.bsky.convo.getConvoAvailability', 'did:web:api.bsky.chat#bsky_chat'])
+		);
 	});
 
 	it('sends into the conversation with them, with the links the message made', async () => {

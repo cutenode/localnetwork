@@ -38,7 +38,7 @@ describe('RootAccount', () => {
 			logger: silentLogger
 		}).connect();
 
-	it("hands out its agent, and one that sends chat calls to Bluesky chat, once it's connected", async () => {
+	it("hands out an agent that sends chat calls to Bluesky chat, once it's connected", async () => {
 		const proxied: (string | null)[] = [];
 
 		// The PDS as above, which also answers chat calls, noting where each was to be proxied.
@@ -64,12 +64,10 @@ describe('RootAccount', () => {
 		});
 
 		expect(() => root.chat('did:web:api.bsky.chat')).toThrow('not connected');
-		expect(() => root.bluesky).toThrow('not connected');
 		await root.connect();
 
 		await root.chat('did:web:api.bsky.chat').chat.bsky.convo.getConvoAvailability({ members: ['did:plc:neon'] });
 		expect(proxied).toEqual(['did:web:api.bsky.chat#bsky_chat']);
-		expect(root.bluesky.did).toBe(DID);
 	});
 
 	it('resumes the stored session, and signs in again once the password changes', async () => {

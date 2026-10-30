@@ -131,7 +131,6 @@ export async function createApp(options: CreateAppOptions) {
 		config.dm.provider === 'bluesky'
 			? new RootDmSender({
 					chat: () => rootAccount.chat(config.dm.chatService),
-					bluesky: () => rootAccount.bluesky,
 					logger: dmLogger
 				})
 			: config.dm.provider === 'log'

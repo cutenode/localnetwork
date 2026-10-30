@@ -3,8 +3,7 @@
 
 	/** What stands in the way of DMs, by what Bluesky chat says now, and what to do about it. */
 	const BLOCKED: Partial<Record<DmAvailability, (root: string) => string>> = {
-		needs_follow: (root) => `Your Bluesky chat settings only allow DMs from accounts you follow. Follow @${root}, then check again.`,
-		closed: (root) => `Your Bluesky chat settings don't allow DMs. Allow them from people you follow, then follow @${root}.`,
+		not_allowed: (root) => `Your Bluesky chat settings don't let us DM you yet. Allow DMs from people you follow, follow @${root}, then check again.`,
 		unavailable: () => "We couldn't reach Bluesky chat."
 	};
 </script>
