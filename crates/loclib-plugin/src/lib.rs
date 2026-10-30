@@ -19,6 +19,7 @@ mod view;
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
+pub use hooks::account_types::{AccountType, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Whoami};
 pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account, TokenPlace};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{

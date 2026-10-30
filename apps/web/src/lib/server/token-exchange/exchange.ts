@@ -3,6 +3,12 @@
 // what it would have sent the service, and this adds the client id and secret from the
 // environment, sends it on to the service's token endpoint (only ever one in services.json), and
 // answers what the service answered. Codes, verifiers, tokens and secrets are never logged.
+//
+// It only trades codes sent back to locallibrary's listener on this computer: a redirect_uri, when
+// a grant has one, must be `http://127.0.0.1:<port>/callback` or `http://[::1]:<port>/callback`,
+// as locallibrary sends it. A service that only compares the redirect_uri with the authorize
+// request's (Mixcloud, without PKCE) would otherwise trade a code that a link with Local Network's
+// client sent to someone else's site, giving them that account's token.
 import { z } from 'zod';
 import { parseJson } from '../db';
 import type { Logger } from '../logger';
@@ -36,6 +42,17 @@ type Grant = z.infer<typeof grantSchema>;
 const answerSchema = z.looseObject({ access_token: z.string().optional(), token_type: z.string().optional() });
 
 const NO_STORE = { 'cache-control': 'no-store' };
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
+
+/** Whether `redirect` is locallibrary's listener, written as it writes it: no user, query, fragment or other spelling. */
+function isLoopbackCallback(redirect: string): boolean {
+	const url = URL.parse(redirect);
+
+	return (
+		url !== null && LOOPBACK_HOSTS.has(url.hostname) && url.port !== '' && redirect === `http://${url.host}/callback`
+	);
+}
 
 /** An OAuth error answer (RFC 6749 section 5.2), which locallibrary shows as what the service said. */
 function refuse(status: number, error: string, description: string): Response {
@@ -99,6 +116,9 @@ export async function exchangeToken(id: string, request: Request, options: Excha
 
 	if (!parsed.success) return refuse(400, 'invalid_request', "That isn't a token request locallibrary sends");
 	const grant = parsed.data;
+
+	if (grant.redirect_uri !== undefined && !isLoopbackCallback(grant.redirect_uri))
+		return refuse(400, 'invalid_request', 'Local Network only trades codes sent back to locallibrary on this computer');
 	const at = { service: id, grant: grant.grant_type };
 	const client = { client_id: env[service.clientIdEnv], client_secret: env[service.clientSecretEnv] };
 

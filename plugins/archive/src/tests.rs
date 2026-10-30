@@ -285,7 +285,7 @@ fn published(id: &str, warnings: &[&str]) -> Published {
 /// It reaches archive.org and its S3 alone, publishes sets at one destination, and keeps the keys
 /// as secrets.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_the_archive() {
+fn the_manifest_is_a_built_in_set_destination_on_the_archive() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let hosts = ["archive.org", "s3.us.archive.org"].map(|h| Capability::Net(h.into()));

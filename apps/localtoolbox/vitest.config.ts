@@ -80,6 +80,9 @@ export default defineConfig({
 		conditions: ['browser']
 	},
 	test: {
+		// Its own module cache: the default is the workspace root's, shared with the web app's run (see
+		// apps/web/vite.config.ts).
+		fsModuleCachePath: resolve(here, 'node_modules/.vitest-cache'),
 		environment: 'jsdom',
 		environmentOptions: {
 			// The content script only ever runs on soundcloud.com; giving the test

@@ -20,7 +20,7 @@
 	</p>
 	<form method="POST" class="card flex flex-col gap-5 p-5 sm:p-6">
 		<FormMessage {form} />
-		<ClaimFields {values} />
+		<ClaimFields {values} claimant={data.claimant} />
 		<div>
 			<label class="label" for="message">Anything else? <span class="font-normal text-fg-subtle">(optional)</span></label>
 			<textarea id="message" name="message" class="input min-h-24" maxlength="2000">{values.message ?? ''}</textarea>

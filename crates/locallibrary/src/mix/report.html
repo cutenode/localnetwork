@@ -764,7 +764,7 @@ function drawTracks() {
     if (tr) {
       const h = el("li", "handoff"); h.setAttribute("aria-hidden", "true");
       // Fades below what fingerprints can hear make short "gaps"; only call a long one a gap.
-      const how = tr.overlap >= 8 ? `${Math.round(tr.overlap)}s blend` : tr.overlap > -12 ? "quick mix" : `${Math.round(-tr.overlap)}s apart`;
+      const how = tr.overlap >= D.blendSecs ? `${Math.round(tr.overlap)}s blend` : tr.overlap > -12 ? "quick mix" : `${Math.round(-tr.overlap)}s apart`;
       const parts = [how];
       if (tr.tempo_change != null && Math.abs(tr.tempo_change) >= 0.3) parts.push(`${tr.tempo_change > 0 ? "+" : "−"}${Math.abs(tr.tempo_change).toFixed(1)}% tempo`);
       h.append(el("span", null, "↓ " + parts.join(" · ")));

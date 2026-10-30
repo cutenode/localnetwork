@@ -859,10 +859,10 @@ fn an_exports_form_has_the_formats_options() {
     press(&mut app, ":export for traktor\n");
     let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
     let names: Vec<&str> = f.fields.iter().map(|x| x.name.as_str()).collect();
-    assert_eq!(names, ["write_to", "location_root", "skip_analysis"]);
+    assert_eq!(names, ["write_to", "location_root", "skip_analysis", "include_history"]);
     let name = app.drive_label(&root);
     assert_eq!(f.fields[0].text, format!("~/Music/{name} for traktor"));
-    assert!(f.fields[0].required && f.fields[2].is_switch());
+    assert!(f.fields[0].required && f.fields[2].is_switch() && f.fields[3].is_switch());
     press(&mut app, "\u{1b}");
     press(&mut app, ":export for rekordbox\n");
     let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };

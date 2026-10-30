@@ -238,6 +238,25 @@ describe('RecordingService.set and forMix', () => {
 		expect(await recordings.forMix({ url: SOUNDCLOUD, set: setUri('gone') })).toMatchObject({ platform: 'SoundCloud' });
 		expect(await recordings.forMix({ url: 'https://neon.example/mix' })).toBeNull();
 	});
+
+	it("plays a mix's own recording before its linked set, and its link when the recording can't play", async () => {
+		const { recordings } = await service([set({ links: [{ uri: SOUNDCLOUD }] })], { plyrTrack: {} });
+		const linked = { uri: `at://${DJ}/${COLLECTION.djSet}/3set`, cid: 'bafyx' };
+
+		expect(await recordings.forMix({ url: SOUNDCLOUD, set: linked, recording: ref(PLYR_URI) })).toMatchObject({
+			from: 'plyr.fm',
+			src: 'https://audio.plyr.fm/audio/f1.mp3'
+		});
+		expect(
+			await recordings.forMix({ url: SOUNDCLOUD, recording: ref(`at://${DJ}/app.bsky.feed.post/3rec`) })
+		).toMatchObject({ platform: 'SoundCloud' });
+
+		const { recordings: offline } = await service([]);
+
+		expect(await offline.forMix({ url: SOUNDCLOUD, recording: ref(PLYR_URI) })).toMatchObject({
+			platform: 'SoundCloud'
+		});
+	});
 });
 
 describe('RecordingService.audio', () => {

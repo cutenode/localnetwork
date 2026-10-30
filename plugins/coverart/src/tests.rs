@@ -293,7 +293,7 @@ fn kind(e: &RpcError) -> (&str, &str) {
 /// to and asks the host to keep to MusicBrainz's limit, and hears of drives changing. It plans
 /// nothing: the host sets what's chosen.
 #[test]
-fn the_manifest_is_a_first_party_artwork_and_metadata_provider() {
+fn the_manifest_is_a_built_in_artwork_and_metadata_provider() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();
