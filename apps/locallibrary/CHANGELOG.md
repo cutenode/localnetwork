@@ -525,6 +525,15 @@ their old names.
   (they were `TrackAnalysis::load` and `TrackAnalysis::load_grid`), now that `TrackAnalysis` is
   loclib-model's.
 
+- Key and BPM imports, `analyze --apply` and metadata picks plan each track's edit on that track
+  alone, so planning them takes time in proportion to the tracks they change rather than growing
+  with the square of the library's size.
+- Deleting tracks from OneLibrary reads each table once, rather than once for each track.
+- Edits to a OneLibrary working copy are one transaction, committed when the database is
+  written, rather than a commit after each statement.
+- A scan that finds nothing new leaves `.locallibrary/index.json` alone, rather than rewriting
+  and syncing it every time.
+
 - "Set" now means a DJ set. The drives of one library that `sync` syncs together are a drive
   *group*: `drive sets` is `drive groups`, `watch --sync-set` is `watch --sync-group`, and over
   RPC `drive.sets` and `sync_set.plan/apply` are `drive.groups` and `sync_group.plan/apply`.
