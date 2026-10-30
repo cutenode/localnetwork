@@ -83,7 +83,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   far from the library's level (a track whose best keys tie has no key estimate, rather than one
   picked at random). `check` warns about those levels from what was measured, and
   `playlist order` trusts keys the analysis questions less. `analyze --apply key,bpm` writes the
-  estimates to the tracks, as an edit asked about first. `analysis bench` scores rekordbox's keys
+  estimates to the tracks, as an edit asked about first. `doctor --fix-tempo` doubles the beat
+  grid and BPM of each track heard at twice its stored tempo and halves them where it's heard at
+  half, as an edit `undo` takes back; the `.EXT`'s extended grid (`PQT2`) isn't rescaled (the edit
+  takes it out, as with any new grid), and the plan says so. `analysis bench` scores rekordbox's keys
   and tempos, and the analysis, against the GiantSteps datasets (MIREX's weighted key score,
   tempo Accuracy1 and Accuracy2).
 - **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
@@ -319,7 +322,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     `mix RECORDING --drive DRIVE --format serato --export DIR`); and Traktor's `collection.nml`
     read back, `import` adding the keys, BPMs and cues it has for a drive's tracks, and
     `collection export --from interop:traktor` building a drive from it (tracks, cues, beat grids
-    and playlists).
+    and playlists). With `--option include_history=true`, the Traktor, Serato and Engine DJ
+    exports carry a drive's history lists too, as playlists in a `History` folder (the plan warns
+    they're not history there).
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`... (shown to a tenth, in LUFS, dBTP and
     percentages), which is what `doctor --analyze` runs. It also works out a three-band waveform,
@@ -777,6 +782,8 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
   a value that isn't seconds since 1970).
+- `drive groups` and the sidecar's `drive.groups` with no store list the mounted drives grouped
+  by the library each holds, unnamed and without roles, where they answered nothing.
 - `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
   in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
   and files it's about (`tracks`, `playlist`, `paths`).
@@ -788,6 +795,9 @@ their old names.
 
 ### Fixed
 
+- Serato `--write-tags` (`--option write_tags=true`): an AIFF or WAV whose odd-sized last chunk
+  has no pad byte after it is copied without cues, named in the plan's warning, where the plan
+  counted it as tagged and the export failed on it once confirmed.
 - Tracks your profile hides (`profile hide`) are no longer named when a set is published at a
   plugin's set destination (`sets publish --to`) or written out in a format for publishing (`sets
   export` text, Mixcloud, CUE, YouTube, 1001Tracklists). `sets publish --to` takes `--hide` too,

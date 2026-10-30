@@ -239,7 +239,8 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
         "Traktor and rekordbox can place an MP3's cues and grid a few milliseconds apart (they handle the encoder's \
          delay differently); nothing corrects for it, so check an MP3's grid before relying on it."
             .into(),
-        "History lists aren't exported; My Tags, artwork and waveforms aren't part of the file.".into(),
+        "History lists go only as playlists (`with_history`); My Tags, artwork and waveforms aren't part of the file."
+            .into(),
     ];
     if tally.startup_volume {
         export.notes.push(format!(

@@ -203,9 +203,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
       `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
       Register it as what it is, or record only into a store that's there.
-- [ ] `drive groups` (and the sidecar's `drive.groups`) answers `[]` with no store, though
-      `fleet::sets` groups mounted drives by the library id each one holds and listed them
-      (unnamed) against a new store. Decide whether no store should still list those groups.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
 - [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
@@ -305,14 +302,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
       Tags.
 - [ ] `store serve` and `store fetch` aren't in the sidecar.
-- [ ] Decide: x2 and /2 tempo fixes, which need rekordbox's PQT2 per-beat field decoded (`doctor`
-      points at rekordbox's own buttons meanwhile).
-- [ ] Decide: export history lists as playlists for Traktor, Serato and Engine (`traktor.rs:200`
-      and `engine.rs:219` skip them).
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
-- [ ] Decide: Serato `--write-tags` refuses an AIFF whose odd-sized last chunk lacks its pad byte
-      at apply rather than plan; catching it earlier means redoing lofty's chunk walk.
 
 ## Lexicons
 
