@@ -103,7 +103,7 @@
 		{#if editing}
 			{#if request.kind === 'claim'}
 				<form method="POST" action="?/revise" class="card flex flex-col gap-4 p-5 sm:p-6">
-					<ClaimFields values={claim} />
+					<ClaimFields values={claim} claimant={request.requester} />
 					<div>
 						<label class="label" for="message">Note</label>
 						<textarea id="message" name="message" class="input min-h-24 py-2.5">{claim.message ?? ''}</textarea>

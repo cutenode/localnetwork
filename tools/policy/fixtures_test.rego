@@ -47,7 +47,11 @@ repo := [
 		"deploy": {"healthcheckPath": "/healthz", "multiRegionConfig": {"us-east4": {"numReplicas": 2}}},
 	}]}},
 	{"path": "apps/tool/Cargo.toml", "contents": {"package": object.union({"name": "tool"}, package_fields), "lints": {"workspace": true}}},
-	{"path": "Cargo.toml", "contents": {"workspace": {"members": ["apps/tool", "crates/*", "plugins/*", "vendor/pdb"]}}},
+	{"path": "Cargo.toml", "contents": {
+		"workspace": {"members": ["apps/tool", "crates/*", "plugins/*", "vendor/pdb"]},
+		"profile": {"dev": {"package": {"sha2": {"opt-level": 3}}}},
+	}},
+	{"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "sha2"}, {"name": "tool"}]}},
 	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md"}, package_fields), "lints": {"workspace": true}}},
 	{"path": "plugins/p/Cargo.toml", "contents": {"package": object.union({"name": "locallibrary-plugin-p", "publish": false}, package_fields), "lints": {"workspace": true}}},
 	{"path": "vendor/pdb/Cargo.toml", "contents": {"package": {"name": "pdb", "edition": "2021", "rust-version": {"workspace": true}}, "lints": {"workspace": true}}},

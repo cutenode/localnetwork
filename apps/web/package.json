@@ -6,7 +6,8 @@
 	"license": "MIT",
 	"type": "module",
 	"imports": {
-		"#lib/*": "./src/lib/*"
+		"#lib/*": "./src/lib/*",
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",

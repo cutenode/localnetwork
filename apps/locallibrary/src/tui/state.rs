@@ -2,17 +2,17 @@
 //! volume, visualiser and panels, its theme, quantize, the output, the crate, and the queue and
 //! where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
-//! a drive.
+//! a drive. Of it, the choices that are the user's preferences (the theme, the columns, the
+//! visualiser, playback modes) go in `settings export`; see `locallibrary::settings::transfer`.
 
 use std::path::{Path, PathBuf};
 
 use locallibrary::Track;
 use locallibrary::query::SortKey;
+use locallibrary::store::{PLAYER_FILE as FILE, player_fallback as fallback};
 use serde::{Deserialize, Serialize};
 
 use super::browse::SavedNode;
-
-const FILE: &str = "tui.json";
 
 /// The most of the queue kept: a list played from a big library can hold every track on it.
 pub const QUEUE_KEPT: usize = 1000;
@@ -81,13 +81,6 @@ pub struct SavedQueue {
     pub tracks: Vec<String>,
     pub pos: usize,
     pub at_ms: u64,
-}
-
-/// Where the state goes while there's no store: a folder beside the store's
-/// (`locallibrary-player` next to `locallibrary` in the platform's data folder by default).
-fn fallback(store_root: &Path) -> Option<PathBuf> {
-    let name = store_root.file_name()?.to_string_lossy();
-    Some(store_root.with_file_name(format!("{name}-player")))
 }
 
 fn has_store(store_root: &Path) -> bool {

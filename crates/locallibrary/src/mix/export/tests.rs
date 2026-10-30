@@ -114,6 +114,18 @@ fn hidden_tracks_and_guessed_covers_stay_out() {
     assert!(!json.contains("Demo Track") && !json.contains("White label"), "{json}");
 }
 
+/// A cover given for the recording (`mix --cover`) is shared like an embedded one.
+#[test]
+fn a_given_cover_is_shared() {
+    let dir = tempfile::tempdir().unwrap();
+    let png = dir.path().join("cover.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([200, 40, 90])).save(&png).unwrap();
+    let mut r = report();
+    r.mix.cover = Some(CoverSource::Given(png));
+    let cover = build(&r, None, &ProfilePrefs::default()).mix.cover;
+    assert!(cover.is_some_and(|c| c.starts_with("data:image/jpeg;base64,")));
+}
+
 #[test]
 fn downsampling_keeps_peaks() {
     assert_eq!(downsample(&[1, 9, 2, 3, 8, 4], 3), [9, 3, 8]);
