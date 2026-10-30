@@ -5,6 +5,7 @@
 
 #![cfg(feature = "account")]
 
+mod recordings;
 mod signing_in;
 
 use crate::common;
@@ -38,7 +39,8 @@ const PDS_GET: &str = "com.atproto.repo.getRecord";
 const REQUEST_INDEX: &str = "computer.localnetwork.directory.requestIndex";
 const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settings \
                           repo:computer.localnetwork.dj.profile repo:computer.localnetwork.dj.set \
-                          rpc:computer.localnetwork.directory.requestIndex?aud=*";
+                          repo:computer.localnetwork.dj.recording \
+                          rpc:computer.localnetwork.directory.requestIndex?aud=* blob:audio/*";
 
 /// A pretend data server, which Local Network's directory and website are at too for this test.
 fn network() -> MockPds {

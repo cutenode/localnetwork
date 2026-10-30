@@ -3,11 +3,31 @@ import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
+import type { Rolldown } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 // The browser test projects inherit the dev server's strictPort, which makes Vitest fail on a taken
 // port (63315 and up) instead of moving on, so test runs in two checkouts at once collide.
 const BROWSER_TEST_SERVER = { strictPort: false };
+
+// The most a module in the client build's shared group (below) may weigh, and our modules, which
+// the group takes with Lucide's icons.
+const SHARED_MODULE_SIZE = 4096;
+
+const LIB = /[\\/]src[\\/]lib[\\/]/;
+
+// The shared group brings a module's imports along with it, whatever their size, so a small
+// component that renders a large one puts the large one in every visitor's download (ArtistPage
+// brought ArtistSupport, 12 KB). So everything of ours a module imports, all the way down, has to
+// be small too. Lucide's index isn't counted: it re-exports every icon, and only the ones used ship.
+const isSmall = (id: string, ctx: Rolldown.ChunkingContext, seen = new Set<string>()): boolean => {
+	const module = ctx.getModuleInfo(id);
+
+	if (seen.has(id) || !module || !LIB.test(id)) return true;
+	seen.add(id);
+
+	return (module.code?.length ?? 0) <= SHARED_MODULE_SIZE && module.importedIds.every((dep) => isSmall(dep, ctx, seen));
+};
 
 export default defineConfig({
 	plugins: [
@@ -22,17 +42,28 @@ export default defineConfig({
 				mode: 'auto',
 				directives: {
 					'default-src': ['self'],
-					'script-src': ['self'],
+					// Mixcloud's and SoundCloud's widget APIs, loaded when someone opens one of their players.
+					'script-src': ['self', 'https://widget.mixcloud.com', 'https://w.soundcloud.com'],
 					'style-src': ['self', 'unsafe-inline'],
 					'img-src': ['self', 'data:', 'blob:'],
 					'font-src': ['self'],
 					'connect-src': ['self'],
+					// Recordings the set player plays: DJs' own (/media/audio), plyr.fm's CDN, and archive.org downloads,
+					// which redirect to a numbered host in its US or Canadian data centre (dn721502.ca.archive.org).
+					'media-src': [
+						'self',
+						'https://audio.plyr.fm',
+						'https://archive.org',
+						'https://*.us.archive.org',
+						'https://*.ca.archive.org'
+					],
 					'frame-src': [
 						'https://w.soundcloud.com',
 						'https://www.mixcloud.com',
 						'https://player-widget.mixcloud.com',
 						'https://bandcamp.com',
-						'https://www.youtube-nocookie.com'
+						'https://www.youtube-nocookie.com',
+						'https://plyr.fm'
 					],
 					'frame-ancestors': ['none'],
 					'form-action': ['self', 'http:', 'https:'],
@@ -54,16 +85,30 @@ export default defineConfig({
 						// pages use them, they were a file each (twenty-odd requests of under 1 KB per page,
 						// which an HTTP/1.1 browser fetches six at a time).
 						codeSplitting: {
-							groups: [{ name: 'shared', test: /[\\/]src[\\/]lib[\\/]|@lucide/, minShareCount: 2, maxModuleSize: 4096 }]
+							groups: [
+								{
+									name: (id, ctx) =>
+										ctx.getModuleInfo(id)?.importedIds.every((dep) => isSmall(dep, ctx)) ? 'shared' : null,
+									test: /[\\/]src[\\/]lib[\\/]|@lucide/,
+									minShareCount: 2,
+									maxModuleSize: SHARED_MODULE_SIZE
+								}
+							]
 						}
 					}
 				}
 			}
 		}
 	},
+	// Under Vite, `#lexicon-files` bundles the lexicons in. Node (the tsx scripts) resolves it through package.json to
+	// a loader that reads them from disk, since tsx has no `import.meta.glob`.
+	resolve: { alias: { '#lexicon-files': `${import.meta.dirname}/src/lib/server/atproto/lexicon-files.ts` } },
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
+		// Vitest's module cache defaults to the workspace root's node_modules, shared with localtoolbox's run.
+		// lefthook's pre-push runs both at once, and one's clean-up then fails the other with ENOTEMPTY.
+		fsModuleCachePath: `${import.meta.dirname}/node_modules/.vitest-cache`,
 		// Every browser test worker is a Chromium of its own, and Vitest's default is one per core but one
 		// (fourteen on a 15-core Mac), so a few checkouts testing at once open dozens. Three is CI's default on
 		// its 4-core runners, and locally the suites ran no slower with it. Vitest sizes one pool for projects

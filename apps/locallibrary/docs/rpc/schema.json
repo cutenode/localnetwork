@@ -2248,6 +2248,77 @@
       }
     },
     {
+      "name": "settings.export",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
+      "name": "settings.import_file.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "settings.import_file.apply",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFile"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFilePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "settings.import_file.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "settings.import_file.plan",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ImportSettingsFile"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
       "name": "art.missing",
       "aliases": [],
       "kind": "read",
@@ -9072,6 +9143,23 @@
         }
       }
     },
+    "ImportSettingsFile": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "A file `settings.export` wrote (`locallibrary settings export`)."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Where one of the file's values differs from the one here, take the file's (for a list of\nnames, the file's whole list). Default: keep the one here.",
+          "default": false
+        }
+      },
+      "required": [
+        "file"
+      ]
+    },
     "ArtworkRequest": {
       "anyOf": [
         {
@@ -9712,7 +9800,7 @@
         },
         "publish": {
           "type": "boolean",
-          "description": "Also allow publishing: writing the My Settings, profile and set records to the account\n([`atmosphere::PUBLISH_SCOPES`]), and nothing else.",
+          "description": "Also allow publishing: writing the My Settings, profile, set and recording records to the\naccount ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings\n([`atmosphere::UPLOAD_SCOPE`]), and nothing else.",
           "default": false
         }
       }
@@ -10485,6 +10573,11 @@
         },
         {
           "type": "string",
+          "const": "chapters",
+          "description": "Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time."
+        },
+        {
+          "type": "string",
           "const": "csv",
           "description": "`#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`."
         },
@@ -10646,6 +10739,14 @@
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
           "default": null
         },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
+          "default": null
+        },
         "extras": {
           "type": "boolean",
           "description": "Also each play's overview waveform, hot cues and phrases (`extras`), for following\nalong without asking for every track's analysis.",
@@ -10683,6 +10784,14 @@
           ],
           "format": "double",
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
+          "default": null
+        },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
           "default": null
         },
         "output": {
@@ -20247,6 +20356,137 @@
       ],
       "description": "One setting in the settings profile's base, before and after importing."
     },
+    "SettingsExport": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The file's format, [`VERSION`]."
+        },
+        "my_settings": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The My Settings profile: `base`, and per-drive `drives` overrides by drive id.",
+          "default": {}
+        },
+        "players": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player models `check` uses: `default`, and `libraries`' own by library id.",
+          "default": {}
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The profile's preferences: its sections, precision, pinned and hidden tracks, hidden\nartists, genre spellings and headline.",
+          "default": {}
+        },
+        "player": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
+          "default": {}
+        },
+        "plugin_host": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The host's settings for plugins: which analyzer each field role is read from, when a\nprovider's candidate is picked, and whether each check runs.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`\namong them).",
+          "default": {}
+        }
+      },
+      "required": [
+        "version",
+        "my_settings",
+        "players",
+        "profile",
+        "player",
+        "plugin_host",
+        "plugins"
+      ],
+      "description": "What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty\nmaps and lists left out."
+    },
+    "ImportSettingsFilePlan": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingsFileChange"
+          }
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "The file's values that are as they are here already."
+        }
+      },
+      "required": [
+        "file",
+        "changes",
+        "unchanged"
+      ],
+      "description": "What importing a settings file would change: the file's values missing here (added), and\nthose that differ (kept as they are here, or with `replace` taken from the file)."
+    },
+    "SettingsFileChange": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"keys.analyze\"]`."
+        },
+        "action": {
+          "$ref": "#/$defs/SettingsFileAction"
+        },
+        "current": {
+          "description": "The value here (`None`: not set)."
+        },
+        "imported": {
+          "description": "The file's value; for names added to a list, the names it adds."
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "current",
+        "imported"
+      ],
+      "description": "One of the file's values that isn't as it is here."
+    },
+    "SettingsFileAction": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "add",
+          "description": "It's missing here, or adds names to a list: it's added."
+        },
+        {
+          "type": "string",
+          "const": "keep",
+          "description": "It differs, and the one here stays."
+        },
+        {
+          "type": "string",
+          "const": "replace",
+          "description": "It differs, and the file's takes its place (`replace`)."
+        }
+      ],
+      "description": "What importing does with one of the file's values."
+    },
     "OneOrMany_for_ArtworkImage": {
       "anyOf": [
         {
@@ -26298,7 +26538,7 @@
               "type": "null"
             }
           ],
-          "description": "Cover image: embedded in the audio file, else an image next to it named like it."
+          "description": "Cover image: one given (`mix --cover`), else embedded in the audio file, else an image\nnext to it named like it."
         }
       },
       "required": [
@@ -26371,7 +26611,25 @@
           "required": [
             "kind",
             "path"
-          ]
+          ],
+          "description": "An image found next to the recording."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "given"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "An image the DJ gave for it."
         }
       ]
     },
@@ -26878,7 +27136,7 @@
             "string",
             "null"
           ],
-          "description": "The cover embedded in the recording: a JPEG `data:` URL, 320 px square."
+          "description": "The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,\n320 px square."
         }
       },
       "required": [
@@ -30171,12 +30429,18 @@
             "$ref": "#/$defs/Granted"
           }
         },
-        "accounts": {
+        "account_types": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its accounts by id, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
+          "description": "What it adds: its account types by type, its accounts by id, its commands, destinations,\noperations, panels, analyzers, checks, providers, services, library sources and themes by\nname, the events it listens for, its export and import formats and its settings' keys."
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "commands": {
           "type": "array",
@@ -30279,6 +30543,7 @@
         "name",
         "version",
         "capabilities",
+        "account_types",
         "accounts",
         "commands",
         "destinations",
@@ -30432,6 +30697,7 @@
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
+            "account_types": [],
             "accounts": [],
             "commands": [],
             "destinations": [],
@@ -30470,6 +30736,13 @@
     "Contributions": {
       "type": "object",
       "properties": {
+        "account_types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountType"
+          },
+          "default": []
+        },
         "accounts": {
           "type": "array",
           "items": {
@@ -30577,6 +30850,7 @@
         }
       },
       "required": [
+        "account_types",
         "accounts",
         "commands",
         "destinations",
@@ -30593,6 +30867,199 @@
         "themes",
         "settings"
       ]
+    },
+    "AccountType": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The account type it provides (`google`), which other account plugins may provide too."
+        },
+        "title": {
+          "type": "string"
+        },
+        "authorize_url": {
+          "type": "string",
+          "description": "The service's authorization endpoint, where the browser signs in (https)."
+        },
+        "token_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type has this or `token_exchange`."
+        },
+        "token_exchange": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Local Network's token exchange for its service, in `token_url`'s place: only in an\naccount plugin locallibrary ships, since it signs people in as Local Network."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "Its client at the service: a public one, without a secret, or Local Network's, whose\nsecret the token exchange holds."
+        },
+        "revoke_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
+        },
+        "token": {
+          "$ref": "#/$defs/TokenPlace",
+          "description": "Where its access token goes in a request: `Authorization: Bearer <token>` unless it says."
+        },
+        "redirect_port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect\nURI with the one its client was registered with. Any free port otherwise."
+        },
+        "always": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The service's scopes every sign-in asks for, as the service names them (`openid`)."
+        },
+        "whoami": {
+          "$ref": "#/$defs/Whoami",
+          "description": "Where the host asks the service who signed in."
+        },
+        "one_account": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The authorize params that sign in again as one account the host knows (`login_hint =\n\"{subject}\"`): their values may name it only as [`SUBJECT_PLACEHOLDER`]."
+        },
+        "another_account": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The authorize params that sign in to another account than those the browser has\n(`prompt = \"select_account\"`)."
+        },
+        "scopes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Scope"
+          },
+          "description": "What a plugin may be given access to, by name (`youtube-upload`)."
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "authorize_url",
+        "client_id",
+        "whoami"
+      ],
+      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser."
+    },
+    "TokenPlace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "scheme": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scheme"
+          ],
+          "additionalProperties": false,
+          "description": "The `Authorization` header, as this scheme and the token (`OAuth <token>`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false,
+          "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud)."
+        }
+      ],
+      "description": "Where an account's access token goes in a `net/fetch` request: `token = { scheme = \"OAuth\" }`\nor `token = { query = \"access_token\" }`. The request names the account there, and only there."
+    },
+    "Whoami": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Where (https)."
+        },
+        "subject": {
+          "type": "string",
+          "description": "The account's id at the service, which tells two accounts apart (`/sub`)."
+        },
+        "name": {
+          "type": "string",
+          "description": "What the account is shown as (`/email`)."
+        }
+      },
+      "required": [
+        "url",
+        "subject",
+        "name"
+      ],
+      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, and JSON pointers into its answer."
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "asks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The service's scopes it asks for at signing in, as the service names them. None for a\nscope only locallibrary knows, which the service's own scopes already allow."
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopeRequest"
+          },
+          "description": "The requests it covers: the only ones the host fills the account's token into for it."
+        }
+      },
+      "required": [
+        "title",
+        "requests"
+      ],
+      "description": "`[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account."
+    },
+    "ScopeRequest": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "`GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`."
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ],
+      "description": "`{ method = \"POST\", url = \"https://www.googleapis.com/upload/youtube/v3/videos*\" }`: requests\nwith this method to this URL, or to any URL starting with it when it ends in `*`. The URL is\nwritten as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole\nhost."
     },
     "Account": {
       "type": "object",
@@ -30668,37 +31135,6 @@
         "pkce"
       ],
       "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
-    },
-    "TokenPlace": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "scheme": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "scheme"
-          ],
-          "additionalProperties": false,
-          "description": "The `Authorization` header, as this scheme and the token (`OAuth <token>`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "query": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "query"
-          ],
-          "additionalProperties": false,
-          "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud)."
-        }
-      ],
-      "description": "Where an account's access token goes in a `net/fetch` request: `token = { scheme = \"OAuth\" }`\nor `token = { query = \"access_token\" }`. The request names the account there, and only there."
     },
     "Command": {
       "type": "object",
@@ -30886,7 +31322,7 @@
             "string",
             "null"
           ],
-          "description": "Its own place on the command line, rather than `locallibrary <plugin> <name>`: a\ntop-level command (`import`), or one in a group of the host's (`playlist import`).\nFirst-party plugins only."
+          "description": "Its own place on the command line, rather than `locallibrary <plugin> <name>`: a\ntop-level command (`import`), or one in a group of the host's (`playlist import`).\nBuilt-in plugins only."
         }
       },
       "required": [

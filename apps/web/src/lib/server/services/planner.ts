@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { TID } from '@atproto/common-web';
 import { COLLECTION, SELF_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import type { PlannerSaveView, PlannerShowView, ShowDetails, Viewer } from '#lib/types.ts';
@@ -20,6 +21,9 @@ type PlannerRecords = {
 		updatedAt?: string;
 	};
 };
+
+/** One save per project: overlapping saves write the same record instead of each minting a key. */
+const saveRkey = (projectUri: string) => createHash('sha256').update(projectUri).digest('hex');
 
 /** Checks a planner record against its lexicon, since any client with the user's session can write there. */
 function isPlannerRecord<C extends keyof PlannerRecords>(
@@ -103,20 +107,34 @@ export class PlannerService {
 		return out;
 	}
 
+	private async saveRecords(client: RepoClient, space: string) {
+		return (await this.listAll(client, space, COLLECTION.plannerSave)).map(({ rkey, value }) => ({
+			rkey,
+			project: value.project,
+			note: value.note,
+			createdAt: value.createdAt
+		}));
+	}
+
 	async saves(actor: Viewer): Promise<PlannerSaveView[]> {
 		const client = await this.client(actor);
 		const space = await this.ensureSpace(client);
-		const records = await this.listAll(client, space, COLLECTION.plannerSave);
+		const firstByProject = new Map<string, PlannerSaveView>();
 
-		return records
-			.map(({ rkey, value }) => ({ rkey, project: value.project, note: value.note, createdAt: value.createdAt }))
-			.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+		// Saves from before keys were fixed per project can hold one project twice, so keep the first.
+		for (const save of await this.saveRecords(client, space)) {
+			const kept = firstByProject.get(save.project);
+
+			if (!kept || save.createdAt < kept.createdAt) firstByProject.set(save.project, save);
+		}
+
+		return [...firstByProject.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 	}
 
 	async save(actor: Viewer, projectUri: string, note?: string): Promise<void> {
 		const client = await this.client(actor);
 		const space = await this.ensureSpace(client);
-		const existing = (await this.saves(actor)).find((save) => save.project === projectUri);
+		const existing = (await this.saveRecords(client, space)).find((save) => save.project === projectUri);
 
 		if (existing) return;
 
@@ -125,7 +143,13 @@ export class PlannerService {
 		if (note) entry.note = note;
 		const record = validateRecord(COLLECTION.plannerSave, entry);
 
-		const ref = await client.createSpaceRecord({ space, collection: COLLECTION.plannerSave, record });
+		const ref = await client.putSpaceRecord({
+			space,
+			collection: COLLECTION.plannerSave,
+			rkey: saveRkey(projectUri),
+			record
+		});
+
 		await this.core.audit.record(
 			{
 				actor: actor.did,
@@ -143,7 +167,7 @@ export class PlannerService {
 	async unsave(actor: Viewer, projectUri: string): Promise<void> {
 		const client = await this.client(actor);
 		const space = await this.ensureSpace(client);
-		const existing = (await this.saves(actor)).filter((save) => save.project === projectUri);
+		const existing = (await this.saveRecords(client, space)).filter((save) => save.project === projectUri);
 
 		for (const save of existing)
 			await client.deleteSpaceRecord({ space, collection: COLLECTION.plannerSave, rkey: save.rkey });

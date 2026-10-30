@@ -18,6 +18,7 @@ const show = (sets?: Promise<Map<string, DjSetView> | null>, status: ProjectStat
 			project: { slug: 'neon-tide', name: 'Neon Tide', avatarUrl: null, status },
 			mix: { title: 'Tidal Hours', url: 'https://mixes.test/tidal', set },
 			sets,
+			source: Promise.resolve(null),
 			n: 1,
 			report: sampleReport
 		},

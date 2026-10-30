@@ -160,7 +160,7 @@ its drives.
 | `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, with `--transcode` as copies its players play, see [Drives for a set](editing.md#drives-for-a-set) |
 | `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
 | `locallibrary clean <library>` | Remove rekordbox's bundled demo tracks (which pile up with every export) with their files, analysis and playlist entries: the demos plugin's, see [Clean](editing.md#clean) |
-| `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings, see [Settings](settings.md) |
+| `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings; `settings export [FILE]` and `settings import FILE` take everything set here (the player's preferences and plugins' settings included) to another computer, see [Settings](settings.md) |
 
 **Plays and players**
 
@@ -174,10 +174,11 @@ its drives.
 | `locallibrary sets [list] [--venue V] [--kind K] [--since D] [--until D]` | Your sets, newest first, see [Sets](sets.md#sets) |
 | `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
 | `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it |
-| `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, a spreadsheet, or a playlist file |
+| `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|chapters\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, podcast apps' chapters, a spreadsheet, or a playlist file |
 | `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |
 | `locallibrary sets publish <SET>` | Publish a set on your Atmosphere account (alpha), see [Publishing](account.md#publishing) |
+| `locallibrary sets publish <SET> --upload [--max-mib N] [--dry-run]` | Upload the set's recording to your Atmosphere account (encoded as AAC by ffmpeg when it has to be), then publish the set pointing to it, see [Sets](sets.md#sets) |
 | `locallibrary sets publish <SET> --to PLUGIN:DESTINATION [--dry-run]` | Publish a set with its recording at a plugin's set destination: the plugin's dry run is shown and you're always asked; the link it answers becomes the set's, see [Plugins](plugins.md) |
 | `locallibrary mix <recording>... [--drive LIB] [--html PATH] [--export PATH] [--open]` | Which of a drive's tracks a recorded set plays, when, at what speed and in what key, as a tracklist and an interactive report, see [Mixes](sets.md#mixes) |
 | `locallibrary mix <recording> --format FORMAT --export PATH [--option KEY=VALUE]...` | A mix's tracklist in a format a plugin adds for mixes (its report kept in the store), see [Plugins](plugins.md#export-formats) |

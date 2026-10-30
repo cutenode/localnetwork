@@ -79,6 +79,15 @@ impl FakeTools {
         root
     }
 
+    /// `program` runs `body` as a shell script, for a tool that does more than answer (writes the
+    /// file it's told to, say). `$d` is the tools' folder.
+    pub fn script(&self, program: &str, body: &str) {
+        let d = quoted(&self.dir.path().to_string_lossy());
+        let file = self.dir.path().join("bin").join(program);
+        std::fs::write(&file, format!("#!/bin/sh\nd={d}\n{body}")).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     /// `program args` prints `stdout` and succeeds.
     pub fn answer(&mut self, program: &str, args: &[&str], stdout: &str) {
         self.rule(program, args, Reply::Out(stdout.into()));
