@@ -58,6 +58,14 @@ impl Mock {
         format!("{redirect}?code=c0de&state={}", at("state"))
     }
 
+    /// [`Mock::approved`], for the sign-in whose link (to the service's `/authorize`) is `link`.
+    pub(super) fn approved_link(&self, link: &str, who: &Value) -> String {
+        let (_, query) = link.split_once('?').unwrap();
+        let query: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+        let redirect = query.iter().find(|(k, _)| k == "redirect_uri").map(|(_, v)| v.clone()).unwrap();
+        self.approved(&json!({ "url": link, "redirect_uri": redirect }), who)
+    }
+
     /// Runs `command`, approving as `who` in the browser the sign-in it prints a link to (on
     /// stderr) if it does: how it exited, and what it printed to stdout and stderr.
     pub(super) fn approving(&self, mut command: Command, who: &Value) -> (i32, String, String) {
@@ -75,10 +83,7 @@ impl Mock {
             err.push_str(&format!("{line}\n"));
             let link = line.trim();
             if browser.is_none() && link.starts_with("http") && link.contains("/authorize?") {
-                let (_, query) = link.split_once('?').unwrap();
-                let query: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
-                let redirect = query.iter().find(|(k, _)| k == "redirect_uri").map(|(_, v)| v.clone()).unwrap();
-                let back = self.approved(&json!({ "url": link, "redirect_uri": redirect }), who);
+                let back = self.approved_link(link, who);
                 let (to, query) = back.split_once('?').unwrap();
                 browser = Some(browser_back(to, query.into()));
             }

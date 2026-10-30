@@ -408,3 +408,81 @@ fn a_whoami_that_doesnt_say_who_signs_nobody_in() {
     assert_eq!(e.to_string(), "asking Mock who signed in: its answer isn't JSON");
     assert!(m.listed().is_empty());
 }
+
+/// Where [`whoever_whoami_says_signed_in_is_kept_or_nobody_is`] asks who signed in.
+#[derive(Debug, Clone, Copy)]
+enum Whoami {
+    /// The service's `/userinfo`.
+    Service,
+    /// `/userinfo/moved`, which sends there.
+    Moved,
+    /// Elsewhere at the service, which answers what isn't JSON.
+    NotJson,
+    /// Another origin, which sends to the service's `/userinfo`.
+    Away,
+    /// Another origin, which sends back to itself.
+    Around,
+    /// Another origin, which answers 500.
+    Broken,
+}
+
+/// For any whoami endpoint (the service's, one sending there, one answering what isn't JSON, or
+/// one at another origin sending there, around in circles or failing), its token given in the
+/// `Authorization` header or the query, and anyone it says signed in (a string or integer
+/// subject, or none): the account kept is the one it says, named by its email or subject, or the
+/// sign-in fails saying why and nothing is kept.
+#[hegel::test(test_cases = 16, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn whoever_whoami_says_signed_in_is_kept_or_nobody_is(tc: TestCase) {
+    use Whoami::*;
+    let at = tc.draw(gs::sampled_from(vec![Service, Moved, NotJson, Away, Around, Broken]));
+    let token = tc.draw(gs::sampled_from(vec!["", "token = { query = \"access_token\" }"]));
+    let subject = tc.draw(gs::sampled_from(vec![json!("a"), json!(42), json!(1.5), Value::Null]));
+    let email = tc.draw(gs::sampled_from(vec![None, Some("a@mock.example")]));
+    let manifest = move |server: &str| {
+        let to = format!("{server}/userinfo");
+        let elsewhere = |reply: fn(&str, &str) -> Reply| {
+            let to = to.clone();
+            Server::new(move |base, _| reply(base, &to)).url + "/who"
+        };
+        fn moved(location: String) -> Reply {
+            Reply { status: 307, headers: vec![("Location", location)], body: Vec::new() }
+        }
+        let whoami = match at {
+            Service => to.clone(),
+            Moved => format!("{server}/userinfo/moved"),
+            NotJson => format!("{server}/nobody"),
+            Away => elsewhere(|_, to| moved(to.into())),
+            Around => elsewhere(|base, _| moved(format!("{base}/who"))),
+            Broken => elsewhere(|_, _| Reply { status: 500, headers: Vec::new(), body: Vec::new() }),
+        };
+        account_plugin(server, &whoami, token)
+    };
+    let m = mock_with(3600, manifest, &asking(&["read"], &["write"]), options());
+    let mut said = json!({ "email": email });
+    if !subject.is_null() {
+        said["sub"] = subject.clone();
+    }
+    let done = m.sign_in(said, None, &[]).0;
+    // A string subject as it is, an integer as its digits.
+    let kept = match &subject {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) if n.is_u64() => Some(n.to_string()),
+        _ => None,
+    };
+    let why = match (at, kept) {
+        (Away, _) => "it sent the token on to 127.0.0.1, which isn't where it was asked",
+        (Around, _) => "too many redirects (it follows 5)",
+        (Broken, _) => "it answered 500 Internal Server Error",
+        (NotJson, _) => "its answer isn't JSON",
+        (_, None) => "its answer has no subject at /sub",
+        (_, Some(kept)) => {
+            let done = done.unwrap();
+            assert_eq!(done.account.subject, kept);
+            assert_eq!(done.account.name, email.map_or(kept, String::from));
+            assert_eq!(m.listed().len(), 1);
+            return;
+        }
+    };
+    assert_eq!(done.unwrap_err().to_string(), format!("asking Mock who signed in: {why}"));
+    assert!(m.listed().is_empty());
+}

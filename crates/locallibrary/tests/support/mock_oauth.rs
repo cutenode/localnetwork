@@ -92,6 +92,8 @@ pub struct Service {
     pub expires_in: Option<u64>,
     /// Whether a refresh answers a new refresh token.
     pub rotates: bool,
+    /// It never answers a refresh token, so what's signed in to there isn't refreshed.
+    pub refreshless: bool,
     /// An error the token endpoint answers instead (`invalid_grant`), with its description.
     pub refuses: Option<(String, String)>,
     /// The token endpoint answers what can't be read as tokens instead.
@@ -196,7 +198,7 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
                 if s.unscoped {
                     answer.as_object_mut().unwrap().remove("scope");
                 }
-                if f["grant_type"] == "authorization_code" || s.rotates {
+                if !s.refreshless && (f["grant_type"] == "authorization_code" || s.rotates) {
                     answer["refresh_token"] = format!("rt-{n}").into();
                 }
                 if let Some(secs) = s.expires_in {

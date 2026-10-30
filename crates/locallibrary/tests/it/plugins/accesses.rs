@@ -292,3 +292,124 @@ fn actions_come_from_the_manifest_whatever_the_plugin_says() {
         assert_eq!(e.to_string(), "it can't (the Echo plugin)");
     }
 }
+
+/// How a request echo makes through its access to the account `a` fails, in
+/// [`a_request_an_access_cant_serve_fails_as_the_host_passes_it_on`].
+#[derive(Debug, Clone, Copy)]
+enum Failing {
+    /// Echo has no access to it.
+    NoAccess,
+    /// It's signed out.
+    SignedOut,
+    /// Its token expired, and the service won't refresh it any more.
+    Refused,
+    /// Its token expired, and the service can't refresh it now.
+    Unavailable,
+    /// The account plugin it was signed in through isn't installed any more.
+    Uninstalled,
+    /// The access lacks the scope echo needs.
+    Missing,
+    /// None of the access's scopes covers the request.
+    Uncovered,
+    /// The account wasn't granted what the scope covering the request asks.
+    Ungranted,
+    /// The request names a type echo doesn't ask for.
+    Unasked,
+}
+
+/// An account plugin that isn't installed.
+const GONE: &str = "gone-accounts";
+
+/// For every way a request echo makes through its access to an account can fail (no access, the
+/// account signed out here or by the service, a refresh the service can't make now, its account
+/// plugin gone, a scope missing, not covering or not granted, a type it doesn't ask for), its
+/// token placed either way and the access named by type or by its id: the request fails before
+/// it's sent, as `access` (`signed_out` when it's signed out), `scope`, `external` (the service's
+/// failure) or `invalid`, an account failure naming the type and the account plugins; an account
+/// the service signed out is forgotten, one it couldn't refresh kept; and echo passing an
+/// `access` or `scope` failure on, whatever type it says, is an `account` error (not signed in,
+/// no access, a missing scope) offering what its manifest and the store resolve it with.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
+    use Failing::*;
+    for failing in [NoAccess, SignedOut, Refused, Unavailable, Uninstalled, Missing, Uncovered, Ungranted, Unasked] {
+        let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
+        let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
+        let expiring = matches!(failing, Refused | Unavailable);
+        let m = mock_for(if expiring { 0 } else { 3600 }, "/userinfo", &place, &asking(&["read"], &["write"]));
+        m.state.lock().unwrap().unscoped = true;
+        let for_echo = (!matches!(failing, NoAccess)).then_some("echo");
+        m.sign_in_for(for_echo, who(json!("a"), None), None, &["read"]).0.unwrap();
+        let file = m.f.store.root().join("accounts.json");
+        let edit = |change: &dyn Fn(&mut Value)| {
+            let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            change(&mut kept);
+            std::fs::write(&file, kept.to_string()).unwrap();
+        };
+        match failing {
+            SignedOut => drop(m.f.plugins.sign_out_account(WITH, "a", &m.f.store).unwrap()),
+            Refused => m.state.lock().unwrap().refuses = Some(("invalid_grant".into(), "spent".into())),
+            Unavailable => m.state.lock().unwrap().refuses = Some(("temporarily_unavailable".into(), "later".into())),
+            Uninstalled => edit(&|kept| {
+                kept["accounts"][0]["plugin"] = json!(GONE);
+                kept["accesses"][0]["account"]["plugin"] = json!(GONE);
+            }),
+            Missing => edit(&|kept| kept["accesses"][0]["scopes"] = json!([])),
+            Ungranted => drop(m.f.plugins.give_access("echo", &account("a"), &["write".into()], &m.f.store).unwrap()),
+            NoAccess | Uncovered | Unasked => {}
+        }
+        let (method, path) = match failing {
+            Uncovered => ("GET", "/o/x"),
+            Ungranted => ("POST", "/w/x"),
+            _ => ("GET", "/r/x"),
+        };
+        let id = m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap().first().map(|a| a.id.clone());
+        let by_id = tc.draw(gs::booleans());
+        let named = match (by_id, id) {
+            _ if matches!(failing, Unasked) => "{account:other}".to_string(),
+            (true, Some(id)) => format!("{{account:mock/{id}}}"),
+            _ => "{account:mock}".to_string(),
+        };
+        let answer = m.fetch_as(method, path, &named, query);
+        let said = format!("{failing:?} {method} {path} as {named}: {answer}");
+        assert!(!m.server.got().iter().any(|g| g.target.starts_with(path)), "sent: {said}");
+        let e = &answer["error"]["data"];
+        let (kind, reason) = match failing {
+            NoAccess | Uninstalled => ("access", None),
+            SignedOut | Refused => ("access", Some("signed_out")),
+            Unavailable => ("external", None),
+            Missing | Uncovered | Ungranted => ("scope", None),
+            Unasked => ("invalid", None),
+        };
+        assert_eq!((e["kind"].as_str(), e["reason"].as_str()), (Some(kind), reason), "{said}");
+        let kept = m.listed();
+        assert_eq!(kept.is_empty(), matches!(failing, SignedOut | Refused), "{said}");
+        assert!(!m.leaked(&[answer["error"].clone()]), "a token is out: {said}");
+        let message = match kind {
+            "external" => "signing in to Mock: temporarily_unavailable: later",
+            "invalid" => "\"other\" isn't an account type it asks for",
+            _ => "",
+        };
+        if !message.is_empty() {
+            assert_eq!(answer["error"]["message"], message, "{said}");
+            continue;
+        }
+        // Those installed when its own isn't.
+        assert_eq!((&e["fields"]["type"], &e["fields"]["account_plugins"]), (&json!("mock"), &json!([WITH])), "{said}");
+        let lying = tc.draw(gs::booleans());
+        let fields = if lying { json!({ "type": "evil" }) } else { e["fields"].clone() };
+        let passed = m.passed_on(kind, reason, &fields);
+        let resolves = match reason {
+            Some(_) => Reason::NotSignedIn,
+            None if kind == "access" => Reason::NoAccess,
+            None => Reason::MissingScope,
+        };
+        assert_eq!((passed.code(), passed.reason()), ("account", Some(resolves)), "{said}");
+        let mut actions = resolving(&[]);
+        for k in &kept {
+            let params = json!({ "plugin": "echo", "account": { "plugin": k.plugin, "subject": k.subject } });
+            actions.push(Action::call("accounts.access.set_default", params, format!("Use {}", k.name)));
+        }
+        assert_eq!(passed.detail().actions, actions, "{said}");
+    }
+}
