@@ -377,6 +377,7 @@ jobs:
 
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
   # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  # A job skipped when its changes output was true didn't run (see locallibrary-ci.yml).
   passed:
     name: Web CI passed
     if: always()
@@ -384,7 +385,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || (needs.changes.outputs.run == 'true' && (needs.verify.result == 'skipped'
+            || needs.e2e.result == 'skipped' || needs.docker.result == 'skipped'))
+          || (needs.changes.outputs.integration == 'true' && needs.integration.result == 'skipped')
+          || (needs.changes.outputs.lighthouse == 'true' && needs.lighthouse.result == 'skipped')
         working-directory: .
         run: exit 1
       # A draft's skipped jobs would pass too, as in locallibrary-ci.yml.

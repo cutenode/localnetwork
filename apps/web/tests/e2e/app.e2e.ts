@@ -173,17 +173,23 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
-	test('staff pages and the dashboard require sign-in', async ({ page }) => {
+	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
 		await expectAccessible(page);
 		await page.goto('/dashboard/bookings?tab=open');
 		await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%2Fbookings%3Ftab%3Dopen$/);
-		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too.
-		await page.goto('/%64ashboard/bookings');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2564ashboard%2Fbookings$/);
-		await page.goto('/%61dmin');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2561dmin$/);
+
+		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too. Sent
+		// without a browser: WebKit decodes `%64` to `d` before it sends the request.
+		for (const [path, next] of [
+			['/%64ashboard/bookings', '%2F%2564ashboard%2Fbookings'],
+			['/%61dmin', '%2F%2561dmin']
+		]) {
+			const response = await request.get(path, { maxRedirects: 0 });
+			expect(response.status()).toBe(303);
+			expect(response.headers().location).toBe(`/login?next=${next}`);
+		}
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
