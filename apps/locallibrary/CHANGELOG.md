@@ -45,7 +45,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Exporting without rekordbox.** `collection export` writes rekordbox's collection to a drive or
   a folder as rekordbox's Export does (tracks, playlists, analysis, cues, artwork and My Tags), so
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
-  Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
+  Dropbox or Google Drive come along, online-only ones downloaded as they're copied. My Tags go
+  in `exportExt.pdb` too, for the CDJ-3000 and older players. Intelligent playlists hold the
+  tracks their rules match, and one a filter can say gets a rule-based playlist for the drive,
+  so `smart apply` keeps it up to date; the plan names the ones that are only their tracks as
+  they are now.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details (BPM, album artist, ISRC and release date too),
   ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
@@ -449,8 +453,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   same plan, before the drive is saved (`operations` over RPC). `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
 - **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
-  first), copies the newest library onto the others, checks them against your player models and
-  ejects them when everything passed; a check with problems, or history lists it couldn't save,
+  first), copies the newest library onto the others (all at once, as `sync` does), checks them
+  against your player models and ejects them when everything passed; a check with problems, or history lists it couldn't save,
   leaves them mounted (exit status 4). `check`, `eject` and `pull` with no drives take the mounted
   drives of one library. Over RPC, `prep.plan` and `prep.apply`.
 - **First run.** `setup [DRIVES...]` asks which drives are copies of your library and what to call
@@ -666,7 +670,8 @@ their old names.
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library, files
   nothing uses and caches no version reads any more, and refuses when it can't read a snapshot. `store copy` refuses, without
-  `--force`, a copy that was written to with `--store` since the last copy.
+  `--force`, a copy that was written to with `--store` since the last copy, and a change planned
+  with `--store` naming such a copy says so first.
 - `format <name>` takes only an adopted drive's name (or a path or disk identifier), never a
   volume label or a folder in the working directory (give `./NAME`), and the typed confirmation is
   that name or the disk identifier. `format` and

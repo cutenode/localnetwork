@@ -11,7 +11,7 @@
 //! [`crate::backup`]), so `locallibrary undo` takes an edit back.
 //!
 //! A drive with `export.pdb` but no `exportExt.pdb` only has its OneLibrary tags edited, with a
-//! warning: creating `exportExt.pdb` isn't supported.
+//! warning: only `collection export` creates `exportExt.pdb` (see [`new_ext`]).
 //!
 //! Every applied edit is recorded in the drive's journal of edits (as a [`TagChange`], tracks
 //! named by file), so `edits replay` makes it again after rekordbox exports to the drive.
@@ -1484,6 +1484,42 @@ pub(crate) fn carry_into_ext(
         }
         Ok((Some(out), carried))
     })
+}
+
+/// A real rekordbox `exportExt.pdb` to start new ones from (see [`new_ext`]). It's rekordbox-pdb's
+/// `tests/data/one-song-exportExt.pdb` (MIT, see `vendor/rekordbox-pdb/LICENSE`), kept in this
+/// package as `convert`'s `export.pdb` template is.
+const EXT_TEMPLATE: &[u8] = include_bytes!("tags/template_ext.pdb");
+
+/// A new `exportExt.pdb` for `library` (a new `export.pdb`'s tracks) with `tags`' categories and
+/// tags, in their order and with their ids (as [`copy_categories`] gives OneLibrary), and their
+/// tracks' links: [`EXT_TEMPLATE`] emptied, then filled through [`carry_into_ext`]. What goes past
+/// rekordbox's limits is left out, which the [`Carried`] says.
+pub(crate) fn new_ext(tags: &DbTags, library: &Library) -> Result<(Vec<u8>, Carried)> {
+    let empty = guard_ext(|| {
+        let mut editor = ext_editor(EXT_TEMPLATE.to_vec())?;
+        let template: Vec<u32> = editor.categories().iter().map(|(id, _)| *id).collect();
+        for id in template {
+            editor.remove(id)?;
+        }
+        for c in tags.tree.categories.iter().take(MAX_CATEGORIES) {
+            editor.add_category(ext_id(c.id)?, &c.name)?;
+            for t in c.tags.iter().take(MAX_TAGS) {
+                editor.add_tag(ext_id(c.id)?, ext_id(t.id)?, &t.name)?;
+            }
+        }
+        Ok(editor.to_bytes()?)
+    })?;
+    let wanted: Wanted = library
+        .tracks
+        .iter()
+        .filter_map(|t| {
+            let key = paths::file_key(&t.file_path);
+            Some((t.id, key.clone(), tags.of(&key)?))
+        })
+        .collect();
+    let (out, carried) = carry_into_ext(empty.clone(), library, &[], &wanted, Some(tags))?;
+    Ok((out.unwrap_or(empty), carried))
 }
 
 /// [`carry_into_ext`] for OneLibrary's working copy (`library`: its tracks now).

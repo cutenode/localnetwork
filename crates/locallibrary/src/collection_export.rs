@@ -6,8 +6,11 @@
 //! audio files hashed before they're copied, and checked as they are, and analysis files made for
 //! tracks that come with cues, beat grids or waveforms.
 //!
-//! The export holds every track (or those of the chosen playlists), the playlists and folders
-//! (intelligent playlists, whose rules aren't read, are left out), cues and My Tags. Audio goes in
+//! The export holds every track (or those of the chosen playlists), the playlists and folders,
+//! cues and My Tags. An intelligent playlist holds the tracks its rules match (see
+//! [`crate::masterdb::smartlist`]); one a filter can say gets a smart rule for the target too
+//! ([`crate::smart`], kept in the store), which `smart apply` keeps up to date, and the plan says
+//! which are only their tracks as they are now. One whose rules can't be read stays behind. Audio goes in
 //! `Contents/<artist>/<album>/`, and each track's analysis files (`.DAT`, `.EXT`, `.2EX`) are
 //! rekordbox's own from its `share` folder, in a `PIONEER/USBANLZ` folder named from the audio
 //! path, with that path written into them. Artwork keeps rekordbox's export layout
@@ -21,8 +24,8 @@
 //! Writing goes through [`crate::library_write`], as [`crate::pack`] does: only files that
 //! differ are copied, so exporting again is quick, and a run stopped part way finishes when it's
 //! run again. The databases are built on the target from what was copied (see
-//! `convert::build_databases`); `exportExt.pdb` isn't made, so players that read
-//! `export.pdb` don't show My Tags (OneLibrary has them). The target remembers what it was
+//! `convert::build_databases`), with `exportExt.pdb` beside `export.pdb` for players that read
+//! that (see [`crate::tags::new_ext`]), so both show My Tags. The target remembers what it was
 //! exported from (`.locallibrary/collection.json`) and which image got which key, so images keep
 //! theirs. A library it held that wasn't exported from the collection (or loose files the export
 //! would remove) is only replaced when asked, and what only it has (history lists players
@@ -45,11 +48,12 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::hash::Hash;
 use crate::library_write::{self, FileCopy, Planned, Source, Written};
-use crate::masterdb::{CloudFolders, Collection, TagCategory};
+use crate::masterdb::{CloudFolders, Collection, SmartList, TagCategory};
 use crate::model::{Library, Track};
 use crate::pack::Unsaved;
 use crate::paths;
 use crate::progress::{Ctx, Event, Phase};
+use crate::smart::SmartPlaylist;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tags::DbTags;
@@ -94,6 +98,10 @@ pub struct CollectionExportRecord {
     /// image keeps its key from one export to the next.
     #[serde(default)]
     pub artwork: IndexMap<String, String>,
+    /// The paths of the intelligent playlists exported with a smart rule, so the next export
+    /// takes away the rules of those it no longer has.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub smart: Vec<String>,
 }
 
 pub fn record(device: &Device) -> Result<Option<CollectionExportRecord>> {
@@ -155,6 +163,12 @@ pub struct CollectionExportPlan {
     pub free_space: Option<u64>,
     pub fits: bool,
     pub warnings: Vec<String>,
+    /// Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),
+    /// which `smart apply` keeps up to date: kept in the store once the export is applied.
+    pub smart: Vec<SmartPlaylist>,
+    /// The paths of the smart rules the target's last export kept that this one doesn't.
+    #[serde(skip)]
+    pub(crate) smart_gone: Vec<String>,
     /// The exported library: its paths are the target's.
     #[serde(skip)]
     library: Library,
@@ -193,8 +207,9 @@ pub(crate) struct Collected<'a> {
     library: Library,
     /// My Tags: categories in order, each with its tags and their tracks.
     tags: Vec<TagCategory>,
-    /// Ids of intelligent playlists, whose rules aren't read: left out.
+    /// Ids of intelligent playlists, and the rules of those whose rules could be read.
     smart_playlists: Vec<u32>,
+    smart_lists: FxHashMap<u32, SmartList>,
     files: Files<'a>,
 }
 
@@ -235,6 +250,7 @@ impl<'a> Collected<'a> {
             library: collection.library.clone(),
             tags: collection.tags.clone(),
             smart_playlists: collection.smart_playlists.clone(),
+            smart_lists: collection.smart_lists.clone(),
             files: Files::Rekordbox { collection, cloud },
         }
     }
@@ -247,7 +263,14 @@ impl<'a> Collected<'a> {
         tags: Vec<TagCategory>,
         checked: FxHashMap<u32, Checked>,
     ) -> Collected<'static> {
-        Collected { source: Some(source), library, tags, smart_playlists: Vec::new(), files: Files::Checked(checked) }
+        Collected {
+            source: Some(source),
+            library,
+            tags,
+            smart_playlists: Vec::new(),
+            smart_lists: FxHashMap::default(),
+            files: Files::Checked(checked),
+        }
     }
 }
 
@@ -301,7 +324,11 @@ pub(crate) fn plan_from(
         (p, _) => p.to_vec(),
     };
     let mut warnings = Vec::new();
-    let chosen = choose(from, &playlists, &mut warnings)?;
+    let (chosen, smart) = choose(from, &playlists, chrono::Local::now().date_naive(), &mut warnings)?;
+    let smart_gone = previous
+        .as_ref()
+        .map(|r| r.smart.iter().filter(|p| !smart.iter().any(|s| &s.path == *p)).cloned().collect())
+        .unwrap_or_default();
     // Each track's analysis files are read to write its path into them, which takes a while.
     let mut layout = Layout { artwork: previous.map(|r| r.artwork).unwrap_or_default(), ..Default::default() };
     layout.used_keys = layout.artwork.values().map(|k| k.to_lowercase()).collect();
@@ -352,7 +379,7 @@ pub(crate) fn plan_from(
     // Rows take well under 1 KiB per track or entry, including lookups and page slack.
     let entries: usize = library.playlists.iter().map(|p| p.track_ids.len()).sum();
     let database = 256 * 1024 + (library.tracks.len() + entries) as u64 * 1024;
-    let databases = Written { pdb: Some(database), ext: None, plus: Some(database) };
+    let databases = Written { pdb: Some(database), ext: Some(database), plus: Some(database) };
     let mut written = library_write::plan(target, &scanned.tree, &layout.files, &[], databases, false);
     hash_checked(&mut written, &layout.checked, ctx)?;
     let downloads: Vec<&FileCopy> = written.copies.iter().filter(|c| layout.online_only.contains(&c.path)).collect();
@@ -428,6 +455,8 @@ pub(crate) fn plan_from(
         free_space: written.free_space,
         fits: written.fits,
         warnings,
+        smart,
+        smart_gone,
         library,
         tags,
         artwork: layout.artwork,
@@ -463,24 +492,30 @@ fn hash_checked(written: &mut Planned, checked: &FxHashSet<String>, ctx: &Ctx<'_
 }
 
 /// The library's tracks and playlists to export: those of `playlists` (with the folders above
-/// them), or everything. Intelligent playlists and history lists are left out.
-fn choose(from: &Collected<'_>, playlists: &[String], warnings: &mut Vec<String>) -> Result<Library> {
+/// them), or everything, and the smart rules of the intelligent playlists among them (see
+/// [`fill_smart`]). History lists are left out.
+fn choose(
+    from: &Collected<'_>,
+    playlists: &[String],
+    today: chrono::NaiveDate,
+    warnings: &mut Vec<String>,
+) -> Result<(Library, Vec<SmartPlaylist>)> {
     let lib = &from.library;
-    let smart: FxHashSet<u32> = from.smart_playlists.iter().copied().collect();
     let keep = match playlists {
         [] => lib.playlists.iter().map(|p| p.id).collect(),
         specs => edit::chosen_nodes(lib, specs)?,
     };
-    let left_out: Vec<String> =
-        from.smart_playlists.iter().filter(|id| keep.contains(id)).map(|id| lib.playlist_path(*id)).collect();
-    if let Some(first) = left_out.first() {
-        warnings.push(format!(
-            "{} intelligent playlist(s) aren't exported (e.g. {first}): their rules aren't read",
-            left_out.len()
-        ));
-    }
-    let chosen: Vec<_> =
-        lib.playlists.iter().filter(|p| keep.contains(&p.id) && !smart.contains(&p.id)).cloned().collect();
+    let (filled, smart) = fill_smart(from, &keep, today, warnings);
+    let smart_ids: FxHashSet<u32> = from.smart_playlists.iter().copied().collect();
+    let chosen: Vec<_> = lib
+        .playlists
+        .iter()
+        .filter(|p| keep.contains(&p.id) && (!smart_ids.contains(&p.id) || filled.contains_key(&p.id)))
+        .map(|p| match filled.get(&p.id) {
+            Some(tracks) => crate::model::Playlist { track_ids: tracks.clone(), ..p.clone() },
+            None => p.clone(),
+        })
+        .collect();
     let tracks = match playlists {
         [] => lib.tracks.clone(),
         _ => {
@@ -488,7 +523,53 @@ fn choose(from: &Collected<'_>, playlists: &[String], warnings: &mut Vec<String>
             lib.tracks.iter().filter(|t| used.contains(&t.id)).cloned().collect()
         }
     };
-    Ok(Library { tracks, playlists: chosen, ..Default::default() })
+    Ok((Library { tracks, playlists: chosen, ..Default::default() }, smart))
+}
+
+/// The tracks each intelligent playlist in `keep` holds on `today`, by id, as its rules match
+/// them, and the smart rules of those a filter can say. The plan warns of the others, and of
+/// those left out because their rules can't be read or evaluated.
+fn fill_smart(
+    from: &Collected<'_>,
+    keep: &FxHashSet<u32>,
+    today: chrono::NaiveDate,
+    warnings: &mut Vec<String>,
+) -> (FxHashMap<u32, Vec<u32>>, Vec<SmartPlaylist>) {
+    let lib = &from.library;
+    let tags = crate::masterdb::tags_by_file(&from.tags, lib);
+    let none = Vec::new();
+    let (mut filled, mut rules, mut plain, mut left_out) = (FxHashMap::default(), Vec::new(), Vec::new(), Vec::new());
+    for &id in from.smart_playlists.iter().filter(|id| keep.contains(id)) {
+        let path = lib.playlist_path(id);
+        let Some(list) = from.smart_lists.get(&id) else {
+            left_out.push(format!("{path}: its rules can't be read"));
+            continue;
+        };
+        if let Some(why) = list.unevaluable() {
+            left_out.push(format!("{path}: {why}"));
+            continue;
+        }
+        let of = |t: &Track| tags.get(&paths::file_key(&t.file_path)).unwrap_or(&none);
+        filled.insert(id, lib.tracks.iter().filter(|t| list.matches(t, of(t), today)).map(|t| t.id).collect());
+        match list.filter() {
+            Ok(filter) => rules.push(SmartPlaylist { path, filter, sort: None, limit: None, drives: Vec::new() }),
+            Err(why) => plain.push(format!("{path}: {why}")),
+        }
+    }
+    if let Some(first) = left_out.first() {
+        warnings.push(format!(
+            "{} intelligent playlist(s) aren't exported, as their rules can't be evaluated (e.g. {first})",
+            left_out.len()
+        ));
+    }
+    if let Some(first) = plain.first() {
+        warnings.push(format!(
+            "{} intelligent playlist(s) are exported as the tracks they hold now, with no smart rule to keep them \
+             up to date: a filter can't say a condition of theirs (e.g. {first})",
+            plain.len()
+        ));
+    }
+    (filled, rules)
 }
 
 /// Where the exported library's files go on the target, and where they come from.
@@ -747,8 +828,15 @@ pub fn apply(
     // in. From the swap on, the export is made: recording it isn't cancellable.
     let tags = DbTags::collection(&plan.tags, &plan.library);
     let (plus, pdb, built) = convert::build_databases(target, &plan.library, Some(&tags), ctx)?;
+    // exportExt.pdb, for players that read export.pdb, links its tags to export.pdb's track ids.
+    let listed =
+        crate::pdb::library_from_database(&crate::pdb::parse_database(pdb.clone(), Path::new(paths::EXPORT_PDB))?);
+    let (ext, carried) = crate::tags::new_ext(&tags, &listed)?;
+    if let Some(w) = carried.warning("exportExt.pdb") {
+        ctx.warn(w);
+    }
     let ctx = &ctx.uncancellable();
-    let databases = library_write::Databases { pdb: Some(pdb), ext: None, plus: Some(plus) };
+    let databases = library_write::Databases { pdb: Some(pdb), ext: Some(ext), plus: Some(plus) };
     library_write::swap_databases(target, &databases)?;
     crate::player::preserve(target, identity.as_ref())?;
     (report.deleted, report.deleted_bytes) = library_write::delete(target, &plan.written, ctx)?;
@@ -773,6 +861,7 @@ pub fn apply(
         playlists: plan.playlists.clone(),
         at: Utc::now(),
         artwork: plan.artwork.clone(),
+        smart: plan.smart.iter().map(|s| s.path.clone()).collect(),
     };
     fsutil::write_json_atomic(&target.state_dir().join(RECORD_FILE), &rec)?;
     crate::pack::forget(target)?;

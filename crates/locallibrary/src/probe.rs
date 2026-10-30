@@ -9,8 +9,6 @@
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -106,34 +104,21 @@ pub(crate) fn parallel<T: Sync, R: Send>(
         return Ok(Vec::new());
     }
     ctx.phase_start(phase, items.len() as u64, 0);
-    let next = AtomicUsize::new(0);
-    let done: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::with_capacity(items.len()));
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(items.len());
-    let cancelled = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                s.spawn(|| -> Result<()> {
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { return Ok(()) };
-                        ctx.check()?;
-                        let (path, bytes) = describe(item);
-                        ctx.emit(Event::Item { phase, path, bytes });
-                        let r = work(item);
-                        done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((i, r));
-                    }
-                })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().expect("probe worker panicked")).any(|r| r.is_err())
+    let results = crate::workers::each(items.iter().collect(), crate::workers::per_core(), |item| -> Result<R> {
+        ctx.check()?;
+        let (path, bytes) = describe(item);
+        ctx.emit(Event::Item { phase, path, bytes });
+        Ok(work(item))
     });
     ctx.phase_end(phase);
-    if cancelled {
-        return Err(Error::Cancelled);
+    let mut out = Vec::with_capacity(results.len());
+    for r in results {
+        match r {
+            Ok(r) => out.push(r?),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
-    let mut done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-    done.sort_by_key(|(i, _)| *i);
-    Ok(done.into_iter().map(|(_, r)| r).collect())
+    Ok(out)
 }
 
 /// What's wrong with an audio file.

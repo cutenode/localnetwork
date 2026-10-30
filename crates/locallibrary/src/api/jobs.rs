@@ -23,9 +23,9 @@ use uuid::Uuid;
 
 use super::autopull::{PullNext, new_history, pull_next, save_order};
 use super::{
-    CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError, SyncRequest,
-    check, drive_eject, edits_replay_plan, known_drives, mounted_exports, player_set_plan, registry, resolve_drive,
-    settings_apply_plan, smart_fill_plan, sync_plan,
+    CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError,
+    SyncManyRequest, SyncRequest, check, drive_eject, edits_replay_plan, known_drives, mounted_exports,
+    player_set_plan, registry, resolve_drive, settings_apply_plan, smart_fill_plan, sync_plan,
 };
 use crate::check::{CheckOptions, CheckReport};
 use crate::device::Device;
@@ -641,8 +641,27 @@ struct Blocked {
     warning: String,
 }
 
+/// [`sync_again`] onto several targets at once, written in parallel as `sync --many` writes them
+/// (see [`super::sync_many_plan`]): refused if `source` isn't the newest of the drives by then.
+fn sync_many_again(source: PathBuf, targets: Vec<PathBuf>) -> Replan {
+    replan(move |_, ctx| {
+        let drives = std::iter::once(&source).chain(&targets).map(|p| p.display().to_string()).collect();
+        let p = super::many_planned("sync.many", &SyncManyRequest { drives, ..Default::default() }, ctx)?;
+        if p.plan.source != source {
+            return Err(Error::Conflict(format!(
+                "{} looks newer than {} now; plan again",
+                p.source_name,
+                source.display()
+            )));
+        }
+        Ok(p)
+    })
+}
+
 /// The sync step: `source` onto each of `others`, when `source` is the newest of them. `after`
 /// says an earlier step changes `source`, so even a target that matches it now gets a copy.
+/// Several targets are written at once, unless one came back from a set: that pair's sync saves
+/// the players' changes in the store first, which a sync onto several drives doesn't.
 fn sync_step(
     source: &Device,
     others: &[&Device],
@@ -652,6 +671,7 @@ fn sync_step(
     let mut step = JobStep::new(StepKind::Sync);
     let name = source.name();
     let mut matching = Vec::new();
+    let (mut copied, mut back_from_set) = (Vec::new(), false);
     for o in others {
         let p = match sync_plan(&pair(source.root(), o.root()), ctx) {
             Ok(p) => p,
@@ -682,7 +702,16 @@ fn sync_step(
             step.warn(w.clone());
         }
         step.plans.push(p.to_json());
-        step.work.push(Work::Op { plan: None, again: sync_again(source.root().into(), o.root().into()) });
+        back_from_set |= p.plan.after_set.is_some();
+        copied.push(o.root().to_path_buf());
+    }
+    match copied.len() {
+        2.. if !back_from_set => {
+            step.work.push(Work::Op { plan: None, again: sync_many_again(source.root().into(), copied) })
+        }
+        _ => step
+            .work
+            .extend(copied.into_iter().map(|o| Work::Op { plan: None, again: sync_again(source.root().into(), o) })),
     }
     if !matching.is_empty() && !step.work.is_empty() {
         let verb = if matching.len() == 1 { "matches" } else { "match" };

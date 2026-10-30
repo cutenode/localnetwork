@@ -7768,6 +7768,11 @@ export type CollectionExportPlan = {
   free_space: number | null;
   fits: boolean;
   warnings: string[];
+  /**
+   * Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),
+   * which `smart apply` keeps up to date: kept in the store once the export is applied.
+   */
+  smart: SmartPlaylist[];
 };
 
 export type CollectionExportReport = {
