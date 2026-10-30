@@ -32,6 +32,7 @@ import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
+import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
 import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
@@ -219,6 +220,7 @@ export async function createApp(options: CreateAppOptions) {
 	const tracklists = new TracklistService(core);
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
+	const profiles = new ProfileService(indexedRepo, logger.child({ component: 'profiles' }));
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
@@ -322,6 +324,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectAdmin,
 		tracklists,
 		dj,
+		profiles,
 		supports,
 		epks,
 		shows,

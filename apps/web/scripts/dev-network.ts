@@ -26,6 +26,7 @@ import { eventRecord, showRecord } from '../src/lib/server/services/shows.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
 import {
 	DEMO_DJ_PROFILE,
+	DEMO_PROFILE,
 	DEMO_DJ_SETS,
 	DEMO_DJS,
 	DEMO_EPKS,
@@ -64,7 +65,7 @@ const ACCOUNTS = [
 		handle: 'neon.test',
 		password: 'neon-pass',
 		displayName: 'Neon',
-		note: 'DJ; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
+		note: 'DJ with a profile; manages two demo projects, has three sets and four shows, and made a press kit that moves to the root on their first visit'
 	},
 	{ handle: 'pat.test', password: 'pat-pass', displayName: 'Pat', note: "promoter; follows both of neon's projects" },
 	...DEMO_DJS.map((dj) => ({
@@ -171,6 +172,14 @@ async function main() {
 		rkey: 'self',
 		record: DEMO_DJ_PROFILE
 	});
+	// And their profile on the site, at /@neon.test.
+	const profiled = new Date().toISOString();
+	await neon.com.atproto.repo.putRecord({
+		repo: dids['neon.test'],
+		collection: COLLECTION.profile,
+		rkey: 'self',
+		record: validateRecord(COLLECTION.profile, { ...DEMO_PROFILE, createdAt: profiled, updatedAt: profiled })
+	});
 
 	// HappyView isn't running yet, so it reads these sets through backfillSeeds below, and again when the app first
 	// syncs its scripts, as it would for older ones.
@@ -194,7 +203,7 @@ async function main() {
 		}
 	}
 
-	log(`Seeded neon.test's dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
+	log(`Seeded neon.test's profile, dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
 
 	// A tracklist on Neon Tide's first mix, so its mix page has something to show: the sample report,
 	// stored in the root's repo the way an approved request leaves it.
@@ -327,6 +336,7 @@ async function main() {
 	log(`HappyView      ${happyView.url}`);
 	void backfillSeeds(new HappyViewClient(happyView), projectUris, [
 		{ collection: COLLECTION.djProfile, did: dids['neon.test'] },
+		{ collection: COLLECTION.profile, did: dids['neon.test'] },
 		...djs.map(({ handle }) => ({ collection: COLLECTION.djSet, did: dids[handle] })),
 		{ collection: COLLECTION.epk, did: root.did },
 		{ collection: COLLECTION.epk, did: dids['neon.test'] },

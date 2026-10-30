@@ -8,7 +8,7 @@
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import EpkPhotos from '#lib/components/epk/EpkPhotos.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import { pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
@@ -89,7 +89,7 @@
 		</section>
 		<aside aria-labelledby="epk-facts" class="flex min-w-0 flex-[1_1_15rem] flex-col gap-4">
 			<h2 id="epk-facts" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</aside>
 	</div>
 

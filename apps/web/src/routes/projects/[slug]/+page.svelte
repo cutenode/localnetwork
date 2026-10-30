@@ -12,7 +12,7 @@
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import MixList from '#lib/components/MixList.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import ShowList from '#lib/components/ShowList.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -171,7 +171,7 @@
 	<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
 		<section aria-labelledby="glance" class="card flex flex-col gap-4 p-5">
 			<h2 id="glance" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</section>
 		{#if profile.links?.length}
 			<section aria-labelledby="links" class="card flex flex-col gap-3 p-5">

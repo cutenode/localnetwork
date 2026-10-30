@@ -13,6 +13,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - Signing in lands on `/dashboard`, where every change to what a public page shows happens: each project you manage (`/dashboard/projects/<slug>`, with its profile, shows and press kits), your inbox, requests, booking threads, planner, and activity. Staff work in the staff console at `/admin`, on the same sidebar layout.
 - The inbox (`/dashboard/inbox`) tells each participant in a booking thread about a new inquiry, message or status change from someone else in it, with a count of unread items in the sidebar. An item names the project, never which of its managers wrote, and holds none of what was written. Opening an item, or its thread, marks it read. Read items go after 90 days and unread ones after 180. People can also have new items emailed: the address comes from their account's host, read only after they approve it, and nothing goes to it until they open a link we email it, which works for a day. New items wait two minutes so a burst goes as one email. Anything older than six hours when it's indexed stays on the site. They can also have them sent as Bluesky DMs from the root account, a minute apart at most; when their chat settings only allow DMs from accounts they follow, the settings page asks them to follow the root first. `/dashboard/inbox/settings` turns each on and off, picks what gets sent, and sends a test.
 - Public pages only read, apart from Follow and Save. A project's managers get a Manage link to its dashboard there, and staff one to the staff console. A project that isn't public shows its managers and staff a "Not public yet" banner; everyone else gets a 404.
+- Each account with a `computer.localnetwork.profile` has a profile page at `/@<handle>`: its basics, the performer and promoter sections it turned on, the DJ stats and sets it publishes, and the active projects it manages. A DID with a verified handle, and a handle in any other form, redirect there; an account without a verified handle has its page at `/@<did>`, and one without a profile gets a 404. Handles across the site link to these pages. The owner gets a Manage link to their dashboard, and staff one to the account's actions in the audit log.
 
 ### Promoters
 
@@ -178,7 +179,7 @@ With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons cha
 The app reads public records only from HappyView, never straight from a PDS (`com.atproto.repo.getRecord` or `listRecords`, `com.atproto.sync.getRecord` or `getRepo`) or from Bluesky's AppView. The reads that can't go through it:
 
 - Space records and their blobs, which the app syncs from the space hosts itself (see [Sync](#sync)).
-- Blobs in public repos: project images (`/media/<did>/<cid>`) and tracklists, with `com.atproto.sync.getBlob`, until HappyView serves blobs.
+- Blobs in public repos: project images and profile avatars (`/media/<did>/<cid>`) and tracklists, with `com.atproto.sync.getBlob`, until HappyView serves blobs. Another account's blob is served only when it's the avatar its indexed profile names, from a PDS that passes the SSRF guard.
 - The root's own projects when deciding who's in a booking thread (opening one, and the hourly manager sync), since a directory that's behind could let a removed manager back in.
 - DID and handle resolution, OAuth, and the root's session.
 - HappyView's own re-reads of a repo (`/admin/backfill`, see above), which it makes from the account's PDS.
@@ -199,12 +200,12 @@ pnpm dev
 
 `pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects, and a stand-in for the userinput.app space that bug reports post to), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
-| Handle      | Password    | Role                                                                                                                                                                   |
-| ----------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                                                                                                                                               |
-| `milo.test` | `milo-pass` | regular; make them a moderator under Staff                                                                                                                             |
-| `neon.test` | `neon-pass` | DJ, manages two demo projects, has three sets and four shows, and made Neon Tide's Radio press kit the old way, so it moves to the root on their first dashboard visit |
-| `pat.test`  | `pat-pass`  | promoter, follows both of neon's projects                                                                                                                              |
+| Handle      | Password    | Role                                                                                                                                                                                                   |
+| ----------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                                                                                                                                                                               |
+| `milo.test` | `milo-pass` | regular; make them a moderator under Staff                                                                                                                                                             |
+| `neon.test` | `neon-pass` | DJ with a profile at `/@neon.test`, manages two demo projects, has three sets and four shows, and made Neon Tide's Radio press kit the old way, so it moves to the root on their first dashboard visit |
+| `pat.test`  | `pat-pass`  | promoter, follows both of neon's projects                                                                                                                                                              |
 
 `harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played.
 

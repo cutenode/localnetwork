@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { RequestView, Viewer } from '#lib/types.ts';
+import Handle from './Handle.svelte';
 import ManageLink from './ManageLink.svelte';
 import PreviewBanner from './PreviewBanner.svelte';
 import RequestList from './RequestList.svelte';
@@ -41,6 +42,31 @@ describe('ManageLink', () => {
 		await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
 		await rerender({ viewer: null, project });
 		await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
+	});
+
+	it("takes a profile's owner to their dashboard, staff to what the account did, and nobody else anywhere", async () => {
+		const profile = { did: 'did:plc:neon' };
+		const { rerender } = await render(ManageLink, { viewer: viewer('did:plc:neon'), profile });
+		const link = page.getByRole('link', { name: 'Manage', exact: true });
+
+		await expect.element(link).toHaveAttribute('href', '/dashboard');
+		await rerender({ viewer: viewer('did:plc:mod', true), profile });
+		await expect.element(link).toHaveAttribute('href', '/admin/audit?actor=did%3Aplc%3Aneon');
+		await rerender({ viewer: viewer('did:plc:fan'), profile });
+		await expect.element(link).not.toBeInTheDocument();
+	});
+});
+
+describe('Handle', () => {
+	it("links an account to its profile, at its handle or else its DID, unless it's inside another link", async () => {
+		const { rerender } = await render(Handle, { account: { did: 'did:plc:neon', handle: 'neon.test' } });
+
+		await expect.element(page.getByRole('link', { name: '@neon.test' })).toHaveAttribute('href', '/@neon.test');
+		await rerender({ account: { did: 'did:plc:neon', handle: null } });
+		await expect.element(page.getByRole('link')).toHaveAttribute('href', '/@did:plc:neon');
+		await rerender({ account: { did: 'did:plc:neon', handle: 'neon.test' }, link: false });
+		await expect.element(page.getByText('@neon.test')).toBeInTheDocument();
+		await expect.element(page.getByRole('link')).not.toBeInTheDocument();
 	});
 });
 

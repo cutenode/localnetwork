@@ -146,6 +146,16 @@ export type ProfileRecord = {
 	updatedAt: string;
 };
 
+/** A person's profile as the site shows it, read from what the directory indexed. */
+export type ProfileView = {
+	did: string;
+	uri: string;
+	cid: string;
+	record: ProfileRecord;
+	/** The avatar through this site's `/media`, or null without one. */
+	avatarUrl: string | null;
+};
+
 export type ProjectDetails = {
 	bookingEmail?: string;
 	bookingPhone?: string;

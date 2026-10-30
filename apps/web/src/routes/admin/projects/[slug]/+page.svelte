@@ -54,7 +54,7 @@
 					<h2 class="section-title">Managers</h2>
 					{#each data.managers as manager (manager.did)}
 						<div class="flex min-h-6 items-center justify-between gap-2">
-							<label class="flex min-w-0 items-center gap-2.5 text-small"><input type="checkbox" class="checkbox" name="keep" value={manager.did} checked /><Handle account={manager} class="truncate" /></label>
+							<label class="flex min-w-0 items-center gap-2.5 text-small"><input type="checkbox" class="checkbox" name="keep" value={manager.did} checked /><Handle account={manager} link={false} class="truncate" /></label>
 							{#await data.verifications then statuses}
 								{@const status = statuses?.[manager.did]}
 								{#if status === 'verified'}
@@ -75,7 +75,7 @@
 				<h2 class="section-title">Requests</h2>
 				<ul class="mt-1 divide-y divide-line">
 					{#each data.requests as request (request.uri)}
-						<li class="flex items-center justify-between gap-2 py-2.5"><a class="min-w-0 text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{request.kind} · <Handle account={request.requester} /></a><StatusPill status={request.status} /></li>
+						<li class="flex items-center justify-between gap-2 py-2.5"><a class="min-w-0 text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{request.kind} · <Handle account={request.requester} link={false} /></a><StatusPill status={request.status} /></li>
 					{:else}<li class="py-2.5 text-fg-muted">None.</li>{/each}
 				</ul>
 			</Card>

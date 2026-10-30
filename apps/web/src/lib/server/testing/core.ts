@@ -13,6 +13,7 @@ import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
 import { FollowService } from '../services/follows';
 import { PlannerService } from '../services/planner';
+import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
@@ -115,6 +116,7 @@ export async function createTestServices(
 	});
 
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
+	const profiles = new ProfileService(indexedRepo, silentLogger);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -170,6 +172,7 @@ export async function createTestServices(
 		listings,
 		handles,
 		indexedRepo,
+		profiles,
 		viewer,
 		capable,
 		spaces
