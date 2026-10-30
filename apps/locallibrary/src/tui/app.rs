@@ -34,7 +34,7 @@ use super::crate_list::{Crate, CrateTrack};
 use super::drives::{DriveKey, DriveRow};
 use super::edits::{Action, Job, Menu, Modal, Pick};
 use super::keymap::{self, Act};
-use super::keys::{self, Camelot, Relation};
+use super::keys::{Camelot, Relation};
 use super::state::{self, Saved, SavedCrateTrack, SavedQueue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -411,7 +411,7 @@ pub struct Mix {
 
 impl Matches {
     pub(super) fn find(library: Arc<Library>, root: PathBuf, track: &Track, limit: usize) -> Matches {
-        let items = keys::suggestions(&library, track, limit)
+        let items = api::matches_in(&library, track, limit)
             .into_iter()
             .filter_map(|s| {
                 let index = library.tracks.iter().position(|t| t.id == s.track.id)?;
@@ -462,7 +462,7 @@ pub struct TrackInfo {
 
 fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
     let device = Device::open(root).ok();
-    let mut analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
+    let mut analysis = device.as_ref().map(|d| api::analysis_of(d, track)).unwrap_or_default();
     let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
     let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
     let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
@@ -2285,7 +2285,7 @@ impl App {
         let store_root = self.store_root.clone();
         let job = move || {
             let read = Device::open(&root).map(|device| {
-                let installed = crate::plugins::Installed::with(Store::open(&store_root).ok());
+                let installed = crate::plugins::installed(Store::open(&store_root).ok());
                 Box::new(TrackValues::read(installed.source(), &device, &library))
             });
             Msg::Fields(generation, read.map_err(|e| e.to_string()))

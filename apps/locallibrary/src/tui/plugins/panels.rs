@@ -67,14 +67,14 @@ pub struct Shown {
 
 pub enum State {
     Loading,
-    /// It can't be asked here, and why (a folder opened by path, which a plugin can't name).
-    Unavailable(&'static str),
     Failed,
     Ready(Box<Ready>),
 }
 
 /// A panel's view, as the player draws it: worked out in the background.
 pub struct Ready {
+    /// The view's own title, if it has one: shown after the panel's.
+    pub title: Option<String>,
     /// It as lines: what's drawn, but for a picture or a chart.
     pub lines: Vec<(Tone, String)>,
     pub art: Option<Art>,
@@ -105,7 +105,7 @@ impl Ready {
             View::Chart { style, series, .. } if !view.is_empty() => Some(Plot::of(*style, series)),
             _ => None,
         };
-        Ready { lines, art, chart }
+        Ready { title: view.title().map(String::from), lines, art, chart }
     }
 
     /// How many rows its body takes: all there are for a picture or a chart it draws, else a row
@@ -171,6 +171,15 @@ impl Panels {
     pub fn of_track(&self, selected: (u64, usize)) -> bool {
         self.track == Some(selected)
     }
+
+    /// The panels of `plugin` may show otherwise now (its settings changed): the track's panels
+    /// are asked for again, each in the room its last answer took.
+    pub fn stale(&mut self, plugin: &str) {
+        if self.shown.iter().any(|s| s.plugin == plugin) {
+            self.cancel.cancel();
+            self.track = None;
+        }
+    }
 }
 
 impl App {
@@ -205,7 +214,6 @@ impl App {
             }
         }
         let (library, track) = (l.library.clone(), l.library.tracks[i].id);
-        let why = (self.pluggable(Some(&root)) == Some(false)).then_some("only on a plugged-in drive");
         self.panels.cancel.cancel();
         self.panels.cancel = CancelToken::new();
         let last = |plugin: &str, panel: &str| {
@@ -217,14 +225,11 @@ impl App {
             panel: &p.name,
             title: &p.title,
             by: plugins.manifest(plugin).map_or("", |m| m.name.as_str()),
-            state: why.map_or(State::Loading, State::Unavailable),
+            state: State::Loading,
             rows: last(plugin, &p.name),
         });
         self.panels.shown = shown.collect();
         self.panels.track = Some((generation, i));
-        if why.is_some() {
-            return;
-        }
         for (at, (plugin, p)) in all.into_iter().enumerate() {
             let (cancel, store_root, root, library) =
                 (self.panels.cancel.clone(), self.store_root.clone(), root.clone(), library.clone());
@@ -276,9 +281,9 @@ pub fn height(app: &App, room: u16) -> u16 {
     })
 }
 
-/// The selected track's panels in `area`, one after another, each under its title and plugin's
-/// name: what it shows (a picture, a chart, else its lines, cut at the edge), or that it's
-/// coming, failed or can't be shown here. Another track's are drawn as coming, in their room.
+/// The selected track's panels in `area`, one after another, each under its title (and its view's,
+/// once it's shown) and plugin's name: what it shows (a picture, a chart, else its lines, cut at the edge), or that it's
+/// coming or failed. Another track's are drawn as coming, in their room.
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     let current = app.selected_key().is_some_and(|k| app.panels.of_track(k));
     // Before any track's were asked for: each coming, in a row.
@@ -305,8 +310,12 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         }
         let r = Rect { y, height: (1 + shown.rows).min(area.bottom() - y), ..area };
         y += r.height;
-        let heading =
-            vec![Span::styled(format!(" {} ", shown.title), dim()), Span::styled(format!("{} ", shown.by), faint())];
+        let view = match &shown.state {
+            State::Ready(ready) if current => ready.title.as_deref(),
+            _ => None,
+        };
+        let title = crate::plugin_cmd::view::titled(shown.title, view);
+        let heading = vec![Span::styled(format!(" {title} "), dim()), Span::styled(format!("{} ", shown.by), faint())];
         let body = section_with(f, r, Line::from(heading));
         let said = |f: &mut Frame, why: &str| {
             f.render_widget(Paragraph::new(Line::styled(clip(why, body.width as usize), dim())), body)
@@ -314,7 +323,6 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         match &mut shown.state {
             _ if !current => said(f, "loading…"),
             State::Loading => said(f, "loading…"),
-            State::Unavailable(why) => said(f, why),
             State::Failed => said(f, "couldn't show it (! says why)"),
             State::Ready(ready) => draw_ready(f, ready, body),
         }

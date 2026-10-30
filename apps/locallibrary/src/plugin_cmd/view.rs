@@ -232,11 +232,17 @@ pub(crate) fn view(v: &View, names: Names<'_>) {
 /// A view under `title`, a section of what the CLI shows (a panel under a track's details): the
 /// title (and the view's, after it), then its lines, saying so when it shows nothing.
 pub(crate) fn section(title: &str, v: &View, names: Names<'_>) {
-    heading(&v.title().map_or_else(|| title.to_string(), |t| format!("{title} · {t}")));
+    heading(&titled(title, v.title()));
     match says_nothing(v) {
         true => draw(&[Drawn::Missing]),
         false => draw(&lines(v, names)),
     }
+}
+
+/// A panel's `title` with its view's (`view`), after it, when it has one: how the CLI and the
+/// player head a panel.
+pub(crate) fn titled(title: &str, view: Option<&str>) -> String {
+    view.map_or_else(|| title.to_string(), |v| format!("{title} · {v}"))
 }
 
 /// Lines as the CLI draws them: section titles in bold; a table's headings, details and what's

@@ -10,6 +10,7 @@ mod choose;
 mod destinations;
 mod events;
 mod exports;
+mod fields;
 mod hooks;
 mod imports;
 mod jobs;
@@ -21,6 +22,7 @@ mod roles;
 mod services;
 mod sources;
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -153,6 +155,38 @@ impl Reads for TestReads {
     fn drive(&self, spec: &str) -> Result<PathBuf> {
         self.isolate();
         Ok(api::resolve_known_drive(spec)?.root().to_path_buf())
+    }
+}
+
+thread_local! {
+    /// The plugins the library takes for the app's on this thread (see `locallibrary::plugin::set_hosted`).
+    static HOSTED: Cell<Option<&'static Plugins>> = const { Cell::new(None) };
+}
+
+/// A fixture whose plugins are the app's host on this thread, as a refresh and an edit plan find them.
+struct Hosted {
+    _dir: tempfile::TempDir,
+    store: Store,
+    drive: PathBuf,
+    plugins: &'static Plugins,
+}
+
+impl Hosted {
+    /// `f`'s plugins, hosted. The host lives as long as the test process does (a plan holds it),
+    /// its plugins stopped when the test ends.
+    fn new(f: Fixture) -> Hosted {
+        let Fixture { _dir, store, drive, plugins, .. } = f;
+        let plugins: &'static Plugins = Box::leak(Box::new(plugins));
+        locallibrary::plugin::set_hosted(|| HOSTED.with(Cell::get));
+        HOSTED.with(|h| h.set(Some(plugins)));
+        Hosted { _dir, store, drive, plugins }
+    }
+}
+
+impl Drop for Hosted {
+    fn drop(&mut self) {
+        HOSTED.with(|h| h.set(None));
+        self.plugins.shutdown();
     }
 }
 

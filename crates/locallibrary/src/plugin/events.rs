@@ -174,7 +174,7 @@ impl Slot {
     /// `event/notify`, its payload saying nothing of where things are on this computer (as a
     /// read's answer doesn't, see [`answer_for_plugin`]). One that can't be sent is logged.
     fn send_event(self: &Arc<Self>, event: Event, store: Option<&Store>) {
-        let payload = answer_for_plugin("", event.payload, &known_roots(store));
+        let payload = answer_for_plugin("", event.payload, &known_roots(store, &self.given()));
         let notify = EventNotify { event: event.name, drive: event.drive, payload };
         if let Err(e) = self.notify("events", method::EVENT_NOTIFY, &notify, store) {
             let said = format!("the {} event wasn't sent: {e}", event.name.name());
@@ -244,13 +244,14 @@ impl Plugin {
 
     /// `action` on the drive it names as this computer knows it, by id (else by name), so a front
     /// end never takes it for a folder; its tracks those the drive has, each once (the others left
-    /// out, and logged). Why not, when the drive isn't one known here, or has none of its tracks.
-    /// Found as its reads find drives: in the store the plugin was started in.
+    /// out, and logged). Why not, when the drive isn't one known here or given to a hook under
+    /// way, or has none of its tracks. Found as its reads find drives: in the store the plugin was
+    /// started in.
     fn on_known_drive(&self, live: &Live, mut action: HostAction) -> std::result::Result<HostAction, String> {
         let (Some(drive), tracks) = action.scope_mut() else { return Ok(action) };
         let store = live.store.as_ref().map(|s| s.root().to_path_buf());
         crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = store);
-        let device = self.host.reads.drive(drive).and_then(|root| crate::Device::open(&root));
+        let device = self.drive(drive).and_then(|root| crate::Device::open(&root));
         let device =
             device.map_err(|e| format!("it suggests an action on {drive:?}, which isn't a drive known here: {e}"))?;
         let name = device.name();

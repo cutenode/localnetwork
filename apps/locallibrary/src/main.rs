@@ -1198,7 +1198,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
-            let fields = plugins::Installed::with(diff_cmd::existing_store(&cli.store)?);
+            let fields = plugins::installed(diff_cmd::existing_store(&cli.store)?);
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
                 let req = api::TracksQuery { library: drive.into(), filter, playlist, sort, offset: 0, limit: a.limit };

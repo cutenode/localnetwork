@@ -390,7 +390,7 @@ fn reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCase) {
         }
         (None, _) => {
             let said = last_message(&app);
-            let why = ["ELSEWHERE isn't plugged in", "open a drive first", "only on a plugged-in drive"];
+            let why = ["ELSEWHERE isn't plugged in", "open a drive first"];
             let none =
                 !tracks.is_empty() && on.is_empty() && said.starts_with("none of the tracks it suggests are on ");
             assert!(why.contains(&said) || none, "{said}");

@@ -505,7 +505,7 @@ fn build() -> Registry {
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
     r.read("tracks.query", |c, req| {
-        let fields = crate::plugins::Installed::with(c.existing()?);
+        let fields = crate::plugins::installed(c.existing()?);
         Ok(api::tracks_query_with(&LIBRARIES, &req, Some(fields.source()))?)
     })
     .quick();
