@@ -116,7 +116,7 @@ impl Plugins {
         store: &Store,
         ctx: &Ctx<'_>,
     ) -> Result<Planned<SetPublish>> {
-        let (slot, destination) = self.destination(spec, DestinationKind::Set)?;
+        let (slot, destination) = self.destination(spec, DestinationKind::Set, Some(store))?;
         let book = SetBook::load(store)?;
         let set = book.find(set)?;
         let recording = set.recording.as_ref().map(|r| r.path.clone()).ok_or_else(|| {

@@ -3,7 +3,7 @@
 //! the browser), for the echo plugin or not, signed out of, and the echo plugin's access to them
 //! made its default or taken away; and nothing answered holds a token.
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use hegel::TestCase;
@@ -56,6 +56,38 @@ impl Mock {
             (s.challenge, s.signing_in_as) = (at("code_challenge"), who.clone());
         }
         format!("{redirect}?code=c0de&state={}", at("state"))
+    }
+
+    /// Runs `command`, approving as `who` in the browser the sign-in it prints a link to (on
+    /// stderr) if it does: how it exited, and what it printed to stdout and stderr.
+    pub(super) fn approving(&self, mut command: Command, who: &Value) -> (i32, String, String) {
+        use std::io::{BufRead, BufReader, Read};
+        let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let out = std::thread::spawn(move || {
+            let mut out = String::new();
+            stdout.read_to_string(&mut out).unwrap();
+            out
+        });
+        let (mut err, mut browser) = (String::new(), None);
+        for line in BufReader::new(child.stderr.take().unwrap()).lines() {
+            let line = line.unwrap();
+            err.push_str(&format!("{line}\n"));
+            let link = line.trim();
+            if browser.is_none() && link.starts_with("http") && link.contains("/authorize?") {
+                let (_, query) = link.split_once('?').unwrap();
+                let query: Vec<(String, String)> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+                let redirect = query.iter().find(|(k, _)| k == "redirect_uri").map(|(_, v)| v.clone()).unwrap();
+                let back = self.approved(&json!({ "url": link, "redirect_uri": redirect }), who);
+                let (to, query) = back.split_once('?').unwrap();
+                browser = Some(browser_back(to, query.into()));
+            }
+        }
+        let code = child.wait().unwrap().code().unwrap();
+        if let Some(browser) = browser {
+            browser.join().unwrap();
+        }
+        (code, out.join().unwrap(), err)
     }
 
     /// Whether any token the service gave is in `text`.
@@ -181,8 +213,95 @@ fn the_actions_of_an_access_error_are_methods_the_sidecar_has() {
     assert_eq!((&accesses[0]["account"], &accesses[0]["default"]), (&account("a"), &json!(true)), "{accesses}");
 }
 
-/// Who a step of [`accounts_and_accesses_are_as_the_calls_made_them`] is about, by subject.
-const PEOPLE: [&str; 2] = ["a", "b"];
+/// Who the steps of the property tests here are about, by subject.
+pub(super) const PEOPLE: [&str; 2] = ["a", "b"];
+
+/// What the store keeps, as the model has it.
+#[derive(Default)]
+pub(super) struct Model {
+    /// Subjects signed in, in the order they were first signed in since they were last signed
+    /// out of.
+    kept: Vec<&'static str>,
+    /// The echo plugin's accesses, by subject, in the order they were given, and whether each is
+    /// its default.
+    accesses: Vec<(&'static str, bool)>,
+}
+
+impl Model {
+    pub(super) fn kept(&self, subject: &str) -> bool {
+        self.kept.contains(&subject)
+    }
+
+    pub(super) fn has_access(&self, subject: &str) -> bool {
+        self.accesses.iter().any(|(a, _)| *a == subject)
+    }
+
+    /// `subject` signed in, for the echo plugin or not: given access when it's for echo and it
+    /// has none, its default when it's its first.
+    pub(super) fn signed_in(&mut self, subject: &'static str, for_echo: bool) {
+        if !self.kept(subject) {
+            self.kept.push(subject);
+        }
+        if for_echo && !self.has_access(subject) {
+            let first = self.accesses.is_empty();
+            self.accesses.push((subject, first));
+        }
+    }
+
+    /// `subject` signed out of: whether it was kept.
+    pub(super) fn signed_out(&mut self, subject: &str) -> bool {
+        let was = self.kept(subject);
+        self.kept.retain(|k| *k != subject);
+        was
+    }
+
+    /// `subject` made echo's default, given access first: whether it could be (it's kept, or
+    /// echo has access to it).
+    pub(super) fn made_default(&mut self, subject: &'static str) -> bool {
+        if !self.has_access(subject) && !self.kept(subject) {
+            return false;
+        }
+        if !self.has_access(subject) {
+            self.accesses.push((subject, false));
+        }
+        self.accesses.iter_mut().for_each(|(a, default)| *default = *a == subject);
+        true
+    }
+
+    /// Echo's access to `subject` taken away: whether it had one. When it was its default and one
+    /// is left, that one is.
+    pub(super) fn taken_away(&mut self, subject: &str) -> bool {
+        let Some(at) = self.accesses.iter().position(|(a, _)| *a == subject) else { return false };
+        let (_, was_default) = self.accesses.remove(at);
+        if let [only] = self.accesses.as_mut_slice() {
+            only.1 |= was_default;
+        }
+        true
+    }
+
+    /// The accounts listed (by subject, and whether each is signed in) and the accesses (by
+    /// subject, and whether each is the default), as `accounts.list` answers them.
+    pub(super) fn listed(&self) -> Value {
+        let signed_out = self.accesses.iter().map(|(a, _)| *a).filter(|a| !self.kept(a));
+        let accounts: Vec<Value> =
+            self.kept.iter().map(|k| json!([k, true])).chain(signed_out.map(|a| json!([a, false]))).collect();
+        let accesses: Vec<Value> = self.accesses.iter().map(|(a, d)| json!([a, d])).collect();
+        json!({ "accounts": accounts, "accesses": accesses })
+    }
+}
+
+/// `listed` (what `accounts.list` answers, or `account --json` prints) as [`Model::listed`]
+/// has it.
+pub(super) fn shape(listed: &Value) -> Value {
+    let pairs = |key: &str, a: &str, b: &str| -> Vec<Value> {
+        let all = listed[key].as_array().cloned().unwrap_or_default();
+        all.iter().map(|x| json!([x.pointer(a), x.pointer(b)])).collect()
+    };
+    json!({
+        "accounts": pairs("accounts", "/subject", "/signed_in"),
+        "accesses": pairs("accesses", "/account/subject", "/default"),
+    })
+}
 
 /// A step of [`accounts_and_accesses_are_as_the_calls_made_them`], naming people by their place
 /// in [`PEOPLE`].
@@ -200,17 +319,6 @@ enum Step {
     SignOut(usize),
     SetDefault(usize),
     TakeAway(usize),
-}
-
-/// What the store keeps, as the model has it.
-#[derive(Default)]
-struct Model {
-    /// Subjects signed in, in the order they were first signed in since they were last signed
-    /// out of.
-    kept: Vec<&'static str>,
-    /// The echo plugin's accesses, by subject, in the order they were given, and whether each is
-    /// its default.
-    accesses: Vec<(&'static str, bool)>,
 }
 
 /// For any sequence of sidecar calls signing in (for the echo plugin or not, coming back or
@@ -239,14 +347,14 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
             Step::SignIn { who, .. } | Step::SignOut(who) | Step::SetDefault(who) | Step::TakeAway(who) => PEOPLE[who],
             Step::Cancelled => "",
         };
-        let has_access = model.accesses.iter().any(|(a, _)| *a == subject);
+        let not_found = |answer: &Value| assert_eq!(answer["error"]["data"]["kind"], "not_found", "step {i}: {answer}");
         let answer = match step {
             Step::SignIn { for_echo, pasted, .. } => {
                 let mut params = json!({ "type": "mock" });
                 if for_echo {
                     params["for"] = json!("echo");
                 }
-                if model.kept.contains(&subject) {
+                if model.kept(subject) {
                     params["account"] = json!(subject);
                 }
                 let begun = s.call(id, "accounts.sign_in.begin", params);
@@ -265,14 +373,8 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
                 };
                 let r = &done["result"];
                 assert_eq!((&r["subject"], &r["signed_in"]), (&json!(subject), &json!(true)), "step {i}: {done}");
-                if !model.kept.contains(&subject) {
-                    model.kept.push(subject);
-                }
                 assert_eq!(r["access"].is_object(), for_echo, "step {i}: {done}");
-                if for_echo && !has_access {
-                    let first = model.accesses.is_empty();
-                    model.accesses.push((subject, first));
-                }
+                model.signed_in(subject, for_echo);
                 done
             }
             Step::Cancelled => {
@@ -283,66 +385,33 @@ fn accounts_and_accesses_are_as_the_calls_made_them(tc: TestCase) {
             }
             Step::SignOut(_) => {
                 let out = s.call(id, "accounts.sign_out", json!({ "account": account(subject) }));
-                match model.kept.iter().position(|k| *k == subject) {
-                    Some(at) => {
-                        assert_eq!(out["result"]["revoked"], true, "step {i}: {out}");
-                        model.kept.remove(at);
-                    }
-                    None => assert_eq!(out["error"]["data"]["kind"], "not_found", "step {i}: {out}"),
+                match model.signed_out(subject) {
+                    true => assert_eq!(out["result"]["revoked"], true, "step {i}: {out}"),
+                    false => not_found(&out),
                 }
                 out
             }
             Step::SetDefault(_) => {
-                let params = json!({ "plugin": "echo", "account": account(subject) });
-                let set = s.call(id, "accounts.access.set_default", params);
-                match has_access || model.kept.contains(&subject) {
-                    true => {
-                        assert_eq!(set["result"]["default"], true, "step {i}: {set}");
-                        if !has_access {
-                            model.accesses.push((subject, false));
-                        }
-                        model.accesses.iter_mut().for_each(|(a, default)| *default = *a == subject);
-                    }
-                    false => assert_eq!(set["error"]["data"]["kind"], "not_found", "step {i}: {set}"),
+                let set =
+                    s.call(id, "accounts.access.set_default", json!({ "plugin": "echo", "account": account(subject) }));
+                match model.made_default(subject) {
+                    true => assert_eq!(set["result"]["default"], true, "step {i}: {set}"),
+                    false => not_found(&set),
                 }
                 set
             }
             Step::TakeAway(_) => {
-                let params = json!({ "plugin": "echo", "account": account(subject) });
-                let taken = s.call(id, "accounts.access.take_away", params);
-                match model.accesses.iter().position(|(a, _)| *a == subject) {
-                    Some(at) => {
-                        let (_, was_default) = model.accesses.remove(at);
-                        if let [only] = model.accesses.as_mut_slice() {
-                            only.1 |= was_default;
-                        }
-                    }
-                    None => assert_eq!(taken["error"]["data"]["kind"], "not_found", "step {i}: {taken}"),
+                let taken =
+                    s.call(id, "accounts.access.take_away", json!({ "plugin": "echo", "account": account(subject) }));
+                if !model.taken_away(subject) {
+                    not_found(&taken);
                 }
                 taken
             }
         };
         answers.push_str(&answer.to_string());
         let listed = s.call(id + 5, "accounts.list", json!({}));
-        let accounts: Vec<(Value, Value)> = listed["result"]["accounts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|a| (a["subject"].clone(), a["signed_in"].clone()))
-            .collect();
-        let signed_out = model.accesses.iter().map(|(a, _)| *a).filter(|a| !model.kept.contains(a));
-        let expected: Vec<(Value, Value)> = (model.kept.iter().map(|k| (json!(k), json!(true))))
-            .chain(signed_out.map(|a| (json!(a), json!(false))))
-            .collect();
-        assert_eq!(accounts, expected, "step {i}: {step:?}");
-        let accesses: Vec<(Value, Value)> = listed["result"]["accesses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|a| (a["account"]["subject"].clone(), a["default"].clone()))
-            .collect();
-        let expected: Vec<(Value, Value)> = model.accesses.iter().map(|(a, d)| (json!(a), json!(d))).collect();
-        assert_eq!(accesses, expected, "step {i}: {step:?}");
+        assert_eq!(shape(&listed["result"]), model.listed(), "step {i}: {step:?}");
         answers.push_str(&listed.to_string());
     }
     assert!(!m.leaked(&answers), "an answer holds a token");

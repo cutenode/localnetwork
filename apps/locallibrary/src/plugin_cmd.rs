@@ -1,4 +1,4 @@
-//! `plugin`: the plugins locallibrary has, their settings and accounts, which analyzer each field
+//! `plugin`: the plugins locallibrary has, their settings, accounts and access to yours, which analyzer each field
 //! role is read from, which checks run and when a provider's candidate is chosen for the user;
 //! `analyze`, running their analyzers on a drive's tracks; `art fetch` and `track fetch`, what
 //! their providers find; `import`, what their importers read; their panels under `track show`'s
@@ -9,7 +9,7 @@
 mod account;
 mod analyze;
 mod checks;
-mod choose;
+pub(crate) mod choose;
 mod contributed;
 mod fetch;
 mod import;
@@ -73,6 +73,19 @@ enum PluginCommand {
     /// One of a plugin's accounts on another service: whether it's signed in (the default), signing
     /// in in the browser, or out
     Account(account::AccountArgs),
+    /// A plugin's access to your accounts: show it, make an account its default for the account's
+    /// type (--default ACCOUNT), or take its access to one away (--take-away ACCOUNT)
+    Access {
+        /// The plugin's id
+        plugin: String,
+        /// The account it uses for its type unless told otherwise, as TYPE:NAME, or its name or
+        /// subject alone
+        #[arg(long, value_name = "ACCOUNT")]
+        default: Option<String>,
+        /// The account to take its access to away
+        #[arg(long, value_name = "ACCOUNT", conflicts_with = "default")]
+        take_away: Option<String>,
+    },
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
     /// check before a set, ordering a set and `analyze --apply`; a published set's MusicBrainz
     /// IDs): show them, choose one (ROLE PLUGIN.ANALYZER), read one from none (ROLE --none), or
@@ -159,6 +172,9 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ct
             return listing::settings(plugins, plugin, key, change, store_path, out);
         }
         PluginCommand::Account(args) => return account::account(plugins, args, store_path, out, ctx),
+        PluginCommand::Access { plugin, default, take_away } => {
+            return crate::account_cmd::access::access(&plugin, default, take_away, store_path, out);
+        }
         PluginCommand::Roles { role, analyzer, reset, none } => {
             return listing::roles(role, analyzer, reset, none, store_path, out);
         }

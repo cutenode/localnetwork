@@ -200,17 +200,33 @@ locallibrary ships may use Local Network's token exchange. Those are google-acco
 mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
 account type each adds, and `plugin info` its scopes.
 
-Plugins don't use account types yet: each still declares its own accounts (below), which are what
-you sign in to, until they move onto account types.
+A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why.
+The plugins that ship still declare their own accounts (below) until they move onto account
+types.
 
 ## Accounts
 
-A plugin may have accounts on other services (a mix host, a cloud drive). `locallibrary plugin
-account PLUGIN ACCOUNT sign-in` opens the service's sign-in page in the browser and waits for it
-to come back to this computer (`--no-browser` prints the link, `--paste` takes the address the
-browser ended up on when it runs on another computer); `status` says whether you're signed in and
-until when, and `sign-out` forgets the tokens and tells the service when it can. In the player,
-"sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the palette, beside the plugin's settings.
+You sign in to an account once, through an account plugin, and the store keeps it. A plugin uses
+it only through the access you give it: the scopes it may use, on that account. `locallibrary
+account` lists your accounts after the DJ account, each with whether it's signed in and the
+plugins that have access to it. `locallibrary account TYPE sign-in` opens the service's sign-in
+page in the browser and waits for it to come back to this computer (`--no-browser` prints the
+link, `--paste` takes the address the browser ended up on when it runs on another computer).
+`--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
+provide the type, and `--scope NAME` asks for one of the type's scopes besides.
+`locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
+plugins keep their access, unused until it's signed in again.
+
+`locallibrary plugin access PLUGIN` lists a plugin's access, `--default ACCOUNT` makes an account
+the one it uses for that type, and `--take-away ACCOUNT` takes its access away. Before a plugin's
+destination is used, a plugin with no access to a type it needs asks in the terminal which of your
+accounts it may use, or to sign in to another. With `--json`, `--yes` or no terminal, and in the
+sidecar, nothing is asked: it fails and says how to give it access.
+
+A plugin may also have accounts of its own. `locallibrary plugin account PLUGIN ACCOUNT sign-in`
+signs in to one as above; `status` says whether you're signed in and until when, and `sign-out`
+forgets the tokens. In the player, "sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the
+palette, beside the plugin's settings.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
 and refreshed a minute before they expire. The plugin never sees them: a request it makes names

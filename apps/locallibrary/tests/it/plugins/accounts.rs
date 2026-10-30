@@ -1,7 +1,11 @@
-//! `plugin account` on the command line, and `plugins.account*` in the sidecar, with the test
-//! plugin given an account (its tokens in a file, `LOCALLIBRARY_SESSION_STORE=file`). Signing in
-//! all the way isn't reachable here: the host reaches no server on this computer outside the
-//! plugin host's own tests, which go through it with a server of their own.
+//! Accounts on the command line: `account` listing them, signing in to one through an account
+//! plugin at the mock service (see [`super::shared_accounts`]) and out, `plugin access` giving the
+//! echo plugin access, and a plugin's destination asking which account it may use only where it
+//! can ask (see [`cli`]). Here, `plugin account` and `plugins.account*`: a plugin's own
+//! accounts (their tokens in a file, `LOCALLIBRARY_SESSION_STORE=file`), which reach no server on
+//! this computer.
+
+mod cli;
 
 use std::process::Command;
 

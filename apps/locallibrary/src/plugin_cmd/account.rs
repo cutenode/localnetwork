@@ -1,19 +1,17 @@
 //! `plugin account`: a plugin's account on another service, signed in to in the browser (the
 //! host keeps its tokens, never shown), signed out of, and whether it's signed in.
 
-use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
-use locallibrary::callback::span;
 use locallibrary::plugin::{AccountStatus, Plugins};
 use locallibrary::progress::Ctx;
 
-use crate::browser::BrowserArgs;
+use crate::browser::{BrowserArgs, round_trip};
 use crate::output::{Output, dim, ok};
 
 #[derive(Args)]
@@ -79,8 +77,7 @@ fn status(a: &AccountStatus) {
     }
 }
 
-/// The browser round trip: open the sign-in page, then wait for it to come back (or for the
-/// address it ended up on to be pasted), as `account login` does.
+/// The browser round trip of a sign-in to one of a plugin's accounts.
 fn sign_in(
     plugins: &Plugins,
     plugin: &str,
@@ -90,28 +87,8 @@ fn sign_in(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<AccountStatus> {
-    let interactive = !out.json && std::io::stdin().is_terminal();
     let start = plugins.begin_sign_in(plugin, account, store)?;
-    // The link goes to stderr so stdout stays the result (JSON with --json).
-    let opened = browser.opens() && locallibrary::opener::open_url(&start.url).is_ok();
-    match opened {
-        true => {
-            eprintln!("Opening your browser to sign in…");
-            eprintln!("{}", dim(format!("If it didn't open: {}", start.url)));
-        }
-        false => eprintln!("Sign in: open this link\n  {}", start.url),
-    }
-    if !browser.paste {
-        eprintln!("{}", dim(format!("Waiting for you to approve (up to {}; Ctrl-C stops)…", span(browser.wait()))));
-        return Ok(plugins.finish_sign_in(&start.id, browser.wait(), ctx)?);
-    }
-    if !interactive {
-        plugins.cancel_sign_in(&start.id);
-        bail!("--paste needs a terminal to paste into");
-    }
-    eprint!("After approving, paste the address your browser ended up on: ");
-    std::io::stderr().flush().ok();
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    Ok(plugins.finish_sign_in_with_url(&start.id, line.trim())?)
+    let finish = |wait| plugins.finish_sign_in(&start.id, wait, ctx);
+    let paste = |url: &str| plugins.finish_sign_in_with_url(&start.id, url);
+    round_trip(&start.url, browser, out, finish, paste, || plugins.cancel_sign_in(&start.id))
 }

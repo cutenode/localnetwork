@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::kept::{self, Book, Kept};
 use super::shared::not_kept;
-use crate::error::Action;
+use crate::error::{Action, Reason};
 use crate::plugin::Plugins;
 use crate::plugin::process::Plugin;
 use crate::store::Store;
@@ -175,6 +175,27 @@ impl Plugins {
             }
             Ok(taken)
         })
+    }
+}
+
+impl Plugins {
+    /// What `plugin` asks for of the account types it has no default access to in `store`: those
+    /// a request naming the type (`{account:<type>}`) can't use.
+    pub fn without_access(&self, plugin: &str, store: &Store) -> Result<Vec<&AccountNeed>> {
+        let accesses = kept::read(store)?.accesses;
+        let has = |n: &AccountNeed| accesses.iter().any(|a| a.plugin == plugin && a.kind == n.name && a.default);
+        Ok(self.manifest(plugin)?.accounts.iter().filter(|n| !has(n)).collect())
+    }
+
+    /// Fails `account` (`no_access`, with what resolves it) when `plugin` has no default access in
+    /// `store` to an account of a type it asks for.
+    pub fn check_access(&self, plugin: &str, store: &Store) -> Result<()> {
+        let Some(need) = self.without_access(plugin, store)?.first().copied() else { return Ok(()) };
+        let manifest = self.manifest(plugin)?;
+        let kind = &need.name;
+        let e = Error::Account(format!("the {} plugin has no access to a {kind} account", manifest.name));
+        let e = e.because(Reason::NoAccess).with("type", kind);
+        Err(actions(manifest, Some(kind), Some(store)).into_iter().fold(e, Error::action))
     }
 }
 
