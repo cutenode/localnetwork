@@ -186,6 +186,15 @@ impl Peer {
         lock(&self.0.out).take();
     }
 
+    /// Cancels the other end's requests still running, as its output closing does: for when it
+    /// has gone (a plugin killed) before its output closes, which a process it started can hold
+    /// open.
+    pub fn cancel_running(&self) {
+        for (_, cancel) in lock(&self.0.running).drain(..) {
+            cancel.cancel();
+        }
+    }
+
     /// Sends a request; [`Pending::wait`] for its response.
     pub fn send_request<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
         self.send(method, params, None, false)
@@ -302,9 +311,7 @@ impl Peer {
         for (_, waiter) in lock(&self.0.waiting).take().unwrap_or_default() {
             let _ = waiter.response.send(Err(RpcError::closed()));
         }
-        for (_, cancel) in lock(&self.0.running).drain(..) {
-            cancel.cancel();
-        }
+        self.cancel_running();
     }
 
     /// Handles one line: a response goes to whoever waits for it, `$/cancel` cancels, and the

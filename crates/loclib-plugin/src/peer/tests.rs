@@ -165,6 +165,24 @@ fn cancel_reaches_the_request_it_names() {
     assert_eq!(request(&incoming).id, json!(1));
 }
 
+/// The other end's requests still running are cancelled when the owner says so, its input still
+/// open (a plugin killed, its output held by a process it started); one answered isn't, nor one
+/// that comes after.
+#[test]
+fn running_requests_are_cancelled_before_the_input_closes() {
+    let (peer, incoming, mut raw) = connect();
+    raw.send(r#"{"jsonrpc":"2.0","id":1,"method":"net/fetch"}"#);
+    raw.send(r#"{"jsonrpc":"2.0","id":2,"method":"net/fetch"}"#);
+    let (one, two) = (request(&incoming), request(&incoming));
+    peer.respond(&one.id, Ok(Value::Null));
+    raw.recv();
+    peer.cancel_running();
+    assert!(two.cancel.is_cancelled());
+    assert!(!one.cancel.is_cancelled());
+    raw.send(r#"{"jsonrpc":"2.0","id":2,"method":"net/fetch"}"#);
+    assert!(!request(&incoming).cancel.is_cancelled(), "its id is free again, and it runs");
+}
+
 #[test]
 fn an_id_a_running_request_has_is_refused() {
     let (_peer, incoming, mut raw) = connect();

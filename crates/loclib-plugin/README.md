@@ -82,7 +82,8 @@ and typed table columns, see [views](#views)).
    and reports the bytes it sends as the hook's progress: `bytes` events of phase `upload`, so a
    plugin starts that phase with how much it'll send, and ends it. Errors have kind `denied`
    (not a host it may reach), `invalid`, `too_big`, `external` (it couldn't be reached) or
-   `cancelled`. Nothing fetched is kept.
+   `cancelled`, which a request the plugin cancels fails with at once, as does one still under way
+   when the host kills the plugin. Nothing fetched is kept.
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
