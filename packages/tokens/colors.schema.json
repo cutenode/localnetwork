@@ -5,7 +5,7 @@
 	"description": "Colours that mean the same thing wherever DJ data is drawn: the website's mix report, locallibrary's HTML report and its terminal player. Each surface keeps its own chrome and accent.",
 	"type": "object",
 	"additionalProperties": false,
-	"required": ["bands", "phrases", "cues", "trackColors", "status", "playhead"],
+	"required": ["bands", "phrases", "phrasesLight", "cues", "cuesLight", "trackColors", "status", "playhead"],
 	"properties": {
 		"$schema": { "type": "string" },
 		"bands": {
@@ -31,31 +31,20 @@
 			}
 		},
 		"phrases": {
-			"description": "rekordbox's phrase kinds by role. Verse 1 to 6 share verse; anything else is unknown.",
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["intro", "up", "verse", "chorus", "down", "bridge", "outro", "unknown"],
-			"properties": {
-				"intro": { "$ref": "#/$defs/hex" },
-				"up": { "$ref": "#/$defs/hex" },
-				"verse": { "$ref": "#/$defs/hex" },
-				"chorus": { "$ref": "#/$defs/hex" },
-				"down": { "$ref": "#/$defs/hex" },
-				"bridge": { "$ref": "#/$defs/hex" },
-				"outro": { "$ref": "#/$defs/hex" },
-				"unknown": { "$ref": "#/$defs/hex" }
-			}
+			"description": "rekordbox's phrase kinds by role, for a dark background. Verse 1 to 6 share verse; anything else is unknown.",
+			"$ref": "#/$defs/phrases"
+		},
+		"phrasesLight": {
+			"description": "The phrase kinds for a light background: 3:1 against a near-white page, so the strips stand out.",
+			"$ref": "#/$defs/phrases"
 		},
 		"cues": {
-			"description": "Cues without a colour of their own. A colour from the drive wins.",
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["hot", "memory", "loop"],
-			"properties": {
-				"hot": { "$ref": "#/$defs/hex" },
-				"memory": { "$ref": "#/$defs/hex" },
-				"loop": { "$ref": "#/$defs/hex" }
-			}
+			"description": "Cues without a colour of their own, for a dark background. A colour from the drive wins.",
+			"$ref": "#/$defs/cues"
+		},
+		"cuesLight": {
+			"description": "The cue defaults for a light background: 3:1 against a near-white page, so the marks stand out.",
+			"$ref": "#/$defs/cues"
 		},
 		"trackColors": {
 			"description": "rekordbox's eight track colours (also the memory cue colour table), roughly as its players show them.",
@@ -88,6 +77,31 @@
 	"$defs": {
 		"hex": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
 		"scale": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+		"phrases": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["intro", "up", "verse", "chorus", "down", "bridge", "outro", "unknown"],
+			"properties": {
+				"intro": { "$ref": "#/$defs/hex" },
+				"up": { "$ref": "#/$defs/hex" },
+				"verse": { "$ref": "#/$defs/hex" },
+				"chorus": { "$ref": "#/$defs/hex" },
+				"down": { "$ref": "#/$defs/hex" },
+				"bridge": { "$ref": "#/$defs/hex" },
+				"outro": { "$ref": "#/$defs/hex" },
+				"unknown": { "$ref": "#/$defs/hex" }
+			}
+		},
+		"cues": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["hot", "memory", "loop"],
+			"properties": {
+				"hot": { "$ref": "#/$defs/hex" },
+				"memory": { "$ref": "#/$defs/hex" },
+				"loop": { "$ref": "#/$defs/hex" }
+			}
+		},
 		"status": {
 			"type": "object",
 			"additionalProperties": false,

@@ -189,6 +189,17 @@ export class IdentityResolver {
 		};
 	}
 
+	/**
+	 * The account's PDS, for the app to call, once assertSafeEndpoint passes it. That check looks the host up apart
+	 * from the request, so DNS rebinding can still get past it.
+	 */
+	async safePds(did: string): Promise<string> {
+		const { pds } = await this.resolve(did);
+		await this.assertSafeEndpoint(pds);
+
+		return pds;
+	}
+
 	async signingKey(did: string, forceRefresh = false): Promise<string> {
 		return (await this.resolve(did, forceRefresh)).signingKey;
 	}

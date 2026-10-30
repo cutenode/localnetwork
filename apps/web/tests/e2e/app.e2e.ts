@@ -173,17 +173,23 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
-	test('staff pages and the dashboard require sign-in', async ({ page }) => {
+	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
 		await expectAccessible(page);
 		await page.goto('/dashboard/bookings?tab=open');
 		await expect(page).toHaveURL(/\/login\?next=%2Fdashboard%2Fbookings%3Ftab%3Dopen$/);
-		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too.
-		await page.goto('/%64ashboard/bookings');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2564ashboard%2Fbookings$/);
-		await page.goto('/%61dmin');
-		await expect(page).toHaveURL(/\/login\?next=%2F%2561dmin$/);
+
+		// Routes match the decoded path, so an encoded one is the same page and needs sign-in too. Sent
+		// without a browser: WebKit decodes `%64` to `d` before it sends the request.
+		for (const [path, next] of [
+			['/%64ashboard/bookings', '%2F%2564ashboard%2Fbookings'],
+			['/%61dmin', '%2F%2561dmin']
+		]) {
+			const response = await request.get(path, { maxRedirects: 0 });
+			expect(response.status()).toBe(303);
+			expect(response.headers().location).toBe(`/login?next=${next}`);
+		}
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
@@ -576,6 +582,41 @@ test.describe('keeps what people entered', () => {
 		await expect(page.locator('#title')).toHaveValue('Echo Night');
 		await expect(page.locator('#venue')).toHaveValue('The Lot');
 		await expect(page.locator('#notes')).toHaveValue('Bring records');
+	});
+
+	test('an inquiry from a planner show starts from its details, and keeps an unsent message', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass');
+		await page.goto('/match?go=1&title=Rooftop%20Rave&date=2026-12-19&lat=52.52&lng=13.405&radius=50&genres=techno');
+		await page.waitForLoadState('networkidle');
+		await page.locator('ol > li').filter({ hasText: 'Neon Tide' }).getByLabel('Lineup').check();
+		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await page.getByRole('link', { name: 'Inquire with Neon Tide' }).click();
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await expect(page.locator('#date')).toHaveValue('2026-12-19');
+		await expect(page.getByText('in your planner')).toBeVisible();
+
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+		await page.reload();
+		await expect(page.locator('#message')).toHaveValue('Would you close our rooftop night?');
+		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
+		await expectAccessible(page);
+
+		// Signing out drops it, so the next person on this browser doesn't find it.
+		const inquiry = page.url();
+		await signOut(page);
+		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
+		expect(await page.evaluate(drafts)).toEqual([]);
+		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
+		await expect(page.locator('#title')).toHaveValue('Rooftop Rave');
+		await page.locator('#message').fill('Would you close our rooftop night?');
+
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Rooftop Rave' })).toBeVisible();
+		// Sent, the draft is gone.
+		await page.goto(inquiry);
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		await expect(page.locator('#message')).toHaveValue('');
 	});
 
 	test('a failed save from the matcher keeps the search and the lineup picks', async ({ page }) => {

@@ -4,10 +4,10 @@ import { COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, FORMATS, isOneOf, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 import { feeLevels } from '#lib/format.ts';
+import { feeRows, strings } from '#lib/project-form.ts';
 import type {
 	BasicsSection,
 	BlobRefJson,
-	FeeFormRow,
 	Location,
 	PerformerSection,
 	PromoterSection,
@@ -40,9 +40,6 @@ function toUrl(value: string, field: string): string {
 	return parsed.toString();
 }
 
-const strings = (form: FormData, field: string) =>
-	form.getAll(field).map((value) => (value instanceof File ? '' : value));
-
 /** Each distinct link in a repeated URL field, mapped to the form row it first appears in. */
 function linkRows(form: FormData, field: string, label: string): Map<string, number> {
 	const rows = new Map<string, number>();
@@ -70,23 +67,6 @@ function setRef(value: string): StrongRef | undefined {
 		throw new UserError('Pick a set from the list');
 
 	return { uri, cid };
-}
-
-/** The project form's fee rows, trimmed. Each row posts one of each field. */
-function feeRows(form: FormData): FeeFormRow[] {
-	const fields = ['feeLabel', 'feeTier', 'feeCurrency', 'feeMin', 'feeMax'].map((field) =>
-		strings(form, field).map((value) => value.trim())
-	);
-
-	const [labels, tiers, currencies, mins, maxes] = fields;
-
-	return Array.from({ length: Math.max(...fields.map((values) => values.length)) }, (_, row) => ({
-		label: labels[row] ?? '',
-		tier: tiers[row] ?? '',
-		currency: currencies[row] ?? '',
-		minAmount: mins[row] ?? '',
-		maxAmount: maxes[row] ?? ''
-	}));
 }
 
 /**
@@ -529,83 +509,4 @@ export function profileToValues(profile: ProjectProfile | undefined, details?: P
 		...performerToValues(profile),
 		...details
 	} satisfies ProjectFormValues;
-}
-
-/** Raw submitted values (minus files), echoed back into the form on errors. */
-export function formValues(form: FormData) {
-	const values: ProjectFormValues = {};
-
-	for (const [key, value] of form.entries()) {
-		if (value instanceof File) continue;
-
-		if (key === 'formats' || key === 'setTypes') (values[key] ??= []).push(value);
-		else if (
-			[
-				'linkKind',
-				'linkUrl',
-				'linkLabel',
-				'mixTitle',
-				'mixUrl',
-				'mixDuration',
-				'mixYear',
-				'mixTracklistCid',
-				'mixSet',
-				'feeLabel',
-				'feeTier',
-				'feeCurrency',
-				'feeMin',
-				'feeMax',
-				'bookCity',
-				'bookRegion',
-				'bookCountry'
-			].includes(key)
-		)
-			continue;
-		else values[key] = value;
-	}
-
-	const linkKinds = strings(form, 'linkKind');
-	const linkLabels = strings(form, 'linkLabel');
-	values.links = strings(form, 'linkUrl')
-		.map((url, index) => {
-			const link: ProjectLink = { kind: linkKinds[index] || 'other', url };
-
-			if (linkLabels[index]) link.label = linkLabels[index];
-
-			return link;
-		})
-		.filter((link) => link.url);
-	const mixTitles = strings(form, 'mixTitle');
-	const mixDurations = strings(form, 'mixDuration');
-	const mixYears = strings(form, 'mixYear');
-	const mixTracklists = strings(form, 'mixTracklistCid');
-	const mixSets = strings(form, 'mixSet');
-	values.mixes = strings(form, 'mixUrl')
-		.map((url, index) => {
-			const mix: ProjectMix = { title: mixTitles[index] ?? '', url };
-			const [setUri, setCid] = (mixSets[index] ?? '').split(' ');
-
-			if (mixDurations[index]) mix.durationMinutes = Number(mixDurations[index]);
-
-			if (mixYears[index]) mix.year = Number(mixYears[index]);
-
-			// Keep showing a tracklist the mix already had; a newly chosen file has to be chosen again.
-			if (mixTracklists[index])
-				mix.tracklist = { $type: 'blob', ref: { $link: mixTracklists[index] }, mimeType: 'application/json', size: 0 };
-
-			if (setUri && setCid) mix.set = { uri: setUri, cid: setCid };
-
-			return mix;
-		})
-		.filter((mix) => mix.url);
-	values.fees = feeRows(form);
-	const [bookRegions, bookCountries] = [strings(form, 'bookRegion'), strings(form, 'bookCountry')];
-	values.cities = strings(form, 'bookCity').map((city, row) => ({
-		city,
-		region: bookRegions[row] ?? '',
-		country: bookCountries[row] ?? ''
-	}));
-	values.international = form.get('international') === 'on';
-
-	return values;
 }

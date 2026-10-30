@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { DjSetView } from '#lib/types.ts';
 import Avatar from './Avatar.svelte';
+import ClaimFields from './ClaimFields.svelte';
 import DiffTable from './DiffTable.svelte';
 import GenreInput from './GenreInput.svelte';
 import MixList from './MixList.svelte';
@@ -43,6 +44,20 @@ describe('Avatar', () => {
 	it('falls back to initials when there is no image', async () => {
 		await render(Avatar, { name: 'Neon Tide', src: null });
 		await expect.element(page.getByText('NT')).toBeInTheDocument();
+	});
+});
+
+describe('ClaimFields', () => {
+	it('asks for proof that names the claimant by handle', async () => {
+		await render(ClaimFields, { values: {}, claimant: { did: 'did:plc:neon', handle: 'neon.test' } });
+		await expect
+			.element(page.getByRole('textbox', { name: 'How can a moderator verify this?' }))
+			.toHaveAccessibleDescription(/localnetwork @neon\.test/);
+	});
+
+	it('names the claimant by DID when they have no handle', async () => {
+		await render(ClaimFields, { values: {}, claimant: { did: 'did:plc:neon', handle: null } });
+		await expect.element(page.getByText('localnetwork did:plc:neon')).toBeInTheDocument();
 	});
 });
 

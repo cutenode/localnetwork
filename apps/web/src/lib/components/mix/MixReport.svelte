@@ -2,22 +2,25 @@
 	import { ExternalLink, Pause, Play } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import { formatDate, formatShowDate } from '#lib/format.ts';
-	import { embedUrl, mixPlatform } from '#lib/mix/links.ts';
+	import { mixPlatform } from '#lib/mix/links.ts';
 	import { clock, keyPath, summarize, type MixReport } from '#lib/mix/report.ts';
+	import { linkSources, type PlayerSource, preferred } from '#lib/mix/source.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Monogram from '#lib/ui/Monogram.svelte';
 	import KeyWheel from './KeyWheel.svelte';
-	import MixEmbed from './MixEmbed.svelte';
 	import MixTimeline from './MixTimeline.svelte';
 	import MixTracklist from './MixTracklist.svelte';
+	import SetPlayer from './SetPlayer.svelte';
 	import TempoChart from './TempoChart.svelte';
 
 	/**
 	 * A mix report as a page: the header, then the timeline, tracklist, key moves and tempo, which
 	 * share the selected track. `project` replaces the export's artist name (a link back to the
-	 * profile), `listen` is the mix's link, played in place where the platform has a player, and
-	 * `details` adds lines under the summary, like the set it was recorded at.
+	 * profile), `listen` is the mix's link, and `details` adds lines under the summary, like the set
+	 * it was recorded at. `source` is where the recording plays, which the server picks from the
+	 * linked set's recording and the link; without it, the link plays where it can. While it plays,
+	 * the tracklist marks the track playing, and picking a track plays from it.
 	 */
 	let {
 		report,
@@ -25,8 +28,17 @@
 		project,
 		listen,
 		actions,
-		details
-	}: { report: MixReport; title?: string; project?: Snippet; listen?: string; actions?: Snippet; details?: Snippet } = $props();
+		details,
+		source
+	}: {
+		report: MixReport;
+		title?: string;
+		project?: Snippet;
+		listen?: string;
+		actions?: Snippet;
+		details?: Snippet;
+		source?: Promise<PlayerSource | null>;
+	} = $props();
 
 	const heading = $derived(title ?? report.mix.title);
 
@@ -34,9 +46,14 @@
 
 	const keys = $derived(keyPath(report));
 
-	const embed = $derived(listen ? embedUrl(listen) : null);
-
 	const platform = $derived(listen ? mixPlatform(listen) : null);
+
+	/** What the link alone plays, when the server didn't say. */
+	const fromLink = $derived(preferred(linkSources(listen ? [{ uri: listen }] : [])));
+
+	const playable = $derived(source ?? Promise.resolve(fromLink));
+
+	const tracks = $derived(report.plays.map((play) => ({ title: play.track.title, artist: play.track.artist, startSeconds: play.start })));
 
 	const byline = $derived(
 		[report.mix.date && (formatShowDate(report.mix.date) || report.mix.date), report.mix.recorder && `Recorded on ${report.mix.recorder}`, report.mix.genre].filter(Boolean).join(' · ')
@@ -58,7 +75,16 @@
 
 	let selected = $state<number | null>(null);
 
-	let playing = $state(false);
+	let open = $state(false);
+
+	let player = $state<SetPlayer>();
+
+	let current = $state(-1);
+
+	// Picking a track in the timeline, the tracklist, the key wheel or the tempo chart plays from it.
+	$effect(() => {
+		if (selected !== null) player?.seek(report.plays[selected].start);
+	});
 </script>
 
 <article class="flex flex-col gap-6 sm:gap-8">
@@ -79,22 +105,24 @@
 				</div>
 			</div>
 		</div>
-		{#if listen || actions}
+		{#if listen || source || actions}
 			<div class="flex flex-col gap-3 max-sm:w-full sm:flex-row sm:flex-wrap">
-				{#if listen && embed}
-					<Button aria-expanded={playing} aria-controls="mix-player" onclick={() => (playing = !playing)}>
-						{#if playing}<Pause class="size-4" />Close player{:else}<Play class="size-4" />Play{/if}
+				{#snippet play()}
+					<Button aria-expanded={open} aria-controls="mix-player" onclick={() => (open = !open)}>
+						{#if open}<Pause class="size-4" />Close player{:else}<Play class="size-4" />Play{/if}
 					</Button>
-				{/if}
+				{/snippet}
+				<!-- Shown while the server looks, and kept unless it finds nothing to play. -->
+				{#await playable}{@render play()}{:then found}{#if found}{@render play()}{/if}{/await}
 				{#if listen}
-					<Button variant={embed ? 'secondary' : 'primary'} href={listen} rel="noopener noreferrer nofollow" target="_blank">{embed ? 'Open' : 'Listen'} on {platform}<ExternalLink class="size-4" /></Button>
+					<Button variant={fromLink || source ? 'secondary' : 'primary'} href={listen} rel="noopener noreferrer nofollow" target="_blank">{fromLink ? 'Open' : 'Listen'} on {platform}<ExternalLink class="size-4" /></Button>
 				{/if}
 				{@render actions?.()}
 			</div>
 		{/if}
 	</header>
 
-	{#if embed && playing}<MixEmbed id="mix-player" src={embed} title={heading} />{/if}
+	{#if open}<SetPlayer bind:this={player} bind:current id="mix-player" load={() => playable} title={heading} artist={report.mix.artist} {tracks} />{/if}
 
 	<Card padding="none" radius="2xl" class="overflow-hidden">
 		<dl class="m-0 grid grid-cols-3 gap-px border-b border-line bg-line">
@@ -116,7 +144,7 @@
 			<section aria-labelledby="mix-tracklist" class="min-w-0 flex-[2_1_36rem] border-line px-4 py-5 sm:border-r sm:px-6">
 				<h2 id="mix-tracklist" class="section-title m-0 mb-2.5">Tracklist</h2>
 				{#if report.plays.length || report.unidentified.length}
-					<MixTracklist {report} bind:selected />
+					<MixTracklist {report} bind:selected playing={open ? current : -1} />
 				{:else}
 					<p class="m-0 text-fg-muted">No tracks from the library were found in this mix.</p>
 				{/if}

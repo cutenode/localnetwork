@@ -81,7 +81,7 @@ const code = {
 	grant_type: 'authorization_code',
 	code: 'c0de',
 	code_verifier: 'v3rifier',
-	redirect_uri: 'http://127.0.0.1:4/'
+	redirect_uri: 'http://127.0.0.1:4/callback'
 };
 
 describe('exchangeToken', () => {
@@ -214,6 +214,70 @@ describe('exchangeToken', () => {
 
 		expect([answer.status, (await answer.json()).error]).toEqual([400, 'invalid_request']);
 		expect(sent).toEqual([]);
+	});
+
+	it.each(['http://127.0.0.1:47110/callback', 'http://[::1]:5/callback'])(
+		'trades a code sent back to %s, locallibrary on this computer',
+		async (redirect) => {
+			const { sent, fetch } = services();
+
+			const answer = await exchangeToken('mixcloud', post({ ...code, redirect_uri: redirect }), {
+				log: capture().log,
+				env,
+				fetch
+			});
+
+			expect(answer.status).toBe(200);
+			expect(sent.map((s) => s.form.get('redirect_uri'))).toEqual([redirect]);
+		}
+	);
+
+	it.each([
+		'https://attacker.example/cb',
+		'https://127.0.0.1:4/callback',
+		'http://localhost:4/callback',
+		'http://127.0.0.1/callback',
+		'http://127.0.0.1:4/',
+		'http://127.0.0.1:4/callback/',
+		'http://127.0.0.1:4/callback?next=x',
+		'http://127.0.0.1:4/callback#x',
+		'http://a@127.0.0.1:1/callback',
+		'http://127.0.0.1.attacker.example:1/callback',
+		'http://0x7f.0.0.1:4/callback',
+		'not a url'
+	])('refuses a code sent back to %s, sending nothing on', async (redirect) => {
+		const { sent, fetch } = services();
+		const { lines, log } = capture();
+
+		for (const service of ['mixcloud', 'soundcloud']) {
+			const answer = await exchangeToken(service, post({ ...code, redirect_uri: redirect }), { log, env, fetch });
+
+			expect([answer.status, await answer.json()]).toEqual([
+				400,
+				{
+					error: 'invalid_request',
+					error_description: 'Local Network only trades codes sent back to locallibrary on this computer'
+				}
+			]);
+		}
+
+		expect(sent).toEqual([]);
+		expect(lines.join('\n')).not.toContain(redirect);
+	});
+
+	it("refuses a refresh whose redirect_uri is somewhere else, and refreshes with locallibrary's", async () => {
+		const { sent, fetch } = services();
+		const { log } = capture();
+
+		const refresh = (redirect: string) =>
+			post({ grant_type: 'refresh_token', refresh_token: 'rt-1', redirect_uri: redirect });
+
+		const elsewhere = await exchangeToken('soundcloud', refresh('https://attacker.example/cb'), { log, env, fetch });
+		expect(elsewhere.status).toBe(400);
+		expect(sent).toEqual([]);
+
+		const home = await exchangeToken('soundcloud', refresh('http://127.0.0.1:47110/callback'), { log, env, fetch });
+		expect(await home.json()).toMatchObject({ access_token: 'at-2' });
 	});
 
 	it('reads no more of a request than a token request needs', async () => {

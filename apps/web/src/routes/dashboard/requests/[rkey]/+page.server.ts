@@ -1,13 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { diff } from '#lib/server/services/diff.ts';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	withTracklists
-} from '#lib/server/forms/project.ts';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
+import { formValues } from '#lib/project-form.ts';
 import { parseClaim } from '#lib/server/forms/claim.ts';
 import { act, optionalText, requireViewer, stringValues } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';

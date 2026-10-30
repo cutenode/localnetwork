@@ -269,11 +269,6 @@ const NAME_LIMIT: usize = 256;
 /// The most artists a set's track lists (its Lexicon's limit).
 const ARTIST_LIMIT: usize = 32;
 
-/// How long two tracks must be heard together to call the transition a blend, as the website's
-/// mix report does: fingerprints don't hear fades, so a shorter overlap, or even a gap, may be a
-/// quick mix as well as a cut.
-const BLEND_SECS: f64 = 8.0;
-
 /// The longest transition the Lexicon takes, in milliseconds.
 const TRANSITION_LIMIT_MS: f64 = 600_000.0;
 
@@ -323,7 +318,7 @@ fn harmony(described: &str) -> Option<&'static str> {
 /// only when is said, not how the keys and tempo moved.
 fn transition(t: &Transition, unidentified: bool) -> Value {
     let mut m = Map::new();
-    m.insert("technique".into(), if t.overlap >= BLEND_SECS { "blend" } else { "unknown" }.into());
+    m.insert("technique".into(), if t.is_blend() { "blend" } else { "unknown" }.into());
     let ms = (t.overlap * 1000.0).round();
     put(&mut m, "durationMs", (ms > 0.0 && ms <= TRANSITION_LIMIT_MS).then_some(ms as i64));
     if !unidentified {

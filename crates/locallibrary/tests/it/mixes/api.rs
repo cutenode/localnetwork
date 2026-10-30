@@ -7,6 +7,7 @@ use crate::common::media::wav_of;
 use crate::common::{self, path};
 
 use locallibrary::api::{self, IdentifyMix, LibraryCache};
+use locallibrary::mix::CoverSource;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 
@@ -27,7 +28,7 @@ fn a_recordings_report_is_kept_and_read_back() {
     assert_eq!(index.failed.len(), 2, "placeholder audio doesn't decode");
 
     let cache = LibraryCache::new(1);
-    let identify = IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None };
+    let identify = IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None, cover: None };
     let req = api::IdentifyMixRequest { identify: identify.clone(), extras: true, save: true };
     let found = api::mix_identify_cached(&cache, &store, &req, &ctx).unwrap();
     assert!(found.report.plays.is_empty() && found.extras.is_empty());
@@ -50,4 +51,37 @@ fn a_recordings_report_is_kept_and_read_back() {
     assert_eq!(written["format"], doc.format);
     assert!(api::mix_export_cached(&cache, &store, &export(false), &ctx).is_err(), "not replaced unasked");
     assert!(api::mix_export_cached(&cache, &store, &export(true), &ctx).is_ok());
+}
+
+/// A cover given with the request goes into the report and its data document; a file that
+/// isn't an image is refused.
+#[test]
+fn a_given_cover_goes_into_the_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    locallibrary::testing::volumes_on_this_thread(Some(vec![dir.path().join("volumes")]));
+    let main = common::demo_drive(&dir.path().join("volumes"), "Main");
+    let mix = dir.path().join("Friday night.wav");
+    std::fs::write(&mix, wav_of(44_100, 16, 2, 2.0)).unwrap();
+    let cover = dir.path().join("cover.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([200, 40, 90])).save(&cover).unwrap();
+    let (cache, ctx) = (LibraryCache::new(1), Ctx::silent());
+    let identify = |cover| IdentifyMix { mix: mix.clone(), drive: Some(path(&main)), tempo_range: None, cover };
+
+    let req = api::IdentifyMixRequest { identify: identify(Some(cover.clone())), extras: false, save: false };
+    let found = api::mix_identify_cached(&cache, &store, &req, &ctx).unwrap();
+    assert!(
+        matches!(&found.report.mix.cover, Some(CoverSource::Given(p)) if *p == cover),
+        "{:?}",
+        found.report.mix.cover
+    );
+    let export = api::ExportMix { identify: identify(Some(cover.clone())), output: None, replace: false };
+    let doc = api::mix_export_cached(&cache, &store, &export, &ctx).unwrap();
+    assert!(doc.mix.cover.is_some_and(|c| c.starts_with("data:image/jpeg;base64,")));
+
+    let notes = dir.path().join("notes.txt");
+    std::fs::write(&notes, "not an image").unwrap();
+    let req = api::IdentifyMixRequest { identify: identify(Some(notes)), extras: false, save: false };
+    let err = api::mix_identify_cached(&cache, &store, &req, &ctx).unwrap_err();
+    assert!(err.to_string().contains("notes.txt can't be a cover"), "{err}");
 }

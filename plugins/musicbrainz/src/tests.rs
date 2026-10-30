@@ -232,7 +232,7 @@ fn answering(xml: String) -> impl Fn(&str, usize) -> Reply + Send + 'static {
 /// It reads tracks and asks MusicBrainz, a request a second; its one analyzer answers the roles
 /// `sets publish` reads, the recording standing for the track's identity too.
 #[test]
-fn the_manifest_is_a_first_party_analyzer_of_musicbrainz_ids() {
+fn the_manifest_is_a_built_in_analyzer_of_musicbrainz_ids() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();

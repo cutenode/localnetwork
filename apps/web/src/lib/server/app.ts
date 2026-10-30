@@ -27,6 +27,7 @@ import { confirmationSender, emailChannel, LogEmailSender, ResendEmailSender } f
 import { Notifier } from './notifications/notifier';
 import { dmChannel, LogDmSender, RootDmSender } from './notifications/dm';
 import { type ChannelSender, Outbox } from './notifications/outbox';
+import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
@@ -40,6 +41,7 @@ import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
+import { RecordingService } from './services/recordings';
 import { RequestService } from './services/requests';
 import { type ListingSource, ListingWriter } from './services/listings';
 import { SharedSpaces } from './services/shared-spaces';
@@ -193,10 +195,10 @@ export async function createApp(options: CreateAppOptions) {
 		fetchBlob: async (did, cid, maxBytes) => {
 			// Blobs come from the account's PDS until HappyView serves them.
 			// ast-grep-ignore: no-direct-pds-read
-			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
+			const url = new URL('/xrpc/com.atproto.sync.getBlob', await identity.safePds(did));
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
-			const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+			const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 
 			if (!response.ok) throw new Error(`getBlob ${cid}: HTTP ${response.status}`);
 
@@ -212,7 +214,8 @@ export async function createApp(options: CreateAppOptions) {
 	const happyView = new HappyViewClient(config.happyView);
 	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
-	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
+	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -224,6 +227,14 @@ export async function createApp(options: CreateAppOptions) {
 	const djListings = new DjListings(core, indexedRepo);
 	const performers = new PerformerSearch(core, happyView, projects, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings);
+
+	const recordings = new RecordingService(
+		indexedRepo,
+		plyr,
+		async (did) => (await projects.managedBy(did)).some((project) => project.status === 'active'),
+		logger.child({ component: 'recordings' })
+	);
+
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
@@ -332,6 +343,7 @@ export async function createApp(options: CreateAppOptions) {
 		profiles,
 		djListings,
 		performers,
+		recordings,
 		supports,
 		epks,
 		shows,

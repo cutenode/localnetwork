@@ -1,0 +1,17 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "mix.schema.json",
+	"title": "Shared mix report terms",
+	"description": "What a mix report's words mean wherever one is shown: the website's mix report, locallibrary's HTML report, its terminal player and the sets it publishes.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["blendSecs"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"blendSecs": {
+			"description": "How long two tracks must be heard together, in seconds, to call the transition a blend (a published set's `technique`). Fingerprints don't hear fades, so a shorter overlap may be a quick mix as well as a cut.",
+			"type": "number",
+			"exclusiveMinimum": 0
+		}
+	}
+}

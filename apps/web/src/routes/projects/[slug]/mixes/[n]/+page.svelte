@@ -20,7 +20,7 @@
 
 <div class="container-page flex flex-col gap-6 py-10 sm:py-14">
 	<PreviewBanner status={data.project.status} />
-	<MixReport report={data.report} title={data.mix.title} listen={data.mix.url}>
+	<MixReport report={data.report} title={data.mix.title} listen={data.mix.url} source={data.source}>
 		{#snippet details()}
 			{#if data.mix.set && data.sets}<LinkedSet linked={data.mix.set} sets={data.sets} />{/if}
 		{/snippet}
