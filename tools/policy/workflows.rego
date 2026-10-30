@@ -93,13 +93,17 @@ deny contains msg if {
 	some path, wf in gated
 	passed := wf.jobs.passed
 	not fails_on_failure(passed)
-	msg := sprintf("%s: the passed job should exit 1 when a job it needs failed or was cancelled", [path])
+	msg := sprintf("%s: the passed job should exit 1 when a job it needs failed, was cancelled, or was skipped with work to do", [path])
 }
 
+# A job skipped because one it needs didn't finish reports `skipped`, as one with nothing to check
+# does, so the step also checks for skipped jobs next to the changes job's outputs: #88's tests
+# were skipped after its macOS build was cancelled, and locallibrary CI passed.
 fails_on_failure(job) if {
 	some step in job.steps
 	contains(step["if"], "contains(needs.*.result, 'failure')")
 	contains(step["if"], "contains(needs.*.result, 'cancelled')")
+	contains(step["if"], "'skipped'")
 }
 
 # A draft's run skips the work, and skipped jobs pass the passed check, so a draft marked ready

@@ -1,5 +1,6 @@
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
+import type { SpaceKind } from '#lib/capabilities.ts';
 import type { Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
@@ -34,6 +35,9 @@ import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RecordingService } from './services/recordings';
 import { RequestService } from './services/requests';
+import { type ListingSource, ListingWriter } from './services/listings';
+import { SharedSpaces } from './services/shared-spaces';
+import { SpaceJoins } from './services/space-joins';
 import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
 import { SupportService } from './services/supports';
@@ -52,6 +56,8 @@ export type CreateAppOptions = {
 	userClient?: (did: string) => Promise<RepoClient | null>;
 	/** Start polling, audit retries, and directory sync retries. */
 	background?: boolean;
+	/** What each kind's listing shows. No kind has a public page yet, so only tests list anything. */
+	listingSources?: Partial<Record<SpaceKind, ListingSource>>;
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
@@ -149,7 +155,8 @@ export async function createApp(options: CreateAppOptions) {
 	const happyView = new HappyViewClient(config.happyView);
 	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
-	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
+	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
@@ -161,7 +168,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const recordings = new RecordingService(
 		indexedRepo,
-		new PlyrClient(logger.child({ component: 'plyr' })),
+		plyr,
 		async (did) => (await projects.managedBy(did)).some((project) => project.status === 'active'),
 		logger.child({ component: 'recordings' })
 	);
@@ -173,6 +180,16 @@ export async function createApp(options: CreateAppOptions) {
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
+	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const sharedSpaces = new SharedSpaces(core, listings);
+
+	const limits = {
+		login: new RateLimiter(10, 10 / 60),
+		write: new RateLimiter(30, 30 / 60),
+		search: new RateLimiter(60, 2)
+	};
+
+	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
@@ -187,8 +204,11 @@ export async function createApp(options: CreateAppOptions) {
 		logger: logger.child({ component: 'sync' }),
 		identity,
 		credentials,
-		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks }),
-		onSpaceDropped: (space) => bookings.forget(space),
+		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings }),
+		onSpaceDropped: async (space) => {
+			await bookings.forget(space);
+			await sharedSpaces.forget(space);
+		},
 		notifyService: config.syncNotify ? config.syncService : null
 	});
 
@@ -254,14 +274,13 @@ export async function createApp(options: CreateAppOptions) {
 		shows,
 		follows,
 		verifications,
+		sharedSpaces,
+		spaceJoins,
+		listings,
 		bugReports,
 		sessions,
 		geocoder,
-		limits: {
-			login: new RateLimiter(10, 10 / 60),
-			write: new RateLimiter(30, 30 / 60),
-			search: new RateLimiter(60, 2)
-		},
+		limits,
 
 		/**
 		 * The account behind a web session, or null when it has to sign in again: it was granted
@@ -351,8 +370,11 @@ export async function createApp(options: CreateAppOptions) {
 			for (const space of watched) await syncer.watch(space);
 			await staff.reconcileMembership();
 			await projects.reconcileManagerSpaces();
+			await sharedSpaces.reconcile();
 			bootstrapped = true;
 			await syncer.syncAll();
+			// After the sync, so the index has every space's people.
+			await listings.reconcile();
 		},
 
 		start() {
@@ -379,6 +401,12 @@ export async function createApp(options: CreateAppOptions) {
 			// Finishes manager syncs that failed or raced a new thread. Costs one listRecords of the root's projects and
 			// one listMembers per booking thread, all on the root's own PDS, and writes only where something drifted.
 			every(60 * 60_000, () => projects.reconcileManagerSpaces(), 'manager-spaces');
+			// Finishes member updates of performers', parties' and venues' spaces that failed part way: a listSpaces per
+			// kind, then one listRecords and one listMembers per space, all on the root's own PDS.
+			every(60 * 60_000, () => sharedSpaces.reconcile(), 'shared-spaces');
+			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
+			// where one differs.
+			every(60 * 60_000, () => listings.reconcile(), 'listings');
 		},
 
 		async stop() {

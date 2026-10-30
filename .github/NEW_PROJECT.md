@@ -4,7 +4,7 @@ This covers what the repository runs on and every place a new project has to be 
 
 Most of the steps are checked, so a missed one fails CI with a message that says what to add:
 
-- `tools/policy.sh` (the Repo checks workflow) runs Rego policies in `tools/policy/` over the config files with [conftest](https://www.conftest.dev). They check each TypeScript app's scripts, `package.json` fields and git hooks; that every workflow on pull requests (but the benchmarks, the release plan and dependency review) has the `changes`, work and `passed` jobs (`pr-issue.yml` reads no files, so it has no `changes` job) and no `paths` in its trigger, and that one of them runs when each app, package, crate or plugin changes; that `.github/rulesets/protect-main.json` requires every `passed` check; that the labels, labeler and issue forms know every app and every file gets a label; that Rust packages share the workspace's settings; that lexicons are filed by NSID; and that an app with a Dockerfile has a Railway service in `.railway/railway.ts`. It needs Docker, and Node with the root's dev dependencies locally. The policies' own tests have to cover every line.
+- `tools/policy.sh` (the Repo checks workflow) runs Rego policies in `tools/policy/` over the config files with [conftest](https://www.conftest.dev). They check each TypeScript app's scripts, `package.json` fields and git hooks; that every workflow on pull requests (but the benchmarks, the release plan and dependency review) has the `changes`, work and `passed` jobs (`pr-issue.yml` reads no files, so it has no `changes` job) and no `paths` in its trigger, and that one of them runs when each app, package, crate or plugin changes; that `.github/rulesets/protect-main.json` requires every `passed` check; that the labels, labeler and issue forms know every app and every file gets a label; that Rust packages share the workspace's settings and the dev profile keeps its entries for the crates in `Cargo.lock`; that lexicons are filed by NSID; and that an app with a Dockerfile has a Railway service in `.railway/railway.ts`. It needs Docker, and Node with the root's dev dependencies locally. The policies' own tests have to cover every line.
 - The website's tests check that every folder in `apps/` has a tool page and is named in the root README, CONTRIBUTING, SECURITY, the website's README and the `web: tools` label (`apps/web/src/lib/tools/docs.test.ts`).
 - locallibrary's build fails while a folder in `plugins/` isn't one of its dependencies, or a folder in `plugins/accounts/` has no manifest (`apps/locallibrary/build.rs`), and its tests check that every one ships and is in its docs (`apps/locallibrary/tests/it/plugins.rs`).
 - clippy's `cargo_common_metadata` wants full metadata on every crate that isn't `publish = false`, and the release workflow's plan fails while it would release anything but locallibrary.
@@ -65,7 +65,7 @@ Every workflow the ruleset requires has the same three parts. Copy `localtoolbox
 
 1. a `changes` job that runs [dorny/paths-filter](https://github.com/dorny/paths-filter) over the files the app depends on, including the shared ones (the lockfile, `.node-version`, the lint and format configs, the workflow itself). On a push it diffs against the last commit the workflow passed on (`.github/actions/last-passed`), so a run that a newer push cancelled, or one that failed, leaves its files to the next run;
 2. the jobs that do the work, each with `needs: changes` and skipped when nothing matched;
-3. a `passed` job named "`<tool>` CI passed", with `if: always()`, that fails if any job failed or was cancelled.
+3. a `passed` job named "`<tool>` CI passed", with `if: always()`, that fails if any job failed or was cancelled, or was skipped while the `changes` output it runs on was true (a job whose build didn't finish is skipped too).
 
 Jobs that only report stay out of the `passed` job's needs, so they never block a merge: the coverage `report` jobs that comment on the pull request, and locallibrary-ci's `semver`. Each workflow's concurrency group cancels the run a new push supersedes, on `main` too. locallibrary-ci and web-ci, the two that take the most runners, also skip their work on draft pull requests until they're marked ready for review.
 
@@ -149,7 +149,7 @@ Then do the steps every app shares, below.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
 4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
-6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
+6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.
 
 A new capability is a change to loclib-plugin, and also needs a case in `means()` in `apps/locallibrary/src/plugins.rs`, which says it in plain words. A plugin that changes what an analyzer computes bumps that analyzer's `version`, since stored values are keyed by it.
@@ -161,7 +161,7 @@ An [account plugin](../apps/locallibrary/docs/plugins.md#account-plugins) is a m
 1. Create `plugins/accounts/<id>/locallibrary-plugin.toml` with `id` (ending in `-account`), `name`, `version`, `protocol` and one `[[contributes.account_types]]` (the fields are in [loclib-plugin](../crates/loclib-plugin/README.md)). No crate, no `Cargo.toml`: `apps/locallibrary/build.rs` includes every folder there, and the workspace leaves them out.
 2. Give each scope the requests it covers, taken from the code of the plugins that will use it, and test from those plugins that their requests are covered, as `plugins/youtube/src/tests.rs` does.
 3. A token exchange is Local Network's (`apps/web/src/lib/server/token-exchange/services.json`), so its service has to be there.
-4. List it in `apps/locallibrary/docs/plugins.md` and `apps/locallibrary/docs/how-it-works.md`, and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
+4. List it in `apps/locallibrary/docs/plugins.md` and `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 
 ## Shared libraries
 

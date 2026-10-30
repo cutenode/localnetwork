@@ -11,30 +11,30 @@
 //! it was named with.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
+//! A request cancelled stops at once, sending or reading its answer ([`Requests`]).
 
 mod body;
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace};
-use reqwest::blocking::{Client, Response};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
     LOCATION, PROXY_AUTHORIZATION, TRANSFER_ENCODING, USER_AGENT, WWW_AUTHENTICATE,
 };
-use reqwest::{Method, Url};
+use reqwest::{Client, Method, Response, Url};
 use serde_json::Value;
 
 use self::body::{Body, Field, FilePart};
 use super::blobs;
 use super::process::{Live, Plugin};
 use crate::export::one_line;
-use crate::net::{public, this_computer, with_causes};
+use crate::net::{CHECK_EVERY, Requests, public, this_computer, with_causes};
 use crate::progress::CancelToken;
 use crate::{lock, op};
 
@@ -45,8 +45,6 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const SLOWEST: u64 = 128 << 10;
 /// The most redirects followed.
 const MAX_REDIRECTS: usize = 5;
-/// How often a request waiting for its turn notices being cancelled.
-const CHECK_EVERY: Duration = Duration::from_millis(50);
 /// What a secret's placeholder starts with: `{secret:<key>}`.
 const SECRET: &str = "{secret:";
 
@@ -150,7 +148,9 @@ impl Plugin {
     pub(super) fn client(&self) -> Result<&Client, RpcError> {
         let made = self.net.client.get_or_init(|| {
             let none = reqwest::redirect::Policy::none();
-            Client::builder().redirect(none).timeout(TIMEOUT).build().map_err(|e| with_causes(&e))
+            // Each request's connections go with its runtime (see `Requests`).
+            let builder = Client::builder().redirect(none).timeout(TIMEOUT).pool_max_idle_per_host(0);
+            builder.build().map_err(|e| with_causes(&e))
         });
         made.as_ref().map_err(|e| RpcError::internal(format!("the network: {e}")))
     }
@@ -304,7 +304,8 @@ impl Plugin {
         }
         // Before it's sent: an answer with nowhere to go is never asked for.
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
-        let response = self.follow(live, url, sent, cancel)?;
+        let requests = Requests::new().map_err(|e| RpcError::internal(format!("the network: {e}")))?;
+        let response = self.follow(live, url, sent, &requests, cancel)?;
         let status = response.status().as_u16();
         // A server says the address it was asked at back (a next page's link, a `Location`): a token
         // sent in the query is given back as the placeholder that named it, which asks for it again.
@@ -321,8 +322,8 @@ impl Plugin {
         }
         let fetched = Fetched { status, headers: answered, body: None, blob: None };
         let fetched = match into {
-            Some(into) => Fetched { blob: Some(self.write_blob(into, response)?), ..fetched },
-            None => Fetched { body: Some(named(self.text(response)?)), ..fetched },
+            Some(into) => Fetched { blob: Some(self.write_blob(into, response, &requests, cancel)?), ..fetched },
+            None => Fetched { body: Some(named(self.text(response, &requests, cancel)?)), ..fetched },
         };
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
     }
@@ -372,7 +373,14 @@ impl Plugin {
     /// to another server, the headers its secrets were filled into, and those reqwest never sends
     /// on to another (its credentials), are left out from then on; a body with a secret in it is
     /// never sent there.
-    fn follow(&self, live: &Live, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
+    fn follow(
+        &self,
+        live: &Live,
+        mut url: Url,
+        mut sent: Sent,
+        requests: &Requests,
+        cancel: &CancelToken,
+    ) -> Result<Response, RpcError> {
         let external = |why: String| RpcError::failed("external", self.net.scrub(&why));
         let mut hops = 0;
         loop {
@@ -387,13 +395,10 @@ impl Plugin {
                     self.host.log(&self.manifest.id, &said);
                     request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
                 }
-                request = body.send(request, live, cancel)?;
+                request = body.send(request, live)?;
             }
-            let sending = request.send();
-            if sending.is_err() && cancel.is_cancelled() {
-                return Err(RpcError::cancelled());
-            }
-            let response = sending.map_err(|e| external(with_causes(&e)))?;
+            let sending = requests.run(|| request.send(), cancel);
+            let response = sending.ok_or_else(RpcError::cancelled)?.map_err(|e| external(with_causes(&e)))?;
             let location = response.headers().get(LOCATION).and_then(|l| l.to_str().ok());
             let (Some(location), 301 | 302 | 303 | 307 | 308) = (location, response.status().as_u16()) else {
                 return Ok(response);
@@ -438,14 +443,36 @@ impl Plugin {
         }
     }
 
+    /// Writes an answer's body to `out` as it comes, up to a byte past `most`, unless it's
+    /// cancelled first: how much it wrote.
+    fn read_answer(
+        &self,
+        mut response: Response,
+        most: u64,
+        out: &mut impl Write,
+        requests: &Requests,
+        cancel: &CancelToken,
+    ) -> Result<u64, RpcError> {
+        let read = || async move {
+            let mut written = 0;
+            while written <= most {
+                let Some(chunk) = response.chunk().await.map_err(|e| with_causes(&e))? else { break };
+                let chunk = &chunk[..chunk.len().min((most + 1 - written) as usize)];
+                out.write_all(chunk).map_err(|e| with_causes(&e))?;
+                written += chunk.len() as u64;
+            }
+            out.flush().map_err(|e| with_causes(&e))?;
+            Ok::<_, String>(written)
+        };
+        let read = requests.run(read, cancel).ok_or_else(RpcError::cancelled)?;
+        read.map_err(|e| RpcError::failed("external", self.net.scrub(&e)))
+    }
+
     /// An answer's body as text, up to [`super::Options::max_body`].
-    fn text(&self, response: Response) -> Result<String, RpcError> {
+    fn text(&self, response: Response, requests: &Requests, cancel: &CancelToken) -> Result<String, RpcError> {
         let most = self.host.options.max_body;
         let mut body = Vec::new();
-        response
-            .take(most + 1)
-            .read_to_end(&mut body)
-            .map_err(|e| RpcError::failed("external", self.net.scrub(&with_causes(&e))))?;
+        self.read_answer(response, most, &mut body, requests, cancel)?;
         if body.len() as u64 > most {
             let why = format!("the answer is over {}: fetch it into_blob", op::bytes(most));
             return Err(RpcError::failed("too_big", why));
@@ -464,21 +491,20 @@ impl Plugin {
 
     /// Writes an answer's body to `into`, as far as its folder has room (see
     /// [`super::Options::max_blobs`]).
-    fn write_blob(&self, mut into: NewBlob, response: Response) -> Result<PathBuf, RpcError> {
+    fn write_blob(
+        &self,
+        mut into: NewBlob,
+        response: Response,
+        requests: &Requests,
+        cancel: &CancelToken,
+    ) -> Result<PathBuf, RpcError> {
         let room = into.room;
-        let copied =
-            std::io::copy(&mut response.take(room + 1), &mut into.out).and_then(|n| into.out.flush().map(|()| n));
-        match copied {
-            Ok(n) if n > room => Err(RpcError::failed(
-                "too_big",
-                format!("the answer is more than the scratch folder has room for ({})", op::bytes(room)),
-            )),
-            Ok(_) => {
-                into.written = true;
-                Ok(into.path.clone())
-            }
-            Err(e) => Err(RpcError::failed("external", self.net.scrub(&with_causes(&e)))),
+        if self.read_answer(response, room, &mut into.out, requests, cancel)? > room {
+            let why = format!("the answer is more than the scratch folder has room for ({})", op::bytes(room));
+            return Err(RpcError::failed("too_big", why));
         }
+        into.written = true;
+        Ok(into.path.clone())
     }
 }
 

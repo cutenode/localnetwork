@@ -63,12 +63,13 @@ use std::time::Duration;
 
 use indexmap::IndexMap;
 use loclib_plugin::{Command, Context, Manifest, Operation, Selection, check_params};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
 use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
+use crate::model::{Library, Track};
 use crate::{Error, Result};
 
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
@@ -92,7 +93,7 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{host_settings, set_host_setting};
+pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
@@ -415,3 +416,18 @@ fn fitting(schema: Option<&Value>, params: Value, context: &Context) -> Result<V
     })?;
     Ok(params)
 }
+
+/// A library's tracks by id, for finding many: [`Library::track`] for each would scan the library
+/// each time. Collected from the back, so the first of a repeated id wins, as there.
+fn by_id(library: &Library) -> FxHashMap<u32, &Track> {
+    library.tracks.iter().rev().map(|t| (t.id, t)).collect()
+}
+
+/// Each of `ids`' tracks, or an error naming the first the library lacks.
+fn tracks_named<'a>(library: &'a Library, ids: &[u32]) -> Result<Vec<&'a Track>> {
+    let by_id = by_id(library);
+    ids.iter().map(|&id| by_id.get(&id).copied().ok_or_else(|| Error::no_track(id))).collect()
+}
+
+#[cfg(test)]
+mod tests;

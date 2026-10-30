@@ -71,7 +71,12 @@ test_passed_misnamed if {
 
 test_passed_never_fails if {
 	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/steps", "value": [{"if": "contains(needs.*.result, 'failure')", "run": "exit 1"}]}])
-	".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed or was cancelled" in workflows.deny with input as with_ci(broken)
+	".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed, was cancelled, or was skipped with work to do" in workflows.deny with input as with_ci(broken)
+}
+
+test_passed_ignores_skipped_jobs if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/steps", "value": [{"if": "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')", "run": "exit 1"}]}])
+	".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed, was cancelled, or was skipped with work to do" in workflows.deny with input as with_ci(broken)
 }
 
 draft_outputs := {

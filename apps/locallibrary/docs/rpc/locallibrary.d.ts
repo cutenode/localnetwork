@@ -1218,6 +1218,16 @@ export type ImportSettings = {
   drive?: string | null;
 };
 
+export type ImportSettingsFile = {
+  /** A file `settings.export` wrote (`locallibrary settings export`). */
+  file: string;
+  /**
+   * Where one of the file's values differs from the one here, take the file's (for a list of
+   * names, the file's whole list). Default: keep the one here.
+   */
+  replace?: boolean;
+};
+
 /** One track (`track`) or several (`tracks`). */
 export type ArtworkRequest = {
   drive: string;
@@ -1824,6 +1834,11 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
   /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
+  /**
    * Also each play's overview waveform, hot cues and phrases (`extras`), for following
    * along without asking for every track's analysis.
    */
@@ -1841,6 +1856,11 @@ export type ExportMix = {
   drive?: string | null;
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
+  /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
   /** Also write the document to this file. */
   output?: string | null;
   /** Replace a file already at `output` (refused otherwise). */
@@ -4844,6 +4864,70 @@ export type BaseChange = {
   to: string | null;
 };
 
+/**
+ * What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty
+ * maps and lists left out.
+ */
+export type SettingsExport = {
+  /** The file's format, [`VERSION`]. */
+  version: number;
+  /** The My Settings profile: `base`, and per-drive `drives` overrides by drive id. */
+  my_settings: { [key: string]: unknown };
+  /** The player models `check` uses: `default`, and `libraries`' own by library id. */
+  players: { [key: string]: unknown };
+  /**
+   * The profile's preferences: its sections, precision, pinned and hidden tracks, hidden
+   * artists, genre spellings and headline.
+   */
+  profile: { [key: string]: unknown };
+  /**
+   * The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
+   * playback modes.
+   */
+  player: { [key: string]: unknown };
+  /**
+   * The host's settings for plugins: which analyzer each field role is read from, when a
+   * provider's candidate is picked, and whether each check runs.
+   */
+  plugin_host: { [key: string]: unknown };
+  /**
+   * Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`
+   * among them).
+   */
+  plugins: { [key: string]: unknown };
+};
+
+/**
+ * What importing a settings file would change: the file's values missing here (added), and
+ * those that differ (kept as they are here, or with `replace` taken from the file).
+ */
+export type ImportSettingsFilePlan = {
+  file: string;
+  changes: SettingsFileChange[];
+  /** The file's values that are as they are here already. */
+  unchanged: number;
+};
+
+/** One of the file's values that isn't as it is here. */
+export type SettingsFileChange = {
+  /** The section, then each key down to the value: `["plugins", "sound", "keys.analyze"]`. */
+  path: string[];
+  action: SettingsFileAction;
+  /** The value here (`None`: not set). */
+  current: unknown;
+  /** The file's value; for names added to a list, the names it adds. */
+  imported: unknown;
+};
+
+/** What importing does with one of the file's values. */
+export type SettingsFileAction =
+  /** It's missing here, or adds names to a list: it's added. */
+  | "add"
+  /** It differs, and the one here stays. */
+  | "keep"
+  /** It differs, and the file's takes its place (`replace`). */
+  | "replace";
+
 /** One answer for `One`, a list in the order asked for `Many`. */
 export type OneOrMany_for_ArtworkImage = (ArtworkImage | null) | TrackArtwork_for_ArtworkImage[];
 
@@ -6695,7 +6779,10 @@ export type MixInfo = {
   channels: number;
   /** Labels from an Audacity project's label tracks. */
   labels: Label[];
-  /** Cover image: embedded in the audio file, else an image next to it named like it. */
+  /**
+   * Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+   * next to it named like it.
+   */
   cover: CoverSource | null;
 };
 
@@ -6706,13 +6793,21 @@ export type Label = {
   title: string;
 };
 
-export type CoverSource = {
-  kind: "embedded";
-  path: string;
-} | {
-  kind: "file";
-  path: string;
-};
+export type CoverSource =
+  | {
+    kind: "embedded";
+    path: string;
+  }
+  /** An image found next to the recording. */
+  | {
+    kind: "file";
+    path: string;
+  }
+  /** An image the DJ gave for it. */
+  | {
+    kind: "given";
+    path: string;
+  };
 
 /** One track heard in the mix. */
 export type Play = {
@@ -6868,7 +6963,10 @@ export type ExportedMix = {
   /** The player that recorded it, when the file says. */
   recorder?: string | null;
   durationSecs: number;
-  /** The cover embedded in the recording: a JPEG `data:` URL, 320 px square. */
+  /**
+   * The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+   * 320 px square.
+   */
   cover?: string | null;
 };
 
@@ -9581,6 +9679,12 @@ export interface Methods {
   "settings.import.apply": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
   /** apply method; paired with `settings.import.plan`; can delete or overwrite something; an older name for `settings.import.apply` */
   "settings.import": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
+  /** read method */
+  "settings.export": { params: NoParams; result: SettingsExport };
+  /** plan method; paired with `settings.import_file.apply`; can delete or overwrite something */
+  "settings.import_file.plan": { params: ImportSettingsFile & WriteOptions; result: ImportSettingsFilePlan & PlanFields };
+  /** apply method; paired with `settings.import_file.plan`; can delete or overwrite something */
+  "settings.import_file.apply": { params: ApplyPlan | (ImportSettingsFile & WriteOptions); result: SettingsExport };
   /** read method */
   "art.missing": { params: DriveRef; result: TrackRef[] };
   /** read method */
