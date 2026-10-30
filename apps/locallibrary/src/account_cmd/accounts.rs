@@ -76,7 +76,7 @@ pub(super) fn run(
         let start =
             plugins.begin_account_sign_in(kind, &with, args.for_plugin.as_deref(), subject, &args.scopes, &store)?;
         let done = come_back(plugins, &start, args.browser, out, ctx)?;
-        return Ok(out.done(&done, |d| signed_in(plugins, d)));
+        return Ok(out.done(&done, |d| signed_in(plugins, d, args.for_plugin.as_deref())));
     }
     let named =
         named.ok_or_else(|| usage(format!("name an account: {kind}:NAME (`locallibrary account` lists them)")))?;
@@ -150,16 +150,30 @@ pub(super) fn called(plugins: &Plugins, a: &Account) -> String {
     }
 }
 
-/// What signing in did.
-fn signed_in(plugins: &Plugins, d: &AccountSignedIn) {
+/// The titles of `scopes` (by name) as `t` has them, their names where it doesn't.
+pub(super) fn titles<'a>(t: Option<&'a AccountType>, scopes: &'a [String]) -> Vec<&'a str> {
+    scopes.iter().map(|s| t.and_then(|t| t.scopes.get(s)).map_or(s.as_str(), |s| &s.title)).collect()
+}
+
+/// What signing in did, for `for_plugin` when it was for one.
+fn signed_in(plugins: &Plugins, d: &AccountSignedIn, for_plugin: Option<&str>) {
     ok(format!("Signed in to the {}", called(plugins, &d.account)));
     if let Some(other) = &d.instead_of {
-        warn(format!("the browser signed in to another account than {other}, which is still kept"));
+        let unused = for_plugin.map(|p| format!(", so {p} wasn't given access")).unwrap_or_default();
+        warn(format!("the browser signed in to another account than {other}, which is still kept{unused}"));
     }
     if let Some(access) = &d.access {
         let default = if access.default { ", its default" } else { "" };
         say!("  {}", dim(format!("{} has access to it{default}", access.plugin)));
     }
+    declined(plugins, d);
+}
+
+/// What the service declined of what signing in `d` was to give a plugin, if it declined any.
+pub(super) fn declined(plugins: &Plugins, d: &AccountSignedIn) {
+    let Some(access) = d.access.as_ref().filter(|_| !d.declined.is_empty()) else { return };
+    let t = account_type(plugins, &d.account.plugin, &d.account.kind);
+    warn(format!("the service didn't allow {} to {}", access.plugin, titles(t, &d.declined).join(", ")));
 }
 
 /// Each of `all`'s accounts: its type, name and account plugin, whether it's signed in and until

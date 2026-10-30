@@ -164,6 +164,81 @@ fn a_token_goes_only_where_an_access_scope_covers(tc: TestCase) {
     assert!(!m.leaked(&[answer["error"].clone()]), "a token is out where it may not be");
 }
 
+/// `scopes`, sorted, to compare as a set.
+fn sorted<S: AsRef<str>>(scopes: &[S]) -> Vec<&str> {
+    let mut all: Vec<&str> = scopes.iter().map(AsRef::as_ref).collect();
+    all.sort_unstable();
+    all.dedup();
+    all
+}
+
+/// For an echo plugin needing any of the mock type's scopes (the rest optional) and any sign-ins
+/// for it, as either of two people, maybe again as an account kept, asking for any of the scopes
+/// it can do without, the service granting any of what they ask (or not saying, so granting what
+/// it was asked): its access gets the scopes it needs, whatever was granted, and those it can do
+/// without whose asks were all granted; the sign-in says which scopes the service declined, and
+/// the access remembers them until a sign-in for it grants them; and a sign-in again that comes
+/// back as another person keeps that account but gives echo no access to it.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_plugin_is_given_only_what_the_service_granted(tc: TestCase) {
+    let mut needs = some(&tc);
+    if needs.is_empty() {
+        needs.push(tc.draw(gs::sampled_from(SCOPES.to_vec())));
+    }
+    let optional: Vec<&str> = SCOPES.into_iter().filter(|s| !needs.contains(s)).collect();
+    let m = mock_for(3600, "/userinfo", "", &asking(&needs, &optional));
+    // Echo's access to each of `SUBJECTS[..2]`, if it has one: its scopes, and those declined.
+    let mut model: [Option<(Vec<&str>, Vec<&str>)>; 2] = [None, None];
+    let mut known = Vec::new();
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let p = tc.draw(gs::integers::<usize>().max_value(1));
+        let again = match known.is_empty() {
+            true => None,
+            false => tc.draw(gs::optional(gs::sampled_from(known.clone()))),
+        };
+        let asked: Vec<&str> = optional.iter().copied().filter(|_| tc.draw(gs::booleans())).collect();
+        let grants: Option<Vec<&str>> = tc
+            .draw(gs::booleans())
+            .then(|| ["read", "write"].into_iter().filter(|_| tc.draw(gs::booleans())).collect());
+        {
+            let mut s = m.state.lock().unwrap();
+            s.unscoped = grants.is_none();
+            s.grants = grants.as_ref().map(|g| g.iter().map(|s| s.to_string()).collect());
+        }
+        let again_as = again.map(|j: usize| SUBJECTS[j]);
+        let done = m.sign_in(who(json!(SUBJECTS[p]), None), again_as, &asked).0.unwrap();
+        if !known.contains(&p) {
+            known.push(p);
+        }
+        if again.is_some_and(|j| j != p) {
+            assert_eq!((done.instead_of.as_deref(), &done.access, done.declined.len()), (again_as, &None, 0));
+            assert!(m.listed().iter().any(|a| a.subject == SUBJECTS[p]), "step {step}: not kept");
+        } else {
+            let given: Vec<&str> = needs.iter().chain(&asked).copied().collect();
+            let granted = |s: &str| grants.as_ref().is_none_or(|g| asks(s).iter().all(|a| g.contains(a)));
+            let declined: Vec<&str> = given.iter().copied().filter(|s| !granted(s)).collect();
+            let giving: Vec<&str> = given.iter().copied().filter(|s| needs.contains(s) || granted(s)).collect();
+            let (scopes, was) = model[p].take().unwrap_or_default();
+            let still: Vec<&str> = was.into_iter().filter(|s| !giving.contains(s)).chain(declined.clone()).collect();
+            let now = ([scopes, giving].concat(), still);
+            assert_eq!(sorted(&done.declined), sorted(&declined), "step {step}");
+            let access = done.access.unwrap();
+            assert_eq!(
+                (sorted(&access.scopes), sorted(&access.declined)),
+                (sorted(&now.0), sorted(&now.1)),
+                "step {step}"
+            );
+            model[p] = Some(now);
+        }
+        for (i, expected) in model.iter().enumerate() {
+            let listed = m.f.plugins.accesses(&m.f.store, Some("echo"), Some(&account(SUBJECTS[i]))).unwrap();
+            let said = listed.first().map(|a| (sorted(&a.scopes), sorted(&a.declined)));
+            let expected = expected.as_ref().map(|(scopes, declined)| (sorted(scopes), sorted(declined)));
+            assert_eq!(said, expected, "step {step}");
+        }
+    }
+}
+
 /// A step of [`the_default_access_answers_the_type_alone`], naming accounts by their place in
 /// [`SUBJECTS`].
 #[derive(Debug, Clone, Copy)]

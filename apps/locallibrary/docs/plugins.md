@@ -213,7 +213,12 @@ plugins that have access to it. `locallibrary account TYPE sign-in` opens the se
 page in the browser and waits for it to come back to this computer (`--no-browser` prints the
 link, `--paste` takes the address the browser ended up on when it runs on another computer).
 `--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
-provide the type, and `--scope NAME` asks for one of the type's scopes besides.
+provide the type, and `--scope NAME` asks for one of the type's scopes besides. A service may let
+you leave some of that out on its page: a plugin then goes without the scopes it can do without
+that you left out, and the sign-in says which. `locallibrary account TYPE:NAME sign-in` signs in
+again as that account, also once it's signed out, asking for what every plugin's access to it
+needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
+for gets no access to it.
 `locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
 plugins keep their access, unused until it's signed in again.
 

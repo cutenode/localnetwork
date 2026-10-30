@@ -111,6 +111,8 @@ pub struct Service {
     pub spent: Vec<String>,
     /// The token endpoint doesn't say what it granted.
     pub unscoped: bool,
+    /// What the token endpoint says it granted, when it isn't `read write`.
+    pub grants: Option<Vec<String>>,
 }
 
 /// The form a request sent, by name.
@@ -193,8 +195,8 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
                     None => s.signing_in_as.clone(),
                 };
                 s.who.insert(n, who);
-                let mut answer =
-                    json!({ "access_token": format!("at-{n}"), "token_type": "bearer", "scope": "read write" });
+                let granted = s.grants.as_ref().map_or("read write".into(), |g| g.join(" "));
+                let mut answer = json!({ "access_token": format!("at-{n}"), "token_type": "bearer", "scope": granted });
                 if s.unscoped {
                     answer.as_object_mut().unwrap().remove("scope");
                 }

@@ -82,12 +82,16 @@ pub struct AccountSignedIn {
     #[serde(flatten)]
     pub account: Account,
     /// The account it was to sign in again, when the browser signed in to another: that one is
-    /// kept too, and this one as it was.
+    /// kept too, and this one as it was. The plugin it was for isn't given access to it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instead_of: Option<String>,
     /// The access it gave the plugin it was signed in for, if it was.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access: Option<Access>,
+    /// The scopes (by name) asked for that plugin that the service didn't grant all they ask:
+    /// those it can do without aren't in its access.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub declined: Vec<String>,
 }
 
 /// What signing out of an account of a type did.
@@ -105,7 +109,8 @@ pub(crate) struct Asked {
     kind: String,
     /// The account plugin signing in.
     with: String,
-    /// The plugin it's for, and the type's scopes (by name) it's given of the account.
+    /// The plugin it's for, and the type's scopes (by name) it's given of the account as far as
+    /// the service grants them.
     for_plugin: Option<(String, Vec<String>)>,
     /// The account signed in again, by subject.
     account: Option<String>,
@@ -255,8 +260,8 @@ impl Plugins {
     /// any; the type's own params go with either. It asks the service for what the type always
     /// asks for, what `account` was granted and what every access to it needs, and what `scopes`
     /// (the type's, by name) ask for, and for a plugin, what the scopes it needs ask for: it's
-    /// given access to those, and to those of `scopes` it can do without (see
-    /// [`Plugins::give_access`]). Finished with [`Plugins::finish_account_sign_in`] (or
+    /// given access to those, and to those of `scopes` it can do without that the service grants
+    /// (see [`Plugins::give_access`]). Finished with [`Plugins::finish_account_sign_in`] (or
     /// [`Plugins::finish_account_sign_in_with_url`], when the browser runs on another computer),
     /// within a quarter of an hour.
     pub fn begin_account_sign_in(
@@ -338,6 +343,15 @@ impl Plugins {
         let access_token = answer.access_token().secret();
         slot.net.saw(access_token);
         let (subject, name) = slot.whoami(t, access_token)?;
+        let instead_of = asked.account.filter(|a| *a != subject);
+        // The plugin it's for is given the scopes it needs whatever the service grants (a request
+        // through one not granted says to sign in again), those it can do without only when
+        // granted, and nothing when the browser signed in to another account than asked.
+        let for_plugin = asked.for_plugin.filter(|_| instead_of.is_none());
+        let needs = match &for_plugin {
+            Some((plugin, _)) => self.slot(plugin)?.needs(&asked.kind)?.scopes.clone(),
+            None => Vec::new(),
+        };
         let (store, storage) = (&p.store, self.host.options.secrets);
         let _one = kept::hold(store, &asked.with, &subject)?;
         // Signed in again, it keeps the refresh token it had when the service answers none. One
@@ -350,7 +364,7 @@ impl Plugins {
             tokens.scopes = asked.scopes;
         }
         slot.seen(&tokens);
-        let (account, access) = kept::update(store, |book| {
+        let (account, access, declined) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
                 Some(i) => i,
@@ -365,11 +379,16 @@ impl Plugins {
             kept::keep(storage, store, k, Some(&tokens))?;
             let k = k.clone();
             book.renamed(&k);
-            let access = asked.for_plugin.as_ref().map(|(plugin, scopes)| book.give(plugin, &k, scopes));
-            Ok((listed(k, true), access))
+            let Some((plugin, scopes)) = &for_plugin else { return Ok((listed(k, true), None, Vec::new())) };
+            let is_granted =
+                |name: &String| t.scopes.get(name).is_some_and(|s| s.asks.iter().all(|a| k.scopes.contains(a)));
+            let declined: Vec<String> = scopes.iter().filter(|s| !is_granted(s)).cloned().collect();
+            let given: Vec<String> =
+                scopes.iter().filter(|s| needs.contains(s) || !declined.contains(s)).cloned().collect();
+            let access = book.give(plugin, &k, &given, &declined);
+            Ok((listed(k, true), Some(access), declined))
         })?;
-        let instead_of = asked.account.filter(|a| *a != subject);
-        Ok(AccountSignedIn { account, instead_of, access })
+        Ok(AccountSignedIn { account, instead_of, access, declined })
     }
 
     /// The access token of the account `subject` that `with` signed in to in `store`, as a

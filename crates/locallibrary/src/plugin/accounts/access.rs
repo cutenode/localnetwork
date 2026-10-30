@@ -35,6 +35,11 @@ pub struct Access {
     /// It's the plugin's default for the type: `{account:<type>}` names it.
     #[serde(default)]
     pub default: bool,
+    /// The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
+    /// ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
+    /// used.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub declined: Vec<String>,
 }
 
 /// An account kept in a store: the account plugin that signed it in, and its subject there.
@@ -61,9 +66,10 @@ fn new_id(taken: &[Access]) -> String {
 }
 
 impl Book {
-    /// Gives `plugin` access to `k`'s `scopes` besides those it has: the access it has, or a new
-    /// one, its default for the type when it has none of the type.
-    pub(super) fn give(&mut self, plugin: &str, k: &Kept, scopes: &[String]) -> Access {
+    /// Gives `plugin` access to `k`'s `scopes` besides those it has, remembering that the service
+    /// `declined` those (and no longer any it's given): the access it has, or a new one, its
+    /// default for the type when it has none of the type.
+    pub(super) fn give(&mut self, plugin: &str, k: &Kept, scopes: &[String], declined: &[String]) -> Access {
         let account = AccountId::of(k);
         let i = match self.accesses.iter().position(|a| a.plugin == plugin && a.account == account) {
             Some(i) => i,
@@ -71,7 +77,8 @@ impl Book {
                 let first = !self.accesses.iter().any(|a| a.plugin == plugin && a.kind == k.kind);
                 let id = new_id(&self.accesses);
                 let (plugin, kind, name) = (plugin.into(), k.kind.clone(), k.name.clone());
-                self.accesses.push(Access { id, plugin, kind, account, name, scopes: Vec::new(), default: first });
+                let (scopes, declined) = (Vec::new(), Vec::new());
+                self.accesses.push(Access { id, plugin, kind, account, name, scopes, default: first, declined });
                 self.accesses.len() - 1
             }
         };
@@ -79,6 +86,9 @@ impl Book {
         let mut all: IndexSet<String> = a.scopes.drain(..).collect();
         all.extend(scopes.iter().cloned());
         a.scopes = all.into_iter().collect();
+        let mut still: IndexSet<String> = a.declined.drain(..).filter(|s| !scopes.contains(s)).collect();
+        still.extend(declined.iter().cloned());
+        a.declined = still.into_iter().collect();
         a.clone()
     }
 
@@ -125,15 +135,15 @@ impl Plugins {
     }
 
     /// Gives `plugin` access to `account` (one `store` keeps): to the scopes it needs of the
-    /// account's type, and those of `scopes` it can do without, besides what it has. Its first
-    /// access of the type is its default.
+    /// account's type, and those of `scopes` it can do without, besides what it has, none of them
+    /// declined any more. Its first access of the type is its default.
     pub fn give_access(&self, plugin: &str, account: &AccountId, scopes: &[String], store: &Store) -> Result<Access> {
         let slot = self.slot(plugin)?;
         kept::update(store, |book| {
             let k = book.account(&account.plugin, &account.subject).cloned();
             let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
             let given = slot.given(&k.kind, scopes)?;
-            Ok(book.give(plugin, &k, &given))
+            Ok(book.give(plugin, &k, &given, &[]))
         })
     }
 
@@ -148,7 +158,7 @@ impl Plugins {
                     let k = book.account(&account.plugin, &account.subject).cloned();
                     let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
                     let given = slot.given(&k.kind, &[])?;
-                    book.give(plugin, &k, &given);
+                    book.give(plugin, &k, &given, &[]);
                     book.accesses.len() - 1
                 }
             };

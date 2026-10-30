@@ -7871,6 +7871,12 @@ export type Access = {
   scopes: string[];
   /** It's the plugin's default for the type: `{account:<type>}` names it. */
   default: boolean;
+  /**
+   * The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
+   * ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
+   * used.
+   */
+  declined?: string[];
 };
 
 /** A sign-in to an account of a type, waiting for the browser. */
@@ -7911,11 +7917,16 @@ export type AccountSignedIn = {
   signed_in: boolean;
   /**
    * The account it was to sign in again, when the browser signed in to another: that one is
-   * kept too, and this one as it was.
+   * kept too, and this one as it was. The plugin it was for isn't given access to it.
    */
   instead_of?: string | null;
   /** The access it gave the plugin it was signed in for, if it was. */
   access?: Access | null;
+  /**
+   * The scopes (by name) asked for that plugin that the service didn't grant all they ask:
+   * those it can do without aren't in its access.
+   */
+  declined?: string[];
 };
 
 /** What signing out of an account of a type did. */

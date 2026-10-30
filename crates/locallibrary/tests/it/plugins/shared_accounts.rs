@@ -173,7 +173,8 @@ enum Step {
 /// accounts signed in since they were last signed out, once each, in the order they were first
 /// signed in then, each changed in place; the browser is asked to sign in as the account signed in
 /// again, or to another when the account plugin has signed in any; signing in again as another
-/// says so; and no token gets into `accounts.json`, an error, a listing or a log.
+/// says so and gives the plugin it was for no access to it; and no token gets into
+/// `accounts.json`, an error, a listing or a log.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
     let m = mock(30);
@@ -206,11 +207,13 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
                         let select = (again.is_none() && !kept.is_empty()).then_some("select_account");
                         assert_eq!(opened.get("prompt").map(String::as_str), select, "step {i}");
                         let instead = again.clone().filter(|a| *a != subject);
+                        // The plugin it was for is given access only to the account it was for.
                         let given = done.access.as_ref().map(|a| a.plugin.as_str());
-                        assert_eq!((done.instead_of.clone(), given), (instead, Some("echo")));
+                        let expected = instead.is_none().then_some("echo");
+                        assert_eq!((done.instead_of.clone(), given), (instead, expected), "step {i}");
                         assert_eq!((&done.account.subject, &done.account.name), (&subject, &name), "step {i}");
                         answers.push(serde_json::to_value(&done).unwrap());
-                        if !accessed.contains(&subject) {
+                        if given.is_some() && !accessed.contains(&subject) {
                             accessed.push(subject.clone());
                         }
                         kept.insert(subject, name);
@@ -358,7 +361,8 @@ fn a_service_that_doesnt_say_what_it_granted_granted_what_was_asked() {
 
 /// The browser is asked to sign in as the account signed in again, or to another than those the
 /// account plugin has when there are any, and to nothing in particular before; the type's own
-/// params go with every sign-in.
+/// params go with every sign-in; and the plugin a sign-in again is for isn't given access to
+/// another account the browser signs in to.
 #[test]
 fn the_browser_is_asked_for_one_account_or_another() {
     let m = mock_at(3600, "/userinfo", "params = { access_type = \"offline\" }");
@@ -369,7 +373,9 @@ fn the_browser_is_asked_for_one_account_or_another() {
     let (done, again) = m.sign_in(who(json!("b"), None), Some("a"), &[]);
     assert_eq!((again.get("prompt"), again["login_hint"].as_str()), (None, "a"));
     assert!([first, another, again].iter().all(|q| has(q, "access_type", "offline")), "the type's params");
-    assert_eq!(done.unwrap().instead_of.as_deref(), Some("a"), "signed in as another than asked");
+    let done = done.unwrap();
+    assert_eq!(done.instead_of.as_deref(), Some("a"), "signed in as another than asked");
+    assert_eq!(done.access, None, "echo was given access to another account than it was for");
     let subjects: Vec<String> = m.listed().into_iter().map(|a| a.subject).collect();
     assert_eq!(subjects, ["a", "b"]);
 }

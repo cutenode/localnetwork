@@ -14,7 +14,7 @@ use locallibrary::progress::Ctx;
 use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
-use super::accounts::{account_type, called, come_back, find};
+use super::accounts::{account_type, called, come_back, declined, find, titles};
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok};
@@ -117,8 +117,7 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
     let signed_in: Vec<&Account> = kept.iter().filter(|a| a.kind == *kind && a.signed_in).collect();
     let t = providing.iter().find_map(|with| account_type(plugins, with, kind));
     let title = t.map_or(kind.as_str(), |t| &t.title);
-    let scopes: Vec<&str> =
-        need.scopes.iter().map(|s| t.and_then(|t| t.scopes.get(s)).map_or(s.as_str(), |s| &s.title)).collect();
+    let scopes = titles(t, &need.scopes);
     let several = providing.len() > 1;
     let mut items: Vec<ChoiceItem> = signed_in
         .iter()
@@ -142,7 +141,9 @@ fn give(plugins: &Plugins, plugin: &str, need: &AccountNeed, store: &Store, out:
         None => {
             let with = &providing[i - signed_in.len()];
             let start = plugins.begin_account_sign_in(kind, with, Some(plugin), None, &[], store)?;
-            come_back(plugins, &start, BrowserArgs::default(), out, ctx)?.account
+            let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+            declined(plugins, &done);
+            done.account
         }
     };
     plugins.set_default_access(plugin, &AccountId { plugin: a.plugin.clone(), subject: a.subject.clone() }, store)?;
