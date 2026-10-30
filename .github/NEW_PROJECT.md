@@ -149,7 +149,7 @@ Then do the steps every app shares, below.
 3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
 4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
 5. Make it a dependency of locallibrary: from the repository's root, `cargo add -p locallibrary-cli --path plugins/<id>`. `apps/locallibrary/build.rs` links in every folder in `plugins/` but `accounts/`, in alphabetical order (as `plugin list` shows them), and fails the build while one isn't a dependency.
-6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
+6. List it in `apps/locallibrary/docs/plugins.md` and in the layout in `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 7. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.
 
 A new capability is a change to loclib-plugin, and also needs a case in `means()` in `apps/locallibrary/src/plugins.rs`, which says it in plain words. A plugin that changes what an analyzer computes bumps that analyzer's `version`, since stored values are keyed by it.
@@ -161,7 +161,7 @@ An [account plugin](../apps/locallibrary/docs/plugins.md#account-plugins) is a m
 1. Create `plugins/accounts/<id>/locallibrary-plugin.toml` with `id` (ending in `-account`), `name`, `version`, `protocol` and one `[[contributes.account_types]]` (the fields are in [loclib-plugin](../crates/loclib-plugin/README.md)). No crate, no `Cargo.toml`: `apps/locallibrary/build.rs` includes every folder there, and the workspace leaves them out.
 2. Give each scope the requests it covers, taken from the code of the plugins that will use it, and test from those plugins that their requests are covered, as `plugins/youtube/src/tests.rs` does.
 3. A token exchange is Local Network's (`apps/web/src/lib/server/token-exchange/services.json`), so its service has to be there.
-4. List it in `apps/locallibrary/docs/plugins.md` and `apps/locallibrary/docs/how-it-works.md`, and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
+4. List it in `apps/locallibrary/docs/plugins.md` and `apps/locallibrary/docs/how-it-works.md`, and add a changelog line in `apps/locallibrary/changes/`.
 
 ## Shared libraries
 

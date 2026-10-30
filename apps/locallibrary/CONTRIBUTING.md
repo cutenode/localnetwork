@@ -289,8 +289,10 @@ print where the trace went; add Bombadil options after the script name (`./tui.s
 [dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml` at the
 repository root, `.github/workflows/locallibrary-release.yml`) when a version tag is pushed:
 
-1. In `CHANGELOG.md`, rename "Unreleased" to the version and date (`## [0.2.0] - 2026-11-02`)
-   and start a new "Unreleased" above it. The GitHub Release takes its notes from that section.
+1. Move the lines in each file in `changes/` but its README under the same heading in
+   Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
+   and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
+   takes its notes from that section.
 2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
    `Cargo.lock` follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:

@@ -4,7 +4,8 @@ All notable changes to locallibrary are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). The release workflow takes a version's notes from
 its section here, so rename "Unreleased" to the version (`## [0.1.0] - YYYY-MM-DD`) in the
-commit that gets tagged.
+commit that gets tagged. Pull requests add their lines in [`changes/`](changes/README.md), which
+a release moves in here.
 
 ## [Unreleased]
 
