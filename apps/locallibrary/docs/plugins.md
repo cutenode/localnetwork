@@ -247,7 +247,10 @@ allowing it signs in again in the browser. A no is remembered: it isn't asked ag
 how to give it the scope.
 
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
-and refreshed a minute before they expire. A plugin never sees them: a request it makes names the
+and refreshed a minute before they expire. An account that isn't refreshed signs itself out as its
+token expires, and one whose service says how long its refresh token lasts signs itself out then:
+`locallibrary account` says when (`signs_out` with `--json`), and in its last two days warns, as a
+destination using it does (offering to sign in again in a terminal) and the player as it starts. A plugin never sees them: a request it makes names the
 account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
 header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
 token once it has checked the request against the scopes of the plugin's access, never sending it

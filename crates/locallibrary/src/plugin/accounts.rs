@@ -20,10 +20,13 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
 use loclib_plugin::AccountType;
-use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
+use oauth2::basic::{
+    BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse, BasicTokenType,
+};
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet, HttpRequest, HttpResponse,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet, ExtraTokenFields, HttpRequest,
+    HttpResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    StandardRevocableToken, StandardTokenResponse, TokenResponse, TokenUrl,
 };
 use reqwest::Url;
 use rustc_hash::FxHashMap;
@@ -56,10 +59,46 @@ const PENDING_LIMIT: Duration = Duration::from_secs(15 * 60);
 /// The most of a token endpoint's answer read.
 const MAX_ANSWER: u64 = 1 << 20;
 
+/// How many days before an account signs itself out the front ends warn, offering to sign in
+/// again: an Atmosphere account's session, and an account through an account plugin that isn't
+/// refreshed, or whose refresh token runs out.
+pub const WARN_DAYS: i64 = 2;
+
+/// Whether an account that signs itself out at `at` is to be warned about now: it does within
+/// [`WARN_DAYS`], or did.
+pub fn due_soon(at: DateTime<Utc>) -> bool {
+    at - Utc::now() <= chrono::Duration::days(WARN_DAYS)
+}
+
+/// What a token endpoint answers besides OAuth 2's own fields: how many seconds the refresh token
+/// lasts, when the service says (as GitHub and Microsoft do).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Lasting {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_token_expires_in: Option<u64>,
+}
+
+impl ExtraTokenFields for Lasting {}
+
+/// What a token endpoint answers.
+type Answer = StandardTokenResponse<Lasting, BasicTokenType>;
+
 /// An account type's client at its service, for signing in (with the browser's way back) and
-/// refreshing. Revoking is the host's own request (see [`Plugin::revoke`]): the crate's refuses an
-/// endpoint on this computer, which tests have.
-type Client = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
+/// refreshing, as `oauth2` builds it (with its authorization and token endpoints set). Revoking is
+/// the host's own request (see [`Plugin::revoke`]): the crate's refuses an endpoint on this
+/// computer, which tests have.
+type Client<HasAuthUrl = EndpointSet, HasTokenUrl = EndpointSet> = oauth2::Client<
+    BasicErrorResponse,
+    Answer,
+    BasicTokenIntrospectionResponse,
+    StandardRevocableToken,
+    BasicRevocationErrorResponse,
+    HasAuthUrl,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    HasTokenUrl,
+>;
 
 /// What's kept of an account's sign-in, as JSON. Never printed: it has no `Debug`.
 #[derive(Serialize, Deserialize)]
@@ -69,20 +108,27 @@ struct Tokens {
     refresh_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expires_at: Option<DateTime<Utc>>,
+    /// When the refresh token runs out, when the service said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_expires_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     scopes: Vec<String>,
 }
 
 impl Tokens {
-    /// What a token endpoint answered, keeping the refresh token (and scopes) it had when a
-    /// refresh's answer leaves them out.
-    fn from(answer: &BasicTokenResponse, had: Option<Tokens>) -> Tokens {
+    /// What a token endpoint answered, keeping the refresh token it had (and when that runs out)
+    /// and the scopes when a refresh's answer leaves them out.
+    fn from(answer: &Answer, had: Option<Tokens>) -> Tokens {
+        let at = |d: Duration| chrono::Duration::from_std(d).ok().map(|d| Utc::now() + d);
         let scopes = answer.scopes().map(|s| s.iter().map(|s| s.to_string()).collect());
         let refresh_token = answer.refresh_token().map(|t| t.secret().clone());
+        let lasts = answer.extra_fields().refresh_token_expires_in.map(Duration::from_secs).and_then(at);
+        let kept = refresh_token.is_none().then(|| had.as_ref().and_then(|h| h.refresh_expires_at)).flatten();
         Tokens {
             access_token: answer.access_token().secret().clone(),
-            expires_at: answer.expires_in().and_then(|d| chrono::Duration::from_std(d).ok()).map(|d| Utc::now() + d),
+            expires_at: answer.expires_in().and_then(at),
             refresh_token: refresh_token.or_else(|| had.as_ref().and_then(|h| h.refresh_token.clone())),
+            refresh_expires_at: lasts.or(kept),
             scopes: scopes.or_else(|| had.map(|h| h.scopes)).unwrap_or_default(),
         }
     }
@@ -123,7 +169,7 @@ impl Plugin {
             self.misbehaved(format!("its {} account's {what} can't be used: {e}", t.title))
         };
         let token_url = t.token_url.as_ref().or(t.token_exchange.as_ref()).cloned().unwrap_or_default();
-        let client = BasicClient::new(ClientId::new(t.client_id.clone()))
+        let client = Client::<EndpointNotSet, EndpointNotSet>::new(ClientId::new(t.client_id.clone()))
             .set_auth_uri(AuthUrl::new(t.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
             .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
@@ -228,7 +274,7 @@ impl Plugin {
         client: &Client,
         verifier: PkceCodeVerifier,
         query: &CallbackQuery,
-    ) -> Result<BasicTokenResponse> {
+    ) -> Result<Answer> {
         if let Some(why) = query.refusal() {
             return Err(Error::Account(why));
         }

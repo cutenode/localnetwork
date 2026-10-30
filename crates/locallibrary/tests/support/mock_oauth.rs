@@ -91,6 +91,8 @@ impl Server {
 #[derive(Default)]
 pub struct Service {
     pub expires_in: Option<u64>,
+    /// How many seconds a refresh token it answers lasts, which it says when it's given.
+    pub refresh_expires_in: Option<u64>,
     /// Whether a refresh answers a new refresh token.
     pub rotates: bool,
     /// It never answers a refresh token, so what's signed in to there isn't refreshed.
@@ -206,6 +208,9 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
                 }
                 if !s.refreshless && (f["grant_type"] == "authorization_code" || s.rotates) {
                     answer["refresh_token"] = format!("rt-{n}").into();
+                    if let Some(secs) = s.refresh_expires_in {
+                        answer["refresh_token_expires_in"] = secs.into();
+                    }
                 }
                 if let Some(secs) = s.expires_in {
                     answer["expires_in"] = secs.into();

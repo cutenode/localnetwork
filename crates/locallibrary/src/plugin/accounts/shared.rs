@@ -47,8 +47,20 @@ pub struct Account {
     pub expires: Option<DateTime<Utc>>,
     /// It's refreshed without signing in again.
     pub refreshes: bool,
+    /// When it signs itself out, when it does: as its access token expires when it isn't
+    /// refreshed, else as its refresh token runs out, when the service said. Front ends warn
+    /// within [`crate::plugin::WARN_DAYS`] of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signs_out: Option<DateTime<Utc>>,
     /// Its tokens are kept (the keychain may have lost them).
     pub signed_in: bool,
+}
+
+impl Account {
+    /// Whether it's signed in and signs itself out within [`crate::plugin::WARN_DAYS`].
+    pub fn due_soon(&self) -> bool {
+        self.signed_in && self.signs_out.is_some_and(super::due_soon)
+    }
 }
 
 /// The accounts a store keeps and the accesses plugins were given to them, as hosts show them.
@@ -121,6 +133,7 @@ pub(crate) struct Asked {
 /// `kept` as hosts show it.
 fn listed(kept: Kept, signed_in: bool) -> Account {
     Account {
+        signs_out: kept.signs_out(),
         kind: kept.kind,
         plugin: kept.plugin,
         subject: kept.subject,
@@ -154,7 +167,8 @@ impl Plugin {
         let secret = secret(self.host.options.secrets, &kept::place(store, &kept.plugin, &kept.subject))?;
         let read = |s: String| {
             let tokens = self.read_tokens(&kept.name, &s)?;
-            Ok(Tokens { expires_at: kept.expires_at, scopes: kept.scopes.clone(), ..tokens })
+            let (expires_at, refresh_expires_at) = (kept.expires_at, kept.refresh_expires_at);
+            Ok(Tokens { expires_at, refresh_expires_at, scopes: kept.scopes.clone(), ..tokens })
         };
         secret.map(read).transpose()
     }
@@ -264,6 +278,7 @@ impl Plugins {
                     scopes: Vec::new(),
                     expires: None,
                     refreshes: false,
+                    signs_out: None,
                     signed_in: false,
                 });
             }

@@ -30399,6 +30399,14 @@
           "type": "boolean",
           "description": "It's refreshed without signing in again."
         },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
+        },
         "signed_in": {
           "type": "boolean",
           "description": "Its tokens are kept (the keychain may have lost them)."
@@ -30536,6 +30544,14 @@
           "type": "boolean",
           "description": "It's refreshed without signing in again."
         },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
+        },
         "signed_in": {
           "type": "boolean",
           "description": "Its tokens are kept (the keychain may have lost them)."
@@ -30613,6 +30629,14 @@
         "refreshes": {
           "type": "boolean",
           "description": "It's refreshed without signing in again."
+        },
+        "signs_out": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When it signs itself out, when it does: as its access token expires when it isn't\nrefreshed, else as its refresh token runs out, when the service said. Front ends warn\nwithin [`crate::plugin::WARN_DAYS`] of it."
         },
         "signed_in": {
           "type": "boolean",

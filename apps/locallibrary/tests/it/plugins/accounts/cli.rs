@@ -381,6 +381,25 @@ fn a_destination_without_access_asks_which_account_in_a_terminal() {
     assert!(out.starts_with("✓ Echo has access to the Mock account b@mock.example\n"), "{out}");
 }
 
+/// A destination whose account signs itself out within two days (its refresh token running out)
+/// warns of it, and in a terminal offers to sign in again first.
+#[cfg(unix)]
+#[test]
+fn a_destination_warns_of_an_account_signing_itself_out_soon() {
+    let m = Mock::new();
+    m.state.lock().unwrap().refresh_expires_in = Some(129_600);
+    assert_eq!(m.sign_in("a", &["--for", "echo"]).0, 0);
+    let warned = "! the Mock account a@mock.example signs itself out on ";
+    let (code, out, err) = m.run(&COPY);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains(warned) && out.contains(" (1 days)\n"), "{out}");
+    assert!(!err.contains("Sign in again now?"), "asked without a terminal: {err}");
+    let (code, out, err) = m.typed(&COPY, "y\n", "a");
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("? Sign in again now? [y/N]"), "{err}");
+    assert!(out.contains(warned) && out.contains("✓ Signed in to the Mock account a@mock.example\n"), "{out}");
+}
+
 /// Where [`a_plugin_wanting_more_of_an_account_asks_only_in_a_terminal`] runs echo's `ensure`.
 #[derive(Debug, Clone, Copy)]
 enum Asked {
@@ -492,6 +511,8 @@ enum Naming {
 enum Lasting {
     /// An hour, then they're refreshed.
     Refreshed,
+    /// An hour, then they're refreshed for a day and a half, as the service says.
+    RunsOut,
     /// An hour, with nothing to refresh them with.
     Hour,
     /// Until they're revoked, with nothing to refresh them with.
@@ -584,6 +605,19 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     grants_write = false
 )]
 #[hegel::explicit_test_case(
+    two = false,
+    revokes = false,
+    unscoped = false,
+    lasting = Lasting::RunsOut,
+    naming = Naming::Subject,
+    json = false,
+    a_with = WITH,
+    b_with = WITH,
+    same_name = false,
+    instead = false,
+    grants_write = true
+)]
+#[hegel::explicit_test_case(
     two = true,
     revokes = true,
     unscoped = false,
@@ -600,7 +634,8 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
     let two = tc.draw(gs::booleans());
     let revokes = tc.draw(gs::booleans());
     let unscoped = tc.draw(gs::booleans());
-    let lasting = tc.draw(gs::sampled_from(vec![Lasting::Refreshed, Lasting::Hour, Lasting::Ever]));
+    let lasting = tc.draw(gs::sampled_from(vec![Lasting::Refreshed, Lasting::RunsOut, Lasting::Hour, Lasting::Ever]));
+    let refreshed = matches!(lasting, Lasting::Refreshed | Lasting::RunsOut);
     let naming = tc.draw(gs::sampled_from(vec![Naming::Subject, Naming::Name, Naming::Typed]));
     let json = tc.draw(gs::booleans());
     let (m, providers) = providing(two, revokes);
@@ -617,8 +652,9 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
         let mut s = m.state.lock().unwrap();
         s.unscoped = unscoped;
         s.grants = Some(granted.split(' ').map(String::from).collect());
-        s.refreshless = !matches!(lasting, Lasting::Refreshed);
+        s.refreshless = !refreshed;
         s.expires_in = (!matches!(lasting, Lasting::Ever)).then_some(3600);
+        s.refresh_expires_in = matches!(lasting, Lasting::RunsOut).then_some(129_600);
     }
     let called = |k: &Kept| match two {
         true => format!("Mock account {} (through {})", k.name, k.with),
@@ -723,15 +759,36 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
         let account = &one["accounts"][0];
         assert_eq!((&account["subject"], &account["plugin"]), (&json!(k.subject), &json!(k.with)), "{one}");
         assert!(listed["accounts"].as_array().unwrap().contains(account), "{listed}");
-        assert_eq!(account["refreshes"], json!(matches!(lasting, Lasting::Refreshed)), "{one}");
+        assert_eq!(account["refreshes"], json!(refreshed), "{one}");
         assert_eq!(account["expires"].is_null(), matches!(lasting, Lasting::Ever), "{one}");
+        // It signs itself out as its access token expires, unless it's refreshed: then as its
+        // refresh token runs out, when the service said.
+        let time = |key: &str| serde_json::from_value::<chrono::DateTime<chrono::Utc>>(account[key].clone()).ok();
+        let signs_out = time("signs_out");
+        let (at, then) = (signs_out.unwrap_or_default(), chrono::Utc::now());
+        let (day, minute) =
+            (|t| locallibrary::local_time(t, "%Y-%m-%d"), |t| locallibrary::local_time(t, "%Y-%m-%d %H:%M"));
         let state = match lasting {
             Lasting::Refreshed => "signed in, refreshed on its own".to_string(),
+            Lasting::RunsOut => {
+                assert!((at - then - chrono::Duration::seconds(129_600)).num_seconds().abs() < 60, "{one}");
+                format!("signed in, refreshed on its own · signs itself out on {} (1 days)", day(at))
+            }
             Lasting::Hour => {
-                let at: chrono::DateTime<chrono::Utc> = serde_json::from_value(account["expires"].clone()).unwrap();
-                format!("signed in until {}", locallibrary::local_time(at, "%Y-%m-%d %H:%M"))
+                assert_eq!(signs_out, time("expires"), "{one}");
+                format!("signed in · signs itself out at {} (today)", minute(at))
             }
             Lasting::Ever => "signed in".to_string(),
+        };
+        assert_eq!(signs_out.is_some(), matches!(lasting, Lasting::RunsOut | Lasting::Hour), "{one}");
+        // Both within two days, it's a warning too.
+        let warning = match signs_out.is_some() {
+            true => format!(
+                "! it {}: `locallibrary account mock:{} sign-in` signs in again\n",
+                state.rsplit(" · ").next().unwrap(),
+                k.subject
+            ),
+            false => String::new(),
         };
         // What the service granted, or when it doesn't say, what was asked.
         let allowed = joined(&account["scopes"], " ");
@@ -740,7 +797,7 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
             true => "",
             false => "  access: echo (default)\n",
         };
-        let shown = format!("{}\n  {state} · allowed: {allowed}\n{access}", called(k));
+        let shown = format!("{}\n  {state} · allowed: {allowed}\n{warning}{access}", called(k));
         assert_eq!(m.run(&["account", &target, "status"]).1, shown);
     }
 

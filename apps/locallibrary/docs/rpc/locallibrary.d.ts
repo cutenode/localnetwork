@@ -7861,6 +7861,12 @@ export type StoreAccount = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
 };
@@ -7922,6 +7928,12 @@ export type AccountSignedIn = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
   /**
@@ -7956,6 +7968,12 @@ export type AccountSignedOut = {
   expires?: string | null;
   /** It's refreshed without signing in again. */
   refreshes: boolean;
+  /**
+   * When it signs itself out, when it does: as its access token expires when it isn't
+   * refreshed, else as its refresh token runs out, when the service said. Front ends warn
+   * within [`crate::plugin::WARN_DAYS`] of it.
+   */
+  signs_out?: string | null;
   /** Its tokens are kept (the keychain may have lost them). */
   signed_in: boolean;
   /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */

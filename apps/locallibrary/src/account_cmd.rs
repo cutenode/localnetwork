@@ -20,8 +20,10 @@ use locallibrary::plugin::Accounts;
 use locallibrary::progress::Ctx;
 use serde::Serialize;
 
+#[cfg(feature = "tui")]
+pub use accounts::signing_out;
 #[cfg(feature = "account")]
-pub use atmosphere::sign_in_again;
+pub use atmosphere::{again, sign_in_again};
 
 use crate::output::Output;
 use crate::plugins;

@@ -166,6 +166,30 @@ fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: 
     }
 }
 
+/// For a mock account the store keeps, refreshed or not, signing itself out in any number of
+/// hours (as its access token expires, or its refresh token runs out) or never: the player warns
+/// of it as it starts exactly when that's within `WARN_DAYS`, saying where to sign in again.
+#[hegel::test(test_cases = 20)]
+fn the_player_warns_of_an_account_signing_itself_out_soon(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    plugins_once();
+    let refreshes = tc.draw(gs::booleans());
+    let hours = tc.draw(gs::optional(gs::integers::<i64>().min_value(1).max_value(24 * 30)));
+    let at = hours.map(|h| chrono::Utc::now() + chrono::Duration::hours(h));
+    let lasting = if refreshes { "refresh_expires_at" } else { "expires_at" };
+    kept(&app, &["a"]);
+    let file = app.store_root.join("accounts.json");
+    let mut book: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    book["accounts"][0]["refreshes"] = refreshes.into();
+    book["accounts"][0][lasting] = serde_json::json!(at);
+    std::fs::write(&file, book.to_string()).unwrap();
+    app.warn_signing_out();
+    let warned = hours.is_some_and(|h| h <= 24 * locallibrary::plugin::WARN_DAYS);
+    let said = last_message(&app);
+    assert_eq!(said.contains("the Mock account a@mock.example signs itself out "), warned, "{hours:?}: {said}");
+    assert_eq!(said.ends_with(": sign in to it again from the palette (:)"), warned, "{said}");
+}
+
 /// What a plugin asks of the mock account `a`: `write`, signing in again to it or not.
 fn wanting(sign_in: bool) -> AccessQuestion {
     let account = AccountId { plugin: "mock-accounts".into(), subject: "a".into() };
