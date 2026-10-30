@@ -291,7 +291,7 @@ tooling:
           - ".github/*"
           - ".github/{rulesets,projects}/**"
           - ".github/ISSUE_TEMPLATE/**"
-          - "{.cargo,.config,.railway,tools,patches}/**"
+          - "{.cargo,.config,.railway,tools,patches,.claude/skills}/**"
           - "{package.json,pnpm-workspace.yaml,lefthook.yml,sgconfig.yml,.node-version}"
           - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace,osv-scanner}.toml"
           - "{.oxlintrc.json,.oxfmtrc.json,.editorconfig,.gitattributes,.gitignore,.dockerignore}"

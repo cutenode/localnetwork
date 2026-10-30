@@ -14,5 +14,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-# Claude Code
-.claude/
+# Claude Code's local state, except the skills the repository shares with every session.
+.claude/*
+!.claude/skills/

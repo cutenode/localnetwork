@@ -91,6 +91,7 @@ Issues are planned in Linear, in the `localnetwork` workspace's Localnetwork tea
 - Settings > Integrations > GitHub: the Linear app installed on `cutenode` with access to `cutenode/localnetwork`, and two-way Issues Sync from `cutenode/localnetwork` to Localnetwork. The issues from before the sync came in through the GitHub importer (Settings > Import/Export), which keeps them synced the same way.
 - Settings > Workspace > Integrations > GitHub > Branch format: `bnb/{issueIdentifier}-{issueTitle}`, so "Copy git branch name" gives a `bnb/loc-123-…` branch.
 - The Localnetwork team: Triage on, and under Workflows & automations, a pull request moves its issues to In Progress when it's drafted or opened, In Review when a review is requested, and Done when it merges.
+- A Localnetwork team view, "Agent ready": label `agent-ready`, status Backlog or Todo. It's what agents pick work from ([.claude/skills/linear](../.claude/skills/linear/SKILL.md)).
 
 ### Production and releases
 

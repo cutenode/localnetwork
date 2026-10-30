@@ -160,3 +160,9 @@
 - name: scheduled-failure
   color: "b60205"
   description: A weekly scheduled run failed
+
+# Set while triaging an issue an agent can take on its own: the outcome, the files and the test
+# are clear, and it needs no hardware, real account or decision (.claude/skills/linear).
+- name: agent-ready
+  color: "5319e7"
+  description: Scoped well enough for an agent to pick up
