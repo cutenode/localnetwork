@@ -41,6 +41,7 @@ use crate::{Error, Result, lock};
 
 pub(super) mod access;
 mod kept;
+pub(super) mod ready;
 pub(super) mod shared;
 mod token;
 mod whoami;

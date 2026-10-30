@@ -1,20 +1,21 @@
 //! Plugins' access to the accounts the store keeps: `plugin access PLUGIN` lists a plugin's,
-//! makes an account its default for the account's type or takes its access away; and before a
-//! plugin's destination is used, a terminal is asked which account it may use of each type it
-//! needs and has no access to.
+//! gives it one, makes an account its default for the account's type or takes its access away;
+//! and before a plugin's destination is used, a terminal is asked about what keeps it from using
+//! an account of each type it needs.
 
+use std::mem::discriminant;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use indexmap::IndexSet;
 use locallibrary::Store;
-use locallibrary::plugin::{Access, Account, AccountId, Plugins, destination_spec};
+use locallibrary::plugin::{Access, Account, AccountId, Plugins, Unready, destination_spec};
 use locallibrary::progress::Ctx;
 use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
-use super::accounts::{account_type, called, come_back, declined, find, titles};
+use super::accounts::{account_type, called, come_back, declined, find, named, titles};
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
 use crate::output::{Output, dim, heading, ok};
@@ -106,18 +107,73 @@ fn list(plugins: &Plugins, plugin: &str, needs: &[AccountNeed], accesses: &[Acce
 }
 
 /// Before the plugin a destination `spec` names is used: in a terminal (not with `--json` or
-/// `--yes`), each account type the plugin needs and has no access to is asked about, and the
-/// account chosen made its default, signing in to another when that's chosen. Nothing's asked
-/// elsewhere: the destination is refused, saying how to give it access.
+/// `--yes`), whatever keeps it from using an account of a type it asks for (see [`Unready`]) is
+/// asked about once: which account it may use when it has no access (made its default, signing in
+/// to another when that's chosen), signing in again when the account is signed out, won't stay
+/// signed in or wasn't granted what it needs, and giving it the scopes its access lacks. Nothing's
+/// asked elsewhere: the destination is refused, saying how to resolve it.
 pub fn ask(spec: &str, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<()> {
     if !interactive(out) || out.yes {
         return Ok(());
     }
     let (plugin, _) = destination_spec(spec)?;
     let plugins = plugins::host()?;
-    for need in plugins.without_access(plugin, store)? {
-        give(plugins, plugin, need, store, out, ctx)?;
+    // One turned down isn't asked again: the destination refuses it.
+    let mut asked = Vec::new();
+    while let Some(u) =
+        plugins.unready(plugin, store)?.into_iter().find(|u| !asked.contains(&(u.kind().to_string(), discriminant(u))))
+    {
+        asked.push((u.kind().to_string(), discriminant(&u)));
+        resolve(plugins, plugin, u, store, out, ctx)?;
     }
+    Ok(())
+}
+
+/// Asks about what keeps `plugin` from using an account of a type (see [`ask`]), and resolves it
+/// as the user says.
+fn resolve(plugins: &Plugins, plugin: &str, u: Unready, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<()> {
+    let manifest = plugins.manifest(plugin)?;
+    let name = &manifest.name;
+    let a = match &u {
+        Unready::NoAccess(kind) => {
+            let need = manifest.accounts.iter().find(|n| n.name == *kind);
+            return need.map_or(Ok(()), |need| give(plugins, plugin, need, store, out, ctx));
+        }
+        Unready::SignedOut(a) | Unready::Expiring(a) | Unready::Ungiven(a, _) | Unready::Ungranted(a, _) => a,
+    };
+    let t = account_type(plugins, &a.account.plugin, &a.kind);
+    let account = named(plugins, &a.kind, &a.account.plugin, &a.name);
+    let question = match &u {
+        Unready::Ungiven(_, scopes) => {
+            if out.confirm(&format!(
+                "{name} needs to {} with the {account}. Give it access?",
+                titles(t, scopes).join(", ")
+            )) {
+                plugins.give_access(plugin, &a.account, &[], store)?;
+                ok(format!("{name} has access to the {account}"));
+            }
+            return Ok(());
+        }
+        Unready::Ungranted(_, scopes) => {
+            format!("The {account} doesn't allow {name} to {}. Sign in again?", titles(t, scopes).join(", "))
+        }
+        Unready::Expiring(_) => format!("The {account} won't stay signed in long enough for {name}. Sign in again?"),
+        _ => format!("The {account}, which {name} uses, is signed out. Sign in again?"),
+    };
+    if !out.confirm(&question) {
+        return Ok(());
+    }
+    let start = plugins.begin_account_sign_in(
+        &a.kind,
+        &a.account.plugin,
+        Some(plugin),
+        Some(&a.account.subject),
+        &[],
+        store,
+    )?;
+    let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+    ok(format!("Signed in to the {}", called(plugins, &done.account)));
+    declined(plugins, &done);
     Ok(())
 }
 

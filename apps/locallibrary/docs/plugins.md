@@ -226,10 +226,15 @@ plugins keep their access, unused until it's signed in again.
 an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
 the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
 request fails because its account is signed out or wasn't granted a scope, the error offers to
-sign in again as that account, allowing what's missing. Before a plugin's
-destination is used, a plugin with no access to a type it needs asks in the terminal which of your
-accounts it may use, or to sign in to another. With `--json`, `--yes` or no terminal, and in the
-sidecar, nothing is asked: it fails and says how to give it access.
+sign in again as that account, allowing what's missing. A plugin's destination (and publishing
+a set there) starts only once each type the plugin needs has an account it may use: signed in,
+with every scope it needs, granted by the service, and, when the service doesn't refresh it,
+signed in for an hour yet besides how long sending the recording may take. In the terminal, a
+plugin with no access asks which of your accounts it may use, or to sign in to another; one whose
+account is signed out, won't stay signed in or wasn't granted what it needs asks to sign in again;
+one whose access lacks a scope it needs asks to give it. With `--json`, `--yes` or no terminal,
+and in the sidecar, nothing is asked: it fails and says how to resolve it.
+
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin

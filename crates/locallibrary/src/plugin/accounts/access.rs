@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::kept::{self, Book, Kept};
 use super::shared::not_kept;
-use crate::error::{Action, Reason};
+use crate::error::Action;
 use crate::plugin::Plugins;
 use crate::plugin::process::{Host, Plugin};
 use crate::store::Store;
@@ -188,28 +188,6 @@ impl Plugins {
     }
 }
 
-impl Plugins {
-    /// What `plugin` asks for of the account types it has no default access to in `store`: those
-    /// a request naming the type (`{account:<type>}`) can't use.
-    pub fn without_access(&self, plugin: &str, store: &Store) -> Result<Vec<&AccountNeed>> {
-        let accesses = kept::read(store)?.accesses;
-        let has = |n: &AccountNeed| accesses.iter().any(|a| a.plugin == plugin && a.kind == n.name && a.default);
-        Ok(self.manifest(plugin)?.accounts.iter().filter(|n| !has(n)).collect())
-    }
-
-    /// Fails `account` (`no_access`, with what resolves it) when `plugin` has no default access in
-    /// `store` to an account of a type it asks for.
-    pub fn check_access(&self, plugin: &str, store: &Store) -> Result<()> {
-        let Some(need) = self.without_access(plugin, store)?.first().copied() else { return Ok(()) };
-        let manifest = self.manifest(plugin)?;
-        let kind = &need.name;
-        let e = Error::Account(format!("the {} plugin has no access to a {kind} account", manifest.name));
-        let e = e.because(Reason::NoAccess).with("type", kind);
-        let actions = actions(&self.host, manifest, Some(kind), Some(store), &Map::new());
-        Err(actions.into_iter().fold(e, Error::action))
-    }
-}
-
 /// What resolves a plugin (its `manifest`) having no access, or not enough, to an account of
 /// type `kind` (one it asks for; any it asks for when it doesn't), as its error `said`: signing in
 /// again as the account of its access (see [`sign_in_again`]), signing in to one for it, and
@@ -244,8 +222,9 @@ pub(crate) fn actions(
 /// Signing in again as the account of the plugin's (its `manifest`'s) access of type `kind` that
 /// its error `said` it used, else its default, when signing in again can give it more: the
 /// account is signed out (and so has none of the access's scopes), or wasn't granted what one of
-/// them asks, or the error says it needs one the access hasn't. Only scopes the manifest asks for
-/// are allowed, whatever the error says, and the access and account are the store's.
+/// them asks, or the error says it `needs` one (a fresh token for it, or one the access hasn't).
+/// Only scopes the manifest asks for are allowed, whatever the error says, and the access and
+/// account are the store's.
 fn sign_in_again(
     host: &Host,
     manifest: &Manifest,
@@ -262,16 +241,13 @@ fn sign_in_again(
     let k = book.account(&a.account.plugin, &a.account.subject);
     let needs: Vec<&str> =
         said.get("needs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
-    let usable = |name: &String, scope: &Scope| {
-        a.scopes.contains(name) && k.is_some_and(|k| scope.asks.iter().all(|asks| k.scopes.contains(asks)))
-    };
+    let granted = |scope: &Scope| k.is_some_and(|k| scope.asks.iter().all(|asks| k.scopes.contains(asks)));
     let allowing: Vec<(&String, &Scope)> = need
         .scopes
         .iter()
         .chain(need.optional.iter().flat_map(|o| &o.scopes))
-        .filter(|name| a.scopes.contains(name) || needs.contains(&name.as_str()))
         .filter_map(|name| Some((name, t.scopes.get(name)?)))
-        .filter(|(name, scope)| !usable(name, scope))
+        .filter(|(name, scope)| needs.contains(&name.as_str()) || a.scopes.contains(name) && !granted(scope))
         .collect();
     if allowing.is_empty() {
         return None;

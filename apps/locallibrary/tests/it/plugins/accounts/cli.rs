@@ -113,7 +113,7 @@ fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     let (code, out, _) = m.run(&["account", "mock:a", "sign-out"]);
     assert_eq!((code, out.as_str()), (0, "✓ Signed out of a@mock.example\n"));
     let (_, out, _) = m.run(&["account"]);
-    let signed_out = "  signed out: `locallibrary account mock sign-in` signs in again\n  access: echo (default)\n";
+    let signed_out = "  signed out: `locallibrary account mock:a sign-in` signs in again\n  access: echo (default)\n";
     assert!(out.contains(signed_out), "{out}");
     // Signed out, it's still named for signing in to again: echo has access to it.
     let mut c = m.command();
@@ -353,6 +353,32 @@ fn a_destination_without_access_asks_which_account_in_a_terminal() {
     assert!(out.starts_with("✓ Echo uses the Mock account b@mock.example\n"), "{out}");
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);
     assert_eq!(out, "mock: Tests\n  b@mock.example (default) · read\n");
+
+    // Signed out, it's offered signing in again as b; turned down, the destination is refused,
+    // saying so.
+    assert_eq!(m.run(&["account", "mock:b", "sign-out"]).0, 0);
+    let (code, _, err) = m.typed(&COPY, "n\n", "b");
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("? The Mock account b@mock.example, which Echo uses, is signed out. Sign in again? [y/N]"),
+        "{err}"
+    );
+    assert!(
+        err.contains("hint: Sign in again as b@mock.example, allowing read: locallibrary account mock:b sign-in"),
+        "{err}"
+    );
+    let (code, out, err) = m.typed(&COPY, "y\n", "b");
+    assert_eq!(code, 0, "{err}");
+    assert!(out.starts_with("✓ Signed in to the Mock account b@mock.example\n"), "{out}");
+    // Its access lacking what echo needs, it's offered giving it.
+    let file = m.env.store.join("accounts.json");
+    let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    kept["accesses"][0]["scopes"] = json!([]);
+    std::fs::write(&file, kept.to_string()).unwrap();
+    let (code, out, err) = m.typed(&COPY, "y\n", "b");
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("? Echo needs to read with the Mock account b@mock.example. Give it access? [y/N]"), "{err}");
+    assert!(out.starts_with("✓ Echo has access to the Mock account b@mock.example\n"), "{out}");
 }
 
 /// A second account plugin's id, providing the `mock` type too.
@@ -673,7 +699,8 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
         (false, false) => assert_eq!(out, format!("✓ Signed out of {} on this computer\n", a.name)),
     }
     let (_, shown, _) = m.run(&["account"]);
-    let signed_out = "signed out: `locallibrary account mock sign-in` signs in again\n  access: echo\n";
+    let signed_out =
+        format!("signed out: `locallibrary account mock:{} sign-in` signs in again\n  access: echo\n", a.subject);
     assert!(shown.contains(&format!("{}\n  {signed_out}", called(&a))), "{shown}");
     let (code, out, err) = m.run(&maybe_json(json, &["plugin", "access", "echo", "--take-away", &target]));
     assert_eq!(code, 0, "{err}");

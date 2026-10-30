@@ -140,13 +140,18 @@ pub(super) fn account_type<'a>(plugins: &'a Plugins, with: &str, kind: &str) -> 
     plugins.manifest(with).ok()?.contributes.account_types.iter().find(|t| t.name == kind)
 }
 
-/// What `a` is called: its type's title, `account` and its name, then the account plugin it was
-/// signed in through when several provide the type.
+/// What `a` is called: see [`named`].
 pub(super) fn called(plugins: &Plugins, a: &Account) -> String {
-    let title = account_type(plugins, &a.plugin, &a.kind).map_or(a.kind.as_str(), |t| &t.title);
-    match plugins.providing(&a.kind).len() > 1 {
-        true => format!("{title} account {} (through {})", a.name, a.plugin),
-        false => format!("{title} account {}", a.name),
+    named(plugins, &a.kind, &a.plugin, &a.name)
+}
+
+/// What the account of type `kind` shown as `name` that `with` signed in is called: its type's
+/// title, `account` and its name, then the account plugin when several provide the type.
+pub(super) fn named(plugins: &Plugins, kind: &str, with: &str, name: &str) -> String {
+    let title = account_type(plugins, with, kind).map_or(kind, |t| &t.title);
+    match plugins.providing(kind).len() > 1 {
+        true => format!("{title} account {name} (through {with})"),
+        false => format!("{title} account {name}"),
     }
 }
 
@@ -189,7 +194,7 @@ pub(super) fn list(plugins: &Plugins, all: &Accounts) {
 fn show(plugins: &Plugins, a: &Account, accesses: &[&Access]) {
     heading(&called(plugins, a));
     let state = match (a.signed_in, a.refreshes, a.expires) {
-        (false, ..) => format!("signed out: `locallibrary account {} sign-in` signs in again", a.kind),
+        (false, ..) => format!("signed out: `locallibrary account {}:{} sign-in` signs in again", a.kind, a.subject),
         (true, true, _) => "signed in, refreshed on its own".into(),
         (true, false, Some(at)) => format!("signed in until {}", local_time(at, "%Y-%m-%d %H:%M")),
         (true, false, None) => "signed in".into(),

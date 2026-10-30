@@ -4,7 +4,7 @@
 //! heard, and the host keeps that as the set's link, with the link's name and the Atmosphere
 //! record holding the recording when the plugin gives them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
 use chrono::{DateTime, Utc};
@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use super::super::Plugins;
 use super::super::process::Slot;
+use crate::error::IoContext;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
@@ -100,6 +101,12 @@ fn published(set: &Set, unnamed: &Unnamed) -> (PublishedSet, Vec<TracklistEntry>
     (details, tracklist)
 }
 
+/// How big the recording at `path` is, which the plugin's accounts have to stay signed in for
+/// sending.
+fn size(path: &Path) -> Result<u64> {
+    Ok(std::fs::metadata(path).at(path)?.len())
+}
+
 impl Plugins {
     /// Plans publishing the set `set` names (see [`SetBook::find`]) with its recording at the
     /// set destination `spec` names (`<plugin>:<destination>`): the plugin's dry run says what
@@ -116,7 +123,7 @@ impl Plugins {
         store: &Store,
         ctx: &Ctx<'_>,
     ) -> Result<Planned<SetPublish>> {
-        let (slot, destination) = self.destination(spec, DestinationKind::Set, Some(store))?;
+        let (slot, destination) = self.destination(spec, DestinationKind::Set)?;
         let book = SetBook::load(store)?;
         let set = book.find(set)?;
         let recording = set.recording.as_ref().map(|r| r.path.clone()).ok_or_else(|| {
@@ -125,6 +132,7 @@ impl Plugins {
         if !recording.is_file() {
             return Err(Error::NotFound(format!("{}, the set's recording", recording.display())));
         }
+        slot.check_accounts(store, size(&recording)?)?;
         let unnamed = set.unnamed(hide, &ProfilePrefs::load(store)?)?;
         let (details, tracklist) = published(set, &unnamed);
         let (context, _) = slot.context(loclib_plugin::Context::default(), Some(store))?;
@@ -180,6 +188,8 @@ impl Operation for SetPublish {
             return Err(Error::stale(format!("set {}", p.set), "changed"));
         }
         let slot = p.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", p.plugin), "stopped"))?;
+        // Again: they may not do any more, and nothing's sent yet.
+        slot.check_accounts(store, size(&p.publish.recording)?)?;
         // Lent its recording: what it sends of it is the publishing's progress.
         let lent = [p.publish.recording.as_path()];
         let Published { url, name, record, warnings } =

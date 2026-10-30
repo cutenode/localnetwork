@@ -34546,7 +34546,7 @@
         {
           "type": "string",
           "const": "not_signed_in",
-          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout: sign in."
+          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout or won't stay signed in long enough: sign in."
         },
         {
           "type": "string",

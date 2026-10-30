@@ -55,6 +55,11 @@ const CHECK_EVERY: Duration = Duration::from_millis(50);
 /// What a secret's placeholder starts with: `{secret:<key>}`.
 const SECRET: &str = "{secret:";
 
+/// How long sending `bytes` of files may take, at [`SLOWEST`].
+pub(super) fn sending(bytes: u64) -> Duration {
+    Duration::from_secs(bytes / SLOWEST)
+}
+
 /// A plugin's `net/fetch` state, whichever of its processes asks.
 #[derive(Default)]
 pub(crate) struct State {
@@ -427,7 +432,7 @@ impl Plugin {
                     let to = url.host_str().unwrap_or_default();
                     let said = format!("net/fetch: sending {} of files to {to} ({})", op::bytes(files), sent.method);
                     self.host.log(&self.manifest.id, &said);
-                    request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
+                    request = request.timeout(TIMEOUT + sending(files));
                 }
                 request = body.send(request, live, cancel)?;
             }
