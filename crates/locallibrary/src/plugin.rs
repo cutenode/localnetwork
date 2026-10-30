@@ -15,10 +15,11 @@
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
-//! (kept in the keychain) and their accounts' tokens (signed in to by the host, see
-//! [`Plugins::begin_sign_in`]); an operation's edits are planned and applied by the host as any
-//! edit plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
-//! files in a folder the host makes for each request (`scratch`), which it reads itself.
+//! (kept in the keychain) and the tokens of the accounts they're given access to (signed in to by
+//! the host, see [`Plugins::begin_account_sign_in`]); an operation's edits are planned and applied
+//! by the host as any edit plan is, and an exporter's overwrites are confirmed first. Answers too
+//! big for a message are files in a folder the host makes for each request (`scratch`), which it
+//! reads itself.
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host offers the user and makes the
 //! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
@@ -58,7 +59,7 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -71,7 +72,9 @@ use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
 use crate::{Error, Result};
 
-pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
+pub use accounts::REFRESH_BEFORE;
+pub use accounts::access::{Access, AccountId};
+pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
@@ -232,7 +235,9 @@ impl Default for Options {
 /// The plugins the app has, by id.
 pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
-    /// Sign-ins to plugins' accounts waiting for the browser.
+    /// What every plugin is hosted with.
+    host: Arc<process::Host>,
+    /// Sign-ins to accounts of a type waiting for the browser.
     signing_in: accounts::SigningIn,
 }
 
@@ -242,7 +247,8 @@ impl Plugins {
     /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
+        let host =
+            Arc::new(process::Host { reads, options, turns: Mutex::default(), account_plugins: OnceLock::new() });
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
@@ -262,7 +268,11 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
-        Ok(Plugins { plugins, signing_in: Default::default() })
+        let account_plugins = plugins.iter().filter(|(_, s)| s.manifest.is_account_plugin());
+        let account_plugins = account_plugins.map(|(id, s)| (id.clone(), Arc::downgrade(&s.plugin))).collect();
+        // Set here only, once every plugin is.
+        let _ = host.account_plugins.set(account_plugins);
+        Ok(Plugins { plugins, host, signing_in: Default::default() })
     }
 
     /// Each plugin's manifest, in the order the app gave them.

@@ -1,7 +1,7 @@
 use std::io::pipe;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use hegel::TestCase;
@@ -622,7 +622,8 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let ((entered_tx, entered), (release, release_rx)) = (mpsc::channel(), mpsc::channel());
     let reads = Held { entered: Mutex::new(entered_tx), release: Mutex::new(release_rx), file };
     let options = Options { callbacks: quota, ..Options::default() };
-    let host = Arc::new(Host { reads: Arc::new(reads), options, turns: Mutex::default() });
+    let host =
+        Arc::new(Host { reads: Arc::new(reads), options, turns: Mutex::default(), account_plugins: OnceLock::new() });
     let launch = Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() };
     let (host_in, plugin_out) = pipe().unwrap();
     let (plugin_in, host_out) = pipe().unwrap();

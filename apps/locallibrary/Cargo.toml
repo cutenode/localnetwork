@@ -126,6 +126,9 @@ tokio.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
 # Writes the Traktor collections the interop plugin's library source is tested on.
 loclib-interop.workspace = true
+# The mock OAuth service accounts are signed in to at (crates/locallibrary/tests/support/mock_oauth.rs).
+oauth2 = { version = "5.0.0", default-features = false }
+form_urlencoded = "1.2.2"
 
 [lints]
 workspace = true

@@ -12,21 +12,12 @@ name = "track"
 title = "A track on SoundCloud"
 kind = "set"
 
-# SoundCloud wants a client secret when a code is traded for tokens and when they're refreshed,
-# so both go through Local Network's token exchange, which holds it. SoundCloud has no scopes to
-# ask for, takes the token as `Authorization: OAuth <token>`, and sends the browser back only to
-# the redirect URI its app was registered with, port and all: http://127.0.0.1:47110/callback.
-[[contributes.accounts]]
-id = "soundcloud"
-title = "SoundCloud"
-authorize_url = "https://secure.soundcloud.com/authorize"
-token_exchange = "https://localnetwork.computer/api/token-exchange/soundcloud"
-# PLACEHOLDER: Local Network's SoundCloud app isn't registered yet. Once it is, this is its client
-# id (public), the same as the website's SOUNDCLOUD_CLIENT_ID, which the token exchange sends with
-# it.
-client_id = "PLACEHOLDER-unregistered-soundcloud-client-id"
-token = { scheme = "OAuth" }
-redirect_port = 47110
+# Uploading is all it asks a SoundCloud account for: the scope covers reading the account's newest
+# tracks too, which is all the plugin reads.
+[[accounts]]
+type = "soundcloud"
+scopes = ["upload"]
+why = "It uploads each set you publish to SoundCloud as a track on your account."
 
 [[contributes.settings]]
 key = "sharing"

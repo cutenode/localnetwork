@@ -6,6 +6,9 @@
 //! this is what the host does with them, not a wall the system keeps: their file is kept apart
 //! from the plugin's own folder (where it runs, and its requests' scratch folders are) and from
 //! everything the host sends it, but nothing stops the plugin reading it as the user could.
+//!
+//! Where a secret is kept is a [`Place`], so that other secrets a store keeps can be kept the same
+//! way.
 
 use std::path::{Path, PathBuf};
 
@@ -19,9 +22,15 @@ use crate::keychain::{self, Storage};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
-/// The file of a plugin's secrets, with [`Storage::File`].
-fn file(store: &Store, plugin: &str) -> PathBuf {
-    store.root().join("secrets").join("plugins").join(format!("{plugin}.json"))
+/// Where a secret is kept in `store`: the keychain item `<key>@<store id>` of `service`, or with
+/// [`Storage::File`] `key` in the JSON object in `file`, readable only by the user.
+pub(super) struct Place<'a> {
+    pub store: &'a Store,
+    pub service: String,
+    pub file: PathBuf,
+    pub key: String,
+    /// Where `file` was kept before, moved to `file` the first time it's read.
+    pub moved_from: Option<PathBuf>,
 }
 
 /// `dir`, and the folders above it it needs, made for the user alone.
@@ -43,60 +52,79 @@ fn keychain_error(e: keyring::Error) -> Error {
     }
 }
 
-impl Plugin {
-    fn entry(&self, store: &Store, key: &str) -> Result<keyring_core::Entry> {
-        let service = format!("locallibrary-plugin-{}", self.manifest.id);
-        keychain::entry(&service, &format!("{key}@{}", store.id()?)).map_err(keychain_error)
-    }
+/// `place`'s keychain item.
+fn entry(place: &Place) -> Result<keyring_core::Entry> {
+    keychain::entry(&place.service, &format!("{}@{}", place.key, place.store.id()?)).map_err(keychain_error)
+}
 
-    /// The secrets file's, by key. One where the first builds with secrets kept it, in the
-    /// plugin's own folder, is moved out of it first.
-    fn secrets_file(&self, store: &Store) -> Result<IndexMap<String, String>> {
-        let path = file(store, &self.manifest.id);
-        let old = store.root().join("plugins").join(&self.manifest.id).join("secrets.json");
-        if old.is_file() && !path.exists() {
-            private_dir(path.parent().expect("in a folder"))?;
-            std::fs::rename(&old, &path).at(&old)?;
+/// The secrets in `place`'s file, by key.
+fn secrets_file(place: &Place) -> Result<IndexMap<String, String>> {
+    if let Some(old) = place.moved_from.as_deref().filter(|old| old.is_file() && !place.file.exists()) {
+        private_dir(place.file.parent().expect("in a folder"))?;
+        std::fs::rename(old, &place.file).at(old)?;
+    }
+    Ok(fsutil::read_json_opt(&place.file)?.unwrap_or_default())
+}
+
+/// The secret kept at `place`, if there's one.
+pub(super) fn secret(storage: Storage, place: &Place) -> Result<Option<String>> {
+    match storage {
+        Storage::Keychain => match entry(place)?.get_password() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(keychain_error(e)),
+        },
+        Storage::File => Ok(secrets_file(place)?.shift_remove(&place.key)),
+    }
+}
+
+/// Keeps `secret` at `place`, or with `None` forgets it.
+pub(super) fn set_secret(storage: Storage, place: &Place, secret: Option<&str>) -> Result<()> {
+    if let Storage::Keychain = storage {
+        let entry = entry(place)?;
+        return match secret {
+            Some(secret) => entry.set_password(secret),
+            None => keychain::delete(&entry),
         }
-        Ok(fsutil::read_json_opt(&path)?.unwrap_or_default())
+        .map_err(keychain_error);
+    }
+    // One that can't be read has nothing usable in it: it's written anew.
+    let mut all = secrets_file(place).unwrap_or_default();
+    match secret {
+        Some(secret) => all.insert(place.key.clone(), secret.into()),
+        None => all.shift_remove(&place.key),
+    };
+    if all.is_empty() {
+        return fsutil::remove_if_exists(&place.file).map(drop);
+    }
+    let mut bytes = serde_json::to_vec_pretty(&all).map_err(|e| Error::invalid(e.to_string()))?;
+    bytes.push(b'\n');
+    private_dir(place.file.parent().expect("in a folder"))?;
+    fsutil::write_private(&place.file, &bytes)
+}
+
+impl Plugin {
+    /// Where its secret setting `key` is kept in `store`. Its secrets file was in the plugin's
+    /// own folder in the first builds with secrets.
+    fn place<'a>(&self, store: &'a Store, key: &str) -> Place<'a> {
+        let id = &self.manifest.id;
+        Place {
+            store,
+            service: format!("locallibrary-plugin-{id}"),
+            file: store.root().join("secrets").join("plugins").join(format!("{id}.json")),
+            key: key.into(),
+            moved_from: Some(store.root().join("plugins").join(id).join("secrets.json")),
+        }
     }
 
     /// The plugin's secret setting `key`, if it's set.
     pub(crate) fn secret(&self, store: &Store, key: &str) -> Result<Option<String>> {
-        match self.host.options.secrets {
-            Storage::Keychain => match self.entry(store, key)?.get_password() {
-                Ok(secret) => Ok(Some(secret)),
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(e) => Err(keychain_error(e)),
-            },
-            Storage::File => Ok(self.secrets_file(store)?.shift_remove(key)),
-        }
+        secret(self.host.options.secrets, &self.place(store, key))
     }
 
     /// Keeps `secret` as the plugin's secret setting `key`, or with `None` forgets it.
     pub(crate) fn set_secret(&self, store: &Store, key: &str, secret: Option<&str>) -> Result<()> {
-        if let Storage::Keychain = self.host.options.secrets {
-            let entry = self.entry(store, key)?;
-            return match secret {
-                Some(secret) => entry.set_password(secret),
-                None => keychain::delete(&entry),
-            }
-            .map_err(keychain_error);
-        }
-        // One that can't be read has nothing usable in it: it's written anew.
-        let mut all = self.secrets_file(store).unwrap_or_default();
-        match secret {
-            Some(secret) => all.insert(key.into(), secret.into()),
-            None => all.shift_remove(key),
-        };
-        let path = file(store, &self.manifest.id);
-        if all.is_empty() {
-            return fsutil::remove_if_exists(&path).map(drop);
-        }
-        let mut bytes = serde_json::to_vec_pretty(&all).map_err(|e| Error::invalid(e.to_string()))?;
-        bytes.push(b'\n');
-        private_dir(path.parent().expect("in a folder"))?;
-        fsutil::write_private(&path, &bytes)
+        set_secret(self.host.options.secrets, &self.place(store, key), secret)
     }
 }
 

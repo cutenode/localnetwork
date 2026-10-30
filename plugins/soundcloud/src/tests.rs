@@ -7,15 +7,23 @@ use chrono::TimeDelta;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    Capability, DestinationKind, Fetched, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry, method,
+    AccountType, Capability, DestinationKind, Fetched, Manifest, PublishedSet, SettingType, TokenPlace, TracklistEntry,
+    method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
 
-use self::soundcloud::{PAGE, Reply, SoundCloud, TOKEN, refusal, start};
+use self::soundcloud::{PAGE, Reply, SIGNED_OUT, SoundCloud, TOKEN, refusal, start};
 use super::track::{MAX_DESCRIPTION, MAX_TITLE};
 use super::upload::{AUTHORIZATION, LONGEST_WAIT, NEWEST, TRACKS, TRIES, retry_after};
 use super::*;
+
+/// The account type the plugin asks for, as the SoundCloud account plugin provides it.
+fn account_type() -> AccountType {
+    let manifest = Manifest::parse(include_str!("../../accounts/soundcloud-account/locallibrary-plugin.toml"));
+    let [account_type] = &manifest.unwrap().contributes.account_types[..] else { panic!("one account type") };
+    account_type.clone()
+}
 
 fn set() -> PublishedSet {
     PublishedSet {
@@ -61,9 +69,9 @@ fn phases(events: &[Event]) -> Vec<u64> {
     started
 }
 
-/// It reaches SoundCloud's API alone, publishes sets at one destination, signs in to SoundCloud
-/// through Local Network's token exchange at a fixed port, sending the token as `OAuth`, and
-/// keeps who can listen, the genre and the artwork as settings.
+/// It reaches SoundCloud's API alone, publishes sets at one destination, asks for a SoundCloud
+/// account to upload with, naming it where the SoundCloud account plugin puts its token (after
+/// `OAuth`), and keeps who can listen, the genre and the artwork as settings.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -73,16 +81,12 @@ fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("soundcloud", "track"));
     assert_eq!(destination.kind, DestinationKind::Set);
-    let [account] = &manifest.contributes.accounts[..] else { panic!("{manifest:?}") };
-    assert_eq!(format!("{{account:{}}}", account.id), AUTHORIZATION);
-    assert_eq!(account.authorize_url, "https://secure.soundcloud.com/authorize");
-    assert_eq!(account.token_url, None);
-    assert_eq!(account.token_exchange.as_deref(), Some("https://localnetwork.computer/api/token-exchange/soundcloud"));
-    assert!(account.scopes.is_empty(), "{:?}", account.scopes);
-    assert!(account.pkce);
-    assert_eq!(account.token, TokenPlace::Scheme("OAuth".into()));
-    assert_eq!(account.redirect_port, Some(47110));
-    assert!(account.client_id.starts_with("PLACEHOLDER"), "{}", account.client_id);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("soundcloud", ["upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    let account_type = account_type();
+    assert_eq!(format!("{{account:{}}}", account_type.name), AUTHORIZATION);
+    assert_eq!(account_type.token, TokenPlace::Scheme("OAuth".into()));
     let settings: Vec<(&str, SettingType, Option<&Value>)> =
         manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind, s.default.as_ref())).collect();
     assert_eq!(
@@ -103,6 +107,20 @@ fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     s.stop();
+}
+
+/// The SoundCloud account plugin's `upload` scope covers every request the plugin makes, the
+/// upload and reading the account's newest tracks, so it needs no `read`; and not the rest of
+/// SoundCloud's API.
+#[test]
+fn soundclouds_upload_scope_covers_every_request() {
+    let account_type = account_type();
+    let scope = &account_type.scopes["upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    assert!(covers("POST", TRACKS));
+    assert!(covers("GET", NEWEST));
+    assert!(!covers("GET", "https://api.soundcloud.com/tracks/123"));
+    assert!(!covers("DELETE", "https://api.soundcloud.com/tracks/123"));
 }
 
 /// The recording goes up whole in one form with the track's title, who can listen (private
@@ -257,17 +275,16 @@ fn a_dry_run_sends_nothing() {
     assert!(s.stop().forms.is_empty());
 }
 
-/// Not signed in, nothing goes: the host's error says how to sign in. From a host that gives no
-/// scratch folder (one without `blobs`), or one the artwork can't be copied to, a set with artwork
-/// doesn't go either.
+/// Signed out, nothing goes: the host's error is the answer. From a host that gives no scratch
+/// folder (one without `blobs`), or one the artwork can't be copied to, a set with artwork doesn't
+/// go either.
 #[test]
 fn signed_out_or_without_a_scratch_folder_nothing_goes() {
     let dir = tempfile::tempdir().unwrap();
     let path = file(dir.path(), "set.flac", 10);
     let s = start(SoundCloud::signed_out());
     let e = s.publish(&set(), &path, &[], json!({}), false).0.unwrap_err();
-    assert_eq!(e.kind(), Some("invalid"));
-    assert!(e.message.ends_with("(locallibrary plugin account soundcloud soundcloud sign-in)"), "{e:?}");
+    assert_eq!((e.kind(), e.message.as_str()), (Some("access"), SIGNED_OUT));
     assert!(s.stop().forms.is_empty());
 
     let picture = file(dir.path(), "cover.png", 10);
@@ -353,7 +370,7 @@ fn a_track_made_anyway_is_the_answer() {
         (Reply::Unreachable, "connection reset"),
         (
             Reply::Status(401, Vec::new(), refusal(401, "Unauthorized")),
-            "SoundCloud refused the account's tracks (401: Unauthorized): sign in again: locallibrary plugin account soundcloud soundcloud sign-in",
+            "SoundCloud refused the account's tracks (401: Unauthorized): sign in again: locallibrary account soundcloud sign-in --for soundcloud",
         ),
         (
             Reply::Status(200, Vec::new(), "[]".into()),
@@ -395,7 +412,7 @@ fn soundcloud_refusing_says_why() {
             401,
             refusal(401, "invalid_token"),
             "permission",
-            "SoundCloud refused the set (401: invalid_token): sign in again: locallibrary plugin account soundcloud soundcloud sign-in",
+            "SoundCloud refused the set (401: invalid_token): sign in again: locallibrary account soundcloud sign-in --for soundcloud",
         ),
         (403, refusal(403, "Forbidden"), "permission", "SoundCloud refused the set (403: Forbidden)"),
         (

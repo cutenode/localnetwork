@@ -4834,6 +4834,175 @@
       }
     },
     {
+      "name": "accounts.list",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Accounts"
+      }
+    },
+    {
+      "name": "accounts.sign_in.begin",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/BeginSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.finish",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FinishSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.paste",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PasteSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedIn"
+      }
+    },
+    {
+      "name": "accounts.sign_in.cancel",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CancelSignIn"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Cancelled"
+      }
+    },
+    {
+      "name": "accounts.sign_out",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SignOut"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/AccountSignedOut"
+      }
+    },
+    {
+      "name": "accounts.access.list",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/ListAccesses"
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Access"
+        }
+      }
+    },
+    {
+      "name": "accounts.access.set_default",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccessRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
+      "name": "accounts.access.take_away",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/AccessRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
       "name": "plugins.list",
       "aliases": [],
       "kind": "read",
@@ -4893,122 +5062,6 @@
       },
       "result": {
         "$ref": "#/$defs/Settings"
-      }
-    },
-    {
-      "name": "plugins.accounts",
-      "aliases": [],
-      "kind": "read",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "$ref": "#/$defs/PluginRef"
-      },
-      "result": {
-        "type": "array",
-        "items": {
-          "$ref": "#/$defs/PluginAccountStatus"
-        }
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.begin",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/AccountRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/SignIn"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.finish",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": true,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/FinishSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/PluginAccountStatus"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.paste",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/PasteSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/PluginAccountStatus"
-      }
-    },
-    {
-      "name": "plugins.account.sign_in.cancel",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/CancelSignIn"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/Cancelled"
-      }
-    },
-    {
-      "name": "plugins.account.sign_out",
-      "aliases": [],
-      "kind": "immediate",
-      "long_running": false,
-      "destructive": false,
-      "params": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/AccountRef"
-          },
-          {
-            "$ref": "#/$defs/WriteOptions"
-          }
-        ]
-      },
-      "result": {
-        "$ref": "#/$defs/SignedOut"
       }
     },
     {
@@ -11784,51 +11837,48 @@
         "drive"
       ]
     },
-    "PluginRef": {
+    "BeginSignIn": {
       "type": "object",
       "properties": {
-        "plugin": {
+        "type": {
           "type": "string",
-          "description": "The plugin's id."
-        }
-      },
-      "required": [
-        "plugin"
-      ]
-    },
-    "SetPluginSetting": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
+          "description": "The account type (`google`)."
         },
-        "key": {
-          "type": "string"
-        },
-        "value": {
-          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
+        "with": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The account plugin to sign in through [default: the only one providing the type].",
           "default": null
-        }
-      },
-      "required": [
-        "plugin",
-        "key"
-      ]
-    },
-    "AccountRef": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
+        },
+        "for": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin it's for, given access to it: to the scopes it needs, and those of `scopes` it\ncan do without.",
+          "default": null
         },
         "account": {
-          "type": "string",
-          "description": "The account's id, as the plugin's manifest has it."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "An account the store keeps, by subject, to sign in to again (asking for more scopes, say).",
+          "default": null
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes to ask for besides, by name.",
+          "default": []
         }
       },
       "required": [
-        "plugin",
-        "account"
+        "type"
       ]
     },
     "FinishSignIn": {
@@ -11836,7 +11886,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "What `plugins.account.sign_in.begin` answered."
+          "description": "What its `sign_in.begin` answered."
         },
         "timeout_secs": {
           "type": [
@@ -11878,6 +11928,93 @@
       },
       "required": [
         "id"
+      ]
+    },
+    "SignOut": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        }
+      },
+      "required": [
+        "account"
+      ]
+    },
+    "AccountId": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "subject"
+      ],
+      "description": "An account kept in a store: the account plugin that signed it in, and its subject there."
+    },
+    "ListAccesses": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this plugin's.",
+          "default": null
+        }
+      }
+    },
+    "AccessRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
+    },
+    "PluginRef": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        }
+      },
+      "required": [
+        "plugin"
+      ]
+    },
+    "SetPluginSetting": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "key"
       ]
     },
     "ApplyAnalysis": {
@@ -30158,6 +30295,288 @@
         "backup"
       ]
     },
+    "Accounts": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StoreAccount"
+          },
+          "description": "Those it keeps, in the order they were first signed in, then those signed out that plugins\nstill have access to."
+        },
+        "accesses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Access"
+          }
+        }
+      },
+      "required": [
+        "accounts",
+        "accesses"
+      ],
+      "description": "The accounts a store keeps and the accesses plugins were given to them, as hosts show them."
+    },
+    "StoreAccount": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in"
+      ],
+      "description": "An account a store keeps, as hosts show it: never a token."
+    },
+    "Access": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "8 lowercase hex digits, which `{account:<type>/<id>}` names it by."
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The plugin given it."
+        },
+        "type": {
+          "type": "string"
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        },
+        "name": {
+          "type": "string",
+          "description": "What the account is shown as, kept so an access to one signed out still says."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes, by name."
+        },
+        "default": {
+          "type": "boolean",
+          "description": "It's the plugin's default for the type: `{account:<type>}` names it.",
+          "default": false
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "type",
+        "account",
+        "name",
+        "scopes",
+        "default"
+      ],
+      "description": "The scopes of an account a plugin was given."
+    },
+    "AccountSignIn": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Finishes it: [`Plugins::finish_account_sign_in`],\n[`Plugins::finish_account_sign_in_with_url`]."
+        },
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin signing in."
+        },
+        "url": {
+          "type": "string",
+          "description": "Open this in the browser."
+        },
+        "redirect_uri": {
+          "type": "string",
+          "description": "Where the browser comes back to."
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "plugin",
+        "url",
+        "redirect_uri"
+      ],
+      "description": "A sign-in to an account of a type, waiting for the browser."
+    },
+    "AccountSignedIn": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        },
+        "instead_of": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The account it was to sign in again, when the browser signed in to another: that one is\nkept too, and this one as it was."
+        },
+        "access": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Access"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The access it gave the plugin it was signed in for, if it was."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in"
+      ],
+      "description": "What signing in to an account of a type did."
+    },
+    "AccountSignedOut": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string",
+          "description": "The account plugin it was signed in through."
+        },
+        "subject": {
+          "type": "string",
+          "description": "Its id at the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "What it's shown as."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the service granted, as it names them."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
+        },
+        "refreshes": {
+          "type": "boolean",
+          "description": "It's refreshed without signing in again."
+        },
+        "signed_in": {
+          "type": "boolean",
+          "description": "Its tokens are kept (the keychain may have lost them)."
+        },
+        "revoked": {
+          "type": "boolean",
+          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
+        }
+      },
+      "required": [
+        "type",
+        "plugin",
+        "subject",
+        "name",
+        "scopes",
+        "refreshes",
+        "signed_in",
+        "revoked"
+      ],
+      "description": "What signing out of an account of a type did."
+    },
     "Listed": {
       "type": "object",
       "properties": {
@@ -30176,18 +30595,19 @@
             "$ref": "#/$defs/Granted"
           }
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The account types it asks for (`[[accounts]]`)."
+        },
         "account_types": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its account types by type, its accounts by id, its commands, destinations,\noperations, panels, analyzers, checks, providers, services, library sources and themes by\nname, the events it listens for, its export and import formats and its settings' keys."
-        },
-        "accounts": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "description": "What it adds: its account types by type, its commands, destinations, operations, panels,\nanalyzers, checks, providers, services, library sources and themes by name, the events it\nlistens for, its export and import formats and its settings' keys."
         },
         "commands": {
           "type": "array",
@@ -30290,8 +30710,8 @@
         "name",
         "version",
         "capabilities",
-        "account_types",
         "accounts",
+        "account_types",
         "commands",
         "destinations",
         "events",
@@ -30394,12 +30814,12 @@
           ],
           "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
         },
-        "accounts": {
+        "accesses": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/PluginAccountStatus"
+            "$ref": "#/$defs/Access"
           },
-          "description": "Each of its accounts, and whether it's signed in (never a token): none signed in when the\nkeychain can't say (see `secrets_unknown`)."
+          "description": "Its access to the accounts the store keeps, of the types it asks for (`manifest.accounts`)\nor any other."
         },
         "running": {
           "type": "boolean"
@@ -30410,10 +30830,10 @@
         "capabilities",
         "settings",
         "secrets",
-        "accounts",
+        "accesses",
         "running"
       ],
-      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and whether each of its accounts is signed in."
+      "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, its settings now, and the access it has to your accounts."
     },
     "Manifest": {
       "type": "object",
@@ -30441,11 +30861,17 @@
           "description": "What it may call back for (see [`Capability`]).",
           "default": []
         },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountNeed"
+          },
+          "description": "The account types it asks for, and the scopes of each it needs."
+        },
         "contributes": {
           "$ref": "#/$defs/Contributions",
           "default": {
             "account_types": [],
-            "accounts": [],
             "commands": [],
             "destinations": [],
             "events": [],
@@ -30480,6 +30906,58 @@
       ],
       "description": "Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses\nit only in a plugin locallibrary ships (see [`Manifest::unknown`])."
     },
+    "AccountNeed": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The account type (`google`), which an account plugin provides."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The type's scopes it needs, by name (`youtube-upload`)."
+        },
+        "why": {
+          "type": "string",
+          "description": "Why it needs them, shown when the user gives it access."
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OptionalScopes"
+          },
+          "description": "Scopes it asks for besides, which the user may leave out."
+        }
+      },
+      "required": [
+        "type",
+        "scopes",
+        "why"
+      ],
+      "description": "`[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those\nit can do without."
+    },
+    "OptionalScopes": {
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "why"
+      ],
+      "description": "`optional = [{ scopes = [\"read\"], why = \"...\" }]`: scopes a plugin can do without, and what\nthey're for."
+    },
     "Contributions": {
       "type": "object",
       "properties": {
@@ -30487,13 +30965,6 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/AccountType"
-          },
-          "default": []
-        },
-        "accounts": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Account"
           },
           "default": []
         },
@@ -30598,7 +31069,6 @@
       },
       "required": [
         "account_types",
-        "accounts",
         "commands",
         "destinations",
         "events",
@@ -30739,7 +31209,7 @@
           "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud)."
         }
       ],
-      "description": "Where an account's access token goes in a `net/fetch` request: `token = { scheme = \"OAuth\" }`\nor `token = { query = \"access_token\" }`. The request names the account there, and only there."
+      "description": "Where an account type's access token goes in a `net/fetch` request: `token = { scheme =\n\"OAuth\" }` or `token = { query = \"access_token\" }`. The request names the account there, and\nonly there."
     },
     "Whoami": {
       "type": "object",
@@ -30807,81 +31277,6 @@
         "url"
       ],
       "description": "`{ method = \"POST\", url = \"https://www.googleapis.com/upload/youtube/v3/videos*\" }`: requests\nwith this method to this URL, or to any URL starting with it when it ends in `*`. The URL is\nwritten as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole\nhost."
-    },
-    "Account": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "How requests name it (`{account:<id>}`)."
-        },
-        "title": {
-          "type": "string"
-        },
-        "authorize_url": {
-          "type": "string",
-          "description": "The service's authorization endpoint, where the browser signs in (https)."
-        },
-        "token_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account has this or `token_exchange`."
-        },
-        "token_exchange": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Local Network's token exchange for its service\n(`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for\na service that wants a client secret there."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What it asks the service for, as the service names them."
-        },
-        "client_id": {
-          "type": "string",
-          "description": "The plugin's client at the service: a public one, without a secret, or Local Network's,\nwhose secret its token exchange holds."
-        },
-        "pkce": {
-          "type": "boolean",
-          "description": "Signing in uses PKCE: always, and a manifest saying otherwise is refused.",
-          "default": true
-        },
-        "revoke_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
-        },
-        "token": {
-          "$ref": "#/$defs/TokenPlace",
-          "description": "Where its access token goes in a request: `Authorization: Bearer <token>` unless it says."
-        },
-        "redirect_port": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect\nURI with the one its client was registered with, port and all (SoundCloud): that's then\n`http://127.0.0.1:<port>/callback`. Any free port otherwise."
-        }
-      },
-      "required": [
-        "id",
-        "title",
-        "authorize_url",
-        "client_id",
-        "pkce"
-      ],
-      "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
     },
     "Command": {
       "type": "object",
@@ -31569,51 +31964,6 @@
       ],
       "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep."
     },
-    "PluginAccountStatus": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "signed_in": {
-          "type": "boolean"
-        },
-        "expires": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
-        },
-        "refreshes": {
-          "type": "boolean",
-          "description": "It's refreshed without signing in again."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What the service granted, as it names them."
-        }
-      },
-      "required": [
-        "plugin",
-        "account",
-        "title",
-        "signed_in",
-        "refreshes",
-        "scopes"
-      ],
-      "description": "An account of a plugin's, as hosts show it: never a token."
-    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -31649,92 +31999,6 @@
         "secrets"
       ],
       "description": "A plugin's settings now: each one set, else its default."
-    },
-    "SignIn": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]."
-        },
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "url": {
-          "type": "string",
-          "description": "Open this in the browser."
-        },
-        "redirect_uri": {
-          "type": "string",
-          "description": "Where the browser comes back to."
-        }
-      },
-      "required": [
-        "id",
-        "plugin",
-        "account",
-        "url",
-        "redirect_uri"
-      ],
-      "description": "A sign-in waiting for the browser."
-    },
-    "SignedOut": {
-      "type": "object",
-      "properties": {
-        "plugin": {
-          "type": "string"
-        },
-        "account": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "signed_in": {
-          "type": "boolean"
-        },
-        "expires": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "When its access token expires, when the service said: it's refreshed before then when it\ncan be."
-        },
-        "refreshes": {
-          "type": "boolean",
-          "description": "It's refreshed without signing in again."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What the service granted, as it names them."
-        },
-        "was_signed_in": {
-          "type": "boolean",
-          "description": "It was signed in."
-        },
-        "revoked": {
-          "type": "boolean",
-          "description": "The service was told to forget its tokens (it has a revocation endpoint, which answered)."
-        }
-      },
-      "required": [
-        "plugin",
-        "account",
-        "title",
-        "signed_in",
-        "refreshes",
-        "scopes",
-        "was_signed_in",
-        "revoked"
-      ],
-      "description": "What signing out did."
     },
     "CommandOutput": {
       "anyOf": [
@@ -34217,7 +34481,7 @@
         {
           "type": "string",
           "const": "not_signed_in",
-          "description": "Not signed in to an Atmosphere account."
+          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout: sign in."
         },
         {
           "type": "string",
@@ -34227,7 +34491,12 @@
         {
           "type": "string",
           "const": "missing_scope",
-          "description": "The session may not publish: sign in again allowing it."
+          "description": "The session may not publish, or a plugin's access doesn't reach what it asked: sign in\nagain allowing it."
+        },
+        {
+          "type": "string",
+          "const": "no_access",
+          "description": "A plugin has no access to an account of the type it asked for (`fields.type`): sign in to\none for it, or make one its default."
         },
         {
           "type": "string",

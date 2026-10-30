@@ -1,7 +1,8 @@
 //! Account types: how to sign in to a service and what each of its scopes lets a plugin do there,
 //! as data. An account plugin is a manifest that provides one and nothing else. No feature and no
-//! method: the host runs every sign-in from it (OAuth 2's authorization code flow with PKCE, as
-//! for `accounts`), keeps the tokens and never runs the plugin.
+//! method: the host runs every sign-in from it (OAuth 2's authorization code flow with PKCE, the
+//! browser coming back to this computer), keeps the tokens and never runs the plugin. Plugins ask
+//! for accounts of a type with `accounts`.
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
@@ -107,6 +108,13 @@ pub struct ScopeRequest {
     pub url: String,
 }
 
+impl ScopeRequest {
+    /// The host its requests go to.
+    pub fn host(&self) -> Option<String> {
+        Url::parse(self.url.strip_suffix('*').unwrap_or(&self.url)).ok()?.host_str().map(String::from)
+    }
+}
+
 impl Scope {
     /// Whether it covers a `method` request (in any case) to `url`.
     pub fn covers(&self, method: &str, url: &Url) -> bool {
@@ -132,8 +140,10 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
         return Err(invalid(format!("{at}[1]"), "is a second account type: an account plugin provides one"));
     }
     let others = Contributions { account_types: Vec::new(), ..c.clone() };
-    if !m.capabilities.is_empty() || !m.net.is_empty() || others != Contributions::default() {
-        let why = "makes an account plugin, which has nothing else: no capabilities, net limits or other contributions";
+    let alone = m.capabilities.is_empty() && m.accounts.is_empty() && m.net.is_empty();
+    if !alone || others != Contributions::default() {
+        let why = "makes an account plugin, which has nothing else: no capabilities, accounts, net limits or other \
+                   contributions";
         return Err(invalid(format!("{at}[0]"), why));
     }
     let at = format!("{at}[0]");

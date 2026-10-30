@@ -199,12 +199,17 @@ pub enum Reason {
     NeedsAdmin,
 
     // `account`.
-    /// Not signed in to an Atmosphere account.
+    /// Not signed in to an Atmosphere account, or the account a plugin's access is to is signed
+    /// out: sign in.
     NotSignedIn,
     /// The session ended or was revoked: sign in again.
     SessionEnded,
-    /// The session may not publish: sign in again allowing it.
+    /// The session may not publish, or a plugin's access doesn't reach what it asked: sign in
+    /// again allowing it.
     MissingScope,
+    /// A plugin has no access to an account of the type it asked for (`fields.type`): sign in to
+    /// one for it, or make one its default.
+    NoAccess,
     /// The system keychain isn't available: keep the session in a file instead.
     NoKeychain,
 }

@@ -885,6 +885,9 @@ fn build() -> Registry {
     .long()
     .destructive();
 
+    // Accounts, and the access plugins are given to them.
+    accounts::register(&mut r);
+
     // Plugins.
     plugins::register(&mut r);
 
@@ -912,6 +915,7 @@ fn build() -> Registry {
     r.finish()
 }
 
+mod accounts;
 mod plugins;
 
 #[cfg(test)]

@@ -140,6 +140,11 @@ fn keep_exports_in(app: &mut App, dir: &Path) {
 /// Wait for the job and the reads under way, and let a confirmation take keys at once (it
 /// ignores them for a moment from when it shows).
 fn settle(app: &mut App) {
+    // A sign-in from the palette waits for the browser, which a test never opens: it's stopped,
+    // as Esc stops it.
+    if app.job.as_ref().is_some_and(|j| j.label == "Signing in") {
+        app.cancel_job();
+    }
     wait(app, |a| a.job.is_none() && a.loading.is_none());
     if let Some(Modal::Confirm(c)) = &mut app.modal {
         c.shown -= std::time::Duration::from_secs(1);

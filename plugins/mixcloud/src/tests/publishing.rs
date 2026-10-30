@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use loclib_plugin::{Cancel, Manifest, Published, PublishedSet, method};
 use serde_json::json;
 
-use super::mixcloud::{Mixcloud, PAGE, Part, Reply, error, file, rate_limited, start};
+use super::mixcloud::{Mixcloud, PAGE, Part, Reply, SIGNED_OUT, error, file, rate_limited, start};
 use super::{entry, set};
 use crate::upload::{MAX_RETRY_AFTER, TRIES};
 use crate::*;
@@ -311,7 +311,7 @@ fn refusals_say_why_and_go_once() {
 
     let token = refused(error(401, "OAuthException", "An invalid access token was provided."));
     let sign_in = "Mixcloud refused the show (401 OAuthException: An invalid access token was provided.): sign in \
-                   again: locallibrary plugin account mixcloud mixcloud sign-in";
+                   again: locallibrary account mixcloud sign-in --for mixcloud";
     assert_eq!(token, said("permission", sign_in));
 
     let details = json!({ "mp3": ["Unsupported audio.", "Try another file."], "name": "Too long." });
@@ -345,15 +345,14 @@ fn refusals_say_why_and_go_once() {
     s.stop();
 }
 
-/// Without the account signed in, publishing says how to sign in, and nothing goes.
+/// With the account signed out, publishing fails as the host's request did, and nothing goes.
 #[test]
-fn signed_out_says_how_to_sign_in() {
+fn signed_out_fails_as_the_host_says() {
     let dir = tempfile::tempdir().unwrap();
     let recording = file(dir.path(), "set.mp3", 10);
     let s = start(Mixcloud::signed_out());
     let (answer, ..) = s.publish(&set(), &recording, &[], json!({}), false);
     let e = answer.unwrap_err();
-    assert_eq!(e.kind(), Some("invalid"));
-    assert!(e.message.ends_with("locallibrary plugin account mixcloud mixcloud sign-in"), "{e:?}");
+    assert_eq!(kind(&e), ("access", SIGNED_OUT));
     assert!(s.stop().is_empty());
 }

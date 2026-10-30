@@ -1,80 +1,78 @@
-//! Feature `accounts`: a plugin's accounts on other services, which the host signs the user in to
-//! (OAuth 2's authorization code flow with PKCE, the browser coming back to this computer) and
-//! keeps the tokens of. A plugin never sees a token: a `net/fetch` request names an account as
-//! `{account:<id>}` where its [`TokenPlace`] says the token goes (the `Authorization` header's
-//! value unless it says otherwise), which the host fills in with the account's access token once
-//! the request is checked, refreshing it first when it's about to expire. A service whose token
-//! endpoint wants a client secret is reached through Local Network's token exchange, which holds
-//! the secret: a secret can't ship inside an app people download.
+//! Feature `accounts`: the accounts a plugin asks for by type, `[[accounts]]`, and the scopes of
+//! each type it needs, saying why. The host signs the user in through an account plugin that
+//! provides the type (OAuth 2's authorization code flow with PKCE, the browser coming back to this
+//! computer, see `account_types`), keeps the tokens, and gives the plugin access to the account. A
+//! plugin never sees a token: a `net/fetch` request names an account as `{account:<type>}` where
+//! the type's [`TokenPlace`] says the token goes (the `Authorization` header's value unless it says
+//! otherwise), which the host fills in with the account's access token once the request is checked
+//! and a scope of the access covers it, refreshing it first when it's about to expire. A service
+//! whose token endpoint wants a client secret is reached through Local Network's token exchange,
+//! which holds the secret: a secret can't ship inside an app people download.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::{Host, Url};
 
-use crate::manifest::{invalid, shown, unique_names};
+use crate::manifest::{NAME_RULE, invalid, is_name, shown, unique_names};
 use crate::{Capability, Feature, Manifest, ManifestError};
 
 /// What a `net/fetch` request says to name an account, as the whole of a header's or a query
-/// parameter's value: `{account:<id>}`.
+/// parameter's value: `{account:<type>}` (see [`account_placeholder`]).
 pub const ACCOUNT_PLACEHOLDER: &str = "{account:";
 
-/// Where Local Network's token exchange is, the only one an account may name: its path, then the
-/// service's id. The host posts it what it would have sent the service's token endpoint, and the
+/// What `value` names when it's an account's placeholder by type, `{account:<type>}` or
+/// `{account:<type>/<access id>}`: the account type (a name), and the access when it says which
+/// (8 lowercase hex digits). `None` for anything else.
+pub fn account_placeholder(value: &str) -> Option<(&str, Option<&str>)> {
+    let named = value.strip_prefix(ACCOUNT_PLACEHOLDER)?.strip_suffix('}')?;
+    let (kind, access) = match named.split_once('/') {
+        Some((kind, access)) => (kind, Some(access)),
+        None => (named, None),
+    };
+    let is_access = |a: &str| a.len() == 8 && a.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    (is_name(kind) && access.is_none_or(is_access)).then_some((kind, access))
+}
+
+/// Where Local Network's token exchange is, the only one an account type may name: its path, then
+/// the service's id. The host posts it what it would have sent the service's token endpoint, and the
 /// website adds its client secret for the service and answers what the service did.
 const EXCHANGE_ORIGIN: &str = "https://localnetwork.computer";
 const EXCHANGE_PATH: &str = "/api/token-exchange/";
 
 // Every plugin written with the SDK has it: what's an account in a request is the host's to fill.
 pub(crate) const FEATURE: Feature =
-    Feature { name: "accounts", methods: &[], sends: &[], contributed: |m| !m.contributes.accounts.is_empty() };
+    Feature { name: "accounts", methods: &[], sends: &[], contributed: |m| !m.accounts.is_empty() };
 
-/// `[[contributes.accounts]]`: an account on a service, signed in to in the browser.
+/// `[[accounts]]`: an account type a plugin asks for, the scopes of it it needs and why, and those
+/// it can do without.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Account {
-    /// How requests name it (`{account:<id>}`).
-    pub id: String,
-    pub title: String,
-    /// The service's authorization endpoint, where the browser signs in (https).
-    pub authorize_url: String,
-    /// Its token endpoint, where the host trades the browser's code for tokens and refreshes
-    /// them (https). An account has this or `token_exchange`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_url: Option<String>,
-    /// Local Network's token exchange for its service
-    /// (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
-    /// a service that wants a client secret there.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_exchange: Option<String>,
-    /// What it asks the service for, as the service names them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+pub struct AccountNeed {
+    /// The account type (`google`), which an account plugin provides.
+    #[serde(rename = "type")]
+    pub name: String,
+    /// The type's scopes it needs, by name (`youtube-upload`).
     pub scopes: Vec<String>,
-    /// The plugin's client at the service: a public one, without a secret, or Local Network's,
-    /// whose secret its token exchange holds.
-    pub client_id: String,
-    /// Signing in uses PKCE: always, and a manifest saying otherwise is refused.
-    #[serde(default = "pkce")]
-    pub pkce: bool,
-    /// Where its tokens are revoked at signing out (RFC 7009), when the service has one (https).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revoke_url: Option<String>,
-    /// Where its access token goes in a request: `Authorization: Bearer <token>` unless it says.
-    #[serde(default, skip_serializing_if = "TokenPlace::is_bearer")]
-    pub token: TokenPlace,
-    /// The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
-    /// URI with the one its client was registered with, port and all (SoundCloud): that's then
-    /// `http://127.0.0.1:<port>/callback`. Any free port otherwise.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub redirect_port: Option<u16>,
+    /// Why it needs them, shown when the user gives it access.
+    pub why: String,
+    /// Scopes it asks for besides, which the user may leave out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional: Vec<OptionalScopes>,
 }
 
-fn pkce() -> bool {
-    true
+/// `optional = [{ scopes = ["read"], why = "..." }]`: scopes a plugin can do without, and what
+/// they're for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct OptionalScopes {
+    pub scopes: Vec<String>,
+    pub why: String,
 }
 
-/// Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
-/// or `token = { query = "access_token" }`. The request names the account there, and only there.
+/// Where an account type's access token goes in a `net/fetch` request: `token = { scheme =
+/// "OAuth" }` or `token = { query = "access_token" }`. The request names the account there, and
+/// only there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenPlace {
@@ -97,11 +95,11 @@ impl TokenPlace {
     }
 }
 
-/// The lowest [`Account::redirect_port`]: one below it is a system service's, which a program run
-/// by a user can't listen on everywhere.
+/// The lowest [`crate::AccountType::redirect_port`]: one below it is a system service's, which a
+/// program run by a user can't listen on everywhere.
 const LOWEST_PORT: u16 = 1024;
 
-/// `url` as the host's HTTP client reads it, when an account's endpoint may be there: https, or
+/// `url` as the host's HTTP client reads it, when an account type's endpoint may be there: https, or
 /// http on this computer for a test server (which the host reaches only in tests), with no user
 /// name or password.
 pub(crate) fn endpoint(url: &str) -> Option<Url> {
@@ -130,37 +128,37 @@ fn is_exchange(url: &str) -> bool {
     ours && named && parsed.query().is_none() && parsed.fragment().is_none()
 }
 
-/// `[[contributes.accounts]]`: ids, titles, endpoints (a token endpoint or Local Network's token
-/// exchange), scopes, PKCE, where its token goes and the port the browser comes back to, and a
-/// `net:` capability for the requests its token goes into.
+/// `[[accounts]]`: each type a name, asked for once; its scopes and each optional group's, one at
+/// least, names, none asked for twice; why, for each; and a `net:` capability for the requests
+/// their tokens go into.
 pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
-    let (at, c) = ("contributes.accounts", &m.contributes);
-    unique_names(at, "id", c.accounts.iter().map(|x| x.id.as_str()).enumerate())?;
-    for (i, x) in c.accounts.iter().enumerate() {
+    let at = "accounts";
+    unique_names(at, "type", m.accounts.iter().map(|x| x.name.as_str()).enumerate())?;
+    for (i, x) in m.accounts.iter().enumerate() {
         let at = format!("{at}[{i}]");
-        shown(format!("{at}.title"), &x.title)?;
-        shown(format!("{at}.client_id"), &x.client_id)?;
-        let urls = [
-            ("authorize_url", Some(x.authorize_url.as_str())),
-            ("token_url", x.token_url.as_deref()),
-            ("revoke_url", x.revoke_url.as_deref()),
-        ];
-        endpoints(&at, urls)?;
-        token_endpoint(&at, x.token_url.as_deref(), x.token_exchange.as_deref())?;
-        if let Some((j, scope)) = x.scopes.iter().enumerate().find(|(_, s)| s.is_empty() || s.contains(' ')) {
-            return Err(invalid(format!("{at}.scopes[{j}]"), format!("{scope:?} isn't a scope: a word, no spaces")));
+        let optional = x.optional.iter().enumerate().map(|(k, o)| (format!("{at}.optional[{k}]"), &o.scopes, &o.why));
+        let mut asked = FxHashSet::default();
+        for (at, scopes, why) in [(at.clone(), &x.scopes, &x.why)].into_iter().chain(optional) {
+            shown(format!("{at}.why"), why)?;
+            if scopes.is_empty() {
+                return Err(invalid(format!("{at}.scopes"), "asks for a scope at least"));
+            }
+            for (j, scope) in scopes.iter().enumerate() {
+                let at = format!("{at}.scopes[{j}]");
+                if !is_name(scope) {
+                    return Err(invalid(at, format!("{scope:?} isn't a name: {NAME_RULE}")));
+                }
+                if !asked.insert(scope) {
+                    return Err(invalid(at, format!("{scope:?} is asked for twice")));
+                }
+            }
         }
-        if !x.pkce {
-            return Err(invalid(format!("{at}.pkce"), "is true: locallibrary signs in with PKCE only"));
-        }
-        token_place(&at, &x.token)?;
-        redirect_port(&at, x.redirect_port)?;
     }
-    if !c.accounts.is_empty() && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_))) {
-        let message = "goes into net/fetch requests, which needs a net:<host> capability";
-        return Err(invalid(format!("{at}[0]"), message));
+    let ungranted = !m.accounts.is_empty() && !m.capabilities.iter().any(|c| matches!(c, Capability::Net(_)));
+    match ungranted {
+        true => Err(invalid(format!("{at}[0]"), "goes into net/fetch requests, which needs a net:<host> capability")),
+        false => Ok(()),
     }
-    Ok(())
 }
 
 /// Each of `urls` (`at.key`), where it's given, an [`endpoint`].

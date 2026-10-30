@@ -7,10 +7,10 @@ use url::Url;
 use super::*;
 use crate::hooks::account_types::{AUTHORIZE_PARAMS, METHODS};
 use crate::{
-    Account, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom, ExportSources,
-    Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource, Listener, Mode,
-    Operation, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Service, Theme,
-    TokenPlace, When, Whoami, code,
+    AccountNeed, AccountType, Analyzer, Check, Command, Destination, DestinationKind, EventName, ExportFrom,
+    ExportSources, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, ImportKind, Importer, LibrarySource,
+    Listener, Mode, Operation, OptionalScopes, Panel, Provider, ProviderKind, Role, SUBJECT_PLACEHOLDER, Scope,
+    ScopeRequest, Service, Theme, TokenPlace, When, Whoami, account_placeholder, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -250,6 +250,10 @@ fn unknown_keys_are_left_out_and_refused_only_built_in() {
     assert_eq!((m.contributes.operations[0].name.as_str(), m.validate(false).is_ok()), ("o", true));
     assert_eq!(m.validate(true).unwrap_err().to_string(), "homepage: isn't a key locallibrary knows");
     assert!(Manifest::parse(ECHO).unwrap().unknown().is_empty());
+    // Plugins once had accounts of their own, which they now ask for by type: one still declaring
+    // one is told where.
+    let own = Manifest::parse(&format!("{HEAD}[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n")).unwrap();
+    assert_eq!(own.validate(true).unwrap_err().to_string(), "contributes.accounts: isn't a key locallibrary knows");
 }
 
 #[test]
@@ -366,168 +370,6 @@ fn a_provider_is_granted_reading_tracks() {
     assert!(provider("", "lyrics").contains("unknown variant `lyrics`"));
 }
 
-/// An account's endpoints are read as the HTTP client reads them: https, or http to this computer
-/// itself, never with a user name or password, whatever the address looks like.
-#[test]
-fn an_accounts_endpoints_are_read_as_the_client_reads_them() {
-    let token_url = |url: &str| {
-        problem(&format!(
-            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
-             authorize_url = \"https://auth.example/authorize\"\ntoken_url = {url:?}\nclient_id = \"demo\"\n"
-        ))
-    };
-    for url in
-        ["https://auth.example/token", "http://127.0.0.1:8080/token", "http://localhost/token", "http://[::1]:9/t"]
-    {
-        assert_eq!(token_url(url), "", "{url}");
-    }
-    let refused = [
-        "http://localhost@evil.example/token",
-        "http://127.0.0.1@evil.example/token",
-        "http://127.0.0.1.evil.example/token",
-        "http://localhost.evil.example/token",
-        "http://localhost%2eevil.example/token",
-        "http://evil.example\\@localhost/token",
-        "http://[::1].evil.example/token",
-        "http://0x7f.0.0.2/token",
-        "https://someone@auth.example/token",
-        "http://local host/token",
-    ];
-    for url in refused {
-        let said = format!(
-            "contributes.accounts[0].token_url: {url:?} isn't an https:// address without a user name or password"
-        );
-        assert_eq!(token_url(url), said, "{url}");
-    }
-}
-
-/// An account trades its tokens at its service's token endpoint or at Local Network's token
-/// exchange, one of them, and an exchange is Local Network's (or a test server on this computer at
-/// the same path): no other server is sent the user's codes in its name.
-#[test]
-fn an_account_trades_tokens_at_its_token_endpoint_or_local_networks_exchange_only() {
-    let account = |token: &str| {
-        problem(&format!(
-            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
-             authorize_url = \"https://auth.example/authorize\"\n{token}client_id = \"demo\"\n"
-        ))
-    };
-    let exchange = |url: &str| account(&format!("token_exchange = {url:?}\n"));
-    for url in [
-        "https://localnetwork.computer/api/token-exchange/soundcloud",
-        "https://localnetwork.computer:443/api/token-exchange/google",
-        "https://LocalNetwork.computer/api/token-exchange/mixcloud-2",
-        "http://127.0.0.1:5173/api/token-exchange/soundcloud",
-        "http://localhost/api/token-exchange/x",
-    ] {
-        assert_eq!(exchange(url), "", "{url}");
-    }
-    for url in [
-        "https://evil.example/api/token-exchange/soundcloud",
-        "https://localnetwork.computer.evil.example/api/token-exchange/soundcloud",
-        "https://localnetwork.computer:8443/api/token-exchange/soundcloud",
-        "http://localnetwork.computer/api/token-exchange/soundcloud",
-        "https://someone@localnetwork.computer/api/token-exchange/soundcloud",
-        "https://localnetwork.computer/api/token-exchange/",
-        "https://localnetwork.computer/api/token-exchange/SoundCloud",
-        "https://localnetwork.computer/api/token-exchange/a/b",
-        "https://localnetwork.computer/api/token-exchange/../oauth/token",
-        "https://localnetwork.computer/api/token-exchange/soundcloud?to=evil.example",
-        "https://localnetwork.computer/api/token-exchange/soundcloud#x",
-        "https://localnetwork.computer/oauth/token",
-    ] {
-        let said = format!(
-            "contributes.accounts[0].token_exchange: {url:?} isn't Local Network's token exchange \
-             (https://localnetwork.computer/api/token-exchange/<service>)"
-        );
-        assert_eq!(exchange(url), said, "{url}");
-    }
-    assert_eq!(account(""), "contributes.accounts[0].token_url: is missing, and so is token_exchange");
-    let both = "token_url = \"https://auth.example/token\"\ntoken_exchange = \"https://localnetwork.computer/api/token-exchange/x\"\n";
-    assert_eq!(account(both), "contributes.accounts[0].token_exchange: goes in token_url's place, not beside it");
-}
-
-/// An account's token goes in the `Authorization` header as `Bearer` unless it names another
-/// scheme or a query parameter, one of them, and the browser comes back to any port unless it
-/// names one a program may listen on.
-#[test]
-fn an_account_says_where_its_token_goes_and_where_the_browser_comes_back() {
-    let account = |rest: &str| {
-        let manifest = format!(
-            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
-             authorize_url = \"https://auth.example/authorize\"\ntoken_url = \"https://auth.example/token\"\n\
-             client_id = \"demo\"\n{rest}"
-        );
-        Manifest::parse(&format!("{HEAD}{manifest}")).and_then(|m| {
-            m.validate(false)?;
-            Ok((m.contributes.accounts[0].token.clone(), m.contributes.accounts[0].redirect_port))
-        })
-    };
-    let bearer = TokenPlace::Scheme("Bearer".into());
-    assert_eq!(account("").unwrap(), (bearer.clone(), None));
-    assert_eq!(account("token = { scheme = \"Bearer\" }\n").unwrap(), (bearer, None));
-    let oauth = account("token = { scheme = \"OAuth\" }\nredirect_port = 8765\n").unwrap();
-    assert_eq!(oauth, (TokenPlace::Scheme("OAuth".into()), Some(8765)));
-    let query = account("token = { query = \"access_token\" }\n").unwrap();
-    assert_eq!(query, (TokenPlace::Query("access_token".into()), None));
-    let said = |rest: &str| account(rest).unwrap_err().to_string();
-    assert_eq!(
-        said("token = { scheme = \"Bearer token\" }\n"),
-        "contributes.accounts[0].token.scheme: \"Bearer token\" isn't a scheme: one word, like Bearer or OAuth"
-    );
-    assert_eq!(
-        said("token = { query = \"a=b\" }\n"),
-        "contributes.accounts[0].token.query: \"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~"
-    );
-    assert!(said("token = { scheme = \"OAuth\", query = \"access_token\" }\n").contains("token"));
-    assert!(said("token = { header = \"X-Token\" }\n").contains("unknown variant `header`"));
-    assert!(said("token = \"OAuth\"\n").contains("token"));
-    assert_eq!(
-        said("redirect_port = 80\n"),
-        "contributes.accounts[0].redirect_port: is 1024 or more: 80 is a system service's"
-    );
-    assert!(said("redirect_port = 70000\n").contains("redirect_port"));
-}
-
-/// For any token endpoint and any Local Network token exchange (or a test server's), an account
-/// naming one of them is valid; naming neither, both, or an exchange anywhere else (another
-/// scheme, host, port or path, a user name, a query) is refused, saying which.
-#[hegel::test(test_cases = 100)]
-fn an_account_trades_its_tokens_at_one_place_and_exchanges_only_at_local_networks(tc: TestCase) {
-    let at = "contributes.accounts[0]";
-    let (token, said) = match tc.draw(gs::integers::<u8>().max_value(4)) {
-        0 => (format!("token_url = {:?}\n", endpoint(&tc)), String::new()),
-        1 => (format!("token_exchange = {:?}\n", exchange(&tc)), String::new()),
-        2 => {
-            let theirs = exchange(&tc);
-            let wrong = tc.draw(gs::sampled_from(vec![
-                endpoint(&tc),
-                theirs.replacen("://", "://someone@", 1),
-                theirs.replace("/api/", "/apis/"),
-                format!("{theirs}?to=elsewhere"),
-                format!("{theirs}/more"),
-                "ftp://localnetwork.computer/api/token-exchange/x".into(),
-                "https://localnetwork.computer:8443/api/token-exchange/x".into(),
-                "https://localnetwork.computer.example/api/token-exchange/x".into(),
-                "http://localnetwork.computer/api/token-exchange/x".into(),
-            ]));
-            let rule = "https://localnetwork.computer/api/token-exchange/<service>";
-            let said = format!("{at}.token_exchange: {wrong:?} isn't Local Network's token exchange ({rule})");
-            (format!("token_exchange = {wrong:?}\n"), said)
-        }
-        3 => (String::new(), format!("{at}.token_url: is missing, and so is token_exchange")),
-        _ => {
-            let both = format!("token_url = {:?}\ntoken_exchange = {:?}\n", endpoint(&tc), exchange(&tc));
-            (both, format!("{at}.token_exchange: goes in token_url's place, not beside it"))
-        }
-    };
-    let manifest = format!(
-        "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
-         authorize_url = \"https://auth.example/authorize\"\n{token}client_id = \"demo\"\n"
-    );
-    assert_eq!(problem(&manifest), said, "{token}");
-}
-
 /// An account plugin as locallibrary ships one: Google, with a scope for uploading videos.
 const GOOGLE: &str = r#"
 [[contributes.account_types]]
@@ -580,9 +422,17 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
     });
     assert_eq!(own_client, "");
     let alone = format!(
-        "{at}: makes an account plugin, which has nothing else: no capabilities, net limits or other contributions"
+        "{at}: makes an account plugin, which has nothing else: no capabilities, accounts, net limits or other \
+         contributions"
     );
     assert_eq!(google_with(|m| m.capabilities.push(Capability::Net("googleapis.com".into()))), alone);
+    let need = AccountNeed {
+        name: "google".into(),
+        scopes: vec!["youtube-upload".into()],
+        why: "To upload".into(),
+        optional: Vec::new(),
+    };
+    assert_eq!(google_with(|m| m.accounts.push(need)), alone);
     let limit = NetLimit { host: "googleapis.com".into(), per_second: 1.0 };
     assert_eq!(google_with(|m| m.net.push(limit)), alone);
     for kind in CONTRIBUTIONS {
@@ -590,6 +440,127 @@ fn an_account_plugin_provides_one_account_type_and_nothing_else() {
     }
     let twice = google_with(|m| m.contributes.account_types.push(m.contributes.account_types[0].clone()));
     assert_eq!(twice, "contributes.account_types[1]: is a second account type: an account plugin provides one");
+}
+
+/// An account type's endpoints are read as the HTTP client reads them: https, or http to this
+/// computer itself, never with a user name or password, whatever the address looks like.
+#[test]
+fn an_account_types_endpoints_are_read_as_the_client_reads_them() {
+    let token_url = |url: &str| {
+        let url = url.to_string();
+        google_with(move |m| {
+            let google = &mut m.contributes.account_types[0];
+            (google.token_url, google.token_exchange) = (Some(url), None);
+        })
+    };
+    for url in
+        ["https://auth.example/token", "http://127.0.0.1:8080/token", "http://localhost/token", "http://[::1]:9/t"]
+    {
+        assert_eq!(token_url(url), "", "{url}");
+    }
+    let refused = [
+        "http://localhost@evil.example/token",
+        "http://127.0.0.1@evil.example/token",
+        "http://127.0.0.1.evil.example/token",
+        "http://localhost.evil.example/token",
+        "http://localhost%2eevil.example/token",
+        "http://evil.example\\@localhost/token",
+        "http://[::1].evil.example/token",
+        "http://0x7f.0.0.2/token",
+        "https://someone@auth.example/token",
+        "http://local host/token",
+    ];
+    for url in refused {
+        let said = format!(
+            "contributes.account_types[0].token_url: {url:?} isn't an https:// address without a user name or \
+             password"
+        );
+        assert_eq!(token_url(url), said, "{url}");
+    }
+}
+
+/// An account type trades its tokens at its service's token endpoint or at Local Network's token
+/// exchange, one of them, and an exchange is Local Network's (or a test server on this computer at
+/// the same path): no other server is sent the user's codes in its name.
+#[test]
+fn an_account_type_trades_tokens_at_its_token_endpoint_or_local_networks_exchange_only() {
+    let at = "contributes.account_types[0]";
+    let trading = |token_url: Option<&str>, token_exchange: Option<&str>| {
+        let (token_url, token_exchange) = (token_url.map(String::from), token_exchange.map(String::from));
+        google_with(move |m| {
+            let google = &mut m.contributes.account_types[0];
+            (google.token_url, google.token_exchange) = (token_url, token_exchange);
+        })
+    };
+    for url in [
+        "https://localnetwork.computer/api/token-exchange/soundcloud",
+        "https://localnetwork.computer:443/api/token-exchange/google",
+        "https://LocalNetwork.computer/api/token-exchange/mixcloud-2",
+        "http://127.0.0.1:5173/api/token-exchange/soundcloud",
+        "http://localhost/api/token-exchange/x",
+    ] {
+        assert_eq!(trading(None, Some(url)), "", "{url}");
+    }
+    for url in [
+        "https://evil.example/api/token-exchange/soundcloud",
+        "https://localnetwork.computer.evil.example/api/token-exchange/soundcloud",
+        "https://localnetwork.computer:8443/api/token-exchange/soundcloud",
+        "http://localnetwork.computer/api/token-exchange/soundcloud",
+        "https://someone@localnetwork.computer/api/token-exchange/soundcloud",
+        "https://localnetwork.computer/api/token-exchange/",
+        "https://localnetwork.computer/api/token-exchange/SoundCloud",
+        "https://localnetwork.computer/api/token-exchange/a/b",
+        "https://localnetwork.computer/api/token-exchange/../oauth/token",
+        "https://localnetwork.computer/api/token-exchange/soundcloud?to=evil.example",
+        "https://localnetwork.computer/api/token-exchange/soundcloud#x",
+        "https://localnetwork.computer/oauth/token",
+    ] {
+        let said = format!(
+            "{at}.token_exchange: {url:?} isn't Local Network's token exchange \
+             (https://localnetwork.computer/api/token-exchange/<service>)"
+        );
+        assert_eq!(trading(None, Some(url)), said, "{url}");
+    }
+    assert_eq!(trading(None, None), format!("{at}.token_url: is missing, and so is token_exchange"));
+    let both = trading(Some("https://auth.example/token"), Some("https://localnetwork.computer/api/token-exchange/x"));
+    assert_eq!(both, format!("{at}.token_exchange: goes in token_url's place, not beside it"));
+}
+
+/// An account type's token goes in the `Authorization` header as `Bearer` unless it names another
+/// scheme or a query parameter, one of them, and the browser comes back to any port unless it
+/// names one a program may listen on.
+#[test]
+fn an_account_type_says_where_its_token_goes_and_where_the_browser_comes_back() {
+    let google = |rest: &str| {
+        let manifest = GOOGLE.replacen("type = \"google\"\n", &format!("type = \"google\"\n{rest}"), 1);
+        Manifest::parse(&format!("{HEAD}{manifest}")).and_then(|m| {
+            m.validate(true)?;
+            let google = &m.contributes.account_types[0];
+            Ok((google.token.clone(), google.redirect_port))
+        })
+    };
+    let bearer = TokenPlace::Scheme("Bearer".into());
+    assert_eq!(google("").unwrap(), (bearer.clone(), None));
+    assert_eq!(google("token = { scheme = \"Bearer\" }\n").unwrap(), (bearer, None));
+    let oauth = google("token = { scheme = \"OAuth\" }\nredirect_port = 8765\n").unwrap();
+    assert_eq!(oauth, (TokenPlace::Scheme("OAuth".into()), Some(8765)));
+    let query = google("token = { query = \"access_token\" }\n").unwrap();
+    assert_eq!(query, (TokenPlace::Query("access_token".into()), None));
+    let said = |rest: &str| google(rest).unwrap_err().to_string();
+    let at = "contributes.account_types[0]";
+    assert_eq!(
+        said("token = { scheme = \"Bearer token\" }\n"),
+        format!("{at}.token.scheme: \"Bearer token\" isn't a scheme: one word, like Bearer or OAuth")
+    );
+    assert_eq!(
+        said("token = { query = \"a=b\" }\n"),
+        format!("{at}.token.query: \"a=b\" isn't a query parameter's name: letters, digits, -, ., _ and ~")
+    );
+    assert!(said("token = { scheme = \"OAuth\", query = \"access_token\" }\n").contains("token"));
+    assert!(said("token = { header = \"X-Token\" }\n").contains("unknown variant `header`"));
+    assert!(said("token = \"OAuth\"\n").contains("token"));
+    assert_eq!(said("redirect_port = 80\n"), format!("{at}.redirect_port: is 1024 or more: 80 is a system service's"));
+    assert!(said("redirect_port = 70000\n").contains("redirect_port"));
 }
 
 /// An account type sets only the authorize params that can't change where a code goes or what it's
@@ -1439,26 +1410,6 @@ fn exchange(tc: &TestCase) -> String {
     format!("{origin}/api/token-exchange/{}", tc.draw(gs::from_regex("[a-z0-9-]{1,12}")))
 }
 
-/// An account with endpoints it may have (its token endpoint, or Local Network's token exchange),
-/// scopes and maybe a revocation endpoint.
-#[hegel::test_helper]
-fn account(tc: &TestCase, id: String) -> Account {
-    let exchanges = tc.draw(gs::booleans());
-    Account {
-        id,
-        title: title(tc),
-        authorize_url: endpoint(tc),
-        token_url: (!exchanges).then(|| endpoint(tc)),
-        token_exchange: exchanges.then(|| exchange(tc)),
-        scopes: tc.draw(gs::vecs(gs::from_regex("[!-~]{1,12}")).max_size(3)),
-        client_id: title(tc),
-        pkce: true,
-        revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
-        token: token_place(tc),
-        redirect_port: tc.draw(gs::optional(gs::integers::<u16>().min_value(1024))),
-    }
-}
-
 /// Where an account's token may go: the `Authorization` header after a scheme (`Bearer` when it
 /// doesn't say), or a query parameter.
 #[hegel::test_helper]
@@ -1470,7 +1421,8 @@ fn token_place(tc: &TestCase) -> TokenPlace {
     }
 }
 
-/// A host granted for an account's requests when no other is: longer than any drawn.
+/// A host granted for the requests of the accounts a plugin asks for when no other is: longer than
+/// any drawn.
 const ACCOUNT_HOST: &str = "account-host.example";
 
 /// How a field of type `kind` may be shown: any unit, places and width, and a format that fits it.
@@ -1661,7 +1613,6 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         })
         .collect::<Vec<_>>();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
-    let accounts: Vec<Account> = drawn_names(tc, 2).into_iter().map(|id| account(tc, id)).collect();
     let destination_kinds = vec![DestinationKind::Store, DestinationKind::Set];
     let destinations = drawn_names(tc, 3)
         .into_iter()
@@ -1717,7 +1668,8 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         })
         .collect();
     // Granted a server for the accounts' requests.
-    if !accounts.is_empty() && hosts.is_empty() {
+    let needs: Vec<AccountNeed> = drawn_names(tc, 2).into_iter().map(|name| account_need(tc, name)).collect();
+    if !needs.is_empty() && hosts.is_empty() {
         capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
     }
     capabilities.extend(hosts.into_iter().map(Capability::Net));
@@ -1730,9 +1682,9 @@ fn manifest(tc: &TestCase, built_in: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
+        accounts: needs,
         contributes: Contributions {
             account_types: Vec::new(),
-            accounts,
             commands,
             destinations,
             events,
@@ -1811,8 +1763,7 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 14] = [
-    "accounts",
+const CONTRIBUTIONS: [&str; 13] = [
     "commands",
     "destinations",
     "operations",
@@ -1831,7 +1782,6 @@ const CONTRIBUTIONS: [&str; 14] = [
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
     match kind {
-        "accounts" => "id",
         "exporters" | "importers" => "format",
         "settings" => "key",
         _ => "name",
@@ -1840,7 +1790,6 @@ fn name_key(kind: &str) -> &'static str {
 
 fn len(c: &Contributions, kind: &str) -> usize {
     match kind {
-        "accounts" => c.accounts.len(),
         "commands" => c.commands.len(),
         "destinations" => c.destinations.len(),
         "operations" => c.operations.len(),
@@ -1864,19 +1813,6 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
         let title = "Added".to_string();
         match kind {
             // Granted a net: capability by the caller.
-            "accounts" => c.accounts.push(Account {
-                id: name,
-                title,
-                authorize_url: "https://auth.example/authorize".into(),
-                token_url: Some("https://auth.example/token".into()),
-                token_exchange: None,
-                scopes: Vec::new(),
-                client_id: "added".into(),
-                pkce: true,
-                revoke_url: None,
-                token: TokenPlace::default(),
-                redirect_port: None,
-            }),
             "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
                 let offered = on_a_drive();
@@ -1931,7 +1867,6 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
 /// The name (or format, or key) and title of each contribution of `kind`.
 fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut String, &'a mut String)> {
     match kind {
-        "accounts" => c.accounts.iter_mut().map(|x| (&mut x.id, &mut x.title)).collect(),
         "commands" => c.commands.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "destinations" => c.destinations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
@@ -1951,7 +1886,6 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
 /// Another of contribution `i` of `kind`, named the same, at the end.
 fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
     match kind {
-        "accounts" => c.accounts.push(c.accounts[i].clone()),
         "commands" => c.commands.push(Command { cli: None, ..c.commands[i].clone() }),
         "destinations" => c.destinations.push(c.destinations[i].clone()),
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
@@ -2024,14 +1958,6 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
-        "account endpoint",
-        "account client",
-        "account scope",
-        "account pkce",
-        "account exchange",
-        "account token",
-        "account port",
-        "account grant",
         "check when",
         "export grant",
         "import extension",
@@ -2144,9 +2070,6 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             add(c, kind, 1);
             if kind == "providers" && !m.capabilities.contains(&Capability::LibraryRead) {
                 m.capabilities.push(Capability::LibraryRead);
-            }
-            if kind == "accounts" && !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
-                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
             }
             if kind == "sources" && !m.capabilities.contains(&Capability::FsRead) {
                 m.capabilities.push(Capability::FsRead);
@@ -2383,120 +2306,6 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
                 }
             }
-        }
-        "account endpoint" | "account client" | "account scope" | "account pkce" | "account exchange"
-        | "account token" | "account port" => {
-            add(c, "accounts", 1);
-            if !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
-                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
-            }
-            let i = index(&tc, c.accounts.len());
-            let x = &mut c.accounts[i];
-            let at = format!("contributes.accounts[{i}]");
-            match mistake {
-                "account endpoint" => {
-                    let odd = tc.draw(gs::sampled_from(vec![
-                        "",
-                        "auth.example/token",
-                        "ftp://auth.example",
-                        "https://",
-                        "https:// auth.example",
-                        "http://auth.example/token",
-                        "http://127.0.0.1.example",
-                        "http://127.0.0.1.evil.example/token",
-                        "http://localhost@evil.example/token",
-                        "http://localhost:80@evil.example/token",
-                        "http://evil.example\\@localhost/token",
-                        "http://localhost%2eevil.example/token",
-                        "http://[::1].evil.example/token",
-                        "https://someone:words@auth.example/token",
-                        "https://auth.example:99999/token",
-                        "javascript:alert(1)",
-                    ]));
-                    // An endpoint it may have, but with a user in it, is read as the client
-                    // would: a user name (and maybe a password), never the host.
-                    let user = tc.draw(gs::from_regex("[a-z0-9]{1,6}(:[a-z0-9]{0,6})?"));
-                    let with_user = endpoint(&tc).replacen("://", &format!("://{user}@"), 1);
-                    let wrong = if tc.draw(gs::booleans()) { with_user } else { odd.to_string() };
-                    let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url"]));
-                    match key {
-                        "authorize_url" => x.authorize_url = wrong.clone(),
-                        "token_url" => x.token_url = Some(wrong.clone()),
-                        _ => x.revoke_url = Some(wrong.clone()),
-                    }
-                    (format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password"), false)
-                }
-                "account client" => {
-                    x.client_id = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
-                    (format!("{at}.client_id: is empty"), false)
-                }
-                "account exchange" => match tc.draw(gs::integers::<u8>().max_value(2)) {
-                    0 => {
-                        (x.token_url, x.token_exchange) = (None, None);
-                        (format!("{at}.token_url: is missing, and so is token_exchange"), false)
-                    }
-                    1 => {
-                        (x.token_url, x.token_exchange) = (Some(endpoint(&tc)), Some(exchange(&tc)));
-                        (format!("{at}.token_exchange: goes in token_url's place, not beside it"), false)
-                    }
-                    _ => {
-                        // Somewhere else, or Local Network's site but not its exchange for a
-                        // service.
-                        let wrong = tc.draw(gs::sampled_from(vec![
-                            endpoint(&tc),
-                            exchange(&tc).replace("/api/", "/apis/"),
-                            format!(
-                                "https://localnetwork.computer.example/api/token-exchange/{}",
-                                tc.draw(gs::from_regex("[a-z0-9-]{1,12}"))
-                            ),
-                            format!("{}/x", exchange(&tc)),
-                            format!("{}?x", exchange(&tc)),
-                            "https://localnetwork.computer/api/token-exchange/".into(),
-                        ]));
-                        (x.token_url, x.token_exchange) = (None, Some(wrong.clone()));
-                        let rule = "https://localnetwork.computer/api/token-exchange/<service>";
-                        (format!("{at}.token_exchange: {wrong:?} isn't Local Network's token exchange ({rule})"), false)
-                    }
-                },
-                "account scope" => {
-                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", " lead"]));
-                    let j = tc.draw(gs::integers::<usize>().max_value(x.scopes.len()));
-                    x.scopes.insert(j, wrong.into());
-                    (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
-                }
-                "account token" => {
-                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", "Bearer:", "a=b", "a&b", "{x}", "é"]));
-                    match tc.draw(gs::booleans()) {
-                        true => {
-                            x.token = TokenPlace::Scheme(wrong.into());
-                            (
-                                format!("{at}.token.scheme: {wrong:?} isn't a scheme: one word, like Bearer or OAuth"),
-                                false,
-                            )
-                        }
-                        false => {
-                            x.token = TokenPlace::Query(wrong.into());
-                            let rule = "a query parameter's name: letters, digits, -, ., _ and ~";
-                            (format!("{at}.token.query: {wrong:?} isn't {rule}"), false)
-                        }
-                    }
-                }
-                "account port" => {
-                    let port = tc.draw(gs::integers::<u16>().max_value(1023));
-                    x.redirect_port = Some(port);
-                    (format!("{at}.redirect_port: is 1024 or more: {port} is a system service's"), false)
-                }
-                _ => {
-                    x.pkce = false;
-                    (format!("{at}.pkce: is true: locallibrary signs in with PKCE only"), false)
-                }
-            }
-        }
-        "account grant" => {
-            add(c, "accounts", 1);
-            m.capabilities.retain(|g| !matches!(g, Capability::Net(_)));
-            m.net.clear();
-            ("contributes.accounts[0]: goes into net/fetch requests, which needs a net:<host> capability".into(), false)
         }
         "check when" => {
             add(c, "checks", 1);
@@ -3143,6 +2952,7 @@ fn account_plugin(tc: &TestCase, built_in: bool) -> Manifest {
         version: "0.1.0".into(),
         protocol: "^0.2".into(),
         capabilities: Vec::new(),
+        accounts: Vec::new(),
         contributes: Contributions { account_types: vec![account_type(tc, built_in)], ..Contributions::default() },
         net: Vec::new(),
         unknown: Vec::new(),
@@ -3215,12 +3025,13 @@ fn each_kind_of_account_type_mistake_is_refused_saying_where(tc: TestCase) {
             "contributes.account_types[1]: is a second account type: an account plugin provides one".into()
         }
         "beside" => {
-            match tc.draw(gs::sampled_from(vec!["capability", "net", "contribution"])) {
+            match tc.draw(gs::sampled_from(vec!["capability", "accounts", "net", "contribution"])) {
                 "capability" => m.capabilities.push(tc.draw(gs::sampled_from(Capability::NAMED.to_vec()))),
+                "accounts" => m.accounts.push(account_need(&tc, tc.draw(gs::from_regex(DRAWN_NAME)))),
                 "net" => m.net.push(NetLimit { host: "a.example".into(), per_second: 1.0 }),
                 _ => add(&mut m.contributes, tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec())), 1),
             }
-            let others = "no capabilities, net limits or other contributions";
+            let others = "no capabilities, accounts, net limits or other contributions";
             format!("{at}: makes an account plugin, which has nothing else: {others}")
         }
         _ => {
@@ -3468,4 +3279,182 @@ fn a_pattern_covers_exactly_the_urls_it_prefixes(tc: TestCase) {
     assert!(!covers(method, &format!("https://{host}@evil.example/{path}{more}")));
     assert!(!covers(method, &format!("http://{host}/{path}{more}")));
     assert_eq!(covers(method, &format!("https://{host}/~{path}{more}")), star && path.is_empty());
+}
+
+// Plugins asking for accounts by type, drawn whole, then broken in one place each.
+
+/// A plugin asks for an account type and the scopes it needs, saying why, and needs a `net:`
+/// capability for the requests their tokens go into.
+#[test]
+fn a_plugin_asking_for_accounts_needs_a_net_capability() {
+    let asking = |capabilities: &str| {
+        problem(&format!(
+            "capabilities = [{capabilities}]\n[[accounts]]\ntype = \"google\"\nscopes = [\"youtube-upload\"]\n\
+             why = \"To upload your sets\"\noptional = [{{ scopes = [\"read\"], why = \"To find an upload\" }}]\n"
+        ))
+    };
+    assert_eq!(asking("\"net:www.googleapis.com\""), "");
+    let said = "accounts[0]: goes into net/fetch requests, which needs a net:<host> capability";
+    assert_eq!(asking(""), said);
+    assert_eq!(asking("\"library:read\""), said);
+}
+
+/// What a plugin asks for of an account type: its scopes, then groups of them it can do without,
+/// none asked for twice.
+#[hegel::test_helper]
+fn account_need(tc: &TestCase, name: String) -> AccountNeed {
+    let mut scopes = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(1).max_size(6).unique(true));
+    let mut rest = scopes.split_off(tc.draw(gs::integers::<usize>().min_value(1).max_value(scopes.len())));
+    let mut optional = Vec::new();
+    while !rest.is_empty() {
+        let after = rest.split_off(tc.draw(gs::integers::<usize>().min_value(1).max_value(rest.len())));
+        optional.push(OptionalScopes { scopes: rest, why: title(tc) });
+        rest = after;
+    }
+    AccountNeed { name, scopes, why: title(tc), optional }
+}
+
+/// A plugin asking for an account type or more, granted a server for their requests, and nothing
+/// else.
+#[hegel::test_helper]
+fn asking_plugin(tc: &TestCase) -> Manifest {
+    let types = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(1).max_size(3).unique(true));
+    Manifest {
+        id: tc.draw(gs::from_regex(DRAWN_NAME)),
+        name: title(tc),
+        version: "0.1.0".into(),
+        protocol: "^0.2".into(),
+        capabilities: vec![Capability::Net(ACCOUNT_HOST.into())],
+        accounts: types.into_iter().map(|name| account_need(tc, name)).collect(),
+        contributes: Contributions::default(),
+        net: Vec::new(),
+        unknown: Vec::new(),
+    }
+}
+
+/// Any plugin asking for accounts that keeps the rules validates, has the `accounts` feature,
+/// reads back as it was written from TOML and from JSON, and fits the manifest's JSON Schema.
+#[hegel::test(test_cases = 100)]
+fn a_drawn_plugin_asking_for_accounts_is_valid_and_reads_back(tc: TestCase) {
+    let m = asking_plugin(&tc);
+    assert_eq!(problem_with(&m, tc.draw(gs::booleans())), "");
+    assert!(!m.is_account_plugin());
+    assert!((hooks::accounts::FEATURE.contributed)(&m));
+    let json = serde_json::to_value(&m).unwrap();
+    let toml = toml_of(&json);
+    assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
+    assert_eq!(serde_json::from_value::<Manifest>(json.clone()).unwrap(), m);
+    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&json), "{json}");
+}
+
+/// Group `g` of `x`'s scopes, as a mistake breaks it: where it is, its scopes and why. `scopes` is
+/// the first, then each optional group.
+fn scope_group<'a>(x: &'a mut AccountNeed, at: &str, g: usize) -> (String, &'a mut Vec<String>, &'a mut String) {
+    match g {
+        0 => (at.into(), &mut x.scopes, &mut x.why),
+        _ => {
+            let o = &mut x.optional[g - 1];
+            (format!("{at}.optional[{}]", g - 1), &mut o.scopes, &mut o.why)
+        }
+    }
+}
+
+/// Any one thing wrong with a plugin asking for accounts that's otherwise right is refused, saying
+/// where it is and what's wrong with it.
+#[hegel::test(test_cases = 300)]
+fn each_kind_of_accounts_mistake_is_refused_saying_where(tc: TestCase) {
+    let mut m = asking_plugin(&tc);
+    let mistakes =
+        vec!["type", "type twice", "why", "no scopes", "scope name", "scope twice", "no net", "account plugin"];
+    let mistake = tc.draw(gs::sampled_from(mistakes));
+    if mistake == "type twice" && m.accounts.len() < 2 {
+        m.accounts.push(account_need(&tc, "added-account-type".into()));
+    }
+    let i = index(&tc, m.accounts.len());
+    let at = format!("accounts[{i}]");
+    let said = match mistake {
+        "type" => {
+            let wrong = bad_name(&tc);
+            m.accounts[i].name = wrong.clone();
+            format!("{at}.type: {wrong:?} isn't a name: {NAME_RULE}")
+        }
+        "type twice" => {
+            // The same as one before it, or a later one the same as it.
+            let (j, k) = match i {
+                0 => (0, 1 + index(&tc, m.accounts.len() - 1)),
+                _ => (index(&tc, i), i),
+            };
+            m.accounts[k].name = m.accounts[j].name.clone();
+            format!("accounts[{k}].type: {:?} is used twice", m.accounts[j].name)
+        }
+        "why" | "no scopes" | "scope name" => {
+            let x = &mut m.accounts[i];
+            let g = index(&tc, 1 + x.optional.len());
+            let (at, scopes, why) = scope_group(x, &at, g);
+            match mistake {
+                "why" => {
+                    *why = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    format!("{at}.why: is empty")
+                }
+                "no scopes" => {
+                    scopes.clear();
+                    format!("{at}.scopes: asks for a scope at least")
+                }
+                _ => {
+                    let wrong = bad_name(&tc);
+                    scopes.push(wrong.clone());
+                    format!("{at}.scopes[{}]: {wrong:?} isn't a name: {NAME_RULE}", scopes.len() - 1)
+                }
+            }
+        }
+        "scope twice" => {
+            // One of its own scopes, or of a group before it, again at its end.
+            let x = &mut m.accounts[i];
+            let g = index(&tc, 1 + x.optional.len());
+            let from = scope_group(x, &at, index(&tc, g + 1)).1.clone();
+            let again = tc.draw(gs::sampled_from(from));
+            let (at, scopes, _) = scope_group(x, &at, g);
+            scopes.push(again.clone());
+            format!("{at}.scopes[{}]: {again:?} is asked for twice", scopes.len() - 1)
+        }
+        "no net" => {
+            m.capabilities.clear();
+            "accounts[0]: goes into net/fetch requests, which needs a net:<host> capability".into()
+        }
+        _ => {
+            m.capabilities.clear();
+            m.contributes.account_types.push(account_type(&tc, false));
+            let others = "no capabilities, accounts, net limits or other contributions";
+            format!("contributes.account_types[0]: makes an account plugin, which has nothing else: {others}")
+        }
+    };
+    assert_eq!(problem_with(&m, false), said);
+}
+
+/// A request names an account by type as `{account:<type>}`, or one access to it as
+/// `{account:<type>/<access id>}`, the access's 8 lowercase hex digits; anything else names none.
+#[hegel::test(test_cases = 100)]
+fn an_account_placeholder_names_a_type_and_maybe_an_access(tc: TestCase) {
+    let kind = tc.draw(gs::from_regex(DRAWN_NAME));
+    let access = tc.draw(gs::optional(gs::from_regex("[0-9a-f]{8}").fullmatch(true)));
+    let named = match &access {
+        Some(access) => format!("{kind}/{access}"),
+        None => kind.clone(),
+    };
+    assert_eq!(account_placeholder(&format!("{{account:{named}}}")), Some((kind.as_str(), access.as_deref())));
+    let short_or_long = tc.draw(gs::from_regex("[0-9a-f]{0,7}|[0-9a-f]{9,12}").fullmatch(true));
+    let not_hex = tc.draw(gs::from_regex("[0-9a-f]{0,7}[A-Fg-z/}][0-9a-f]{0,7}").fullmatch(true));
+    let wrong = tc.draw(gs::sampled_from(vec![
+        format!("{{account:{}}}", bad_name(&tc)),
+        format!("{{account:{kind}/{short_or_long}}}"),
+        format!("{{account:{kind}/{not_hex}}}"),
+        format!("{{account:{named}/}}"),
+        format!("{{account:{named}"),
+        format!("account:{named}}}"),
+        format!("{{account:{named}}}x"),
+        format!("x{{account:{named}}}"),
+        format!("Bearer {{account:{named}}}"),
+    ]));
+    assert_eq!(account_placeholder(&wrong), None, "{wrong}");
 }

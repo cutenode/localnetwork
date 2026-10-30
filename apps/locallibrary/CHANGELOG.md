@@ -348,23 +348,23 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black
     frame) over the recording, and it goes up through YouTube's resumable upload, titled after the
     set, unlisted unless the `privacy` setting says, with the tracklist as chapters in the
-    description, keeping the video's page as the set's link. It signs in to Google through Local
-    Network's token exchange, asking only to upload videos.
+    description, keeping the video's page as the set's link. It asks for a google account, and
+    only to upload videos.
   - `mixcloud`: a set destination, `sets publish SET --to mixcloud:show`, uploading the set's
     recording to Mixcloud as a show in one form, titled after the set, with the tracklist as the
     show's sections (artist, title and start time), the `tags` setting's tags (five at most), the
     `picture` setting's picture and, with `unlisted`, kept private, and keeping the show's page as
     the set's link. A recording or picture Mixcloud wouldn't take is refused first; an upload that
-    fails on the way, or over Mixcloud's rate limit, is sent again whole. It signs in to Mixcloud
-    through Local Network's token exchange, with the token in the query as Mixcloud takes it.
+    fails on the way, or over Mixcloud's rate limit, is sent again whole. It asks for a mixcloud
+    account, to upload with.
   - `soundcloud`: a set destination, `sets publish SET --to soundcloud:track`, uploading the set's
     recording to SoundCloud as a track in one form, titled after the set, its tracklist as the
     description, tagged `dj mix`, not downloadable and private unless the `sharing` setting says,
     with the `genre` and `picture` settings as its genre and artwork, and keeping the track's page
     as the set's link. A recording or artwork SoundCloud wouldn't take is refused before anything
     goes. An upload that fails on the way is sent again whole a few times, once the plugin has
-    checked SoundCloud didn't make the track anyway. It signs in to SoundCloud through Local
-    Network's token exchange.
+    checked SoundCloud didn't make the track anyway. It asks for a soundcloud account, to upload
+    with.
 - **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
   grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
   `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
@@ -384,22 +384,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   beat grids and waveforms a track brings go into analysis files made for it, read back first.
   The player has "build from …" in the palette and a drive's menu, the sidecar
   `plugins.source.plan/apply`. Not yet tried on players.
-- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
-  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
-  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
-  never sees one. A service that wants a client secret for its tokens (Mixcloud, SoundCloud,
-  Google) is signed in to through Local Network's token exchange, which holds the secret, so
-  none ships with locallibrary. An account says how its service takes the token: after `Bearer`
-  in the `Authorization` header unless it names another scheme (SoundCloud's `OAuth`) or a query
-  parameter (Mixcloud's `access_token`). It may name the port the browser comes back to, for a
-  service registered with an exact redirect address (SoundCloud). A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+- **Plugins' destinations.** A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
   `store restore --from`, `drive verify --from`), every file it gives back checked against its
   hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
   the link it answers kept in the set. The plugin uploads the recording through locallibrary
   (`net/fetch`'s `body_blob`, perhaps a `body_range` of it, or a `multipart` form's file), which
   reads it as it sends it rather than all at once, shows how much has gone (phase `upload`) and
   lets it send nothing else but files in its request's scratch folder. The sidecar has both as
-  `plugins.account*`, `plugins.store.*` and `plugins.publish.*`.
+  `plugins.store.*` and `plugins.publish.*`.
 - **Where a set's recording plays.** A set destination may name the link it answers (plyr's
   `plyr.fm`, archive's `Internet Archive`, youtube's `YouTube`, mixcloud's `Mixcloud`) and give the
   Atmosphere record holding the recording (plyr's track, as a `com.atproto.repo.strongRef`). The
@@ -425,8 +417,28 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   token exchange. Three ship, a folder each in `plugins/accounts/`: google-account (its scope
   `youtube-upload`), mixcloud-account (`upload`) and soundcloud-account (`upload` and `read`).
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
-  `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
-  for now.
+  `plugins.list` has them as `account_types`. locallibrary signs you in in the browser, keeping
+  the tokens in the keychain and refreshing them itself. A service that wants a client secret for
+  its tokens (Mixcloud, SoundCloud, Google) is signed in to through Local Network's token
+  exchange, which holds the secret, so none ships with locallibrary. An account type says how its
+  service takes the token: after `Bearer` in the `Authorization` header unless it names another
+  scheme (SoundCloud's `OAuth`) or a query parameter (Mixcloud's `access_token`). It may name the
+  port the browser comes back to, for a service registered with an exact redirect address
+  (SoundCloud).
+- **Accounts kept once per store.** Plugins ask for accounts by type (`[[accounts]]`, with the
+  scopes they need and why): youtube for a google account, mixcloud and soundcloud for one of
+  their own type, each to upload with. An account is signed in to once, through an account
+  plugin, and kept in the store; a plugin uses it through the access you give it, which you can
+  make its default for the account type or take away without signing out, and never sees its
+  token: a request names the account as `{account:TYPE}`, and the token goes in only where a
+  scope of the access covers the request. `account` lists them after the DJ account, `account
+  TYPE sign-in` and `account TYPE:NAME sign-out` sign in and out, and `plugin access PLUGIN`
+  makes an account its default or takes its access away. A plugin's destination asks in the
+  terminal which account it may use when it has none; elsewhere it fails saying how to give it
+  one. The player's palette signs in and out, and has a form for a plugin's access. The sidecar
+  has them as `accounts.*`. Plugins no longer have accounts of their own: `plugin account` and
+  the sidecar's `plugins.account*` are gone, and `plugin info` and `plugins.describe` show the
+  access a plugin has instead.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
