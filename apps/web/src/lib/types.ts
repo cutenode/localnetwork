@@ -105,6 +105,47 @@ export type ProjectProfile = {
 	avatar?: BlobRefJson;
 };
 
+/** Who a profile is (`computer.localnetwork.section.defs#basics`). */
+export type BasicsSection = {
+	name: string;
+	avatar?: BlobRefJson;
+	bio?: string;
+	pronouns?: string;
+	location?: Location;
+	links?: ProjectLink[];
+};
+
+/** What promoters need to book a performer (`#performer`), with the project profile's field names, all optional. */
+export type PerformerSection = Partial<
+	Pick<
+		ProjectProfile,
+		| 'tagline'
+		| 'genres'
+		| 'formats'
+		| 'setTypes'
+		| 'setLength'
+		| 'capacity'
+		| 'fees'
+		| 'travel'
+		| 'mixes'
+		| 'highlights'
+		| 'lookingFor'
+		| 'activeSince'
+	>
+>;
+
+/** Where a promoter books (`#promoter`). */
+export type PromoterSection = { cities?: Location[] };
+
+/** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
+export type ProfileRecord = {
+	basics: BasicsSection;
+	performer?: PerformerSection;
+	promoter?: PromoterSection;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export type ProjectDetails = {
 	bookingEmail?: string;
 	bookingPhone?: string;

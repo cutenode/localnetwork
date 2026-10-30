@@ -1,5 +1,5 @@
 import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
@@ -385,8 +385,8 @@ export async function createApp(options: CreateAppOptions) {
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
 		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
 		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications, and the bug report space. A failure is logged and tried again on the next round, without
-		 * marking the directory sync failed.
+		 * root's verifications and DJ listings, and the bug report space. A failure is logged and tried again on the next
+		 * round, without marking the directory sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
@@ -401,6 +401,7 @@ export async function createApp(options: CreateAppOptions) {
 				})),
 				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
 				{ collection: VERIFICATION, accounts: async () => [rootDid] },
+				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
 				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
 			];
 

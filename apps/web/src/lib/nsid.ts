@@ -69,6 +69,7 @@ export const BSKY_FOLLOW = 'app.bsky.graph.follow' as const;
  */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
+	searchPerformers: `${NS}.directory.searchPerformers`,
 	matchProjects: `${NS}.directory.matchProjects`,
 	getProject: `${NS}.directory.getProject`,
 	getProjects: `${NS}.directory.getProjects`,
