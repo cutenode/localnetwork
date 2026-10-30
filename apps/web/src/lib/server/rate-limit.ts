@@ -19,9 +19,14 @@ export class RateLimiter {
 		return true;
 	}
 
-	/** Whether the key has a token left, without taking it, for limits charged only after the fact (like misses). */
-	has(key: string): boolean {
-		return this.refill(key).tokens >= 1;
+	/**
+	 * Gives back tokens a take charged for work that turned out not to count (like a lookup that found something), up
+	 * to capacity. Charging first and refunding after keeps requests made together from all getting through before any
+	 * of them is charged.
+	 */
+	refund(key: string, amount = 1): void {
+		const bucket = this.refill(key);
+		bucket.tokens = Math.min(this.capacity, bucket.tokens + amount);
 	}
 
 	/** The key's bucket, topped up for the time since it was last used. */

@@ -1,5 +1,5 @@
 import { isValidDid, isValidHandle } from '@atproto/syntax';
-import { error, redirect } from '@sveltejs/kit';
+import { error, isRedirect, redirect } from '@sveltejs/kit';
 import { accountLabel, profileHref } from '#lib/format.ts';
 import type { AccountView } from '#lib/types.ts';
 import type { IdentityResolver } from './atproto/identity';
@@ -43,22 +43,26 @@ async function canonicalAccount(
  * What a person's public profile page loads: their profile, the DJ stats and sets they publish (streamed, unless
  * they're fresh in the cache), and the active projects they manage, streamed too. Every account has a profile page:
  * one without a profile record shows its Bluesky display name when the directory keeps it, else its handle, and never
- * asks its PDS. Each address that
- * names no account counts against `ip`, since resolving it may have meant asking a host the visitor chose; past the
- * limit, the page answers 429 without resolving anything.
+ * asks its PDS. Each address that names no account counts against `ip`, since resolving it may have meant asking a
+ * host the visitor chose; past the limit, the page answers 429 without resolving anything.
  */
 export async function loadProfilePage(locals: App.Locals, param: string, search: string, ip: string) {
 	const { app } = locals;
 	const misses = app.limits.profileMisses;
 
-	if (!misses.has(ip)) error(429, 'Too many lookups. Try again in a few minutes.');
+	// Charged before resolving and given back when the address names an account, so requests made together can't all
+	// get through before any is charged.
+	if (!misses.take(ip)) error(429, 'Too many lookups. Try again in a few minutes.');
+	let account: AccountView;
 
-	const miss = () => {
-		misses.take(ip);
-		error(404, NOT_FOUND);
-	};
+	try {
+		account = await canonicalAccount(app.identity, param, search, () => error(404, NOT_FOUND));
+	} catch (cause) {
+		if (isRedirect(cause)) misses.refund(ip);
+		throw cause;
+	}
 
-	const account = await canonicalAccount(app.identity, param, search, miss);
+	misses.refund(ip);
 	const profile = await app.profiles.get(account.did);
 	const displayName = profile ? null : await app.profiles.blueskyName(account.did);
 	const linked = (profile?.record.performer?.mixes ?? []).flatMap((mix) => mix.set ?? []);

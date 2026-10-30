@@ -68,8 +68,21 @@ describe('loadProfilePage', () => {
 
 			return { did, handle: HANDLES.get(did) ?? null };
 		},
-		resolveHandle: async (handle: string) => RESOLVES.get(handle) ?? null
+		resolveHandle: async (handle: string) => {
+			lookups.push(handle);
+			// A lookup takes a moment, as one over the network does, so requests made together overlap.
+			await new Promise((resolve) => setTimeout(resolve, 5));
+
+			return RESOLVES.get(handle) ?? null;
+		}
 	};
+
+	/** The handles the resolver was asked for, in order. */
+	let lookups: string[] = [];
+
+	beforeEach(() => {
+		lookups = [];
+	});
 
 	/** The app's limit on lookups that find no account, fresh for each test. */
 	let profileMisses: RateLimiter;
@@ -153,6 +166,20 @@ describe('loadProfilePage', () => {
 		expect(await open('did:plc:nobody')).toEqual({ status: 404 });
 		expect(await open('not a handle')).toEqual({ status: 404 });
 		expect(await open('did:nonsense')).toEqual({ status: 404 });
+	});
+
+	it('charges each lookup before it starts, so a burst of misses from one visitor reaches the resolver at most the limit times', async () => {
+		const names = Array.from({ length: 10 }, (_, i) => `nobody-${i}.test`);
+		const pages = await Promise.all(names.map((name) => open(name)));
+
+		expect(lookups).toHaveLength(4);
+		expect(pages.filter((page) => 'status' in page && page.status === 429)).toHaveLength(6);
+	});
+
+	it('gives back what a lookup that finds an account was charged', async () => {
+		for (let i = 0; i < 10; i++) expect(await open('ada.test')).toMatchObject({ account: { did: ADA } });
+		expect(await open('Ada.TEST')).toEqual({ status: 302, redirect: '/@ada.test' });
+		expect(await open('nobody.test')).toEqual({ status: 404 });
 	});
 
 	it('stops looking names up for a visitor after a few that find no account', async () => {
