@@ -109,7 +109,7 @@ are:
   it starts at: a time no later than the one before it is left off, and the dry run says how
   many. The `tags` setting (`locallibrary plugin settings mixcloud tags "house, disco"`) tags it,
   five at most; the `picture` setting is its picture (10 MB at most); and `unlisted` keeps it
-  private. Sign in first with `locallibrary plugin account mixcloud mixcloud sign-in`. The
+  private. Sign in first with `locallibrary account mixcloud sign-in --for mixcloud`. The
   recording goes up in one request, as Mixcloud has no upload in parts: one that doesn't arrive,
   or that Mixcloud fails, is sent again whole, a few times at most, and when Mixcloud says it's
   over its rate limit, publishing waits as long as it asks, up to 15 minutes, else says when to
