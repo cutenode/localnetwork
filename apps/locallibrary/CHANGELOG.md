@@ -133,7 +133,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Settings.** One "My Settings" profile for every drive's player and mixer settings, with
   per-drive overrides. `settings publish` puts the profile's base on your Atmosphere account, and
   `settings import --from-account` (or `--from-handle`, for someone else's) adds published
-  settings to yours; `--replace` makes them the whole base.
+  settings to yours; `--replace` makes them the whole base. `settings export [FILE]` writes
+  everything set here to one JSON file (the settings profile, the players `check` uses, the
+  profile's preferences, the player's preferences such as its theme and columns, and every
+  plugin's settings, key bindings included), and `settings import
+  FILE` adds it to another computer's: it shows what it adds, skips what's there already and keeps
+  values that differ unless `--replace` (also `settings.export` and `settings.import_file.*` in the
+  sidecar; `docs/settings-export.schema.json` describes the file).
 - **Cover art** on drives and in audio files (`art auto` given no drive fills in each library
   plugged in, with one question), and rekordbox XML export (`xml`) to take a drive's library back
   into rekordbox.

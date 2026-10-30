@@ -157,6 +157,7 @@ mod props_scrub_more;
 mod props_setpath;
 mod props_sets;
 mod props_settings;
+mod props_settings_file;
 mod props_smart;
 mod props_sound;
 mod props_space;
