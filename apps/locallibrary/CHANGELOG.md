@@ -679,6 +679,10 @@ their old names.
   folders, `drive disks` and `format` refuse while it's set, it lists each volume once without
   the boot volume, and every command warns when it's set. `LOCALLIBRARY_AUDIO=silent`, another,
   has the player play to no output at all, in real time, so a harness can play tracks unheard.
+- `format` always refuses disk images, loop devices and virtual disks:
+  `LOCALLIBRARY_FORMAT_VIRTUAL`, which let it format any of them, is gone. The weekly scheduled
+  run tests `format` and `eject` on a disk image it attaches (hdiutil, a loop device, a VHD), and
+  only a test build lets that one image through.
 - The sidecar refuses relative paths to write to (`art.embed.*` files included), `mix.export`
   refuses to replace a file without `replace: true`, `drive.reidentify` is a `.plan`/`.apply` pair
   (the old name still works), a second SIGINT or SIGTERM waits for a database swap under way,

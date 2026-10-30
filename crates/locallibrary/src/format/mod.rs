@@ -240,10 +240,13 @@ impl Disk {
         if self.system {
             return Some("it holds the running operating system".into());
         }
-        if self.internal || !self.removable {
+        // The disk image a test attached is let through, and nothing else: it's virtual, and on
+        // Linux (a loop device) not removable either.
+        let test_image = self.virtual_disk && is_test_image(&self.id);
+        if (self.internal || !self.removable) && !test_image {
             return Some("it's an internal disk (only external and removable drives can be formatted)".into());
         }
-        if self.virtual_disk && !virtual_disks_allowed() {
+        if self.virtual_disk && !test_image {
             return Some("it's a disk image or virtual disk".into());
         }
         if self.read_only {
@@ -274,9 +277,22 @@ impl Disk {
     }
 }
 
-/// Tests format disk images; set `LOCALLIBRARY_FORMAT_VIRTUAL=1` to allow them.
-fn virtual_disks_allowed() -> bool {
-    std::env::var_os("LOCALLIBRARY_FORMAT_VIRTUAL").is_some_and(|v| v == "1")
+#[cfg(test)]
+thread_local! {
+    /// The whole-disk identifier of the disk image this test thread attached ([`disk_image`]),
+    /// the one virtual disk it may format.
+    pub(crate) static TEST_IMAGE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Whether `id` names the disk image this test thread attached. Never, outside tests.
+#[cfg(test)]
+fn is_test_image(id: &str) -> bool {
+    TEST_IMAGE.with_borrow(|t| t.as_deref() == Some(id))
+}
+
+#[cfg(not(test))]
+fn is_test_image(_: &str) -> bool {
+    false
 }
 
 /// A disk, how players would get on with it as it is, and whether it can be formatted.
@@ -298,7 +314,7 @@ pub fn list(protected: &[PathBuf]) -> Result<Vec<DiskView>> {
 fn views(disks: Vec<Disk>, protected: &[PathBuf]) -> Vec<DiskView> {
     disks
         .into_iter()
-        .filter(|d| d.removable && !d.internal && (!d.virtual_disk || virtual_disks_allowed()))
+        .filter(|d| d.removable && !d.internal && !d.virtual_disk)
         .map(|disk| DiskView {
             identity: disk.identity(),
             compatibility: players::assess_disk(&disk),
@@ -823,3 +839,6 @@ pub(crate) mod json {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod disk_image;

@@ -94,6 +94,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the builds without the default features (on Linux, without the ALSA headers): the tests of the
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
+- `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
+  device on Linux, a VHD on Windows; `crates/locallibrary/src/format/disk_image.rs`). They skip
+  themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  runs them;
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in

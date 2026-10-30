@@ -166,11 +166,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Tests to add
 
-- [ ] A CI-only `format::apply` test on a disk image per OS (hdiutil, a diskpart vdisk, losetup).
-      Linux first needs loop devices treated as removable under `LOCALLIBRARY_FORMAT_VIRTUAL`
-      (`format/linux.rs`).
-- [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
-      another volume, and naming the volumes it unmounts.
 - [ ] `check --audio` on tiny committed MP3, FLAC and M4A fixtures, truncated in
       `tests/it/check.rs` (only WAV truncation is tested). The same fixtures cover MP3 gapless.
 - [ ] The underline on the current hot cue, with a ratatui `TestBackend`.
