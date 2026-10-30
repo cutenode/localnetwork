@@ -2248,6 +2248,77 @@
       }
     },
     {
+      "name": "settings.export",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
+      "name": "settings.import_file.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "settings.import_file.apply",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFile"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFilePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "settings.import_file.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "settings.import_file.plan",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ImportSettingsFile"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
       "name": "art.missing",
       "aliases": [],
       "kind": "read",
@@ -9071,6 +9142,23 @@
           "default": null
         }
       }
+    },
+    "ImportSettingsFile": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "A file `settings.export` wrote (`locallibrary settings export`)."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Where one of the file's values differs from the one here, take the file's (for a list of\nnames, the file's whole list). Default: keep the one here.",
+          "default": false
+        }
+      },
+      "required": [
+        "file"
+      ]
     },
     "ArtworkRequest": {
       "anyOf": [
@@ -20251,6 +20339,137 @@
         "to"
       ],
       "description": "One setting in the settings profile's base, before and after importing."
+    },
+    "SettingsExport": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The file's format, [`VERSION`]."
+        },
+        "my_settings": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The My Settings profile: `base`, and per-drive `drives` overrides by drive id.",
+          "default": {}
+        },
+        "players": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player models `check` uses: `default`, and `libraries`' own by library id.",
+          "default": {}
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The profile's preferences: its sections, precision, pinned and hidden tracks, hidden\nartists, genre spellings and headline.",
+          "default": {}
+        },
+        "player": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
+          "default": {}
+        },
+        "plugin_host": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The host's settings for plugins: which analyzer each field role is read from, when a\nprovider's candidate is picked, and whether each check runs.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`\namong them).",
+          "default": {}
+        }
+      },
+      "required": [
+        "version",
+        "my_settings",
+        "players",
+        "profile",
+        "player",
+        "plugin_host",
+        "plugins"
+      ],
+      "description": "What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty\nmaps and lists left out."
+    },
+    "ImportSettingsFilePlan": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingsFileChange"
+          }
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "The file's values that are as they are here already."
+        }
+      },
+      "required": [
+        "file",
+        "changes",
+        "unchanged"
+      ],
+      "description": "What importing a settings file would change: the file's values missing here (added), and\nthose that differ (kept as they are here, or with `replace` taken from the file)."
+    },
+    "SettingsFileChange": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"keys.analyze\"]`."
+        },
+        "action": {
+          "$ref": "#/$defs/SettingsFileAction"
+        },
+        "current": {
+          "description": "The value here (`None`: not set)."
+        },
+        "imported": {
+          "description": "The file's value; for names added to a list, the names it adds."
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "current",
+        "imported"
+      ],
+      "description": "One of the file's values that isn't as it is here."
+    },
+    "SettingsFileAction": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "add",
+          "description": "It's missing here, or adds names to a list: it's added."
+        },
+        {
+          "type": "string",
+          "const": "keep",
+          "description": "It differs, and the one here stays."
+        },
+        {
+          "type": "string",
+          "const": "replace",
+          "description": "It differs, and the file's takes its place (`replace`)."
+        }
+      ],
+      "description": "What importing does with one of the file's values."
     },
     "OneOrMany_for_ArtworkImage": {
       "anyOf": [

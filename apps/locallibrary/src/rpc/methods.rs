@@ -662,6 +662,10 @@ fn build() -> Registry {
     r.apply("settings.import.apply", Required, |c, req| Ok(api::settings_import(&c.store()?, &req)?))
         .alias("settings.import")
         .destructive();
+    r.read("settings.export", |c, _: NoParams| c.or_empty(api::settings_export)).quick();
+    r.plan("settings.import_file.plan", |c, req| Ok(api::settings_import_file_plan(&c.store()?, &req)?)).destructive();
+    r.apply("settings.import_file.apply", Required, |c, req| Ok(api::settings_import_file(&c.store()?, &req)?))
+        .destructive();
 
     // Cover art.
     r.read("art.missing", |_, req| Ok(api::artwork_missing(&req)?)).quick();
