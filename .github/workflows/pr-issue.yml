@@ -38,7 +38,8 @@ jobs:
           echo "::error::Reference the issue in the description (Fixes LOC-123, Part of LOC-123 or Fixes #123), name the branch bnb/loc-123-..., or add the no-issue label."
           exit 1
 
-  # The check the "Protect Main" ruleset requires. It passes when the issue job was skipped.
+  # The check the "Protect Main" ruleset requires. It passes when the issue job was skipped for a
+  # bot or the no-issue label, and fails when it was skipped for any other reason.
   passed:
     name: PR issue passed
     if: always()
@@ -46,5 +47,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || (needs.issue.result == 'skipped' && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.labels.*.name, 'no-issue'))
         run: exit 1
