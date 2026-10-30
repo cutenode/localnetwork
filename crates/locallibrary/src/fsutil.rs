@@ -241,14 +241,7 @@ pub fn absolute(path: &Path) -> PathBuf {
     loclib_model::paths::absolute_with(path, |_| None)
 }
 
-/// `path` made absolute, with symlinks resolved as far as it exists (macOS's `/tmp` is
-/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
-/// without Windows' `\\?\` prefix. A `..` goes where the OS takes it, out of a link's target
-/// rather than back to the link's folder, so a path is inside a folder here exactly when what it
-/// opens is (once the folders that aren't there yet are made, `..` folded over them).
-pub fn resolved(path: &Path) -> PathBuf {
-    loclib_model::paths::absolute_with(path, |p| p.canonicalize().ok().map(crate::device::without_verbatim_prefix))
-}
+pub use loclib_model::paths::resolved;
 
 /// Delete a file if it exists. Returns whether it did.
 pub fn remove_if_exists(path: &Path) -> Result<bool> {

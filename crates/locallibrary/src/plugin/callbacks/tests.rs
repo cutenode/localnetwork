@@ -250,6 +250,7 @@ const SPEC: &[Read] = {
         ("library.list", "store:read", false, &[]),
         ("smart.list", "store:read", false, &[]),
         ("store.history", "store:read", false, &[("library", Plain), ("limit", Limit(500))]),
+        ("snapshot.library", "store:read", false, &[("snapshot", Plain), ("offset", Plain), ("limit", Limit(500))]),
         ("settings.schema", "settings:read", false, &[]),
         ("settings.profile", "settings:read", false, &[]),
         ("players.models", "settings:read", false, &[]),

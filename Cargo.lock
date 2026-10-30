@@ -4032,7 +4032,6 @@ dependencies = [
 name = "locallibrary-plugin-interop"
 version = "0.1.0"
 dependencies = [
- "dunce",
  "fs4",
  "hegeltest",
  "loclib-interop",

@@ -79,7 +79,7 @@ impl Sidecar {
 
     fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let (root, ctx) = (self.store(), Ctx::silent());
-        let call = Call { root: &root, plans: &self.plans, ctx: &ctx };
+        let call = Call { root: &root, plans: &self.plans, ctx: &ctx, notify: &|_, _| {} };
         registry().get(method).unwrap().run(&call, params).expect("a worker runs it")
     }
 
