@@ -256,8 +256,26 @@ export class OAuthService {
 	readonly client: NodeOAuthClient;
 	readonly scopes = SCOPES;
 
-	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
+	constructor(
+		private readonly deps: {
+			config: Config;
+			db: Db;
+			logger: Logger;
+			/**
+			 * A guarded fetch (IdentityResolver's `serviceFetch`). Signing in talks to servers a user's DID document
+			 * names: their PDS, the authorization server its metadata names, and the PDS again for every session request.
+			 */
+			fetch: typeof globalThis.fetch;
+		}
+	) {
 		this.client = new NodeOAuthClient({
+			// The client hands fetch a Request, whose redirect mode the guarded fetch can't tell from the default and so
+			// refuses. Passing the mode along, with `follow` turned into `error`, means no request leaves the guard.
+			fetch: (input, init) => {
+				const request = new Request(input, init);
+
+				return deps.fetch(request, { redirect: request.redirect === 'follow' ? 'error' : request.redirect });
+			},
 			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
 			allowHttp: deps.config.dev,
 			plcDirectoryUrl: deps.config.plcUrl,
