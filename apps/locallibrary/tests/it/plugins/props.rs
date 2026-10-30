@@ -307,6 +307,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "protocol": "^0.2",
         "capabilities": capabilities,
         "contributes": {
+            "account_types": [],
             "accounts": accounts,
             "commands": commands,
             "destinations": destinations,
@@ -376,6 +377,7 @@ fn listed_text(listed: &[Value]) -> String {
             out.push_str(&format!("  may {}\n", c["means"].as_str().unwrap()));
         }
         let kinds = [
+            ("account type", "account_types"),
             ("account", "accounts"),
             ("command", "commands"),
             ("destination", "destinations"),

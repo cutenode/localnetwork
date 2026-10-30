@@ -435,3 +435,34 @@ fn a_key_from_a_database_stays_on_the_drive(tc: hegel::TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// A scan that finds no file changed leaves the hash cache as it was; one after a database
+/// changes rewrites it.
+#[test]
+fn a_scan_rewrites_the_hash_cache_only_when_a_file_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let write = |key: &str, bytes: &[u8]| {
+        let p = root.join(key);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        filetime::set_file_mtime(&p, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    };
+    write(paths::EXPORT_PDB, b"pdb");
+    write("PIONEER/USBANLZ/P000/00000001/ANLZ0000.DAT", b"anlz");
+    let mut d = Device::open(root).unwrap();
+    d.adopt(Some("T")).unwrap();
+    let index = d.state_dir().join("index.json");
+    let written = || {
+        let modified = std::fs::metadata(&index).unwrap().modified().unwrap();
+        (modified, std::fs::read(&index).unwrap())
+    };
+    let first = d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint;
+    let before = written();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written() == before, "rewrote the cache with nothing changed");
+    write(paths::EXPORT_PDB, b"pdb, edited");
+    assert_ne!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written().1 != before.1, "kept the cache of the old database");
+}

@@ -214,10 +214,9 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
-      report shows one averaged speed.
-- [ ] `mix --cover FILE`: reports and exports carry a cover only when it's embedded in the
-      recording.
+- [ ] `mix`: riding the pitch fader shows as one averaged speed. Chains only split after 4 slices
+      (about 16 s) without the track, so a ride stays one chain and its fitted slope averages the
+      speeds; showing them needs the matcher to split a chain's fit where its speed changes.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
@@ -318,24 +317,16 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Lexicons
 
-- [ ] `transitionIn`'s `technique` is only ever `blend` (an overlap of 8 seconds or more, as the
-      website's mix report has it) or `unknown`; the terminal player calls 1 second a blend.
-      Pick one threshold.
 - [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
       `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
       and the `uri` format first.
 
 ## Website (`apps/web`)
 
-- [ ] `planner.save()` can make duplicate save records when two saves of one project overlap: it
-      reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
-      fixed record key per project fixes it, but changes the data shape.
 - [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
 - [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
       backfill from Jetstream, so `dj.set` records are let in only from a published project's
       managers, and the new-project forms have no set picker.
-- [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
-      the light background (`packages/tokens/colors.json` has one phrase palette).
 - [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like
       `/planner/shows/new` has.
 - [ ] `@lhci/cli` 0.15.1 (Lighthouse, on `bnb/ci-runners`) brings 7 advisories into the dev
@@ -367,12 +358,17 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Performance
 
-- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`).
-- [ ] `Device::scan_fingerprinted` forgets every database key, so `.locallibrary/index.json` is
-      rewritten with `F_FULLFSYNC` on every scan (about 20% of `check`'s per-drive time). Skipping
-      it changes the index's `at` timestamps.
-- [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
-      transaction changes the header's change counters, which `content_hash` already ignores.
+- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`). On one machine, plugged
+      in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
+      with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
+      of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
+      a 5,000-track drive, `check` on a drive and the `bnb/perf` criterion benches. Switch only if
+      the run times win by more than their run-to-run spread. Needs about 15 GB free.
+- [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
+      building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
+      `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
+      planning a replay of one (its edits name tracks by path, which the plan's per-track model
+      in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
       O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
 - [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
