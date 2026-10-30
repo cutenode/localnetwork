@@ -65,20 +65,20 @@ export class RootDmSender implements DmSender {
 		private readonly deps: {
 			/** The root's agent proxied to the chat service. */
 			chat: () => Agent;
-			/** The root's agent, for reading profiles from Bluesky's AppView. */
-			bluesky: () => Agent;
 			logger: Logger;
 		}
 	) {}
 
+	/**
+	 * Asks chat alone. Why it can't (DMs only from followed accounts, or none) is in the person's profile on Bluesky's
+	 * AppView, which the site doesn't read (tools/ast-grep/rules/no-direct-pds-read.yml), so the settings page names
+	 * both fixes.
+	 */
 	async availability(did: string): Promise<DmAvailability> {
 		try {
 			const { data } = await this.deps.chat().chat.bsky.convo.getConvoAvailability({ members: [did] });
 
-			if (data.canChat) return 'ok';
-			const { data: profile } = await this.deps.bluesky().app.bsky.actor.getProfile({ actor: did });
-
-			return profile.associated?.chat?.allowIncoming === 'following' ? 'needs_follow' : 'closed';
+			return data.canChat ? 'ok' : 'not_allowed';
 		} catch (error) {
 			this.deps.logger.warn({ err: error, did }, 'could not check whether the root can DM someone');
 

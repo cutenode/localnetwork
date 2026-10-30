@@ -25,9 +25,7 @@
 
 <Story name="Checking Bluesky chat" args={{ available: true, channel: null, availability: checking, root, topics }} />
 
-<Story name="Needs a follow" args={{ available: true, channel: held, availability: answer('needs_follow'), root, topics }} />
-
-<Story name="DMs closed" args={{ available: true, channel: held, availability: answer('closed'), root, topics }} />
+<Story name="Not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root, topics }} />
 
 <Story name="Chat unreachable" args={{ available: true, channel: null, availability: answer('unavailable'), root, topics }} />
 
@@ -35,4 +33,4 @@
 
 <Story name="Not set up here" args={{ available: false, channel: null, availability: null, root, topics }} />
 
-<Story name="Phone, needs a follow" args={{ available: true, channel: held, availability: answer('needs_follow'), root, topics }} globals={phone} />
+<Story name="Phone, not allowed yet" args={{ available: true, channel: held, availability: answer('not_allowed'), root, topics }} globals={phone} />

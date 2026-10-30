@@ -334,10 +334,10 @@ export type PausedReason =
 	| 'dm_not_allowed';
 
 /**
- * Whether the root account can DM someone on Bluesky now: yes, once they follow it (their chat allows only accounts
- * they follow), not at all (it allows none), or unknown because Bluesky chat didn't answer.
+ * Whether the root account can DM someone on Bluesky now: yes, not until they change their chat settings or follow
+ * it, or unknown because Bluesky chat didn't answer.
  */
-export type DmAvailability = 'ok' | 'needs_follow' | 'closed' | 'unavailable';
+export type DmAvailability = 'ok' | 'not_allowed' | 'unavailable';
 
 /** One person's setting for a channel, as the settings page shows it. */
 export type ChannelView = {

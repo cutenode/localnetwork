@@ -29,13 +29,13 @@ describe('DmSettings', () => {
 		await render(DmSettings, {
 			available: true,
 			channel: { ...on, status: 'paused', pausedReason: 'dm_not_allowed' },
-			availability: Promise.resolve<DmAvailability>('needs_follow'),
+			availability: Promise.resolve<DmAvailability>('not_allowed'),
 			root,
 			topics: ['bookings']
 		});
 
 		await expect
-			.element(page.getByText('Follow @localnetwork.test, then check again.', { exact: false }))
+			.element(page.getByText('follow @localnetwork.test, then check again.', { exact: false }))
 			.toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: '@localnetwork.test on Bluesky' }))
