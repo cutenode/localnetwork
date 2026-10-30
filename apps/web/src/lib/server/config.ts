@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import { type BackupSettings, backupVariables, backupSettings, DEFAULT_DATABASE_PATH } from './backup/config.ts';
 
 const booleanString = z.enum(['true', 'false', '1', '0', 'yes', 'no']).optional();
 
@@ -60,7 +61,7 @@ const userinputSpace = z
 const envSchema = z.object({
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 	PUBLIC_URL: absoluteUrl.default('http://127.0.0.1:5173'),
-	DATABASE_PATH: z.string().min(1).default('data/localnetwork.db'),
+	DATABASE_PATH: z.string().min(1).default(DEFAULT_DATABASE_PATH),
 	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
 	ROOT_IDENTIFIER: z.string().min(1, 'set ROOT_IDENTIFIER to the root account handle or DID'),
 	ROOT_PASSWORD: z.string().min(1, 'set ROOT_PASSWORD to the root account password (not an app password)'),
@@ -77,7 +78,8 @@ const envSchema = z.object({
 	GEOCODER: z.enum(['open-meteo', 'nominatim', 'none']).default('open-meteo'),
 	ALLOW_PRIVATE_NETWORK: booleanString,
 	AUDIT_MAX_ATTEMPTS: intString(12, 1, 100),
-	SESSION_DAYS: intString(30, 1, 365)
+	SESSION_DAYS: intString(30, 1, 365),
+	...backupVariables
 });
 
 export type Config = {
@@ -104,6 +106,8 @@ export type Config = {
 	allowPrivateNetwork: boolean;
 	auditMaxAttempts: number;
 	sessionDays: number;
+	/** The bucket the database is backed up to each day. Unset, the app takes no backups. */
+	backup?: BackupSettings;
 };
 
 export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
@@ -159,7 +163,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		geocoder: value.GEOCODER,
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
-		sessionDays: value.SESSION_DAYS
+		sessionDays: value.SESSION_DAYS,
+		backup: backupSettings(value)
 	};
 }
 

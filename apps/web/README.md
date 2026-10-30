@@ -224,6 +224,9 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                |
 | `pnpm knip`                         | Unused files, exports, and dependencies                                   |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS         |
+| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))              |
+| `pnpm db:backups`                   | List the bucket's backups                                                 |
+| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`            |
 | `pnpm verify`                       | CI's quick checks, in order                                               |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
@@ -263,10 +266,24 @@ See [`.env.example`](.env.example) for every option. The essentials:
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork
    ```
    To try an image first, `apps/web/scripts/docker-smoke.sh localnetwork` (from the repo root) runs it against the local network with an empty volume and fetches a few pages, as CI does.
-5. Run **one** instance (SQLite and in-process background jobs). Back up `/data`: it holds OAuth sessions and the audit outbox; everything else can be re-synced from atproto.
+5. Run **one** instance (SQLite and in-process background jobs). Give it a bucket for [backups](#backups) of `/data`: it holds OAuth sessions, the audit outbox, and records that exist nowhere else.
 6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [its client document](#tools-pages-and-hosts).
 
-`/healthz` reports database, root-account, and HappyView status.
+`/healthz` reports database, root-account, HappyView, and backup status (`backup` is `stale` with no backup in two days, `off` without a bucket). It answers 200 either way.
+
+### Backups
+
+With `BACKUP_S3_BUCKET` and the other `BACKUP_S3_*` variables set ([`.env.example`](.env.example)), the app backs the database up once a UTC day, on its hourly check after midnight. It copies the database with SQLite's online backup, which stays consistent while the app writes, checks the copy's integrity, and uploads it gzipped as `localnetwork-db/<time>.sqlite.gz`. Then it deletes the backups it no longer keeps: it keeps the newest of each of the last `BACKUP_KEEP_DAILY` days (7) and `BACKUP_KEEP_WEEKLY` weeks (8), and never touches other files in the bucket. It also checks when the app starts, so a deploy doesn't skip a day. A failed backup is logged and tried again an hour later, and the System page shows the last backup's time and the last failure's reason. In production the bucket is `localnetwork-backups`, which [`.railway/railway.ts`](../../.railway/railway.ts) defines and passes to the service.
+
+`pnpm db:backup` takes one now and `pnpm db:backups` lists them, reading the same variables (from `.env.local` and `.env` too). To restore production, run the script in the running container, then restart it, since the app keeps some state in memory:
+
+```bash
+railway ssh --service localnetwork -- node scripts/db-backup.ts list
+railway ssh --service localnetwork -- node scripts/db-backup.ts restore latest   # or a key from the list
+railway service restart --service localnetwork --yes
+```
+
+A restore downloads the backup, checks its integrity, keeps the database it replaces as `localnetwork.db.before-restore` beside it, and writes the backup in with the same online backup, so it's safe while the app has the database open. `pnpm db:restore <key> data/copy.db` restores to another path instead, to look at a backup locally.
 
 ### Tools' pages and hosts
 
@@ -307,13 +324,14 @@ The services are in [`src/lib/server/token-exchange/services.json`](src/lib/serv
 
 ```
 lua/                            HappyView scripts: the record gates and the directory queries, one file per NSID
-scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
+scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture, db-backup
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
 src/lib/headline.json           The homepage headline's words ("<verb> your <noun>."), to edit by hand
 src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
+src/lib/server/backup/          Daily database backups to a bucket, and restoring them
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections

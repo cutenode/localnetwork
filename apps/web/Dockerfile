@@ -29,8 +29,13 @@ ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 DATABASE_PATH=/data/localnetwork.
 COPY --from=build --chown=node:node /prod/package.json ./
 COPY --from=build --chown=node:node /prod/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/web/build ./build
+# scripts/db-backup.ts and what it imports, which plain Node runs from source, for restoring a
+# backup over `railway ssh` (README.md, Backups).
+COPY --from=build --chown=node:node /app/apps/web/scripts/db-backup.ts ./scripts/
+COPY --from=build --chown=node:node /app/apps/web/src/lib/server/logger.ts ./src/lib/server/
+COPY --from=build --chown=node:node /app/apps/web/src/lib/server/backup ./src/lib/server/backup/
 # The database lives on a volume mounted at /data (`-v` locally, a Railway volume in production);
-# Railway refuses a `VOLUME` line.
+# Railway refuses a `VOLUME` line. With BACKUP_S3_* set, the app backs it up to a bucket each day.
 RUN mkdir -p /data && chown node:node /data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
