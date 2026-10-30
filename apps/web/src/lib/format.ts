@@ -1,5 +1,5 @@
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
-import type { AccountView, DjSetView, Location, ProjectFee, ProjectProfile } from './types';
+import type { AccountView, DjSetView, Location, ProjectFee, ProjectProfile, RequestKind, RequestView } from './types';
 
 export function shortDid(did: string): string {
 	if (did.length <= 24) return did;
@@ -11,6 +11,21 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	if (!account) return 'unknown';
 
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
+}
+
+/** What each kind of request to staff is called in lists. */
+export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
+	create: 'New project',
+	claim: 'Claim',
+	update: 'Changes',
+	list: 'Listing'
+};
+
+/** Who or what a request is about: its project, the profile it proposes, or for a listing request, the requester. */
+export function requestSubject(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+	if (request.kind === 'list') return accountLabel(request.requester);
+
+	return request.project?.name ?? request.record.profile?.name ?? 'Project';
 }
 
 /** Where an account's profile is: at its handle, or at its DID when it has no verified handle. */

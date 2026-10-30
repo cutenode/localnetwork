@@ -22,7 +22,13 @@
 	const editable = $derived(request.requester.did === data.viewer?.did && (request.status === 'pending' || request.status === 'changes_requested'));
 
 	const title = $derived(
-		request.kind === 'create' ? `New project: ${request.record.profile?.name}` : request.kind === 'claim' ? `Claim: ${request.project?.name}` : `Changes to ${request.project?.name}`
+		request.kind === 'create'
+			? `New project: ${request.record.profile?.name}`
+			: request.kind === 'claim'
+				? `Claim: ${request.project?.name}`
+				: request.kind === 'list'
+					? 'Listing in Find DJs'
+					: `Changes to ${request.project?.name}`
 	);
 
 	let editing = $state(false);
@@ -96,7 +102,11 @@
 
 	{#if editable}
 		<div class="flex flex-wrap gap-3">
-			<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{#if request.kind === 'list'}
+				<Button variant="secondary" href="/dashboard/profile">Edit your profile</Button>
+			{:else}
+				<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{/if}
 			<form method="POST" action="?/withdraw" use:enhance={({ cancel }) => { if (!confirm('Withdraw this request?')) cancel(); }}>
 				<button class="btn-danger">Withdraw</button>
 			</form>

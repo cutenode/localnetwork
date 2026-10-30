@@ -368,6 +368,13 @@ const migrations = {
 		async up(db) {
 			for (const statement of inbox) await sql.raw(statement).execute(db);
 		}
+	},
+	// What a list request asks staff to list, so a profile's requests are found without reading every record.
+	'008_listing_requests': {
+		async up(db) {
+			await sql.raw('ALTER TABLE request ADD COLUMN subject_uri TEXT').execute(db);
+			await sql.raw('CREATE INDEX request_subject ON request (subject_uri)').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 

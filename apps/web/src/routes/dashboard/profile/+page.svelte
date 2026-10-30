@@ -46,6 +46,26 @@
 		<FormMessage {form} />
 	{/if}
 
+	{#if data.profile && data.sectionsOn.performer}
+		<section aria-labelledby="listing" class="card flex flex-col gap-3 p-5 sm:p-6">
+			<h2 id="listing" class="m-0 text-emphasis font-semibold">Find DJs</h2>
+			{#if data.listing}
+				<p class="m-0 text-small text-fg-muted">Staff list you in Find DJs, so promoters searching there find you.</p>
+			{:else if data.listRequest}
+				<p class="m-0 text-small text-fg-muted">You asked to be listed. <a class="link" href="/dashboard/requests/{data.listRequest.rkey}">See your request</a></p>
+			{:else}
+				<p class="m-0 text-small text-fg-muted">Ask staff to list you, so promoters searching Find DJs find you. They look at your profile as it is when they review.</p>
+				<form method="POST" action="?/requestListing" class="flex flex-col gap-3" use:enhance>
+					<div>
+						<label class="label" for="listing-message">Note to staff <span class="font-normal text-fg-subtle">(optional)</span></label>
+						<textarea id="listing-message" class="input py-2.5" name="message" maxlength="2000"></textarea>
+					</div>
+					<button class="btn-secondary self-start">Ask to be listed</button>
+				</form>
+			{/if}
+		</section>
+	{/if}
+
 	<form
 		method="POST"
 		action="?/save"

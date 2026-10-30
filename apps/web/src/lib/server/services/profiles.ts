@@ -69,9 +69,14 @@ export class ProfileService {
 		private readonly repos: IndexedRepo
 	) {}
 
-	/** `did`'s profile, or null when the directory has none it can show. */
-	async get(did: string): Promise<ProfileView | null> {
-		const found = await this.repos.getRecord(did, COLLECTION.profile, 'self', { strict: true });
+	/**
+	 * `did`'s profile, or null when the directory has none it can show. With `reread`, a profile the directory doesn't
+	 * have is read again from the account's repo first, for a decision that can't wait for Jetstream to bring it.
+	 */
+	async get(did: string, options: { reread?: boolean } = {}): Promise<ProfileView | null> {
+		const found = options.reread
+			? await this.repos.getRecordOrReindex(did, COLLECTION.profile, 'self', { strict: true })
+			: await this.repos.getRecord(did, COLLECTION.profile, 'self', { strict: true });
 
 		if (!found) return null;
 		const record = found.value;

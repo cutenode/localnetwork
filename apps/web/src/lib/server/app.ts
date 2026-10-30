@@ -32,6 +32,7 @@ import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
+import { DjListings } from './services/dj-listings';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
 import { FollowService } from './services/follows';
@@ -212,7 +213,6 @@ export async function createApp(options: CreateAppOptions) {
 	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
 	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
-	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -221,6 +221,8 @@ export async function createApp(options: CreateAppOptions) {
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
+	const djListings = new DjListings(core, indexedRepo);
+	const requests = new RequestService(core, projects, profiles, djListings);
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
@@ -327,6 +329,7 @@ export async function createApp(options: CreateAppOptions) {
 		tracklists,
 		dj,
 		profiles,
+		djListings,
 		supports,
 		epks,
 		shows,

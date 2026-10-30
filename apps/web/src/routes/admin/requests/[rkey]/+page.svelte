@@ -5,7 +5,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { formatDateTime, timeAgo } from '#lib/format.ts';
+	import { formatDateTime, placeLabel, profileHref, REQUEST_KIND_LABEL, requestSubject, timeAgo } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
@@ -23,7 +23,10 @@
 	let busy = $state(false);
 
 	const choices = $derived([
-		{ value: 'approved', label: request.kind === 'claim' ? 'Approve and add as manager' : 'Approve and publish' },
+		{
+			value: 'approved',
+			label: request.kind === 'claim' ? 'Approve and add as manager' : request.kind === 'list' ? 'Approve and list' : 'Approve and publish'
+		},
 		{ value: 'changesRequested', label: 'Ask for changes' },
 		{ value: 'rejected', label: 'Reject' }
 	] as const);
@@ -36,8 +39,8 @@
 		<a href="/admin/requests" class="inline-flex items-center gap-1.5 text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Queue</a>
 		<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
 			<h1 class="text-heading font-semibold sm:text-title">
-				{request.kind === 'create' ? 'New project' : request.kind === 'claim' ? 'Claim' : 'Changes'}:
-				{request.project?.name ?? request.record.profile?.name}
+				{REQUEST_KIND_LABEL[request.kind]}:
+				{requestSubject(request)}
 			</h1>
 			<StatusPill status={request.status} />
 		</div>
@@ -57,7 +60,36 @@
 					<p>The project changed since this request was made (revision <span class="font-mono">{request.record.baseRevision}</span> → <span class="font-mono">{data.project?.revision}</span>). Approving replaces the profile with this proposal.</p>
 				</div>
 			{/if}
-			{#if request.kind === 'claim'}
+			{#if data.listing}
+				{#if data.listing.changed}
+					<div class="notice flex items-start gap-2">
+						<TriangleAlert class="mt-0.5 size-4 shrink-0 text-warning" />
+						<p>Their profile changed since they asked. You're looking at it as it is now, which is what listing them shows.</p>
+					</div>
+				{/if}
+				{#each data.listing.soloProjects as project (project.slug)}
+					<div class="notice flex items-start gap-2">
+						<TriangleAlert class="mt-0.5 size-4 shrink-0 text-warning" />
+						<p>They also manage <a class="link" href="/projects/{project.slug}">{project.name}</a>, a solo project, so Find DJs would show them twice until it's archived.</p>
+					</div>
+				{/each}
+				<Card as="section" class="flex flex-col gap-3 text-small">
+					<h2 class="section-title">Profile to list</h2>
+					{#if data.listing.profile}
+						{@const profile = data.listing.profile.record}
+						<p class="m-0 text-emphasis font-semibold text-fg">{profile.basics.name}</p>
+						{#if profile.performer?.tagline}<p class="m-0 text-fg-soft">{profile.performer.tagline}</p>{/if}
+						<p class="m-0 text-fg-muted">
+							{[profile.performer?.genres?.join(', '), profile.basics.location && placeLabel({ location: profile.basics.location })].filter(Boolean).join(' · ') || 'No genres or place yet'}
+						</p>
+						{#if !profile.performer}<p class="m-0 text-warning">The DJ section is off now, so they can't be listed.</p>{/if}
+						<a class="link self-start" href={profileHref(request.requester)} target="_blank">Open their profile</a>
+					{:else}
+						<p class="m-0 text-fg-muted">Their profile is gone.</p>
+					{/if}
+					{#if data.listing.listed}<p class="m-0 text-fg-muted">Listed now. <a class="link" href="/admin/listings/{request.requester.did}">Listing</a></p>{/if}
+				</Card>
+			{:else if request.kind === 'claim'}
 				<Card as="section" class="flex flex-col gap-3 text-small">
 					<h2 class="section-title">Claim evidence</h2>
 					<p><span class="text-fg-muted">Says they are:</span> <strong class="font-semibold">{labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</strong></p>
@@ -153,7 +185,7 @@
 				<h2 class="section-title">Requester history</h2>
 				<ul class="mt-1 divide-y divide-line">
 					{#each data.history as item (item.uri)}
-						<li class="flex items-center justify-between gap-2 py-2.5"><a class="truncate text-fg no-underline hover:underline" href="/admin/requests/{item.rkey}">{item.kind}: {item.project?.name ?? item.record.profile?.name}</a><StatusPill status={item.status} /></li>
+						<li class="flex items-center justify-between gap-2 py-2.5"><a class="truncate text-fg no-underline hover:underline" href="/admin/requests/{item.rkey}">{REQUEST_KIND_LABEL[item.kind]}: {requestSubject(item)}</a><StatusPill status={item.status} /></li>
 					{:else}
 						<li class="py-2.5 text-fg-muted">First request from this account.</li>
 					{/each}

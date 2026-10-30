@@ -280,7 +280,7 @@ export type ShowView = {
 /** A project's follower count, and whether the viewer is one of them. */
 export type FollowState = { followers: number; following: boolean };
 
-export type RequestKind = 'create' | 'claim' | 'update';
+export type RequestKind = 'create' | 'claim' | 'update' | 'list';
 
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';
 
@@ -293,6 +293,8 @@ export type RequestRecord = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a list request: the profile to list, and the version it was asked for with. */
+	listing?: { subject: string; cid?: string };
 	message?: string;
 	onBehalfOf?: string;
 	withdrawnAt?: string;

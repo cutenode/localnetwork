@@ -2,7 +2,7 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { timeAgo } from '#lib/format.ts';
+	import { REQUEST_KIND_LABEL, requestSubject, timeAgo } from '#lib/format.ts';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -21,10 +21,9 @@
 		{ value: '', label: 'Any kind' },
 		{ value: 'create', label: 'New' },
 		{ value: 'claim', label: 'Claims' },
-		{ value: 'update', label: 'Changes' }
+		{ value: 'update', label: 'Changes' },
+		{ value: 'list', label: 'Listings' }
 	] as const;
-
-	const kindLabel = { create: 'New project', claim: 'Claim', update: 'Changes' } as const;
 
 	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 </script>
@@ -60,7 +59,7 @@
 				<tbody>
 					{#each data.requests as request (request.uri)}
 						<tr class="transition-colors hover:bg-raised">
-							<td><a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>{#if request.record.onBehalfOf}<p class="text-label text-fg-subtle">Filed by root on their behalf</p>{/if}</td>
+							<td><a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{REQUEST_KIND_LABEL[request.kind]}: {requestSubject(request)}</a>{#if request.record.onBehalfOf}<p class="text-label text-fg-subtle">Filed by root on their behalf</p>{/if}</td>
 							<td><Handle account={request.requester} /></td>
 							<td class="whitespace-nowrap text-fg-muted">{timeAgo(request.createdAt)}</td>
 							<td><StatusPill status={request.status} /></td>

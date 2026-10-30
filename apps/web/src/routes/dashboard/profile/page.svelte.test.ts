@@ -1,6 +1,6 @@
 import { page } from 'vitest/browser';
 import { afterEach, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-svelte';
+import { cleanup, render } from 'vitest-browser-svelte';
 import type { ProfileView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
 
@@ -26,8 +26,10 @@ const profile: ProfileView = {
 	avatarUrl: null
 };
 
-/** Renders the editor for `saved` (null for someone without a profile yet). */
-const open = (saved: ProfileView | null, needsSignIn = false) =>
+type Listing = { listing?: { listedAt: string } | null; listRequest?: { rkey: string; status: 'pending' } | null };
+
+/** Renders the editor for `saved` (null for someone without a profile yet), with where they are in Find DJs. */
+const open = (saved: ProfileView | null, needsSignIn = false, { listing = null, listRequest = null }: Listing = {}) =>
 	render(Page, {
 		params: {},
 		data: {
@@ -40,6 +42,8 @@ const open = (saved: ProfileView | null, needsSignIn = false) =>
 			values: saved ? { name: 'Neon', tagline: 'Hypnotic techno' } : { name: 'Neon' },
 			sectionsOn: { performer: !!saved?.record.performer, promoter: !!saved?.record.promoter },
 			needsSignIn,
+			listing,
+			listRequest,
 			geocoder: false,
 			sets: Promise.resolve([])
 		},
@@ -79,4 +83,21 @@ it("offers to sign in again first when the session can't save a profile, and sta
 	await expect.element(page.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
 	await expect.element(page.getByLabelText('Name', { exact: true })).toHaveValue('Neon');
 	await expect.element(page.getByRole('link', { name: 'View profile' })).not.toBeInTheDocument();
+});
+
+it('lets a DJ ask to be listed in Find DJs, and then says where that stands', async () => {
+	await open(profile);
+	await expect.element(page.getByRole('button', { name: 'Ask to be listed' })).toBeInTheDocument();
+	expect(document.querySelector('form[action="?/requestListing"]')).not.toBeNull();
+
+	cleanup();
+	await open(profile, false, { listRequest: { rkey: '3req', status: 'pending' } });
+	await expect
+		.element(page.getByRole('link', { name: 'See your request' }))
+		.toHaveAttribute('href', '/dashboard/requests/3req');
+	await expect.element(page.getByRole('button', { name: 'Ask to be listed' })).not.toBeInTheDocument();
+
+	cleanup();
+	await open(profile, false, { listing: { listedAt: '2026-10-30T00:00:00Z' } });
+	await expect.element(page.getByText(/^Staff list you in Find DJs/)).toBeInTheDocument();
 });

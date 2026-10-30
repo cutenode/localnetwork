@@ -45,14 +45,14 @@ describe('ManageLink', () => {
 		await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
 	});
 
-	it("takes a profile's owner to their profile editor, staff to what the account did, and nobody else anywhere", async () => {
+	it("takes a profile's owner to their profile editor, staff to its listing, and nobody else anywhere", async () => {
 		const profile = { did: 'did:plc:neon' };
 		const { rerender } = await render(ManageLink, { viewer: viewer('did:plc:neon'), profile });
 		const link = page.getByRole('link', { name: 'Manage', exact: true });
 
 		await expect.element(link).toHaveAttribute('href', '/dashboard/profile');
 		await rerender({ viewer: viewer('did:plc:mod', true), profile });
-		await expect.element(link).toHaveAttribute('href', '/admin/audit?actor=did%3Aplc%3Aneon');
+		await expect.element(link).toHaveAttribute('href', '/admin/listings/did:plc:neon');
 		await rerender({ viewer: viewer('did:plc:fan'), profile });
 		await expect.element(link).not.toBeInTheDocument();
 	});

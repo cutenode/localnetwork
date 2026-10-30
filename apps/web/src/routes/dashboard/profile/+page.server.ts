@@ -8,7 +8,14 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const viewer = requireViewer(locals, url);
 	const { app } = locals;
-	const [profile, account] = await Promise.all([app.profiles.get(viewer.did), app.accounts.get(viewer.did)]);
+
+	const [profile, account, listing, [listRequest]] = await Promise.all([
+		app.profiles.get(viewer.did),
+		app.accounts.get(viewer.did),
+		app.djListings.get(viewer.did),
+		app.requests.list({ kind: 'list', requester: viewer.did, status: 'open', limit: 1 })
+	]);
+
 	// Someone without a profile starts from their Bluesky one.
 	const prefill = profile ? null : await app.profiles.blueskyPrefill(viewer.did);
 
@@ -16,6 +23,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		profile,
 		values: profile ? profileFormValues(profile.record) : { name: prefill?.name, bio: prefill?.bio },
 		sectionsOn: sectionsOf(profile?.record),
+		// Whether staff list them in Find DJs, or are looking at their request to be.
+		listing: listing ? { listedAt: listing.createdAt } : null,
+		listRequest: listRequest ? { rkey: listRequest.rkey, status: listRequest.status } : null,
 		// A session from before profiles can't save one, so it signs in again before filling the form in, not after.
 		needsSignIn: !grantsProfile(account?.grantedScope, viewer.did),
 		geocoder: app.geocoder.enabled,
@@ -39,6 +49,30 @@ export const actions: Actions = {
 		}, formValues(form));
 
 		if ('saved' in result) redirect(303, '/dashboard/profile?saved=1');
+
+		return result;
+	},
+
+	/** Asks staff to list the account's profile in Find DJs. */
+	requestListing: async ({ request, locals, url }) => {
+		const viewer = requireViewer(locals, url);
+		const form = await request.formData();
+		const { app } = locals;
+
+		const result = await act(async () => {
+			const profile = await app.profiles.get(viewer.did);
+
+			const submitted = await app.requests.submit({
+				actor: viewer,
+				kind: 'list',
+				listing: profile ? { subject: profile.uri, cid: profile.cid } : undefined,
+				message: text(form, 'message', 20_000) || undefined
+			});
+
+			return { rkey: submitted.rkey };
+		});
+
+		if ('rkey' in result) redirect(303, `/dashboard/requests/${result.rkey}?submitted=1`);
 
 		return result;
 	},

@@ -92,6 +92,8 @@ export interface RequestTable {
 	rkey: string;
 	kind: RequestKind;
 	projectUri: string | null;
+	/** What a list request asks staff to list (a profile's URI); null for other kinds. */
+	subjectUri: string | null;
 	status: RequestStatus;
 	record: string;
 	createdAt: string;

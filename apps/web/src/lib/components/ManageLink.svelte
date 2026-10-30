@@ -5,7 +5,7 @@
 	/**
 	 * The one way from a public page to changing it, for a project or a person's profile. A project's managers go to
 	 * its dashboard (`section` picks a page there) and staff who don't manage it to the staff console; a profile's owner
-	 * goes to their profile editor and staff to what that account did, in the audit log. Anyone else sees nothing.
+	 * goes to their profile editor and staff to its listing in Find DJs. Anyone else sees nothing.
 	 */
 	let {
 		viewer,
@@ -34,7 +34,7 @@
 
 		if (profile.did === viewer.did) return '/dashboard/profile';
 
-		return viewer.isStaff ? `/admin/audit?actor=${encodeURIComponent(profile.did)}` : null;
+		return viewer.isStaff ? `/admin/listings/${profile.did}` : null;
 	});
 </script>
 

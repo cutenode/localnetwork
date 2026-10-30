@@ -10,6 +10,7 @@ import { Notifier } from '../notifications/notifier';
 import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
+import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
 import { FollowService } from '../services/follows';
 import { PlannerService } from '../services/planner';
@@ -99,7 +100,6 @@ export async function createTestServices(
 	};
 
 	const projects = new ProjectService(core, directory);
-	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -117,6 +117,8 @@ export async function createTestServices(
 
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const profiles = new ProfileService(core, indexedRepo);
+	const djListings = new DjListings(core, indexedRepo);
+	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -173,6 +175,7 @@ export async function createTestServices(
 		handles,
 		indexedRepo,
 		profiles,
+		djListings,
 		viewer,
 		capable,
 		spaces
