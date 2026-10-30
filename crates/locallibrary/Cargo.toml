@@ -22,21 +22,20 @@ doc = false
 [features]
 default = ["account", "peers"]
 # The Atmosphere account (AT Protocol OAuth sign-in) and publishing to it: the `atmosphere` and
-# `publish` modules and the `account_*` and `*_publish_*` API. Its async runtime, AT Protocol
-# clients and DNS are for this alone (the HTTP client, the keychain and the AT Protocol's types,
+# `publish` modules and the `account_*` and `*_publish_*` API. Its AT Protocol clients and DNS are
+# for this alone (the HTTP client and its async runtime, the keychain and the AT Protocol's types,
 # which check the records a set destination answers, are plugins' too).
 account = [
     "dep:http",
     "dep:jacquard-api",
     "dep:jacquard-identity",
     "dep:jacquard-oauth",
-    "dep:tokio",
     "dep:unicode-segmentation",
 ]
 # Fetching snapshots from another computer's store (`store serve`, `store fetch`): iroh's
 # encrypted QUIC connections, which reach the other computer through n0's relays when they can't
 # connect directly, or stay on the local network.
-peers = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
+peers = ["dep:iroh", "dep:iroh-tickets"]
 
 [dependencies]
 rekordbox-pdb.workspace = true
@@ -60,9 +59,9 @@ keyring.workspace = true
 # The keychain entries themselves, from whichever store is the default: the system's, which
 # `keyring` sets, or the tests' in-memory one.
 keyring-core = { version = "1" }
-# `blocking`: plugins' `net/fetch`, answered on the callback's own thread; `multipart`: the forms
-# it sends, streamed.
-reqwest = { workspace = true, features = ["blocking", "multipart"] }
+# `stream`: files plugins' `net/fetch` and set uploads send, read as they're sent; `multipart`: the
+# forms `net/fetch` sends, streamed; `blocking`: tests'.
+reqwest = { workspace = true, features = ["blocking", "multipart", "stream"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
@@ -76,7 +75,8 @@ strsim.workspace = true
 symphonia.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, optional = true, features = ["macros", "sync"] }
+# The network's async runtimes: a request stops as soon as it's cancelled (`net::Requests`).
+tokio = { workspace = true, features = ["macros", "sync"] }
 uuid.workspace = true
 walkdir.workspace = true
 rustc-hash.workspace = true
@@ -100,6 +100,8 @@ loclib-plugin.workspace = true
 # How a URL's query spells a plugin's secret, to leave that out of what the plugin is told too.
 form_urlencoded = "1.2.2"
 oauth2 = { version = "5.0.0", default-features = false }
+# A file sent as a request's body, as the stream of its chunks.
+futures-util = { version = "0.3.34", default-features = false }
 
 [dev-dependencies]
 hegeltest = { workspace = true, features = ["chrono"] }

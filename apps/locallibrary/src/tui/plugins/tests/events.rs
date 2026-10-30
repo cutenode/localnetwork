@@ -2,6 +2,7 @@
 //! palette (and the store) to be reviewed, planned and confirmed as any plan, or dismissed.
 
 use std::path::Path;
+use std::sync::PoisonError;
 
 use locallibrary::Store;
 use locallibrary::plugin::{MAX_SUGGESTED, PluginNotice, suggested};
@@ -13,7 +14,7 @@ use super::super::super::app::testing::{
     app_on, blank, confirming, demo_drive, echo_plugin, last_message, mounted, plugged, plugins_once, press, say_yes,
     settle, wait,
 };
-use super::super::super::app::{App, View as Screen};
+use super::super::super::app::{App, Msg, View as Screen};
 use super::super::super::edits::Modal;
 use super::super::super::form::For;
 use super::super::super::ui::screen;
@@ -105,6 +106,29 @@ fn a_suggestion_waits_until_its_reviewed_or_dismissed() {
     press(&mut app, ":review: make Second\n");
     assert_eq!(confirming(&mut app), ("echo.playlist".into(), "make the playlist Second".into()));
     wait(&mut app, |_| kept(&store).is_empty());
+}
+
+/// Regression: what's kept, told the player after another change but before the store forgot a
+/// suggestion dismissed, offered that one again. On a slow runner the reviews in
+/// `a_suggested_action_opens_the_players_own_flow` landed out of turn and left one offered.
+#[test]
+fn one_dismissed_isnt_offered_again_by_what_was_kept_before() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    let (first, second) = (suggests("make First", "First"), suggests("make Second", "Second"));
+    tell(&mut app, vec![first.clone(), second.clone()]);
+    wait(&mut app, |a| waiting(a) == ["make First", "make Second"]);
+    // The store can't forget it until this is let go: what's told meanwhile was kept before.
+    let changing = super::super::events::CHANGING.lock().unwrap_or_else(PoisonError::into_inner);
+    press(&mut app, ":dismiss: make First\n");
+    app.sender().send(Msg::Suggested(vec![first, second])).unwrap();
+    app.tick();
+    assert_eq!(waiting(&app), ["make Second"]);
+    drop(changing);
+    let store = app.store_root.clone();
+    wait(&mut app, |a| a.forgetting.is_empty() && kept(&store) == ["make Second"]);
+    assert_eq!(waiting(&app), ["make Second"]);
 }
 
 /// A plugin's service is a switch in its settings form: turned on and saved, it runs; turned

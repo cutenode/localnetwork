@@ -2441,7 +2441,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     }
                     _ => {
                         // Somewhere else, or Local Network's site but not its exchange for a
-                        // service.
+                        // service. The lookalike is spelled out: a test server's origin has no
+                        // `localnetwork.computer` in it to swap.
                         let wrong = tc.draw(gs::sampled_from(vec![
                             endpoint(&tc),
                             exchange(&tc).replace("/api/", "/apis/"),
@@ -2465,8 +2466,12 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
                 }
                 "account token" => {
-                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", "Bearer:", "a=b", "a&b", "{x}", "é"]));
-                    match tc.draw(gs::booleans()) {
+                    let scheme = tc.draw(gs::booleans());
+                    // `&` is in an HTTP token (RFC 9110), so it's wrong only in a parameter's name.
+                    let odd = ["", "two words", "Bearer:", "a=b", "a&b", "{x}", "é"];
+                    let odd: Vec<_> = odd.into_iter().filter(|w| !scheme || *w != "a&b").collect();
+                    let wrong = tc.draw(gs::sampled_from(odd));
+                    match scheme {
                         true => {
                             x.token = TokenPlace::Scheme(wrong.into());
                             (

@@ -1,0 +1,36 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.listing",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "A directory listing for an act, party or venue that staff listed, keyed by its space's key. Written only by the Local Network root account into its public repo, from the space on every change, with only what the public page shows. Deleted when it's unlisted.",
+			"record": {
+				"type": "object",
+				"required": ["kind", "name", "people", "updatedAt"],
+				"properties": {
+					"kind": { "type": "string", "maxLength": 32, "knownValues": ["act", "party", "venue"] },
+					"name": { "type": "string", "minLength": 1, "maxLength": 640, "maxGraphemes": 64 },
+					"slug": { "type": "string", "minLength": 2, "maxLength": 64 },
+					"people": {
+						"type": "array",
+						"maxLength": 50,
+						"description": "The people credited with it who haven't chosen to hide.",
+						"items": { "type": "ref", "ref": "#person" }
+					},
+					"fields": { "type": "unknown", "description": "What the public page shows for its kind." },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"person": {
+			"type": "object",
+			"required": ["did", "role"],
+			"properties": {
+				"did": { "type": "string", "format": "did" },
+				"role": { "type": "ref", "ref": "computer.localnetwork.people.defs#role" }
+			}
+		}
+	}
+}
