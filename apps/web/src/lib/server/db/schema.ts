@@ -1,4 +1,5 @@
 import type { Selectable } from 'kysely';
+import type { SpaceKind } from '#lib/capabilities.ts';
 import type { RequestKind } from '#lib/types.ts';
 
 /**
@@ -27,6 +28,11 @@ export interface Database {
 	epkRequest: EpkRequestTable;
 	epkGrant: EpkGrantTable;
 	epkDraft: EpkDraftTable;
+	sharedSpace: SharedSpaceTable;
+	spacePerson: SpacePersonTable;
+	spaceInvite: SpaceInviteTable;
+	spaceInviteLink: SpaceInviteLinkTable;
+	spaceJoinRequest: SpaceJoinRequestTable;
 	geocodeCache: GeocodeCacheTable;
 }
 
@@ -247,6 +253,61 @@ export interface EpkDraftTable {
 	 * a publish that failed part way finishes under the same key.
 	 */
 	publishedRkey: string | null;
+}
+
+/** A performer's, party's or venue's space, from its listing status record. */
+export interface SharedSpaceTable {
+	spaceUri: string;
+	kind: SpaceKind;
+	listed: number;
+	createdBy: string;
+	createdAt: string;
+}
+
+export interface SpacePersonTable {
+	spaceUri: string;
+	did: string;
+	role: string;
+	/** The person's capabilities that the space's kind offers, as a JSON array in catalog order. */
+	capabilities: string;
+	hidden: number;
+	via: string;
+	addedBy: string | null;
+	/** The invite, invite link or request they came in through. */
+	source: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface SpaceInviteTable {
+	spaceUri: string;
+	did: string;
+	role: string;
+	/** A JSON array, as in space_person. */
+	capabilities: string;
+	invitedBy: string;
+	message: string | null;
+	createdAt: string;
+	expiresAt: string | null;
+}
+
+export interface SpaceInviteLinkTable {
+	spaceUri: string;
+	rkey: string;
+	tokenHash: string;
+	role: string;
+	/** A JSON array, as in space_person. */
+	capabilities: string;
+	createdBy: string;
+	createdAt: string;
+	expiresAt: string | null;
+}
+
+export interface SpaceJoinRequestTable {
+	spaceUri: string;
+	did: string;
+	message: string | null;
+	createdAt: string;
 }
 
 export interface GeocodeCacheTable {

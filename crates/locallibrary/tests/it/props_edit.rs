@@ -293,7 +293,12 @@ impl Shape {
     /// [`Shape::find`] among folders only (`Some(true)`) or playlists only (`Some(false)`), as
     /// edits that need one of them look.
     fn find_kind(&self, spec: &str, folder: Option<bool>) -> Option<Ix> {
-        let q = spec.trim_matches('/');
+        // Blank names are left out, as `Library::find_node` reads them: `x//y` is `x/y`.
+        let names: Vec<&str> = spec.split('/').filter(|n| !n.trim().is_empty()).collect();
+        if names.is_empty() {
+            return None;
+        }
+        let q: &str = &names.join("/");
         let all: Vec<(Ix, String)> =
             self.walk().into_iter().filter(|(ix, _)| folder.is_none_or(|f| self.node(ix).folder == f)).collect();
         let by_path: Vec<&Ix> = all.iter().filter(|(_, p)| p.eq_ignore_ascii_case(q)).map(|(ix, _)| ix).collect();
@@ -314,8 +319,8 @@ impl Shape {
     /// How an edit that makes a playlist if it's missing names one: by its exact path only, never
     /// a playlist of that name in another folder.
     fn find_exact(&self, spec: &str) -> Option<Ix> {
-        let q = spec.trim_matches('/');
-        self.walk().into_iter().find(|(ix, p)| !self.node(ix).folder && p == q).map(|(ix, _)| ix)
+        let q = split_path(spec).join("/");
+        self.walk().into_iter().find(|(ix, p)| !self.node(ix).folder && *p == q).map(|(ix, _)| ix)
     }
 
     /// A node by its exact names from the top.
@@ -1682,6 +1687,24 @@ fn moving_a_playlist_next_to_a_namesake_is_refused() {
     let err = edit::plan(&d, &mv, &EditOptions::default(), &Ctx::silent()).unwrap_err();
     assert!(matches!(err.inner(), locallibrary::Error::Conflict(_)), "{err}");
     before.untouched(&root).unwrap();
+}
+
+/// Regression: the model read a playlist named with a doubled or blank-padded slash (`x//y`) as
+/// no playlist, while edits leave blank names out and find `x/y`, so a batch naming it was taken
+/// by the plan and refused by the model.
+#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+fn blank_names_in_a_playlist_path_are_left_out(tc: TestCase) {
+    let mut drive = Drive::new(tc.draw(gs::booleans()));
+    let file = drive.pool[0].clone();
+    let create = [Edit::CreatePlaylist { path: "x//y".into(), folder: false }];
+    assert!(matches!(drive.attempt(&tc, &create), Attempt::Applied));
+    let edits = [Edit::RenamePlaylist { playlist: "x//y".into(), name: "z".into() }, add("/x/ /z/", &[&file], false)];
+    assert!(matches!(drive.attempt(&tc, &edits), Attempt::Applied));
+    let lib = Device::open_export(&drive.root).unwrap().library().unwrap();
+    let z = lib.find_playlist("x/z").expect("x/y is renamed x/z");
+    assert!(!z.is_folder && lib.find_playlist("x/y").is_none());
+    let held: Vec<&str> = z.track_ids.iter().map(|id| lib.track(*id).unwrap().file_path.as_str()).collect();
+    assert_eq!(held, [file.as_str()], "the add went to x/z");
 }
 
 /// Plan and apply one edit replacing the track `duplicate` with `keep` (by file), keeping the

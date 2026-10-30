@@ -746,13 +746,15 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Groups => {
-            let groups = crate::diff_cmd::read_or_empty(store_path, api::drive_sets)?;
+            // With no store, still the mounted drives grouped by the library each holds, unnamed.
+            let groups = api::drive_sets(crate::diff_cmd::existing_store(store_path)?.as_ref())?;
             out.emit(&groups, |groups| {
                 if groups.is_empty() {
                     say!("No mounted drives are linked to a library.");
                 }
                 for s in groups {
-                    heading(s.library.as_deref().unwrap_or("?"));
+                    let unnamed = || s.library_id.map_or("?".into(), |id| format!("an unnamed library ({id})"));
+                    heading(&s.library.clone().unwrap_or_else(unnamed));
                     for m in &s.members {
                         let primary = if Some(m) == s.primary.as_ref() { " (primary)" } else { "" };
                         say!("  {}{primary}", m.display());
@@ -1597,7 +1599,7 @@ pub fn sync_set(
     let mut libraries: Vec<String> = match library {
         Some(l) => vec![l],
         None => {
-            let sets = api::drive_sets(&store)?.into_iter().filter(|s| s.members.len() >= 2);
+            let sets = api::drive_sets(Some(&store))?.into_iter().filter(|s| s.members.len() >= 2);
             sets.filter_map(|s| s.library).collect()
         }
     };
