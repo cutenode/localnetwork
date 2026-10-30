@@ -222,8 +222,7 @@ fn plugins_are_listed_and_their_settings_kept() {
     let list = env.ok(&["plugin"]);
     assert!(list.contains("echo  Echo 0.1.0"), "{list}");
     assert!(list.contains("may read your libraries' tracks and playlists"), "{list}");
-    let adds =
-        "adds commands echo, titles, steps, wait; destinations folder, nowhere; operation playlist; analyzer size";
+    let adds = "adds commands echo, titles, steps, ensure, wait; destinations folder, nowhere; operation playlist; analyzer size";
     assert!(list.contains(adds), "{list}");
     let listed = env.json(&["plugin", "list"]);
     assert_eq!(ids(&listed), [&SHIPPED[..], &["echo"]].concat());

@@ -438,7 +438,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   one. The player's palette signs in and out, and has a form for a plugin's access. The sidecar
   has them as `accounts.*`. Plugins no longer have accounts of their own: `plugin account` and
   the sidecar's `plugins.account*` are gone, and `plugin info` and `plugins.describe` show the
-  access a plugin has instead.
+  access a plugin has instead. A plugin asks for the scopes it can do without as it needs them
+  (`accounts/ensure`, `Host::ensure_account` in the SDK), and learns which it may use and which
+  you declined, never a token.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
