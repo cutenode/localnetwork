@@ -241,7 +241,7 @@ impl Plugins {
         for (slot, check, _) in self.running(When::Check, store) {
             let ran = within(timeout, ctx, |ctx| {
                 let context = Context { drive: Some(device.root().display().to_string()), ..Context::default() };
-                let (context, _) = slot.context(context, store)?;
+                let (context, _, _given) = slot.context(context, store)?;
                 let req = RunCheck { check: check.name.clone(), context };
                 slot.call_with(method::RUN_CHECK, &req, store, ctx, &|_| {}, |answer, _, _| slot.found(check, answer))
             });
@@ -281,7 +281,8 @@ impl Plugins {
         let timeout = check_timeout(store);
         for (slot, check, settings) in guards {
             let ran = within(timeout, ctx, |ctx| {
-                let (context, _) = slot.context(Context { drive: drive.clone(), ..Context::default() }, store)?;
+                let (context, _, _given) =
+                    slot.context(Context { drive: drive.clone(), ..Context::default() }, store)?;
                 let operation = planned.operation.to_string();
                 let req = PlanCheck { check: check.name.clone(), operation, edits: edits.clone(), context };
                 slot.call_with(method::PLAN_CHECK, &req, store, ctx, &|_| {}, |answer, _, _| slot.found(check, answer))

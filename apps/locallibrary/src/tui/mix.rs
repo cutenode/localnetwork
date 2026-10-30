@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use locallibrary::anlz::{self, TrackAnalysis, Waveform};
+use locallibrary::anlz::{TrackAnalysis, Waveform};
 use locallibrary::api;
 use locallibrary::mix::export;
 use locallibrary::mix::index::Cache;
@@ -507,7 +507,7 @@ fn identify(
     let store = Store::open_or_init(store_root)?;
     let id = Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &ctx)?;
     let report = id.identify(path, &mix::Options::default(), &ctx)?;
-    let analyses = report.plays.iter().map(|p| anlz::load(&device, &p.track)).collect();
+    let analyses = report.plays.iter().map(|p| api::analysis_of(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
     // The player plays the recording itself; for a project, the audio exported from it.
     let audio = match mix::aup::is_project(&report.mix.path) {

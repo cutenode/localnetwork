@@ -63,6 +63,26 @@ pub(crate) struct Plugin {
     pub(crate) host: Arc<Host>,
     /// Its `net/fetch` requests' client and secrets, whichever process makes them.
     pub(crate) net: Arc<net::State>,
+    /// The drives given to its hooks under way (see [`Slot::context`]), each by the name its
+    /// context gives it and with its root, once for each hook.
+    given: Mutex<Vec<(String, PathBuf)>>,
+}
+
+/// A drive given to a hook under way: its plugin's callbacks may name it (as the context does)
+/// until it's dropped, whether or not it's a drive known here (a folder opened by path, say).
+pub(crate) struct Given {
+    plugin: Arc<Plugin>,
+    drive: Option<(String, PathBuf)>,
+}
+
+impl Drop for Given {
+    fn drop(&mut self) {
+        let Some(drive) = self.drive.take() else { return };
+        let mut given = lock(&self.plugin.given);
+        if let Some(i) = given.iter().position(|d| *d == drive) {
+            given.swap_remove(i);
+        }
+    }
 }
 
 /// One plugin, and its process while it runs. Only the host and the hooks under way (an event
@@ -276,11 +296,24 @@ impl Plugin {
     pub(crate) fn misbehaved(&self, message: impl Into<String>) -> Error {
         Error::External { command: self.label(), message: message.into() }
     }
+
+    /// The root of the drive a callback names: one given to a hook under way, by the name its
+    /// context gave it, else one the host finds ([`Reads::drive`]). Never a path or a folder it
+    /// wasn't given.
+    pub(crate) fn drive(&self, spec: &str) -> Result<PathBuf> {
+        let given = lock(&self.given).iter().find(|(name, _)| name == spec).map(|(_, root)| root.clone());
+        given.map_or_else(|| self.host.reads.drive(spec), Ok)
+    }
+
+    /// The drives given to its hooks under way, by name, with their roots.
+    pub(crate) fn given(&self) -> Vec<(String, PathBuf)> {
+        lock(&self.given).clone()
+    }
 }
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default() });
+        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default(), given: Mutex::default() });
         Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 
@@ -604,12 +637,26 @@ impl Slot {
     }
 
     /// `context` as the plugin gets it: its drive (by id, path or name) named by id, else name,
-    /// never a path, and the plugin's settings. With the drive.
-    pub(crate) fn context(&self, mut context: Context, store: Option<&Store>) -> Result<(Context, Option<Device>)> {
+    /// never a path, and the plugin's settings. With the drive, and that drive given to the plugin
+    /// until the hook is done with it: its callbacks find it by that name, a folder opened by
+    /// path too, which the drives known here don't have.
+    pub(crate) fn context(
+        &self,
+        mut context: Context,
+        store: Option<&Store>,
+    ) -> Result<(Context, Option<Device>, Given)> {
         let device = context.drive.as_deref().map(api::resolve_drive).transpose()?;
         context.drive = device.as_ref().map(|d| d.id().map_or_else(|| d.name(), |id| id.to_string()));
         context.settings = self.settings(store);
-        Ok((context, device))
+        let given = self.give(context.drive.clone().zip(device.as_ref().map(|d| d.root().to_path_buf())));
+        Ok((context, device, given))
+    }
+
+    /// Gives the plugin `drive` (its name, as a context names it, and its root) until what this
+    /// answers is dropped: see [`Given`].
+    pub(crate) fn give(&self, drive: Option<(String, PathBuf)>) -> Given {
+        lock(&self.given).extend(drive.clone());
+        Given { plugin: self.plugin.clone(), drive }
     }
 }
 
