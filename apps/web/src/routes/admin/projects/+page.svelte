@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { Plus } from '@lucide/svelte';
-	import Avatar from '#lib/components/Avatar.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
-	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { formatDate } from '#lib/format.ts';
+	import ProjectTable from '#lib/components/ProjectTable.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -26,29 +24,6 @@
 		<button class="btn-secondary">Filter</button>
 	</form>
 
-	<div class="card overflow-x-auto">
-		<table class="table-base min-w-180">
-			<thead><tr><th>Project</th><th>Location</th><th>Managers</th><th>Rev</th><th>Updated</th><th>Status</th></tr></thead>
-			<tbody class="[&_td]:align-middle!">
-				{#each data.items as project (project.uri)}
-					<tr>
-						<td>
-							<div class="flex items-center gap-3">
-								<Avatar src={project.avatarUrl} name={project.profile.name} size="sm" />
-								<a class="font-medium text-fg no-underline hover:underline" href="/admin/projects/{project.slug}">{project.profile.name}</a>
-							</div>
-						</td>
-						<td class="text-fg-muted">{project.profile.location.city}, {project.profile.location.country}</td>
-						<td class="font-mono {project.managers.length ? '' : 'text-fg-subtle'}">{project.managers.length || 'none'}</td>
-						<td class="font-mono">{project.revision}</td>
-						<td class="whitespace-nowrap text-fg-muted">{formatDate(project.updatedAt)}</td>
-						<td><StatusPill status={project.status} /></td>
-					</tr>
-				{:else}
-					<tr><td colspan="6" class="py-8 text-center text-fg-muted">No projects match these filters.</td></tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
+	<ProjectTable projects={data.items} />
 	<Pagination page={data.page} pageSize={data.pageSize} total={data.total} />
 </div>
