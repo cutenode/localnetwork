@@ -506,6 +506,11 @@ const SYNC_LONG_HELP: &str =
 drive groups`); archive and retired drives are left out. A drive back from a set whose only changes are the \
 players' (history lists, cues) is saved in the store, then updated.
 
+A synced drive is a byte-for-byte copy, so sync never transcodes. For a drive in a form your players play, \
+`locallibrary pack LIBRARY DRIVE --playlist FOLDER --transcode` writes copies they play of the lossless tracks \
+they can't (a --playlist for each top-level folder and playlist takes every playlist), and packing again keeps \
+them current.
+
 Examples:
   locallibrary sync                       every mounted library: its newest drive onto the others
   locallibrary sync Home                  the library Home's mounted drives

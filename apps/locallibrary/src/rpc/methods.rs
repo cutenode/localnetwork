@@ -820,7 +820,7 @@ fn build() -> Registry {
     r.apply("drive.reidentify.apply", Optional, |c, req| Ok(api::drive_reidentify(c.store_opt().as_ref(), &req)?))
         .alias("drive.reidentify")
         .destructive();
-    r.read("drive.groups", |c, _: NoParams| c.or_empty(api::drive_sets)).alias("drive.sets").quick();
+    r.read("drive.groups", |c, _: NoParams| Ok(api::drive_sets(c.existing()?.as_ref())?)).alias("drive.sets").quick();
     r.plan("drive.eject.plan", |c, req| Ok(api::drive_eject_plan(Some(c.root), &req)?)).operation("eject");
     r.apply("drive.eject.apply", Optional, |c, req| Ok(api::drive_eject(c.store_opt().as_ref(), &req)?))
         .operation("eject")

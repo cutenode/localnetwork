@@ -65,7 +65,7 @@ fn doctor_lists_what_the_analysis_disagrees_with() {
     assert!(out.contains("(parallel)"), "{out}");
     assert!(line(&out, "Level (1").contains("median is -8.0 LUFS"), "{out}");
     assert!(out.contains("over 0 dBTP, clipped"), "{out}");
-    assert!(out.contains("x2 and /2"), "{out}");
+    assert!(!out.contains("--fix-tempo"), "the library's tempos favour the stored one: {out}");
 
     let v = env.json(&["doctor", path(&root), "--analyze", "--only", "unfiled"]);
     assert_eq!(v["analysis"]["tempo"][0]["relation"], "half", "{v}");
@@ -77,6 +77,37 @@ fn doctor_lists_what_the_analysis_disagrees_with() {
     let out = env.exits(0, &["check", path(&root), "--verbose"]);
     assert!(line(&out, "loudness").contains("1 track(s) are over 0 dBTP, clipped"), "{out}");
     assert!(out.contains("+1.6 dBTP, 4 clipped run(s)"), "{out}");
+}
+
+/// `doctor --fix-tempo` plans doubling the beat grid and BPM of the track heard at twice its
+/// tempo (the library's other track is at that tempo, so it isn't favoured as stored), saying
+/// the extended grid isn't rescaled; `--dry-run` changes nothing, and `undo` takes the fix back.
+#[test]
+fn doctor_doubles_a_tempo_heard_at_double() {
+    let env = Env::new();
+    let root = env.demo("A");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let (t, other) = (&lib.tracks[0], &lib.tracks[1]);
+    let double = (2.0 * t.bpm).to_string();
+    env.ok(&["--yes", "track", "set", path(&root), "--track", &other.id.to_string(), "--bpm", &double]);
+    let store = FieldStore::in_store(&Store::open_or_init(&env.store).unwrap());
+    for x in [t, other] {
+        let heard = analysis(2.0 * t.bpm, Camelot::parse(&x.key).unwrap(), -8.0, 0);
+        store.put(&paths::to_fs(&root, &paths::key(&x.file_path)), &sound(), &heard).unwrap();
+    }
+    let bpm = || Device::open(&root).unwrap().library().unwrap().tracks[0].bpm;
+
+    let out = env.ok(&["doctor", path(&root), "--only", "analysis"]);
+    assert!(out.contains("--fix-tempo` doubles or halves the beat grids"), "{out}");
+    let dry = env.ok(&["doctor", path(&root), "--fix-tempo", "--dry-run"]);
+    assert!(dry.contains(&format!("set the beat grid of {}", t.file_path)), "{dry}");
+    assert!(dry.contains("(PQT2) isn't decoded, so it isn't rescaled"), "{dry}");
+    assert_eq!(bpm(), t.bpm);
+    env.ok(&["--yes", "doctor", path(&root), "--fix-tempo"]);
+    assert!((bpm() - 2.0 * t.bpm).abs() < 0.02, "{} from {}", bpm(), t.bpm);
+    assert!(env.ok(&["doctor", path(&root), "--fix-tempo"]).contains("nothing to change"));
+    env.ok(&["--yes", "undo", path(&root)]);
+    assert_eq!(bpm(), t.bpm);
 }
 
 /// A 100 Hz sine driven to twice full scale for `secs`: clipped flat on every half cycle.
