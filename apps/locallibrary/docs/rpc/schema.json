@@ -30872,7 +30872,6 @@
           "$ref": "#/$defs/Contributions",
           "default": {
             "account_types": [],
-            "accounts": [],
             "commands": [],
             "destinations": [],
             "events": [],
@@ -30966,13 +30965,6 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/AccountType"
-          },
-          "default": []
-        },
-        "accounts": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Account"
           },
           "default": []
         },
@@ -31077,7 +31069,6 @@
       },
       "required": [
         "account_types",
-        "accounts",
         "commands",
         "destinations",
         "events",
@@ -31218,7 +31209,7 @@
           "description": "This query parameter's value (`?access_token=<token>`), for a service that takes it only\nthere (Mixcloud)."
         }
       ],
-      "description": "Where an account's access token goes in a `net/fetch` request: `token = { scheme = \"OAuth\" }`\nor `token = { query = \"access_token\" }`. The request names the account there, and only there."
+      "description": "Where an account type's access token goes in a `net/fetch` request: `token = { scheme =\n\"OAuth\" }` or `token = { query = \"access_token\" }`. The request names the account there, and\nonly there."
     },
     "Whoami": {
       "type": "object",
@@ -31286,81 +31277,6 @@
         "url"
       ],
       "description": "`{ method = \"POST\", url = \"https://www.googleapis.com/upload/youtube/v3/videos*\" }`: requests\nwith this method to this URL, or to any URL starting with it when it ends in `*`. The URL is\nwritten as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole\nhost."
-    },
-    "Account": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "How requests name it (`{account:<id>}`)."
-        },
-        "title": {
-          "type": "string"
-        },
-        "authorize_url": {
-          "type": "string",
-          "description": "The service's authorization endpoint, where the browser signs in (https)."
-        },
-        "token_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account has this or `token_exchange`."
-        },
-        "token_exchange": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Local Network's token exchange for its service\n(`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for\na service that wants a client secret there."
-        },
-        "scopes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "What it asks the service for, as the service names them."
-        },
-        "client_id": {
-          "type": "string",
-          "description": "The plugin's client at the service: a public one, without a secret, or Local Network's,\nwhose secret its token exchange holds."
-        },
-        "pkce": {
-          "type": "boolean",
-          "description": "Signing in uses PKCE: always, and a manifest saying otherwise is refused.",
-          "default": true
-        },
-        "revoke_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Where its tokens are revoked at signing out (RFC 7009), when the service has one (https)."
-        },
-        "token": {
-          "$ref": "#/$defs/TokenPlace",
-          "description": "Where its access token goes in a request: `Authorization: Bearer <token>` unless it says."
-        },
-        "redirect_port": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect\nURI with the one its client was registered with, port and all (SoundCloud): that's then\n`http://127.0.0.1:<port>/callback`. Any free port otherwise."
-        }
-      },
-      "required": [
-        "id",
-        "title",
-        "authorize_url",
-        "client_id",
-        "pkce"
-      ],
-      "description": "`[[contributes.accounts]]`: an account on a service, signed in to in the browser."
     },
     "Command": {
       "type": "object",

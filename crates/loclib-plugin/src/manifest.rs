@@ -48,7 +48,6 @@ pub struct Manifest {
 #[serde(default)]
 pub struct Contributions {
     pub account_types: Vec<hooks::account_types::AccountType>,
-    pub accounts: Vec<hooks::accounts::Account>,
     pub commands: Vec<hooks::commands::Command>,
     pub destinations: Vec<hooks::destinations::Destination>,
     pub events: Vec<hooks::events::Listener>,

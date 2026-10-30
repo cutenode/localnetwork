@@ -8056,7 +8056,6 @@ export type OptionalScopes = {
 
 export type Contributions = {
   account_types: AccountType[];
-  accounts: Account[];
   commands: Command[];
   destinations: Destination[];
   events: Listener[];
@@ -8123,8 +8122,9 @@ export type AccountType = {
 };
 
 /**
- * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
- * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ * Where an account type's access token goes in a `net/fetch` request: `token = { scheme =
+ * "OAuth" }` or `token = { query = "access_token" }`. The request names the account there, and
+ * only there.
  */
 export type TokenPlace =
   /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
@@ -8174,45 +8174,6 @@ export type ScopeRequest = {
   /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
   method: string;
   url: string;
-};
-
-/** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
-export type Account = {
-  /** How requests name it (`{account:<id>}`). */
-  id: string;
-  title: string;
-  /** The service's authorization endpoint, where the browser signs in (https). */
-  authorize_url: string;
-  /**
-   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
-   * them (https). An account has this or `token_exchange`.
-   */
-  token_url?: string | null;
-  /**
-   * Local Network's token exchange for its service
-   * (`https://localnetwork.computer/api/token-exchange/<service>`), in `token_url`'s place, for
-   * a service that wants a client secret there.
-   */
-  token_exchange?: string | null;
-  /** What it asks the service for, as the service names them. */
-  scopes?: string[];
-  /**
-   * The plugin's client at the service: a public one, without a secret, or Local Network's,
-   * whose secret its token exchange holds.
-   */
-  client_id: string;
-  /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
-  pkce: boolean;
-  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
-  revoke_url?: string | null;
-  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
-  token?: TokenPlace;
-  /**
-   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
-   * URI with the one its client was registered with, port and all (SoundCloud): that's then
-   * `http://127.0.0.1:<port>/callback`. Any free port otherwise.
-   */
-  redirect_port?: number | null;
 };
 
 /** Run with `command/run`. */

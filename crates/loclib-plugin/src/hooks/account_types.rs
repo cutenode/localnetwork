@@ -1,7 +1,8 @@
 //! Account types: how to sign in to a service and what each of its scopes lets a plugin do there,
 //! as data. An account plugin is a manifest that provides one and nothing else. No feature and no
-//! method: the host runs every sign-in from it (OAuth 2's authorization code flow with PKCE, as
-//! for `accounts`), keeps the tokens and never runs the plugin.
+//! method: the host runs every sign-in from it (OAuth 2's authorization code flow with PKCE, the
+//! browser coming back to this computer), keeps the tokens and never runs the plugin. Plugins ask
+//! for accounts of a type with `accounts`.
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;

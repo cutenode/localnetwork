@@ -305,7 +305,6 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "capabilities": capabilities,
         "contributes": {
             "account_types": [],
-            "accounts": [],
             "commands": commands,
             "destinations": destinations,
             "events": events,
