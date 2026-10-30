@@ -75,6 +75,10 @@ describe('asking staff to list a DJ in Find DJs', () => {
 		expect(decided.status).toBe('approved');
 		expect(await t.djListings.get(DJ)).toMatchObject({ uri: listing, request: request.uri });
 		expect(await found()).toEqual([listing]);
+		// Find DJs reads the same search, with each DJ's profile ready for a card.
+		expect((await t.performers.search({ q: 'neon' })).items).toMatchObject([
+			{ kind: 'dj', dj: { profile: { did: DJ, record: { basics: { name: 'Neon' } } }, genres: ['techno'] } }
+		]);
 
 		await expect(t.djListings.unlist(await t.viewer(DJ), DJ)).rejects.toThrow(ForbiddenError);
 		await t.djListings.unlist(await t.viewer(MOD), DJ);

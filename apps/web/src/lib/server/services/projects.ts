@@ -50,6 +50,35 @@ export type ProjectSearch = {
 
 export type ProjectSearchResult = { items: ProjectView[]; total: number; page: number; pageSize: number };
 
+/**
+ * The page asked for, and the directory params every performer search takes (searchProjects and searchPerformers):
+ * words, place, the filters, sort, and paging.
+ */
+export function searchQuery(params: ProjectSearch) {
+	const page = Math.max(1, params.page ?? 1);
+	const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+
+	const query = {
+		q: params.q && truncateUtf8(params.q, QUERY_BYTES),
+		latE6: params.near && toE6(params.near.lat),
+		lngE6: params.near && toE6(params.near.lng),
+		radiusKm: params.radiusKm && Math.round(params.radiusKm),
+		// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
+		genres: params.genres && normalizeGenres(params.genres, 20),
+		kinds: params.kinds,
+		formats: params.formats,
+		setTypes: params.setTypes,
+		feeTiers: params.feeTiers,
+		country: params.country,
+		unclaimed: params.unclaimed,
+		sort: params.sort,
+		limit: pageSize,
+		cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+	};
+
+	return { page, pageSize, query };
+}
+
 const PROJECT_STATUSES: readonly ProjectStatus[] = ['active', 'hidden', 'archived'];
 
 export const isProjectStatus = (value: JsonValue | undefined): value is ProjectStatus =>
@@ -234,28 +263,13 @@ export class ProjectService {
 	}
 
 	async search(params: ProjectSearch): Promise<ProjectSearchResult> {
-		const page = Math.max(1, params.page ?? 1);
-		const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+		const { page, pageSize, query } = searchQuery(params);
 
 		const output = await this.directory.query('searchProjects', {
-			q: params.q && truncateUtf8(params.q, QUERY_BYTES),
-			latE6: params.near && toE6(params.near.lat),
-			lngE6: params.near && toE6(params.near.lng),
-			radiusKm: params.radiusKm && Math.round(params.radiusKm),
-			// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
-			genres: params.genres && normalizeGenres(params.genres, 20),
-			kinds: params.kinds,
-			formats: params.formats,
-			setTypes: params.setTypes,
-			feeTiers: params.feeTiers,
-			country: params.country,
+			...query,
 			manager: params.manager,
 			status: params.status,
-			includeInactive: params.includeInactive,
-			unclaimed: params.unclaimed,
-			sort: params.sort,
-			limit: pageSize,
-			cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+			includeInactive: params.includeInactive
 		});
 
 		return { items: this.toViews(output.projects), total: output.total, page, pageSize };

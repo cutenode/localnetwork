@@ -1,7 +1,8 @@
 <script lang="ts">
 	import HeroHeadline from '#lib/components/HeroHeadline.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { projectSummary } from '#lib/performers.ts';
 	import { pluralize } from '#lib/format.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -89,7 +90,7 @@
 			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
 			<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4 p-0 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
 				{#each data.recent as project (project.uri)}
-					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><ProjectCard {project} /></li>
+					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><PerformerCard performer={projectSummary(project)} /></li>
 				{/each}
 			</ul>
 		{/if}

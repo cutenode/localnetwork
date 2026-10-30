@@ -13,6 +13,7 @@ import { BookingService } from '../services/bookings';
 import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
 import { FollowService } from '../services/follows';
+import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
 import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
@@ -118,6 +119,7 @@ export async function createTestServices(
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const performers = new PerformerSearch(core, directory, projects, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);
 
@@ -176,6 +178,7 @@ export async function createTestServices(
 		indexedRepo,
 		profiles,
 		djListings,
+		performers,
 		viewer,
 		capable,
 		spaces

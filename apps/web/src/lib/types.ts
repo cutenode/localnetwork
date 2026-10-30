@@ -156,6 +156,12 @@ export type ProfileView = {
 	avatarUrl: string | null;
 };
 
+/** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
+export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
+
+/** One Find DJs result: a published project, or a listed DJ. */
+export type PerformerResult = { kind: 'project'; project: ProjectView } | { kind: 'dj'; dj: ListedDj };
+
 export type ProjectDetails = {
 	bookingEmail?: string;
 	bookingPhone?: string;

@@ -78,27 +78,23 @@ export class ProfileService {
 			? await this.repos.getRecordOrReindex(did, COLLECTION.profile, 'self', { strict: true })
 			: await this.repos.getRecord(did, COLLECTION.profile, 'self', { strict: true });
 
-		if (!found) return null;
-		const record = found.value;
+		return found && this.toView(did, found.uri, found.cid, found.value);
+	}
 
+	/** A profile the directory served, as `did`'s, or null (logged) when it doesn't match the lexicon. */
+	toView(did: string, uri: string, cid: string, record: JsonObject): ProfileView | null {
 		try {
 			assertProfileRecord(record);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ err: error, uri: found.uri }, 'skipping an invalid profile');
+			this.core.logger.warn({ err: error, uri }, 'skipping an invalid profile');
 
 			return null;
 		}
 
 		const avatar = record.basics.avatar?.ref.$link;
 
-		return {
-			did,
-			uri: found.uri,
-			cid: found.cid,
-			record,
-			avatarUrl: avatar ? `/media/${did}/${avatar}` : null
-		};
+		return { did, uri, cid, record, avatarUrl: avatar ? `/media/${did}/${avatar}` : null };
 	}
 
 	/**

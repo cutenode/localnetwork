@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Search performers: active published projects, and DJs whose profile has the performer section on and that staff list. A DJ's profile counts as a solo act. Sorts by relevance with q, by distance with a location, and newest first otherwise (a profile by when it was listed).",
+			"description": "Search performers: active published projects, and DJs whose profile has the performer section on and that staff list. A DJ's profile counts as a solo act, and a solo project managed only by a listed DJ is left out for their profile. Sorts by relevance with q, by distance with a location, and newest first otherwise (a profile by when it was listed).",
 			"parameters": {
 				"type": "params",
 				"properties": {
@@ -52,6 +52,11 @@
 					},
 					"feeTiers": { "type": "array", "maxLength": 10, "items": { "type": "string", "maxLength": 48 } },
 					"country": { "type": "string", "minLength": 2, "maxLength": 2, "description": "ISO 3166-1 alpha-2 code." },
+					"unclaimed": {
+						"type": "boolean",
+						"default": false,
+						"description": "Only projects nobody manages yet, and so no DJs' profiles."
+					},
 					"sort": { "type": "string", "knownValues": ["relevance", "distance", "recent", "name"] },
 					"limit": { "type": "integer", "minimum": 1, "maximum": 60, "default": 24 },
 					"cursor": { "type": "string" }

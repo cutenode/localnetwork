@@ -33,6 +33,7 @@ import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { DjListings } from './services/dj-listings';
+import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
 import { FollowService } from './services/follows';
@@ -222,6 +223,7 @@ export async function createApp(options: CreateAppOptions) {
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
+	const performers = new PerformerSearch(core, happyView, projects, profiles);
 	const requests = new RequestService(core, projects, profiles, djListings);
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 
@@ -330,6 +332,7 @@ export async function createApp(options: CreateAppOptions) {
 		dj,
 		profiles,
 		djListings,
+		performers,
 		supports,
 		epks,
 		shows,

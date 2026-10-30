@@ -1109,6 +1109,23 @@ describe('searchPerformers', () => {
 		expect(near.performers[0]).toMatchObject({ profile: { distanceM: 0 } });
 		expect((await search(hv, { q: 'bea' })).performers).toMatchObject([{ profile: { genres: ['Techno', 'Ambient'] } }]);
 	});
+
+	it('shows a listed DJ who manages a solo project alone once, as their profile, and unclaimed projects alone when asked', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Ada Solo' }, { managers: ['did:plc:ada'] });
+		await publish(hv, { name: 'Ada Duo', kind: 'duo' }, { managers: ['did:plc:ada'] });
+		await publish(hv, { name: 'Shared Solo' }, { managers: ['did:plc:ada', 'did:plc:bea'] });
+		await publish(hv, { name: 'Bea Solo' }, { managers: ['did:plc:bea'] });
+		await publish(hv, { name: 'Nobody Yet' });
+		await listDj(hv, 'did:plc:ada', 'Ada');
+		// Bea's profile is listed but has no performer section, so it doesn't stand in for her project.
+		await listDj(hv, 'did:plc:bea', 'Bea', {});
+		const find = async (params: Params = {}) => performerNames(await search(hv, { sort: 'name', ...params }));
+
+		expect(await find()).toEqual(['Ada', 'Ada Duo', 'Bea Solo', 'Nobody Yet', 'Shared Solo']);
+		expect(await find({ kinds: ['duo'] })).toEqual(['Ada Duo']);
+		expect(await find({ unclaimed: true })).toEqual(['Nobody Yet']);
+	});
 });
 
 describe('matchProjects', () => {

@@ -1,7 +1,8 @@
 -- Search performers: active published projects, and DJs whose profile has the performer section on and that the root
 -- lists (a computer.localnetwork.listing.profile keyed by their DID). Both are filtered and ranked the way
 -- searchProjects does projects. A DJ's profile counts as a solo act, and when its performer section names no genres,
--- it's searched by the genres the DJ plays most, from their computer.localnetwork.dj.profile.
+-- it's searched by the genres the DJ plays most, from their computer.localnetwork.dj.profile. A listed DJ who also
+-- manages a solo project alone shows once, as their profile.
 
 local PROFILE = 'computer.localnetwork.profile'
 
@@ -10,6 +11,12 @@ local LISTING = 'computer.localnetwork.listing.profile'
 local DJ_PROFILE = 'computer.localnetwork.dj.profile'
 
 local NAME = "json_extract(p.record, '$.basics.name')"
+
+-- The DIDs of the DJs listed (a root listing, and a profile with the performer section on), for SQL. Its placeholders
+-- are the profile and listing collections and the root's DID.
+local LISTED_DJS = 'SELECT l.rkey FROM happyview_records AS l'
+	.. " JOIN happyview_records AS p ON p.did = l.rkey AND p.collection = ? AND p.rkey = 'self'"
+	.. " WHERE l.collection = ? AND l.did = ? AND json_type(p.record, '$.performer') = 'object'"
 
 local PROFILES = "SELECT p.uri, p.cid, p.record, l.uri AS listing, json_extract(l.record, '$.createdAt') AS listedAt,"
 	.. " CASE WHEN json_type(d.record, '$.genres') = 'array' THEN json_extract(d.record, '$.genres') END AS played"
@@ -67,7 +74,13 @@ function handle()
 	end
 	local kinds, tiers = list(params.kinds, 10), list(params.feeTiers, 10)
 	if #kinds > 0 then project("json_extract(record, '$.profile.kind') IN (" .. marks(#kinds) .. ')', kinds) end
-	local profiles = #kinds == 0 or contains(kinds, 'solo')
+	local profiles = (#kinds == 0 or contains(kinds, 'solo')) and params.unclaimed ~= true
+	if params.unclaimed == true then project("json_array_length(record, '$.managers') = 0") end
+	-- A solo project its one manager stands behind as a listed DJ is them, so it gives way to their profile.
+	if profiles then
+		project("NOT (json_extract(record, '$.profile.kind') = 'solo' AND json_array_length(record, '$.managers') = 1"
+			.. " AND json_extract(record, '$.managers[0]') IN (" .. LISTED_DJS .. '))', { PROFILE, LISTING, ROOT_DID })
+	end
 	if #tiers > 0 then
 		project(inFeeTiers('record', '$.profile.fees', tiers, '$.profile.fee'))
 		profile(inFeeTiers('p.record', '$.performer.fees', tiers))

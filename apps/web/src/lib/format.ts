@@ -107,7 +107,7 @@ export function feeLabel(fee: ProjectFee): string {
 }
 
 /** The first fee level, and how many more there are, for one-line listings. Empty without fees. */
-export function feeSummary(profile: ProjectProfile): string {
+export function feeSummary(profile: Pick<ProjectProfile, 'fees' | 'fee'>): string {
 	const [first, ...rest] = feeLevels(profile);
 
 	if (!first) return '';
