@@ -1,6 +1,9 @@
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { TID } from '@atproto/common-web';
 import { isRedirect } from '@sveltejs/kit';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_ACCESS, type EpkContent, type EpkFields, type EpkRecord } from '../../src/lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../../src/lib/nsid.ts';
 import { validateRecord } from '../../src/lib/server/atproto/lexicons.ts';
@@ -194,6 +197,34 @@ describe('shared press kits on a real atproto spaces network', () => {
 			[neon.did]: { read: true, write: false },
 			[pat]: { read: true, write: false }
 		});
+	});
+
+	it("won't follow a redirect from the PDS an account's DID document names when fetching its blob", async () => {
+		// A PDS that sends getBlob somewhere else, as one could to reach an address it couldn't name itself.
+		const pds = createServer((request, response) => {
+			if (request.url?.startsWith('/xrpc/com.atproto.sync.getBlob')) response.writeHead(302, { location: '/inside' });
+			response.end(PNG);
+		});
+
+		await once(pds.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = pds.address() as AddressInfo;
+		const did = 'did:plc:redirects';
+		const resolve = net.app.identity.resolve.bind(net.app.identity);
+		const redirecting = { did, handle: null, pds: `http://127.0.0.1:${port}`, signingKey: '', kemKey: null };
+
+		const spy = vi
+			.spyOn(net.app.identity, 'resolve')
+			.mockImplementation(async (asked, forceRefresh) => (asked === did ? redirecting : resolve(asked, forceRefresh)));
+
+		try {
+			await expect(net.app.core.fetchBlob!(did, 'bafkreigh2akiscaildc', 1_000_000)).rejects.toMatchObject({
+				cause: { message: 'unexpected redirect' }
+			});
+		} finally {
+			spy.mockRestore();
+			await new Promise((done) => pds.close(done));
+		}
 	});
 
 	it("moves a manager's legacy press kit to the root on their next visit, with its photos and grants", async () => {

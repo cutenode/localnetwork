@@ -196,7 +196,7 @@ export async function createApp(options: CreateAppOptions) {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
 			url.searchParams.set('cid', cid);
-			const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+			const response = await identity.serviceFetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 
 			if (!response.ok) throw new Error(`getBlob ${cid}: HTTP ${response.status}`);
 
