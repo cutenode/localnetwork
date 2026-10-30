@@ -21,19 +21,25 @@ use crate::output::{Output, dim, heading, ok};
 use crate::plugin_cmd::choose::{answer, interactive};
 use crate::plugins;
 
+/// What `plugin access PLUGIN` changes, at most one of: the account made its default, the one its
+/// access is taken away from, or the one it's given access to, with the scopes it can do without
+/// that it's given besides.
+pub struct Change {
+    pub default: Option<String>,
+    pub take_away: Option<String>,
+    pub give: Option<String>,
+    pub scopes: Vec<String>,
+}
+
 /// `plugin access PLUGIN`: its accesses; with `--default ACCOUNT`, that account made its default
-/// for its type; with `--take-away ACCOUNT`, its access to it taken away.
-pub fn access(
-    plugin: &str,
-    default: Option<String>,
-    take_away: Option<String>,
-    store_path: &Option<PathBuf>,
-    out: Output,
-) -> Result<ExitCode> {
+/// for its type; with `--take-away ACCOUNT`, its access to it taken away; with `--give ACCOUNT`,
+/// access to it given (no longer declined).
+pub fn access(plugin: &str, change: Change, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     let manifest = plugins.manifest(plugin)?;
     let root = store_path.clone().unwrap_or_else(Store::default_root);
-    let Some(named) = default.as_deref().or(take_away.as_deref()) else {
+    let Change { default, take_away, give, scopes } = change;
+    let Some(named) = default.as_deref().or(take_away.as_deref()).or(give.as_deref()) else {
         let store = Store::open_existing(&root)?;
         let accesses = store.as_ref().map(|s| plugins.accesses(s, Some(plugin), None)).transpose()?;
         out.emit(&accesses.unwrap_or_default(), |a| list(plugins, plugin, &manifest.accounts, a));
@@ -48,6 +54,12 @@ pub fn access(
     if default.is_some() {
         let access = plugins.set_default_access(plugin, &account, &store)?;
         return Ok(out.done(&access, |_| ok(format!("{plugin} uses the {}", called(plugins, a)))));
+    }
+    if give.is_some() {
+        let access = plugins.give_access(plugin, &account, &scopes, &store)?;
+        let gave =
+            |x: &Access| ok(format!("Gave {plugin} access to the {}: {}", called(plugins, a), x.scopes.join(", ")));
+        return Ok(out.done(&access, gave));
     }
     let access = plugins.take_away_access(plugin, &account, &store)?;
     Ok(out.done(&access, |_| ok(format!("Took {plugin}'s access to the {} away", called(plugins, a)))))

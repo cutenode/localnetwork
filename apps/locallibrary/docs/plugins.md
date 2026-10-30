@@ -222,8 +222,11 @@ for gets no access to it.
 `locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
 plugins keep their access, unused until it's signed in again.
 
-`locallibrary plugin access PLUGIN` lists a plugin's access, `--default ACCOUNT` makes an account
-the one it uses for that type, and `--take-away ACCOUNT` takes its access away. Before a plugin's
+`locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
+an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
+request fails because its account is signed out or wasn't granted a scope, the error offers to
+sign in again as that account, allowing what's missing. Before a plugin's
 destination is used, a plugin with no access to a type it needs asks in the terminal which of your
 accounts it may use, or to sign in to another. With `--json`, `--yes` or no terminal, and in the
 sidecar, nothing is asked: it fails and says how to give it access.

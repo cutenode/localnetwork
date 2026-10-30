@@ -68,8 +68,9 @@ enum PluginCommand {
         #[arg(long, requires = "key", conflicts_with_all = ["value", "reset"])]
         secret: bool,
     },
-    /// A plugin's access to your accounts: show it, make an account its default for the account's
-    /// type (--default ACCOUNT), or take its access to one away (--take-away ACCOUNT)
+    /// A plugin's access to your accounts: show it, give it access to one (--give ACCOUNT), make
+    /// an account its default for the account's type (--default ACCOUNT), or take its access to
+    /// one away (--take-away ACCOUNT)
     Access {
         /// The plugin's id
         plugin: String,
@@ -80,6 +81,12 @@ enum PluginCommand {
         /// The account to take its access to away
         #[arg(long, value_name = "ACCOUNT", conflicts_with = "default")]
         take_away: Option<String>,
+        /// The account to give it access to: the scopes it needs, and those of --scope
+        #[arg(long, value_name = "ACCOUNT", conflicts_with_all = ["default", "take_away"])]
+        give: Option<String>,
+        /// With --give: a scope it can do without to give it besides (repeatable)
+        #[arg(long = "scope", value_name = "SCOPE", requires = "give")]
+        scopes: Vec<String>,
     },
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
     /// check before a set, ordering a set and `analyze --apply`; a published set's MusicBrainz
@@ -166,8 +173,9 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
             let change = listing::Change { value, reset, secret };
             return listing::settings(plugins, plugin, key, change, store_path, out);
         }
-        PluginCommand::Access { plugin, default, take_away } => {
-            return crate::account_cmd::access::access(&plugin, default, take_away, store_path, out);
+        PluginCommand::Access { plugin, default, take_away, give, scopes } => {
+            let change = crate::account_cmd::access::Change { default, take_away, give, scopes };
+            return crate::account_cmd::access::access(&plugin, change, store_path, out);
         }
         PluginCommand::Roles { role, analyzer, reset, none } => {
             return listing::roles(role, analyzer, reset, none, store_path, out);

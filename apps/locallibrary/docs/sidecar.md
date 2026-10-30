@@ -379,11 +379,14 @@ it needs all the same, and goes without the others.
 `accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
 subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
 
-`accounts.access.list {plugin?}` answers the accesses, `accounts.access.set_default {plugin,
-account}` makes one the plugin's default for its type (giving the access first when it has none),
-and `accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's
-`account` error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions
-calling `accounts.sign_in.begin` and `accounts.access.set_default`.
+`accounts.access.list {plugin?}` answers the accesses, `accounts.access.give {plugin, account,
+scopes?}` gives a plugin access to an account (the scopes it needs, and those of `scopes` it can do
+without, which aren't declined any more), `accounts.access.set_default {plugin, account}` makes
+one the plugin's default for its type (giving the access first when it has none), and
+`accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's `account`
+error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions calling
+`accounts.sign_in.begin` (again as the account of the plugin's access, for the scopes it's missing,
+when that can help) and `accounts.access.set_default`.
 
 ## Plugins
 

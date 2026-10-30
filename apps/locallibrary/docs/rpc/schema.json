@@ -4963,6 +4963,26 @@
       }
     },
     {
+      "name": "accounts.access.give",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/GiveAccess"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
       "name": "accounts.access.set_default",
       "aliases": [],
       "kind": "immediate",
@@ -11969,6 +11989,30 @@
           "default": null
         }
       }
+    },
+    "GiveAccess": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Scopes of the account's type it can do without to give it besides those it needs, by name.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
     },
     "AccessRef": {
       "type": "object",

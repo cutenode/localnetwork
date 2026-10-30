@@ -76,8 +76,9 @@ impl Mock {
 }
 
 /// An account is signed in to for a plugin, listed with the access it gave (by `account`, `account
-/// TYPE:NAME status` and `plugin access`), signed out of, listed for that access, and the access
-/// taken away; and a command that can't name an account says why.
+/// TYPE:NAME status` and `plugin access`), given to it with more scopes, signed out of, listed for
+/// that access, signed in to again by name, and the access taken away; and a command that can't
+/// name an account says why.
 #[test]
 fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     let m = Mock::new();
@@ -100,6 +101,14 @@ fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     }
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);
     assert_eq!(out, "mock: Tests\n  a@mock.example (default) · read\n");
+    let (code, _, err) = m.run(&["plugin", "access", "echo", "--scope", "write"]);
+    assert!(code == 2 && err.contains("--give"), "{err}");
+    let (code, out, err) = m.run(&["plugin", "access", "echo", "--give", "a", "--scope", "write"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, "✓ Gave echo access to the Mock account a@mock.example: read, write\n"),
+        "{err}"
+    );
 
     let (code, out, _) = m.run(&["account", "mock:a", "sign-out"]);
     assert_eq!((code, out.as_str()), (0, "✓ Signed out of a@mock.example\n"));

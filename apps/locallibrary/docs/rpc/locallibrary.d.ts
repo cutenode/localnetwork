@@ -2301,6 +2301,14 @@ export type ListAccesses = {
   plugin?: string | null;
 };
 
+export type GiveAccess = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+  /** Scopes of the account's type it can do without to give it besides those it needs, by name. */
+  scopes?: string[];
+};
+
 export type AccessRef = {
   /** The plugin's id. */
   plugin: string;
@@ -9973,6 +9981,8 @@ export interface Methods {
   "accounts.sign_out": { params: SignOut & WriteOptions; result: AccountSignedOut };
   /** read method */
   "accounts.access.list": { params: ListAccesses; result: Access[] };
+  /** immediate method */
+  "accounts.access.give": { params: GiveAccess & WriteOptions; result: Access };
   /** immediate method */
   "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
   /** immediate method */

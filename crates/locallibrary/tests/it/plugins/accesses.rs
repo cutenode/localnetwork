@@ -332,8 +332,16 @@ fn resolving(accounts: &[&str]) -> Vec<Action> {
     actions
 }
 
+/// The action an `account` error a plugin passes on offers to sign in again as the account
+/// `subject`, shown as `name`, for echo, allowing `scopes`.
+fn signing_in_again(subject: &str, name: &str, scopes: &[&str]) -> Action {
+    let params = json!({ "type": "mock", "with": WITH, "account": subject, "for": "echo", "scopes": scopes });
+    Action::call("accounts.sign_in.begin", params, format!("Sign in again as {name}, allowing {}", scopes.join(", ")))
+}
+
 /// An account signed out keeps its accesses, which still list, and a request through one fails as
-/// `access` (`signed_out`), which passed on says to sign in; signed in again, it has its token.
+/// `access` (`signed_out`) naming the access, its account and what signing in again allows, which
+/// passed on says to sign in again as it; signed in again, it has its token.
 #[test]
 fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
     let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
@@ -346,11 +354,14 @@ fn a_signed_out_accounts_access_lists_and_says_to_sign_in() {
     let answer = m.fetch_as("GET", "/r/x", "{account:mock}", None);
     let failed = &answer["error"]["data"];
     assert_eq!((&failed["kind"], &failed["reason"]), (&json!("access"), &json!("signed_out")), "{answer}");
+    let named = (&failed["fields"]["access"], &failed["fields"]["account"], &failed["fields"]["needs"]);
+    assert_eq!(named, (&json!(listed[0].id), &json!(account("a")), &json!(["read"])), "{answer}");
     let e = m.passed_on("access", Some("signed_out"), &failed["fields"]);
     assert_eq!((e.code(), e.reason()), ("account", Some(Reason::NotSignedIn)), "{e}");
-    assert_eq!(e.detail().actions, resolving(&[]));
+    let again = signing_in_again("a", "a@mock.example", &["read"]);
+    assert_eq!(e.detail().actions, [vec![again], resolving(&[])].concat());
 
-    m.sign_in(who(json!("a"), Some("a@mock.example")), None, &[]).0.unwrap();
+    m.sign_in(who(json!("a"), Some("a@mock.example")), Some("a"), &["read"]).0.unwrap();
     assert_eq!(m.fetch_as("GET", "/r/x", "{account:mock}", None)["result"]["body"], "/r/x Bearer at-2");
     assert_eq!(m.f.plugins.accesses(&m.f.store, Some("echo"), None).unwrap(), listed, "one access, as it was");
 }
@@ -426,10 +437,12 @@ fn signing_in_again_asks_for_what_every_access_needs(tc: TestCase) {
 }
 
 /// What resolves an `access` or `scope` error a plugin passes on comes from its manifest and the
-/// accounts the store keeps, whatever type, plugin or account plugins its fields name.
+/// accounts and accesses the store keeps, whatever type, plugin, account plugins or account its
+/// fields name: of the scopes they say it needs, only those its manifest asks for are signed in
+/// again for, as the account of its own access.
 #[test]
 fn actions_come_from_the_manifest_whatever_the_plugin_says() {
-    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
+    let m = mock_for(3600, "/userinfo", "", &asking(&["read"], &["write"]));
     m.sign_in_for(None, who(json!("a"), None), None, &[]).0.unwrap();
     let lying = json!({ "type": "evil", "for": "other", "account_plugins": ["evil-accounts"] });
     for (kind, reason) in [("access", Reason::NoAccess), ("scope", Reason::MissingScope)] {
@@ -437,6 +450,16 @@ fn actions_come_from_the_manifest_whatever_the_plugin_says() {
         assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{e}");
         assert_eq!(e.detail().actions, resolving(&["a"]), "{kind}");
         assert_eq!(e.to_string(), "it can't (the Echo plugin)");
+    }
+    // Given `read` of a, which was granted it: signing in again helps only for `write`.
+    m.sign_in_for(None, who(json!("b"), None), None, &[]).0.unwrap();
+    m.f.plugins.give_access("echo", &account("a"), &[], &m.f.store).unwrap();
+    let forged = json!({ "plugin": WITH, "subject": "b" });
+    for (needs, again) in [(json!(["peek", "nope"]), None), (json!(["write", "peek"]), Some("write"))] {
+        let fields = json!({ "type": "mock", "account": forged, "access": "0a1b2c3d", "needs": needs });
+        let e = m.passed_on("scope", None, &fields);
+        let again = again.map(|scope| signing_in_again("a", "a", &[scope]));
+        assert_eq!(e.detail().actions, [again.into_iter().collect(), resolving(&["a", "b"])].concat(), "{needs}");
     }
 }
 
@@ -552,7 +575,16 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
             None => Reason::MissingScope,
         };
         assert_eq!((passed.code(), passed.reason()), ("account", Some(resolves)), "{said}");
-        let mut actions = resolving(&[]);
+        // Signing in again as the account, when that gives echo what its request was refused.
+        let again: &[&str] = match failing {
+            SignedOut | Refused => &["read"],
+            Ungranted => &["write"],
+            Missing if !lying => &["read"],
+            _ => &[],
+        };
+        let mut actions: Vec<Action> =
+            (!again.is_empty()).then(|| signing_in_again("a", "a", again)).into_iter().collect();
+        actions.extend(resolving(&[]));
         for k in &kept {
             let params = json!({ "plugin": "echo", "account": { "plugin": k.plugin, "subject": k.subject } });
             actions.push(Action::call("accounts.access.set_default", params, format!("Use {}", k.name)));
