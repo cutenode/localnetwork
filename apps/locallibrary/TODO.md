@@ -177,12 +177,11 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: `drive tidy` exits 0 when it couldn't remove
-      some files (`recordings` says Partial); `setup --role` is ignored for the drive that becomes
-      the primary, even a bad value; a lenient replay that skips `DeleteHistoryLists` only says
-      "not found", dropping which list; merging the same drive twice in folder mode makes "(2)"
-      copies of every playlist; under `LOCALLIBRARY_VOLUMES`, `format::disk_at` still runs
-      read-only `diskutil info`/`lsblk` on the disk holding the test folder.
+- [ ] Found while raising coverage, each a decision: a lenient replay that skips
+      `DeleteHistoryLists` only says "not found", dropping which list; merging the same drive
+      twice in folder mode makes "(2)" copies of every playlist; under `LOCALLIBRARY_VOLUMES`,
+      `format::disk_at` still runs read-only `diskutil info`/`lsblk` on the disk holding the test
+      folder.
 - [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
       undo then redo leaves edits that replay won't redo, and restoring an older backup then a
       newer one puts back edits the journal has forgotten.
@@ -192,17 +191,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       back from a set.
 - [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
       copy` refuses instead (without `--force`).
-- [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
-      take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
-      nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
-- [ ] Changes that look something up in the store make an empty one and then fail or find nothing
-      to do: `drive forget`/`role`/`retire`, `sets delete`, `smart rm`, `profile unpin`/`unhide`,
-      `store label`/`unlabel`, and the dry runs of `sets playlist`, `smart apply`, `adopt --as`,
-      `store gc`/`prune`/`copy`, `library prune` and `art unembed`. Look up with
-      `diff_cmd::store_to_read` or `read_or_empty` and make the store only when applying.
-- [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
-      `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
-      Register it as what it is, or record only into a store that's there.
 - [ ] `drive groups` (and the sidecar's `drive.groups`) answers `[]` with no store, though
       `fleet::sets` groups mounted drives by the library id each one holds and listed them
       (unnamed) against a new store. Decide whether no store should still list those groups.
@@ -223,8 +211,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
       without overcommit and on Windows: symphonia-format-isomp4's `stsz.rs` sizes a `Vec` from
       them (`TODO: Apply a limit`). File it upstream.
-- [ ] `provision` shows the format plan's warnings twice: in the format plan and again in its own
-      `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
 - [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
@@ -238,10 +224,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (online-only Dropbox files that download onto the boot disk): both the fit warning
       (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
       to `~/rekordbox-export` stopped at 1.8 of 25 GB.
-- [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
-      CLI's `sets export` reads with `store_to_read`.
-- [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
-      that `main.rs` and `drive_cmd.rs` add.
 - [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
       size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
       steers around the case.

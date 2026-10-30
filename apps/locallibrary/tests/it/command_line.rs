@@ -60,6 +60,8 @@ fn colour_follows_the_flag_and_the_terminal() {
 #[test]
 fn a_locale_that_isnt_utf8_gets_ascii_symbols() {
     let env = Env::new();
+    // A store to collect in.
+    env.ok(&["--yes", "settings", "set", "quantize=off"]);
     let gc = |vars: &[(&str, &str)]| {
         let out = env.command().envs(vars.iter().copied()).args(["store", "gc"]).output().unwrap();
         String::from_utf8(out.stdout).unwrap()

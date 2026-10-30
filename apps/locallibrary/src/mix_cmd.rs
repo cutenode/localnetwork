@@ -83,7 +83,7 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     }
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
-    let store = Store::open_or_init(store.clone().unwrap_or_else(Store::default_root))?;
+    let store = crate::open_store(store)?;
     let id = Identifier::new(&device, &Cache::in_store(&store), ctx)?;
     if args.mixes.is_empty() {
         out.emit(&id.report, |r| index_summary(&id.drive, r));

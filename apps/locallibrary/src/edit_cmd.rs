@@ -914,14 +914,14 @@ pub fn smart(args: SmartArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             );
         }
         SmartCommand::Rm { path } => {
-            let store = &crate::open_store(store_path)?;
+            let store = &crate::diff_cmd::store_to_read(store_path)?;
             let rule = api::smart_list(store)?.remove(&path)?;
             let change = format!("remove the rule for {:?} (drives keep their playlists)", rule.path);
             let req = api::RemoveSmartPlaylist { path };
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
-            let store = &crate::open_store(store_path)?;
+            let store = &crate::diff_cmd::store_to_read(store_path)?;
             let named = !drives.is_empty();
             let targets = match named {
                 false => crate::each_drive::targets(Some(store))?,

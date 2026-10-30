@@ -665,7 +665,8 @@ fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
     let lines: Vec<Vec<u8>> = (0..n)
         .map(|id| {
-            json!({ "jsonrpc": "2.0", "id": id, "method": "store.gc.plan", "params": {} }).to_string().into_bytes()
+            // A change that makes the store and takes no lock (saving the profile choices as they are).
+            json!({ "jsonrpc": "2.0", "id": id, "method": "profile.prefs.set", "params": {} }).to_string().into_bytes()
         })
         .collect();
     let (out, clean) = run_batch(&fx, &lines);

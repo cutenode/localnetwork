@@ -58,6 +58,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   Schemas for its `params` and `result`, with the `progress` and `event` notifications. A `read`
   never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
   when it's about the store itself (`store.info`, `store.history`, `store.verify`, `drive.log`).
+  Nor does a change to something the store holds already (`drive.forget`, `sets.delete`,
+  `store.gc.plan`...): with no store it fails with `not_found`.
   [`docs/rpc/locallibrary.d.ts`](../docs/rpc/locallibrary.d.ts) has the same as TypeScript types
   (`Methods["sync.apply"]["params"]`, `Params<"sync.apply">`, `Result<"sync.apply">`).
   `locallibrary rpc --emit-schema DIR` writes both for the version you run, and `rpc.describe`

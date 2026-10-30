@@ -300,6 +300,9 @@ fn paths_to_write_to_are_absolute_and_fsck_says_it_can_destroy() {
 #[test]
 fn a_plan_stays_when_the_store_wont_open() {
     let mut s = Sidecar::start();
+    // A store to plan against (planning makes none).
+    let made = s.call(0, "players.set.apply", json!({ "models": ["CDJ-2000NXS2"] }));
+    assert!(made["error"].is_null(), "{made}");
     let plan = s.call(1, "players.set.plan", json!({ "models": ["CDJ-3000"] }));
     let id = plan["result"]["plan_id"].clone();
     assert!(id.is_string(), "{plan}");
@@ -355,6 +358,8 @@ fn describe_says_what_each_method_takes_and_returns() {
     // Old and new names answer alike.
     let new = s.call(5, "drive.groups", json!({}))["result"].clone();
     assert_eq!(s.call(6, "drive.sets", json!({}))["result"], new);
+    let made = s.call(9, "players.set.apply", json!({ "models": ["CDJ-3000"] }));
+    assert!(made["error"].is_null(), "a store to collect in: {made}");
     let stats = s.call(7, "store.gc.plan", json!({}))["result"].clone();
     assert_eq!(stats["operation"], "store.gc");
     let gc = s.call(8, "store.gc", json!({ "plan_id": stats["plan_id"] }));
@@ -776,6 +781,48 @@ fn mix_methods_that_keep_files_say_they_write() {
         let m = s.call(1, "rpc.describe", json!({ "method": name }))["result"]["methods"][0].clone();
         assert_eq!(m["kind"], "immediate", "{name}: {m}");
     }
+    assert!(s.exit().success());
+}
+
+/// Regression: methods that only look something up in the store made an empty one first, then
+/// failed or found nothing to do. With none, they say so (or plan with nothing remembered) and
+/// leave none behind.
+#[test]
+fn lookups_with_no_store_leave_none_behind() {
+    let mut s = Sidecar::start();
+    let a = demo_drive(&s.root().join("volumes"), "A");
+    let a = a.to_str().unwrap();
+    let copy = s.root().join("copy");
+    let calls = [
+        ("drive.forget", json!({ "drive": a })),
+        ("drive.role", json!({ "drive": a, "role": "backup" })),
+        ("drive.retire", json!({ "drive": a })),
+        ("drive.adopt_as.plan", json!({ "drive": a, "known": "Old" })),
+        ("drive.verify", json!({ "drive": a })),
+        ("drive.fsck", json!({ "drive": a })),
+        ("sets.delete", json!({ "set": "Nope" })),
+        ("sets.export", json!({ "set": "Nope", "format": "text" })),
+        ("sets.playlist.plan", json!({ "set": "Nope", "drive": a })),
+        ("smart.remove", json!({ "path": "Nope" })),
+        ("smart.write.plan", json!({ "drive": a })),
+        ("store.gc.plan", json!({})),
+        ("store.prune.plan", json!({ "keep_last": 1 })),
+        ("store.copy", json!({ "path": copy, "dry_run": true })),
+        ("snapshot.label", json!({ "label": "Friday", "snapshot": "abc" })),
+        ("library.rename", json!({ "library": "Nope", "name": "New" })),
+        ("push.plan", json!({ "drive": a })),
+        ("art.unembed.plan", json!({})),
+        ("players.set.plan", json!({ "models": ["CDJ-3000"] })),
+        ("players.clear.plan", json!({})),
+    ];
+    for (id, (method, params)) in (1..).zip(calls) {
+        let v = s.call(id, method, params);
+        assert_ne!(kind(&v), "invalid_params", "{method}: {v}");
+        assert!(!s.root().join("store").exists(), "{method} made a store: {v}");
+    }
+    // With nothing remembered, the players plan says what it would remember.
+    let v = s.call(99, "players.set.plan", json!({ "models": ["CDJ-3000"] }));
+    assert_eq!((&v["result"]["from"], &v["result"]["to"]), (&json!([]), &json!(["CDJ-3000"])), "{v}");
     assert!(s.exit().success());
 }
 

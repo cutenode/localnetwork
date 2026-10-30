@@ -154,6 +154,8 @@ fn the_test_method_is_not_there_outside_the_tests() {
 #[test]
 fn an_apply_given_a_request_plans_and_applies_it() {
     let s = Sidecar::new();
+    // Collecting and taking back art change what a store holds: there has to be one.
+    Store::open_or_init(s.store()).unwrap();
     assert_eq!(s.ok("store.gc.apply", json!({ "dry_run": true }))["freed_bytes"], 0);
     let unembed = s.call("art.unembed.apply", json!({})).err().map(|e| (e.kind, e.message));
     assert_eq!(unembed, Some(("not_found", "not found: no embedded art to take back".into())));
@@ -176,6 +178,7 @@ fn history_lists_are_deleted_by_plan_or_by_request() {
 #[test]
 fn a_plan_refused_while_the_store_is_locked_stays() {
     let s = Sidecar::new();
+    Store::open_or_init(s.store()).unwrap();
     let id = s.ok("store.gc.plan", json!({}))["plan_id"].clone();
     let lock = Store::open(s.store()).unwrap().lock().unwrap();
     let busy = s.call("store.gc.apply", json!({ "plan_id": id }));
@@ -309,6 +312,7 @@ fn a_tag_edit_from_its_request_does_what_its_plan_does(tc: TestCase) {
 #[hegel::test(test_cases = 10)]
 fn a_plan_refused_while_the_store_is_busy_applies_once_it_is_free(tc: TestCase) {
     let s = Sidecar::new();
+    Store::open_or_init(s.store()).unwrap();
     let id = s.ok("store.gc.plan", json!({}))["plan_id"].clone();
     let lock = Store::open(s.store()).unwrap().lock().unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
