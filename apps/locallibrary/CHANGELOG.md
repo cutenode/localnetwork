@@ -146,8 +146,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Mixes.** `mix` finds which of a drive's tracks a recorded set plays, when, at what speed and
   in what key (marking the matches it's unsure of), and writes an interactive report. The report
   and `--export` (the same as data, for showing elsewhere) hold only what they show: no file
-  paths, drive name or size, and tracks your profile hides read "ID - ID". The player's Mixes view
-  lists the drive's recordings next to folders of sets opened from the computer.
+  paths, drive name or size, and tracks your profile hides read "ID - ID". `--cover FILE` (`cover`
+  in the sidecar's `mix.identify` and `mix.export`) gives the recording a cover for both. The
+  player's Mixes view lists the drive's recordings next to folders of sets opened from the
+  computer.
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
@@ -769,6 +771,11 @@ their old names.
 - `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
   in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
   and files it's about (`tracks`, `playlist`, `paths`).
+- A transition is a blend once both tracks are heard together for 8 seconds everywhere: the
+  player's Mixes view called 1 second a blend, where the reports, the website and a published
+  set's `transitionIn.technique` used 8. The value lives in `locallibrary::mix::BLEND_SECS` and
+  `packages/tokens/mix.json`. A shorter overlap is a "quick mix" in the player too, as in the
+  reports (it said "cut").
 
 ### Fixed
 
@@ -814,6 +821,9 @@ their old names.
 - When the track queued after the playing one is short enough to play out before the player next
   looks, the player goes on past it at once. It showed it as playing until then, and `n` pressed
   in that moment skipped the track after it.
+- The HTML mix report's light theme draws its up, verse, chorus, down and bridge phrase strips,
+  and hot cues and loops without a colour of their own, in darker colours that stand out at 3:1
+  (they were 1.7 to 2.3:1); dark mode is unchanged.
 
 ### Security
 

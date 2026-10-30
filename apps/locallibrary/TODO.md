@@ -214,10 +214,9 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
-      report shows one averaged speed.
-- [ ] `mix --cover FILE`: reports and exports carry a cover only when it's embedded in the
-      recording.
+- [ ] `mix`: riding the pitch fader shows as one averaged speed. Chains only split after 4 slices
+      (about 16 s) without the track, so a ride stays one chain and its fitted slope averages the
+      speeds; showing them needs the matcher to split a chain's fit where its speed changes.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
@@ -320,9 +319,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] MusicBrainz IDs come from file tags on a mounted drive when a set is made or edited, so a set
       built with the drive unplugged has none until it's edited with the drive in. The store keeps
       the files and could be read instead.
-- [ ] `transitionIn`'s `technique` is only ever `blend` (an overlap of 8 seconds or more, as the
-      website's mix report has it) or `unknown`; the terminal player calls 1 second a blend.
-      Pick one threshold.
 - [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
       `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
       and the `uri` format first.
@@ -333,8 +329,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
       backfill from Jetstream, so `dj.set` records are let in only from a published project's
       managers, and the new-project forms have no set picker.
-- [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
-      the light background (`packages/tokens/colors.json` has one phrase palette).
 - [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like
       `/planner/shows/new` has.
 - [ ] `@lhci/cli` 0.15.1 (Lighthouse, on `bnb/ci-runners`) brings 7 advisories into the dev

@@ -10739,6 +10739,14 @@
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
           "default": null
         },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
+          "default": null
+        },
         "extras": {
           "type": "boolean",
           "description": "Also each play's overview waveform, hot cues and phrases (`extras`), for following\nalong without asking for every track's analysis.",
@@ -10776,6 +10784,14 @@
           ],
           "format": "double",
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
+          "default": null
+        },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
           "default": null
         },
         "output": {
@@ -26522,7 +26538,7 @@
               "type": "null"
             }
           ],
-          "description": "Cover image: embedded in the audio file, else an image next to it named like it."
+          "description": "Cover image: one given (`mix --cover`), else embedded in the audio file, else an image\nnext to it named like it."
         }
       },
       "required": [
@@ -26595,7 +26611,25 @@
           "required": [
             "kind",
             "path"
-          ]
+          ],
+          "description": "An image found next to the recording."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "given"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "An image the DJ gave for it."
         }
       ]
     },
@@ -27102,7 +27136,7 @@
             "string",
             "null"
           ],
-          "description": "The cover embedded in the recording: a JPEG `data:` URL, 320 px square."
+          "description": "The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,\n320 px square."
         }
       },
       "required": [
