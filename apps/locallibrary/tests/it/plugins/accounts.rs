@@ -7,6 +7,7 @@ use std::process::Command;
 
 use serde_json::{Value, json};
 
+use super::shared_accounts::browser_back;
 use crate::support::{Env, Rpc, echo_plugin};
 
 /// What the host keeps of a sign-in (as `plugin::accounts` writes it), standing for one.
@@ -272,21 +273,6 @@ fn unschema(mut v: Value) -> Value {
 fn query_of(url: &str) -> Vec<(String, String)> {
     let (_, query) = url.split_once('?').unwrap();
     query.split('&').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.into(), v.into())).collect()
-}
-
-/// Comes back to `redirect_uri` (`http://127.0.0.1:<port>/...`) with `query`, as the browser
-/// does, once it's waited for: what this computer answered it.
-fn browser_back(redirect_uri: &str, query: String) -> std::thread::JoinHandle<String> {
-    let rest = redirect_uri.strip_prefix("http://").unwrap().to_string();
-    std::thread::spawn(move || {
-        use std::io::{Read, Write};
-        let (host, path) = rest.split_once('/').unwrap();
-        let mut stream = std::net::TcpStream::connect(host).unwrap();
-        write!(stream, "GET /{path}?{query} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").unwrap();
-        let mut answer = String::new();
-        stream.read_to_string(&mut answer).unwrap();
-        answer
-    })
 }
 
 /// For any steps, on the command line and in the sidecar: the account reads back (as text, as

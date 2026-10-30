@@ -51,6 +51,12 @@ const TEST_PLUGINS: &str = "LOCALLIBRARY_TEST_PLUGINS";
 #[cfg(debug_assertions)]
 const TEST_OFFLINE: &str = "LOCALLIBRARY_TEST_OFFLINE";
 
+/// Set by the CLI's tests that sign in at a mock service on this computer: plugins and account
+/// plugins may reach it ([`locallibrary::plugin::Options::test_loopback`]). Only in builds with
+/// debug assertions.
+#[cfg(debug_assertions)]
+const TEST_LOOPBACK: &str = "LOCALLIBRARY_TEST_LOOPBACK";
+
 #[cfg(debug_assertions)]
 #[path = "../../../crates/locallibrary/src/bin/test-plugin/plugin.rs"]
 mod test_plugin;
@@ -146,6 +152,7 @@ fn load() -> Result<Loaded> {
     #[cfg(debug_assertions)]
     {
         options.test_offline = std::env::var_os(TEST_OFFLINE).is_some();
+        options.test_loopback = std::env::var_os(TEST_LOOPBACK).is_some();
     }
     let plugins = Plugins::new(specs, Arc::new(SidecarReads), options)?;
     events::tell_applied();

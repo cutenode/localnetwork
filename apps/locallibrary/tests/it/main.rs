@@ -9,6 +9,8 @@ use assert_cmd::cargo::CommandCargoExt;
 
 #[path = "../../../../crates/locallibrary/tests/support/files.rs"]
 mod files;
+#[path = "../../../../crates/locallibrary/tests/support/mock_oauth.rs"]
+mod mock_oauth;
 #[cfg(feature = "account")]
 #[path = "../../../../crates/locallibrary/tests/support/mock_pds.rs"]
 mod mock_pds;
@@ -91,6 +93,7 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")
+        .env_remove("LOCALLIBRARY_TEST_LOOPBACK")
         .env_remove("LOCALLIBRARY_USERINPUT_SPACE")
         // Local Network's directory and website: nowhere, unless a test names its own.
         .env("LOCALLIBRARY_HAPPYVIEW_URL", NOWHERE)

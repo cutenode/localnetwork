@@ -2250,6 +2250,60 @@ export type CollectionExportRequest = {
   overwrite_archive?: boolean;
 };
 
+export type BeginSignIn = {
+  /** The account type (`google`). */
+  type: string;
+  /** The account plugin to sign in through [default: the only one providing the type]. */
+  with?: string | null;
+  /**
+   * The plugin it's for, given access to it: to the scopes it needs, and those of `scopes` it
+   * can do without.
+   */
+  for?: string | null;
+  /** An account the store keeps, by subject, to sign in to again (asking for more scopes, say). */
+  account?: string | null;
+  /** The type's scopes to ask for besides, by name. */
+  scopes?: string[];
+};
+
+export type FinishSignIn = {
+  /** What its `sign_in.begin` answered. */
+  id: string;
+  /** How long to wait for the browser (default 300, an hour at most). */
+  timeout_secs?: number | null;
+};
+
+export type PasteSignIn = {
+  id: string;
+  /** The address the browser ended up on after approving. */
+  url: string;
+};
+
+export type CancelSignIn = {
+  id: string;
+};
+
+export type SignOut = {
+  account: AccountId;
+};
+
+/** An account kept in a store: the account plugin that signed it in, and its subject there. */
+export type AccountId = {
+  plugin: string;
+  subject: string;
+};
+
+export type ListAccesses = {
+  /** Only this plugin's. */
+  plugin?: string | null;
+};
+
+export type AccessRef = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+};
+
 export type PluginRef = {
   /** The plugin's id. */
   plugin: string;
@@ -2270,23 +2324,6 @@ export type AccountRef = {
   plugin: string;
   /** The account's id, as the plugin's manifest has it. */
   account: string;
-};
-
-export type FinishSignIn = {
-  /** What `plugins.account.sign_in.begin` answered. */
-  id: string;
-  /** How long to wait for the browser (default 300, an hour at most). */
-  timeout_secs?: number | null;
-};
-
-export type PasteSignIn = {
-  id: string;
-  /** The address the browser ended up on after approving. */
-  url: string;
-};
-
-export type CancelSignIn = {
-  id: string;
 };
 
 /** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
@@ -7791,6 +7828,123 @@ export type CollectionExportReport = {
   backup: string | null;
 };
 
+/** The accounts a store keeps and the accesses plugins were given to them, as hosts show them. */
+export type Accounts = {
+  /**
+   * Those it keeps, in the order they were first signed in, then those signed out that plugins
+   * still have access to.
+   */
+  accounts: StoreAccount[];
+  accesses: Access[];
+};
+
+/** An account a store keeps, as hosts show it: never a token. */
+export type StoreAccount = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+};
+
+/** The scopes of an account a plugin was given. */
+export type Access = {
+  /** 8 lowercase hex digits, which `{account:<type>/<id>}` names it by. */
+  id: string;
+  /** The plugin given it. */
+  plugin: string;
+  type: string;
+  account: AccountId;
+  /** What the account is shown as, kept so an access to one signed out still says. */
+  name: string;
+  /** The type's scopes, by name. */
+  scopes: string[];
+  /** It's the plugin's default for the type: `{account:<type>}` names it. */
+  default: boolean;
+};
+
+/** A sign-in to an account of a type, waiting for the browser. */
+export type AccountSignIn = {
+  /**
+   * Finishes it: [`Plugins::finish_account_sign_in`],
+   * [`Plugins::finish_account_sign_in_with_url`].
+   */
+  id: string;
+  type: string;
+  /** The account plugin signing in. */
+  plugin: string;
+  /** Open this in the browser. */
+  url: string;
+  /** Where the browser comes back to. */
+  redirect_uri: string;
+};
+
+/** What signing in to an account of a type did. */
+export type AccountSignedIn = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /**
+   * The account it was to sign in again, when the browser signed in to another: that one is
+   * kept too, and this one as it was.
+   */
+  instead_of?: string | null;
+  /** The access it gave the plugin it was signed in for, if it was. */
+  access?: Access | null;
+};
+
+/** What signing out of an account of a type did. */
+export type AccountSignedOut = {
+  type: string;
+  /** The account plugin it was signed in through. */
+  plugin: string;
+  /** Its id at the service. */
+  subject: string;
+  /** What it's shown as. */
+  name: string;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** Its tokens are kept (the keychain may have lost them). */
+  signed_in: boolean;
+  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
+  revoked: boolean;
+};
+
 /** A plugin, as `plugin list` and the sidecar's `plugins.list` show it. */
 export type Listed = {
   id: string;
@@ -9880,6 +10034,24 @@ export interface Methods {
   "collection.export.plan": { params: CollectionExportRequest & WriteOptions; result: CollectionExportPlan & PlanFields };
   /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
+  /** read method */
+  "accounts.list": { params: NoParams; result: Accounts };
+  /** immediate method */
+  "accounts.sign_in.begin": { params: BeginSignIn & WriteOptions; result: AccountSignIn };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "accounts.sign_in.finish": { params: FinishSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.paste": { params: PasteSignIn & WriteOptions; result: AccountSignedIn };
+  /** immediate method */
+  "accounts.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
+  /** immediate method */
+  "accounts.sign_out": { params: SignOut & WriteOptions; result: AccountSignedOut };
+  /** read method */
+  "accounts.access.list": { params: ListAccesses; result: Access[] };
+  /** immediate method */
+  "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
+  /** immediate method */
+  "accounts.access.take_away": { params: AccessRef & WriteOptions; result: Access };
   /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */

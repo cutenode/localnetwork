@@ -10,8 +10,10 @@ use chrono::{DateTime, Utc};
 use indexmap::{IndexMap, IndexSet};
 use loclib_plugin::{AccountType, SUBJECT_PLACEHOLDER};
 use oauth2::TokenResponse;
+use schemars::JsonSchema;
 use serde::Serialize;
 
+use super::access::Access;
 use super::kept::{self, Kept};
 use super::{Endpoints, Pending, To, Tokens, come_back, pasted};
 use crate::callback::CallbackQuery;
@@ -25,7 +27,8 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 /// An account a store keeps, as hosts show it: never a token.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[schemars(rename = "StoreAccount")]
 pub struct Account {
     #[serde(rename = "type")]
     pub kind: String,
@@ -47,8 +50,17 @@ pub struct Account {
     pub signed_in: bool,
 }
 
+/// The accounts a store keeps and the accesses plugins were given to them, as hosts show them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
+pub struct Accounts {
+    /// Those it keeps, in the order they were first signed in, then those signed out that plugins
+    /// still have access to.
+    pub accounts: Vec<Account>,
+    pub accesses: Vec<Access>,
+}
+
 /// A sign-in to an account of a type, waiting for the browser.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct AccountSignIn {
     /// Finishes it: [`Plugins::finish_account_sign_in`],
     /// [`Plugins::finish_account_sign_in_with_url`].
@@ -64,7 +76,7 @@ pub struct AccountSignIn {
 }
 
 /// What signing in to an account of a type did.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct AccountSignedIn {
     #[serde(flatten)]
     pub account: Account,
@@ -72,13 +84,13 @@ pub struct AccountSignedIn {
     /// kept too, and this one as it was.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instead_of: Option<String>,
-    /// The plugin it was signed in for, if it was.
+    /// The access it gave the plugin it was signed in for, if it was.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub for_plugin: Option<String>,
+    pub access: Option<Access>,
 }
 
 /// What signing out of an account of a type did.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct AccountSignedOut {
     /// The account, as it was.
     #[serde(flatten)]
@@ -190,6 +202,52 @@ impl Plugins {
         kept::read(store)?.accounts.into_iter().map(listing).collect()
     }
 
+    /// The accounts `store` keeps (see [`Plugins::store_accounts`]), then those signed out that
+    /// plugins still have access to, signed out, and every access.
+    pub fn accounts_and_accesses(&self, store: &Store) -> Result<Accounts> {
+        let mut accounts = self.store_accounts(store)?;
+        let accesses = kept::read(store)?.accesses;
+        for a in &accesses {
+            if !accounts.iter().any(|k| k.plugin == a.account.plugin && k.subject == a.account.subject) {
+                accounts.push(Account {
+                    kind: a.kind.clone(),
+                    plugin: a.account.plugin.clone(),
+                    subject: a.account.subject.clone(),
+                    name: a.name.clone(),
+                    scopes: Vec::new(),
+                    expires: None,
+                    refreshes: false,
+                    signed_in: false,
+                });
+            }
+        }
+        Ok(Accounts { accounts, accesses })
+    }
+
+    /// The account plugins providing the account type `kind`, by id.
+    pub fn providing(&self, kind: &str) -> Vec<String> {
+        self.host.providing(kind)
+    }
+
+    /// The account plugin to sign in to an account of type `kind` through: `with`, or the only one
+    /// providing the type.
+    pub fn provider(&self, kind: &str, with: Option<&str>) -> Result<String> {
+        if let Some(with) = with {
+            return Ok(with.into());
+        }
+        match self.providing(kind).as_slice() {
+            [] => Err(Error::NotFound(format!("an account plugin providing {kind} accounts"))),
+            [only] => Ok(only.clone()),
+            several => {
+                let why = format!("several account plugins provide {kind} accounts ({}): name one", several.join(", "));
+                Err(Error::invalid(why)
+                    .because(Reason::MissingParam)
+                    .with("param", "with")
+                    .with("account_plugins", several))
+            }
+        }
+    }
+
     /// Starts signing in to an account of type `kind` in `store` through the account plugin
     /// `with`, for the plugin `for_plugin` if it's for one: the address to open in the browser,
     /// which comes back to this computer. With `account`, it signs in again as that account (the
@@ -280,7 +338,7 @@ impl Plugins {
         let (subject, name) = slot.whoami(t, &tokens.access_token)?;
         let (store, storage) = (&p.store, self.host.options.secrets);
         let _one = kept::hold(store, &asked.with, &subject)?;
-        let account = kept::update(store, |book| {
+        let (account, access) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
                 Some(i) => i,
@@ -295,13 +353,11 @@ impl Plugins {
             kept::keep(storage, store, k, Some(&tokens))?;
             let k = k.clone();
             book.renamed(&k);
-            if let Some((plugin, scopes)) = &asked.for_plugin {
-                book.give(plugin, &k, scopes);
-            }
-            Ok(listed(k, true))
+            let access = asked.for_plugin.as_ref().map(|(plugin, scopes)| book.give(plugin, &k, scopes));
+            Ok((listed(k, true), access))
         })?;
         let instead_of = asked.account.filter(|a| *a != subject);
-        Ok(AccountSignedIn { account, instead_of, for_plugin: asked.for_plugin.map(|(plugin, _)| plugin) })
+        Ok(AccountSignedIn { account, instead_of, access })
     }
 
     /// The access token of the account `subject` that `with` signed in to in `store`, as a

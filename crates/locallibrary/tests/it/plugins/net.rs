@@ -2,88 +2,13 @@
 //! tests may reach, `Options::test_loopback`), and what it keeps from the plugin: hosts it isn't
 //! granted, redirects elsewhere, more than it may hold, and its secrets.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
-
-use indexmap::IndexMap;
 use locallibrary::keychain::Storage;
 
 use super::*;
-
-/// A request the server got.
-#[derive(Debug, Clone, Default)]
-pub(super) struct Got {
-    pub(super) method: String,
-    /// With its query.
-    pub(super) target: String,
-    /// By name, in lowercase.
-    pub(super) headers: IndexMap<String, String>,
-    pub(super) body: String,
-}
-
-pub(super) struct Reply {
-    pub(super) status: u16,
-    pub(super) headers: Vec<(&'static str, String)>,
-    pub(super) body: Vec<u8>,
-}
-
-pub(super) fn ok(body: impl Into<Vec<u8>>) -> Reply {
-    Reply { status: 200, headers: Vec::new(), body: body.into() }
-}
+pub(super) use crate::mock_oauth::{Got, Reply, Server, ok};
 
 fn redirect(to: String) -> Reply {
     Reply { status: 302, headers: vec![("Location", to)], body: Vec::new() }
-}
-
-/// A server on this computer answering each request as `route` says (given its own address and
-/// the request), keeping what it was asked.
-pub(super) struct Server {
-    /// `http://127.0.0.1:<port>`.
-    pub(super) url: String,
-    got: Arc<Mutex<Vec<Got>>>,
-}
-
-impl Server {
-    pub(super) fn new(route: impl Fn(&str, &Got) -> Reply + Send + 'static) -> Server {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let got: Arc<Mutex<Vec<Got>>> = Arc::default();
-        let (base, log) = (url.clone(), got.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                let mut words = line.split(' ');
-                let (method, target) = (words.next().unwrap().to_string(), words.next().unwrap().to_string());
-                let mut headers = IndexMap::new();
-                loop {
-                    line.clear();
-                    reader.read_line(&mut line).unwrap();
-                    let Some((name, value)) = line.trim_end().split_once(": ") else { break };
-                    headers.insert(name.to_lowercase(), value.to_string());
-                }
-                let length = headers.get("content-length").map_or(0, |n| n.parse().unwrap());
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).unwrap();
-                let got = Got { method, target, headers, body: String::from_utf8_lossy(&body).into() };
-                log.lock().unwrap().push(got.clone());
-                let Reply { status, headers, body } = route(&base, &got);
-                let mut head =
-                    format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n", body.len());
-                for (name, value) in headers {
-                    head.push_str(&format!("{name}: {value}\r\n"));
-                }
-                let _ = stream.write_all(format!("{head}\r\n").as_bytes()).and_then(|()| stream.write_all(&body));
-            }
-        });
-        Server { url, got }
-    }
-
-    pub(super) fn got(&self) -> Vec<Got> {
-        self.got.lock().unwrap().clone()
-    }
 }
 
 /// The echo plugin, talking to this computer (`net:127.0.0.1`), at most

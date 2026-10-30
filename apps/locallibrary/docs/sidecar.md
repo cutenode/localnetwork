@@ -354,6 +354,32 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 
 Native bindings (napi-rs) can wrap the same `api` functions later without changing behaviour.
 
+## Accounts
+
+The accounts a store keeps are signed in to through account plugins, and plugins use them through
+the access they're given (see [plugins.md](plugins.md#accounts)). No answer holds a token.
+`accounts.list` answers `{accounts, accesses}`: each account kept (`{type, plugin, subject, name,
+scopes, expires?, refreshes, signed_in}`, `plugin` the account plugin it was signed in through),
+then each one signed out that a plugin still has access to, `signed_in: false`; and each access
+(`{id, plugin, type, account: {plugin, subject}, name, scopes, default}`).
+
+`accounts.sign_in.begin {type, with?, for?, account?, scopes?}` starts a sign-in through the
+account plugin `with` (the only one providing the type when it's left out), for the plugin `for`
+when it's given, again as the account `account` (a subject) when it's given, asking for the type's
+`scopes` besides; it answers `{id, type, plugin, url, redirect_uri}`. Open `url` in the browser,
+then `accounts.sign_in.finish {id, timeout_secs?}` waits for it to come back (300 seconds unless it
+says, an hour at most) and answers the account, with `instead_of` when the browser signed in to
+another than `account`, and `access` when it was for a plugin: the access that plugin was given.
+`accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
+`accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
+subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
+
+`accounts.access.list {plugin?}` answers the accesses, `accounts.access.set_default {plugin,
+account}` makes one the plugin's default for its type (giving the access first when it has none),
+and `accounts.access.take_away {plugin, account}` answers the access taken away. A plugin's
+`account` error with the reason `no_access`, `not_signed_in` or `missing_scope` carries actions
+calling `accounts.sign_in.begin` and `accounts.access.set_default`.
+
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers

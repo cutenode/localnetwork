@@ -6,6 +6,7 @@
 
 use indexmap::IndexSet;
 use loclib_plugin::{AccountNeed, Manifest};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -18,7 +19,7 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 /// The scopes of an account a plugin was given.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Access {
     /// 8 lowercase hex digits, which `{account:<type>/<id>}` names it by.
     pub id: String,
@@ -37,7 +38,7 @@ pub struct Access {
 }
 
 /// An account kept in a store: the account plugin that signed it in, and its subject there.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AccountId {
     pub plugin: String,
     pub subject: String,

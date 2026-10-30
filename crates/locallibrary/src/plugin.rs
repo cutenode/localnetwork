@@ -72,7 +72,7 @@ use crate::keychain::Storage;
 use crate::{Error, Result};
 
 pub use accounts::access::{Access, AccountId};
-pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut};
+pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;

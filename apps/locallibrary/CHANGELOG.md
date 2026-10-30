@@ -427,6 +427,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `plugin list` shows the account type each adds and `plugin info` its scopes; the sidecar's
   `plugins.list` has them as `account_types`. Plugins still sign in through their own accounts
   for now.
+- **Accounts kept once per store.** An account is signed in to once, through an account plugin,
+  and kept in the store; a plugin uses it through the access you give it, which you can make its
+  default for the account type or take away without signing out. The sidecar has them as
+  `accounts.*`.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

@@ -14,49 +14,8 @@ use locallibrary::plugin::{Account, AccountSignedIn};
 use super::accounts::{Service, come_back_to, form, has, opened_at, service};
 use super::net::{Got, Reply, Server};
 use super::*;
-
-/// The account plugin's id.
-pub(super) const WITH: &str = "mock-accounts";
-
-/// An account plugin providing the `mock` account type at `server`, asking `whoami` who signed
-/// in, its token going where `token` says (`Bearer` in the `Authorization` header when it's
-/// empty). Its scopes: `read` covers GETs under `/r/`, `write` POSTs under `/w/`, and `peek`, which
-/// asks the service for nothing, GETs under `/p/`.
-fn account_plugin(server: &str, whoami: &str, token: &str) -> String {
-    format!(
-        r#"id = "{WITH}"
-name = "Mock accounts"
-version = "0.1.0"
-protocol = "^0.2"
-
-[[contributes.account_types]]
-type = "mock"
-title = "Mock"
-authorize_url = "{server}/authorize"
-token_url = "{server}/token"
-client_id = "locallibrary-test"
-revoke_url = "{server}/revoke"
-always = ["openid"]
-whoami = {{ url = "{whoami}", subject = "/sub", name = "/email" }}
-one_account = {{ login_hint = "{{subject}}" }}
-another_account = {{ prompt = "select_account" }}
-{token}
-[contributes.account_types.scopes.read]
-title = "read"
-asks = ["read"]
-requests = [{{ method = "GET", url = "{server}/r/*" }}]
-
-[contributes.account_types.scopes.write]
-title = "write"
-asks = ["write", "read"]
-requests = [{{ method = "POST", url = "{server}/w/*" }}]
-
-[contributes.account_types.scopes.peek]
-title = "peek"
-requests = [{{ method = "GET", url = "{server}/p/*" }}]
-"#
-    )
-}
+pub(super) use crate::mock_oauth::WITH;
+use crate::mock_oauth::account_plugin;
 
 /// The echo plugin, talking to this computer, asking for `mock` accounts: for the scopes
 /// `needs`, and `optional` besides when there are any.
@@ -232,7 +191,8 @@ fn an_account_is_kept_once_whoever_signs_in(tc: TestCase) {
                         let select = (again.is_none() && !kept.is_empty()).then_some("select_account");
                         assert_eq!(opened.get("prompt").map(String::as_str), select, "step {i}");
                         let instead = again.clone().filter(|a| *a != subject);
-                        assert_eq!((done.instead_of.clone(), done.for_plugin.as_deref()), (instead, Some("echo")));
+                        let given = done.access.as_ref().map(|a| a.plugin.as_str());
+                        assert_eq!((done.instead_of.clone(), given), (instead, Some("echo")));
                         assert_eq!((&done.account.subject, &done.account.name), (&subject, &name), "step {i}");
                         answers.push(serde_json::to_value(&done).unwrap());
                         kept.insert(subject, name);
