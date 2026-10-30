@@ -4,8 +4,15 @@ import { PlyrClient } from './plyr';
 
 const URI = 'at://did:plc:dj/fm.plyr.track/3mylmqbui5222';
 
-/** What plyr.fm's /tracks/by-uri answers, cut down to what the client reads plus a few it ignores. */
-type Extra = Partial<{ gated: boolean; support_gate: { type: string }; visibility: string; image_url: string | null }>;
+/** What plyr.fm's /tracks/by-uri and /tracks/<id> answer, cut down to what the client reads plus a few it ignores. */
+type Extra = Partial<{
+	gated: boolean;
+	support_gate: { type: string };
+	visibility: string;
+	image_url: string | null;
+	atproto_record_uri: string | null;
+	atproto_record_cid: string | null;
+}>;
 
 const track = (extra: Extra = {}) => ({
 	id: 1567,
@@ -106,6 +113,27 @@ describe('PlyrClient', () => {
 		expect(await client.track(URI)).toBeNull();
 		expect(await client.track(URI)).toBeNull();
 		expect(asked).toEqual([byUri, byUri]);
+	});
+
+	it("finds a track's record by its ID, and none it hasn't written or can't name", async () => {
+		const CID = 'bafyreihrc5vnkuv5mfz3szvu4bfrtucsxvpu5ms7thsuyfwexmx5gpoyzm';
+
+		const named = (uri: string | null, cid: string | null) => () =>
+			Response.json(track({ atproto_record_uri: uri, atproto_record_cid: cid }));
+
+		const { fetch, asked } = plyr({
+			'/tracks/1567': named(URI, CID),
+			'/tracks/1': named(URI, null),
+			'/tracks/2': named(null, CID),
+			'/tracks/3': () => new Response('down', { status: 500 })
+		});
+
+		const client = new PlyrClient(silentLogger, fetch);
+
+		expect(await client.record('1567')).toEqual({ uri: URI, cid: CID });
+
+		for (const id of ['1', '2', '3', '404']) expect(await client.record(id)).toBeNull();
+		expect(asked).toEqual(['/tracks/1567', '/tracks/1', '/tracks/2', '/tracks/3', '/tracks/404']);
 	});
 
 	it('forgets the oldest answer past its limit', async () => {

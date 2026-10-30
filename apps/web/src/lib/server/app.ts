@@ -149,7 +149,8 @@ export async function createApp(options: CreateAppOptions) {
 	const happyView = new HappyViewClient(config.happyView);
 	const bundle = () => happyViewBundle(rootDid, config.userinputSpace);
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
-	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills);
+	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
+	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
 	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
@@ -161,7 +162,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const recordings = new RecordingService(
 		indexedRepo,
-		new PlyrClient(logger.child({ component: 'plyr' })),
+		plyr,
 		async (did) => (await projects.managedBy(did)).some((project) => project.status === 'active'),
 		logger.child({ component: 'recordings' })
 	);
