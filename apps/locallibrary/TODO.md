@@ -360,12 +360,17 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Performance
 
-- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`).
-- [ ] `Device::scan_fingerprinted` forgets every database key, so `.locallibrary/index.json` is
-      rewritten with `F_FULLFSYNC` on every scan (about 20% of `check`'s per-drive time). Skipping
-      it changes the index's `at` timestamps.
-- [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
-      transaction changes the header's change counters, which `content_hash` already ignores.
+- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`). On one machine, plugged
+      in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
+      with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
+      of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
+      a 5,000-track drive, `check` on a drive and the `bnb/perf` criterion benches. Switch only if
+      the run times win by more than their run-to-run spread. Needs about 15 GB free.
+- [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
+      building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
+      `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
+      planning a replay of one (its edits name tracks by path, which the plan's per-track model
+      in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
       O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
 - [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`

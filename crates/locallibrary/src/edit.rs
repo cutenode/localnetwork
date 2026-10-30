@@ -2319,6 +2319,28 @@ impl Edit {
     }
 }
 
+/// Resolve `edit` against the model and make its ops there, with the edit as recorded: nothing
+/// for one that changes nothing. One that fails leaves the model as it was.
+fn plan_edit(
+    resolver: &Resolver,
+    model: &mut ModelDb<'_>,
+    edit: &Edit,
+    warnings: &mut Vec<String>,
+) -> Result<(Vec<Op>, String, Vec<Edit>)> {
+    let (edit_ops, desc, canonical) = resolver.resolve(edit, &model.lib)?;
+    let before = model.lib.clone();
+    for op in &edit_ops {
+        if let Err(e) = apply_op(model, op, true, "plan", warnings) {
+            model.lib = before;
+            return Err(e);
+        }
+    }
+    // An edit that changes nothing isn't recorded: a replay could only skip it. (A repoint can
+    // move only My Tags, which the model doesn't hold.)
+    let changed = model.lib != before || edit_ops.iter().any(|op| matches!(op, Op::Repoint { .. }));
+    Ok((edit_ops, desc, if changed { canonical } else { Vec::new() }))
+}
+
 /// [`plan`], with what the edits' selectors need from the drive.
 fn plan_with(
     device: &Device,
@@ -2380,21 +2402,10 @@ fn plan_with(
     let mut recorded = Vec::new();
     // Tracks deleted by an edit that keeps their files (the others' files go).
     let mut kept: FxHashSet<String> = FxHashSet::default();
+    let mut index = None;
     for edit in &rest {
         ctx.check()?;
-        let resolved = resolver.resolve(edit, &model.lib).and_then(|(edit_ops, desc, canonical)| {
-            let before = model.lib.clone();
-            for op in &edit_ops {
-                if let Err(e) = apply_op(&mut model, op, true, "plan", &mut warnings) {
-                    model.lib = before;
-                    return Err(e);
-                }
-            }
-            // An edit that changes nothing isn't recorded: a replay could only skip it. (A
-            // repoint can move only My Tags, which the model doesn't hold.)
-            let changed = model.lib != before || edit_ops.iter().any(|op| matches!(op, Op::Repoint { .. }));
-            Ok((edit_ops, desc, if changed { canonical } else { Vec::new() }))
-        });
+        let resolved = track_index::plan_edit_indexed(&resolver, &mut model, &mut index, edit, &mut warnings);
         let notes = std::mem::take(&mut *resolver.notes.borrow_mut());
         match resolved {
             Ok((edit_ops, desc, canonical)) => {
@@ -2418,8 +2429,9 @@ fn plan_with(
     let mut onelibrary_changes = false;
     if let (Some(_), Some((plus_lib, _))) = (&dbs.pdb, &dbs.plus) {
         let mut second = ModelDb { lib: plus_lib.clone(), pdb: None };
+        let mut index = None;
         for op in &ops {
-            apply_op(&mut second, op, false, "exportLibrary.db", &mut warnings)?;
+            track_index::apply_op_indexed(&mut second, &mut index, op, false, "exportLibrary.db", &mut warnings)?;
         }
         onelibrary_changes = second.lib != *plus_lib;
     }
@@ -3311,6 +3323,8 @@ fn edit_in_memory(
 // ---------------------------------------------------------------------------------------------
 // Journal
 // ---------------------------------------------------------------------------------------------
+
+mod track_index;
 
 /// The edits made to a drive, kept in `.locallibrary/edits.json` so they can be made again after
 /// rekordbox replaces the drive's databases with a new export.
