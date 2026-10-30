@@ -75,6 +75,9 @@ export default defineConfig({
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
+		// Vitest's module cache defaults to the workspace root's node_modules, shared with localtoolbox's run.
+		// lefthook's pre-push runs both at once, and one's clean-up then fails the other with ENOTEMPTY.
+		fsModuleCachePath: `${import.meta.dirname}/node_modules/.vitest-cache`,
 		// Every browser test worker is a Chromium of its own, and Vitest's default is one per core but one
 		// (fourteen on a 15-core Mac), so a few checkouts testing at once open dozens. Three is CI's default on
 		// its 4-core runners, and locally the suites ran no slower with it. Vitest sizes one pool for projects
