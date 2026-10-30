@@ -326,6 +326,38 @@ describe('set record script', () => {
 		});
 	});
 
+	it("leaves out strings longer than the directory's views allow, so the queries that show them still answer", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const long = (bytes: number) => 'x'.repeat(bytes);
+
+		const set = await publishSet(hv, 'did:plc:dj', {
+			title: long(1001),
+			kind: long(641),
+			venue: 'Tresor',
+			location: { ...address('Berlin'), locality: long(1001) },
+			tracks: [
+				{ title: long(3001), artist: 'A' },
+				{ title: 'Credit', artist: long(3001) },
+				{ title: 'Names', artists: [{ artistName: long(2561) }, { artistName: 'B' }] },
+				{ title: 'Pair', artists: [{ artistName: long(2000) }, { artistName: long(2000) }] },
+				{ title: 'Kept', artist: 'C' }
+			]
+		});
+
+		expect((await query<Sets>(hv, 'getSets', { uris: set.uri })).sets).toEqual([
+			{ ...set, date: expect.any(String), venue: 'Tresor', trackCount: 5 }
+		]);
+
+		const [record] = (await query<Records>(hv, 'getRecords', { uris: set.uri })).records;
+		expect(record.value).toMatchObject({
+			namedTracks: [
+				{ title: 'Names', artists: [{ artistName: 'B' }] },
+				{ title: 'Kept', artists: [{ artistName: 'C' }] }
+			]
+		});
+	});
+
 	it('removes a deleted set', async () => {
 		const hv = new FakeHappyView(ROOT);
 		await publish(hv, {}, { managers: ['did:plc:dj'] });

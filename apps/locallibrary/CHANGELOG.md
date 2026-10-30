@@ -168,7 +168,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
   `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
   teal.fm's and skaists' records so readers can map them. MusicBrainz IDs are bare UUIDs, as
-  teal.fm writes them. locallibrary fills them from files Picard tagged, else from a plugin
+  teal.fm writes them. Every string in the three Lexicons has a length limit (a setting or other
+  known value at most 32 bytes, a MusicBrainz ID 64), so a record of any size no longer passes. locallibrary fills them from files Picard tagged, else from a plugin
   analyzer's `recording`, `release` and `artists` roles when its `isrc` and `credits` say they're
   for the track as the set has it, which `sets publish` runs first on the tracks it names, once
   it's signed in and confirmed, and keeps in the set (`--no-lookup` doesn't; over RPC
