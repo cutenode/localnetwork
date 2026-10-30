@@ -165,6 +165,7 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
             color: hot_cue.map(|h| [h, 0, 255]),
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         })
         .collect();
     TrackAnalysis {

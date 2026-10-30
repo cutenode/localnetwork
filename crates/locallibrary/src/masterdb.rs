@@ -533,9 +533,11 @@ impl Db<'_> {
                 end_ms: (end > start).then(|| clamp(end)),
                 comment: text(&r[5]),
                 color: hot_cue.and_then(|_| u8::try_from(color_code).ok()).and_then(anlz::hot_cue_palette),
-                // Memory cue colours and stored loop lengths aren't read from master.db yet.
+                // Memory cue colours, stored loop lengths and active loops aren't read from
+                // master.db yet.
                 color_id: 0,
                 loop_beats: None,
+                active_loop: false,
             });
         }
         for list in cues.values_mut() {

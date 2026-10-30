@@ -1305,7 +1305,7 @@ fn plays_a_file_opened_in_the_background() {
     let mut app = App::blank(dir.path().join("store"), Some(audio));
     let mut track = track(1, "DJ", "Set");
     track.duration_secs = 2;
-    assert!(app.play_file(&path, track, Duration::from_millis(500)));
+    app.play_file(&path, track, Duration::from_millis(500));
     assert!(app.now.as_ref().is_some_and(|n| n.opening));
     wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     assert!(app.audio.as_ref().unwrap().is_loaded());
@@ -1455,6 +1455,7 @@ fn losing_the_output_lets_go_and_plays_on_through_another() {
     app.seek_to(ms(200));
     assert_eq!(app.position(), ms(200));
     press(&mut app, " ");
+    output_opened(&mut app);
     assert!(app.audio.is_some(), "opened again");
     opened(&mut app);
     assert_eq!((title(&app), app.position(), app.is_playing()), (Some("Track 1".into()), ms(200), true));
@@ -1462,6 +1463,46 @@ fn losing_the_output_lets_go_and_plays_on_through_another() {
     app.audio.as_ref().unwrap().stream_failed("underrun", false);
     app.tick();
     assert!(app.audio.is_some() && app.is_playing());
+}
+
+/// With no output open, playing a track opens one in the background, which can take a while (a
+/// Bluetooth or AirPlay device): the player goes on meanwhile, the track shows as opening, space
+/// still says whether it starts paused, and once the output is open it plays, from where it was to
+/// start. When no output opens, it says it can't play, and space carries on from there.
+#[test]
+fn the_first_play_opens_the_output_without_holding_up_the_player() {
+    use super::super::audio::Outputs;
+    use std::sync::{Condvar, Mutex};
+    static GATE: Gate = (Mutex::new(false), Condvar::new());
+    let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+    opened(&mut app);
+    app.stop();
+    app.audio = None;
+    app.outputs = Outputs { open: |name| open_when_let(&GATE, name), ..super::super::audio::tests::OUTPUTS };
+    let (library, root) = (app.queue.library.clone(), app.queue.root.clone());
+    app.play_tracks(library.clone(), vec![0, 1], root.clone(), 1);
+    app.seek_to(ms(100));
+    assert!(app.deck.opening.is_some() && app.animating(), "the output opening");
+    // The track's file opens meanwhile, and waits for the output.
+    wait(&mut app, |a| a.waiting_file.is_some());
+    assert!(app.now.as_ref().is_some_and(|n| n.opening) && app.audio.is_none());
+    press(&mut app, "  ");
+    press(&mut app, "Q");
+    assert!(!app.deck.quantize, "keys go on");
+    let_open(&GATE);
+    output_opened(&mut app);
+    assert_eq!((title(&app), app.position(), app.is_playing()), (Some("Track 2".into()), ms(100), true));
+
+    // No output at all: it can't play, and space carries on from where it was to start.
+    app.stop();
+    app.audio = None;
+    app.outputs = Outputs::NONE;
+    app.play_tracks(library, vec![0, 1], root, 0);
+    app.seek_to(ms(200));
+    output_opened(&mut app);
+    assert_eq!(last_message(&app), "can't play: no audio output device");
+    assert!(app.now.is_none() && app.waiting_file.is_none());
+    assert_eq!(app.resumable().map(|(t, at)| (t.title.clone(), at)), Some(("Track 1".into(), ms(200))));
 }
 
 /// A key pressed as the player goes on to the next track, before a tick has caught up with
@@ -1491,6 +1532,7 @@ fn switching_outputs_keeps_the_track_as_it_was() {
             key(app, KeyCode::Down);
         }
         press(app, "\n");
+        output_opened(app);
     };
     opened(&mut app);
     let looped = Loop { start: 100.0, end: 300.0, on: true };
@@ -1514,7 +1556,7 @@ fn switching_outputs_keeps_the_track_as_it_was() {
     let path = dir.path().join("Contents/1.wav");
     let mut set = track(9, "DJ", "Set");
     set.file_path = path.display().to_string();
-    assert!(app.play_file(&path, set, ms(50)));
+    app.play_file(&path, set, ms(50));
     opened(&mut app);
     press(&mut app, " ");
     switch(&mut app, 1);
@@ -1973,6 +2015,7 @@ fn clicks_select_play_sort_and_switch_views() {
     quick_again(&mut app);
     mouse(&mut app, LEFT, row);
     assert_eq!((&app.queue.items, app.queue.pos), (&app.visible, 2));
+    output_opened(&mut app);
     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
 
     point(&mut app, LEFT, "BPM");
@@ -2638,9 +2681,12 @@ fn moving_back_and_past_the_end_of_the_queue() {
 
     let (mut silent, _dir) = app_with(library());
     press(&mut silent, " ");
+    output_opened(&mut silent);
     assert!(last_message(&silent).starts_with("can't play"), "{}", last_message(&silent));
     let track = silent.loaded.as_ref().unwrap().library.tracks[0].clone();
-    assert!(!silent.play_file(Path::new("/nowhere/set.wav"), track, Duration::ZERO));
+    silent.play_file(Path::new("/nowhere/set.wav"), track, Duration::ZERO);
+    output_opened(&mut silent);
+    assert!(silent.now.is_none() && last_message(&silent).starts_with("can't play"));
 }
 
 /// Space carries on where the last run left off: the track it was on, from where it was.
@@ -2884,6 +2930,7 @@ fn an_output_thats_gone_plays_through_the_default() {
     app.outputs = super::super::audio::tests::OUTPUTS;
     app.deck.output = Some("Speakers".into());
     press(&mut app, "\n");
+    output_opened(&mut app);
     assert!(app.audio.is_some());
     assert_eq!(last_message(&app), "no output called Speakers: playing through the default output");
 }
@@ -2896,7 +2943,7 @@ fn a_recorded_set_stops_at_its_end() {
     let mut set = track(9, "DJ", "Set");
     set.duration_secs = 0;
     let path = dir.path().join("Contents/2.wav");
-    assert!(app.play_file(&path, set, Duration::ZERO));
+    app.play_file(&path, set, Duration::ZERO);
     opened(&mut app);
     (&mut out).take(4100).for_each(drop);
     wait(&mut app, |a| a.now.is_none());
@@ -3150,4 +3197,62 @@ fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
     app.now.as_mut().unwrap().from_plugins = info.from_plugins;
     let s = crate::tui::ui::screen(&mut app, 160, 45);
     assert!(s.contains(said), "{s}");
+}
+
+/// Full screen, the "mixes into" panel shows each match in its own track's key, as the drive's
+/// library has it (LOC-13: every match was said to show 4A). On rekordcrate's 3,886-track
+/// export, playing tracks in each of the keys it has.
+#[test]
+fn the_mixes_into_panel_shows_each_matchs_own_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let pdb = dir.path().join(paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures/rekordcrate/large");
+    std::fs::copy(fixture.join("export.pdb"), &pdb).unwrap();
+    let mut app = app_on(dir.path());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    // A track in each key there is.
+    let mut keys = FxHashSet::default();
+    let playing: Vec<Track> = (lib.tracks.iter())
+        .filter(|t| t.bpm > 0.0 && Camelot::parse(&t.key).is_some_and(|k| keys.insert(k.code())))
+        .cloned()
+        .collect();
+    assert!(playing.len() > 12, "the export's keys: {keys:?}");
+    let mut shown = FxHashSet::default();
+    for (id, track) in (100..).zip(playing) {
+        let info = track_info(dir.path(), &track, Some(lib.clone()), &dir.path().join("store"));
+        app.now = Some(NowPlaying {
+            id,
+            key: Camelot::parse(&track.key),
+            drive: "LARGE".into(),
+            root: dir.path().to_path_buf(),
+            analysis: TrackAnalysis::default(),
+            from_plugins: None,
+            art: None,
+            duration: Duration::from_secs(300),
+            phrases: Vec::new(),
+            matches: None,
+            playlists: Vec::new(),
+            loading: true,
+            opening: false,
+            advancing: false,
+            track: track.clone(),
+        });
+        app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
+        app.fullscreen = true;
+        let s = super::super::ui::screen(&mut app, 200, 60);
+        let m = app.now.as_ref().unwrap().matches.as_ref().expect("the drive's library is open");
+        for x in m.items.iter().take(8) {
+            let t = m.track(x);
+            let key = Camelot::parse(&t.key).expect("matched on its key");
+            assert_eq!(x.key, key, "{} - {}", t.artist, t.title);
+            // Titles are cut to fit; the start of the row is enough.
+            let row = format!("{:<4}{:>5.1} ", key.code(), t.bpm);
+            let title: String = t.title.chars().take(12).collect();
+            assert!(s.lines().any(|l| l.contains(&format!("{row}{title}"))), "{row}{title} playing {}: {s}", track.key);
+            shown.insert(key.code());
+        }
+    }
+    assert!(shown.len() > 12, "keys shown: {shown:?}");
 }

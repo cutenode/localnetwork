@@ -210,10 +210,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       status KEYCHAIN` next time it's mounted.
 - [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
       let the TUI offer one-key fixes.
-- [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
-- [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
-      UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
       report shows one averaged speed.
 - [ ] `mix --cover FILE`: reports and exports carry a cover only when it's embedded in the

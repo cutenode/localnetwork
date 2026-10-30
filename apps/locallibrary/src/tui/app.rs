@@ -31,6 +31,7 @@ use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::{self, Category, Group, Node, NodeId, Problems, SavedNode};
 use super::crate_list::{Crate, CrateTrack};
+use super::deck::{OpenedOutput, OutputAsk};
 use super::drives::{DriveKey, DriveRow};
 use super::edits::{Action, Job, Menu, Modal, Pick};
 use super::keymap::{self, Act};
@@ -751,6 +752,9 @@ pub enum Msg {
     Opened(u64, Result<audio::OpenedFile, String>),
     /// The output devices and the system's default, for the listing with this id (`d`).
     Outputs(u64, Result<audio::Listed, String>),
+    /// An output opened in the background (or not), for the ask with this id, as it was asked
+    /// for.
+    Output(u64, OutputAsk, Result<OpenedOutput, String>),
     /// Something background work has to say (a report written, say).
     Note(String, Level),
     /// A line of a plugin's log, for the messages (`!`) alone.
@@ -893,6 +897,20 @@ struct ViewKeep {
     offset: usize,
 }
 
+/// A letter typed with shift, as a terminal reporting keys by their codes sends it (CSI u, or
+/// xterm's modifyOtherKeys): the lowercase letter, and shift. Taken as the capital, as other
+/// terminals send it, so `Q` isn't `q` (quit).
+fn capital(mut key: KeyEvent) -> KeyEvent {
+    let typed = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+    if let KeyCode::Char(c) = key.code
+        && typed
+        && key.modifiers.contains(KeyModifiers::SHIFT)
+    {
+        key.code = KeyCode::Char(c.to_ascii_uppercase());
+    }
+    key
+}
+
 /// Edit a line of text with a key: typing, backspace, ctrl-u to clear, ctrl-w to delete a word.
 /// Returns whether the text changed.
 pub fn edit_line(text: &mut String, key: KeyEvent) -> bool {
@@ -1025,6 +1043,9 @@ pub struct App {
     opener: Opener,
     /// The next track, opened ahead of the playing one's end.
     upcoming: Option<Upcoming>,
+    /// The playing track's file (for the play with this id), opened before the output it plays
+    /// through: it waits for the output (see `output_ready`).
+    waiting_file: Option<(u64, audio::OpenedFile)>,
     pub queue: Queue,
     pub shuffle: bool,
     pub repeat: Repeat,
@@ -1203,6 +1224,7 @@ impl App {
             now: None,
             opener: Opener::default(),
             upcoming: None,
+            waiting_file: None,
             queue: Queue::default(),
             shuffle: false,
             repeat: Repeat::Off,
@@ -1661,6 +1683,7 @@ impl App {
         if let Some(color) = crossed {
             self.flash = Some((color, Instant::now()));
         }
+        super::deck::reach_active_loop(self, prev, pos_ms);
         self.last_pos_ms = pos_ms;
     }
 
@@ -1695,6 +1718,7 @@ impl App {
             || self.now.as_ref().is_some_and(|n| n.loading)
             || self.loaded.as_ref().is_some_and(Loaded::reading_set)
             || self.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some())
+            || self.deck.opening.is_some()
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
@@ -1861,6 +1885,7 @@ impl App {
             }
             Msg::Opened(id, r) => self.opened(id, r),
             Msg::Outputs(id, r) => super::deck::listed_outputs(self, id, r),
+            Msg::Output(id, ask, r) => self.output_opened(id, ask, r),
             Msg::Note(msg, level) => self.toast(msg, level),
             Msg::Log(line) => self.remember(line, Level::Info),
             Msg::Notice(notice) => self.told(notice),
@@ -2484,41 +2509,94 @@ impl App {
         self.play_tracks(Arc::new(Library { tracks, ..Default::default() }), items, root, start);
     }
 
-    /// The output to play through: the one open, else (there was none, or it went away) the one
-    /// picked, or the default, opened now. False, with `audio_error` saying why, when none opens.
-    pub(super) fn open_output(&mut self) -> bool {
-        if self.audio.is_none() {
-            let (audio, missing) = self.outputs.open_preferring(self.deck.output.as_deref());
-            match audio {
-                Ok(mut a) => {
-                    a.set_volume(self.volume);
-                    self.audio = Some(a);
-                    self.audio_error = None;
-                    if let Some(why) = missing {
-                        self.toast(format!("{why}: playing through the default output"), Level::Info);
-                    }
-                }
-                Err(e) => self.audio_error = Some(format!("{e:#}")),
-            }
+    /// With no output open or opening (there was none, or it went away), open the one to play
+    /// through: the one picked, else the default. In the background, as a slow device (Bluetooth,
+    /// AirPlay) can take seconds (see `output_ready` and `no_output`).
+    pub(super) fn open_output(&mut self) {
+        if self.audio.is_none() && self.deck.opening.is_none() {
+            self.open_in_background(OutputAsk::Play);
         }
-        self.audio.is_some()
     }
 
-    /// Stop what's playing, to play something else. False, saying why, when there's no output.
-    fn ready_to_play(&mut self) -> bool {
-        if !self.open_output() {
-            let e = self.audio_error.clone().unwrap_or_default();
-            self.toast(format!("can't play: {e}"), Level::Error);
-            return false;
+    /// Open an output in the background, as `ask` says. The last asked for wins: what comes
+    /// back for one asked for before it is dropped.
+    pub(super) fn open_in_background(&mut self, ask: OutputAsk) {
+        let (id, outputs, preferred) = (self.next_id(), self.outputs, self.deck.output.clone());
+        self.deck.opening = Some(id);
+        let failed = ask.clone();
+        self.spawn_or(
+            move || {
+                let opened = match &ask {
+                    OutputAsk::Pick(name) => (outputs.open)(name.as_deref()).map(|a| (a, None)),
+                    OutputAsk::Play => {
+                        let (audio, missing) = outputs.open_preferring(preferred.as_deref());
+                        audio.map(|a| (a, missing))
+                    }
+                };
+                Msg::Output(id, ask, opened.map(|(a, missing)| (Box::new(a), missing)).map_err(|e| format!("{e:#}")))
+            },
+            move |e| Msg::Output(id, failed, Err(e)),
+        );
+    }
+
+    /// An output opened in the background (or didn't), for the ask with this id.
+    fn output_opened(&mut self, id: u64, ask: OutputAsk, opened: Result<OpenedOutput, String>) {
+        if self.deck.opening != Some(id) {
+            return;
         }
+        self.deck.opening = None;
+        match (ask, opened) {
+            (OutputAsk::Pick(name), Ok((a, _))) => super::deck::picked_output(self, name, *a),
+            // (One is open already, given it meanwhile: it stays.)
+            (OutputAsk::Play, Ok(_)) if self.audio.is_some() => {}
+            (OutputAsk::Play, Ok((a, missing))) => self.output_ready(*a, missing),
+            // (Playing on through the output it was, if any.)
+            (OutputAsk::Pick(_), Err(e)) => self.toast(e, Level::Error),
+            (OutputAsk::Play, Err(e)) => self.no_output(e),
+        }
+    }
+
+    /// The output to play through is open: the track waiting for it plays.
+    fn output_ready(&mut self, mut a: Audio, missing: Option<String>) {
+        a.set_volume(self.volume);
+        self.audio = Some(a);
+        self.audio_error = None;
+        if let Some(why) = missing {
+            self.toast(format!("{why}: playing through the default output"), Level::Info);
+        }
+        if let Some((id, file)) = self.waiting_file.take() {
+            self.opened(id, Ok(file));
+        }
+    }
+
+    /// No output opens, `why`. A track waiting for one can't play: it stops, and space carries on
+    /// with it from where it was to start.
+    fn no_output(&mut self, why: String) {
+        if self.audio.is_some() {
+            return;
+        }
+        self.audio_error = Some(why.clone());
+        if self.now.as_ref().is_some_and(|n| n.opening) {
+            let at = self.pending_seek.unwrap_or_default();
+            let queued = self.playing_queue();
+            self.stop();
+            self.resume = queued.then_some(at);
+            self.toast(format!("can't play: {why}"), Level::Error);
+        }
+    }
+
+    /// Stop what's playing, to play something else. With no output open, one opens in the
+    /// background meanwhile (see `open_output`).
+    fn ready_to_play(&mut self) {
+        self.open_output();
         if let Some(a) = &mut self.audio {
             a.stop();
         }
+        self.waiting_file = None;
         self.upcoming = None;
         self.pending_seek = None;
         self.start_paused = false;
         self.deck.looped = None;
-        true
     }
 
     /// The output's news: a seek it couldn't make, or its stream failing. When the output is
@@ -2554,15 +2632,14 @@ impl App {
 
     /// Start the queue's current track. It shows at once; its audio file is opened in the
     /// background (see `opened`), and its analysis, artwork and matches are read in the
-    /// background too, filling in when they arrive. False when there's no track or no audio.
+    /// background too, filling in when they arrive (and the output, when none is open). False
+    /// when there's no track.
     fn start_current(&mut self) -> bool {
         let Some(&i) = self.queue.order.get(self.queue.pos) else { return false };
         let track = self.queue.track(i).clone();
         // Where the last run left off was for the track it was on: once another starts, it's gone.
         self.resume = None;
-        if !self.ready_to_play() {
-            return false;
-        }
+        self.ready_to_play();
         self.now = Some(self.open(track, true));
         true
     }
@@ -2680,7 +2757,8 @@ impl App {
         } else {
             // A recorded set, played on its own.
             let (path, track) = (PathBuf::from(&now.track.file_path), now.track.clone());
-            self.play_file(&path, track, Duration::ZERO)
+            self.play_file(&path, track, Duration::ZERO);
+            true
         };
         if !started {
             self.resume = at.or(Some(Duration::ZERO));
@@ -2743,9 +2821,12 @@ impl App {
         let Some(now) = self.now.as_mut().filter(|n| n.id == id && n.opening) else {
             return; // another track was started since: this one's dropped
         };
-        now.opening = false;
+        let output_opening = self.audio.is_none() && self.deck.opening.is_some();
         match file {
+            // Opened before the output it plays through: it waits for it.
+            Ok(file) if output_opening => self.waiting_file = Some((id, file)),
             Ok(file) => {
+                now.opening = false;
                 now.duration = file_duration(&now.track, &file);
                 let paused = std::mem::take(&mut self.start_paused);
                 // (The output went away while it opened: it waits for the next play.)
@@ -2756,7 +2837,10 @@ impl App {
                     self.seek_to(at);
                 }
             }
-            Err(e) => self.wont_play(e),
+            Err(e) => {
+                now.opening = false;
+                self.wont_play(e);
+            }
         }
     }
 
@@ -2825,6 +2909,7 @@ impl App {
         }
         self.now = None;
         self.upcoming = None;
+        self.waiting_file = None;
         self.opener.drop_all();
     }
 
@@ -2849,9 +2934,12 @@ impl App {
     }
 
     fn toggle_pause(&mut self) {
+        let output_opening = self.audio.is_none() && self.deck.opening.is_some();
         match (&self.audio, &self.now) {
-            // Still opening (a slow drive): it starts paused or playing as last asked.
+            // Still opening (a slow drive, or a slow output): it starts paused or playing as last
+            // asked.
             (Some(_), Some(n)) if n.opening => self.start_paused = !self.start_paused,
+            (None, Some(n)) if n.opening && output_opening => self.start_paused = !self.start_paused,
             (Some(a), Some(_)) => a.toggle_pause(),
             // The output went away: play on from where it was, through what there is now.
             (None, Some(_)) => {
@@ -2901,10 +2989,8 @@ impl App {
     /// Play a file that isn't one of a drive's tracks (a recorded set) on its own, from `start`
     /// (the queue stays, for afterwards). `track` is what the player shows for it. The file is
     /// opened in the background.
-    pub(super) fn play_file(&mut self, path: &Path, track: Track, start: Duration) -> bool {
-        if !self.ready_to_play() {
-            return false;
-        }
+    pub(super) fn play_file(&mut self, path: &Path, track: Track, start: Duration) {
+        self.ready_to_play();
         self.resume = None;
         self.pending_seek = (start > Duration::ZERO).then_some(start);
         let id = self.next_id();
@@ -2930,7 +3016,6 @@ impl App {
             opening: true,
             advancing: false,
         });
-        true
     }
 
     fn jump_cue(&mut self, forward: bool) {
@@ -3145,6 +3230,7 @@ impl App {
     // -----------------------------------------------------------------------------------------
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        let key = capital(key);
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
         self.follow_queue();
