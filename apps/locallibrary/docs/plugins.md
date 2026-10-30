@@ -87,7 +87,7 @@ are:
   chapters when there are three or more, in order, each at least ten seconds long, so a time that
   would break that is left off its line (the dry run says how many). Who can watch it is the
   `privacy` setting, `unlisted` unless you set `private` or `public`. Sign in first with
-  `locallibrary plugin account youtube google sign-in`: it asks Google only to upload videos.
+  `locallibrary account google sign-in --for youtube`: it asks Google only to upload videos.
   The video goes in 16 MiB parts, and one that doesn't arrive is sent again from where YouTube got
   to, a few times at most; an upload that stops partway starts over when you publish again.
 
