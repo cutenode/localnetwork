@@ -377,7 +377,7 @@ pub fn page(
                 .collect();
             json!({
                 "track": track, "start": p.start, "end": p.end, "track_start": p.track_start,
-                "track_end": p.track_end, "tempo": p.tempo, "played_bpm": p.played_bpm,
+                "track_end": p.track_end, "tempo": p.tempo, "speed_range": p.speed_range, "played_bpm": p.played_bpm,
                 "key_lock": p.key_lock, "semitones": p.semitones, "key": p.key, "played_key": p.played_key,
                 "confidence": p.confidence, "tentative": p.is_tentative(), "presence": p.presence,
                 "presence_step": p.presence_step, "jumps": p.jumps, "alternates": alternates,

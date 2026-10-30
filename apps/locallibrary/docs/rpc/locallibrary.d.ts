@@ -6725,6 +6725,11 @@ export type Play = {
   track_end: number;
   /** Playback speed: 1.0 as recorded, 1.03 is +3%. */
   tempo: number;
+  /**
+   * The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+   * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+   */
+  speed_range?: [number, number] | null;
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -6893,6 +6898,8 @@ export type ExportPlay = {
   trackEnd: number;
   /** Playback speed: 1.03 is +3%. */
   tempo: number;
+  /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
+  speedRange?: [number, number] | null;
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;

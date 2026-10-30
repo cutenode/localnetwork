@@ -114,6 +114,9 @@ pub struct ExportPlay {
     pub track_end: f64,
     /// Playback speed: 1.03 is +3%.
     pub tempo: f64,
+    /// The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_range: Option<(f64, f64)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub played_bpm: Option<f64>,
     /// `None` when the speed is too close to 1.0 to tell.
@@ -373,7 +376,8 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
         end: r2(p.end),
         track_start: r2(p.track_start),
         track_end: r2(p.track_end),
-        tempo: (p.tempo * 10_000.0).round() / 10_000.0,
+        tempo: r4(p.tempo),
+        speed_range: p.speed_range.map(|(slowest, fastest)| (r4(slowest), r4(fastest))),
         played_bpm: p.played_bpm.map(|b| (b * 10.0).round() / 10.0),
         key_lock: p.key_lock,
         semitones: r2(p.semitones),
@@ -384,6 +388,11 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
         presence_step: p.presence_step,
         jumps: p.jumps,
     }
+}
+
+/// A speed to the ten-thousandth.
+fn r4(speed: f64) -> f64 {
+    (speed * 10_000.0).round() / 10_000.0
 }
 
 #[cfg(test)]

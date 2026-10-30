@@ -43,6 +43,7 @@ pub(crate) fn report(plays: &[(u32, f64, f64)]) -> MixReport {
         track_start: 0.0,
         track_end: 200.0,
         tempo: 1.0,
+        speed_range: None,
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,

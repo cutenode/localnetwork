@@ -26409,6 +26409,25 @@
           "format": "double",
           "description": "Playback speed: 1.0 as recorded, 1.03 is +3%."
         },
+        "speed_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
+        },
         "played_bpm": {
           "type": [
             "number",
@@ -26965,6 +26984,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.03 is +3%."
+        },
+        "speedRange": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average."
         },
         "playedBpm": {
           "type": [

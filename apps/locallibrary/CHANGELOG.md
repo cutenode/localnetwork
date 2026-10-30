@@ -737,6 +737,11 @@ their old names.
   `collection` read memory loops as hot cue D and shifted D-H by one. OneLibrary's `cue.kind` is
   written the same way.
 - `mix` no longer reports riding the pitch fader as a loop or skip.
+- `mix` gives the slowest and fastest speeds of a track the pitch fader was ridden through, in the
+  HTML report, the tracklist, the player's Mixes view and `--export` (`speedRange`, which the
+  website's mix report shows too). A ride of a few percent read as one speed (their average, or the
+  speed searched when that was 2% or more off), and how clearly the track was heard was measured
+  at that speed, which it was never played at.
 - `status` and the player's replay offer no longer take a player's writes for a rekordbox export
   on drives with both databases, and replaying field edits already in place changes nothing.
 - `library log` shows snapshots saved beside the latest (drives back from a set) as `beside`;
