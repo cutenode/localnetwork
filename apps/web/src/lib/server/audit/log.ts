@@ -155,7 +155,8 @@ const rootCopy = z
 	.partial()
 	.extend({ chain: z.object({ seq: z.int().min(1), prev: z.string(), hash: z.string() }) });
 
-const backoffMs = (attempts: number) => Math.min(60 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1));
+/** How long to wait before the next try after `attempts` failed ones: 5 seconds, doubling, up to an hour. */
+export const backoffMs = (attempts: number) => Math.min(60 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1));
 
 /**
  * The audit log. Every action is recorded locally first (an outbox with a

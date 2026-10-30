@@ -274,6 +274,63 @@ const sharedSpaces = statements(
 	)`
 );
 
+/**
+ * People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of; how each person wants
+ * them sent on by email or DM (notifications/channels.ts); and the outbox of what's waiting to go
+ * (notifications/outbox.ts).
+ */
+const inbox = statements(
+	`CREATE TABLE notification (
+		id TEXT PRIMARY KEY,
+		recipient_did TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		dedupe_key TEXT NOT NULL,
+		subject_uri TEXT NOT NULL,
+		href TEXT NOT NULL,
+		data TEXT NOT NULL,
+		occurred_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		read_at TEXT,
+		UNIQUE (recipient_did, dedupe_key)
+	)`,
+	`CREATE INDEX notification_recipient ON notification (recipient_did, occurred_at DESC, id DESC)`,
+	// The unread badge counts these on every dashboard page.
+	`CREATE INDEX notification_unread ON notification (recipient_did) WHERE read_at IS NULL`,
+	`CREATE TABLE notification_channel (
+		did TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		status TEXT NOT NULL,
+		paused_reason TEXT,
+		address TEXT,
+		address_read_at TEXT,
+		unsubscribe_token TEXT UNIQUE,
+		topics TEXT NOT NULL,
+		last_sent_at TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		confirm_token_hash TEXT,
+		confirm_address_hash TEXT,
+		confirm_expires_at TEXT,
+		PRIMARY KEY (did, channel)
+	)`,
+	`CREATE TABLE notification_delivery (
+		id TEXT PRIMARY KEY,
+		notification_id TEXT NOT NULL REFERENCES notification (id) ON DELETE CASCADE,
+		did TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		status TEXT NOT NULL,
+		batch_id TEXT,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		next_attempt_at TEXT NOT NULL,
+		last_error TEXT,
+		provider_id TEXT,
+		sent_at TEXT,
+		updated_at TEXT NOT NULL,
+		UNIQUE (notification_id, channel)
+	)`,
+	`CREATE INDEX notification_delivery_due ON notification_delivery (status, next_attempt_at)`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
@@ -305,6 +362,11 @@ const migrations = {
 	'006_shared_spaces': {
 		async up(db) {
 			for (const statement of sharedSpaces) await sql.raw(statement).execute(db);
+		}
+	},
+	'007_inbox': {
+		async up(db) {
+			for (const statement of inbox) await sql.raw(statement).execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;

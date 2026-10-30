@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { CalendarPlus, ClipboardList, Disc3, Globe, History, LayoutDashboard, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
+	import { CalendarPlus, ClipboardList, Disc3, Globe, History, Inbox, LayoutDashboard, NotebookPen, Plus, ShieldCheck } from '@lucide/svelte';
 	import SidebarLayout from '#lib/ui/SidebarLayout.svelte';
 	import type { LayoutProps } from './$types';
 
@@ -10,6 +10,7 @@
 		{
 			items: [
 				{ href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
+				{ href: '/dashboard/inbox', label: 'Inbox', icon: Inbox, badge: data.unread },
 				{ href: '/dashboard/bookings', label: 'Bookings', icon: CalendarPlus },
 				{ href: '/dashboard/planner', label: 'Planner', icon: NotebookPen },
 				{ href: '/dashboard/requests', label: 'Requests', icon: ClipboardList },

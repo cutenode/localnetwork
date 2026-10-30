@@ -332,6 +332,45 @@ export type BookingEventView = {
 	show?: ShowDetails;
 };
 
+/** What an inbox item is about, which its icon shows. Email and DM opt-ins choose among these too. */
+export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
+
+/** Where the inbox is also sent, when someone opts in. */
+export type NotificationChannel = 'email' | 'dm';
+
+/** Why a channel stopped sending, which the settings page explains. */
+export type PausedReason =
+	| 'address_rejected'
+	| 'email_unconfirmed'
+	| 'email_unverified'
+	/** Bluesky chat won't deliver the root's DMs to them: they don't follow it, or allow no DMs. */
+	| 'dm_not_allowed';
+
+/**
+ * Whether the root account can DM someone on Bluesky now: yes, not until they change their chat settings or follow
+ * it, or unknown because Bluesky chat didn't answer.
+ */
+export type DmAvailability = 'ok' | 'not_allowed' | 'unavailable';
+
+/** One person's setting for a channel, as the settings page shows it. */
+export type ChannelView = {
+	status: 'active' | 'paused';
+	pausedReason: PausedReason | null;
+	address: string | null;
+	topics: NotificationTopic[];
+};
+
+/** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
+export type NotificationView = {
+	id: string;
+	topic: NotificationTopic | null;
+	title: string;
+	body?: string;
+	href: string;
+	occurredAt: string;
+	read: boolean;
+};
+
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };
 
 export type PlannerShowView = {
