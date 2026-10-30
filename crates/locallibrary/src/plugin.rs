@@ -386,6 +386,32 @@ impl Plugin {
     }
 }
 
+/// What `schema` (a contribution's `params` or `options`) says the option `key` takes, or why it
+/// takes no such option, naming the contribution as `what` (`source`, `format`): the command
+/// line's `--option` and the sidecar refuse an undeclared option in the same words.
+pub fn declared_option<'a>(what: &str, schema: Option<&'a Value>, key: &str) -> std::result::Result<&'a Value, String> {
+    let properties = schema.and_then(|s| s["properties"].as_object());
+    if let Some(property) = properties.and_then(|p| p.get(key)) {
+        return Ok(property);
+    }
+    let all: Vec<&str> = properties.into_iter().flatten().map(|(name, _)| name.as_str()).collect();
+    Err(match all.is_empty() {
+        true => format!("this {what} has no options, not even {key:?}"),
+        false => format!("this {what} has no option {key:?}: its options are {}", all.join(", ")),
+    })
+}
+
+/// A source's, an exporter's or an importer's (`what`) `options`, as [`fitting`] makes them,
+/// refusing one `schema` doesn't declare as [`declared_option`] says it. (A command's or an
+/// operation's params aren't held to theirs: plugins take ones they don't list.)
+fn fitting_options(what: &str, schema: Option<&Value>, options: Value, context: &Context) -> Result<Value> {
+    for key in options.as_object().into_iter().flat_map(Map::keys) {
+        let pointer = format!("/{}", key.replace('~', "~0").replace('/', "~1"));
+        declared_option(what, schema, key).map_err(|e| Error::Invalid(e).with("path", pointer))?;
+    }
+    fitting(schema, options, context)
+}
+
 /// `params` as a hook takes them, once they fit `schema` (a contribution's `params` or
 /// `options`): `null` is none, and one filled in from the selection (`x-from`) that isn't given is
 /// what `context` (as the plugin gets it) has selected, if anything; given as `null`, it's none

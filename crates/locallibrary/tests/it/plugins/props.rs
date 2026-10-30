@@ -550,7 +550,7 @@ enum Output {
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_export_overwrites_only_as_planned(tc: TestCase) {
     let mine = |i: usize| format!("mine{}", "!".repeat(i));
-    let f = Fixture::echo();
+    let f = Fixture::exporting();
     let here = f.store.root().parent().unwrap().join("exports");
     let relative = tc.draw(gs::sampled_from(vec!["out.m3u", "exports/out.m3u", "./x", ""]));
     let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };

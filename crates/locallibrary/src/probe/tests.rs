@@ -58,6 +58,76 @@ fn whole_cut_short_and_unreadable_files() {
     assert!(matches!(health(&dir.path().join("gone.mp3"), 1.0, 0), Some(AudioProblem::Unreadable { .. })));
 }
 
+/// An M4A cut short in its audio doesn't open (its last box runs past the end): it's truncated
+/// when it's smaller than the database's size, or than its own boxes say. With no length to give,
+/// it's still a file that won't open.
+#[test]
+fn an_m4a_cut_short_is_truncated() {
+    let dir = tempfile::tempdir().unwrap();
+    let whole = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
+    let path = dir.path().join("whole.m4a");
+    std::fs::write(&path, &whole).unwrap();
+    let size = whole.len() as u64;
+    assert_eq!(health(&path, 20.0, size), None);
+    assert_eq!(mp4_len(&path), Some(size));
+    // Half its audio: the index is first, and the frames after it.
+    let mdat = whole.windows(4).position(|w| w == b"mdat").unwrap() + 4;
+    let cut = dir.path().join("cut.m4a");
+    std::fs::write(&cut, &whole[..mdat + (whole.len() - mdat) / 2]).unwrap();
+    for bytes in [size, 0] {
+        match health(&cut, 20.0, bytes) {
+            Some(AudioProblem::Truncated { ends_secs, expected_secs }) => {
+                assert!(ends_secs > 0.0 && ends_secs < 20.0 && expected_secs == 20.0, "{ends_secs}")
+            }
+            other => panic!("{bytes}: {other:?}"),
+        }
+    }
+    assert!(matches!(health(&cut, 0.0, size), Some(AudioProblem::Unreadable { .. })));
+    // A file that won't open for what's in it isn't cut short, smaller than it should be or not.
+    let junk = dir.path().join("junk.m4a");
+    std::fs::write(&junk, b"not audio at all").unwrap();
+    for bytes in [16, 1000] {
+        assert!(matches!(health(&junk, 20.0, bytes), Some(AudioProblem::Unreadable { .. })));
+    }
+    assert_eq!(mp4_len(&junk), None);
+}
+
+/// A WAV cut short in its header doesn't open: it's truncated when it's smaller than the
+/// database's size, and otherwise a file that won't open.
+#[test]
+fn a_file_cut_short_in_its_header_is_truncated() {
+    let dir = tempfile::tempdir().unwrap();
+    let whole = wav(8_000, 16, 30.0);
+    let cut = dir.path().join("cut.wav");
+    std::fs::write(&cut, &whole[..30]).unwrap();
+    match health(&cut, 30.0, whole.len() as u64) {
+        Some(AudioProblem::Truncated { ends_secs, expected_secs }) => {
+            assert!(ends_secs < 0.1 && expected_secs == 30.0, "{ends_secs}")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(health(&cut, 30.0, 0), Some(AudioProblem::Unreadable { .. })));
+}
+
+/// An M4A cut anywhere is truncated, whether it still opens or not. Only one cut too short to say what it is (under 8 bytes), or cut right before its index,
+/// is a file that won't open: nothing in it says it should go on.
+#[hegel::test(test_cases = 100)]
+fn an_m4a_cut_anywhere_is_truncated(tc: hegel::TestCase) {
+    let whole = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
+    let keep = tc.draw(hegel::generators::integers::<usize>().max_value(whole.len() - 1));
+    let index = whole.windows(4).position(|w| w == b"moov").unwrap() - 4;
+    let dir = tempfile::tempdir().unwrap();
+    let cut = dir.path().join("cut.m4a");
+    std::fs::write(&cut, &whole[..keep]).unwrap();
+    match health(&cut, 20.0, whole.len() as u64) {
+        Some(AudioProblem::Truncated { ends_secs, expected_secs }) => {
+            assert!(ends_secs < 20.0 && expected_secs == 20.0, "{ends_secs}")
+        }
+        Some(AudioProblem::Unreadable { .. }) if keep < 8 || keep == index => {}
+        other => panic!("{keep}: {other:?}"),
+    }
+}
+
 /// symphonia panics on a WAV saying 0 Hz: reading its format is an error about that file.
 #[test]
 fn a_file_that_crashes_the_decoder_is_its_own_error() {
