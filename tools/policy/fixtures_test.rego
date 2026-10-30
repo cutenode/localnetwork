@@ -2,7 +2,7 @@
 # to break one file at a time.
 package fixtures
 
-passed_step := {"if": "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}", "run": "exit 1"}
+passed_step := {"if": "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped')) }}", "run": "exit 1"}
 
 base_step := {"id": "base", "uses": "./.github/actions/last-passed"}
 

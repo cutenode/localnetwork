@@ -51,7 +51,8 @@ finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.y
 
 **CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
 pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
-Windows each run the same jobs:
+Windows each run the same jobs, the tests in a call of `locallibrary-ci-os.yml` per OS, so an OS
+that can't get a runner holds up only its own:
 
 | Job | What it runs |
 | --- | --- |
