@@ -111,6 +111,7 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "drive.verify" => (HealthRead, false, &[("drive", Drive), ("snapshot", Plain)]),
         "store.info" | "store.copies" | "library.list" | "smart.list" => (StoreRead, false, &[]),
         "store.history" => (StoreRead, false, &[("library", Plain), ("limit", Limit(MAX_PAGE))]),
+        "snapshot.library" => (StoreRead, false, &[("snapshot", Plain), ("offset", Plain), ("limit", Limit(MAX_PAGE))]),
         "settings.schema" | "settings.profile" | "players.models" | "players.show" => (SettingsRead, false, &[]),
         "settings.show" | "player.show" => (SettingsRead, false, &[("drive", Drive)]),
         "plays.stats" => (PlaysRead, false, &[("source", Drive), ("since", Plain), ("limit", Limit(MAX_PAGE))]),

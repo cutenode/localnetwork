@@ -70,8 +70,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
-- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
-      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
@@ -305,7 +303,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (`masterdb.rs:38`).
 - [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
       Tags.
-- [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: x2 and /2 tempo fixes, which need rekordbox's PQT2 per-beat field decoded (`doctor`
       points at rekordbox's own buttons meanwhile).
 - [ ] Decide: export history lists as playlists for Traktor, Serato and Engine (`traktor.rs:200`
