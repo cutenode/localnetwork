@@ -198,10 +198,24 @@ export type ProjectFormValues = ProjectDetails & {
 	mixes?: ProjectMix[];
 	highlights?: string;
 	lookingFor?: string;
+	/** A promoter's cities, one row each (the profile form's promoter section). */
+	cities?: CityFormRow[];
 	message?: string;
 	/** Fields only some forms have, like the admin form's `managers`, echo back as text too. */
-	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | FeeFormRow[] | undefined;
+	[field: string]:
+		| string
+		| number
+		| boolean
+		| string[]
+		| ProjectLink[]
+		| ProjectMix[]
+		| FeeFormRow[]
+		| CityFormRow[]
+		| undefined;
 };
+
+/** A city row in the profile form, as the text its inputs hold. */
+export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 

@@ -38,13 +38,16 @@ const RSVPS = `repo:${CALENDAR_RSVP}?action=create&action=update&action=delete`;
 /** Avatars, and the JSON mix reports DJs attach to their mixes as tracklists. */
 const BLOBS = 'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json';
 
+/** Writing your own profile. */
+const PROFILE_WRITES = 'repo:computer.localnetwork.profile?action=create&action=update&action=delete';
+
 /**
  * The records the app writes to an account's public repo for any account, spaces or not: profiles, shows with their
  * calendar events, and follows. A grant without them still counts as one with spaces, so adding them didn't send
  * everyone back through sign-in; the writes that need them ask for a fresh sign-in themselves.
  */
 const PUBLIC_RECORDS = [
-	'repo:computer.localnetwork.profile?action=create&action=update&action=delete',
+	PROFILE_WRITES,
 	'repo:computer.localnetwork.show?action=create&action=update&action=delete',
 	'repo:computer.localnetwork.follow?action=create&action=delete',
 	CALENDAR_EVENTS
@@ -179,6 +182,14 @@ export function grantsSpaces(granted: string | undefined | null, did: string): b
 /** Whether a grant lets the app read the account's email address, in either form. */
 export function grantsEmail(granted: string | undefined | null, did: string): boolean {
 	return OPTIONAL_SCOPES.email.some((scope) => grantsAll(granted, scope, did));
+}
+
+/**
+ * Whether a grant lets the app save the account's profile: the profile record, and the avatar it uploads. Grants from
+ * before profiles don't, so the editor offers to sign in again before anyone fills it in.
+ */
+export function grantsProfile(granted: string | undefined | null, did: string): boolean {
+	return grantsAll(granted, `${PROFILE_WRITES} ${BLOBS}`, did);
 }
 
 /** Whether a grant lets the app write profiles, shows, calendar events, and follows to the account's public repo. */

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ArrowRight, LogOut, Plus } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
+	import ProfileSetupCard from '#lib/components/ProfileSetupCard.svelte';
 	import ProjectCard from '#lib/components/ProjectCard.svelte';
 	import RequestList from '#lib/components/RequestList.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -33,6 +34,8 @@
 			Your PDS didn't grant atproto spaces access, so Local Network's root account files your requests and bookings for you, and the private planner is unavailable. Everything you do is still audited. If your PDS adds spaces support, sign out and back in.
 		</p>
 	{/if}
+
+	{#if data.firstRun}<ProfileSetupCard name={data.firstRun.name} hasAvatar={data.firstRun.hasAvatar} />{/if}
 
 	<section aria-labelledby="projects" class="flex flex-col gap-5">
 		<h2 id="projects" class="m-0 text-heading font-semibold">Projects you manage</h2>

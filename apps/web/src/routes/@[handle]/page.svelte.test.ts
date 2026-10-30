@@ -96,7 +96,7 @@ it('leaves out sections that are off or empty, and offers its owner a way to cha
 	await expect.element(page.getByRole('heading', { name: 'At a glance' })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('heading', { name: 'About' })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('heading', { name: 'Books shows in' })).not.toBeInTheDocument();
-	await expect.element(page.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/dashboard');
+	await expect.element(page.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/dashboard/profile');
 });
 
 it("makes only web addresses clickable, since people write their profiles' links themselves", async () => {

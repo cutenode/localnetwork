@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import type { RequestView, Viewer } from '#lib/types.ts';
 import Handle from './Handle.svelte';
 import ManageLink from './ManageLink.svelte';
+import ProfileSetupCard from './ProfileSetupCard.svelte';
 import PreviewBanner from './PreviewBanner.svelte';
 import RequestList from './RequestList.svelte';
 
@@ -44,12 +45,12 @@ describe('ManageLink', () => {
 		await expect.element(page.getByRole('link', { name: 'Manage', exact: true })).not.toBeInTheDocument();
 	});
 
-	it("takes a profile's owner to their dashboard, staff to what the account did, and nobody else anywhere", async () => {
+	it("takes a profile's owner to their profile editor, staff to what the account did, and nobody else anywhere", async () => {
 		const profile = { did: 'did:plc:neon' };
 		const { rerender } = await render(ManageLink, { viewer: viewer('did:plc:neon'), profile });
 		const link = page.getByRole('link', { name: 'Manage', exact: true });
 
-		await expect.element(link).toHaveAttribute('href', '/dashboard');
+		await expect.element(link).toHaveAttribute('href', '/dashboard/profile');
 		await rerender({ viewer: viewer('did:plc:mod', true), profile });
 		await expect.element(link).toHaveAttribute('href', '/admin/audit?actor=did%3Aplc%3Aneon');
 		await rerender({ viewer: viewer('did:plc:fan'), profile });
@@ -131,5 +132,20 @@ describe('RequestList', () => {
 		await render(RequestList, { requests: [] });
 
 		await expect.element(page.getByText('No requests yet.')).toBeInTheDocument();
+	});
+});
+
+describe('ProfileSetupCard', () => {
+	it('starts a profile from the Bluesky name, offering its picture only when there is one', async () => {
+		const { rerender } = await render(ProfileSetupCard, { name: 'Neon', hasAvatar: true });
+
+		await expect.element(page.getByLabelText('Name')).toHaveValue('Neon');
+		await expect.element(page.getByLabelText('Use my Bluesky picture')).toBeChecked();
+		expect(document.querySelector('form')?.getAttribute('action')).toBe('/dashboard/profile?/create');
+		await expect
+			.element(page.getByRole('link', { name: 'Fill in everything' }))
+			.toHaveAttribute('href', '/dashboard/profile');
+		await rerender({ name: 'neon.test', hasAvatar: false });
+		await expect.element(page.getByLabelText('Use my Bluesky picture')).not.toBeInTheDocument();
 	});
 });

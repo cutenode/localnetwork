@@ -9,6 +9,7 @@ import {
 	clientMetadata,
 	DECLARED_SCOPES,
 	grantsAll,
+	grantsProfile,
 	grantsPublicRecords,
 	grantsSpaces,
 	heldOptionalScopes,
@@ -191,6 +192,14 @@ describe('OAuth scopes', () => {
 		expect(grantsSpaces(base, user)).toBe(false);
 		expect(grantsPublicRecords(base, user)).toBe(true);
 		expect(grantsSpaces(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user)).toBe(false);
+	});
+
+	it('says which grants can save a profile and its picture, so the editor asks the others to sign in first', () => {
+		expect(grantsProfile(granted.join(' '), user)).toBe(true);
+		expect(grantsProfile(base, user)).toBe(true);
+		expect(grantsProfile(beforeProfiles.join(' '), user)).toBe(false);
+		expect(grantsProfile(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user)).toBe(false);
+		expect(grantsProfile(null, user)).toBe(false);
 	});
 
 	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {

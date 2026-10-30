@@ -116,7 +116,7 @@ export async function createTestServices(
 	});
 
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
-	const profiles = new ProfileService(indexedRepo, silentLogger);
+	const profiles = new ProfileService(core, indexedRepo);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
