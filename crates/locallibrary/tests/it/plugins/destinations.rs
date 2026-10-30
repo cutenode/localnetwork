@@ -830,37 +830,43 @@ fn a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
 fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
     use std::io::Read;
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     use locallibrary::progress::{CancelToken, NoProgress};
-    // A server reading slowly, noting how much it read and once the upload stopped. It cancels
-    // publishing once the recording is being sent: a timer can go off before the plugin has
-    // started, and then nothing is sent to stop.
+    // A server that cancels publishing once the recording is being sent (a timer can go off
+    // before the plugin has started, and then nothing is sent to stop), and reads no more of it
+    // until publishing has stopped: what the host sends meanwhile waits in the connection's
+    // buffers. Then it reads the rest at once, until the upload stops or all of it came,
+    // answering how much it read. Publishing stops once the plugin answers, which it does after
+    // passing the cancel on to its `net/fetch`.
+    let size = 32 << 20;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
-    let (read, stopped) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
     let cancel = CancelToken::new();
-    let (reading, stopping, cancelling) = (read.clone(), stopped.clone(), cancel.clone());
-    std::thread::spawn(move || {
+    let cancelling = cancel.clone();
+    let (stopped, publishing_stopped) = std::sync::mpsc::channel::<()>();
+    let server = std::thread::spawn(move || {
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut buf = [0; 8192];
-        while let Ok(n @ 1..) = stream.read(&mut buf) {
-            reading.fetch_add(n, Ordering::SeqCst);
-            cancelling.cancel();
-            std::thread::sleep(Duration::from_millis(10));
+        let mut read = stream.read(&mut buf).unwrap();
+        cancelling.cancel();
+        let _ = publishing_stopped.recv();
+        while read < size
+            && let Ok(n @ 1..) = stream.read(&mut buf)
+        {
+            read += n;
         }
-        stopping.store(true, Ordering::SeqCst);
+        read
     });
     let f = uploading();
     let s = set(&f.store, f.store.root());
-    let size = 32 << 20;
     std::fs::write(&s.recording.unwrap().path, vec![0; size]).unwrap();
     let upload = json!([{ "url": format!("{url}/mix"), "method": "PUT", "body_blob": "recording" }]).to_string();
     f.plugins.set_setting("echo", &f.store, "upload", Some(upload.into())).unwrap();
     let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
     let e = plan.apply(Some(&f.store), &Ctx::new(&NoProgress, cancel)).unwrap_err();
     assert_eq!(e.code(), "cancelled", "{e}");
-    eventually("the upload stopped", || stopped.load(Ordering::SeqCst));
-    assert!(read.load(Ordering::SeqCst) < size / 2, "{} of {size} sent", read.load(Ordering::SeqCst));
+    drop(stopped);
+    let read = server.join().unwrap();
+    assert!(read < size / 2, "{read} of {size} sent");
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
 }

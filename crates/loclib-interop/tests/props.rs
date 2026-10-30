@@ -13,6 +13,8 @@ mod encode;
 #[cfg(feature = "engine")]
 #[path = "props/engine.rs"]
 mod engine;
+#[path = "props/history.rs"]
+mod history;
 #[cfg(feature = "rekordbox")]
 #[path = "props/rekordbox.rs"]
 mod rekordbox;

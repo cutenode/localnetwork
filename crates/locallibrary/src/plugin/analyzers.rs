@@ -92,9 +92,7 @@ impl Plugins {
         let device = device.expect("a drive was named");
         let library = device.library()?;
         let selected = match tracks {
-            Some(ids) => {
-                ids.iter().map(|&id| library.track(id).ok_or_else(|| Error::no_track(id))).collect::<Result<_>>()?
-            }
+            Some(ids) => super::tracks_named(&library, ids)?,
             None => library.tracks.iter().collect::<Vec<_>>(),
         };
         let (fields, overlays) = (FieldStore::in_store(store), OverlayStore::in_store(store));

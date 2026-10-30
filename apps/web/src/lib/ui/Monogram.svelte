@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { hueFor, initials } from '#lib/format.ts';
-	import { colors } from '#lib/mix/report.ts';
+	import colors from '../../../../../packages/tokens/colors.json' with { type: 'json' };
 	import { onColour } from './contrast.ts';
 
 	/**

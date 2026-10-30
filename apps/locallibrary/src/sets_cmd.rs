@@ -68,13 +68,13 @@ enum SetsCommand {
         undismiss: Vec<String>,
     },
     /// Write a set's tracklist out: for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists,
-    /// CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
+    /// podcast chapters, CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
     #[command(after_long_help = EXPORT_HELP)]
     Export {
         #[arg(value_name = "SET")]
         set: String,
-        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .csv, .m3u8,
-        /// .txt), else text]
+        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .json, .csv,
+        /// .m3u8, .txt), else text]
         #[arg(long, short, value_parser = formats())]
         format: Option<String>,
         /// Write it to this file [default: print it]
@@ -179,6 +179,7 @@ less; otherwise each is suggested on its own.";
 const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format mixcloud           paste into Mixcloud's tracklist
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
+  locallibrary sets export last -o friday.json              chapters for podcast apps
   locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
 Every format but csv and m3u8 is for publishing: a track marked unnamed or hidden by your profile
@@ -365,6 +366,8 @@ pub(crate) enum FormatArg {
     /// For 1001Tracklists
     #[value(name = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps
+    Chapters,
     /// Every detail, for a spreadsheet
     Csv,
     /// A playlist of the tracks on a drive
@@ -379,6 +382,7 @@ impl From<FormatArg> for SetFormat {
             FormatArg::Cue => SetFormat::Cue,
             FormatArg::Youtube => SetFormat::Youtube,
             FormatArg::Tracklists => SetFormat::Tracklists,
+            FormatArg::Chapters => SetFormat::Chapters,
             FormatArg::Csv => SetFormat::Csv,
             FormatArg::M3u8 => SetFormat::M3u8,
         }
@@ -389,6 +393,7 @@ impl From<FormatArg> for SetFormat {
 fn format_of(path: &Path) -> Option<SetFormat> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "cue" => Some(SetFormat::Cue),
+        "json" => Some(SetFormat::Chapters),
         "csv" => Some(SetFormat::Csv),
         "m3u8" => Some(SetFormat::M3u8),
         "txt" => Some(SetFormat::Text),

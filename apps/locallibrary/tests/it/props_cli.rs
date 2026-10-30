@@ -209,6 +209,7 @@ const READS: &[&[&str]] = &[
     &["profile", "sections"],
     &["profile", "default-sections"],
     &["settings", "base"],
+    &["settings", "export"],
     &["sets", "played", "demo"],
     &["store", "gc", "--dry-run"],
     &["store", "prune", "--keep-last", "1", "--dry-run"],
@@ -264,6 +265,7 @@ const READS: &[&[&str]] = &[
     &["plays", "export", "@d", "HISTORY 001", "-o", "@o"],
     &["art", "get", "@d", "@t", "-o", "@o"],
     &["sets", "export", "last"],
+    &["settings", "export", "@o"],
 ];
 
 /// Reads, every one of them with any arguments and flags, keep the output contract and leave

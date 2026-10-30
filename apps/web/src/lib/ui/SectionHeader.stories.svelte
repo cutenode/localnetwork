@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import Button from './Button.svelte';
+	import HeroHeadline from '#lib/components/HeroHeadline.svelte';
 	import Eyebrow from './Eyebrow.svelte';
 	import SectionHeader from './SectionHeader.svelte';
 
@@ -14,23 +14,23 @@
 			size: { control: 'inline-radio', options: ['title', 'display'] }
 		},
 		args: {
-			eyebrow: 'DJ profiles',
-			tone: 'low',
-			title: 'A profile built around what gets you booked.',
-			lede: 'Sound, travel radius, room sizes, set lengths and fee range, so promoters can tell in one look if you fit.'
+			eyebrow: 'For promoters',
+			tone: 'aqua',
+			title: 'Describe the night. Get a shortlist with reasons.',
+			lede: 'The matcher scores every DJ on sound, distance, budget and room size, and tells you why each one made the list.'
 		}
 	});
 </script>
 
 <Story name="Start" />
 
-<Story name="Split" args={{ align: 'split', eyebrow: 'Mixes', tone: 'mid', title: 'Every mix, down to the transition.', lede: 'Export a set from locallibrary and the profile shows its waveform, tracklist, tempo, key moves and every blend.' }} />
+<Story name="Split" args={{ level: 1, align: 'split', eyebrow: 'Shows', tone: undefined, title: 'Upcoming shows', lede: 'Where DJs on Local Network play next, near you or from the DJs you follow.' }} />
 
-<Story name="Hero" args={{ level: 1, size: 'display', align: 'center', eyebrow: undefined, title: 'The home for local DJs and the nights they play.', lede: 'Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their mixes and their nights on it.' }}>
+<!-- The homepage's hero header, its title the live headline. -->
+<Story name="Hero" args={{ level: 1, size: 'display', align: 'center', eyebrow: undefined, lede: 'Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private.' }}>
 	{#snippet template(args)}
-		<SectionHeader {...args}>
-			{#snippet actions()}<Button size="lg" href="/projects">Find DJs near you</Button><Button size="lg" variant="secondary" href="/dashboard/projects/new">List your project</Button>{/snippet}
-		</SectionHeader>
+		{#snippet headline()}<HeroHeadline />{/snippet}
+		<SectionHeader {...args} title={headline} />
 	{/snippet}
 </Story>
 

@@ -31,6 +31,11 @@ type = "boolean"
 default = false
 description = "Leave out beat grids and cues"
 
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
+
 [[contributes.exporters]]
 format = "serato"
 title = "Serato DJ: a crate per playlist"
@@ -57,6 +62,11 @@ type = "boolean"
 default = false
 description = "Copy the audio into the output folder and write cue points into the copies' tags; the crates list the copies"
 
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
+
 [[contributes.exporters]]
 format = "engine"
 title = "Engine DJ: a new Engine Library with tracks and playlists"
@@ -78,6 +88,11 @@ type = "string"
 enum = ["relative", "drive"]
 default = "relative"
 description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
+
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
 
 [[contributes.exporters]]
 format = "rekordbox"
