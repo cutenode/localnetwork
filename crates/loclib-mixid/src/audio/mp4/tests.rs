@@ -1,7 +1,7 @@
 use std::ops::ControlFlow;
 
-use hegel::generators as gs;
 use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_progress::Ctx;
 
 use super::*;

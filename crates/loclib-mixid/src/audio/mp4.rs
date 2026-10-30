@@ -29,11 +29,17 @@ const PROBE_LIMIT: u64 = 1 << 20;
 
 /// Refuse `path` when it's an MP4 whose atoms claim more than the file holds: a sample table
 /// whose count wouldn't fit in it, or an atom inside another running past it or the file's end.
-/// Anything else, MP4 or not, is left for the decoder to make sense of.
+/// Anything else, MP4 or not, is left for the decoder to make sense of. So is what isn't a regular
+/// file (a FIFO): what this read of it took would be gone when the decoder opened it again, and
+/// its atoms can't be walked without seeking.
 pub fn vet_container(path: &Path) -> Result<()> {
     let io = |source| Error::Io { path: path.to_path_buf(), source };
+    let meta = std::fs::metadata(path).map_err(io)?;
+    if !meta.is_file() {
+        return Ok(());
+    }
     let mut file = BufReader::new(File::open(path).map_err(io)?);
-    let len = file.get_ref().metadata().map_err(io)?.len();
+    let len = meta.len();
     let Some(start) = find_ftyp(&mut file, path).map_err(io)? else {
         return Ok(());
     };
