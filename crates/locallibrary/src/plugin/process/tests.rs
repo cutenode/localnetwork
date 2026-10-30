@@ -156,12 +156,7 @@ fn an_account_plugin_is_never_started() {
     )
     .unwrap();
     manifest.validate(false).unwrap();
-    let host = Arc::new(Host {
-        reads: Arc::new(NoReads),
-        options: Options::default(),
-        turns: Mutex::default(),
-        account_plugins: OnceLock::new(),
-    });
+    let host = Arc::new(Host::new(Arc::new(NoReads), Options::default()));
     // A program that isn't there: starting it would fail otherwise.
     let launch = Launch { program: "no-such-program".into(), args: Vec::new(), env_remove: Vec::new() };
     let slot = Arc::new(Slot::new(manifest, launch, host));

@@ -3,8 +3,8 @@
 use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use console::style;
@@ -304,7 +304,7 @@ impl Output {
         None
     }
     pub fn progress(&self) -> CliProgress {
-        CliProgress { bar: Mutex::new(None), enabled: !self.json && !self.quiet && std::io::stderr().is_terminal() }
+        CliProgress { bar: Arc::default(), enabled: !self.json && !self.quiet && std::io::stderr().is_terminal() }
     }
 }
 
@@ -605,8 +605,30 @@ pub fn duration(secs: u64) -> String {
 /// Progress bars on stderr, driven by library events.
 pub struct CliProgress {
     /// The current bar, and whether it counts items (true) or bytes (false).
-    bar: Mutex<Option<(ProgressBar, bool)>>,
+    bar: Arc<Mutex<Option<(ProgressBar, bool)>>>,
     enabled: bool,
+}
+
+impl CliProgress {
+    /// Where it draws, for something else to say there (a question) with the bar out of the way.
+    pub fn drawing(&self) -> Drawing {
+        Drawing(self.bar.clone())
+    }
+}
+
+/// Where a [`CliProgress`] draws its bars.
+#[derive(Clone)]
+pub struct Drawing(Arc<Mutex<Option<(ProgressBar, bool)>>>);
+
+impl Drawing {
+    /// Runs `f` with the bar hidden, drawing it again after.
+    pub fn suspend<T>(&self, f: impl FnOnce() -> T) -> T {
+        let bar = self.0.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(|(bar, _)| bar.clone());
+        match bar {
+            Some(bar) => bar.suspend(f),
+            None => f(),
+        }
+    }
 }
 
 fn phase_label(p: Phase) -> &'static str {

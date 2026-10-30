@@ -3,6 +3,7 @@
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use locallibrary::plugin::{Access, AccessQuestion, AccountId};
 use ratatui::crossterm::event::KeyCode;
 
 use super::super::super::app::testing::{blank, key, last_message, plugins_once, press, wait};
@@ -163,4 +164,79 @@ fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: 
         }
         assert_eq!(subjects(&app), if signed_in { vec!["a".to_string()] } else { Vec::new() });
     }
+}
+
+/// For a mock account the store keeps, refreshed or not, signing itself out in any number of
+/// hours (as its access token expires, or its refresh token runs out) or never: the player warns
+/// of it as it starts exactly when that's within `WARN_DAYS`, saying where to sign in again.
+#[hegel::test(test_cases = 20)]
+fn the_player_warns_of_an_account_signing_itself_out_soon(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    plugins_once();
+    let refreshes = tc.draw(gs::booleans());
+    let hours = tc.draw(gs::optional(gs::integers::<i64>().min_value(1).max_value(24 * 30)));
+    let at = hours.map(|h| chrono::Utc::now() + chrono::Duration::hours(h));
+    let lasting = if refreshes { "refresh_expires_at" } else { "expires_at" };
+    kept(&app, &["a"]);
+    let file = app.store_root.join("accounts.json");
+    let mut book: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    book["accounts"][0]["refreshes"] = refreshes.into();
+    book["accounts"][0][lasting] = serde_json::json!(at);
+    std::fs::write(&file, book.to_string()).unwrap();
+    app.warn_signing_out();
+    let warned = hours.is_some_and(|h| h <= 24 * locallibrary::plugin::WARN_DAYS);
+    let said = last_message(&app);
+    assert_eq!(said.contains("the Mock account a@mock.example signs itself out "), warned, "{hours:?}: {said}");
+    assert_eq!(said.ends_with(": sign in to it again from the palette (:)"), warned, "{said}");
+}
+
+/// What a plugin asks of the mock account `a`: `write`, signing in again to it or not.
+fn wanting(sign_in: bool) -> AccessQuestion {
+    let account = AccountId { plugin: "mock-accounts".into(), subject: "a".into() };
+    let (kind, name, scopes) = ("mock".to_string(), "a@mock.example".to_string(), vec!["read".to_string()]);
+    let access = Access {
+        id: "0a1b2c3d".into(),
+        plugin: "echo".into(),
+        kind,
+        account,
+        name,
+        scopes,
+        default: true,
+        declined: vec![],
+    };
+    let write = vec!["write".to_string()];
+    let why = vec!["More".to_string()];
+    AccessQuestion {
+        plugin: "Echo".into(),
+        access,
+        title: "Mock".into(),
+        scopes: write.clone(),
+        titles: write,
+        why,
+        sign_in,
+    }
+}
+
+/// For a plugin wanting more of an account, signing in again to or not, the player's asker shows
+/// a form saying what it wants and why, and waits for its answer: enter allows it (or signs in
+/// again to), "don't allow" doesn't, and esc leaves it unanswered; a sign-in it takes opens the
+/// browser, or says where to go when it can't.
+#[hegel::test(test_cases = 8)]
+fn a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    let ask = app.plugin_asker();
+    let sign_in = tc.draw(gs::booleans());
+    let (keys, answered) = tc.draw(gs::sampled_from(vec![("\n", Some(true)), (" \n", Some(false)), ("\u{1b}", None)]));
+    let asking = std::thread::spawn(move || ask.allow(&wanting(sign_in)));
+    wait(&mut app, |app| app.modal.is_some());
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("Access for Echo"), "{s}");
+    assert!(s.contains("Echo wants to write with the Mock account a@mock.example (More)"), "{s}");
+    assert!(s.contains(if sign_in { "sign in again to allow" } else { "allow" }), "{s}");
+    press(&mut app, keys);
+    assert!(app.modal.is_none(), "{}", last_message(&app));
+    assert_eq!(asking.join().unwrap(), answered);
+
+    app.plugin_asker().sign_in("http://127.0.0.1:9/authorize?state=x");
+    wait(&mut app, |app| last_message(app).contains("open this in your browser to sign in"));
 }

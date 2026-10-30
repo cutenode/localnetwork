@@ -2652,6 +2652,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | super::form::For::ProviderSettings
         | super::form::For::CheckSettings
         | super::form::For::Access(..) => "save",
+        super::form::For::AskAccess(_) => "answer",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())

@@ -21,7 +21,7 @@ use crate::callback::CallbackQuery;
 use crate::error::Reason;
 use crate::keychain::Storage;
 use crate::plugin::Plugins;
-use crate::plugin::process::Plugin;
+use crate::plugin::process::{Host, Plugin};
 use crate::plugin::secrets::secret;
 use crate::progress::Ctx;
 use crate::store::Store;
@@ -47,8 +47,20 @@ pub struct Account {
     pub expires: Option<DateTime<Utc>>,
     /// It's refreshed without signing in again.
     pub refreshes: bool,
+    /// When it signs itself out, when it does: as its access token expires when it isn't
+    /// refreshed, else as its refresh token runs out, when the service said. Front ends warn
+    /// within [`crate::plugin::WARN_DAYS`] of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signs_out: Option<DateTime<Utc>>,
     /// Its tokens are kept (the keychain may have lost them).
     pub signed_in: bool,
+}
+
+impl Account {
+    /// Whether it's signed in and signs itself out within [`crate::plugin::WARN_DAYS`].
+    pub fn due_soon(&self) -> bool {
+        self.signed_in && self.signs_out.is_some_and(super::due_soon)
+    }
 }
 
 /// The accounts a store keeps and the accesses plugins were given to them, as hosts show them.
@@ -109,9 +121,9 @@ pub(crate) struct Asked {
     kind: String,
     /// The account plugin signing in.
     with: String,
-    /// The plugin it's for, and the type's scopes (by name) it's given of the account as far as
-    /// the service grants them.
-    for_plugin: Option<(String, Vec<String>)>,
+    /// The plugin it's for, the type's scopes (by name) it's given of the account as far as the
+    /// service grants them, and those it needs, which it's given whatever the service grants.
+    for_plugin: Option<(String, Vec<String>, Vec<String>)>,
     /// The account signed in again, by subject.
     account: Option<String>,
     /// The service's scopes.
@@ -121,6 +133,7 @@ pub(crate) struct Asked {
 /// `kept` as hosts show it.
 fn listed(kept: Kept, signed_in: bool) -> Account {
     Account {
+        signs_out: kept.signs_out(),
         kind: kept.kind,
         plugin: kept.plugin,
         subject: kept.subject,
@@ -154,7 +167,8 @@ impl Plugin {
         let secret = secret(self.host.options.secrets, &kept::place(store, &kept.plugin, &kept.subject))?;
         let read = |s: String| {
             let tokens = self.read_tokens(&kept.name, &s)?;
-            Ok(Tokens { expires_at: kept.expires_at, scopes: kept.scopes.clone(), ..tokens })
+            let (expires_at, refresh_expires_at) = (kept.expires_at, kept.refresh_expires_at);
+            Ok(Tokens { expires_at, refresh_expires_at, scopes: kept.scopes.clone(), ..tokens })
         };
         secret.map(read).transpose()
     }
@@ -264,6 +278,7 @@ impl Plugins {
                     scopes: Vec::new(),
                     expires: None,
                     refreshes: false,
+                    signs_out: None,
                     signed_in: false,
                 });
             }
@@ -316,8 +331,48 @@ impl Plugins {
         scopes: &[String],
         store: &Store,
     ) -> Result<AccountSignIn> {
-        let slot = self.slot(with)?;
-        let t = slot.account_type(kind)?;
+        let for_plugin = for_plugin.map(|p| self.slot(p)).transpose()?;
+        self.slot(with)?.begin_sign_in(kind, for_plugin.map(|s| &*s.plugin), account, scopes, store)
+    }
+
+    /// Waits for the browser to come back to sign-in `id` (at most `timeout`, an hour at most),
+    /// trades its code for the account's tokens, asks the service whose they are, and keeps the
+    /// account. The browser is told how it went.
+    pub fn finish_account_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountSignedIn> {
+        self.host.finish_sign_in(id, timeout, ctx)
+    }
+
+    /// Finishes sign-in `id` with the address the browser ended up on, pasted from another
+    /// computer.
+    pub fn finish_account_sign_in_with_url(&self, id: &str, url: &str) -> Result<AccountSignedIn> {
+        let p = self.host.pending(id)?;
+        let query = pasted(&p, url)?;
+        self.slot(&p.asked.with)?.signed_in(p, &query)
+    }
+}
+
+impl Host {
+    /// [`Plugins::finish_account_sign_in`].
+    pub(super) fn finish_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountSignedIn> {
+        let p = self.pending(id)?;
+        let with =
+            self.account_plugin(&p.asked.with).ok_or_else(|| Error::NotFound(format!("plugin {:?}", p.asked.with)))?;
+        come_back(p, timeout, ctx, |p, query| with.signed_in(p, query), |s| s.account.name.clone())
+    }
+}
+
+impl Plugin {
+    /// [`Plugins::begin_account_sign_in`] through it, for `for_plugin` if it's for one.
+    pub(super) fn begin_sign_in(
+        &self,
+        kind: &str,
+        for_plugin: Option<&Plugin>,
+        account: Option<&str>,
+        scopes: &[String],
+        store: &Store,
+    ) -> Result<AccountSignIn> {
+        let with = self.manifest.id.as_str();
+        let t = self.account_type(kind)?;
         let book = kept::read(store)?;
         let mut asking: IndexSet<String> = t.always.iter().cloned().collect();
         let mut params = t.params.clone();
@@ -341,10 +396,10 @@ impl Plugins {
             None if book.accounts.iter().any(|k| k.plugin == with) => params.extend(t.another_account.clone()),
             None => {}
         }
-        let given =
-            for_plugin.map(|plugin| Ok::<_, Error>((plugin.to_string(), self.slot(plugin)?.given(kind, scopes)?)));
+        let given = for_plugin
+            .map(|p| Ok::<_, Error>((p.manifest.id.clone(), p.given(kind, scopes)?, p.needs(kind)?.scopes.clone())));
         let given = given.transpose()?;
-        for name in scopes.iter().chain(given.iter().flat_map(|(_, given)| given)) {
+        for name in scopes.iter().chain(given.iter().flat_map(|(_, given, _)| given)) {
             let scope = t.scopes.get(name);
             let scope = scope.ok_or_else(|| Error::NotFound(format!("the {kind} account type's scope {name:?}")))?;
             asking.extend(scope.asks.iter().cloned());
@@ -357,56 +412,36 @@ impl Plugins {
             account: account.map(String::from),
             scopes: scopes.clone(),
         };
-        let (id, url, redirect_uri) = self.begin(slot, t, &scopes, &params, asked, store)?;
+        let (id, url, redirect_uri) = self.begin(t, &scopes, &params, asked, store)?;
         Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri })
     }
 
-    /// Waits for the browser to come back to sign-in `id` (at most `timeout`, an hour at most),
-    /// trades its code for the account's tokens, asks the service whose they are, and keeps the
-    /// account. The browser is told how it went.
-    pub fn finish_account_sign_in(&self, id: &str, timeout: Duration, ctx: &Ctx<'_>) -> Result<AccountSignedIn> {
-        let p = self.pending(id)?;
-        come_back(p, timeout, ctx, |p, query| self.signed_in_account(p, query), |s| s.account.name.clone())
-    }
-
-    /// Finishes sign-in `id` with the address the browser ended up on, pasted from another
-    /// computer.
-    pub fn finish_account_sign_in_with_url(&self, id: &str, url: &str) -> Result<AccountSignedIn> {
-        let p = self.pending(id)?;
-        let query = pasted(&p, url)?;
-        self.signed_in_account(p, &query)
-    }
-
-    /// The account `p` asked for, signed in from what the browser came back to it with.
-    fn signed_in_account(&self, p: Pending, query: &CallbackQuery) -> Result<AccountSignedIn> {
+    /// The account `p` asked for, signed in through it from what the browser came back to `p`
+    /// with.
+    fn signed_in(&self, p: Pending, query: &CallbackQuery) -> Result<AccountSignedIn> {
         let asked = p.asked;
-        let slot = self.slot(&asked.with)?;
-        let t = slot.account_type(&asked.kind)?;
-        let answer = slot.traded(t, &p.client, p.verifier, query)?;
+        let t = self.account_type(&asked.kind)?;
+        let answer = self.traded(t, &p.client, p.verifier, query)?;
         let access_token = answer.access_token().secret();
-        slot.net.saw(access_token);
-        let (subject, name) = slot.whoami(t, access_token)?;
+        self.net.saw(access_token);
+        let (subject, name) = self.whoami(t, access_token)?;
         let instead_of = asked.account.filter(|a| *a != subject);
         // The plugin it's for is given the scopes it needs whatever the service grants (a request
         // through one not granted says to sign in again), those it can do without only when
         // granted, and nothing when the browser signed in to another account than asked.
         let for_plugin = asked.for_plugin.filter(|_| instead_of.is_none());
-        let needs = match &for_plugin {
-            Some((plugin, _)) => self.slot(plugin)?.needs(&asked.kind)?.scopes.clone(),
-            None => Vec::new(),
-        };
         let (store, storage) = (&p.store, self.host.options.secrets);
         let _one = kept::hold(store, &asked.with, &subject)?;
         // Signed in again, it keeps the refresh token it had when the service answers none. One
         // that can't be read is signed in to anew.
         let had = kept::read(store)?.account(&asked.with, &subject).cloned();
-        let had = had.and_then(|k| slot.kept_tokens(store, &k).ok().flatten());
+        let had = had.and_then(|k| self.kept_tokens(store, &k).ok().flatten());
         let mut tokens = Tokens::from(&answer, had);
         // A service that doesn't say what it granted granted what it was asked (RFC 6749 5.1).
         if answer.scopes().is_none() {
             tokens.scopes = asked.scopes;
         }
-        slot.seen(&tokens);
+        self.seen(&tokens);
         let (account, access, declined) = kept::update(store, |book| {
             let all = &mut book.accounts;
             let i = match all.iter().position(|k| k.is(&asked.with, &subject)) {
@@ -422,7 +457,7 @@ impl Plugins {
             kept::keep(storage, store, k, Some(&tokens))?;
             let k = k.clone();
             book.renamed(&k);
-            let Some((plugin, scopes)) = &for_plugin else { return Ok((listed(k, true), None, Vec::new())) };
+            let Some((plugin, scopes, needs)) = &for_plugin else { return Ok((listed(k, true), None, Vec::new())) };
             let is_granted =
                 |name: &String| t.scopes.get(name).is_some_and(|s| s.asks.iter().all(|a| k.scopes.contains(a)));
             let declined: Vec<String> = scopes.iter().filter(|s| !is_granted(s)).cloned().collect();
@@ -433,7 +468,9 @@ impl Plugins {
         })?;
         Ok(AccountSignedIn { account, instead_of, access, declined })
     }
+}
 
+impl Plugins {
     /// The access token of the account `subject` that `with` signed in to in `store`, as a
     /// plugin's request gets it (see [`Plugin::account_token`]).
     pub(crate) fn account_token(&self, store: &Store, with: &str, subject: &str) -> Result<String> {

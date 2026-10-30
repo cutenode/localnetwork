@@ -277,17 +277,26 @@ fn render_account(a: &AccountInfo) {
     render_details(a);
 }
 
-fn render_details(a: &AccountInfo) {
-    let host = |url: &str| url.split("://").nth(1).unwrap_or(url).trim_end_matches('/').to_string();
-    say!("  {}", dim(format!("{} · data on {} · signed in at {}", a.did, host(&a.pds), host(&a.auth_server))));
-    let again = if a.days_left() >= 1 {
+/// When `a` is to sign in again: by its day and in how many days, by its time when that's today,
+/// or that its session has likely ended.
+pub fn again(a: &AccountInfo) -> String {
+    if a.days_left() >= 1 {
         format!("sign in again by {} ({} days)", local_time(a.sign_in_again_by, "%Y-%m-%d"), a.days_left())
     } else if !a.expired() {
         format!("sign in again by {} (today)", local_time(a.sign_in_again_by, "%Y-%m-%d %H:%M"))
     } else {
         "the session has likely ended; sign in again".to_string()
-    };
-    say!("  signed in {} · {again}", local_time(a.signed_in_at, "%Y-%m-%d"));
+    }
+}
+
+fn render_details(a: &AccountInfo) {
+    let host = |url: &str| url.split("://").nth(1).unwrap_or(url).trim_end_matches('/').to_string();
+    say!("  {}", dim(format!("{} · data on {} · signed in at {}", a.did, host(&a.pds), host(&a.auth_server))));
+    let line = format!("signed in {} · {}", local_time(a.signed_in_at, "%Y-%m-%d"), again(a));
+    match a.due_soon() {
+        true => warn(line),
+        false => say!("  {line}"),
+    }
     let publishes = a.scopes.iter().any(|s| atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
     let reports = a.scopes.iter().any(|s| s == atmosphere::REPORT_SCOPE);
     let known = |s: &String| {

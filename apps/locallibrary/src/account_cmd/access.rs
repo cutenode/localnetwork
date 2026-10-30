@@ -15,10 +15,10 @@ use locallibrary::progress::Ctx;
 use loclib_plugin::{AccountNeed, Choice, ChoiceItem};
 use serde_json::json;
 
-use super::accounts::{account_type, called, come_back, declined, find, named, titles};
+use super::accounts::{account_type, called, come_back, declined, find, named, signing_out, titles};
 use crate::browser::BrowserArgs;
 use crate::jobs_cmd::usage;
-use crate::output::{Output, dim, heading, ok};
+use crate::output::{Output, dim, heading, ok, warn};
 use crate::plugin_cmd::choose::{answer, interactive};
 use crate::plugins;
 
@@ -111,20 +111,49 @@ fn list(plugins: &Plugins, plugin: &str, needs: &[AccountNeed], accesses: &[Acce
 /// asked about once: which account it may use when it has no access (made its default, signing in
 /// to another when that's chosen), signing in again when the account is signed out, won't stay
 /// signed in or wasn't granted what it needs, and giving it the scopes its access lacks. Nothing's
-/// asked elsewhere: the destination is refused, saying how to resolve it.
+/// asked elsewhere: the destination is refused, saying how to resolve it. Then each account it
+/// uses that signs itself out within `WARN_DAYS` is warned about, and signing in again offered
+/// in a terminal (see [`signing_out_soon`]).
 pub fn ask(spec: &str, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<()> {
-    if !interactive(out) || out.yes {
-        return Ok(());
-    }
-    let (plugin, _) = destination_spec(spec)?;
+    // A spec that names no destination is refused as it's used.
+    let Ok((plugin, _)) = destination_spec(spec) else { return Ok(()) };
     let plugins = plugins::host()?;
+    let asking = interactive(out) && !out.yes;
     // One turned down isn't asked again: the destination refuses it.
     let mut asked = Vec::new();
-    while let Some(u) =
-        plugins.unready(plugin, store)?.into_iter().find(|u| !asked.contains(&(u.kind().to_string(), discriminant(u))))
+    while let Some(u) = plugins
+        .unready(plugin, store)?
+        .into_iter()
+        .find(|u| asking && !asked.contains(&(u.kind().to_string(), discriminant(u))))
     {
         asked.push((u.kind().to_string(), discriminant(&u)));
         resolve(plugins, plugin, u, store, out, ctx)?;
+    }
+    signing_out_soon(plugins, plugin, store, asking, out, ctx)
+}
+
+/// Warns of each account `plugin`'s default accesses use that signs itself out within `WARN_DAYS`,
+/// and when `asking`, offers to sign in again as it.
+fn signing_out_soon(
+    plugins: &Plugins,
+    plugin: &str,
+    store: &Store,
+    asking: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<()> {
+    // Without asking the keychain: one that lost its tokens is signed out, which `ask` resolves.
+    let accounts = plugins.kept_accounts(store)?;
+    for x in plugins.accesses(store, Some(plugin), None)?.into_iter().filter(|x| x.default) {
+        let used = accounts.iter().find(|a| a.plugin == x.account.plugin && a.subject == x.account.subject);
+        let Some((a, at)) = used.filter(|a| a.due_soon()).and_then(|a| Some((a, a.signs_out?))) else { continue };
+        warn(format!("the {} {}", called(plugins, a), signing_out(at)));
+        if !asking || !out.confirm("Sign in again now?") {
+            continue;
+        }
+        let start = plugins.begin_account_sign_in(&a.kind, &a.plugin, Some(plugin), Some(&a.subject), &[], store)?;
+        let done = come_back(plugins, &start, BrowserArgs::default(), out, ctx)?;
+        ok(format!("Signed in to the {}", called(plugins, &done.account)));
     }
     Ok(())
 }

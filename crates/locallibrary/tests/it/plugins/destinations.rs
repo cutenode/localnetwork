@@ -751,9 +751,16 @@ fn a_destination_starts_only_when_its_accounts_will_last(tc: TestCase) {
     let e = started.err().unwrap();
     assert_eq!((e.code(), e.reason()), ("account", Some(reason)), "{said}: {e}");
     assert!(asked().is_empty(), "{said}: echo was asked");
+    // What resolves it for the account echo has access to comes first: giving its access what it
+    // lacks when the account was granted that, else signing in again as the account.
     let actions = e.detail().actions;
-    let again = actions.first().is_some_and(|a| a.params.get("account") == Some(&json!("a")));
-    assert_eq!(again, given, "{said}: {actions:?}");
+    let first = actions.first().and_then(|a| Some((a.method.clone()?, a.params.get("account")?.clone())));
+    let givable = matches!(mistake, Some(Mistake::Ungiven)) && asks(needs[0]).iter().all(|a| grants.contains(a));
+    let resolving = given.then(|| match givable {
+        true => ("accounts.access.give".to_string(), json!({ "plugin": WITH, "subject": "a" })),
+        false => ("accounts.sign_in.begin".to_string(), json!("a")),
+    });
+    assert_eq!(first, resolving, "{said}: {actions:?}");
 }
 
 /// A step of [`a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].

@@ -54,6 +54,9 @@ pub(super) struct Kept {
     pub expires_at: Option<DateTime<Utc>>,
     /// It's refreshed without signing in again.
     pub refreshes: bool,
+    /// When its refresh token runs out, when the service said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_expires_at: Option<DateTime<Utc>>,
 }
 
 impl Kept {
@@ -62,12 +65,22 @@ impl Kept {
         self.plugin == plugin && self.subject == subject
     }
 
-    /// What `tokens` say of it: what the service granted, when they expire and whether they
-    /// refresh.
+    /// What `tokens` say of it: what the service granted, when they expire and whether (and till
+    /// when) they refresh.
     pub fn granted(&mut self, tokens: &Tokens) {
         self.scopes = tokens.scopes.clone();
         self.expires_at = tokens.expires_at;
         self.refreshes = tokens.refresh_token.is_some();
+        self.refresh_expires_at = tokens.refresh_expires_at;
+    }
+
+    /// When it signs itself out, when it does: as its access token expires when it isn't
+    /// refreshed, else as its refresh token runs out, when the service said.
+    pub fn signs_out(&self) -> Option<DateTime<Utc>> {
+        match self.refreshes {
+            true => self.refresh_expires_at,
+            false => self.expires_at,
+        }
     }
 }
 
@@ -112,6 +125,7 @@ pub(super) fn keep(storage: Storage, store: &Store, kept: &Kept, tokens: Option<
                 access_token: t.access_token.clone(),
                 refresh_token: t.refresh_token.clone(),
                 expires_at: None,
+                refresh_expires_at: None,
                 scopes: Vec::new(),
             };
             serde_json::to_string(&only).map_err(|e| Error::invalid(e.to_string()))

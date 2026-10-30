@@ -232,6 +232,12 @@ impl AccountInfo {
     pub fn expired(&self) -> bool {
         Utc::now() >= self.sign_in_again_by
     }
+
+    /// Whether signing in again is due within [`crate::plugin::WARN_DAYS`], or was: front ends
+    /// warn, offering to.
+    pub fn due_soon(&self) -> bool {
+        crate::plugin::due_soon(self.sign_in_again_by)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

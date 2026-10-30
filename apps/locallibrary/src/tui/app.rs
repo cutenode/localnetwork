@@ -759,6 +759,8 @@ pub enum Msg {
     Notice(locallibrary::plugin::PluginNotice),
     /// What plugins suggested, as it's kept now: to review from the palette.
     Suggested(Vec<locallibrary::plugin::PluginNotice>),
+    /// A plugin asks whether it may use more of an account, waiting for the answer here.
+    AskAccess(Box<locallibrary::plugin::AccessQuestion>, Sender<bool>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -1868,6 +1870,7 @@ impl App {
             Msg::Log(line) => self.remember(line, Level::Info),
             Msg::Notice(notice) => self.told(notice),
             Msg::Suggested(kept) => self.suggested = kept,
+            Msg::AskAccess(question, reply) => self.ask_access(&question, reply),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {

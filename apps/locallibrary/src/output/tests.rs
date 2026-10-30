@@ -49,7 +49,7 @@ fn a_wrong_name_declines_an_erase() {
 /// new phase replaces the bar and its end clears it.
 #[test]
 fn progress_bars_count_what_their_phase_counts() {
-    let p = CliProgress { bar: Mutex::new(None), enabled: true };
+    let p = CliProgress { bar: Arc::default(), enabled: true };
     let bar = || p.bar.lock().unwrap().as_ref().map(|(b, _)| (b.prefix(), b.position(), b.message()));
     let item = |path: &str| Event::Item { phase: Phase::Scan, path: path.into(), bytes: 10 };
     p.on_event(&Event::PhaseStart { phase: Phase::Scan, items: 3, bytes: 0 });
@@ -69,10 +69,14 @@ fn progress_bars_count_what_their_phase_counts() {
     // Nothing to count: a spinner.
     p.on_event(&Event::PhaseStart { phase: Phase::Verify, items: 0, bytes: 0 });
     assert_eq!(bar().map(|(prefix, position, _)| (prefix, position)), Some(("Verifying".into(), 0)));
+    // A question is asked with the bar out of the way, which is drawn again after.
+    assert_eq!(p.drawing().suspend(|| "asked"), "asked");
+    assert!(bar().is_some());
     p.on_event(&Event::PhaseEnd { phase: Phase::Verify });
+    assert_eq!(p.drawing().suspend(|| "asked"), "asked");
 
     // `--json`, `--quiet` or no terminal: no bars.
-    let off = CliProgress { bar: Mutex::new(None), enabled: false };
+    let off = CliProgress { bar: Arc::default(), enabled: false };
     off.on_event(&Event::PhaseStart { phase: Phase::Scan, items: 3, bytes: 0 });
     off.on_event(&Event::Warning { message: "said anyway".into() });
     assert!(off.bar.lock().unwrap().is_none());
@@ -242,7 +246,7 @@ fn progress_bars_follow_their_events(tc: hegel::TestCase) {
         Phase::Analyze,
         Phase::Upload,
     ];
-    let p = CliProgress { bar: Mutex::new(None), enabled: true };
+    let p = CliProgress { bar: Arc::default(), enabled: true };
     // (label, counts items, position, message), as the bar should have them.
     let mut model: Option<(&str, bool, u64, String)> = None;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {

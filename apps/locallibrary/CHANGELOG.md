@@ -438,7 +438,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   one. The player's palette signs in and out, and has a form for a plugin's access. The sidecar
   has them as `accounts.*`. Plugins no longer have accounts of their own: `plugin account` and
   the sidecar's `plugins.account*` are gone, and `plugin info` and `plugins.describe` show the
-  access a plugin has instead.
+  access a plugin has instead. A plugin asks for the scopes it can do without as it needs them
+  (`accounts/ensure`, `Host::ensure_account` in the SDK), and learns which it may use and which
+  you declined, never a token. The terminal and the player ask you first (signing in again when
+  the account wasn't granted them), and a no is remembered until `plugin access --give` gives the
+  scope; with `--json`, in `watch` and in the sidecar it fails saying how to give it.
+  `account` says when each account signs itself out (its token expiring unrefreshed, or its
+  refresh token running out when the service says), and in its last two days it's a warning there,
+  before a destination uses it (offering to sign in again) and as the player starts; the
+  Atmosphere account's "sign in again by" turns into a warning then too, and publishing offers to
+  sign in again first.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
