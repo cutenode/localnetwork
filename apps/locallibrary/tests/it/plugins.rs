@@ -106,7 +106,9 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
     let said = out + &err;
     assert_eq!((code, said.contains("token is set"), said.contains("hunter2")), (0, true, false), "{said}");
     let (_, shown, _) = run(&["plugin", "settings", "echo"], "");
-    assert!(shown.contains("token     set  Token") && !shown.contains("hunter2"), "{shown}");
+    // Padded to the longest key: a command's key in the player (`keys.playlist`).
+    let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(words.contains("token set Token") && !shown.contains("hunter2"), "{shown}");
     let (_, json, _) = run(&["--json", "plugin", "info", "echo"], "");
     let json: Value = serde_json::from_str(&json).unwrap();
     assert_eq!((&json["secrets"], json["settings"].get("token")), (&json!({ "token": true }), None));
@@ -209,7 +211,10 @@ fn plugins_are_listed_and_their_settings_kept() {
     );
     assert!(env.fails(1, &["plugin", "info", "nope"]).contains("error: not found: plugin \"nope\""));
 
-    assert!(env.ok(&["plugin", "settings", "echo"]).contains("greeting  hello  Greeting (default)"));
+    let settings = env.ok(&["plugin", "settings", "echo"]);
+    assert!(crate::support::line(&settings, "greeting ").ends_with("  hello  Greeting (default)"), "{settings}");
+    let key = crate::support::line(&settings, "keys.titles ");
+    assert!(key.ends_with("  not set  List the drive's tracks: its key in the player"), "{settings}");
     assert_eq!(
         env.exits(3, &["plugin", "settings", "echo", "greeting", "hi"]).lines().next(),
         Some("• set the echo plugin's greeting to hi")
@@ -462,6 +467,9 @@ fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
     let message = files.and_then(|i| i["message"].as_str()).unwrap_or_else(|| panic!("{v}"));
     let said = "; `locallibrary art auto \"USB\"` fills in art their files embed, and `locallibrary art fetch \"USB\"` finds covers online";
     assert!(message.starts_with("1 track(s) have no artwork image: ") && message.ends_with(said), "{message}");
+    // And fixed by fetching covers for that track, as the player offers it.
+    let fix = files.map(|i| &i["fix"]).unwrap();
+    assert_eq!(fix, &json!({ "name": "art.fetch", "params": { "drive": "USB", "tracks": [1] } }));
     let doctor = env.run(&["doctor", "USB", "--only", "missing"]);
     for hint in
         ["`locallibrary art auto \"USB\"` fills in artwork", "`locallibrary art fetch \"USB\"` finds covers online"]

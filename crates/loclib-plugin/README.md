@@ -352,8 +352,10 @@ tracks the drive has, each once, refusing one with none. The actions:
   `options` fitting the exporter's. Where to is always the user's to pick.
 - `analyze` `{analyzer, drive, tracks?}`: its analyzer on the drive's tracks.
 
-The host refuses (and logs) a suggestion with both, an action it doesn't know or params the action
-doesn't take, and one on another plugin's contributions, and tells the line alone. A host older
+`pull` and `sync` `{drive}` are the host's alone (what fixes one of its own check findings), never
+a plugin's to suggest. The host refuses (and logs) a suggestion with both, an action it doesn't
+know, one of its own, params the action doesn't take, and one on another plugin's contributions,
+and tells the line alone. A host older
 than actions leaves `action` out (`HostNotify` takes keys it doesn't know), so it tells the line
 alone too.
 

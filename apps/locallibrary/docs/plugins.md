@@ -258,7 +258,9 @@ most) change that (kept
 in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
 `checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
 in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form
-for which run.
+for which run. locallibrary's own findings that something fixes are offered there the same way:
+a drive behind or ahead of the first is synced, history lists the store lacks are pulled, and
+tracks without artwork have covers fetched, when a plugin finds them.
 
 ## Commands and operations
 
@@ -332,7 +334,12 @@ form with its options and a set's own name for the file (where it goes is yours 
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
 mix's format. "dismiss: ..." lets it go. Suggestions are kept in the store until you
 do either (the newest 20), so they're still there when the player opens again; `watch` says what
-it's told and keeps its suggestions for the player the same way. The sidecar sends it as a
+it's told and keeps its suggestions for the player the same way. What you reviewed or dismissed
+is remembered (in the store's `plugins/seen.json`), and a plugin suggesting it again, or one
+waiting already, is left out: an action on tracks keeps only the tracks not suggested before.
+So the coverart plugin, which suggests fetching covers for a drive's tracks without artwork once
+it's plugged in or its databases change, and the sound plugin, which suggests analysing the tracks it has no
+tempo, key or loudness for, only bring up tracks that are new. The sidecar sends it as a
 `plugin.notice` event. A plugin can't suggest another plugin's work, and nothing it suggests is
 planned or applied unless you choose to.
 
@@ -463,6 +470,14 @@ player's settings form), and runs while the player, the sidecar or `watch` (but 
 One that stops or crashes is started again a second later, then twice that, and so on, and left
 off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
 plugin's services, and whether they're on.
+
+## Keys
+
+A plugin's command or operation can have a key of its own in the player:
+`locallibrary plugin settings ID keys.NAME KEY` (or its field in the plugin's settings form),
+where `KEY` is one character, `ctrl-` and a letter, or `f1` to `f12`. The player's own keys
+always win: one it uses anywhere, or one already bound to another command, is refused, saying
+why.
 
 ## Settings
 

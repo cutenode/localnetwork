@@ -4098,6 +4098,8 @@ dependencies = [
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",
+ "rustc-hash",
+ "serde",
  "serde_json",
  "tempfile",
 ]

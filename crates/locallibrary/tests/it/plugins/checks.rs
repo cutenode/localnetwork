@@ -9,7 +9,7 @@ use locallibrary::api::EditRequest;
 use locallibrary::check::{CheckItem, Finding, Level};
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::op::Planned;
-use locallibrary::plugin::{CheckChange, CheckSettings, Fix, TIMEOUT, check_timeout, set_check_timeout};
+use locallibrary::plugin::{CheckChange, CheckSettings, Fix, PluginFix, TIMEOUT, check_timeout, set_check_timeout};
 use locallibrary::progress::NoProgress;
 use locallibrary::{CancelToken, Device};
 
@@ -99,7 +99,11 @@ fn a_checks_findings_are_named_after_it_with_what_fixes_them() {
         paths: vec!["Contents/a.mp3".into()],
         ..Finding::new(Level::Problem, "echo.found", "two copies")
     };
-    let fix = Fix { plugin: "echo".into(), operation: "playlist".into(), params: json!({ "name": "Copies" }) };
+    let fix = Fix::Plugin(PluginFix {
+        plugin: "echo".into(),
+        operation: "playlist".into(),
+        params: json!({ "name": "Copies" }),
+    });
     assert_eq!(mine[0].finding, finding);
     assert_eq!(mine[0].fix, Some(fix));
     assert_eq!((mine[1].level, mine[1].message.as_str(), &mine[1].fix), (Level::Info, "fine", &None));
@@ -125,7 +129,7 @@ fn echos_check_finds_tracks_without_a_title() {
     let items = f.run_checks();
     let echo = items.iter().find(|i| i.check == "echo.untitled").expect("found");
     assert_eq!((echo.level, &echo.tracks), (Level::Warning, &untitled(&f)));
-    assert_eq!(echo.fix.as_ref().map(|x| x.operation.as_str()), Some("playlist"));
+    assert!(matches!(&echo.fix, Some(Fix::Plugin(f)) if f.operation == "playlist"), "{:?}", echo.fix);
 }
 
 /// A check that fails, answers what it may not, or takes longer than the setting gives it is a
@@ -372,7 +376,11 @@ fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
             assert_eq!(item.message, json["message"].as_str().unwrap());
             assert_eq!(serde_json::to_value(&item.tracks).unwrap(), json["tracks"]);
             assert_eq!(item.paths.first().map(String::as_str), json["paths"][0].as_str());
-            assert_eq!(item.fix.as_ref().map(|x| x.operation.as_str()), json["fix"]["operation"].as_str());
+            let operation = match &item.fix {
+                Some(Fix::Plugin(f)) => Some(f.operation.as_str()),
+                _ => None,
+            };
+            assert_eq!(operation, json["fix"]["operation"].as_str());
             assert_eq!(item.drive, "USB");
         }
     }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use locallibrary::plugin::{CheckChange, Fix, Plugins, set_check_timeout};
+use locallibrary::plugin::{CheckChange, PluginFix, Plugins, set_check_timeout};
 use unicode_width::UnicodeWidthStr;
 
 use super::listing::invocation;
@@ -93,7 +93,7 @@ fn show(c: &Checks) {
 }
 
 /// The command line that runs `fix`, for the finding on `drive`: its plugin's operation.
-pub fn fix_line(plugins: &Plugins, fix: &Fix, drive: &str) -> String {
+pub fn fix_line(plugins: &Plugins, fix: &PluginFix, drive: &str) -> String {
     let manifest = plugins.manifest(&fix.plugin).ok();
     let operation = manifest.and_then(|m| m.contributes.operations.iter().find(|o| o.name == fix.operation));
     let run = invocation(&fix.plugin, &fix.operation, operation.and_then(|o| o.cli.as_deref()));

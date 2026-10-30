@@ -9,7 +9,8 @@
 //! a single's. locallibrary offers them, makes the edits chosen, and journals them. The host makes
 //! its requests (`net/fetch`), a second apart for MusicBrainz as the manifest asks, and the covers
 //! go to it as files in the request's scratch folder, which it removes once it has read them:
-//! nothing downloaded is kept, as it's cheap to fetch again.
+//! nothing downloaded is kept, as it's cheap to fetch again. Once a drive is plugged in or its
+//! databases change, it suggests fetching covers for its tracks without artwork (see [`new_tracks`]).
 
 mod covers;
 mod musicbrainz;
@@ -21,7 +22,8 @@ use std::path::Path;
 use indexmap::IndexMap;
 use loclib_model::model::normalize;
 use loclib_plugin::{
-    Blob, Candidate, Candidates, Hooks, Host, ProvideCandidates, ProviderKind, RpcError, TrackMetadata, TrackTags,
+    Blob, Candidate, Candidates, EventNotify, FetchAction, Hooks, Host, HostAction, HostNotify, MAX_SUGGESTED_TRACKS,
+    ProvideCandidates, ProviderKind, RpcError, TrackMetadata, TrackTags,
 };
 use loclib_progress::{Event, Phase};
 
@@ -33,7 +35,26 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(provide), input, output);
+    loclib_plugin::serve(MANIFEST, Hooks::new().on(provide).on_event(new_tracks), input, output);
+}
+
+/// The artwork provider's name, as the manifest has it.
+const ARTWORK_PROVIDER: &str = "covers";
+
+/// `drive.mounted` and `drive.changed`: once a drive is plugged in or its databases change, its
+/// tracks without artwork (the first [`MAX_SUGGESTED_TRACKS`]), suggested for its covers. The
+/// host leaves out the tracks it suggested before, so only new ones reach the user.
+fn new_tracks(e: EventNotify, host: &Host) -> Result<(), RpcError> {
+    let Some(drive) = e.new_tracks() else { return Ok(()) };
+    let library = host.drive(drive).library()?;
+    let bare = library.tracks.iter().filter(|t| t.artwork_id.is_none()).map(|t| t.id);
+    let tracks: Vec<u32> = bare.take(MAX_SUGGESTED_TRACKS).collect();
+    if tracks.is_empty() {
+        return Ok(());
+    }
+    let fetch = FetchAction { drive: drive.into(), tracks, provider: Some(ARTWORK_PROVIDER.into()) };
+    host.notify(&HostNotify::action("new tracks have no cover art", &HostAction::ArtFetch(fetch)));
+    Ok(())
 }
 
 /// Where the covers are from, as candidates say.

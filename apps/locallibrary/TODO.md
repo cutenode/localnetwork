@@ -208,8 +208,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (unnamed) against a new store. Decide whether no store should still list those groups.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
-      let the TUI offer one-key fixes.
 - [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the

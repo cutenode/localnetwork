@@ -4,7 +4,8 @@
 //! of their own, sent on a thread of its own (starting the plugin when it isn't running): a front
 //! end only adds to it, never waiting, and once it's full the oldest is dropped. What a plugin
 //! tells the user back (`host/notify`, with the `events` or `services` feature) goes to the
-//! front end's [`super::Options::notices`].
+//! front end's [`super::Options::notices`], without what it suggests that the user already
+//! reviewed or dismissed, or that's waiting for them (see [`forget_suggested`]).
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
@@ -239,6 +240,19 @@ impl Plugin {
             self.host.log(id, &refused);
             None
         });
+        let suggests = match (suggests, &live.store) {
+            (Some(s), Some(store)) => match unseen(store, id, s.clone()) {
+                Ok(Some(new)) => Some(new),
+                Ok(None) => {
+                    return self.host.log(id, "it suggests only what was reviewed, dismissed or is waiting: left out");
+                }
+                Err(e) => {
+                    self.host.log(id, &format!("what was suggested before can't be read: {e}"));
+                    Some(s)
+                }
+            },
+            (s, _) => s,
+        };
         (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, suggests });
     }
 
@@ -316,6 +330,76 @@ fn suggested_file(store: &Store) -> std::path::PathBuf {
     store.root().join("plugins").join("suggested.json")
 }
 
+/// Where suggestions reviewed or dismissed are remembered: `<store>/plugins/seen.json`.
+fn seen_file(store: &Store) -> std::path::PathBuf {
+    store.root().join("plugins").join("seen.json")
+}
+
+/// The most suggestions remembered as reviewed or dismissed (see [`forget_suggested`]), each
+/// plugin's action on a drive once with all its tracks: the oldest go.
+const MAX_SEEN: usize = 200;
+
+/// A suggestion reviewed or dismissed: its plugin, what it suggests (an action without its
+/// tracks, as JSON, so one this version doesn't know is kept as it is), and its tracks, every one
+/// reviewed or dismissed for it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Seen {
+    plugin: String,
+    suggests: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tracks: Vec<u32>,
+}
+
+/// What `suggests` is without its tracks, as JSON, and its tracks (none for every one, or for a
+/// suggestion that has none).
+fn scope(suggests: &Suggestion) -> (Value, Vec<u32>) {
+    let mut without = suggests.clone();
+    let tracks = match &mut without {
+        Suggestion::Action(a) => a.scope_mut().1.map(std::mem::take).unwrap_or_default(),
+        Suggestion::Operation(_) => Vec::new(),
+    };
+    (serde_json::to_value(&without).expect("JSON"), tracks)
+}
+
+/// `suggests` without what plugin `plugin` suggested before, still waiting in `store` or
+/// reviewed or dismissed since: none when that's all of it. An action on tracks keeps those not
+/// suggested before; any other suggestion is all new or none.
+fn unseen(store: &Store, plugin: &str, mut suggests: Suggestion) -> Result<Option<Suggestion>> {
+    let (key, tracks) = scope(&suggests);
+    let (kept, seen) = {
+        let _keeping = lock(&KEEPING);
+        (read_kept(&suggested_file(store))?.0, read_seen(store)?)
+    };
+    let waiting = kept.iter().filter_map(|n| Some((n.plugin.as_str(), scope(n.suggests.as_ref()?))));
+    let before = seen.iter().map(|s| (s.plugin.as_str(), (s.suggests.clone(), s.tracks.clone())));
+    let mut had = FxHashSet::default();
+    for (_, (_, t)) in waiting.chain(before).filter(|(by, (k, _))| *by == plugin && *k == key) {
+        // One on every track had them all.
+        if t.is_empty() {
+            return Ok(None);
+        }
+        had.extend(t);
+    }
+    if tracks.is_empty() {
+        return Ok(Some(suggests));
+    }
+    let new: Vec<u32> = tracks.into_iter().filter(|t| !had.contains(t)).collect();
+    if new.is_empty() {
+        return Ok(None);
+    }
+    if let Suggestion::Action(a) = &mut suggests
+        && let (_, Some(tracks)) = a.scope_mut()
+    {
+        *tracks = new;
+    }
+    Ok(Some(suggests))
+}
+
+/// The suggestions remembered as reviewed or dismissed.
+fn read_seen(store: &Store) -> Result<Vec<Seen>> {
+    Ok(fsutil::read_json_opt(&seen_file(store))?.unwrap_or_default())
+}
+
 /// The suggestions kept for the player.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Suggestions {
@@ -358,14 +442,22 @@ pub fn suggested(store: &Store) -> Result<Suggestions> {
 /// read are kept as they are, first. The read and the write happen under a lock of their own
 /// (`suggested.lock` beside them, waited for), so the player and the `watch` agent keeping and
 /// forgetting them at once don't drop each other's changes. (Read alone, they needn't wait:
-/// they're written whole, in place at once.)
-fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Result<Vec<PluginNotice>> {
+/// they're written whole, in place at once.) With `seen`, that suggestion is remembered as
+/// reviewed or dismissed first, under the same locks.
+fn change_kept(
+    store: &Store,
+    change: impl FnOnce(&mut Vec<PluginNotice>),
+    seen: Option<&PluginNotice>,
+) -> Result<Vec<PluginNotice>> {
     let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
     let dir = file.parent().expect("in a folder");
     std::fs::create_dir_all(dir).at(dir)?;
     let _changing = fsutil::FileLock::wait(&dir.join("suggested.lock"))?;
     let (mut kept, unread) = read_kept(&file)?;
+    if let Some(notice) = seen {
+        remember(store, notice)?;
+    }
     change(&mut kept);
     let all: Vec<Value> =
         unread.into_iter().chain(kept.iter().map(|n| serde_json::to_value(n).expect("JSON"))).collect();
@@ -377,18 +469,48 @@ fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Re
 /// reviewed or dismissed ([`forget_suggested`]), as the player and the `watch` agent do with what
 /// they're told: the newest [`MAX_SUGGESTED`]. Answers those kept now.
 pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {
-    change_kept(store, |kept| {
-        kept.push(notice.clone());
-        kept.drain(..kept.len().saturating_sub(MAX_SUGGESTED));
-    })
+    change_kept(
+        store,
+        |kept| {
+            kept.push(notice.clone());
+            kept.drain(..kept.len().saturating_sub(MAX_SUGGESTED));
+        },
+        None,
+    )
 }
 
 /// No longer keeps a suggestion (the oldest the same as `notice`): it was reviewed or dismissed.
-/// Answers those kept now.
+/// It's remembered, so its plugin suggesting it again (or an action on the same tracks) is left
+/// out (the newest [`MAX_SEEN`] remembered). Answers those kept now.
 pub fn forget_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {
-    change_kept(store, |kept| {
+    let forget = |kept: &mut Vec<PluginNotice>| {
         if let Some(i) = kept.iter().position(|k| k == notice) {
             kept.remove(i);
         }
-    })
+    };
+    change_kept(store, forget, Some(notice))
 }
+
+/// Remembers `notice`'s suggestion as reviewed or dismissed: with its tracks added to those of
+/// the same action remembered before (every track, when either was on every one).
+fn remember(store: &Store, notice: &PluginNotice) -> Result<()> {
+    let Some(suggests) = &notice.suggests else { return Ok(()) };
+    let (key, tracks) = scope(suggests);
+    let mut seen = read_seen(store)?;
+    let before = seen.iter().position(|s| s.plugin == notice.plugin && s.suggests == key);
+    let tracks = match before.map(|i| seen.remove(i).tracks) {
+        None => tracks,
+        Some(had) if had.is_empty() || tracks.is_empty() => Vec::new(),
+        Some(mut had) => {
+            let mut known: FxHashSet<u32> = had.iter().copied().collect();
+            had.extend(tracks.into_iter().filter(|t| known.insert(*t)));
+            had
+        }
+    };
+    seen.push(Seen { plugin: notice.plugin.clone(), suggests: key, tracks });
+    seen.drain(..seen.len().saturating_sub(MAX_SEEN));
+    fsutil::write_json_atomic(&seen_file(store), &seen)
+}
+
+#[cfg(test)]
+mod tests;
