@@ -151,6 +151,26 @@ fn files_start_where_asked() {
     assert_eq!((first * 32768.0).round(), 400.0);
 }
 
+/// An MP3 plays without the silence its encoder put at either end, as its LAME tag says (the
+/// encoder's delay and padding), and is as long as what's left; one with no tag plays every frame.
+#[test]
+fn mp3s_play_gapless() {
+    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+
+    let dir = tempfile::tempdir().unwrap();
+    let frames = 40;
+    for (gapless, trimmed) in [(Some((1105, 1000)), 2105), (None, 0)] {
+        let path = dir.path().join("set.mp3");
+        std::fs::write(&path, mp3(frames, gapless)).unwrap();
+        let file = open_file(&path).unwrap();
+        let samples = u64::from(frames * MP3_FRAME_SAMPLES) - trimmed;
+        assert_eq!(file.format, (2, 44_100), "{gapless:?}");
+        let frames_long = file.duration.map(|d| (d.as_secs_f64() * 44_100.0).round() as u64);
+        assert_eq!(frames_long, Some(samples), "{gapless:?}");
+        assert_eq!(file.decoder.count() as u64, samples * 2, "{gapless:?}");
+    }
+}
+
 /// A track queued behind the playing one starts the moment it ends; one queued and dropped
 /// never plays.
 #[test]

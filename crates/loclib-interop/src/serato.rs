@@ -518,15 +518,19 @@ fn marked_tag(
         f.read_exact(&mut header).map_err(io)?;
         let size = u64::from(chunk_size(&header, little));
         let len = f.metadata().map_err(io)?.len();
-        if len < size + 8 {
+        let end = size + 8;
+        if len < end {
             return Err(tag_error(named, &"it's cut off: shorter than its header says"));
         }
         if size < 4 {
             return Err(tag_error(named, &format!("its header says it holds {size} bytes")));
         }
         // Bytes past that size (trailing junk) are fine if it ends after a chunk.
-        if size + 8 < len && !chunks_end_at(&mut f, size + 8, little).map_err(io)? {
+        if end < len && !chunks_end_at(&mut f, end, little).map_err(io)? {
             return Err(tag_error(named, &"its header's size ends inside one of its chunks"));
+        }
+        if last_chunk_unpadded(&mut f, little, end, len).map_err(io)? {
+            return Err(tag_error(named, &"its last chunk is missing the pad byte after it"));
         }
         f.rewind().map_err(io)?;
     }
@@ -605,6 +609,40 @@ fn chunks_end_at(f: &mut std::fs::File, end: u64, little: bool) -> std::io::Resu
 fn is_chunk_id(id: [u8; 4]) -> bool {
     let first_space = id.iter().position(|&b| b == b' ').unwrap_or(4);
     id.iter().all(|b| (0x20..=0x7e).contains(b)) && id[first_space..].iter().all(|&b| b == b' ')
+}
+
+/// Whether the chunks of an AIFF or WAV file `len` bytes long, walked as lofty walks them to write
+/// a tag, end in an odd-sized chunk with no pad byte after it: lofty reads such a file but fails
+/// writing into it. The chunks end at `end`, as the file's header says. As in lofty, a pad byte
+/// missing mid-file (where the next chunk's id starts instead) is let go, and the walk stops at a
+/// chunk id that isn't printable ASCII.
+fn last_chunk_unpadded(f: &mut std::fs::File, wav: bool, end: u64, len: u64) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let is_id = |id: &[u8]| id.iter().all(|b| (0x20..=0x7e).contains(b));
+    let mut at = 12;
+    let mut header = [0; 8];
+    while at + 8 <= end {
+        f.seek(SeekFrom::Start(at))?;
+        f.read_exact(&mut header)?;
+        if !is_id(&header[..4]) {
+            return Ok(false);
+        }
+        let size = [header[4], header[5], header[6], header[7]];
+        let size = if wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
+        at += 8 + u64::from(size);
+        if size % 2 == 0 {
+            continue;
+        }
+        if at >= len {
+            return Ok(true);
+        }
+        let mut next = [0; 4];
+        f.seek(SeekFrom::Start(at))?;
+        let pad_left_out = f.read_exact(&mut next).is_ok() && next[0] != 0 && is_id(&next);
+        at += u64::from(!pad_left_out);
+    }
+    Ok(false)
 }
 
 /// The most bytes [`write_markers`] adds to the file at `path`: the whole new tag, in its chunk for

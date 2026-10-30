@@ -296,17 +296,19 @@ fn render_details(a: &AccountInfo) {
     let publishes = a.scopes.iter().any(|s| atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
     let reports = a.scopes.iter().any(|s| s == atmosphere::REPORT_SCOPE);
     let known = |s: &String| {
-        s == "atproto" || s == atmosphere::REPORT_SCOPE || atmosphere::PUBLISH_SCOPES.contains(&s.as_str())
+        [&["atproto", atmosphere::REPORT_SCOPE, atmosphere::UPLOAD_SCOPE][..], &atmosphere::PUBLISH_SCOPES]
+            .concat()
+            .contains(&s.as_str())
     };
     let can = match (a.scopes.iter().all(known), publishes, reports) {
         (false, ..) => format!("allowed: {}", a.scopes.join(" ")),
         (true, false, false) => "knows who you are; can't post or change anything".to_string(),
         (true, true, false) => {
-            "can publish your My Settings, profile and sets; can't post or change anything else".to_string()
+            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else".to_string()
         }
         (true, false, true) => "can post bug reports; can't post or change anything else".to_string(),
         (true, true, true) => {
-            "can publish your My Settings, profile and sets and post bug reports; can't post or change anything else"
+            "can publish your My Settings, profile, sets and their recordings and post bug reports; can't post or change anything else"
                 .to_string()
         }
     };

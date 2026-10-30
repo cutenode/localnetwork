@@ -3956,6 +3956,7 @@ dependencies = [
  "locallibrary-plugin-musicbrainz",
  "locallibrary-plugin-plyr",
  "locallibrary-plugin-sound",
+ "locallibrary-plugin-soundcloud",
  "locallibrary-plugin-tracklist",
  "locallibrary-plugin-youtube",
  "loclib-interop",
@@ -4055,6 +4056,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]
@@ -4102,6 +4104,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "locallibrary-plugin-soundcloud"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hegeltest",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "locallibrary-plugin-tracklist"
 version = "0.1.0"
 dependencies = [
@@ -4125,6 +4140,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]

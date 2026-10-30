@@ -16,7 +16,7 @@ use locallibrary::sets::{EntryOrigin, Session, Set, SetEntry, describe};
 use loclib_plugin::{ExportFrom, ExportSource};
 
 use crate::jobs_cmd::usage;
-use crate::output::{Output, clock, dim, duration, fit, heading, ok, plural, warn};
+use crate::output::{Outcome, Output, clock, dim, duration, fit, heading, ok, plural, warn};
 
 /// `sets`: with no subcommand, the list.
 #[derive(Args)]
@@ -68,13 +68,13 @@ enum SetsCommand {
         undismiss: Vec<String>,
     },
     /// Write a set's tracklist out: for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists,
-    /// CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
+    /// podcast chapters, CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
     #[command(after_long_help = EXPORT_HELP)]
     Export {
         #[arg(value_name = "SET")]
         set: String,
-        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .csv, .m3u8,
-        /// .txt), else text]
+        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .json, .csv,
+        /// .m3u8, .txt), else text]
         #[arg(long, short, value_parser = formats())]
         format: Option<String>,
         /// Write it to this file [default: print it]
@@ -114,12 +114,12 @@ enum SetsCommand {
         dry_run: bool,
     },
     /// Publish a set: with its recording at a plugin's set destination (--to), or on your
-    /// Atmosphere account, where anyone can read it (alpha)
+    /// Atmosphere account, its recording too with --upload, where anyone can read it (alpha)
     Publish {
         #[arg(value_name = "SET")]
         set: String,
         /// Publish it with its recording at a plugin's set destination (`plugin info PLUGIN` lists
-        /// them): asked first, and its link kept
+        /// them): asked first, and its link kept (signed in, its record is offered next)
         #[arg(long, value_name = "PLUGIN:DESTINATION")]
         #[cfg_attr(not(feature = "account"), arg(required = true))]
         to: Option<String>,
@@ -130,9 +130,19 @@ enum SetsCommand {
         /// Show what would be published without publishing (or looking anything up)
         #[arg(long)]
         dry_run: bool,
-        /// Don't look up MusicBrainz IDs for the tracks that have none
+        /// Upload its recording to your Atmosphere account first, and point its record at it
+        /// (encoded as AAC by ffmpeg when browsers can't play it or it's too big)
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "to")]
+        upload: bool,
+        /// The most your account's data server takes, in MiB, when that's less than 300 (the
+        /// recording is encoded to fit)
+        #[cfg(feature = "account")]
+        #[arg(long, value_name = "MIB", requires = "upload", value_parser = clap::value_parser!(u64).range(1..))]
+        max_mib: Option<u64>,
+        /// Don't look up MusicBrainz IDs for the tracks that have none
+        #[cfg(feature = "account")]
+        #[arg(long)]
         no_lookup: bool,
         #[cfg(feature = "account")]
         #[command(flatten)]
@@ -169,6 +179,7 @@ less; otherwise each is suggested on its own.";
 const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format mixcloud           paste into Mixcloud's tracklist
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
+  locallibrary sets export last -o friday.json              chapters for podcast apps
   locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
 Every format but csv and m3u8 is for publishing: a track marked unnamed or hidden by your profile
@@ -355,6 +366,8 @@ pub(crate) enum FormatArg {
     /// For 1001Tracklists
     #[value(name = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps
+    Chapters,
     /// Every detail, for a spreadsheet
     Csv,
     /// A playlist of the tracks on a drive
@@ -369,6 +382,7 @@ impl From<FormatArg> for SetFormat {
             FormatArg::Cue => SetFormat::Cue,
             FormatArg::Youtube => SetFormat::Youtube,
             FormatArg::Tracklists => SetFormat::Tracklists,
+            FormatArg::Chapters => SetFormat::Chapters,
             FormatArg::Csv => SetFormat::Csv,
             FormatArg::M3u8 => SetFormat::M3u8,
         }
@@ -379,6 +393,7 @@ impl From<FormatArg> for SetFormat {
 fn format_of(path: &Path) -> Option<SetFormat> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "cue" => Some(SetFormat::Cue),
+        "json" => Some(SetFormat::Chapters),
         "csv" => Some(SetFormat::Csv),
         "m3u8" => Some(SetFormat::M3u8),
         "txt" => Some(SetFormat::Text),
@@ -503,17 +518,33 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             dry_run,
             hide,
             #[cfg(feature = "account")]
+            upload,
+            #[cfg(feature = "account")]
+            max_mib,
+            #[cfg(feature = "account")]
             no_lookup,
             #[cfg(feature = "account")]
             browser,
         } => {
             if let Some(spec) = to {
-                return publish_to(&store()?, &spec, &set, &all(hide), dry_run, out, ctx);
+                let (store, hide) = (store()?, all(hide));
+                #[cfg(feature = "account")]
+                let then = then(&store, store_path, &hide, !no_lookup, browser, out, ctx)?;
+                #[cfg(not(feature = "account"))]
+                let then = None;
+                return publish_to(&store, &spec, &set, &hide, dry_run, then, out, ctx);
             }
             #[cfg(feature = "account")]
             {
                 let req = api::SetPublishRequest { set, hide: all(hide) };
-                return crate::publish_cmd::set_publish(store_path, &req, dry_run, !no_lookup, browser, out, ctx);
+                if upload {
+                    let max_bytes = max_mib.map(|m| m.saturating_mul(1024 * 1024));
+                    return crate::publish_cmd::set_upload(
+                        store_path, &req, max_bytes, dry_run, !no_lookup, browser, out, ctx,
+                    );
+                }
+                return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, !no_lookup, browser, out, ctx)?
+                    .print(out));
             }
             #[cfg(not(feature = "account"))]
             unreachable!("clap requires --to without the Atmosphere account");
@@ -522,34 +553,97 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
     Ok(ExitCode::SUCCESS)
 }
 
+/// Publishing the set's record once a plugin has published the set (`sets publish SET --to`),
+/// offered when signed in: the account it goes to, and publishing it as `sets publish SET` does,
+/// into the command's JSON envelope as `record`.
+struct Then<'a> {
+    account: String,
+    publish: PublishRecord<'a>,
+}
+
+/// Publishes the record of the set by this id, into this JSON envelope.
+type PublishRecord<'a> = Box<dyn FnOnce(&str, &mut serde_json::Value) -> Outcome + 'a>;
+
+/// [`Then`], when someone's signed in. The set is published at the plugin's destination either
+/// way: declining leaves its record for later, and a record that fails to publish says so (exit
+/// status 5) without undoing that.
+#[cfg(feature = "account")]
+fn then<'a>(
+    store: &locallibrary::Store,
+    store_path: &'a Option<PathBuf>,
+    hide: &'a [usize],
+    lookup: bool,
+    browser: crate::browser::BrowserArgs,
+    out: Output,
+    ctx: &'a Ctx<'_>,
+) -> Result<Option<Then<'a>>> {
+    let Some(account) = locallibrary::atmosphere::status(store.root())? else { return Ok(None) };
+    let publish = move |set: &str, done: &mut serde_json::Value| {
+        let later = format!("`locallibrary sets publish {set}` publishes its record later");
+        let req = api::SetPublishRequest { set: set.to_string(), hide: hide.to_vec() };
+        match crate::publish_cmd::set_publish(store_path, &req, false, lookup, browser, out, ctx) {
+            Ok(record) => {
+                if !out.json && record.outcome == Outcome::Declined {
+                    crate::output::hint(later);
+                }
+                done["record"] = record.envelope;
+                Outcome::Applied
+            }
+            Err(e) => {
+                let e = format!("{e:#}");
+                if !out.json {
+                    warn(format!("its record wasn't published: {e}"));
+                    crate::output::hint(later);
+                }
+                done["record"] = serde_json::json!({ "error": { "message": e }, "outcome": "error" });
+                Outcome::Partial
+            }
+        }
+    };
+    Ok(Some(Then { account: account.name(), publish: Box::new(publish) }))
+}
+
 /// `sets publish SET --to PLUGIN:DESTINATION`: the plugin's dry run shown, and publishing always
-/// asked about, since it reaches outside this computer.
+/// asked about, since it reaches outside this computer; then, signed in, the set's record with
+/// what the plugin answered (see [`Then`]).
+#[allow(clippy::too_many_arguments)]
 fn publish_to(
     store: &locallibrary::Store,
     spec: &str,
     set: &str,
     hide: &[usize],
     dry_run: bool,
+    then: Option<Then<'_>>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let plan = crate::plugins::host()?.publish_plan(spec, set, hide, store, ctx)?;
     if !out.json {
         crate::output::summary(&plan.summary, &plan.warnings);
+        if let Some(then) = &then {
+            crate::output::hint(format!("then publishing its record as {} is offered", then.account));
+        }
     }
     if let Some(o) = out.decide(dry_run, "Publish it?") {
         return Ok(out.not_applied(&plan, o));
     }
     let r = plan.apply(Some(store), ctx)?;
-    Ok(out.applied(&plan, &r, crate::output::Outcome::Applied, || {
-        match &r.url {
-            Some(url) => ok(format!("published: {url}")),
-            None => ok("published"),
+    if !out.json {
+        match (&r.url, &r.name) {
+            (Some(url), Some(name)) => ok(format!("published at {name}: {url}")),
+            (Some(url), None) => ok(format!("published: {url}")),
+            _ => ok("published"),
         }
         for w in &r.warnings {
             warn(w);
         }
-    }))
+    }
+    let mut done = crate::output::envelope(&plan, &r, true, Outcome::Applied);
+    let outcome = then.map_or(Outcome::Applied, |then| (then.publish)(&r.set, &mut done));
+    if out.json {
+        crate::output::print_json(done);
+    }
+    Ok(outcome.exit())
 }
 
 fn list(sets: &[Set]) {

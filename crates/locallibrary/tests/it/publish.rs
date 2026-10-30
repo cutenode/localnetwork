@@ -5,6 +5,7 @@
 
 #![cfg(feature = "account")]
 
+mod recordings;
 mod signing_in;
 
 use crate::common;
@@ -25,6 +26,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::publish;
 use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
+use loclib_plugin::StrongRef;
 use mock_pds::{MockPds, Writes, base64url};
 use serde_json::{Value, json};
 use sha2::Digest;
@@ -37,7 +39,8 @@ const PDS_GET: &str = "com.atproto.repo.getRecord";
 const REQUEST_INDEX: &str = "computer.localnetwork.directory.requestIndex";
 const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settings \
                           repo:computer.localnetwork.dj.profile repo:computer.localnetwork.dj.set \
-                          rpc:computer.localnetwork.directory.requestIndex?aud=*";
+                          repo:computer.localnetwork.dj.recording \
+                          rpc:computer.localnetwork.directory.requestIndex?aud=* blob:audio/*";
 
 /// A pretend data server, which Local Network's directory and website are at too for this test.
 fn network() -> MockPds {
@@ -228,6 +231,10 @@ fn a_session_that_ran_out_and_cant_be_refreshed_has_ended() {
     assert!(!root.join(atmosphere::store::SECRETS_FILE).exists());
 }
 
+/// The plyr.fm track a set's recording is, and its version.
+const PLYR_TRACK: &str = "at://did:plc:dj/fm.plyr.track/3m2plyrtrack2";
+const PLYR_TRACK_CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
+
 /// A set with every field, built from `sessions`, saved in the store at `root`.
 fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
     let at = Utc::now();
@@ -254,6 +261,8 @@ fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
             Partner { name: "Sam".into(), did: None },
         ],
         link: Some("https://www.mixcloud.com/dj/friday-warm-up/".into()),
+        link_name: Some("Mixcloud".into()),
+        recording_record: Some(StrongRef { uri: PLYR_TRACK.into(), cid: PLYR_TRACK_CID.into() }),
         recording: Some(Recording {
             path: "/Users/dj/Recordings/REC001.WAV".into(),
             report: Some("report-7f3a".into()),
@@ -413,7 +422,8 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
     );
     assert_eq!(r["event"], "at://did:plc:club/community.lexicon.calendar.event/3lte3c7x43l2e");
     assert_eq!(r["playedWith"], json!([{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }]));
-    assert_eq!(r["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
+    assert_eq!(r["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/", "name": "Mixcloud" }]));
+    assert_eq!(r["recording"], json!({ "uri": PLYR_TRACK, "cid": PLYR_TRACK_CID }));
     assert_eq!(r["sources"], json!([{ "kind": "history" }, { "kind": "mix" }, { "kind": "added" }]));
     let tracks = r["tracks"].as_array().unwrap();
     assert_eq!(

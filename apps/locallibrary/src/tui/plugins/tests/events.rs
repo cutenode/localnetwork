@@ -10,7 +10,8 @@ use loclib_plugin::{AnalyzeAction, ExportAction, FetchAction, HostAction, Provid
 use serde_json::json;
 
 use super::super::super::app::testing::{
-    app_on, blank, confirming, demo_drive, echo_plugin, last_message, mounted, press, say_yes, wait,
+    app_on, blank, confirming, demo_drive, echo_plugin, last_message, mounted, plugged, plugins_once, press, say_yes,
+    settle, wait,
 };
 use super::super::super::app::{App, View as Screen};
 use super::super::super::edits::Modal;
@@ -399,4 +400,74 @@ fn reviewing_a_suggested_action_starts_nothing_by_itself(tc: hegel::TestCase) {
     }
     let after = plugged.as_ref().map(|d| std::fs::read(d.0.join("PIONEER/rekordbox/export.pdb")).unwrap());
     assert_eq!(before, after, "the drive is as it was");
+}
+
+/// Any notices a plugin tells (messages, and suggestions of its `playlist` operation), then any
+/// of those waiting reviewed or dismissed: each suggestion waits in the palette, newest first,
+/// and in the store, until it's reviewed (planned and confirmed as any plan, here declined) or
+/// dismissed; a message alone only says it. The player opened again offers what's still waiting.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn suggestions_wait_until_reviewed_or_dismissed(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    plugins_once();
+    let drive = plugged();
+    let playlists = || -> Vec<String> {
+        let library = locallibrary::Device::open(&drive.0).unwrap().library().unwrap();
+        library.playlists.into_iter().map(|p| p.name).collect()
+    };
+    let before = playlists();
+    let mut app = app_on(&drive.0);
+    let notices: Vec<PluginNotice> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|i| match tc.draw(gs::weighted_booleans(0.7)) {
+            true => suggests(&format!("make N{i}"), &format!("N{i}")),
+            false => PluginNotice { plugin: "echo".into(), message: format!("saying {i}"), suggests: None },
+        })
+        .collect();
+    let mut model: Vec<String> = notices.iter().filter(|n| n.suggests.is_some()).map(|n| n.message.clone()).collect();
+    tell(&mut app, notices);
+    wait(&mut app, |a| waiting(a) == model);
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        if model.is_empty() {
+            break;
+        }
+        press(&mut app, ":");
+        let reviews: Vec<String> = super::picker(&app)
+            .items
+            .iter()
+            .filter_map(|i| i.label.strip_prefix("review: "))
+            .map(String::from)
+            .collect();
+        assert_eq!(reviews, model.iter().rev().cloned().collect::<Vec<_>>());
+        press(&mut app, "\u{1b}");
+        let message = model.remove(tc.draw(gs::integers::<usize>().max_value(model.len() - 1)));
+        match tc.draw(gs::booleans()) {
+            true => {
+                press(&mut app, &format!(":dismiss: {message}\n"));
+                assert_eq!(last_message(&app), "suggestion dismissed");
+            }
+            false => {
+                press(&mut app, &format!(":review: {message}\n"));
+                let name = message.trim_start_matches("make ");
+                assert_eq!(confirming(&mut app), ("echo.playlist".into(), format!("make the playlist {name}")));
+                settle(&mut app);
+                press(&mut app, "n");
+            }
+        }
+        // The store answers each change with what it keeps, in the background, and the player
+        // takes that list: one sent for an earlier change can land after this one (see
+        // `change_kept` in tui/plugins/events.rs), so it's waited for, the store's last word.
+        let store = app.store_root.clone();
+        wait(&mut app, |a| waiting(a) == model && kept(&store) == model);
+        assert_eq!((waiting(&app), kept(&store)), (model.iter().map(String::as_str).collect(), model.clone()));
+    }
+    // Nothing suggested, there's no store.
+    let store = app.store_root.clone();
+    wait(&mut app, |_| if store.exists() { kept(&store) == model } else { model.is_empty() });
+    assert_eq!(if store.exists() { kept(&store) } else { Vec::new() }, model);
+    drop(app);
+    let mut app = app_on(&drive.0);
+    app.start_plugins();
+    wait(&mut app, |a| waiting(a) == model);
+    assert_eq!(waiting(&app), model);
+    assert_eq!(playlists(), before, "a declined plan writes nothing");
 }

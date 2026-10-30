@@ -50,8 +50,9 @@ are:
   the set's recording to [plyr.fm](https://plyr.fm) as a track of yours, titled after the set
   (else its venue and date), with its tracklist as the description (`05:30 Artist - Title` lines,
   as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
-  set's link. plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB,
-  and the plugin refuses others before anything goes. It needs a developer token from
+  set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
+  plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
+  plugin refuses others before anything goes. It needs a developer token from
   plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
   --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
@@ -121,14 +122,51 @@ are:
   And listeners without Premium can rewind a show only a few times an hour
   ([Mixcloud](https://help.mixcloud.com/hc/en-us/articles/360004054059)).
 
-coverart, musicbrainz, plyr, archive, youtube and mixcloud are the only ones that go online, and
+- **soundcloud**: a set destination, `track`: `locallibrary sets publish SET --to
+  soundcloud:track` uploads the set's recording to SoundCloud as a track of yours and keeps the
+  track's page as the set's link. Sign in first with `locallibrary plugin account soundcloud
+  soundcloud sign-in`. The track is titled after the set (else its venue and date), with its
+  tracklist as the description (`05:30 Artist - Title` lines, as many as SoundCloud's 4,000
+  characters hold), tagged `dj mix`, not downloadable, and private unless the `sharing` setting
+  says `public`. The `genre` setting is its genre, and the `picture` setting (a JPEG or PNG under
+  2 MB) its artwork, which SoundCloud's API reference lists for Pro accounts. SoundCloud takes WAV,
+  FLAC, AIFF, MP3, AAC, Ogg, MP4, MP2, M4A, 3GP, 3G2, MJ2, WMA and AMR recordings of up to 4 GB,
+  and the plugin refuses others before anything goes. The recording goes in one request, which
+  locallibrary gives as long as a slow connection (about a megabit up) needs. SoundCloud can't
+  resume an upload, so one that doesn't arrive, or that SoundCloud fails or finds one too many, is
+  sent again whole, a few times at most. SoundCloud sometimes makes the track even when the upload
+  fails, so before sending it again the plugin looks for it among your newest tracks, and answers
+  it when it's there.
+
+  What SoundCloud does once it has the recording is up to SoundCloud. It encodes it for a while
+  after the upload, so the link can take some minutes to play. A DJ mix needs the permission of
+  every track's rights holders: SoundCloud's content identification takes down a mix that matches
+  music it isn't allowed to have, and closes an account after three copyright strikes (its
+  [guide to DJ mixes](https://help.soundcloud.com/hc/en-us/articles/115003564568-Best-practices-for-creating-and-uploading-a-DJ-mix)).
+  A free account may upload 2 hours of audio in all, so a long set may not fit
+  ([Upload Requirements](https://help.soundcloud.com/hc/en-us/articles/360039171614-Upload-Requirements)).
+  Local Network's SoundCloud app is registered with the redirect address
+  `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
+
+- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
+  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload`
+  uploads videos to YouTube.
+- **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
+  token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
+  the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
+  reading from SoundCloud as you.
+
+coverart, musicbrainz, plyr, archive, youtube, mixcloud and soundcloud are the only ones that go
+online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
 between the first two, as it asks: `art fetch` and `track fetch`; `sets publish` when it's about to
 publish (signed in, with `--yes` or a terminal to ask in), for the tracks it names without IDs,
 unless `--no-lookup` (or `plugin roles recording --none`, for good); `analyze --plugin
-musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video` or
-`--to mixcloud:show` once you confirm it. `analyze` alone leaves out the analyzers that go online,
-and says so. youtube is the only one that runs another program (FFmpeg), as you, like any plugin.
+musicbrainz`; and `sets publish --to plyr:track`, `--to archive:item`, `--to youtube:video`,
+`--to mixcloud:show` or `--to soundcloud:track` once you confirm it. `analyze` alone leaves out the
+analyzers that go online, and says so. youtube is the only one that runs another program
+(FFmpeg), as you, like any plugin.
 
 ## What you have
 
@@ -150,6 +188,20 @@ playlist, with a form for what it takes, a param the plugin fills from what's se
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
+
+## Account plugins
+
+An account plugin provides one account type (Google, say) and nothing else. It's a manifest
+alone, its `[[contributes.account_types]]`: how to sign in to the service, how to ask it who
+signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
+code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
+tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
+locallibrary ships may use Local Network's token exchange. Those are google-account,
+mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
+account type each adds, and `plugin info` its scopes.
+
+Plugins don't use account types yet: each still declares its own accounts (below), which are what
+you sign in to, until they move onto account types.
 
 ## Accounts
 
@@ -271,9 +323,12 @@ A set destination publishes a set's recording with its tracklist (tracks marked 
 your profile hides and those `--hide 3,7` names go without their names, notes stay private):
 `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the plugin what would happen first,
 shows it with which tracks go unnamed and why, always asks before anything goes (`--dry-run` stops
-there), and keeps where the set can be heard as its link. The plugin uploads the recording through
-locallibrary, whole, in parts or in a form, which reads it as it sends it and shows how much has
-gone; the plugin may send it only while it's publishing, never in the dry run.
+there), and keeps where the set can be heard as its link, with the name the plugin gives it
+(`plyr.fm`) and the Atmosphere record holding the recording when it keeps one (a plyr.fm track).
+The plugin uploads the recording through locallibrary, whole, in parts or in a form, which reads
+it as it sends it and shows how much has gone; the plugin may send it only while it's publishing,
+never in the dry run. Signed in to your account, it then offers to publish the set's record with
+them (see [Sets](sets.md)).
 
 ## Events
 

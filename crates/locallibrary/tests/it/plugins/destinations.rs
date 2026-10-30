@@ -18,6 +18,7 @@ use locallibrary::profile::ProfilePrefs;
 use locallibrary::scrub::{self, RepairSource};
 use locallibrary::sets::{Recording, Set, SetBook, SetEntry};
 use locallibrary::sync::{self, PullOptions};
+use loclib_plugin::StrongRef;
 
 use super::*;
 
@@ -261,7 +262,12 @@ fn a_set_is_published_after_its_dry_run_and_keeps_its_link() {
     let done = plan.apply(Some(&f.store), &Ctx::silent()).unwrap();
     let url = format!("https://sets.example/{}", s.id);
     assert_eq!(done.url.as_deref(), Some(url.as_str()));
-    assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link.as_deref(), Some(url.as_str()), "the host keeps the link");
+    let kept = SetBook::load(&f.store).unwrap().sets.remove(0);
+    assert_eq!(
+        (kept.link.as_deref(), kept.link_name.as_deref()),
+        (Some(url.as_str()), Some("Nowhere")),
+        "the host keeps the link"
+    );
     // Published again, the link it has is replaced: said so, and destructive.
     let again = f.plugins.publish_plan("echo:nowhere", &s.id, &[], &f.store, &Ctx::silent()).unwrap();
     assert!(again.destructive && again.summary.contains(&format!("replace its link {url}")), "{:?}", again.summary);
@@ -329,6 +335,44 @@ fn a_set_is_published_only_with_its_recording_at_a_set_destination() {
         "the Echo plugin failed: it says the set is at \"javascript:alert(1)\", which isn't an https:// address"
     );
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
+    // So is a record that isn't one, or a name too long for the link, and nothing of the answer
+    // is kept.
+    let refused = [
+        (
+            json!({ "url": "https://plyr.fm/track/1", "record": { "uri": "https://plyr.fm/track/1", "cid": TRACK.1 } }),
+            format!(
+                "it says the recording is the record \"https://plyr.fm/track/1\" ({:?}), which isn't an at:// URI and a CID",
+                TRACK.1
+            ),
+        ),
+        (
+            json!({ "record": { "uri": TRACK.0, "cid": "bafy" } }),
+            format!("it says the recording is the record {:?} (\"bafy\"), which isn't an at:// URI and a CID", TRACK.0),
+        ),
+        (
+            json!({ "url": "https://plyr.fm/track/1", "name": "n".repeat(65) }),
+            format!("it names the link {:?}, longer than 64 characters", "n".repeat(65)),
+        ),
+    ];
+    for (answer, why) in refused {
+        f.plugins.set_setting("echo", &f.store, "answer", Some(answer.to_string().into())).unwrap();
+        let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
+        let e = plan.apply(Some(&f.store), &Ctx::silent()).unwrap_err().to_string();
+        assert_eq!(e, format!("the Echo plugin failed: {why}"));
+        let kept = SetBook::load(&f.store).unwrap().sets.remove(0);
+        assert_eq!((kept.link, kept.link_name, kept.recording_record), (None, None, None));
+    }
+    // Saying nowhere, the set keeps no link, and a name without one isn't kept; a record it gives
+    // is.
+    let track = StrongRef { uri: TRACK.0.into(), cid: TRACK.1.into() };
+    for (answer, record) in [(json!({ "name": "plyr.fm" }), None), (json!({ "record": track }), Some(track.clone()))] {
+        f.plugins.set_setting("echo", &f.store, "answer", Some(answer.to_string().into())).unwrap();
+        let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
+        let done = plan.apply(Some(&f.store), &Ctx::silent()).unwrap();
+        assert_eq!((done.url, done.name, &done.record), (None, None, &record));
+        let kept = SetBook::load(&f.store).unwrap().sets.remove(0);
+        assert_eq!((kept.link, kept.link_name, kept.recording_record), (None, None, record));
+    }
     std::fs::remove_file(&s.recording.as_ref().unwrap().path).unwrap();
     let e = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).err().unwrap();
     assert!(e.to_string().ends_with("friday.wav, the set's recording"), "{e}");
@@ -340,8 +384,13 @@ fn a_set_is_published_only_with_its_recording_at_a_set_destination() {
 }
 
 /// What the test plugin answers publishing a set with, as its `answer` setting has it: where it
-/// says the set is (or would be) and its warnings. None: echo's own answer.
-type Answer = Option<(Option<&'static str>, Vec<String>)>;
+/// says the set is (or would be), what it names that link, the record it says holds the
+/// recording (its URI and CID) and its warnings. None: echo's own answer.
+type Answer = Option<(Option<&'static str>, Option<String>, Option<(&'static str, &'static str)>, Vec<String>)>;
+
+/// A plyr.fm track, and its version.
+const TRACK: (&str, &str) =
+    ("at://did:plc:dj/fm.plyr.track/3m4n5o6p7q8r9", "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm");
 
 /// For any set (titled or not, with any tracks, each named, marked unnamed or by an artist the
 /// profile hides, with a link or none), any positions asked to be hidden and whatever the plugin
@@ -350,8 +399,10 @@ type Answer = Option<(Option<&'static str>, Vec<String>)>;
 /// why, where the plugin says it would be, and the link it replaces (destructive exactly when
 /// there's one), warning as the plugin does, and the plugin is sent the set's details and a
 /// tracklist naming only the tracks it may, never the set's notes. Applied, the set's link is where
-/// the plugin says it's published when that's an https address, stays as it was when it says
-/// nowhere, and an address of another kind is refused, the link kept; a set, recording or profile
+/// the plugin says it's published when that's an https address (named as the plugin names it, up
+/// to 64 characters), stays as it was when it says nowhere, and the record it says holds the
+/// recording is kept when it's an at:// URI and a CID; an address of another kind, a name too long
+/// or a record that isn't one is refused, nothing of the answer kept. A set, recording or profile
 /// changed since it was planned is planned again. A destination of another kind, or none, a set
 /// without its recording and a position to hide it doesn't have are refused before the plugin's
 /// asked.
@@ -402,10 +453,16 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     }
     let answer: Answer = tc.draw(gs::optional(gs::tuples!(
         gs::sampled_from(vec![None, Some("https://pub.example/friday"), Some("http://pub.example/friday")]),
+        gs::optional(hegel::one_of!(
+            gs::sampled_from(vec![" plyr.fm ".to_string(), " ".to_string(), "é".repeat(64), "n".repeat(65)]),
+            gs::text().max_size(64)
+        )),
+        gs::optional(gs::sampled_from(vec![TRACK, ("https://plyr.fm/track/1", TRACK.1), (TRACK.0, "bafy"),])),
         gs::vecs(gs::sampled_from(vec!["heard".to_string(), "slow".to_string()])).max_size(2)
     )));
-    if let Some((url, warnings)) = &answer {
-        let said = json!({ "url": url, "warnings": warnings }).to_string();
+    if let Some((url, name, record, warnings)) = &answer {
+        let record = record.map(|(uri, cid)| json!({ "uri": uri, "cid": cid }));
+        let said = json!({ "url": url, "name": name, "record": record, "warnings": warnings }).to_string();
         f.plugins.set_setting("echo", &f.store, "answer", Some(said.into())).unwrap();
     }
     let (spec_of, refused) = match tc.draw(gs::integers::<u8>().max_value(9)) {
@@ -456,7 +513,7 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         [one] => format!("track {one} isn't named: {why}"),
         _ => format!("tracks {} aren't named: {why}", at.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")),
     });
-    let would_be = answer.as_ref().and_then(|(url, _)| *url);
+    let would_be = answer.as_ref().and_then(|(url, ..)| *url);
     let mut summary = vec![format!("publish {heading} ({n} tracks) and its recording at Nowhere, saying where")];
     summary.extend(notes);
     summary.extend(would_be.map(|u| format!("it would be at {u}")));
@@ -464,7 +521,7 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
     assert_eq!(plan.summary, summary);
     // Each once.
     let mut warnings = match &answer {
-        Some((_, w)) => w.clone(),
+        Some((.., w)) => w.clone(),
         None => vec![format!("{n} tracks would be published")],
     };
     warnings.dedup();
@@ -508,32 +565,50 @@ fn a_set_is_published_as_its_dry_run_said(tc: TestCase) {
         None => {}
     }
     let done = plan.apply(Some(&f.store), &Ctx::silent());
-    let link_now = || SetBook::load(&f.store).unwrap().sets[0].link.clone();
+    let now = || {
+        let set = SetBook::load(&f.store).unwrap().sets.remove(0);
+        (set.link, set.link_name, set.recording_record)
+    };
+    let before = (link.map(String::from), None, None);
     if changed.is_some() {
         assert_eq!(done.unwrap_err().code(), "stale_plan");
-        assert_eq!(link_now().as_deref(), link);
+        assert_eq!(now(), before);
         return;
     }
     let echoed = format!("https://sets.example/{}", s.id);
-    let published = match &answer {
-        Some((url, _)) => *url,
-        None => Some(echoed.as_str()),
+    let (published, name, record) = match &answer {
+        Some((url, name, record, _)) => (*url, name.clone(), *record),
+        None => (Some(echoed.as_str()), Some("Nowhere".to_string()), None),
     };
-    match published {
-        Some(url) if !url.starts_with("https://") => {
-            let e = done.unwrap_err().to_string();
-            let said =
-                format!("the Echo plugin failed: it says the set is at {url:?}, which isn't an https:// address");
-            assert_eq!(e, said);
-            assert_eq!(link_now().as_deref(), link, "a link that isn't one isn't kept");
+    // A name goes with a link, trimmed; a blank one is none.
+    let name = published.and(name).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    let refused = match (published, &name, record) {
+        (Some(url), ..) if !url.starts_with("https://") => {
+            Some(format!("it says the set is at {url:?}, which isn't an https:// address"))
         }
-        _ => {
-            let done = done.unwrap();
-            assert_eq!((done.set.as_str(), done.url.as_deref()), (s.id.as_str(), published));
-            assert_eq!(done.warnings, answer.map(|(_, w)| w).unwrap_or_default());
-            assert_eq!(link_now().as_deref(), published.or(link), "the host keeps where it's published");
+        (_, Some(name), _) if name.chars().count() > 64 => {
+            Some(format!("it names the link {name:?}, longer than 64 characters"))
         }
+        (.., Some((uri, cid))) if (uri, cid) != TRACK => {
+            Some(format!("it says the recording is the record {uri:?} ({cid:?}), which isn't an at:// URI and a CID"))
+        }
+        _ => None,
+    };
+    if let Some(why) = refused {
+        assert_eq!(done.unwrap_err().to_string(), format!("the Echo plugin failed: {why}"));
+        assert_eq!(now(), before, "nothing of an answer that isn't right is kept");
+        return;
     }
+    let done = done.unwrap();
+    let record = record.map(|(uri, cid)| StrongRef { uri: uri.into(), cid: cid.into() });
+    assert_eq!((done.set.as_str(), done.url.as_deref()), (s.id.as_str(), published));
+    assert_eq!((&done.name, &done.record), (&name, &record));
+    assert_eq!(done.warnings, answer.map(|(.., w)| w).unwrap_or_default());
+    let kept = match published {
+        Some(url) => (Some(url.to_string()), name),
+        None => (before.0, None),
+    };
+    assert_eq!(now(), (kept.0, kept.1, record), "the host keeps where it's published, and the record");
 }
 
 /// A step of [`a_store_copied_through_a_plugin_comes_back_as_it_was_last_copied`].
@@ -755,39 +830,43 @@ fn a_set_s_recording_is_sent_in_parts_as_it_s_published(tc: TestCase) {
 fn a_recording_stops_being_sent_once_publishing_is_cancelled() {
     use std::io::Read;
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     use locallibrary::progress::{CancelToken, NoProgress};
-    // A server reading slowly, noting how much it read and once the upload stopped.
+    // A server that cancels publishing once the recording is being sent (a timer can go off
+    // before the plugin has started, and then nothing is sent to stop), and reads no more of it
+    // until publishing has stopped: what the host sends meanwhile waits in the connection's
+    // buffers. Then it reads the rest at once, until the upload stops or all of it came,
+    // answering how much it read. Publishing stops once the plugin answers, which it does after
+    // passing the cancel on to its `net/fetch`.
+    let size = 32 << 20;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
-    let (read, stopped) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
-    let (reading, stopping) = (read.clone(), stopped.clone());
-    std::thread::spawn(move || {
+    let cancel = CancelToken::new();
+    let cancelling = cancel.clone();
+    let (stopped, publishing_stopped) = std::sync::mpsc::channel::<()>();
+    let server = std::thread::spawn(move || {
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut buf = [0; 8192];
-        while let Ok(n @ 1..) = stream.read(&mut buf) {
-            reading.fetch_add(n, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(10));
+        let mut read = stream.read(&mut buf).unwrap();
+        cancelling.cancel();
+        let _ = publishing_stopped.recv();
+        while read < size
+            && let Ok(n @ 1..) = stream.read(&mut buf)
+        {
+            read += n;
         }
-        stopping.store(true, Ordering::SeqCst);
+        read
     });
     let f = uploading();
     let s = set(&f.store, f.store.root());
-    let size = 32 << 20;
     std::fs::write(&s.recording.unwrap().path, vec![0; size]).unwrap();
     let upload = json!([{ "url": format!("{url}/mix"), "method": "PUT", "body_blob": "recording" }]).to_string();
     f.plugins.set_setting("echo", &f.store, "upload", Some(upload.into())).unwrap();
     let plan = f.plugins.publish_plan("echo:nowhere", "last", &[], &f.store, &Ctx::silent()).unwrap();
-    let cancel = CancelToken::new();
-    let cancelling = cancel.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
-        cancelling.cancel();
-    });
     let e = plan.apply(Some(&f.store), &Ctx::new(&NoProgress, cancel)).unwrap_err();
     assert_eq!(e.code(), "cancelled", "{e}");
-    eventually("the upload stopped", || stopped.load(Ordering::SeqCst));
-    assert!(read.load(Ordering::SeqCst) < size / 2, "{} of {size} sent", read.load(Ordering::SeqCst));
+    drop(stopped);
+    let read = server.join().unwrap();
+    assert!(read < size / 2, "{read} of {size} sent");
     assert_eq!(SetBook::load(&f.store).unwrap().sets[0].link, None);
 }

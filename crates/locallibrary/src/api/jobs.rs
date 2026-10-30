@@ -911,7 +911,7 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
         } else {
             let lib = d.state().and_then(|s| s.library_id);
             let mounted = known_drives(false);
-            let set = fleet::sets(store, &mounted)?.into_iter().find(|s| lib.is_some() && s.library_id == lib);
+            let set = fleet::sets(Some(store), &mounted)?.into_iter().find(|s| lib.is_some() && s.library_id == lib);
             others = set
                 .map(|s| s.members)
                 .unwrap_or_default()
@@ -1309,7 +1309,7 @@ pub(crate) fn clones_of(lead: &Device, touched: &[&Path], ctx: &Ctx<'_>) -> Resu
     let (Some(library), Some(store)) = (lead.state().and_then(|s| s.library_id), registry()) else {
         return Ok(clones);
     };
-    let set = fleet::sets(&store, &known_drives(false))?
+    let set = fleet::sets(Some(&store), &known_drives(false))?
         .into_iter()
         .find(|s| s.library_id == Some(library) && s.members.iter().any(|m| m == lead.root()));
     let others = set.map(|s| s.members).unwrap_or_default().into_iter().filter(|m| !touched.contains(&m.as_path()));
@@ -1378,7 +1378,7 @@ pub(crate) fn copy_onto_clones(lead: &Path, clones: &[&CloneTarget], store: Opti
 pub fn libraries_once(specs: Vec<String>) -> Result<Vec<String>> {
     let Some(store) = registry() else { return Ok(specs) };
     let devices: Vec<Device> = specs.iter().map(|s| resolve_drive(s)).collect::<Result<_>>()?;
-    let sets = fleet::sets(&store, &known_drives(false))?;
+    let sets = fleet::sets(Some(&store), &known_drives(false))?;
     let set_of = |d: &Device| sets.iter().position(|s| s.members.iter().any(|m| m == d.root()));
     let mut taken = Vec::new();
     let mut out = Vec::new();
@@ -1428,7 +1428,7 @@ pub fn library_reads(store: Option<&Store>) -> Vec<DriveCandidate> {
     let store = store.or(owned.as_ref());
     let mounted = mounted_exports();
     let candidates = candidates_of(store, &mounted);
-    let sets = store.and_then(|s| fleet::sets(s, &mounted).ok()).unwrap_or_default();
+    let sets = store.and_then(|s| fleet::sets(Some(s), &mounted).ok()).unwrap_or_default();
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for c in &candidates {
@@ -1489,7 +1489,7 @@ pub fn drive_group(store: Option<&Store>, library: Option<&str>) -> Result<Drive
         return Err(Error::NotFound("a mounted rekordbox drive (plug one in, or give its mount path)".into()));
     }
     let sets = match store {
-        Some(s) => fleet::sets(s, &mounted)?,
+        Some(s) => fleet::sets(Some(s), &mounted)?,
         None => Vec::new(),
     };
     let set = match library {

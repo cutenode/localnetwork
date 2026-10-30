@@ -36,8 +36,9 @@ pub struct AccountLoginRequest {
     /// Scopes to ask for (default: `atproto`, which identifies you and nothing more).
     #[serde(default)]
     pub scopes: Vec<String>,
-    /// Also allow publishing: writing the My Settings, profile and set records to the account
-    /// ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.
+    /// Also allow publishing: writing the My Settings, profile, set and recording records to the
+    /// account ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings
+    /// ([`atmosphere::UPLOAD_SCOPE`]), and nothing else.
     #[serde(default)]
     pub publish: bool,
 }

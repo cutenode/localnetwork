@@ -28,7 +28,7 @@ mod tags;
 mod waves;
 mod write;
 
-pub use grid::{checked_grid, without_extended_grid, write_beat_grid};
+pub use grid::{checked_grid, doubled_grid, halved_grid, without_extended_grid, write_beat_grid};
 pub use loclib_model::analysis::*;
 pub use structure::{kind_number, write_song_structure};
 pub use tags::new_analysis_files;
