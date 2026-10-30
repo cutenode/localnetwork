@@ -3,6 +3,7 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import { formatDate } from '#lib/format.ts';
 	import type { JoinRequestView, PendingInvite, SpacePerson } from '#lib/types.ts';
+	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 
 	type Pending = { invites: PendingInvite[]; requests: JoinRequestView[]; links: number };
@@ -57,33 +58,20 @@
 		{#if !list}
 			<div class="card p-5 text-small text-fg-muted">Couldn't load its people. <a class="link" href="?">Try again</a></div>
 		{:else if list.length}
-			<!-- A table where there's room for every column, and a card per person where there isn't. -->
-			<div class="@container">
-				<div class="card hidden overflow-hidden @3xl:block">
-					<table class="table-base">
-						<thead><tr><th>Person</th><th>Role</th><th>Can</th><th><span class="sr-only">Actions</span></th></tr></thead>
-						<tbody>
-							{#each list as person (person.did)}
-								<tr>
-									<td>{@render who(person)}</td>
-									<td>{@render roleForm(person)}</td>
-									<td class="text-label text-fg-muted">{person.capabilities.join(', ') || 'nothing'}</td>
-									<td class="text-right">{@render removeForm(person)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-				<ul class="flex flex-col gap-3 @3xl:hidden">
-					{#each list as person (person.did)}
-						<li class="card flex flex-col gap-3 p-4">
-							<div>{@render who(person)}</div>
-							<p class="text-label text-fg-muted">Can {person.capabilities.join(', ') || 'nothing'}</p>
-							<div class="flex flex-wrap items-center justify-between gap-3">{@render roleForm(person)}{@render removeForm(person)}</div>
-						</li>
-					{/each}
-				</ul>
-			</div>
+			<ResponsiveTable rows={list} key={(person) => person.did}>
+				{#snippet head()}<th>Person</th><th>Role</th><th>Can</th><th><span class="sr-only">Actions</span></th>{/snippet}
+				{#snippet row(person)}
+					<td>{@render who(person)}</td>
+					<td>{@render roleForm(person)}</td>
+					<td class="text-label text-fg-muted">{person.capabilities.join(', ') || 'nothing'}</td>
+					<td class="text-right">{@render removeForm(person)}</td>
+				{/snippet}
+				{#snippet card(person)}
+					<div>{@render who(person)}</div>
+					<p class="text-label text-fg-muted">Can {person.capabilities.join(', ') || 'nothing'}</p>
+					<div class="flex flex-wrap items-center justify-between gap-3">{@render roleForm(person)}{@render removeForm(person)}</div>
+				{/snippet}
+			</ResponsiveTable>
 		{:else}
 			<div class="card p-5 text-small text-fg-muted">Nobody's in it. Add someone to look after it.</div>
 		{/if}

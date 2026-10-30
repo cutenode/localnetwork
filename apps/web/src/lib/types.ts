@@ -256,6 +256,17 @@ export type RequestView = {
 
 export type StaffRole = 'admin' | 'moderator';
 
+/** A staff role. `bootstrap` ones come from `ADMIN_DIDS` and have no record. */
+export type StaffMember = {
+	did: string;
+	handle: string | null;
+	role: StaffRole;
+	grantedBy: string | null;
+	note: string | null;
+	createdAt: string | null;
+	bootstrap: boolean;
+};
+
 /** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
 export type IssuedVerification = {
 	uri: string;
