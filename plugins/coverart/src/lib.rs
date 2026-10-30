@@ -10,7 +10,8 @@
 //! its requests (`net/fetch`), a second apart for MusicBrainz as the manifest asks, and the covers
 //! go to it as files in the request's scratch folder, which it removes once it has read them:
 //! nothing downloaded is kept, as it's cheap to fetch again. Once a drive is plugged in or its
-//! databases change, it suggests fetching covers for its tracks without artwork (see [`new_tracks`]).
+//! databases change, it suggests fetching covers for its tracks without artwork (see
+//! [`EventNotify::new_tracks`] for when).
 
 mod covers;
 mod musicbrainz;

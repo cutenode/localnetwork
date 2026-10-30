@@ -481,7 +481,7 @@ pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<Plugin
 
 /// No longer keeps a suggestion (the oldest the same as `notice`): it was reviewed or dismissed.
 /// It's remembered, so its plugin suggesting it again (or an action on the same tracks) is left
-/// out (the newest [`MAX_SEEN`] remembered). Answers those kept now.
+/// out (the newest `MAX_SEEN` remembered). Answers those kept now.
 pub fn forget_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {
     let forget = |kept: &mut Vec<PluginNotice>| {
         if let Some(i) = kept.iter().position(|k| k == notice) {

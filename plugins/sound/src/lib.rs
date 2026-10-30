@@ -4,7 +4,7 @@
 //! `--analyze`, the check before a set, ordering a set), and to draw (the waveform) where a drive
 //! has none. It measures nothing but the audio file it's handed. Once a drive is plugged in or its
 //! databases change, it reads the drive's tracks and the fields the host keeps for them, and suggests analysing
-//! those with none (see [`new_tracks`]).
+//! those with none (see [`EventNotify::new_tracks`] for when).
 
 use std::io::{Read, Write};
 
