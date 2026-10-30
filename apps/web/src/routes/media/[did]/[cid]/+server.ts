@@ -31,9 +31,11 @@ export const GET: RequestHandler = async ({ params, locals, fetch }) => {
 	url.searchParams.set('cid', cid);
 	const signal = AbortSignal.timeout(15_000);
 
-	const upstream = await (
-		isRoot ? fetch(url, { signal }) : app.identity.fetch(url, { redirect: 'error', signal })
-	).catch((cause: unknown) => {
+	// The root's PDS is our own.
+	// ast-grep-ignore: no-unguarded-fetch
+	const request = isRoot ? fetch(url, { signal }) : app.identity.fetch(url, { redirect: 'error', signal });
+
+	const upstream = await request.catch((cause: unknown) => {
 		locals.log.warn({ err: cause, did }, "couldn't fetch an avatar from an account's PDS");
 		error(404, 'Not found');
 	});

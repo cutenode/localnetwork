@@ -1,0 +1,49 @@
+# A PDS or space host comes from a DID document, which anyone can publish, so the app only
+# requests one through IdentityResolver's guarded fetches (`identity.fetch`, and
+# `identity.serviceFetch` for repo exports and blobs). Those refuse private and loopback
+# addresses as they connect, and follow no redirects. Checking a host first and then calling
+# the plain fetch leaves a gap: DNS can answer differently the second time, and a redirect
+# goes wherever it points.
+#
+# It can't follow a URL from where it was built to where it's fetched, so it flags the plain
+# fetch in any function that reads a host the way the app gets one: a `pds`, `service` or
+# `serviceEndpoint` (as a property or destructured), or `identity.resolve(...)`. A function
+# that fetches only a configured service (HappyView, Resend, the geocoder) reads none of those
+# and isn't flagged.
+id: no-unguarded-fetch
+language: TypeScript
+severity: error
+message: This fetches a host from a DID document with the plain fetch.
+note: Use `identity.fetch` or `identity.serviceFetch` (apps/web/src/lib/server/atproto/identity.ts) with `redirect` set to 'error'. A host that's ours (the root's own PDS) can carry an `ast-grep-ignore` comment saying so.
+files:
+  - "apps/web/src/**"
+ignores:
+  # Tests and their fakes answer these requests themselves.
+  - "**/*.test.ts"
+  - "apps/web/src/lib/server/testing/**"
+rule:
+  any:
+    - pattern: fetch($$$)
+    - pattern: ($_ ?? fetch)($$$)
+  inside:
+    # The nearest function only, so a host read in one function doesn't flag a fetch in another
+    # that shares its outer scope.
+    stopBy:
+      any: &functions
+        - kind: function_declaration
+        - kind: function_expression
+        - kind: arrow_function
+        - kind: method_definition
+    any: *functions
+    has:
+      stopBy: end
+      any:
+        # Spelled out rather than one pattern with constraints, which ast-grep checks only against
+        # the first member access it finds.
+        - pattern: $_.pds
+        - pattern: $_.service
+        - pattern: $_.serviceEndpoint
+        - kind: shorthand_property_identifier_pattern
+          regex: ^(pds|service|serviceEndpoint)$
+        - pattern: identity.resolve($$$)
+        - pattern: $_.identity.resolve($$$)

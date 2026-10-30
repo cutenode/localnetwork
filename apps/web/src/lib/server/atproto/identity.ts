@@ -1,5 +1,4 @@
 import { isIP } from 'node:net';
-import { lookup } from 'node:dns/promises';
 import {
 	type DidDocument,
 	getHandle,
@@ -56,20 +55,27 @@ export type IdentityOptions = {
 const RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
- * DID and handle resolution with caching, and an SSRF guard for any service
- * endpoint the app will call. A space authority is resolved like any account:
+ * DID and handle resolution with caching, and guarded fetches for the hosts
+ * they name. A space authority is resolved like any account:
  * its PDS is its space host.
  *
  * DIDs and handles come from anyone, and resolving them makes the app send requests to hosts they name (a did:web's
  * host, a handle's `/.well-known/atproto-did`), so those go through `fetch`: it follows no redirects, and refuses
  * private and loopback addresses at the moment it connects, so DNS can't point a checked name somewhere else after.
  * Names that could only lead somewhere private (IP addresses, ports, `localhost` and reserved TLDs) are refused before
- * any request. Development allows private addresses, where the local PDS lives.
+ * any request. The services a DID document names (its PDS, which is also a space authority's host) are anyone's to
+ * choose too, so every request to one goes through `serviceFetch`, guarded the same way. Development allows private
+ * addresses, where the local PDS lives.
  */
 export class IdentityResolver {
 	readonly resolver: { did: DidResolver<AtprotoIdentityDidMethods>; handle: AtprotoHandleResolverNode };
 	/** A fetch safe to point at an address someone else chose. Callers must pass `redirect`. */
 	readonly fetch: typeof globalThis.fetch;
+	/**
+	 * Like `fetch`, for a service a DID document names (a PDS or space host): a port is allowed, and nothing caps the
+	 * response, since repo exports and blobs run large, so callers bound what they read and how long they wait.
+	 */
+	readonly serviceFetch: typeof globalThis.fetch;
 	private readonly handleCache = new Map<string, { did: string | null; at: number }>();
 
 	constructor(private readonly options: IdentityOptions) {
@@ -80,6 +86,14 @@ export class IdentityResolver {
 			ssrfProtection: !options.allowPrivateNetwork,
 			responseMaxSize: RESPONSE_MAX_BYTES,
 			timeout: 15_000
+		});
+
+		this.serviceFetch = safeFetchWrap({
+			fetch: base,
+			ssrfProtection: !options.allowPrivateNetwork,
+			allowCustomPort: true,
+			responseMaxSize: Infinity,
+			timeout: 60_000
 		});
 
 		this.resolver = {
@@ -192,24 +206,6 @@ export class IdentityResolver {
 	async signingKey(did: string, forceRefresh = false): Promise<string> {
 		return (await this.resolve(did, forceRefresh)).signingKey;
 	}
-
-	/**
-	 * Refuses to talk to loopback, link-local, or private addresses unless the
-	 * deployment allows it (development). Service endpoints come from DID
-	 * documents, which anyone can publish.
-	 */
-	async assertSafeEndpoint(endpoint: string): Promise<void> {
-		if (this.options.allowPrivateNetwork) return;
-		const url = new URL(endpoint);
-
-		if (url.protocol !== 'https:') throw new IdentityError(`Refusing non-HTTPS endpoint ${url.origin}`);
-		const host = url.hostname.replace(/^\[|\]$/g, '');
-		const addresses = isIP(host) ? [host] : (await lookup(host, { all: true })).map((entry) => entry.address);
-
-		for (const address of addresses) {
-			if (isPrivateAddress(address)) throw new IdentityError(`Refusing private network endpoint ${url.origin}`);
-		}
-	}
 }
 
 /** The account's KEM key, or an error saying why its space repos can't be read without one. */
@@ -230,38 +226,4 @@ function toDidKey(material: { type: string; publicKeyMultibase: string }, did: s
 	if (!didKey) throw new IdentityError(`${did} has an unsupported #${id} key type (${material.type})`);
 
 	return didKey;
-}
-
-export function isPrivateAddress(address: string): boolean {
-	if (isIP(address) === 4) {
-		const [a, b] = address.split('.').map(Number);
-
-		return (
-			a === 0 ||
-			a === 10 ||
-			a === 127 ||
-			(a === 100 && b >= 64 && b <= 127) ||
-			(a === 169 && b === 254) ||
-			(a === 172 && b >= 16 && b <= 31) ||
-			(a === 192 && b === 168) ||
-			(a === 198 && (b === 18 || b === 19)) ||
-			a >= 224
-		);
-	}
-
-	const lower = address.toLowerCase();
-
-	if (lower.startsWith('::ffff:')) return isPrivateAddress(lower.slice(7));
-
-	return (
-		lower === '::' ||
-		lower === '::1' ||
-		lower.startsWith('fc') ||
-		lower.startsWith('fd') ||
-		lower.startsWith('fe8') ||
-		lower.startsWith('fe9') ||
-		lower.startsWith('fea') ||
-		lower.startsWith('feb') ||
-		lower.startsWith('ff')
-	);
 }
