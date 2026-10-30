@@ -136,6 +136,11 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         params.insert(key.into(), tc.draw(gs::booleans()).into());
     }
     let method = tc.draw(gs::sampled_from(&methods[..]));
+    // Signing in again names the account by its subject.
+    let again = method == "accounts.sign_in.begin" && tc.draw(gs::booleans());
+    if again {
+        params.insert("account".into(), value(&tc).into());
+    }
     let e =
         locallibrary::Error::Conflict("x".into()).action(Action::call(method, Value::Object(params.clone()), "Do it"));
     let hint = &hints(&e)[0];
@@ -156,6 +161,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "sync.plan" => &["left", "right"],
         "merge.plan" => &["source", "target"],
         "snapshot.label" => &["label"],
+        "accounts.sign_in.begin" if again => &["with", "for"],
         "accounts.sign_in.begin" => &["type", "with", "for"],
         "accounts.access.set_default" => &["plugin"],
         "undo.list" | "account.login.begin" | "settings.schema" | "settings.import.plan" | "library.list" => &[],
@@ -163,6 +169,9 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     };
     let comes_back = |v: &str| assert!(words.iter().any(|w| w == v), "{v:?} doesn't come back from {cmd}: {words:?}");
     used.iter().filter_map(|key| params.get(*key).and_then(Value::as_str)).for_each(comes_back);
+    if again {
+        comes_back(&format!("{}:{}", params["type"].as_str().unwrap(), params["account"].as_str().unwrap()));
+    }
     match method {
         "accounts.sign_in.begin" => scopes.iter().for_each(|s| comes_back(s)),
         "accounts.access.set_default" => comes_back(params["account"]["subject"].as_str().unwrap()),

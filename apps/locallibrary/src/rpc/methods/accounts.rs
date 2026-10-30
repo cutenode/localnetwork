@@ -24,7 +24,8 @@ struct BeginSignIn {
     /// can do without.
     #[serde(default, rename = "for")]
     for_plugin: Option<String>,
-    /// An account the store keeps, by subject, to sign in to again (asking for more scopes, say).
+    /// An account the store keeps, or one signed out that plugins still have access to, by
+    /// subject, to sign in to again (asking for more scopes, say).
     #[serde(default)]
     account: Option<String>,
     /// The type's scopes to ask for besides, by name.
@@ -78,6 +79,16 @@ struct AccessRef {
     account: AccountId,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct GiveAccess {
+    /// The plugin's id.
+    plugin: String,
+    account: AccountId,
+    /// Scopes of the account's type it can do without to give it besides those it needs, by name.
+    #[serde(default)]
+    scopes: Vec<String>,
+}
+
 pub(super) fn register(r: &mut Registry) {
     r.read("accounts.list", |c, _: NoParams| c.or_empty(|store| host()?.accounts_and_accesses(store))).quick();
     r.immediate("accounts.sign_in.begin", |c, req: BeginSignIn| {
@@ -109,6 +120,10 @@ pub(super) fn register(r: &mut Registry) {
         c.or_empty(|store| host()?.accesses(store, req.plugin.as_deref(), None))
     })
     .quick();
+    r.immediate("accounts.access.give", |c, req: GiveAccess| {
+        Ok(host()?.give_access(&req.plugin, &req.account, &req.scopes, &c.store()?)?)
+    })
+    .keeps_cache();
     r.immediate("accounts.access.set_default", |c, req: AccessRef| {
         Ok(host()?.set_default_access(&req.plugin, &req.account, &c.store()?)?)
     })

@@ -10,11 +10,13 @@
 //! checked, never on to another server a redirect leads to, nor to an address no scope of the
 //! access covers, and left out of its log and the errors it's told (see [`State::scrub`]); what a
 //! server answers is passed on as it is, but for a token it was sent in the query, given back as
-//! the placeholder it was named with.
+//! the placeholder it was named with, and a server refusing a token it was sent, which the host
+//! answers (see [`Plugin::answered`]).
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 
 mod body;
+mod challenge;
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -24,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use loclib_plugin::{
-    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, RpcError, Scope, SettingType, TokenPlace,
+    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace,
     account_placeholder,
 };
 use reqwest::blocking::{Client, Response};
@@ -36,6 +38,8 @@ use reqwest::{Method, Url};
 use serde_json::Value;
 
 use self::body::{Body, Field, FilePart};
+use self::challenge::{Challenge, challenges, insufficient_scope};
+use super::accounts::token::Usable;
 use super::blobs;
 use super::process::{Live, Plugin};
 use crate::export::one_line;
@@ -54,6 +58,11 @@ const MAX_REDIRECTS: usize = 5;
 const CHECK_EVERY: Duration = Duration::from_millis(50);
 /// What a secret's placeholder starts with: `{secret:<key>}`.
 const SECRET: &str = "{secret:";
+
+/// How long sending `bytes` of files may take, at [`SLOWEST`].
+pub(super) fn sending(bytes: u64) -> Duration {
+    Duration::from_secs(bytes / SLOWEST)
+}
 
 /// A plugin's `net/fetch` state, whichever of its processes asks.
 #[derive(Default)]
@@ -105,8 +114,24 @@ struct Sent {
     body: Option<Body>,
     /// Whether the body has a secret in it.
     secret: bool,
-    /// For each account of a type whose token is filled in, the scopes it may go to.
-    scopes: Vec<Vec<Scope>>,
+    /// The accounts whose tokens are filled in, which go only where their scopes cover.
+    accounts: Vec<Filled>,
+}
+
+/// An account's token filled into a request, and the access it's through.
+struct Filled {
+    usable: Usable,
+    token: String,
+}
+
+/// The accounts' tokens filled into a request's query, and the placeholders that named them.
+type InQuery = Vec<(String, String)>;
+
+/// What a request was answered: its status and headers, and its body, to be read.
+struct Answer {
+    status: u16,
+    headers: HeaderMap,
+    body: Box<dyn Read>,
 }
 
 fn denied(why: String) -> RpcError {
@@ -239,9 +264,94 @@ impl Plugin {
         }
     }
 
-    /// Answers the plugin's `net/fetch` (see the module's docs).
+    /// Answers the plugin's `net/fetch` (see the module's docs). A server refusing an account's
+    /// token, on the last hop it went to, is answered for the plugin (see [`Plugin::answered`]).
     pub(crate) fn fetch(&self, live: &Live, params: Value, cancel: &CancelToken) -> Result<Value, RpcError> {
         let req: Fetch = loclib_plugin::params(params)?;
+        let (url, sent, in_query) = self.prepare(live, &req)?;
+        // Before it's sent: an answer with nowhere to go is never asked for.
+        let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
+        let (response, attached) = self.follow(live, url, sent, cancel)?;
+        let (answer, in_query) = self.answered(live, &req, response, attached, in_query, cancel)?;
+        // A server says the address it was asked at back (a next page's link, a `Location`): a token
+        // sent in the query is given back as the placeholder that named it, which asks for it again.
+        let named = |text: String| {
+            in_query.iter().fold(text, |text, (token, placeholder)| {
+                let encoded: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
+                text.replace(token, placeholder).replace(&encoded, placeholder)
+            })
+        };
+        let mut answered: IndexMap<String, String> = IndexMap::new();
+        for (name, value) in &answer.headers {
+            let value = named(String::from_utf8_lossy(value.as_bytes()).into_owned());
+            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value);
+        }
+        let fetched = Fetched { status: answer.status, headers: answered, body: None, blob: None };
+        let fetched = match into {
+            Some(into) => Fetched { blob: Some(self.write_blob(into, answer.body)?), ..fetched },
+            None => Fetched { body: Some(named(self.text(answer.body)?)), ..fetched },
+        };
+        serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
+    }
+
+    /// `response`, which `req` was answered on a hop it went to with the tokens `attached`, or
+    /// what's answered instead when the server refused one (a 401 or 403; not after a hop that
+    /// dropped them, which isn't about them): saying the token lacks scopes (see
+    /// [`insufficient_scope`]), `scope`, its body not passed on (see [`Plugin::scope_refused`]);
+    /// a 401 otherwise, the request sent again once with the account's token refreshed (see
+    /// [`Plugin::refused_token`]), and its answer passed on, the account signed out when it's a
+    /// 401 again saying `error="invalid_token"`. With the placeholders of the tokens the request
+    /// that was answered had in its query.
+    fn answered(
+        &self,
+        live: &Live,
+        req: &Fetch,
+        mut response: Response,
+        mut attached: Vec<Filled>,
+        mut in_query: InQuery,
+        cancel: &CancelToken,
+    ) -> Result<(Answer, InQuery), RpcError> {
+        let mut again = false;
+        loop {
+            let (status, headers) = (response.status().as_u16(), response.headers().clone());
+            let Some(store) = live.store.as_ref().filter(|_| !attached.is_empty() && matches!(status, 401 | 403))
+            else {
+                return Ok((Answer { status, headers, body: Box::new(response) }, in_query));
+            };
+            let said = headers.get_all(WWW_AUTHENTICATE).iter().filter_map(|v| v.to_str().ok());
+            let said: Vec<Challenge> = said.flat_map(challenges).collect();
+            let mut body = Vec::new();
+            (&mut response)
+                .take(self.host.options.max_body)
+                .read_to_end(&mut body)
+                .map_err(|e| RpcError::failed("external", self.net.scrub(&with_causes(&e))))?;
+            if let Some(scopes) = insufficient_scope(status, &said, &body) {
+                let written = Url::parse(&req.url).map_err(|_| invalid("it isn't a web address"))?;
+                return Err(self.scope_refused(&attached[0].usable, &scopes, &req.method, &written, store));
+            }
+            let body: Box<dyn Read> = Box::new(std::io::Cursor::new(body).chain(response));
+            if status == 403 || again {
+                let invalid = again && status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
+                if invalid {
+                    for f in &attached {
+                        self.invalid_token(&f.usable, &f.token, store)?;
+                    }
+                }
+                return Ok((Answer { status, headers, body }, in_query));
+            }
+            for f in &attached {
+                self.refused_token(&f.usable, &f.token, store)?;
+            }
+            again = true;
+            let (url, sent, query) = self.prepare(live, req)?;
+            in_query = query;
+            (response, attached) = self.follow(live, url, sent, cancel)?;
+        }
+    }
+
+    /// The request `req` asks for, as it's sent to its URL, its secrets and accounts' tokens
+    /// filled in: with the tokens filled into its query, and the placeholders that named them.
+    fn prepare(&self, live: &Live, req: &Fetch) -> Result<(Url, Sent, InQuery), RpcError> {
         let mut url =
             Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
         if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()).or_else(|| self.offline(&url)) {
@@ -265,7 +375,7 @@ impl Plugin {
         // What a scope covers is the request as the plugin wrote it.
         let asked = (method.clone(), url.clone());
         let (plain, filled) = (HeaderMap::new(), HeaderMap::new());
-        let mut sent = Sent { method, plain, filled, body: None, secret: false, scopes: Vec::new() };
+        let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new() };
         // The accounts' tokens filled into the query, and the placeholders that named them.
         let mut in_query = Vec::new();
         if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
@@ -277,7 +387,7 @@ impl Plugin {
                     filled.push((k, self.fill(live, &v)?));
                     continue;
                 }
-                let token = self.account(live, &v, Some(&k), &asked, &mut sent.scopes)?;
+                let token = self.account(live, &v, Some(&k), &asked, &mut sent.accounts)?;
                 filled.push((k, token.clone()));
                 in_query.push((token, v));
             }
@@ -294,8 +404,9 @@ impl Plugin {
                 if name != AUTHORIZATION {
                     return Err(self.misplaced(value));
                 }
-                let mut filled = HeaderValue::from_str(&self.account(live, value, None, &asked, &mut sent.scopes)?)
-                    .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
+                let mut filled =
+                    HeaderValue::from_str(&self.account(live, value, None, &asked, &mut sent.accounts)?)
+                        .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
                 filled.set_sensitive(true);
                 sent.filled.append(AUTHORIZATION, filled);
                 continue;
@@ -320,43 +431,21 @@ impl Plugin {
             sent.plain.remove(CONTENT_TYPE);
             sent.body = Some(Body::Form(self.form(live, &req.multipart)?));
         }
-        // Before it's sent: an answer with nowhere to go is never asked for.
-        let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
-        let response = self.follow(live, url, sent, cancel)?;
-        let status = response.status().as_u16();
-        // A server says the address it was asked at back (a next page's link, a `Location`): a token
-        // sent in the query is given back as the placeholder that named it, which asks for it again.
-        let named = |text: String| {
-            in_query.iter().fold(text, |text, (token, placeholder)| {
-                let encoded: String = form_urlencoded::byte_serialize(token.as_bytes()).collect();
-                text.replace(token, placeholder).replace(&encoded, placeholder)
-            })
-        };
-        let mut answered: IndexMap<String, String> = IndexMap::new();
-        for (name, value) in response.headers() {
-            let value = named(String::from_utf8_lossy(value.as_bytes()).into_owned());
-            answered.entry(name.as_str().into()).and_modify(|v| *v = format!("{v}, {value}")).or_insert(value);
-        }
-        let fetched = Fetched { status, headers: answered, body: None, blob: None };
-        let fetched = match into {
-            Some(into) => Fetched { blob: Some(self.write_blob(into, response)?), ..fetched },
-            None => Fetched { body: Some(named(self.text(response)?)), ..fetched },
-        };
-        serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
+        Ok((url, sent, in_query))
     }
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
     /// account by type as the whole of `value`, `{account:<type>}` of a type the plugin asks for:
     /// in the `Authorization` header (`query` is `None`), its scheme and access token; as the query
     /// parameter `query`, the token. Only where the account type says its token goes, and where the
-    /// plugin's access may go, which `scopes` gets (see [`Plugin::usable`]).
+    /// plugin's access may go (see [`Plugin::usable`]), which `accounts` gets.
     fn account(
         &self,
         live: &Live,
         value: &str,
         query: Option<&str>,
         asked: &(Method, Url),
-        scopes: &mut Vec<Vec<Scope>>,
+        accounts: &mut Vec<Filled>,
     ) -> Result<String, RpcError> {
         let Some((need, access)) = self.by_type(value) else {
             return Err(match account_placeholder(value) {
@@ -367,13 +456,17 @@ impl Plugin {
         let (method, url) = asked;
         let usable = self.usable(live, need, access, method.as_str(), url)?;
         let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
-        let token = || self.usable_token(&usable, need, store);
-        let filled = match (&usable.place, query) {
-            (TokenPlace::Scheme(scheme), None) => format!("{scheme} {}", token()?),
-            (TokenPlace::Query(name), Some(query)) if name == query => token()?,
-            (place, _) => return Err(misplaced(Some(place))),
+        let filled = |token: &str| match (&usable.place, query) {
+            (TokenPlace::Scheme(scheme), None) => Some(format!("{scheme} {token}")),
+            (TokenPlace::Query(name), Some(query)) if name == query => Some(token.to_string()),
+            _ => None,
         };
-        scopes.push(usable.scopes);
+        if filled("").is_none() {
+            return Err(misplaced(Some(&usable.place)));
+        }
+        let token = self.usable_token(&usable, store)?;
+        let filled = filled(&token).unwrap_or_default();
+        accounts.push(Filled { usable, token });
         Ok(filled)
     }
 
@@ -409,12 +502,18 @@ impl Plugin {
     }
 
     /// Sends `sent` to `url`, and follows the redirects it's answered with as browsers do, each
-    /// to where the plugin may go ([`refused`]) and in its turn: its last answer. Once one leads
-    /// to another server, or where no scope of an access whose token it carries covers, the
-    /// headers its secrets were filled into are left out from then on; once it's another server,
-    /// those reqwest never sends on to another (its credentials) too, and a body with a secret in
-    /// it is never sent there.
-    fn follow(&self, live: &Live, mut url: Url, mut sent: Sent, cancel: &CancelToken) -> Result<Response, RpcError> {
+    /// to where the plugin may go ([`refused`]) and in its turn: its last answer, and the accounts
+    /// whose tokens went with it. Once one leads to another server, or where no scope of an
+    /// access whose token it carries covers, the headers its secrets were filled into are left
+    /// out from then on; once it's another server, those reqwest never sends on to another (its
+    /// credentials) too, and a body with a secret in it is never sent there.
+    fn follow(
+        &self,
+        live: &Live,
+        mut url: Url,
+        mut sent: Sent,
+        cancel: &CancelToken,
+    ) -> Result<(Response, Vec<Filled>), RpcError> {
         let external = |why: String| RpcError::failed("external", self.net.scrub(&why));
         let mut hops = 0;
         loop {
@@ -427,7 +526,7 @@ impl Plugin {
                     let to = url.host_str().unwrap_or_default();
                     let said = format!("net/fetch: sending {} of files to {to} ({})", op::bytes(files), sent.method);
                     self.host.log(&self.manifest.id, &said);
-                    request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
+                    request = request.timeout(TIMEOUT + sending(files));
                 }
                 request = body.send(request, live, cancel)?;
             }
@@ -438,7 +537,7 @@ impl Plugin {
             let response = sending.map_err(|e| external(with_causes(&e)))?;
             let location = response.headers().get(LOCATION).and_then(|l| l.to_str().ok());
             let (Some(location), 301 | 302 | 303 | 307 | 308) = (location, response.status().as_u16()) else {
-                return Ok(response);
+                return Ok((response, sent.accounts));
             };
             if hops == MAX_REDIRECTS {
                 return Err(external(format!("too many redirects (it follows {MAX_REDIRECTS})")));
@@ -465,14 +564,14 @@ impl Plugin {
             }
             let leaves = next.origin() != url.origin();
             let method = sent.method.as_str();
-            let uncovered = sent.scopes.iter().any(|scopes| !scopes.iter().any(|s| s.covers(method, &next)));
+            let uncovered = sent.accounts.iter().any(|f| !f.usable.scopes.iter().any(|(_, s)| s.covers(method, &next)));
             if leaves || uncovered {
                 // The server put a secret in the address it sent the request on to: it stays here.
                 if self.net.scrub(next.as_str()) != next.as_str() {
                     return Err(external(format!("redirected to {next}, which a secret in its address isn't for")));
                 }
                 sent.filled.clear();
-                sent.scopes.clear();
+                sent.accounts.clear();
             }
             if leaves {
                 if sent.secret {
@@ -487,10 +586,10 @@ impl Plugin {
     }
 
     /// An answer's body as text, up to [`super::Options::max_body`].
-    fn text(&self, response: Response) -> Result<String, RpcError> {
+    fn text(&self, answer: impl Read) -> Result<String, RpcError> {
         let most = self.host.options.max_body;
         let mut body = Vec::new();
-        response
+        answer
             .take(most + 1)
             .read_to_end(&mut body)
             .map_err(|e| RpcError::failed("external", self.net.scrub(&with_causes(&e))))?;
@@ -512,10 +611,10 @@ impl Plugin {
 
     /// Writes an answer's body to `into`, as far as its folder has room (see
     /// [`super::Options::max_blobs`]).
-    fn write_blob(&self, mut into: NewBlob, response: Response) -> Result<PathBuf, RpcError> {
+    fn write_blob(&self, mut into: NewBlob, answer: impl Read) -> Result<PathBuf, RpcError> {
         let room = into.room;
         let copied =
-            std::io::copy(&mut response.take(room + 1), &mut into.out).and_then(|n| into.out.flush().map(|()| n));
+            std::io::copy(&mut answer.take(room + 1), &mut into.out).and_then(|n| into.out.flush().map(|()| n));
         match copied {
             Ok(n) if n > room => Err(RpcError::failed(
                 "too_big",

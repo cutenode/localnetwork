@@ -213,15 +213,27 @@ plugins that have access to it. `locallibrary account TYPE sign-in` opens the se
 page in the browser and waits for it to come back to this computer (`--no-browser` prints the
 link, `--paste` takes the address the browser ended up on when it runs on another computer).
 `--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
-provide the type, and `--scope NAME` asks for one of the type's scopes besides.
+provide the type, and `--scope NAME` asks for one of the type's scopes besides. A service may let
+you leave some of that out on its page: a plugin then goes without the scopes it can do without
+that you left out, and the sign-in says which. `locallibrary account TYPE:NAME sign-in` signs in
+again as that account, also once it's signed out, asking for what every plugin's access to it
+needs; when the browser signs in to someone else, that account is kept too, but the plugin it was
+for gets no access to it.
 `locallibrary account TYPE:NAME sign-out` forgets its tokens and tells the service when it can;
 plugins keep their access, unused until it's signed in again.
 
-`locallibrary plugin access PLUGIN` lists a plugin's access, `--default ACCOUNT` makes an account
-the one it uses for that type, and `--take-away ACCOUNT` takes its access away. Before a plugin's
-destination is used, a plugin with no access to a type it needs asks in the terminal which of your
-accounts it may use, or to sign in to another. With `--json`, `--yes` or no terminal, and in the
-sidecar, nothing is asked: it fails and says how to give it access.
+`locallibrary plugin access PLUGIN` lists a plugin's access, `--give ACCOUNT` gives it access to
+an account (`--scope NAME` adds a scope it can do without), `--default ACCOUNT` makes an account
+the one it uses for that type, and `--take-away ACCOUNT` takes its access away. When a plugin's
+request fails because its account is signed out or wasn't granted a scope, the error offers to
+sign in again as that account, allowing what's missing. A plugin's destination (and publishing
+a set there) starts only once each type the plugin needs has an account it may use: signed in,
+with every scope it needs, granted by the service, and, when the service doesn't refresh it,
+signed in for an hour yet besides how long sending the recording may take. In the terminal, a
+plugin with no access asks which of your accounts it may use, or to sign in to another; one whose
+account is signed out, won't stay signed in or wasn't granted what it needs asks to sign in again;
+one whose access lacks a scope it needs asks to give it. With `--json`, `--yes` or no terminal,
+and in the sidecar, nothing is asked: it fails and says how to resolve it.
 
 In the player's palette, "sign in to a TYPE account…" signs in to one, "sign out of NAME" signs
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
@@ -232,7 +244,10 @@ and refreshed a minute before they expire. A plugin never sees them: a request i
 account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
 header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
 token once it has checked the request against the scopes of the plugin's access, never sending it
-on to another server a redirect leads to.
+on to another server a redirect leads to. When the service refuses the token (a 401), locallibrary
+refreshes it and sends the request once more; one it can't refresh is signed out, and a second
+refusal saying the token is no good signs it out too. When the service says the token lacks a
+scope, the request fails saying which, and signing in again is offered.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
 registered with, port included. An account type on one of those names its port, and its
@@ -558,10 +573,11 @@ such a request names it (an account's token, only where its account type says it
 of the plugin's access covers), filled in by
 locallibrary, never on to another server a redirect leads to, and is left out of the plugin's log
 and of the errors it's told. What a server answers is passed on as it is, but for an account's
-token sent in the address, which comes back as the placeholder that named it. The files a plugin
-sends are those in its request's folder (see below) and a set's recording while it publishes the
-set, nothing else. A destination is given stored files to read, never the store's folder to
-write: what it gives back is checked before locallibrary keeps it.
+token sent in the address, which comes back as the placeholder that named it, and a server
+refusing an account's token, which locallibrary answers itself (see [Accounts](#accounts)). The
+files a plugin sends are those in its request's folder (see below) and a set's recording while it
+publishes the set, nothing else. A destination is given stored files to read, never the store's
+folder to write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary

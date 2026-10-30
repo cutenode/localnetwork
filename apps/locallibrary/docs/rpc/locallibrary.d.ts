@@ -2260,7 +2260,10 @@ export type BeginSignIn = {
    * can do without.
    */
   for?: string | null;
-  /** An account the store keeps, by subject, to sign in to again (asking for more scopes, say). */
+  /**
+   * An account the store keeps, or one signed out that plugins still have access to, by
+   * subject, to sign in to again (asking for more scopes, say).
+   */
   account?: string | null;
   /** The type's scopes to ask for besides, by name. */
   scopes?: string[];
@@ -2296,6 +2299,14 @@ export type AccountId = {
 export type ListAccesses = {
   /** Only this plugin's. */
   plugin?: string | null;
+};
+
+export type GiveAccess = {
+  /** The plugin's id. */
+  plugin: string;
+  account: AccountId;
+  /** Scopes of the account's type it can do without to give it besides those it needs, by name. */
+  scopes?: string[];
 };
 
 export type AccessRef = {
@@ -7868,6 +7879,12 @@ export type Access = {
   scopes: string[];
   /** It's the plugin's default for the type: `{account:<type>}` names it. */
   default: boolean;
+  /**
+   * The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
+   * ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
+   * used.
+   */
+  declined?: string[];
 };
 
 /** A sign-in to an account of a type, waiting for the browser. */
@@ -7908,11 +7925,16 @@ export type AccountSignedIn = {
   signed_in: boolean;
   /**
    * The account it was to sign in again, when the browser signed in to another: that one is
-   * kept too, and this one as it was.
+   * kept too, and this one as it was. The plugin it was for isn't given access to it.
    */
   instead_of?: string | null;
   /** The access it gave the plugin it was signed in for, if it was. */
   access?: Access | null;
+  /**
+   * The scopes (by name) asked for that plugin that the service didn't grant all they ask:
+   * those it can do without aren't in its access.
+   */
+  declined?: string[];
 };
 
 /** What signing out of an account of a type did. */
@@ -8117,6 +8139,11 @@ export type AccountType = {
    * (`prompt = "select_account"`).
    */
   another_account?: { [key: string]: string };
+  /**
+   * The authorize params every sign-in sends besides (`access_type = "offline"`), none of
+   * `one_account`'s or `another_account`'s.
+   */
+  params?: { [key: string]: string };
   /** What a plugin may be given access to, by name (`youtube-upload`). */
   scopes?: { [key: string]: Scope };
 };
@@ -9408,7 +9435,7 @@ export type Reason =
   | "needs_admin"
   /**
    * Not signed in to an Atmosphere account, or the account a plugin's access is to is signed
-   * out: sign in.
+   * out or won't stay signed in long enough: sign in.
    */
   | "not_signed_in"
   /** The session ended or was revoked: sign in again. */
@@ -9954,6 +9981,8 @@ export interface Methods {
   "accounts.sign_out": { params: SignOut & WriteOptions; result: AccountSignedOut };
   /** read method */
   "accounts.access.list": { params: ListAccesses; result: Access[] };
+  /** immediate method */
+  "accounts.access.give": { params: GiveAccess & WriteOptions; result: Access };
   /** immediate method */
   "accounts.access.set_default": { params: AccessRef & WriteOptions; result: Access };
   /** immediate method */

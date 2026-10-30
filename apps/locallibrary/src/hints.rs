@@ -97,12 +97,17 @@ fn command(a: &Action) -> Option<String> {
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
         "account.login.begin" => "locallibrary account login".into(),
         "accounts.sign_in.begin" => {
+            // Again as an account, named TYPE:SUBJECT.
+            let target = match a.params.get("account").and_then(Value::as_str) {
+                Some(subject) => quote(&format!("{}:{subject}", a.params.get("type")?.as_str()?)),
+                None => p("type")?,
+            };
             let flags = [("with", p("with")), ("for", p("for"))]
                 .into_iter()
                 .filter_map(|(f, v)| Some(format!(" --{f} {}", v?)));
             let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
             let scopes = scopes.filter_map(Value::as_str).map(|s| format!(" --scope {}", quote(s)));
-            format!("locallibrary account {} sign-in{}", p("type")?, flags.chain(scopes).collect::<String>())
+            format!("locallibrary account {target} sign-in{}", flags.chain(scopes).collect::<String>())
         }
         "accounts.access.set_default" => {
             let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
