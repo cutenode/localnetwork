@@ -166,6 +166,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const bugReports = new BugReportService({
 		space: config.userinputSpace,
+		rootDid,
 		indexed: indexedRepo,
 		userClient,
 		accounts,
@@ -260,7 +261,7 @@ export async function createApp(options: CreateAppOptions) {
 		async viewer(did: string): Promise<Viewer | null> {
 			const [account, roles] = await Promise.all([accounts.get(did), staff.roles(did)]);
 
-			if (account?.spacesCapable === 1 && !grantsSpaces(account.grantedScope, did)) return null;
+			if (account?.spacesCapable === 1 && !grantsSpaces(account.grantedScope, did, rootDid)) return null;
 
 			return {
 				did,

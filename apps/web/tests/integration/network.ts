@@ -130,8 +130,8 @@ export class TestNetwork {
 			handle: user.handle,
 			pdsUrl: this.pds.url,
 			grantedScope,
-			spacesCapable: grantsSpaces(grantedScope, user.did),
-			publicWrites: grantsPublicRecords(grantedScope, user.did)
+			spacesCapable: grantsSpaces(grantedScope, user.did, this.rootDid),
+			publicWrites: grantsPublicRecords(grantedScope, user.did, this.rootDid)
 		});
 	}
 

@@ -2,8 +2,11 @@
  * Publishes every tool's computer.localnetwork.* lexicons (the repo's
  * lexicons/computer/, so locallibrary's too) as com.atproto.lexicon.schema
  * records in the root account's repo, then checks (or sets) the `_lexicon` DNS
- * TXT records that make them resolvable. PDSes must resolve the space type
- * declarations during OAuth, so run this before anyone signs in.
+ * TXT records that make them resolvable. The permission set goes out with the
+ * root's DID as the authority of the shared spaces it grants (`schemaRecord`),
+ * so production's set names production's root: the account ROOT_IDENTIFIER
+ * names. PDSes must resolve the space type declarations during OAuth, so run
+ * this before anyone signs in.
  *
  *   ROOT_IDENTIFIER=… ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm lexicons:publish
  *
@@ -25,6 +28,7 @@ import { AtpAgent } from '@atproto/api';
 import Cloudflare from 'cloudflare';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { canonicalJson } from '../src/lib/server/audit/chain.ts';
+import { schemaRecord } from '../src/lib/server/atproto/lexicons.ts';
 import { IdentityResolver } from '../src/lib/server/atproto/identity.ts';
 import { AgentRootClient } from '../src/lib/server/atproto/repo-client.ts';
 import { silentLogger } from '../src/lib/server/logger.ts';
@@ -66,7 +70,7 @@ await agent.login({ identifier: did, password });
 const root = new AgentRootClient(did, agent);
 
 for (const doc of docs) {
-	const record = { $type: 'com.atproto.lexicon.schema', ...JSON.parse(JSON.stringify(doc)) };
+	const record = schemaRecord(doc, did);
 
 	const existing = await root.getRecord({ collection: 'com.atproto.lexicon.schema', rkey: doc.id });
 
