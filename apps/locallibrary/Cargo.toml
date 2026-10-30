@@ -16,6 +16,15 @@ path = "src/main.rs"
 # The binary shares its name with the library crate, so their rustdoc output would collide
 # (cargo#6313). The library is the documented API.
 doc = false
+# Its unit tests are built as the `unit` test below.
+test = false
+
+# The binary's unit tests (src/main.rs and its modules, through src/unit.rs), built as an
+# integration test so cargo and nextest hand them the binary's path (`CARGO_BIN_EXE_locallibrary`)
+# when they run: the plugins they use are served by it. A bin target's own tests get no such path.
+[[test]]
+name = "unit"
+path = "src/unit.rs"
 
 # Release packaging (see dist-workspace.toml): name the Homebrew formula after the command.
 # `dist = true` because dist leaves out a package with `publish = false` unless told otherwise.

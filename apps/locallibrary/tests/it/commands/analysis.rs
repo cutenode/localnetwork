@@ -571,3 +571,100 @@ fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
         }
     }
 }
+
+/// What `plugin roles` prints for each role in `listed` (its `--json`): the analyzer it's read
+/// from and whether that's chosen or the default (with the others that have it), or that it's
+/// read from none.
+fn roles_text(listed: &Value) -> String {
+    let all = listed.as_array().unwrap();
+    let name = |c: &Value| c["role"].as_str().unwrap().to_string();
+    let width = all.iter().map(|c| name(c).len()).max().unwrap_or(0);
+    let mut out = String::new();
+    for c in all {
+        let chosen = c["chosen"].as_str();
+        let others: Vec<&str> =
+            c["offered"].as_array().unwrap().iter().filter_map(Value::as_str).filter(|o| Some(*o) != chosen).collect();
+        let how = match (c["set"] == true, others.is_empty()) {
+            (true, _) => "chosen".to_string(),
+            (false, true) => "default".to_string(),
+            (false, false) => format!("default; also {}", others.join(", ")),
+        };
+        let role = format!("{:width$}", name(c));
+        out += &match chosen {
+            Some(a) => format!("{role}  {a}  {how}\n"),
+            None if c["off"] == true => format!("{role}  none, as chosen\n"),
+            None => format!("{role}  no analyzer works it out\n"),
+        };
+    }
+    out
+}
+
+/// Any steps of `plugin roles` (a role read from an analyzer that has it, from one that doesn't,
+/// from none, or back from its default; confirmed or not; shown in text or `--json`): each role
+/// reads back as last chosen, its default until then and again once put back, and an analyzer
+/// that doesn't have it is refused, naming those that do. The text says what the JSON does.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn plugin_roles_read_back_as_last_chosen(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = Env::new();
+    let all = env.json(&["plugin", "roles"]);
+    assert_eq!(env.ok(&["plugin", "roles"]), roles_text(&all));
+    let roles: Vec<(String, Vec<String>, Value)> = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            let offered = c["offered"].as_array().unwrap().iter().map(|o| o.as_str().unwrap().to_string()).collect();
+            (c["role"].as_str().unwrap().to_string(), offered, c["chosen"].clone())
+        })
+        .collect();
+    // Each role's state: `None` its default, `Some(None)` read from none, `Some(Some(a))` from `a`.
+    let mut kept: Vec<Option<Option<String>>> = vec![None; roles.len()];
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+        let i = tc.draw(gs::integers::<usize>().max_value(roles.len() - 1));
+        let (role, offered, default) = &roles[i];
+        let step = tc.draw(gs::sampled_from(vec!["choose", "choose", "wrong", "none", "reset"]));
+        let yes = tc.draw(gs::weighted_booleans(0.8));
+        let analyzer = match step {
+            "choose" if !offered.is_empty() => tc.draw(gs::sampled_from(offered.clone())),
+            _ => "sound.nope".to_string(),
+        };
+        let mut args = vec!["plugin", "roles", role.as_str()];
+        match step {
+            "none" => args.push("--none"),
+            "reset" => args.push("--reset"),
+            _ => args.push(&analyzer),
+        }
+        if yes {
+            args.insert(0, "--yes");
+        }
+        let r = env.run(&args);
+        let said = format!("{args:?}: exit {}\n{}{}", r.code, r.out, r.err);
+        if analyzer == "sound.nope" && step != "none" && step != "reset" {
+            let why = match offered.is_empty() {
+                true => format!("no analyzer works out {role}"),
+                false => format!("sound.nope doesn't work out {role}: {} does", offered.join(", ")),
+            };
+            assert!(r.code == if yes { 1 } else { 3 } && (!yes || r.err.contains(&why)), "{why}: {said}");
+        } else if !yes {
+            assert_eq!(r.code, 3, "{said}");
+        } else {
+            assert_eq!(r.code, 0, "{said}");
+            kept[i] = match step {
+                "none" => Some(None),
+                "reset" => None,
+                _ => Some(Some(analyzer.clone())),
+            };
+        }
+        let shown = env.json(&["plugin", "roles", role]);
+        // Changed, it shows the role as it's read now.
+        assert!(r.code != 0 || r.out.ends_with(&roles_text(&shown)), "{said}\n{shown}");
+        let c = &shown[0];
+        match &kept[i] {
+            None => assert!(c["chosen"] == *default && c["set"] == false && c["off"] == false, "{said}\n{shown}"),
+            Some(None) => assert!(c["chosen"].is_null() && c["off"] == true, "{said}\n{shown}"),
+            Some(Some(a)) => assert!(c["chosen"] == a.as_str() && c["set"] == true && c["off"] == false, "{shown}"),
+        }
+        assert_eq!(env.ok(&["plugin", "roles", role]), roles_text(&shown), "{said}");
+    }
+}
