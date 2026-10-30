@@ -12,7 +12,7 @@ export type StoredRecord = { uri: string; cid: string; value: JsonRecord };
 
 export type ListedSpaceRecord = { collection: string; rkey: string; cid: string; value: JsonRecord };
 
-/** One write in an applyWrites batch to an account's own public repo. */
+/** One write in an applyWrites batch to an account's own public repo, or to its repo in a space. */
 export type RepoWrite =
 	| { action: 'create' | 'update'; collection: string; rkey: string; record: JsonRecord }
 	| { action: 'delete'; collection: string; rkey: string };
@@ -49,6 +49,11 @@ export interface RepoClient {
 	}): Promise<RecordRef>;
 	putSpaceRecord(input: { space: string; collection: string; rkey: string; record: JsonRecord }): Promise<RecordRef>;
 	deleteSpaceRecord(input: { space: string; collection: string; rkey: string }): Promise<void>;
+	/**
+	 * Several writes to the account's repo in a space, made all together or not at all. A create fails on a record that
+	 * exists, and an update or delete on one that doesn't.
+	 */
+	applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void>;
 	getSpaceRecord(input: {
 		space: string;
 		repo: string;
@@ -138,6 +143,22 @@ const jsonRecord = z.record(z.string(), z.json());
 
 const asJson = (value: AgentRecord): JsonRecord => jsonRecord.parse(lexToJson(value));
 
+/** `writes` as the `writes` of `nsid`, the applyWrites of a public repo or of a space, which take the same shape. */
+const batch = <N extends 'com.atproto.repo.applyWrites' | 'com.atproto.space.applyWrites'>(
+	nsid: N,
+	writes: RepoWrite[]
+) =>
+	writes.map((write) =>
+		write.action === 'delete'
+			? { $type: `${nsid}#delete` as const, collection: write.collection, rkey: write.rkey }
+			: {
+					$type: `${nsid}#${write.action}` as const,
+					collection: write.collection,
+					rkey: write.rkey,
+					value: write.record
+				}
+	);
+
 export class AgentRepoClient implements RepoClient {
 	constructor(
 		readonly did: string,
@@ -170,6 +191,14 @@ export class AgentRepoClient implements RepoClient {
 
 	async deleteSpaceRecord(input: { space: string; collection: string; rkey: string }) {
 		await this.agent.com.atproto.space.deleteRecord({ ...input, repo: this.did });
+	}
+
+	async applySpaceWrites(space: string, writes: RepoWrite[]) {
+		await this.agent.com.atproto.space.applyWrites({
+			space,
+			repo: this.did,
+			writes: batch('com.atproto.space.applyWrites', writes)
+		});
 	}
 
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
@@ -234,16 +263,7 @@ export class AgentRepoClient implements RepoClient {
 	async applyWrites(writes: RepoWrite[]) {
 		await this.agent.com.atproto.repo.applyWrites({
 			repo: this.did,
-			writes: writes.map((write) =>
-				write.action === 'delete'
-					? { $type: 'com.atproto.repo.applyWrites#delete', collection: write.collection, rkey: write.rkey }
-					: {
-							$type: `com.atproto.repo.applyWrites#${write.action}`,
-							collection: write.collection,
-							rkey: write.rkey,
-							value: write.record
-						}
-			)
+			writes: batch('com.atproto.repo.applyWrites', writes)
 		});
 	}
 

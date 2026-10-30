@@ -105,6 +105,7 @@ locallibrary export Home --format serato -o ~/Desktop/for-serato                
 locallibrary export Home --format serato -o ~/Music/for-serato --option write_tags=true   # and cues, in copies of the audio
 locallibrary export Home --format engine -o ~/Desktop/for-engine                # a new Engine Library
 locallibrary export Home --format engine -o out --option paths=drive            # one to copy onto the drive
+locallibrary export Home --format traktor -o out --option include_history=true  # history lists as playlists too
 locallibrary export Home --format rekordbox -o ~/Desktop/Home.xml               # rekordbox XML
 ```
 These formats are the interop plugin's (see [Plugins](plugins.md)). `export --format` with
@@ -119,7 +120,11 @@ files already there is asked about first unless `--replace` (the folder could be
 own), and they're replaced only once every new file is written beside them; `--option
 skip_analysis=true` leaves beat grids and cues out (Traktor, rekordbox, and Serato's tags), and
 `--dry-run` lists each file with its size, what goes in and what the format leaves out, without
-writing. In the player, "export for traktor…" (serato, engine, rekordbox) in the palette does the
+writing. Traktor, Serato and Engine DJ keep no history lists of their own, so a drive's are left
+out unless `--option include_history=true`: then each goes as a playlist, named as the list is
+(players number them, `HISTORY 001`; a drive's databases keep no date for one), in a folder
+`History` after the other playlists, and the plan warns that there they're playlists, not history. With
+`--history LIST` it's that list alone, instead of the playlists. In the player, "export for traktor…" (serato, engine, rekordbox) in the palette does the
 same, for the marked playlists or the whole drive (see [the player](player.md)). RPC:
 `plugins.export.plan` and `plugins.export.apply` with `plugin: "interop"`, the format as
 `exporter` and the options as `options` (see [Building a GUI](sidecar.md)).
@@ -128,8 +133,8 @@ same, for the marked playlists or the whole drive (see [the player](player.md)).
   grid marker on the first downbeat (locked, so Traktor doesn't analyse it again), hot cues A-H
   on pads 1-8, memory cues, loops, and the playlist tree. In Traktor, right-click Track
   Collection, choose "Import another Collection" and pick the file. Traktor's grid has one
-  tempo, so a track that changes tempo keeps its first; cue colours, history lists, My Tags and
-  artwork don't come across. Audio outside `/Volumes` is placed on the Mac's startup disk, by
+  tempo, so a track that changes tempo keeps its first; cue colours, My Tags and artwork don't
+  come across, and history lists only as playlists (`include_history`). Audio outside `/Volumes` is placed on the Mac's startup disk, by
   its name ("Macintosh HD" when exporting from another system; Traktor's Relocate finds it if
   the Mac's is called otherwise). Entries are stamped with when they were written, or with
   `SOURCE_DATE_EPOCH` (seconds since 1970) when it's set, so a library exports the same each time;
@@ -145,7 +150,9 @@ same, for the marked playlists or the whole drive (see [the player](player.md)).
   drive's files are never changed; `--dry-run` lists each copy and its size first), writes rekordbox's hot cues, loops and track colour
   into each MP3, AIFF and WAV copy's `Serato Markers2` tag, and the crates list the copies. Hot
   cues keep their pads, hot cue loops their slot and memory loops take the free saved-loop slots;
-  memory cues have no equivalent in Serato. FLAC and M4A copies get no cues.
+  memory cues have no equivalent in Serato. FLAC and M4A copies get no cues, and nor does an AIFF
+  or WAV whose odd-sized last chunk lacks the pad byte after it (lofty can't write into it; the
+  plan's warning names the file).
 - **Engine DJ** (`Engine Library/Database2/m.db`): a new Engine Library (schema 3.0.2, as Engine DJ
   4.5 and 5.0 write it; newer versions upgrade it when they open it) with the tracks and their
   details, and the playlist tree (folders become playlists holding playlists). Track paths are
@@ -154,7 +161,8 @@ same, for the marked playlists or the whole drive (see [the player](player.md)).
   and Engine DJ read it from there. In Engine DJ Desktop, a library elsewhere is added as a source
   and its playlists dragged into the collection. Beat grids, cues and loops aren't written (Engine
   keeps them in its own encoded form), so Engine analyses the tracks when it first reads them;
-  artwork, colours and history lists don't come across, and an Engine playlist holds a track once.
+  artwork and colours don't come across, history lists only as playlists (`include_history`), and
+  an Engine playlist holds a track once.
 - **rekordbox** (XML, `DJ_PLAYLISTS`): tracks with their details, the beat grid (a tempo per
   tempo change), hot cues with their colours, memory cues, loops and the playlist tree, the way to
   take a drive's library back into rekordbox: to recover a library from a drive, or move it to a

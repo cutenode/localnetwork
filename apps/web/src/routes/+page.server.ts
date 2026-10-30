@@ -1,21 +1,12 @@
 import { HappyViewError } from '#lib/server/happyview/client.ts';
-import { tools } from '#lib/tools/index.ts';
+import { toolCards } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { projects, geocoder } = locals.app;
 
 	// The tools' docs are bundled server-side, so the page gets only what its cards show.
-	const page = {
-		geocoder: geocoder.enabled,
-		tools: tools.map(({ id, name, kind, tagline, features }) => ({
-			id,
-			name,
-			kind,
-			tagline,
-			features: features.slice(0, 3)
-		}))
-	};
+	const page = { geocoder: geocoder.enabled, tools: toolCards() };
 
 	let directory;
 

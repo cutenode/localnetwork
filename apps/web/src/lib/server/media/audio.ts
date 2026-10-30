@@ -79,7 +79,7 @@ export type AudioRequest = {
 	range: string | null;
 	/** The declared audio of the recording that references the blob, or null when the site doesn't serve it. */
 	audio: (did: string, cid: string) => Promise<RecordingAudio | null>;
-	/** The account's PDS. */
+	/** The account's PDS, which anyone can point anywhere, so checked first (see IdentityResolver.safePds). */
 	pds: (did: string) => Promise<string>;
 	fetch: typeof globalThis.fetch;
 	log: Logger;
@@ -118,7 +118,7 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 		const url = new URL('/xrpc/com.atproto.sync.getBlob', await request.pds(did));
 		url.searchParams.set('did', did);
 		url.searchParams.set('cid', cid);
-		upstream = await request.fetch(url, { signal: AbortSignal.timeout(15_000) });
+		upstream = await request.fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 	} catch (error) {
 		log.warn({ err: error, status: 502 }, 'could not reach the PDS for a recording');
 
