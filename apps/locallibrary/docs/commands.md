@@ -173,7 +173,7 @@ its drives.
 | `locallibrary plays stats <library\|drive\|snapshot:ID> [--since SNAPSHOT\|DATE]` | Most played, never played, and what was played since a snapshot or a date |
 | `locallibrary sets [list] [--venue V] [--kind K] [--since D] [--until D]` | Your sets, newest first, see [Sets](sets.md#sets) |
 | `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
-| `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it |
+| `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it (and its record and recording's on your Atmosphere account when they're published) |
 | `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|chapters\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, podcast apps' chapters, a spreadsheet, or a playlist file |
 | `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |

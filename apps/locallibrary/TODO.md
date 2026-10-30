@@ -284,9 +284,10 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.
-- [ ] Unpublishing (`deleteRecord`) needs `delete` added to the publishing permission set
-      (`lexicons/computer/localnetwork/locallibraryPublishing.json`) and `PUBLISH_SCOPES`; until
-      then `sets delete` leaves a published set's record on the account.
+- [ ] First real `sets delete` of a published set: check a real PDS grants
+      `repo:computer.localnetwork.dj.set` and `repo:computer.localnetwork.dj.recording` (all three
+      actions) from the permission set, and
+      answers `deleteRecord` of a record that's already gone as done.
 - [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
       only `atproto`, publishing reports a missing scope, and sign-in loops.
 - [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
@@ -317,9 +318,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Lexicons
 
-- [ ] MusicBrainz IDs come from file tags on a mounted drive when a set is made or edited, so a set
-      built with the drive unplugged has none until it's edited with the drive in. The store keeps
-      the files and could be read instead.
 - [ ] `transitionIn`'s `technique` is only ever `blend` (an overlap of 8 seconds or more, as the
       website's mix report has it) or `unknown`; the terminal player calls 1 second a blend.
       Pick one threshold.

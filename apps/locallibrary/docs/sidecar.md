@@ -314,7 +314,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `sets` made from it), `sessions.dismiss {sessions, undo?}`, `sessions.import {file, drive?,
   name?}` (a Beat Link Trigger log), `sets.suggest {drive?}` (`candidates`, and the `sessions`
   they're made of), `sets.list`, `sets.get {set | venue}`, `sets.new`, `sets.edit` (both answer
-  the `set` and `notes` to show), `sets.delete`, `sets.export {set, format, output?}` (without
+  the `set` and `notes` to show), `sets.delete` (which deletes a published set's record and its
+  recording's from the account first), `sets.export {set, format, output?}` (without
   `output`, the document comes back as `text`), `sets.played {track}` and
   `sets.playlist.plan/apply`. Sets are written to the store at once, so `sets.new`, `sets.edit`,
   `sets.delete`, `sets.export`, `sessions.dismiss` and `sessions.import` are `immediate`.

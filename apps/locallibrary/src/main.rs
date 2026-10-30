@@ -1805,7 +1805,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let profile = plan.apply(Some(&store), ctx)?;
             let from = plan.from.clone();
             return Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-                output::ok(format!("imported {} settings from {from}", profile.base.len()));
+                output::ok(format!("imported {} from {from}", output::plural(profile.base.len(), "setting")));
             }));
         }
     }
