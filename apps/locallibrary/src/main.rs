@@ -1,4 +1,5 @@
-//! `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured.
+// `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured. (A plain
+// comment, as src/unit.rs includes this file, and an inner doc comment can't be included.)
 
 // First, for its `say!`.
 #[macro_use]
