@@ -53,3 +53,20 @@ test_crate_without_readme if {
 	broken := json.remove(crate, ["package/readme"])
 	"crates/loclib-x/Cargo.toml: set `readme = \"README.md\"`, the crate's docs" in cargo.deny with input as fixtures.with_file("crates/loclib-x/Cargo.toml", broken)
 }
+
+without_dev_package(name) := fixtures.with_file("Cargo.toml", json.remove(fixtures.file("Cargo.toml"), [sprintf("profile/dev/package/%s", [name])]))
+
+test_dev_package_dropped if {
+	"Cargo.toml: put back [profile.dev.package.sha2]; `cargo remove` deletes it (git diff Cargo.toml shows what went)" in cargo.deny with input as without_dev_package("sha2")
+}
+
+test_dev_package_gone_from_lock if {
+	lock := {"path": "/scratch/Cargo.lock.toml", "contents": {"package": [{"name": "tool"}]}}
+	count(cargo.deny) == 0 with input as array.concat([f | some f in without_dev_package("sha2"); f.path != lock.path], [lock])
+}
+
+test_dev_package_not_listed if {
+	crate := fixtures.file("Cargo.toml")
+	broken := json.patch(crate, [{"op": "add", "path": "/profile/dev/package/digest", "value": {"opt-level": 3}}])
+	"Cargo.toml: add \"digest\" to dev_optimised in tools/policy/cargo.rego, so the policies notice if it goes missing" in cargo.deny with input as fixtures.with_file("Cargo.toml", broken)
+}

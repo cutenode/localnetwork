@@ -24,6 +24,9 @@ while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
+# Cargo.lock under a name conftest parses as TOML, for the policy that the dev profile keeps its
+# entries for the crates still in it.
+cp Cargo.lock "$scratch/Cargo.lock.toml"
 # The Railway project as Railway's SDK evaluates .railway/railway.ts, for the railway policy.
 node --experimental-strip-types --input-type=module \
   -e 'const { default: railway } = await import(process.argv[1]); process.stdout.write(JSON.stringify(railway()));' \
@@ -42,4 +45,4 @@ if [ -n "$uncovered" ]; then
   echo "$uncovered"
   exit 1
 fi
-run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/railway-project.json
+run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/Cargo.lock.toml /scratch/railway-project.json
