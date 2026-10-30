@@ -49,6 +49,8 @@ async function signIn(page: Page, handle: string, password: string, next = '/das
  */
 async function signOut(page: Page) {
 	await page.goto('/dashboard');
+	// The root layout drops the account's drafts as the form submits, which it can only do once it has hydrated.
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
