@@ -216,7 +216,7 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)       |
 | `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container     |
 | `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`   |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget     |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client JS budgets        |
 | `pnpm storybook`                    | The design system in Storybook, at localhost:6006                         |
 | `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it     |
 | `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                   |
