@@ -25,7 +25,7 @@
 //! differ are copied, so exporting again is quick, and a run stopped part way finishes when it's
 //! run again. The databases are built on the target from what was copied (see
 //! `convert::build_databases`), with `exportExt.pdb` beside `export.pdb` for players that read
-//! that (see [`crate::tags::new_ext`]), so both show My Tags. The target remembers what it was
+//! that (`tags::new_ext` builds it), so both show My Tags. The target remembers what it was
 //! exported from (`.locallibrary/collection.json`) and which image got which key, so images keep
 //! theirs. A library it held that wasn't exported from the collection (or loose files the export
 //! would remove) is only replaced when asked, and what only it has (history lists players

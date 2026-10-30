@@ -11,7 +11,7 @@
 //! [`crate::backup`]), so `locallibrary undo` takes an edit back.
 //!
 //! A drive with `export.pdb` but no `exportExt.pdb` only has its OneLibrary tags edited, with a
-//! warning: only `collection export` creates `exportExt.pdb` (see [`new_ext`]).
+//! warning: only `collection export` creates `exportExt.pdb` (see `new_ext`).
 //!
 //! Every applied edit is recorded in the drive's journal of edits (as a [`TagChange`], tracks
 //! named by file), so `edits replay` makes it again after rekordbox exports to the drive.
