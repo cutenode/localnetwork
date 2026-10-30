@@ -48,6 +48,26 @@ fn write(path: &Path, settings: &IndexMap<String, Value>) -> Result<()> {
     fsutil::write_json_atomic(path, settings)
 }
 
+/// Every plugin's settings the store keeps, by its id (in order), as they were written: whether
+/// or not the plugin is here.
+pub(crate) fn all_saved_settings(store: &Store) -> Result<IndexMap<String, IndexMap<String, Value>>> {
+    let dirs = std::fs::read_dir(store.root().join("plugins")).into_iter().flatten().flatten();
+    let mut ids: Vec<String> = dirs.filter_map(|e| e.file_name().into_string().ok()).collect();
+    ids.retain(|id| crate::fields::is_name(id) && file(store, id).is_file());
+    ids.sort();
+    ids.into_iter().map(|id| Ok((id.clone(), fsutil::read_json_opt(&file(store, &id))?.unwrap_or_default()))).collect()
+}
+
+/// Keeps `settings` as the plugin `plugin`'s, whether or not it's here.
+pub(crate) fn save_settings(store: &Store, plugin: &str, settings: &IndexMap<String, Value>) -> Result<()> {
+    write(&file(store, plugin), settings)
+}
+
+/// Keeps `settings` as the host's settings for plugins.
+pub(crate) fn save_host_settings(store: &Store, settings: &IndexMap<String, Value>) -> Result<()> {
+    write(&host_file(store), settings)
+}
+
 impl Plugin {
     /// What's kept for the plugin, as it was written.
     pub(super) fn saved(&self, store: &Store) -> Result<IndexMap<String, Value>> {

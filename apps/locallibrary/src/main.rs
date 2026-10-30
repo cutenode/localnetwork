@@ -776,10 +776,23 @@ enum SettingsCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Write everything set here to one file, for a copy or another computer: My Settings, the
+    /// players, the profile's preferences and every plugin's settings (key bindings included)
+    Export {
+        /// The file to write [default: print it]
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// Replace the file if it's there already
+        #[arg(long, requires = "file")]
+        replace: bool,
+    },
     /// Set the profile's base from a drive's settings, rekordbox's own (no argument), or the My
-    /// Settings an Atmosphere account published (settings the source doesn't have stay)
+    /// Settings an Atmosphere account published (settings the source doesn't have stay); or add
+    /// what a file `settings export` wrote has to what's set here
     Import {
-        /// The drive to take them from [default: rekordbox's settings on this computer]
+        /// The drive to take them from, or a file `settings export` wrote [default: rekordbox's
+        /// settings on this computer]
+        #[arg(value_name = "DRIVE|FILE")]
         drive: Option<String>,
         /// The My Settings this account published (a handle or DID; alpha)
         #[cfg(feature = "account")]
@@ -789,8 +802,9 @@ enum SettingsCommand {
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "drive")]
         from_account: bool,
-        /// Replace the whole base with the account's, unsetting what it didn't publish
-        #[cfg(feature = "account")]
+        /// With a file: where a value differs, take the file's instead of keeping the one here.
+        /// With --from-handle or --from-account: replace the whole base with the account's,
+        /// unsetting what it didn't publish
         #[arg(long)]
         replace: bool,
         /// Show what would change without importing
@@ -1784,8 +1798,45 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let req = api::ImportPublishedSettings { from: from_handle, replace };
             return publish_cmd::settings_import(store_path, &req, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SettingsCommand::Import { replace: true, .. } => bail!("--replace goes with --from-handle or --from-account"),
+        SettingsCommand::Export { file, replace } => {
+            let doc = diff_cmd::read_or_empty(store_path, api::settings_export)?;
+            let mut text = serde_json::to_string_pretty(&doc)?;
+            text.push('\n');
+            let Some(path) = file else {
+                out.emit(&doc, |_| print!("{text}"));
+                return Ok(ExitCode::SUCCESS);
+            };
+            locallibrary::fsutil::write_output(&path, text.as_bytes(), replace)?;
+            out.done(&serde_json::json!({ "output": path, "settings": doc }), |_| {
+                output::ok(format!("wrote {}", path.display()));
+            });
+        }
+        SettingsCommand::Import { drive: Some(file), replace, dry_run, .. }
+            if std::path::Path::new(&file).is_file() =>
+        {
+            let store = open_store(store_path)?;
+            let req = api::ImportSettingsFile { file: locallibrary::fsutil::absolute(file.as_ref()), replace };
+            let plan = api::settings_import_file_plan(&store, &req)?;
+            if !out.json {
+                output::summary(&plan.summary, &plan.warnings);
+                render::settings_file_changes(&plan.plan.changes);
+            }
+            if plan.noop {
+                return Ok(out.nothing(&plan, "everything the file has is set here already"));
+            }
+            if let Some(o) = out.decide(dry_run, "Import them?") {
+                return Ok(out.not_applied(&plan, o));
+            }
+            let after = plan.apply(Some(&store), ctx)?;
+            let n =
+                plan.plan.changes.iter().filter(|c| c.action != locallibrary::settings::transfer::Action::Keep).count();
+            return Ok(out.applied(&plan, &after, Outcome::Applied, || {
+                output::ok(format!("imported {} from {file}", output::plural(n, "setting")));
+            }));
+        }
+        SettingsCommand::Import { replace: true, .. } => {
+            bail!("--replace goes with a file `settings export` wrote, --from-handle or --from-account")
+        }
         SettingsCommand::Import { drive, dry_run, .. } => {
             let store = open_store(store_path)?;
             let plan = api::settings_import_plan(&store, &api::ImportSettings { drive })?;

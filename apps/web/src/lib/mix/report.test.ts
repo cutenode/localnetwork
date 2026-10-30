@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	BLEND_SECS,
 	bandColor,
 	clock,
 	colors,
@@ -9,7 +10,7 @@ import {
 	lanes,
 	niceTicks,
 	phraseAt,
-	phraseColor,
+	phraseBackground,
 	phraseRole,
 	playColor,
 	playSpeed,
@@ -151,6 +152,11 @@ describe('display helpers', () => {
 		expect(handoff({ from: 0, to: 1, at: 0, overlap: 2 }).how).toBe('quick mix');
 	});
 
+	it('calls a transition a blend from the threshold locallibrary uses', () => {
+		expect(handoff({ from: 0, to: 1, at: 0, overlap: BLEND_SECS }).how).toBe(`${BLEND_SECS}s blend`);
+		expect(handoff({ from: 0, to: 1, at: 0, overlap: BLEND_SECS - 0.1 }).how).toBe('quick mix');
+	});
+
 	it('lays plays out in lanes and lists gaps in order', () => {
 		const report = parsed();
 		expect(lanes(report.plays)).toEqual([0, 1, 0, 1, 0]);
@@ -192,10 +198,10 @@ describe('display helpers', () => {
 			'unknown',
 			'unknown'
 		]);
-		expect(['Verse 3', 'Phrase 9', 'toString'].map(phraseColor)).toEqual([
-			colors.phrases.verse,
-			colors.phrases.unknown,
-			colors.phrases.unknown
+		expect(['Verse 3', 'Phrase 9', 'toString'].map(phraseBackground)).toEqual([
+			'bg-phrase-verse',
+			'bg-phrase-unknown',
+			'bg-phrase-unknown'
 		]);
 	});
 });

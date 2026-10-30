@@ -187,21 +187,32 @@ fn the_page_reads_back_any_title() {
     let data = data.split_once("</script>").unwrap().0;
     let v: serde_json::Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{e}: {data}"));
     assert_eq!(v["report"]["mix"]["title"], title);
+    assert_eq!(v["blendSecs"], crate::mix::BLEND_SECS, "the page calls blends what the player does");
 }
 
-/// The page draws in the colours the player does: the bands and phrases, and good, warning
-/// and critical for the light page and both ways it goes dark.
+/// The page draws in the colours the player does: the bands, and the phrases, cue defaults and
+/// good, warning and critical for the light page and both ways it goes dark.
 #[test]
 fn the_page_shares_the_players_colours() {
-    use crate::tokens::{Rgb, bands, phrases, status};
+    use crate::tokens::{Rgb, bands, cues, cues_light, phrases, phrases_light, status};
     let html = page(&report("x"), None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
     let prop = |name: &str, [r, g, b]: Rgb| format!("--{name}: #{r:02x}{g:02x}{b:02x};");
     assert!(!html.contains("{{TOKENS}}"));
-    for (name, rgb) in [("band-low", bands::LOW), ("phrase-verse", phrases::VERSE), ("good", status::light::GOOD)] {
+    let light = [
+        ("band-low", bands::LOW),
+        ("phrase-verse", phrases_light::VERSE),
+        ("cue-hot", cues_light::HOT),
+        ("good", status::light::GOOD),
+    ];
+    for (name, rgb) in light {
         assert_eq!(html.matches(&prop(name, rgb)).count(), 1, "{name}");
     }
     assert!(html.contains("--band-scale-mid: 0.66;"));
-    assert_eq!(html.matches(&prop("critical", status::dark::CRITICAL)).count(), 2, "both dark blocks");
+    for (name, rgb) in
+        [("critical", status::dark::CRITICAL), ("phrase-bridge", phrases::BRIDGE), ("cue-hot", cues::HOT)]
+    {
+        assert_eq!(html.matches(&prop(name, rgb)).count(), 2, "{name} in both dark blocks");
+    }
 }
 
 /// A page made to be shared holds what it shows and nothing that only makes sense here (the

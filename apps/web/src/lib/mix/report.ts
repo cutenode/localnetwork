@@ -11,9 +11,13 @@
 import type { z } from 'zod';
 import type { mixReportSchema } from './schema.ts';
 import colors from '../../../../../packages/tokens/colors.json' with { type: 'json' };
+import terms from '../../../../../packages/tokens/mix.json' with { type: 'json' };
 
 /** Colours that mean the same here as in locallibrary's player and HTML report. */
 export { colors };
+
+/** How long two tracks are heard together, in seconds, before the transition is a blend, as locallibrary and published sets have it. */
+export const BLEND_SECS = terms.blendSecs;
 
 export const MIX_REPORT_FORMAT = 'locallibrary.mix-report';
 
@@ -96,7 +100,7 @@ export type Handoff = { how: string; tempo: string | null; harmony: { ok: boolea
 export function handoff(t: MixTransition): Handoff {
 	// Fades below what fingerprints hear make short "gaps"; only a long one is called a gap.
 	const how =
-		t.overlap >= 8
+		t.overlap >= BLEND_SECS
 			? `${Math.round(t.overlap)}s blend`
 			: t.overlap > -12
 				? 'quick mix'
@@ -223,9 +227,21 @@ export function phraseRole(kind: string): PhraseRole {
 	return isPhraseRole(word) ? word : 'unknown';
 }
 
-/** A phrase's colour, by its role, as the player and locallibrary's report draw it. */
-export function phraseColor(kind: string): string {
-	return colors.phrases[phraseRole(kind)];
+/** Each role's background, spelled out so Tailwind generates them. The light palette has its own. */
+const phraseBackgrounds: Record<PhraseRole, string> = {
+	intro: 'bg-phrase-intro',
+	up: 'bg-phrase-up',
+	verse: 'bg-phrase-verse',
+	chorus: 'bg-phrase-chorus',
+	down: 'bg-phrase-down',
+	bridge: 'bg-phrase-bridge',
+	outro: 'bg-phrase-outro',
+	unknown: 'bg-phrase-unknown'
+};
+
+/** A phrase's colour as a background class, by its role, as the player and locallibrary's report draw it. */
+export function phraseBackground(kind: string): string {
+	return phraseBackgrounds[phraseRole(kind)];
 }
 
 /** Track colours for plays in turn, leaving out red and green, which mean a clash and a match. */

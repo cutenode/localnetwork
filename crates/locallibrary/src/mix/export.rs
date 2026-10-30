@@ -5,9 +5,9 @@
 //! played, transitions, each track's overview waveform, hot cues and phrases, small artwork) and
 //! nothing that only makes sense on this computer. File paths, the drive (its name, its other
 //! tracks), ratings, play counts and comments are left out, and so is a cover found next to the
-//! recording rather than embedded in it. Tracks the DJ's profile hides (see
-//! [`ProfilePrefs::may_name`]) are "ID - ID", as DJs list an unreleased track. Local Network
-//! renders it on a DJ's profile.
+//! recording rather than embedded in it or given for it (`mix --cover`). Tracks the DJ's profile
+//! hides (see [`ProfilePrefs::may_name`]) are "ID - ID", as DJs list an unreleased track. Local
+//! Network renders it on a DJ's profile.
 //!
 //! The format is versioned: `format` is always [`FORMAT`] and `version` [`VERSION`]. Fields are
 //! camelCase; times are seconds into the mix (or into the track, for `trackStart`/`trackEnd`,
@@ -84,7 +84,8 @@ pub struct ExportMix {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recorder: Option<String>,
     pub duration_secs: f64,
-    /// The cover embedded in the recording: a JPEG `data:` URL, 320 px square.
+    /// The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+    /// 320 px square.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
 }

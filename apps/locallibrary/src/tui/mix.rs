@@ -1105,14 +1105,14 @@ fn unknown_in(r: &MixReport, tr: &Transition) -> Option<f64> {
     (tr.overlap <= -1.0 && heard >= 1.0).then_some(heard)
 }
 
-/// How one play hands over to the next: a blend, a cut, or a gap (with something not in the
+/// How one play hands over to the next: a blend, a quick mix, or a gap (with something not in the
 /// library playing in it, perhaps), the keys (`keys` names them), the tempo.
 fn handoff(tr: &Transition, r: &MixReport, keys: bool) -> Vec<Span<'static>> {
     let plays = &r.plays;
-    let how = if tr.overlap >= 1.0 {
+    let how = if tr.is_blend() {
         format!("{} blend", secs(tr.overlap))
     } else if tr.overlap > -1.0 {
-        "cut".to_string()
+        "quick mix".to_string()
     } else if let Some(unknown) = unknown_in(r, tr) {
         format!("{} not in the library", secs(unknown))
     } else {
