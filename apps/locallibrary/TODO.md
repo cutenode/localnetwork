@@ -289,9 +289,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       then `sets delete` leaves a published set's record on the account.
 - [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
       only `atproto`, publishing reports a missing scope, and sign-in loops.
-- [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
-      declared sets the profile finds sessions its own way (history lists, dated by the pull that
-      archived them) rather than with `sets::session::gather` and its windows.
 - [ ] File the jacquard-oauth issue on tangled (nonbinary.computer/jacquard): 0.12.2 and `main`
       panic when a token response grants a scope `Scopes` can't parse, in `callback_core`
       (`client.rs`) and on every refresh (`session.rs`'s `update_with_tokens`). Once a release

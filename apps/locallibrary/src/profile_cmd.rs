@@ -446,7 +446,16 @@ fn render(v: &ProfileView, view: &ViewArgs) {
         }
         Basis::Collection => "no sets found: describing the collection".to_string(),
     };
-    say!("  {}", dim(format!("{basis} · built {}", local_time(r.generated, "%Y-%m-%d %H:%M"))));
+    let mut built = format!("{basis} · built {}", local_time(r.generated, "%Y-%m-%d %H:%M"));
+    let from_cache = [(r.cached.databases, "snapshots' lists"), (r.cached.analysis, "analysis files")]
+        .into_iter()
+        .filter(|((cached, _), _)| *cached > 0)
+        .map(|((cached, read), what)| format!("{cached} of {read} {what}"))
+        .collect::<Vec<_>>();
+    if !from_cache.is_empty() {
+        built.push_str(&format!(" · from the cache: {}", from_cache.join(", ")));
+    }
+    say!("  {}", dim(built));
 
     if c.section(Section::Summary, "") {
         let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());

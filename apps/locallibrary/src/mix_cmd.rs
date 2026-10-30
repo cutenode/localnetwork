@@ -136,6 +136,17 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
                 let fingerprinted = reports[0].library.fingerprinted;
                 say!("{}", dim(format!("fingerprinted {fingerprinted} new track(s) on {}", id.drive)));
             }
+            let heard = id.cache.heard.load(std::sync::atomic::Ordering::Relaxed);
+            let kept: Vec<String> = [
+                id.cache.index.then(|| "the library's index".to_string()),
+                (heard > 0).then(|| format!("{heard} recording(s) heard before")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if !kept.is_empty() {
+                say!("{}", dim(format!("from the cache: {}", kept.join(", "))));
+            }
             for p in &written {
                 let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
                 output::ok(format!("{what}: {}", p.display()));
