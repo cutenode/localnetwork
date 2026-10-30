@@ -62,7 +62,7 @@ and typed table columns, see [views](#views)).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
    body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
    host sends it only to a host the manifest's `net:` capabilities grant, at a public https
-   address, following redirects itself and each only there, at most five; as
+   address without a user name or password, following redirects itself and each only there, at most five; as
    `locallibrary/<version> (+<contact>)`, the plugin's `contact` setting when it has one;
    waiting its turn when the manifest limits that host (`[[net]]`). `{secret:<key>}` in a
    header's value, a query value, `body` or a form part's `value` is the plugin's secret setting
@@ -537,7 +537,8 @@ and its row in `FEATURES`.
 `Peer` is the connection itself, for a host or a plugin: either end sends requests and
 notifications from any thread, and its reader thread hands the other end's to its owner (a
 host's hook sent with `send_request_reporting` gets its own `progress`, in order before its
-answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`).
+answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`), and
+a host can change what the other end tells it before anything reads it (`Peer::with_intake`).
 `check_params` checks a hook's params or options against the contribution's schema. Here it plays
 the host:
 

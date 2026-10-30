@@ -237,7 +237,8 @@ pub struct Plugins {
 }
 
 impl Plugins {
-    /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
+    /// The host for `specs` (their manifests' text made printable, as all a plugin tells the host
+    /// is), reading for them through `reads`. Refused: a plugin locallibrary
     /// doesn't ship, an invalid manifest (in builds with debug assertions: see
     /// [`PluginSpec::first_party`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
@@ -246,6 +247,9 @@ impl Plugins {
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
+            let manifest = process::printable_manifest(spec.manifest)
+                .map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
+            let spec = PluginSpec { manifest, ..spec };
             let m = &spec.manifest;
             if !spec.first_party {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));

@@ -64,6 +64,8 @@ struct Shared {
     running: Mutex<Vec<(Value, CancelToken)>>,
     /// Where what the other end got wrong is said.
     log: Box<dyn Fn(&str) + Send + Sync>,
+    /// Given what the other end tells this one first (see [`Peer::with_intake`]).
+    intake: Box<dyn Fn(&mut Value) + Send + Sync>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -153,12 +155,26 @@ impl Peer {
         output: impl Write + Send + 'static,
         log: impl Fn(&str) + Send + Sync + 'static,
     ) -> (Peer, Receiver<Incoming>) {
+        Peer::with_intake(input, output, log, |_| {})
+    }
+
+    /// [`Peer::with_log`], each thing the other end tells this one (a response, its result or
+    /// error, a notification, `progress` and `partial`) given to `intake` before anything reads
+    /// it: a host makes a plugin's text printable there. Its requests aren't: what it asks to
+    /// have sent goes on as it is.
+    pub fn with_intake(
+        input: impl Read + Send + 'static,
+        output: impl Write + Send + 'static,
+        log: impl Fn(&str) + Send + Sync + 'static,
+        intake: impl Fn(&mut Value) + Send + Sync + 'static,
+    ) -> (Peer, Receiver<Incoming>) {
         let peer = Peer(Arc::new(Shared {
             out: Mutex::new(Some(Box::new(output))),
             next: AtomicU64::new(1),
             waiting: Mutex::new(Some(Waiting::default())),
             running: Mutex::default(),
             log: Box::new(log),
+            intake: Box::new(intake),
         }));
         let (tx, rx) = mpsc::channel();
         let reader = peer.clone();
@@ -330,7 +346,12 @@ impl Peer {
         if !(id.is_null() || id.is_string() || id.is_number()) {
             return self.answer(&Value::Null, Err(RpcError::invalid_request("id must be a string or a number")));
         }
-        let Some(Value::String(method)) = msg.remove("method") else {
+        let method = msg.remove("method");
+        let asks = !id.is_null() && matches!(method, Some(Value::String(_)));
+        if !asks {
+            msg.values_mut().for_each(|v| (self.0.intake)(v));
+        }
+        let Some(Value::String(method)) = method else {
             return self.on_response(id, msg);
         };
         let params = match msg.remove("params") {

@@ -1107,3 +1107,72 @@ fn a_response_id_is_found_in_any_line_cut_short(tc: TestCase) {
     let expected = (!string_id && !method).then_some(id);
     assert_eq!(response_id(line.as_bytes()), expected, "{line}");
 }
+
+/// Every string in `v` the test sent (`x-...`), in capitals.
+fn shout(v: &mut Value) {
+    match v {
+        Value::String(s) if s.starts_with("x-") => *s = s.to_uppercase(),
+        Value::Array(list) => list.iter_mut().for_each(shout),
+        Value::Object(map) => map.values_mut().for_each(shout),
+        _ => {}
+    }
+}
+
+/// For any text the other end sends in a response (its result or its error), a notification,
+/// progress or a partial, what reads it gets it as the intake left it; in a request, as it was
+/// sent.
+#[hegel::test(test_cases = 40)]
+fn what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
+    let (peer_in, to_peer) = pipe().unwrap();
+    let (from_peer, peer_out) = pipe().unwrap();
+    let mut raw = Raw { to_peer: Some(to_peer), from_peer: BufReader::new(from_peer) };
+    let (peer, incoming) = Peer::with_intake(peer_in, peer_out, |_| {}, shout);
+    // What the intake changes: text of the test's, not the protocol's own (`warning`).
+    let said: String = tc.draw(gs::from_regex("x-[a-z]{1,6}").fullmatch(true));
+    let told = said.to_uppercase();
+    match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => {
+            let pending = peer.send_request("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "label": said } }).to_string());
+            assert_eq!(pending.wait::<Value>().unwrap(), json!({ "label": told }));
+        }
+        1 => {
+            let pending = peer.send_request("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": said } }).to_string());
+            assert_eq!(pending.wait::<Value>().unwrap_err().message, told);
+        }
+        2 => {
+            raw.send(&json!({ "jsonrpc": "2.0", "method": "host/notify", "params": { "message": said } }).to_string());
+            let Incoming::Notification { params, .. } = next(&incoming) else { panic!("a notification") };
+            assert_eq!(params, json!({ "message": told }));
+        }
+        3 | 4 => {
+            let pending = peer.send_request_reporting("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            let (method, params) = match tc.draw(gs::booleans()) {
+                true => (method::PARTIAL, json!({ "id": id, "items": [{ "label": said }] })),
+                false => (method::PROGRESS, json!({ "id": id, "event": { "event": "warning", "message": said } })),
+            };
+            raw.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }).to_string());
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 1 }).to_string());
+            assert_eq!(pending.wait_timeout::<u32>(Duration::from_secs(60)).unwrap(), Ok(1));
+            let got: Vec<Value> = match method {
+                method::PARTIAL => pending.partials().map(|p| serde_json::to_value(p.items).unwrap()).collect(),
+                _ => pending.progress().map(|r| serde_json::to_value(r).unwrap()["message"].clone()).collect(),
+            };
+            let want = match method {
+                method::PARTIAL => json!([{ "label": told }]),
+                _ => json!(told),
+            };
+            assert_eq!(got, [want]);
+        }
+        _ => {
+            raw.send(
+                &json!({ "jsonrpc": "2.0", "id": 1, "method": "net/fetch", "params": { "url": said } }).to_string(),
+            );
+            assert_eq!(request(&incoming).params, json!({ "url": said }), "a request goes on as it was sent");
+        }
+    }
+}

@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use super::Plugins;
 use super::callbacks::{answer_for_plugin, known_roots};
-use super::process::{Live, Plugin, Slot, printable};
+use super::process::{Live, Plugin, Slot};
 use crate::api::{JobEvent, Notice, WatchAction};
 use crate::error::IoContext;
 use crate::op::Applied;
@@ -222,7 +222,7 @@ impl Plugin {
             Ok(notice) => notice,
             Err(e) => return self.host.log(id, &format!("what it tells the user isn't host/notify's: {e}")),
         };
-        let said = printable(&self.net.scrub(&notice.message));
+        let said = self.net.scrub(&notice.message);
         let message: String = said.trim().chars().take(MAX_MESSAGE).collect();
         if message.is_empty() {
             return self.host.log(id, "it tells the user nothing");

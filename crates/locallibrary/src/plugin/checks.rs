@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::process::{Slot, printable};
+use super::process::Slot;
 use super::{Plugins, host_settings, set_host_setting};
 use crate::check::CheckItem;
 use crate::device::Device;
@@ -328,8 +328,7 @@ impl Slot {
             if message.trim().is_empty() {
                 return Err(self.misbehaved(format!("its finding {i} says nothing")));
             }
-            let on_the_drive = |p: &String| paths::is_safe_key(p) && !p.chars().any(char::is_control);
-            if let Some(path) = f.finding.paths.iter().find(|p| !on_the_drive(p)) {
+            if let Some(path) = f.finding.paths.iter().find(|p| !paths::is_safe_key(p)) {
                 return Err(self.misbehaved(format!("its finding {i} names {path:?}, which isn't a file on the drive")));
             }
             let fix = match f.fix {
@@ -351,10 +350,10 @@ impl Slot {
         Ok(found)
     }
 
-    /// `text` as a finding says it: without control characters (see [`printable`]) or the
-    /// secrets the host filled in for the plugin, and at most [`MAX_SAID`] characters.
+    /// `text` as a finding says it: without the secrets the host filled in for the plugin, and at
+    /// most [`MAX_SAID`] characters (it's printable already, as all a plugin answers is).
     fn said(&self, text: &str) -> String {
-        let text = self.net.scrub(&printable(text));
+        let text = self.net.scrub(text);
         match text.char_indices().nth(MAX_SAID) {
             Some((at, _)) => format!("{}...", &text[..at]),
             None => text,

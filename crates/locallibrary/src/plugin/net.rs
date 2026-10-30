@@ -1,8 +1,8 @@
 //! `net/fetch` (the `net` feature): HTTP requests the host makes for a plugin, only to the hosts
-//! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]), redirects
-//! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
-//! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
-//! say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
+//! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]) naming no user
+//! or password, redirects followed by the host and each one checked the same way, as
+//! `locallibrary/<version>` (with the plugin's `contact` setting, when it has one), spaced out as
+//! its manifest's `[[net]]` limits say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
 //! accounts' access tokens only where a request names one (`{account:<id>}`, see
 //! [`super::accounts`]) and the account says its token goes: the `Authorization` header, or a query
 //! parameter. They're filled in once it's checked, never on to another server a redirect leads to,
@@ -32,7 +32,7 @@ use serde_json::Value;
 
 use self::body::{Body, Field, FilePart};
 use super::blobs;
-use super::process::{Live, Plugin};
+use super::process::{Live, Plugin, printable};
 use crate::export::one_line;
 use crate::net::{public, this_computer, with_causes};
 use crate::progress::CancelToken;
@@ -79,12 +79,13 @@ impl State {
         }
     }
 
-    /// Keeps `secret` out of what [`State::scrub`] gives.
+    /// Keeps `secret` out of what [`State::scrub`] gives: as it is, as a URL spells it, and as it
+    /// prints, which is how the host takes in what the plugin says ([`printable`]).
     pub(crate) fn saw(&self, secret: &str) {
         let encoded: String = form_urlencoded::byte_serialize(secret.as_bytes()).collect();
         let mut seen = lock(&self.seen);
-        for spelt in [secret.to_string(), encoded] {
-            if !seen.contains(&spelt) {
+        for spelt in [secret.to_string(), encoded, printable(secret)] {
+            if !spelt.is_empty() && !seen.contains(&spelt) {
                 seen.push(spelt);
             }
         }
@@ -113,9 +114,13 @@ fn invalid(why: impl Into<String>) -> RpcError {
     RpcError::failed("invalid", why)
 }
 
-/// Why the plugin may not reach `url`, if it may not: its host isn't one its capabilities grant,
-/// or [`unreachable`] says so.
+/// Why the plugin may not reach `url`, if it may not: it names a user or a password (as an
+/// account's endpoint may not), its host isn't one its capabilities grant, or [`unreachable`]
+/// says so.
 fn refused(capabilities: &[Capability], url: &Url, loopback: bool) -> Option<String> {
+    if loclib_plugin::names_a_user(url) {
+        return Some(loclib_plugin::not_plain_https(url.as_str()));
+    }
     let host = url.host_str().unwrap_or_default();
     if !capabilities.iter().any(|c| c.reaches(host)) {
         return Some(format!("{host} isn't a server the plugin may talk to (no net:{host} capability)"));

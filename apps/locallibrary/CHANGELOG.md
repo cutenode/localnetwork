@@ -761,6 +761,8 @@ their old names.
   say why in the list, which used to show only the system's default.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
+- A plugin's export whose files' sizes add up to 2^64 bytes or more is the plugin failing.
+  Debug builds crashed on it, and release builds showed a wrong total in the plan.
 - A drive holding a state the library's latest snapshot went through, though no snapshot holds
   it (synced from the main drive before its next change was pulled), is behind the library.
   `pull` refused it as diverged and offered to force it, which would have rolled the library
@@ -778,6 +780,16 @@ their old names.
   a published record is read up to 1 MiB.
 - Text from servers and the browser has control characters removed before it reaches the terminal
   or an error.
+- Everything a plugin tells the host (its manifest, its answers and the files it answers in, a
+  store destination's records, its errors, its rows sent in parts, its progress and what it tells
+  the user) has control characters and escape sequences removed as the host takes it in, and a
+  newline, carriage return or tab becomes a space (a text view's text, and a command's answer that's
+  only text, keep their lines). Only check findings, notices and the plugin's
+  log were cleaned, so the rest could move the cursor, retitle the window or recolour the screen.
+  A secret the host filled in for the plugin is still left out of its errors, log, notices and
+  findings when it has a control character in it.
+- A plugin's `net/fetch` refuses an address with a user name or password, also as a redirect's
+  target, as account endpoints in a manifest already were.
 - The sign-in page, `mix --open` and the player's mix report open only `https://` addresses and
   files that exist, without a shell (on Windows, `rundll32` instead of `cmd /C start`).
 - A drive's `exportLibrary.db` with a view or trigger is refused, its schema runs with
