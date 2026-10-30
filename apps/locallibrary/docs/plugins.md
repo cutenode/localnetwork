@@ -124,8 +124,8 @@ are:
 
 - **soundcloud**: a set destination, `track`: `locallibrary sets publish SET --to
   soundcloud:track` uploads the set's recording to SoundCloud as a track of yours and keeps the
-  track's page as the set's link. Sign in first with `locallibrary plugin account soundcloud
-  soundcloud sign-in`. The track is titled after the set (else its venue and date), with its
+  track's page as the set's link. Sign in first with `locallibrary account soundcloud sign-in --for
+  soundcloud`. The track is titled after the set (else its venue and date), with its
   tracklist as the description (`05:30 Artist - Title` lines, as many as SoundCloud's 4,000
   characters hold), tagged `dj mix`, not downloadable, and private unless the `sharing` setting
   says `public`. The `genre` setting is its genre, and the `picture` setting (a JPEG or PNG under
@@ -200,9 +200,9 @@ locallibrary ships may use Local Network's token exchange. Those are google-acco
 mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
 account type each adds, and `plugin info` its scopes.
 
-A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why.
-The plugins that ship still declare their own accounts (below) until they move onto account
-types.
+A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
+youtube asks for a google account to upload videos with, mixcloud and soundcloud for an account
+of their own type to upload with.
 
 ## Accounts
 
