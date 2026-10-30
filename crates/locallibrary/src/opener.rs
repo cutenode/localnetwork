@@ -7,9 +7,28 @@
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::{Command, Stdio};
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::IoContext;
 use crate::{Error, Result};
+
+/// Set by the CLI's tests: nothing is opened, as if no browser or app were there, so a sign-in
+/// prints its link instead of sending the browser of whoever runs them to a real service. Only in
+/// builds with debug assertions.
+#[cfg(debug_assertions)]
+pub const NO_OPEN: &str = "LOCALLIBRARY_NO_OPEN";
+
+/// [`NO_OPEN`] for this process, without the environment: see [`never_open`].
+#[cfg(debug_assertions)]
+static NEVER: AtomicBool = AtomicBool::new(false);
+
+/// Nothing is opened in this process from now on, as with [`NO_OPEN`]: for tests that run the app
+/// in their own process. Only in builds with debug assertions.
+#[cfg(debug_assertions)]
+pub fn never_open() {
+    NEVER.store(true, Ordering::Relaxed);
+}
 
 /// `url`, when it's an `https:` address the browser may be given.
 pub fn web_address(url: &str) -> Result<&str> {
@@ -50,6 +69,10 @@ fn launch(target: &OsStr) -> Result<()> {
     let mut cmd = Command::new("xdg-open");
     let program = cmd.get_program().to_string_lossy().into_owned();
     let failed = |message: String| Error::External { command: program.clone(), message };
+    #[cfg(debug_assertions)]
+    if NEVER.load(Ordering::Relaxed) || std::env::var_os(NO_OPEN).is_some() {
+        return Err(failed(format!("not run: {NO_OPEN} is set")));
+    }
     // Quietly: what it prints would land on a TUI's screen.
     match cmd.arg(target).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() {
         Ok(status) if status.success() => Ok(()),

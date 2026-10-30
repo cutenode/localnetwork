@@ -233,7 +233,8 @@ fn reports_are_opened_where_they_are_written(tc: TestCase) {
     if html {
         args.extend(["--html", path(&pages)]);
     }
-    let out = fx.command().env("PATH", &bin).args(&args).output().unwrap();
+    // The opener runs here: `PATH` has only the one above.
+    let out = fx.command().env("PATH", &bin).env_remove("LOCALLIBRARY_NO_OPEN").args(&args).output().unwrap();
     let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
     assert_eq!(out.status.code(), Some(0), "{stdout}\n{stderr}");
     let opened: Vec<String> = std::fs::read_to_string(&opened).unwrap().lines().map(String::from).collect();

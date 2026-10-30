@@ -1140,6 +1140,9 @@ impl App {
     /// An app with nothing open, no background work started and no output devices (see
     /// `Outputs`): what the tests use.
     pub(super) fn blank(store_root: PathBuf, audio: Option<Audio>) -> App {
+        // A test's app never sends the browser of whoever runs it anywhere.
+        #[cfg(test)]
+        locallibrary::opener::never_open();
         let (tx, rx) = channel();
         let seed =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);

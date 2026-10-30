@@ -328,9 +328,9 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     if !done(app) {
         // Hegel keeps a failure's panic message to itself when its replays pass, so where it
         // waited is written out first.
-        let (job, modal) = (app.job.is_some(), app.modal.is_some());
+        let (job, modal) = (app.job.as_ref().map(|j| j.label.clone()), app.modal.is_some());
         eprintln!(
-            "wait at {} gave up after 60 s (job running: {job}, modal open: {modal})",
+            "wait at {} gave up after 60 s (job running: {job:?}, modal open: {modal})",
             std::panic::Location::caller()
         );
     }
