@@ -24,6 +24,8 @@ export type ProjectMix = {
 	tracklist?: BlobRefJson;
 	/** The manager's `computer.localnetwork.dj.set` this mix records. */
 	set?: StrongRef;
+	/** The manager's `fm.plyr.track` the mix plays from, when `url` is that track on plyr.fm (see services/mix-recordings.ts). */
+	recording?: StrongRef;
 };
 
 /** A DJ's set as the directory serves it (`computer.localnetwork.directory.defs#setView`). */
