@@ -5,7 +5,7 @@
 		"main": {
 			"type": "permission-set",
 			"title": "Local Network",
-			"detail": "Submit and manage DJ projects, publish press kits and decide who sees them, announce shows, follow DJs, book DJs, keep a private planner, and record an audit trail of your actions.",
+			"detail": "Keep your profile, submit and manage DJ projects, publish press kits and decide who sees them, edit your sets, announce shows, follow DJs, book DJs, keep a private planner, and record an audit trail of your actions.",
 			"description": "Space authorities are open (*) because one published set serves every network, each with its own root account. The computer.localnetwork.epk repo writes and the press kit space under the user's own DID are for press kits made before the root account held them, which the owner's session moves to the root by deleting the old record and space.",
 			"permissions": [
 				{
@@ -88,6 +88,26 @@
 					"authority": "*",
 					"collection": ["computer.localnetwork.epk.request"],
 					"action": ["read_self", "create", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.profile"],
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.dj.set"],
+					"action": ["update"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.performer",
+					"authority": "*",
+					"collection": ["computer.localnetwork.epk.draft"],
+					"action": ["read_self", "create", "update", "delete"]
 				}
 			]
 		}

@@ -63,6 +63,84 @@ describe('validateRecord', () => {
 			RecordValidationError
 		);
 	});
+
+	describe('profiles', () => {
+		const at = '2026-10-30T00:00:00.000Z';
+		const avatar = { $type: 'blob', ref: { $link: cid }, mimeType: 'image/webp', size: 100 };
+
+		const profile = (sections: JsonObject) => ({
+			basics: { name: 'Neon Tide' },
+			...sections,
+			createdAt: at,
+			updatedAt: at
+		});
+
+		it('turns a section on with an empty object', () => {
+			expect(validateRecord(COLLECTION.profile, profile({ performer: {} }))).toMatchObject({ performer: {} });
+			expect(validateRecord(COLLECTION.profile, profile({ promoter: {} }))).toMatchObject({ promoter: {} });
+			expect(validateRecord(COLLECTION.profile, profile({}))).not.toHaveProperty('performer');
+		});
+
+		it('holds every section filled in', () => {
+			const record = profile({
+				basics: {
+					name: 'Neon Tide',
+					avatar,
+					bio: 'Warehouse techno.',
+					pronouns: 'they/them',
+					location: { city: 'Berlin', country: 'DE' },
+					links: [{ kind: 'soundcloud', url: 'https://soundcloud.com/neontide' }]
+				},
+				performer: {
+					tagline: 'Four hours of rolling techno.',
+					genres: ['techno'],
+					formats: ['vinyl'],
+					setTypes: ['closing'],
+					setLength: { minMinutes: 60, maxMinutes: 240 },
+					capacity: { min: 100, max: 800 },
+					fees: [{ tier: 'emerging', currency: 'EUR', minAmount: 300 }],
+					travel: { radiusKm: 500, international: true },
+					mixes: [{ title: 'Boiler set', url: 'https://example.com/mix' }],
+					highlights: ['Tresor'],
+					lookingFor: 'Late slots.',
+					activeSince: 2016
+				},
+				promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
+			});
+
+			expect(validateRecord(COLLECTION.profile, record)).toMatchObject({ $type: COLLECTION.profile });
+		});
+
+		it('needs basics with a short name', () => {
+			expect(() => validateRecord(COLLECTION.profile, profile({ basics: {} }))).toThrow(RecordValidationError);
+			expect(() => validateRecord(COLLECTION.profile, profile({ basics: { name: 'n'.repeat(65) } }))).toThrow(
+				RecordValidationError
+			);
+			expect(() => validateRecord(COLLECTION.profile, { createdAt: at, updatedAt: at })).toThrow(RecordValidationError);
+		});
+
+		it('lists a DJ by their DID, and asks staff to', () => {
+			const did = 'did:plc:neon';
+			const request = 'at://did:plc:neon/computer.localnetwork.moderation.request/3mreq';
+
+			expect(validateRecord(COLLECTION.listingProfile, { subject: did, request, createdAt: at })).toMatchObject({
+				subject: did
+			});
+			expect(() => validateRecord(COLLECTION.listingProfile, { subject: 'neon', createdAt: at })).toThrow(
+				RecordValidationError
+			);
+			expect(
+				validateRecord(COLLECTION.request, {
+					kind: 'list',
+					listing: { subject: `at://${did}/${COLLECTION.profile}/self`, cid },
+					createdAt: at
+				})
+			).toMatchObject({ kind: 'list' });
+			expect(() => validateRecord(COLLECTION.request, { kind: 'list', listing: { cid }, createdAt: at })).toThrow(
+				RecordValidationError
+			);
+		});
+	});
 });
 
 describe('REFERENCED_DOCS', () => {

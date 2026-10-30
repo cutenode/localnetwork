@@ -41,11 +41,18 @@ export const COLLECTION = {
 	/** Whether staff list a performer, party or venue in the directory, in its space. */
 	listingStatus: `${NS}.listing.status`,
 	/** A listed act's, party's or venue's directory listing, in the root's public repo. */
-	listing: `${NS}.listing`
+	listing: `${NS}.listing`,
+	/** A person's profile and the sections they turned on, in their own repo. */
+	profile: `${NS}.profile`,
+	/** That staff list a DJ's profile in the directory, keyed by their DID, in the root's public repo. */
+	listingProfile: `${NS}.listing.profile`
 } as const;
 
 /** The lexicon-community calendar event a show is, so other calendar apps can read it. */
 export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
+
+/** The lexicon-community RSVP a guest answers an event with, in their own repo. */
+export const CALENDAR_RSVP = 'community.lexicon.calendar.rsvp' as const;
 
 /** Bluesky's verification, which the root account issues to vouch that an account is who it says it is. */
 export const VERIFICATION = 'app.bsky.graph.verification' as const;
