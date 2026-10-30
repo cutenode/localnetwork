@@ -604,6 +604,8 @@ impl Slot {
         self.host.log(&self.manifest.id, &format!("killed: it didn't stop within {grace:?} of being asked to"));
         p.dead.store(true, Ordering::SeqCst);
         let _ = lock(&p.child).kill();
+        // Its `net/fetch` requests too, now: its output may close only later.
+        p.peer.cancel_running();
         let mut running = lock(&self.hosting.process);
         let stopped = running.take_if(|r| Arc::ptr_eq(r, p));
         drop(running);

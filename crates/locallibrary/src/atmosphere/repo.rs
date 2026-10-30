@@ -30,7 +30,7 @@ use jacquard_common::xrpc::{XrpcClient, XrpcError};
 use jacquard_common::{SmolStr, ToSmolStr};
 use jacquard_identity::resolver::IdentityResolver;
 use jacquard_oauth::dpop::build_dpop_proof;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
+use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, WWW_AUTHENTICATE};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -42,7 +42,8 @@ use super::{
 };
 use crate::error::{Action, IoContext, Reason};
 use crate::export::one_line;
-use crate::progress::{CancelToken, Ctx, Event, Phase};
+use crate::net::Requests;
+use crate::progress::{Ctx, Event, Phase};
 use crate::{Error, Result};
 
 /// The data server's method that takes a file.
@@ -279,8 +280,10 @@ pub fn upload_blob(root: &Path, did: &str, path: &Path, mime: &str, ctx: &Ctx<'_
     block_on(session.send(GetSession)).map_err(|e| client_error(&info, collection, e))?;
     // As long as sending it at 128 KiB/s would take, and half a minute more.
     let timeout = Duration::from_secs(30 + size / (128 * 1024));
-    let client = reqwest::blocking::Client::builder()
+    // Each attempt's connection goes with its runtime (see `Requests`).
+    let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .pool_max_idle_per_host(0)
         .timeout(timeout)
         .build()
         .map_err(|e| Error::Account(format!("the network: {e}")))?;
@@ -301,12 +304,9 @@ pub fn upload_blob(root: &Path, did: &str, path: &Path, mime: &str, ctx: &Ctx<'_
             .header(AUTHORIZATION, format!("DPoP {token}"))
             .header("DPoP", proof.as_str())
             .header(CONTENT_TYPE, mime);
-        let response = send_file(request, path, size, ctx)?;
-        let status = response.status().as_u16();
-        let header = |name| response.headers().get(name).and_then(|v| v.to_str().ok()).map(String::from);
+        let (status, headers, answer) = send_file(request, path, size, ctx)?;
+        let header = |name| headers.get(name).and_then(|v| v.to_str().ok()).map(String::from);
         let (nonce, challenge) = (header("DPoP-Nonce"), header(WWW_AUTHENTICATE.as_str()).unwrap_or_default());
-        let mut answer = Vec::new();
-        let _ = response.take(net::MAX_BODY as u64).read_to_end(&mut answer);
         let body: Value = serde_json::from_slice(&answer).unwrap_or_default();
         match (status, nonce) {
             (200, _) if body["blob"].is_object() => return Ok(body["blob"].clone()),
@@ -342,23 +342,26 @@ fn too_big(info: &AccountInfo, size: u64) -> Error {
 }
 
 /// Send `request` with the file at `path` (`size` bytes) as its body, read as it's sent, with
-/// what's sent reported in the upload phase.
-fn send_file(
-    request: reqwest::blocking::RequestBuilder,
-    path: &Path,
-    size: u64,
-    ctx: &Ctx<'_>,
-) -> Result<reqwest::blocking::Response> {
+/// what's sent reported in the upload phase: the answer's status, headers and body (up to
+/// [`net::MAX_BODY`], else none). Cancelled, it stops at once, even while the server isn't
+/// reading ([`Requests`]).
+fn send_file(request: reqwest::RequestBuilder, path: &Path, size: u64, ctx: &Ctx<'_>) -> Result<Answer> {
+    let requests = Requests::new().map_err(|e| Error::Account(format!("the network: {e}")))?;
     let (sent, reported) = mpsc::channel();
-    let body = Sending { file: File::open(path).at(path)?, sent, cancel: ctx.cancel.clone() };
-    let request = request.body(reqwest::blocking::Body::sized(body, size));
+    let body = Sending { file: File::open(path).at(path)?, sent };
+    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body));
     ctx.phase_start(Phase::Upload, 1, size);
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     ctx.emit(Event::Item { phase: Phase::Upload, path: name, bytes: size });
-    // reqwest reads the body on the thread that sends it, so another one sends while this one
-    // reports.
-    let response = std::thread::scope(|s| {
-        let sending = s.spawn(move || request.send());
+    // Another thread waits for the answer while this one reports.
+    let (requests, cancel) = (&requests, ctx.cancel.clone());
+    let answer = std::thread::scope(|s| {
+        let asked = || async move {
+            let response = request.send().await?;
+            let (status, headers) = (response.status().as_u16(), response.headers().clone());
+            Ok::<_, reqwest::Error>((status, headers, net::body(response).await.unwrap_or_default()))
+        };
+        let sending = s.spawn(move || requests.run(asked, &cancel));
         loop {
             match reported.recv_timeout(Duration::from_millis(100)) {
                 Ok(bytes) => ctx.emit(Event::Bytes { phase: Phase::Upload, bytes }),
@@ -369,25 +372,21 @@ fn send_file(
         sending.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     });
     ctx.phase_end(Phase::Upload);
-    response.map_err(|e| match ctx.check() {
-        Err(_) => Error::Cancelled,
-        Ok(()) => Error::Account(one_line(&format!("sending {}: {}", path.display(), net::with_causes(&e)))),
-    })
+    let answer = answer.ok_or(Error::Cancelled)?;
+    answer.map_err(|e| Error::Account(one_line(&format!("sending {}: {}", path.display(), net::with_causes(&e)))))
 }
 
-/// A file as it's sent: each read told to whoever reports it, and failing once the operation is
-/// cancelled.
+/// What a server answered: its status, headers and body.
+type Answer = (u16, reqwest::header::HeaderMap, Vec<u8>);
+
+/// A file as it's sent: each read told to whoever reports it.
 struct Sending {
     file: File,
     sent: mpsc::Sender<u64>,
-    cancel: CancelToken,
 }
 
 impl Read for Sending {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.cancel.is_cancelled() {
-            return Err(std::io::Error::other("cancelled"));
-        }
         let n = self.file.read(buf)?;
         let _ = self.sent.send(n as u64);
         Ok(n)

@@ -39,7 +39,7 @@ pub mod store;
 use rustc_hash::FxHashMap;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -69,6 +69,7 @@ use crate::error::{Action, Reason};
 use crate::export::one_line;
 /// Where the session's secrets are kept.
 pub use crate::keychain::Storage;
+use crate::net::runtime;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
@@ -241,19 +242,7 @@ impl AccountInfo {
 type Oauth = OAuthClient<JacquardResolver<Http>, LocalStore>;
 type Session = OAuthSession<JacquardResolver<Http>, LocalStore>;
 
-/// The async runtime the OAuth client runs on; everything outside this module stays synchronous.
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("atmosphere")
-            .enable_all()
-            .build()
-            .expect("start the network runtime")
-    })
-}
-
+/// Runs `f` on the network's runtime, which the OAuth client runs on.
 fn block_on<F: Future>(f: F) -> F::Output {
     runtime().block_on(f)
 }
