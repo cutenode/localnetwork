@@ -235,6 +235,8 @@ export async function createApp(options: CreateAppOptions) {
 		login: new RateLimiter(10, 10 / 60),
 		write: new RateLimiter(30, 30 / 60),
 		search: new RateLimiter(60, 2),
+		/** Profile addresses that name no account, each of which may have sent the app to resolve a stranger's name. */
+		profileMisses: new RateLimiter(30, 30 / 600),
 		/** Turning email or DMs on, or checking again, which asks other services each time. */
 		optIn: new RateLimiter(5, 5 / 600),
 		testSend: new RateLimiter(3, 3 / 3600)

@@ -97,3 +97,24 @@ it('leaves out sections that are off or empty, and offers its owner a way to cha
 	await expect.element(page.getByRole('heading', { name: 'Books shows in' })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/dashboard');
 });
+
+it("makes only web addresses clickable, since people write their profiles' links themselves", async () => {
+	const evil = 'javascript:alert(document.domain)';
+
+	await open(
+		view({
+			basics: {
+				name: 'Neon Tide',
+				links: [
+					{ kind: 'website', url: evil },
+					{ kind: 'bandcamp', url: 'https://neon.example/' }
+				]
+			},
+			performer: { mixes: [{ title: 'Trap', url: evil }] }
+		})
+	);
+
+	await expect.element(page.getByRole('link', { name: 'Bandcamp' })).toHaveAttribute('href', 'https://neon.example/');
+	await expect.element(page.getByText('Trap')).toBeInTheDocument();
+	expect(document.querySelectorAll('a[href^="javascript:"]')).toHaveLength(0);
+});

@@ -10,6 +10,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -62,7 +63,7 @@
 					<p><span class="text-fg-muted">Says they are:</span> <strong class="font-semibold">{labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</strong></p>
 					<p class="whitespace-pre-line text-fg-soft">{request.record.claim?.evidence}</p>
 					{#if request.record.claim?.links?.length}
-						<ul class="list-inside list-disc text-fg-subtle">{#each request.record.claim.links as link, index (index)}<li><a class="link break-all" href={link} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+						<ul class="list-inside list-disc text-fg-subtle">{#each request.record.claim.links as link, index (index)}<li><a class="link break-all" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 					{/if}
 					{#if data.project}<p class="text-fg-muted">Current managers: {data.project.managers.length || 'none'}. <a class="link" href="/projects/{data.project.slug}" target="_blank">Open project</a></p>{/if}
 				</Card>

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
 import { silentLogger } from './logger';
 import { loadProfilePage } from './profile-page';
+import { RateLimiter } from './rate-limit';
 import { DjService } from './services/dj';
 import { createTestServices, ROOT } from './testing/core';
 
@@ -65,18 +66,26 @@ describe('loadProfilePage', () => {
 		resolveHandle: async (handle: string) => RESOLVES.get(handle) ?? null
 	};
 
-	/** What loading `/@<param>` does: the page's data, or the redirect or HTTP error it throws. */
-	const open = async (param: string, search = '') => {
+	/** The app's limit on lookups that find no account, fresh for each test. */
+	let profileMisses: RateLimiter;
+
+	beforeEach(() => {
+		profileMisses = new RateLimiter(4, 4 / 600);
+	});
+
+	/** What loading `/@<param>` does, from `ip`: the page's data, or the redirect or HTTP error it throws. */
+	const open = async (param: string, search = '', ip = '203.0.113.1') => {
 		const app = {
 			...t,
 			identity,
 			dj: new DjService(t.indexedRepo, silentLogger),
-			config: { publicUrl: 'https://localnetwork.test' }
+			config: { publicUrl: 'https://localnetwork.test' },
+			limits: { profileMisses }
 		};
 
 		try {
 			// SAFETY: the loader reads only these services, the viewer and the logger from locals.
-			return await loadProfilePage({ app, viewer: null, log: silentLogger } as never, param, search);
+			return await loadProfilePage({ app, viewer: null, log: silentLogger } as never, param, search, ip);
 		} catch (cause) {
 			if (isRedirect(cause)) return { redirect: cause.location, status: cause.status };
 
@@ -124,5 +133,14 @@ describe('loadProfilePage', () => {
 		expect(await open('did:plc:nobody')).toEqual({ status: 404 });
 		expect(await open('not a handle')).toEqual({ status: 404 });
 		expect(await open('did:nonsense')).toEqual({ status: 404 });
+	});
+
+	it('stops looking names up for a visitor after a few that find no account', async () => {
+		for (const name of ['nobody.test', 'nobody-else.test', 'did:plc:nobody', 'did:nonsense'])
+			expect(await open(name)).toEqual({ status: 404 });
+
+		// Even a real account, since telling them apart would mean resolving it.
+		expect(await open('ada.test')).toEqual({ status: 429 });
+		expect(await open('ada.test', '', '203.0.113.2')).toMatchObject({ account: { did: ADA } });
 	});
 });

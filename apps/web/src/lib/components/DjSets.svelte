@@ -6,6 +6,7 @@
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import ArtistLinks from './supports/ArtistLinks.svelte';
+	import { webHref } from '#lib/web-url.ts';
 
 	/** Sets a DJ played, newest first, each with its tracklist folded away under it. */
 	let { sets, limit = 5 }: { sets: DjSet[]; limit?: number } = $props();
@@ -28,7 +29,7 @@
 					</p>
 					{#if set.links?.length}
 						<p class="m-0 flex flex-wrap gap-x-4 text-small">
-							{#each set.links as link (link.uri)}<a class="link inline-flex items-center gap-1" href={link.uri} rel="noopener noreferrer nofollow" target="_blank">{link.name ?? 'Listen'}<ExternalLink class="size-3" /></a>{/each}
+							{#each set.links as link (link.uri)}<a class="link inline-flex items-center gap-1" href={webHref(link.uri)} rel="noopener noreferrer nofollow" target="_blank">{link.name ?? 'Listen'}<ExternalLink class="size-3" /></a>{/each}
 						</p>
 					{/if}
 				</div>

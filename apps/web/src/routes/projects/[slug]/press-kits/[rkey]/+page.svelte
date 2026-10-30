@@ -12,6 +12,7 @@
 	import { pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * A press kit published as records: the public part for everyone, and the rest for its project's managers and
@@ -134,7 +135,7 @@
 							<Quote class="mt-1 size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
 							<figure class="m-0 flex flex-col gap-1">
 								<blockquote class="m-0 text-lede text-fg-soft">{quote.text}</blockquote>
-								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={quote.url} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
+								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={webHref(quote.url)} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
 							</figure>
 						</li>
 					{/each}

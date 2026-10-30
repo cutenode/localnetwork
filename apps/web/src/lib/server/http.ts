@@ -95,11 +95,6 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 	}
 }
 
-/** Whether `value` is a full http(s) address, the only kind of link pages make clickable. */
-export function isWebUrl(value: string): boolean {
-	return URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
-}
-
 export function text(form: FormData, name: string, max = 10_000): string {
 	const value = form.get(name);
 

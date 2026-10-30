@@ -10,6 +10,7 @@
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data }: PageProps = $props();
 
@@ -128,7 +129,7 @@
 				<h2 id="links" class="m-0 eyebrow text-fg-subtle">Links</h2>
 				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-small">
 					{#each basics.links as link, index (index)}
-						<li><a class="link inline-flex items-center gap-1.5" href={link.url} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 opacity-70" /></a></li>
+						<li><a class="link inline-flex items-center gap-1.5" href={webHref(link.url)} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 opacity-70" /></a></li>
 					{/each}
 				</ul>
 			</section>

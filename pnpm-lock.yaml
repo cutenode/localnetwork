@@ -338,6 +338,15 @@ importers:
 
   apps/web:
     dependencies:
+      '@atproto-labs/did-resolver':
+        specifier: 0.0.0-spaces-alpha-20261022141228
+        version: 0.0.0-spaces-alpha-20261022141228
+      '@atproto-labs/fetch-node':
+        specifier: 0.0.0-spaces-alpha-20261022141228
+        version: 0.0.0-spaces-alpha-20261022141228
+      '@atproto-labs/handle-resolver-node':
+        specifier: 0.0.0-spaces-alpha-20261022141228
+        version: 0.0.0-spaces-alpha-20261022141228
       '@atproto/api':
         specifier: 0.0.0-spaces-alpha-20261022141228
         version: 0.0.0-spaces-alpha-20261022141228

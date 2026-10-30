@@ -40,6 +40,9 @@
 		"test:storybook": "vitest run --project storybook"
 	},
 	"dependencies": {
+		"@atproto-labs/did-resolver": "0.0.0-spaces-alpha-20261022141228",
+		"@atproto-labs/fetch-node": "0.0.0-spaces-alpha-20261022141228",
+		"@atproto-labs/handle-resolver-node": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/api": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/common-web": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/crypto": "0.0.0-spaces-alpha-20261022141228",

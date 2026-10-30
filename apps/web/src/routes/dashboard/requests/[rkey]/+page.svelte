@@ -13,6 +13,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -76,7 +77,7 @@
 			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</p>
 			<p class="m-0 whitespace-pre-line">{request.record.claim?.evidence}</p>
 			{#if request.record.claim?.links?.length}
-				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={link} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 			{/if}
 		</Card>
 	{:else if request.kind === 'update'}

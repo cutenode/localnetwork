@@ -13,7 +13,7 @@ import { GET as photo } from './projects/[slug]/press-kits/[rkey]/photos/[cid]/+
 
 const PDS = 'https://pds.test';
 
-/** The PDSes the SSRF guard refuses, by DID, for a test to fill in. */
+/** Accounts whose PDS the guarded fetch refuses (as it would one on a private address), for a test to fill in. */
 const unsafe = new Set<string>();
 
 /** What a route answers: a response, or the HTTP error or redirect it throws. */
@@ -40,25 +40,34 @@ describe('routes serving stored images', () => {
 			: new Response(null, { status: 404 });
 	};
 
-	/** What `handler` answers a GET of `path` with, as `viewer`. */
+	/**
+	 * What `handler` answers a GET of `path` with, as `viewer`. `fetch` is the route's own (SvelteKit's), which serves
+	 * every PDS's blobs unless a test says otherwise.
+	 */
 	const get = async (
 		handler: (event: never) => Response | Promise<Response>,
 		path: string,
 		params: Record<string, string>,
-		viewer: string | null
+		viewer: string | null,
+		fetch: (url: URL) => Promise<Response> = pds
 	): Promise<Outcome> => {
 		const { t } = f;
 
 		const identity = {
-			resolve: async (did: string) => ({ pds: unsafe.has(did) ? 'http://10.0.0.1' : PDS }),
-			assertSafeEndpoint: async (endpoint: string) => {
-				if (endpoint.startsWith('http:')) throw new Error(`Refusing ${endpoint}`);
+			resolve: async (did: string) => ({ pds: unsafe.has(did) ? 'https://10.0.0.1' : PDS }),
+			// The guarded fetch: it serves only requests that refuse redirects, and refuses private addresses.
+			fetch: async (url: URL, init?: RequestInit) => {
+				if (init?.redirect !== 'error') throw new Error('this fetch needs an explicit redirect mode');
+
+				if (url.hostname === '10.0.0.1') throw new Error('refusing a private address');
+
+				return pds(url);
 			}
 		};
 
 		const app = { ...t, rootDid: ROOT, identity };
 		const locals = { app, viewer: viewer && (await t.viewer(viewer)), log: silentLogger };
-		const event = { url: new URL(path, 'https://x.test'), params, locals, fetch: pds };
+		const event = { url: new URL(path, 'https://x.test'), params, locals, fetch };
 
 		try {
 			// SAFETY: these routes read only the URL, params, locals and fetch, and the services are the app's own.
@@ -95,8 +104,11 @@ describe('routes serving stored images', () => {
 			}
 		});
 
-	/** What /media answers for one of DJ's blobs. */
-	const djMedia = (cid: string, query = '') => get(media, `/media/${DJ}/${cid}${query}`, { did: DJ, cid }, null);
+	/** What /media answers for one of DJ's blobs, which only the identity resolver's guarded fetch may ask DJ's PDS for. */
+	const djMedia = (cid: string, query = '') =>
+		get(media, `/media/${DJ}/${cid}${query}`, { did: DJ, cid }, null, async () => {
+			throw new Error("an unguarded fetch of an account's PDS");
+		});
 
 	/** Each route, given a blob of some type to serve, and the query string to ask for it with. */
 	const routes: [string, (bytes: Uint8Array, mimeType: string, query: string) => Promise<Outcome>][] = [
@@ -188,7 +200,7 @@ describe('routes serving stored images', () => {
 		});
 	});
 
-	it("serves an account's blob only as the avatar its indexed profile names, and only from a safe PDS", async () => {
+	it("serves an account's blob only as the avatar its indexed profile names, and only through the guarded fetch", async () => {
 		const client = f.t.net.client(DJ);
 		const avatar = await client.uploadBlob(new TextEncoder().encode('an avatar'), 'image/png');
 		const other = await client.uploadBlob(new TextEncoder().encode('another picture'), 'image/png');

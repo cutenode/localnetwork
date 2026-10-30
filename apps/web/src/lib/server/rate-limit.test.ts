@@ -18,4 +18,15 @@ describe('RateLimiter', () => {
 		now = 10_000;
 		expect(limiter.take('a', 3)).toBe(true);
 	});
+
+	it('says whether a key has a token left without taking it', () => {
+		let now = 0;
+		const limiter = new RateLimiter(1, 1, () => now);
+
+		expect([limiter.has('a'), limiter.has('a')]).toEqual([true, true]);
+		limiter.take('a');
+		expect(limiter.has('a')).toBe(false);
+		now = 1000;
+		expect(limiter.has('a')).toBe(true);
+	});
 });

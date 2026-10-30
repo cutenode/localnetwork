@@ -13,6 +13,7 @@
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * A project's press kits: the ones its managers publish as records, listed first, then one put
@@ -168,7 +169,7 @@
 		{#if profile.links?.length}
 			<ul class="m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0 text-small">
 				{#each profile.links as link, index (index)}
-					<li><a class="link inline-flex items-center gap-1" href={link.url} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 print:hidden" /></a><span class="hidden break-all text-fg-muted print:inline">{' '}{link.url}</span></li>
+					<li><a class="link inline-flex items-center gap-1" href={webHref(link.url)} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 print:hidden" /></a><span class="hidden break-all text-fg-muted print:inline">{' '}{link.url}</span></li>
 				{/each}
 			</ul>
 		{/if}

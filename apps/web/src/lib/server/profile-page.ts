@@ -15,12 +15,13 @@ const NOT_FOUND = 'No profile here';
 async function canonicalAccount(
 	identity: Pick<IdentityResolver, 'resolve' | 'resolveHandle'>,
 	param: string,
-	search: string
+	search: string,
+	miss: () => never
 ): Promise<AccountView> {
 	if (param.startsWith('did:')) {
 		const resolved = isValidDid(param) ? await identity.resolve(param).catch(() => null) : null;
 
-		if (!resolved) error(404, NOT_FOUND);
+		if (!resolved) miss();
 
 		if (resolved.handle) redirect(302, `${profileHref(resolved)}${search}`);
 
@@ -31,7 +32,7 @@ async function canonicalAccount(
 	const did = isValidHandle(handle) ? await identity.resolveHandle(handle) : null;
 	const resolved = did ? await identity.resolve(did).catch(() => null) : null;
 
-	if (!resolved?.handle) error(404, NOT_FOUND);
+	if (!resolved?.handle) miss();
 
 	if (resolved.handle !== param) redirect(302, `${profileHref(resolved)}${search}`);
 
@@ -40,11 +41,22 @@ async function canonicalAccount(
 
 /**
  * What a person's public profile page loads: their profile (404 without one), the DJ stats and sets they publish
- * (streamed, unless they're fresh in the cache), and the active projects they manage, streamed too.
+ * (streamed, unless they're fresh in the cache), and the active projects they manage, streamed too. Each address that
+ * names no account counts against `ip`, since resolving it may have meant asking a host the visitor chose; past the
+ * limit, the page answers 429 without resolving anything.
  */
-export async function loadProfilePage(locals: App.Locals, param: string, search: string) {
+export async function loadProfilePage(locals: App.Locals, param: string, search: string, ip: string) {
 	const { app } = locals;
-	const account = await canonicalAccount(app.identity, param, search);
+	const misses = app.limits.profileMisses;
+
+	if (!misses.has(ip)) error(429, 'Too many lookups. Try again in a few minutes.');
+
+	const miss = () => {
+		misses.take(ip);
+		error(404, NOT_FOUND);
+	};
+
+	const account = await canonicalAccount(app.identity, param, search, miss);
 	const profile = await app.profiles.get(account.did);
 
 	if (!profile) error(404, NOT_FOUND);

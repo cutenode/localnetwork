@@ -10,6 +10,22 @@ export class RateLimiter {
 
 	/** Takes one token; returns false when the key is out of tokens. */
 	take(key: string, cost = 1): boolean {
+		const bucket = this.refill(key);
+
+		if (bucket.tokens < cost) return false;
+
+		bucket.tokens -= cost;
+
+		return true;
+	}
+
+	/** Whether the key has a token left, without taking it, for limits charged only after the fact (like misses). */
+	has(key: string): boolean {
+		return this.refill(key).tokens >= 1;
+	}
+
+	/** The key's bucket, topped up for the time since it was last used. */
+	private refill(key: string) {
 		const now = this.now();
 		const bucket = this.buckets.get(key) ?? { tokens: this.capacity, updated: now };
 		const elapsed = Math.max(0, now - bucket.updated) / 1000;
@@ -17,17 +33,9 @@ export class RateLimiter {
 		bucket.updated = now;
 
 		if (this.buckets.size > 50_000) this.prune(now);
-
-		if (bucket.tokens < cost) {
-			this.buckets.set(key, bucket);
-
-			return false;
-		}
-
-		bucket.tokens -= cost;
 		this.buckets.set(key, bucket);
 
-		return true;
+		return bucket;
 	}
 
 	private prune(now: number): void {
