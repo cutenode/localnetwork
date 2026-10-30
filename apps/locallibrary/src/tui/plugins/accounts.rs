@@ -50,10 +50,14 @@ fn mark(a: &Account) -> u64 {
 
 /// Opens `url` in the browser to sign in, or shows it when it can't be.
 pub(super) fn open(url: &str, show: &dyn Fn(crate::tui::edits::Done)) {
-    if locallibrary::opener::open_url(url).is_err() {
-        let link = format!("open this in your browser to sign in: {url}");
+    if let Some(link) = unopened(url) {
         show(Box::new(move |app: &mut App| app.toast(link, Level::Info)));
     }
+}
+
+/// Opens `url` in the browser to sign in: what to show instead, when it can't be.
+pub(super) fn unopened(url: &str) -> Option<String> {
+    locallibrary::opener::open_url(url).is_err().then(|| format!("open this in your browser to sign in: {url}"))
 }
 
 impl App {

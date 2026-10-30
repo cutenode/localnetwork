@@ -440,7 +440,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   the sidecar's `plugins.account*` are gone, and `plugin info` and `plugins.describe` show the
   access a plugin has instead. A plugin asks for the scopes it can do without as it needs them
   (`accounts/ensure`, `Host::ensure_account` in the SDK), and learns which it may use and which
-  you declined, never a token.
+  you declined, never a token. The terminal and the player ask you first (signing in again when
+  the account wasn't granted them), and a no is remembered until `plugin access --give` gives the
+  scope; with `--json`, in `watch` and in the sidecar it fails saying how to give it.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

@@ -3,6 +3,7 @@
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use locallibrary::plugin::{Access, AccessQuestion, AccountId};
 use ratatui::crossterm::event::KeyCode;
 
 use super::super::super::app::testing::{blank, key, last_message, plugins_once, press, wait};
@@ -163,4 +164,55 @@ fn signing_in_and_out_from_the_palette_leaves_the_accounts_as_the_steps_say(tc: 
         }
         assert_eq!(subjects(&app), if signed_in { vec!["a".to_string()] } else { Vec::new() });
     }
+}
+
+/// What a plugin asks of the mock account `a`: `write`, signing in again to it or not.
+fn wanting(sign_in: bool) -> AccessQuestion {
+    let account = AccountId { plugin: "mock-accounts".into(), subject: "a".into() };
+    let (kind, name, scopes) = ("mock".to_string(), "a@mock.example".to_string(), vec!["read".to_string()]);
+    let access = Access {
+        id: "0a1b2c3d".into(),
+        plugin: "echo".into(),
+        kind,
+        account,
+        name,
+        scopes,
+        default: true,
+        declined: vec![],
+    };
+    let write = vec!["write".to_string()];
+    let why = vec!["More".to_string()];
+    AccessQuestion {
+        plugin: "Echo".into(),
+        access,
+        title: "Mock".into(),
+        scopes: write.clone(),
+        titles: write,
+        why,
+        sign_in,
+    }
+}
+
+/// For a plugin wanting more of an account, signing in again to or not, the player's asker shows
+/// a form saying what it wants and why, and waits for its answer: enter allows it (or signs in
+/// again to), "don't allow" doesn't, and esc leaves it unanswered; a sign-in it takes opens the
+/// browser, or says where to go when it can't.
+#[hegel::test(test_cases = 8)]
+fn a_plugin_wanting_more_of_an_account_asks_in_a_form(tc: TestCase) {
+    let (mut app, _store) = blank(Screen::Library);
+    let ask = app.plugin_asker();
+    let sign_in = tc.draw(gs::booleans());
+    let (keys, answered) = tc.draw(gs::sampled_from(vec![("\n", Some(true)), (" \n", Some(false)), ("\u{1b}", None)]));
+    let asking = std::thread::spawn(move || ask.allow(&wanting(sign_in)));
+    wait(&mut app, |app| app.modal.is_some());
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("Access for Echo"), "{s}");
+    assert!(s.contains("Echo wants to write with the Mock account a@mock.example (More)"), "{s}");
+    assert!(s.contains(if sign_in { "sign in again to allow" } else { "allow" }), "{s}");
+    press(&mut app, keys);
+    assert!(app.modal.is_none(), "{}", last_message(&app));
+    assert_eq!(asking.join().unwrap(), answered);
+
+    app.plugin_asker().sign_in("http://127.0.0.1:9/authorize?state=x");
+    wait(&mut app, |app| last_message(app).contains("open this in your browser to sign in"));
 }

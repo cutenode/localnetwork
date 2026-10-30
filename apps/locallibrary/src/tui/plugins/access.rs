@@ -2,15 +2,20 @@
 //! palette opens a form with a choice for each account type the plugin asks for, saying what it
 //! needs it for: the accounts of that type signed in, and signing in to another (through each
 //! account plugin providing the type, when several do). What's chosen becomes its default, in
-//! the background.
+//! the background. A plugin wanting more of an account it has access to asks in a form too
+//! (see [`App::ask_access`]), its hook waiting for the answer.
+
+use std::sync::Arc;
+use std::sync::mpsc::{Sender, channel};
 
 use locallibrary::Store;
-use locallibrary::plugin::{AccountId, Plugins};
+use locallibrary::plugin::{AccessQuestion, AccountId, AskAccess, Plugins};
 use loclib_plugin::Manifest;
 use serde_json::{Map, Value, json};
 
-use super::accounts::{BROWSER_WAIT, open};
-use crate::tui::app::{App, Level};
+use super::accounts::{BROWSER_WAIT, open, unopened};
+use crate::account_cmd::asking::wants;
+use crate::tui::app::{App, Level, Msg};
 use crate::tui::edits::Modal;
 use crate::tui::form::{For, Form};
 use crate::tui::keymap::Act;
@@ -138,5 +143,53 @@ impl App {
             }
             Ok(Box::new(move |app: &mut App| app.toast(said, Level::Info)))
         });
+    }
+
+    /// The form asking whether a plugin may use more of an account it has access to (`q`), its
+    /// answer going back on `reply`. Closed, it's never answered: the plugin is told how to give
+    /// it instead.
+    pub(in crate::tui) fn ask_access(&mut self, q: &AccessQuestion, reply: Sender<bool>) {
+        let allow = if q.sign_in { SIGN_IN } else { ALLOW };
+        let answer = json!({ "type": "string", "enum": [allow, DECLINE], "description": wants(q) });
+        let schema = json!({ "type": "object", "properties": { ANSWER: answer }, "required": [ANSWER] });
+        let form = Form::with(format!("Access for {}", q.plugin), Some(schema), &Map::new(), For::AskAccess(reply));
+        self.modal = Some(Modal::Form(form));
+    }
+
+    /// Where plugins ask whether they may use more of an account while the player runs: the
+    /// form ([`App::ask_access`]), each waiting for its answer; a sign-in it takes opens the
+    /// browser, saying where to go when it can't.
+    pub(in crate::tui) fn plugin_asker(&self) -> Arc<dyn AskAccess> {
+        Arc::new(Asking(self.sender()))
+    }
+}
+
+/// The form's field, and its choices: allowing what a plugin asks (signing in again to, when the
+/// account wasn't granted it), or not.
+const ANSWER: &str = "answer";
+const ALLOW: &str = "allow";
+const SIGN_IN: &str = "sign in again to allow";
+const DECLINE: &str = "don't allow";
+
+/// The answer `given` in the form asking whether a plugin may use more of an account, sent back
+/// on `reply`.
+pub(in crate::tui) fn answer(reply: &Sender<bool>, given: &Value) {
+    let _ = reply.send(given[ANSWER] != DECLINE);
+}
+
+/// Asks in the player (see [`App::plugin_asker`]).
+struct Asking(Sender<Msg>);
+
+impl AskAccess for Asking {
+    fn allow(&self, q: &AccessQuestion) -> Option<bool> {
+        let (reply, answered) = channel();
+        self.0.send(Msg::AskAccess(Box::new(q.clone()), reply)).ok()?;
+        answered.recv().ok()
+    }
+
+    fn sign_in(&self, url: &str) {
+        if let Some(link) = unopened(url) {
+            let _ = self.0.send(Msg::Note(link, Level::Info));
+        }
     }
 }

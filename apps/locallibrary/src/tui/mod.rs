@@ -51,6 +51,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     // Plugins' logs would draw over the screen: they go to the messages (`!`) while it runs.
     crate::plugins::log_to(Some(app.plugin_log()));
     crate::plugins::events::notices_to(Some(app.plugin_notices()));
+    crate::plugins::ask_to(Some(app.plugin_asker()));
     app.start_plugins();
     // (Not `ratatui::init`, whose panic hook would put the screen back for a worker's panic.)
     enable_raw_mode()?;
@@ -67,6 +68,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     stderr::restore();
     crate::plugins::log_to(None);
     crate::plugins::events::notices_to(None);
+    crate::plugins::ask_to(None);
     SIGNAL.store(IDLE, Ordering::Relaxed);
     // The loop also ends when the terminal goes away mid-write: the write still finishes.
     app.finish_write();

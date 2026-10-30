@@ -239,6 +239,13 @@ In the player's palette, "sign in to a TYPE account…" signs in to one, "sign o
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
 uses, saying what for, or signing in to another.
 
+A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
+player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
+allowing it signs in again in the browser. A no is remembered: it isn't asked again until
+`locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
+`--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
+how to give it the scope.
+
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
 and refreshed a minute before they expire. A plugin never sees them: a request it makes names the
 account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
