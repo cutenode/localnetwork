@@ -132,7 +132,7 @@ fn club() -> Library {
 /// It plans and may shorten a playlist: replacing one's entries with a shorter list does. Its
 /// library source reads the folders it's granted.
 #[test]
-fn the_manifest_is_a_first_party_one_that_reads_and_plans() {
+fn the_manifest_is_a_built_in_one_that_reads_and_plans() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     assert!(manifest.validate(true).is_ok());
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");

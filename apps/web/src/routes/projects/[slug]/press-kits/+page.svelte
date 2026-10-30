@@ -66,7 +66,7 @@
 		<p class="m-0 text-small text-fg-muted">One for each kind of booking.</p>
 	</div>
 	{#await data.epks}
-		<div aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
+		<div role="status" aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
 	{:then epks}
 		{#if epks.length}
 			<ul class="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
@@ -123,7 +123,7 @@
 	</div>
 
 	{#await data.dj}
-		<div aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
+		<div role="status" aria-busy="true" aria-label="Loading playing stats" class="flex flex-col gap-4 print:hidden">
 			<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
 			<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
 		</div>

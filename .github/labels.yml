@@ -82,7 +82,7 @@
   description: Player-safe copies of lossless libraries
 - name: "locallibrary: plugins"
   color: "c9adef"
-  description: The plugin protocol, its host and the first-party plugins
+  description: The plugin protocol, its host and the built-in plugins
 - name: "locallibrary: publishing"
   color: "c9adef"
   description: The Atmosphere account, and the sets and profile published to it

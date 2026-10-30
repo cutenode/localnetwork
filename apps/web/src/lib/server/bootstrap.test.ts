@@ -38,4 +38,11 @@ describe('ensureRootSpaces', () => {
 			{ summary: 'Created the industry space' }
 		]);
 	});
+
+	it("watches the root's performer, party and venue spaces again", async () => {
+		const actor = await t.viewer('did:plc:ada');
+		const spaces = [await t.sharedSpaces.create(actor, 'performer'), await t.sharedSpaces.create(actor, 'venue')];
+
+		expect(await ensureRootSpaces(t.core)).toEqual(expect.arrayContaining(spaces));
+	});
 });

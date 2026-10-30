@@ -16,10 +16,25 @@
 		"outro": "#845cde",
 		"unknown": "#5a5a70"
 	},
+	"phrasesLight": {
+		"intro": "#4670e8",
+		"up": "#af7515",
+		"verse": "#af7515",
+		"chorus": "#ea3d80",
+		"down": "#1e8cae",
+		"bridge": "#1e8cae",
+		"outro": "#845cde",
+		"unknown": "#5a5a70"
+	},
 	"cues": {
 		"hot": "#28e214",
 		"memory": "#e83030",
 		"loop": "#ff8c1e"
+	},
+	"cuesLight": {
+		"hot": "#1b970d",
+		"memory": "#e83030",
+		"loop": "#cb6300"
 	},
 	"trackColors": {
 		"pink": "#f852c9",

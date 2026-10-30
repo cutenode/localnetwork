@@ -348,6 +348,13 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `playlist.restore.plan`. Their `.apply` applies a plan by `plan_id`, or plans and applies a
   request as before (`settings.write.apply` with a request still writes one `drive`, honouring
   `dry_run`).
+- Settings to and from a file: `settings.export` answers everything set in the store, as
+  `locallibrary settings export` writes it (described by
+  [`settings-export.schema.json`](settings-export.schema.json)), and
+  `settings.import_file.plan/apply` (`file`, optional `replace`) imports one: its `changes` say
+  what each of the file's values does (`add`, `keep` as it is here, or with `replace: true`
+  `replace`), and applying returns what's set then. `settings.import.*` stays the import from a
+  drive or rekordbox.
 - Parameter names are the fields of the request structs in `api.rs`, as `docs/rpc` describes
   them. Results that were pairs keep their JSON (`failed: [["Contents/a.mp3", "unreadable"]]`);
   the schema and the TypeScript types name each element (`[path: string, error: string]`).

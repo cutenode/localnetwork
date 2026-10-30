@@ -1,10 +1,12 @@
 import type { Selectable } from 'kysely';
-import type { RequestKind } from '#lib/types.ts';
+import type { SpaceKind } from '#lib/capabilities.ts';
+import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
 /**
- * Local index. Everything here except sessions, the audit outbox and press kit view receipts is derived
- * from records stored in atproto repos and spaces, and can be rebuilt by
- * re-syncing. Published projects aren't here: HappyView indexes them.
+ * Local index. Everything here except sessions, the audit outbox, press kit view receipts and
+ * people's inboxes is derived from records stored in atproto repos and spaces, and can be
+ * rebuilt by re-syncing, so those need backing up. Published projects aren't
+ * here: HappyView indexes them.
  * Column names are snake_case in SQLite and camelCase in code.
  */
 export interface Database {
@@ -27,8 +29,16 @@ export interface Database {
 	epkRequest: EpkRequestTable;
 	epkGrant: EpkGrantTable;
 	epkDraft: EpkDraftTable;
+	sharedSpace: SharedSpaceTable;
+	spacePerson: SpacePersonTable;
+	spaceInvite: SpaceInviteTable;
+	spaceInviteLink: SpaceInviteLinkTable;
+	spaceJoinRequest: SpaceJoinRequestTable;
 	epkView: EpkViewTable;
 	geocodeCache: GeocodeCacheTable;
+	notification: NotificationTable;
+	notificationChannel: NotificationChannelTable;
+	notificationDelivery: NotificationDeliveryTable;
 }
 
 export interface KvTable {
@@ -250,6 +260,61 @@ export interface EpkDraftTable {
 	publishedRkey: string | null;
 }
 
+/** A performer's, party's or venue's space, from its listing status record. */
+export interface SharedSpaceTable {
+	spaceUri: string;
+	kind: SpaceKind;
+	listed: number;
+	createdBy: string;
+	createdAt: string;
+}
+
+export interface SpacePersonTable {
+	spaceUri: string;
+	did: string;
+	role: string;
+	/** The person's capabilities that the space's kind offers, as a JSON array in catalog order. */
+	capabilities: string;
+	hidden: number;
+	via: string;
+	addedBy: string | null;
+	/** The invite, invite link or request they came in through. */
+	source: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface SpaceInviteTable {
+	spaceUri: string;
+	did: string;
+	role: string;
+	/** A JSON array, as in space_person. */
+	capabilities: string;
+	invitedBy: string;
+	message: string | null;
+	createdAt: string;
+	expiresAt: string | null;
+}
+
+export interface SpaceInviteLinkTable {
+	spaceUri: string;
+	rkey: string;
+	tokenHash: string;
+	role: string;
+	/** A JSON array, as in space_person. */
+	capabilities: string;
+	createdBy: string;
+	createdAt: string;
+	expiresAt: string | null;
+}
+
+export interface SpaceJoinRequestTable {
+	spaceUri: string;
+	did: string;
+	message: string | null;
+	createdAt: string;
+}
+
 /**
  * Who viewed a press kit's private part. Only here, never on atproto: the audit chain holds an HMAC of the viewer's DID
  * under `salt`, so deleting the row leaves the chain whole but no longer says who it was.
@@ -272,6 +337,69 @@ export interface GeocodeCacheTable {
 	createdAt: string;
 }
 
+/** An item in someone's inbox (notifications/notifier.ts). */
+export interface NotificationTable {
+	id: string;
+	recipientDid: string;
+	/** A key of notifications/kinds.ts KINDS, or one a later version dropped. */
+	kind: string;
+	/** What notified them, like a record's URI, so each source reaches each person once. */
+	dedupeKey: string;
+	/** The thread, event or space it's about, whose page marks it read. */
+	subjectUri: string;
+	/** The site path it opens. */
+	href: string;
+	/** The kind's data as JSON, rendered into words when it's read. */
+	data: string;
+	occurredAt: string;
+	createdAt: string;
+	readAt: string | null;
+}
+
+/** Where the inbox also goes besides the site, for one person. No row means the channel is off. */
+export interface NotificationChannelTable {
+	did: string;
+	channel: NotificationChannel;
+	status: 'active' | 'paused';
+	/** Why it's paused, which the settings page explains with what to do. */
+	pausedReason: PausedReason | null;
+	/** The email address their account's host shared, deleted with the row when they turn email off. */
+	address: string | null;
+	addressReadAt: string | null;
+	/**
+	 * Turns email off from the link in each email, without signing in. Kept as is rather than hashed, since every email
+	 * carries it, and all it can do is turn email off.
+	 */
+	unsubscribeToken: string | null;
+	/** JSON array of the NotificationTopics sent on. */
+	topics: string;
+	lastSentAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+	/** SHA-256 of the single-use link that confirms `address`, while it waits to be opened. */
+	confirmTokenHash: string | null;
+	/** SHA-256 of the lowercased address that link went to: it confirms only that one. */
+	confirmAddressHash: string | null;
+	confirmExpiresAt: string | null;
+}
+
+/** One inbox item on its way out by one channel (notifications/outbox.ts). */
+export interface NotificationDeliveryTable {
+	id: string;
+	notificationId: string;
+	did: string;
+	channel: NotificationChannel;
+	status: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+	/** The items sent in one message, fixed once claimed so a retry sends the same message under the same key. */
+	batchId: string | null;
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string | null;
+	providerId: string | null;
+	sentAt: string | null;
+	updatedAt: string;
+}
+
 export type RequestRow = Selectable<RequestTable>;
 
 export type AuditEntryRow = Selectable<AuditEntryTable>;
@@ -279,3 +407,7 @@ export type AuditEntryRow = Selectable<AuditEntryTable>;
 export type AccountRow = Selectable<AccountTable>;
 
 export type BookingThreadRow = Selectable<BookingThreadTable>;
+
+export type NotificationRow = Selectable<NotificationTable>;
+
+export type NotificationChannelRow = Selectable<NotificationChannelTable>;

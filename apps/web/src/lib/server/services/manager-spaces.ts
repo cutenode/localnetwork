@@ -4,6 +4,7 @@ import { backstageSpace, epkSpace, parsePublicRecordUri } from '../atproto/space
 import type { Core } from '../core';
 import type { IndexedRepo } from '../happyview/indexed';
 import { auditedProjects, openedProjects } from './bookings';
+import { type MemberSync, reconcileMembers } from './space-members';
 
 /**
  * Whether a manager who joins the project now has a part in a booking: it's still being worked out, or it's confirmed
@@ -16,20 +17,10 @@ function isLiveBooking(status: string, showDate: string | null): boolean {
 	return status === 'confirmed' && (showDate === null || Date.parse(showDate) > Date.now());
 }
 
-/** A space whose member list follows a project's managers. */
-type ManagerSpace = {
-	uri: string;
-	/** Whether a manager who isn't a member yet joins it. A manager who leaves the project leaves every space. */
-	joinable: boolean;
+/** A space whose member list follows a project's managers. A manager who leaves the project leaves every space. */
+type ManagerSpace = Omit<MemberSync, 'wanted'> & {
 	/** Whether managers write to it, or only read it. */
 	write: boolean;
-	/** Members who aren't there as managers, like a booking's promoter, so the sync never adds or removes them. */
-	others: string[];
-	/** The app's own record of the managers it has as members, for a space whose access checks read that, not the project. */
-	ledger?: {
-		recorded(): Promise<string[]>;
-		record(managers: string[]): Promise<void>;
-	};
 };
 
 /**
@@ -164,52 +155,8 @@ export class ManagerSpaces {
 	}
 
 	private async syncSpace(space: ManagerSpace, managers: string[]): Promise<void> {
-		const root = await this.core.root();
-		let members: Set<string>;
-
-		try {
-			members = new Set((await root.listMembers(space.uri)).map((member) => member.did));
-		} catch (error) {
-			// Fail closed: a manager who left still loses access in the app, and nobody joins until the space can be read.
-			this.core.logger.warn({ err: error, space: space.uri }, "could not read a space's members");
-
-			if (!space.ledger) return;
-			const recorded = new Set(await space.ledger.recorded());
-			await space.ledger.record(managers.filter((did) => recorded.has(did)));
-
-			return;
-		}
-
-		const others = new Set([this.core.rootDid, ...space.others]);
-		const wanted = managers.filter((did) => !others.has(did) && (space.joinable || members.has(did)));
-		const joining = wanted.filter((did) => !members.has(did));
-		const leaving = [...members].filter((did) => !others.has(did) && !wanted.includes(did));
-		const joined: string[] = [];
-		const left: string[] = [];
-
-		for (const did of joining) {
-			try {
-				await root.putMember({ space: space.uri, did, read: true, write: space.write });
-				joined.push(did);
-			} catch (error) {
-				this.core.logger.warn({ err: error, space: space.uri, did }, 'could not add a manager to a space');
-			}
-		}
-
-		for (const did of leaving) {
-			try {
-				await root.removeMember({ space: space.uri, did });
-				left.push(did);
-			} catch (error) {
-				this.core.logger.warn({ err: error, space: space.uri, did }, 'could not remove a manager from a space');
-			}
-		}
-
-		// A manager who couldn't be removed still loses access in the app now; the next sync removes them from the space.
-		await space.ledger?.record(wanted.filter((did) => members.has(did) || joined.includes(did)));
-
-		if (joined.length > 0 || left.length > 0)
-			this.core.logger.info({ space: space.uri, joined, left }, "updated a space's managers");
+		const access = { read: true, write: space.write };
+		await reconcileMembers(this.core, { ...space, wanted: new Map(managers.map((did) => [did, access])) });
 	}
 
 	private async recordedBookingManagers(space: string): Promise<string[]> {

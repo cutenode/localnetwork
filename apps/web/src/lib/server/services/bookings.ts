@@ -8,6 +8,7 @@ import { bookingSpace, parseSpaceRecordUri, parseSpaceUri } from '../atproto/spa
 import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { BookingThreadRow } from '../db/schema';
+import { isFresh } from '../notifications/notifier';
 import { spaceWriter } from './own-repo';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
@@ -399,10 +400,71 @@ export class BookingService {
 		const update: Partial<BookingThreadRow> = { lastActivityAt: latest, updatedAt: nowIso() };
 
 		if (kind === 'status' && value.status && createdAt >= thread.lastActivityAt) update.status = value.status;
+		// The root's own record opening the thread, which the inquiry right after it tells people about.
+		const opening = kind === 'status' && author === this.core.rootDid ? value.project : undefined;
 
 		// Whatever project the inquiry named, the root's opening record decides it.
-		if (kind === 'status' && author === this.core.rootDid && value.project) update.projectUri = value.project;
+		if (opening) update.projectUri = opening;
 		await db.updateTable('bookingThread').set(update).where('spaceUri', '=', input.space).execute();
+
+		if (!opening) await this.notifyParticipants({ kind, uri: input.uri, author, thread, value });
+	}
+
+	/**
+	 * Tells the thread's other participants about a record in it, once each, however often it's indexed. A failure is
+	 * only logged: the write or sync that indexed the record stands, and the thread page shows it either way.
+	 */
+	private async notifyParticipants(input: {
+		kind: EventKind;
+		uri: string;
+		author: string;
+		thread: BookingThreadRow;
+		value: BookingRecord;
+	}): Promise<void> {
+		const { kind, author, thread, value } = input;
+
+		// An old record is one a sync replays, so it saves the directory lookup below.
+		if (!isFresh(value.createdAt)) return;
+
+		try {
+			const participants = await this.core.db
+				.selectFrom('bookingParticipant')
+				.select('did')
+				.where('spaceUri', '=', thread.spaceUri)
+				.where('did', '!=', author)
+				.execute();
+
+			if (participants.length === 0) return;
+			const project = await this.projects.byUri(thread.projectUri).catch(() => null);
+
+			// The act speaks as itself: which of its people wrote stays out (docs/adr/0004).
+			const data = {
+				skey: thread.skey,
+				title: thread.title,
+				projectName: project?.profile.name ?? null,
+				from: author === thread.promoterDid ? ('promoter' as const) : ('act' as const)
+			};
+
+			const notice = {
+				to: participants.map((participant) => participant.did),
+				key: input.uri,
+				subject: thread.spaceUri,
+				href: `/dashboard/bookings/${thread.skey}`,
+				at: value.createdAt
+			};
+
+			if (kind === 'status') {
+				if (value.status)
+					await this.core.notify({ ...notice, kind: 'booking.status', data: { ...data, status: value.status } });
+			} else {
+				await this.core.notify({ ...notice, kind: kind === 'inquiry' ? 'booking.inquiry' : 'booking.message', data });
+			}
+		} catch (error) {
+			this.core.logger.warn(
+				{ err: error, space: thread.spaceUri, uri: input.uri },
+				'could not notify a booking thread'
+			);
+		}
 	}
 
 	async threadsFor(did: string): Promise<BookingThreadView[]> {
