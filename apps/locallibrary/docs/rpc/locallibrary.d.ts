@@ -7880,9 +7880,10 @@ export type Access = {
   /** It's the plugin's default for the type: `{account:<type>}` names it. */
   default: boolean;
   /**
-   * The scopes (by name) a sign-in for it asked the service for, which didn't grant all they
-   * ask, until it's given them again. Those it needs are in `scopes` too, and still can't be
-   * used.
+   * The scopes (by name) the user declined when the plugin asked for them, or a sign-in for it
+   * asked the service for and the service didn't grant all they ask, until it's given them
+   * again: the plugin isn't asked about them till then. Those it needs are in `scopes` too, and
+   * still can't be used.
    */
   declined?: string[];
 };

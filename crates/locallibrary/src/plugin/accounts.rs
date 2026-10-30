@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Plugins;
 use super::net::unreachable;
-use super::process::Plugin;
+use super::process::{Host, Plugin};
 use crate::callback::{self, CallbackQuery};
 use crate::export::one_line;
 use crate::net::with_causes;
@@ -40,6 +40,7 @@ use crate::store::Store;
 use crate::{Error, Result, lock};
 
 pub(super) mod access;
+pub(super) mod ensure;
 mod kept;
 pub(super) mod ready;
 pub(super) mod shared;
@@ -255,26 +256,26 @@ impl Plugin {
     }
 }
 
-impl Plugins {
-    /// Starts a sign-in to what `asked` asks for in `store` at `t`'s service (of `slot`), asking
-    /// for `scopes` and sending the authorize `params` besides: its id, the address to open in the
-    /// browser, and where the browser comes back to.
+impl Plugin {
+    /// Starts a sign-in to what `asked` asks for in `store` at its account type `t`'s service,
+    /// asking for `scopes` and sending the authorize `params` besides: its id, the address to open
+    /// in the browser, and where the browser comes back to.
     fn begin(
         &self,
-        slot: &Plugin,
         t: &AccountType,
         scopes: &[String],
         params: &IndexMap<String, String>,
         asked: shared::Asked,
         store: &Store,
     ) -> Result<(String, String, String)> {
+        let signing_in = &self.host.signing_in;
         if let Some(port) = t.redirect_port {
             // A sign-in still waiting on its port gives way: the browser comes back to the newest.
-            lock(&self.signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
+            lock(signing_in).retain(|_, p| p.listener.local_addr().map_or(true, |a| a.port() != port));
         }
         let (listener, redirect_uri) = callback::bind(t.redirect_port.unwrap_or(0))?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
-        let client = slot.sign_in_client(t, Some(redirect))?;
+        let client = self.sign_in_client(t, Some(redirect))?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
         let scopes = scopes.iter().cloned().map(Scope::new);
         let mut request = client.authorize_url(CsrfToken::new_random).add_scopes(scopes).set_pkce_challenge(challenge);
@@ -282,18 +283,20 @@ impl Plugins {
             request = request.add_extra_param(name, value);
         }
         let (url, state) = request.url();
-        if let Some(why) = unreachable(&url, slot.loopback()) {
-            return Err(slot.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", t.title)));
+        if let Some(why) = unreachable(&url, self.loopback()) {
+            return Err(self.misbehaved(format!("its {} account's sign-in page can't be opened: {why}", t.title)));
         }
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let mut pending = lock(&self.signing_in);
+        let mut pending = lock(signing_in);
         pending.retain(|_, p| p.started.elapsed() < PENDING_LIMIT);
         let waiting =
             Pending { asked, store: store.clone(), listener, client, state, verifier, started: Instant::now() };
         pending.insert(id.clone(), waiting);
         Ok((id, url.to_string(), redirect_uri))
     }
+}
 
+impl Host {
     /// Takes sign-in `id` from those waiting for the browser.
     fn pending(&self, id: &str) -> Result<Pending> {
         lock(&self.signing_in).remove(id).ok_or_else(|| {
@@ -303,10 +306,12 @@ impl Plugins {
             ))
         })
     }
+}
 
+impl Plugins {
     /// Forgets sign-in `id`, if it's waiting.
     pub fn cancel_sign_in(&self, id: &str) -> bool {
-        lock(&self.signing_in).remove(id).is_some()
+        lock(&self.host.signing_in).remove(id).is_some()
     }
 }
 

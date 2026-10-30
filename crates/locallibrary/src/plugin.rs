@@ -59,7 +59,7 @@ mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -74,6 +74,7 @@ use crate::{Error, Result};
 
 pub use accounts::REFRESH_BEFORE;
 pub use accounts::access::{Access, AccountId};
+pub use accounts::ensure::{AccessQuestion, AskAccess};
 pub use accounts::ready::Unready;
 pub use accounts::shared::{Account, AccountSignIn, AccountSignedIn, AccountSignedOut, Accounts};
 pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
@@ -192,6 +193,9 @@ pub struct Options {
     /// What plugins tell the user (`host/notify`), and that a service was left off: each front
     /// end shows them its own way. Called on the thread reading the plugin, so it mustn't wait.
     pub notices: Notices,
+    /// How the front end asks the user whether a plugin may use more of an account it has access
+    /// to (`accounts/ensure`, see [`AskAccess`]): with none, the plugin is told how to give it.
+    pub ask: Option<Arc<dyn AskAccess>>,
     /// How many times in a row a service may stop or fail before it's left off.
     pub restarts: u32,
     /// How long a service that stopped waits to be started again, the first time: twice that the
@@ -227,6 +231,7 @@ impl Default for Options {
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
             events: 64,
             notices: Arc::new(|n| eprintln!("{}: {}", n.plugin, n.message)),
+            ask: None,
             restarts: 5,
             backoff: Duration::from_secs(1),
         }
@@ -238,8 +243,6 @@ pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
     /// What every plugin is hosted with.
     host: Arc<process::Host>,
-    /// Sign-ins to accounts of a type waiting for the browser.
-    signing_in: accounts::SigningIn,
 }
 
 impl Plugins {
@@ -248,8 +251,7 @@ impl Plugins {
     /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
-        let host =
-            Arc::new(process::Host { reads, options, turns: Mutex::default(), account_plugins: OnceLock::new() });
+        let host = Arc::new(process::Host::new(reads, options));
         let mut plugins = IndexMap::new();
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
@@ -273,7 +275,7 @@ impl Plugins {
         let account_plugins = account_plugins.map(|(id, s)| (id.clone(), Arc::downgrade(&s.plugin))).collect();
         // Set here only, once every plugin is.
         let _ = host.account_plugins.set(account_plugins);
-        Ok(Plugins { plugins, host, signing_in: Default::default() })
+        Ok(Plugins { plugins, host })
     }
 
     /// Each plugin's manifest, in the order the app gave them.

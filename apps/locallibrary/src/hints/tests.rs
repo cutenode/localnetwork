@@ -114,6 +114,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "account.login.begin",
         "accounts.sign_in.begin",
         "accounts.access.set_default",
+        "accounts.access.give",
         "settings.schema",
         "settings.import.plan",
         "library.list",
@@ -163,7 +164,7 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "snapshot.label" => &["label"],
         "accounts.sign_in.begin" if again => &["with", "for"],
         "accounts.sign_in.begin" => &["type", "with", "for"],
-        "accounts.access.set_default" => &["plugin"],
+        "accounts.access.set_default" | "accounts.access.give" => &["plugin"],
         "undo.list" | "account.login.begin" | "settings.schema" | "settings.import.plan" | "library.list" => &[],
         _ => &["drive"],
     };
@@ -175,6 +176,10 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
     match method {
         "accounts.sign_in.begin" => scopes.iter().for_each(|s| comes_back(s)),
         "accounts.access.set_default" => comes_back(params["account"]["subject"].as_str().unwrap()),
+        "accounts.access.give" => {
+            comes_back(params["account"]["subject"].as_str().unwrap());
+            scopes.iter().for_each(|s| comes_back(s));
+        }
         _ => {}
     }
 
