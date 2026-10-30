@@ -13,6 +13,7 @@ use super::accounts::{form, has};
 use super::net::Got;
 use super::shared_accounts::{Mock, WITH, asking, mock_for, who};
 use super::*;
+use crate::mock_oauth::sent_at;
 
 /// The mock type's scopes (see `shared_accounts::account_plugin`).
 const SCOPES: [&str; 3] = ["read", "write", "peek"];
@@ -591,4 +592,145 @@ fn a_request_an_access_cant_serve_fails_as_the_host_passes_it_on(tc: TestCase) {
         }
         assert_eq!(passed.detail().actions, actions, "{said}");
     }
+}
+
+/// What the mock service answers a request echo makes through its access, in
+/// [`a_refused_token_is_refreshed_once_then_given_up`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Reply {
+    /// 401, saying nothing more.
+    Unauthorized,
+    /// 401, its challenge saying `error="invalid_token"`.
+    InvalidToken,
+    /// This status, its challenge saying `error="insufficient_scope"` for the service's `write`.
+    Insufficient(u16),
+    /// 403, Google's body saying `ACCESS_TOKEN_SCOPE_INSUFFICIENT`.
+    Google,
+    /// 403, its body saying only `insufficientPermissions`.
+    Forbidden,
+    /// 200.
+    Fine,
+}
+
+impl Reply {
+    fn status(self) -> u16 {
+        match self {
+            Reply::Unauthorized | Reply::InvalidToken => 401,
+            Reply::Insufficient(status) => status,
+            Reply::Google | Reply::Forbidden => 403,
+            Reply::Fine => 200,
+        }
+    }
+
+    fn reply(self) -> super::net::Reply {
+        let challenge = |said: &str| vec![("WWW-Authenticate", format!("Bearer realm=\"mock\", {said}"))];
+        let headers = match self {
+            Reply::InvalidToken => challenge(r#"error="invalid_token", error_description="revoked""#),
+            Reply::Insufficient(_) => challenge(r#"error="insufficient_scope", scope="write""#),
+            _ => Vec::new(),
+        };
+        let body = match self {
+            Reply::Google => json!({ "error": { "code": 403, "errors": [{ "reason": "insufficientPermissions" }],
+                                                "details": [{ "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] } }),
+            Reply::Forbidden => {
+                json!({ "error": { "code": 403, "errors": [{ "reason": "insufficientPermissions" }] } })
+            }
+            _ => json!({ "said": self.status() }),
+        };
+        super::net::Reply { status: self.status(), headers, body: body.to_string().into_bytes() }
+    }
+
+    /// The scopes the service says the token lacks, by echo's names, when it says that's why.
+    fn needs(self) -> Option<&'static [&'static str]> {
+        match self {
+            Reply::Insufficient(_) => Some(&["write"]),
+            Reply::Google => Some(&["read"]),
+            _ => None,
+        }
+    }
+}
+
+/// How the account's token refreshes in [`a_refused_token_is_refreshed_once_then_given_up`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Refreshing {
+    Refreshes,
+    /// It has no refresh token.
+    Never,
+    /// The service refuses its refresh token (`invalid_grant`).
+    Refused,
+}
+
+/// For a request echo makes through its access to an account (its token in the header or the
+/// query, and redirected to where no scope covers or not), and anything the service answers it
+/// with twice (refusing the token, saying it lacks a scope in a challenge or Google's body,
+/// forbidding it otherwise, or answering): an answer to a request that still had the token
+/// refusing it (a 401) gets the token refreshed once and the request sent again, its answer
+/// passed on, the account signed out when it's refused again as `invalid_token`; an account
+/// whose token doesn't refresh is signed out, failing `access` (`signed_out`); one the service
+/// says lacks a scope fails `scope`, naming what signing in again needs to allow, and is no
+/// longer granted what the service named (else what those ask); anything else, and any answer
+/// once the token was dropped, is passed on. No request is sent more than twice, and no token
+/// gets out.
+#[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
+    let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
+    let place = query.map_or(String::new(), |name| format!("token = {{ query = \"{name}\" }}"));
+    let m = mock_for(3600, "/userinfo", &place, &asking(&["read"], &["write"]));
+    let refreshing = tc.draw(gs::sampled_from(vec![Refreshing::Refreshes, Refreshing::Never, Refreshing::Refused]));
+    m.state.lock().unwrap().refreshless = refreshing == Refreshing::Never;
+    m.sign_in(who(json!("a"), None), None, &[]).0.unwrap();
+    let all = vec![
+        Reply::Unauthorized,
+        Reply::InvalidToken,
+        Reply::Insufficient(401),
+        Reply::Insufficient(403),
+        Reply::Google,
+        Reply::Forbidden,
+        Reply::Fine,
+    ];
+    let replies = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).max_size(2));
+    let redirected = tc.draw(gs::booleans());
+    {
+        let mut s = m.state.lock().unwrap();
+        s.script = replies.iter().map(|r| r.reply()).collect();
+        if refreshing == Refreshing::Refused {
+            s.refuses = Some(("invalid_grant".into(), "spent".into()));
+        }
+    }
+    let path = if redirected { "/r/go/o/x" } else { "/r/x" };
+    let answer = m.fetch_as("GET", path, "{account:mock}", query);
+    let said = format!("{replies:?} {refreshing:?} redirected {redirected} {query:?}: {answer}");
+
+    let at = if redirected { "/o/x" } else { "/r/x" };
+    let sent: Vec<Got> = m.server.got().into_iter().filter(|g| g.target.starts_with(at)).collect();
+    let refreshed = m.refreshes();
+    let refused = !redirected && matches!(replies[0], Reply::Unauthorized | Reply::InvalidToken);
+    let again = refused && refreshing == Refreshing::Refreshes;
+    let last = if again { replies.get(1).copied().unwrap_or(Reply::Fine) } else { replies[0] };
+    assert_eq!(sent.len(), if again { 2 } else { 1 }, "{said}");
+    assert_eq!(refreshed, usize::from(refused && refreshing != Refreshing::Never), "{said}");
+    if again {
+        assert_eq!(sent_at(&sent[1]), Some(2), "{said}: not sent again with the token refreshed");
+    }
+    let signed_out = match () {
+        _ if refused && !again => true,
+        _ => again && last == Reply::InvalidToken,
+    };
+    let kept = m.listed();
+    assert_eq!(kept.is_empty(), signed_out, "{said}");
+    let e = &answer["error"]["data"];
+    match last.needs().filter(|_| !redirected) {
+        _ if refused && !again => {
+            assert_eq!((e["kind"].as_str(), e["reason"].as_str()), (Some("access"), Some("signed_out")), "{said}")
+        }
+        Some(needs) => {
+            assert_eq!((e["kind"].as_str(), &e["fields"]["needs"]), (Some("scope"), &json!(needs)), "{said}");
+            assert!(answer["result"].is_null(), "{said}: its body passed on");
+            let lost = if last == Reply::Google { "read" } else { "write" };
+            assert!(!kept[0].scopes.iter().any(|s| s == lost), "{said}: still granted {lost}");
+        }
+        None => assert_eq!(answer["result"]["status"], last.status(), "{said}"),
+    }
+    // What the service answered is the service's: it echoes the token it got.
+    assert!(!m.leaked(&[answer["error"].clone()]), "a token is out: {said}");
 }

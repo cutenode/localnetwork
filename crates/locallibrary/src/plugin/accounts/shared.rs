@@ -163,6 +163,19 @@ impl Plugin {
     /// it's about to expire: one refresh at a time, whichever host on the store asks, each reading
     /// the tokens again once it's its turn. One the service won't refresh any more is signed out.
     pub(crate) fn account_token(&self, store: &Store, subject: &str) -> Result<String> {
+        self.token(store, subject, None)
+    }
+
+    /// The access token of the account `subject` it signed in to in `store` to use instead of
+    /// `refused`, which its service refused: the one another host refreshed it to since, else
+    /// `refused` refreshed (as [`Plugin::account_token`] refreshes). Without a refresh token, or
+    /// one the service won't refresh any more, it's signed out.
+    pub(crate) fn account_token_refused(&self, store: &Store, subject: &str, refused: &str) -> Result<String> {
+        self.token(store, subject, Some(refused))
+    }
+
+    /// [`Plugin::account_token`], or with `refused`, [`Plugin::account_token_refused`].
+    fn token(&self, store: &Store, subject: &str, refused: Option<&str>) -> Result<String> {
         let with = &self.manifest.id;
         let _one = kept::hold(store, with, subject)?;
         let k = find(store, with, subject)?;
@@ -172,11 +185,20 @@ impl Plugin {
             Error::Account(why).because(Reason::SessionEnded)
         };
         let tokens = self.kept_tokens(store, &k)?.ok_or_else(signed_out)?;
-        if !tokens.expiring(Utc::now()) {
+        let stale = match refused {
+            Some(refused) => tokens.access_token == refused,
+            None => tokens.expiring(Utc::now()),
+        };
+        if !stale {
             return Ok(tokens.access_token);
         }
-        let Some(refresh) = tokens.refresh_token.clone() else { return Err(signed_out()) };
         let storage = self.host.options.secrets;
+        let Some(refresh) = tokens.refresh_token.clone() else {
+            if refused.is_some() {
+                forget(store, storage, &k)?;
+            }
+            return Err(signed_out());
+        };
         let Some(fresh) = self.refreshed(t, refresh, tokens)? else {
             forget(store, storage, &k)?;
             return Err(signed_out());
@@ -186,6 +208,27 @@ impl Plugin {
             kept::keep(storage, store, &k, Some(&fresh))
         })?;
         Ok(fresh.access_token)
+    }
+
+    /// Signs out of the account `subject` it signed in to in `store` when its access token is
+    /// still `refused`, which its service said is no good.
+    pub(crate) fn forget_refused(&self, store: &Store, subject: &str, refused: &str) -> Result<()> {
+        let _one = kept::hold(store, &self.manifest.id, subject)?;
+        let Some(k) = kept::read(store)?.account(&self.manifest.id, subject).cloned() else { return Ok(()) };
+        match self.kept_tokens(store, &k)? {
+            Some(tokens) if tokens.access_token == refused => forget(store, self.host.options.secrets, &k),
+            _ => Ok(()),
+        }
+    }
+
+    /// The account `subject` it signed in to in `store` wasn't granted `asks` after all, as its
+    /// service said.
+    pub(crate) fn not_granted(&self, store: &Store, subject: &str, asks: &[String]) -> Result<()> {
+        kept::update(store, |book| {
+            let k = book.accounts.iter_mut().filter(|k| k.is(&self.manifest.id, subject));
+            k.for_each(|k| k.scopes.retain(|s| !asks.contains(s)));
+            Ok(())
+        })
     }
 }
 

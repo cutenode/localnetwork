@@ -5,7 +5,10 @@
 //! plugin needs. Anything else fails before the request is sent: `access` when the plugin has no
 //! such access or the account is signed out (`reason` `signed_out`), `scope` when its scopes don't
 //! reach, with the type, the scopes and the account plugins in its fields, and once there's an
-//! access, its id, its account and the scopes signing in again `needs` to allow.
+//! access, its id, its account and the scopes signing in again `needs` to allow. A service
+//! refusing the token is answered here too: it's refreshed for the request to be sent again (see
+//! [`Plugin::refused_token`]), signed out (see [`Plugin::invalid_token`]), or no longer granted
+//! the scopes the service says it lacks (see [`Plugin::scope_refused`]).
 
 use std::sync::Arc;
 
@@ -15,18 +18,21 @@ use serde_json::{Map, json};
 
 use super::access::Access;
 use super::kept;
+use crate::Error;
 use crate::error::Reason;
 use crate::plugin::process::{Live, Plugin};
 use crate::store::Store;
 
-/// An access a request may use: where its account's token goes, and the scopes it may use it
-/// for (those the account was granted what they ask), which a redirect has to stay within.
+/// An access a request may use, of the type `need` asks for: where its account's token goes, and
+/// the scopes (by name) it may use it for (those the account was granted what they ask), which a
+/// redirect has to stay within.
 pub(crate) struct Usable {
     /// The account plugin, which gets the token.
     with: Arc<Plugin>,
     access: Access,
+    need: AccountNeed,
     pub(crate) place: TokenPlace,
-    pub(crate) scopes: Vec<Scope>,
+    pub(crate) scopes: Vec<(String, Scope)>,
 }
 
 /// A failure of kind `kind` naming the type `need` asks for, `scopes` and the account `plugins`.
@@ -112,21 +118,75 @@ impl Plugin {
             let why = format!("the {kind} account {at} wasn't granted what {} asks: sign in again", names.join(", "));
             return Err(scope_failed(why, &names, &names));
         }
-        let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(_, s)| s.clone()).collect();
-        Ok(Usable { with, access: a.clone(), place: t.token.clone(), scopes })
+        let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(n, s)| (n.clone(), s.clone())).collect();
+        Ok(Usable { with, access: a.clone(), need: need.clone(), place: t.token.clone(), scopes })
     }
 
     /// The token of `usable`'s account, told to [`crate::plugin::net::State::scrub`]: `access`
     /// (`signed_out`) when it's signed out, or the service signs it out.
-    pub(crate) fn usable_token(&self, usable: &Usable, need: &AccountNeed, store: &Store) -> Result<String, RpcError> {
-        let token = usable.with.account_token(store, &usable.access.account.subject).map_err(|e| {
-            let why = self.net.scrub(&e.to_string());
-            match e.reason() {
-                Some(Reason::SessionEnded) => signed_out(why, need, &usable.access),
-                _ => RpcError::failed("external", why),
-            }
-        })?;
+    pub(crate) fn usable_token(&self, usable: &Usable, store: &Store) -> Result<String, RpcError> {
+        let token = usable.with.account_token(store, &usable.access.account.subject);
+        let token = token.map_err(|e| self.token_failed(usable, e))?;
         self.net.saw(&token);
         Ok(token)
+    }
+
+    /// `e`, which getting `usable`'s token failed with, as the plugin is told it.
+    fn token_failed(&self, usable: &Usable, e: Error) -> RpcError {
+        let why = self.net.scrub(&e.to_string());
+        match e.reason() {
+            Some(Reason::SessionEnded) => signed_out(why, &usable.need, &usable.access),
+            _ => RpcError::failed("external", why),
+        }
+    }
+
+    /// Its service refused `token`, `usable`'s account's: the account's token is refreshed, unless
+    /// another host already has (see [`Plugin::account_token_refused`]), for the request to be
+    /// sent again with it. `access` (`signed_out`) when the service won't refresh it.
+    pub(crate) fn refused_token(&self, usable: &Usable, token: &str, store: &Store) -> Result<(), RpcError> {
+        let subject = &usable.access.account.subject;
+        usable.with.account_token_refused(store, subject, token).map(drop).map_err(|e| self.token_failed(usable, e))
+    }
+
+    /// Its service refused `token` again, saying it's no good: `usable`'s account is signed out,
+    /// unless another host signed it in again since.
+    pub(crate) fn invalid_token(&self, usable: &Usable, token: &str, store: &Store) -> Result<(), RpcError> {
+        let subject = &usable.access.account.subject;
+        usable.with.forget_refused(store, subject, token).map_err(|e| RpcError::failed("external", e.to_string()))
+    }
+
+    /// Its service said `usable`'s token hasn't the scopes a `method` request to `url` (as the
+    /// plugin wrote it) needs, which it calls `asked` when it says: `scope`, naming the type's
+    /// scopes whose asks are among them (else those of `usable`'s covering the request), which
+    /// signing in again `needs` to allow. What the account was granted no longer has `asked` (else
+    /// what those ask), so nothing through them is sent again until it's signed in again.
+    pub(crate) fn scope_refused(
+        &self,
+        usable: &Usable,
+        asked: &[String],
+        method: &str,
+        url: &Url,
+        store: &Store,
+    ) -> RpcError {
+        let (kind, at, on) = (&usable.need.name, &usable.access.name, &usable.access.account.plugin);
+        let t = usable.with.account_type(kind).ok();
+        let meeting = t.iter().flat_map(|t| &t.scopes).filter(|(_, s)| s.asks.iter().any(|a| asked.contains(a)));
+        let mut needs: Vec<(&String, &Scope)> = meeting.collect();
+        if needs.is_empty() {
+            needs = usable.scopes.iter().filter(|(_, s)| s.covers(method, url)).map(|(n, s)| (n, s)).collect();
+        }
+        let ungranted: Vec<String> = match asked {
+            [] => needs.iter().flat_map(|(_, s)| s.asks.iter().cloned()).collect(),
+            asked => asked.to_vec(),
+        };
+        let needs: Vec<String> = needs.into_iter().map(|(n, _)| n.clone()).collect();
+        if let Err(e) = usable.with.not_granted(store, &usable.access.account.subject, &ungranted) {
+            return RpcError::failed("external", e.to_string());
+        }
+        let why = format!(
+            "the service says the {kind} account {at} wasn't granted what {} asks: sign in again",
+            needs.join(", ")
+        );
+        about(failed("scope", why, &usable.need, &needs, vec![on.clone()]), &usable.access, &needs)
     }
 }

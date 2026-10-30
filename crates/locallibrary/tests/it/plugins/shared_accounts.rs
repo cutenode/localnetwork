@@ -131,7 +131,7 @@ impl Mock {
     }
 
     /// How many times the service was asked to refresh a token.
-    fn refreshes(&self) -> usize {
+    pub(super) fn refreshes(&self) -> usize {
         let refreshing = |g: &Got| g.target == "/token" && has(&form(g), "grant_type", "refresh_token");
         self.server.got().iter().filter(|g| refreshing(g)).count()
     }

@@ -43,7 +43,7 @@ pub(super) mod access;
 mod kept;
 pub(super) mod ready;
 pub(super) mod shared;
-mod token;
+pub(super) mod token;
 mod whoami;
 
 /// How long before its access token expires an account's is refreshed.
