@@ -40,7 +40,9 @@ written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates
 depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
 every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
 Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host; the
-CLI's tests run them through the real one.
+CLI's tests run them through the real one. Account plugins are the exception: each is a
+`locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
+`build.rs` includes and nothing runs, so adding one is adding its folder.
 
 **Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
 clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the

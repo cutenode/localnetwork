@@ -7798,10 +7798,11 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its accounts by id, its commands, destinations, operations, panels,
-   * analyzers, checks, providers, services, library sources and themes by name, the events it
-   * listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its accounts by id, its commands, destinations,
+   * operations, panels, analyzers, checks, providers, services, library sources and themes by
+   * name, the events it listens for, its export and import formats and its settings' keys.
    */
+  account_types: string[];
   accounts: string[];
   commands: string[];
   destinations: string[];
@@ -7879,6 +7880,7 @@ export type Manifest = {
 };
 
 export type Contributions = {
+  account_types: AccountType[];
   accounts: Account[];
   commands: Command[];
   destinations: Destination[];
@@ -7894,6 +7896,109 @@ export type Contributions = {
   sources: LibrarySource[];
   themes: Theme[];
   settings: Setting[];
+};
+
+/** `[[contributes.account_types]]`: an account type, signed in to in the browser. */
+export type AccountType = {
+  /** The account type it provides (`google`), which other account plugins may provide too. */
+  type: string;
+  title: string;
+  /** The service's authorization endpoint, where the browser signs in (https). */
+  authorize_url: string;
+  /**
+   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
+   * them (https). An account type has this or `token_exchange`.
+   */
+  token_url?: string | null;
+  /**
+   * Local Network's token exchange for its service, in `token_url`'s place: only in an
+   * account plugin locallibrary ships, since it signs people in as Local Network.
+   */
+  token_exchange?: string | null;
+  /**
+   * Its client at the service: a public one, without a secret, or Local Network's, whose
+   * secret the token exchange holds.
+   */
+  client_id: string;
+  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
+  revoke_url?: string | null;
+  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
+  token?: TokenPlace;
+  /**
+   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+   * URI with the one its client was registered with. Any free port otherwise.
+   */
+  redirect_port?: number | null;
+  /** The service's scopes every sign-in asks for, as the service names them (`openid`). */
+  always?: string[];
+  /** Where the host asks the service who signed in. */
+  whoami: Whoami;
+  /**
+   * The authorize params that sign in again as one account the host knows (`login_hint =
+   * "{subject}"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].
+   */
+  one_account?: { [key: string]: string };
+  /**
+   * The authorize params that sign in to another account than those the browser has
+   * (`prompt = "select_account"`).
+   */
+  another_account?: { [key: string]: string };
+  /** What a plugin may be given access to, by name (`youtube-upload`). */
+  scopes?: { [key: string]: Scope };
+};
+
+/**
+ * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+ * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ */
+export type TokenPlace =
+  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
+  | {
+    scheme: string;
+  }
+  /**
+   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
+   * there (Mixcloud).
+   */
+  | {
+    query: string;
+  };
+
+/**
+ * `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
+ * new access token, and JSON pointers into its answer.
+ */
+export type Whoami = {
+  /** Where (https). */
+  url: string;
+  /** The account's id at the service, which tells two accounts apart (`/sub`). */
+  subject: string;
+  /** What the account is shown as (`/email`). */
+  name: string;
+};
+
+/** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */
+export type Scope = {
+  title: string;
+  /**
+   * The service's scopes it asks for at signing in, as the service names them. None for a
+   * scope only locallibrary knows, which the service's own scopes already allow.
+   */
+  asks?: string[];
+  /** The requests it covers: the only ones the host fills the account's token into for it. */
+  requests: ScopeRequest[];
+};
+
+/**
+ * `{ method = "POST", url = "https://www.googleapis.com/upload/youtube/v3/videos*" }`: requests
+ * with this method to this URL, or to any URL starting with it when it ends in `*`. The URL is
+ * written as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole
+ * host.
+ */
+export type ScopeRequest = {
+  /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
+  method: string;
+  url: string;
 };
 
 /** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
@@ -7934,23 +8039,6 @@ export type Account = {
    */
   redirect_port?: number | null;
 };
-
-/**
- * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
- * or `token = { query = "access_token" }`. The request names the account there, and only there.
- */
-export type TokenPlace =
-  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
-  | {
-    scheme: string;
-  }
-  /**
-   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
-   * there (Mixcloud).
-   */
-  | {
-    query: string;
-  };
 
 /** Run with `command/run`. */
 export type Command = {
@@ -8038,7 +8126,7 @@ export type Operation = {
   /**
    * Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
    * top-level command (`import`), or one in a group of the host's (`playlist import`).
-   * First-party plugins only.
+   * Built-in plugins only.
    */
   cli?: string | null;
 };
