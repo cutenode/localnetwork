@@ -768,6 +768,9 @@ their old names.
   `older_than_store` error leaves out `fields.snapshot` when no snapshot holds the state).
   `status`, `drive ls --known` and the player say such a drive that isn't plugged in is
   behind, where they said it had changes not in the store.
+- A plugin's suggestion reviewed or dismissed in the player stays gone from the palette. When
+  another change to the suggestions was saved first, the player listed what was kept before the
+  store forgot it, and offered it again.
 
 ### Security
 
