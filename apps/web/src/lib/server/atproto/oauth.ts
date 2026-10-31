@@ -252,6 +252,14 @@ function sqliteStore<T>(db: Db, table: 'oauthState' | 'oauthSession') {
 	};
 }
 
+/**
+ * How long a request from the OAuth client may take, its body included. The client sets no limit on session requests,
+ * and the guarded fetch has none of its own. 30 seconds is what the app gives a space read from a PDS
+ * (SpaceCredentialManager's `send`), and covers the largest blob a session uploads, a 5 MB press kit photo
+ * (EPK_PHOTO_MAX_BYTES).
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export class OAuthService {
 	readonly client: NodeOAuthClient;
 	readonly scopes = SCOPES;
@@ -266,15 +274,21 @@ export class OAuthService {
 			 * names: their PDS, the authorization server its metadata names, and the PDS again for every session request.
 			 */
 			fetch: typeof globalThis.fetch;
+			/** How long a request may take, for tests (REQUEST_TIMEOUT_MS otherwise). */
+			timeoutMs?: number;
 		}
 	) {
 		this.client = new NodeOAuthClient({
 			// The client hands fetch a Request, whose redirect mode the guarded fetch can't tell from the default and so
-			// refuses. Passing the mode along, with `follow` turned into `error`, means no request leaves the guard.
+			// refuses. Passing the mode along, with `follow` turned into `error`, means no request leaves the guard. Each
+			// request also gets a time limit, on top of any signal the client gave it, so a server that never answers
+			// can't hold a sign-in or a session request open.
 			fetch: (input, init) => {
 				const request = new Request(input, init);
+				const signal = AbortSignal.any([request.signal, AbortSignal.timeout(deps.timeoutMs ?? REQUEST_TIMEOUT_MS)]);
+				const redirect = request.redirect === 'follow' ? 'error' : request.redirect;
 
-				return deps.fetch(request, { redirect: request.redirect === 'follow' ? 'error' : request.redirect });
+				return deps.fetch(request, { redirect, signal });
 			},
 			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
 			allowHttp: deps.config.dev,

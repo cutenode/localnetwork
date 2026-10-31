@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { type AddressInfo, createServer as createNetServer, type Socket } from 'node:net';
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
@@ -419,7 +419,7 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 	 * Signs `did` in as /login does, with the app's guarded fetch, a DID document whose PDS is `pds`, and private
 	 * addresses allowed or not.
 	 */
-	const signIn = async (pds: string, allowPrivateNetwork = false) => {
+	const signIn = async (pds: string, allowPrivateNetwork = false, timeoutMs?: number) => {
 		const identity = new IdentityResolver({
 			plcUrl: 'https://plc.directory',
 			allowPrivateNetwork,
@@ -430,7 +430,8 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 			config: config('https://localnetwork.computer'),
 			db: await openDatabase(':memory:'),
 			logger: silentLogger,
-			fetch: identity.serviceFetch
+			fetch: identity.serviceFetch,
+			timeoutMs
 		});
 
 		vi.spyOn(oauth.client.identityResolver, 'resolve').mockResolvedValue({
@@ -451,6 +452,27 @@ describe('OAuthService sign-in, given servers a DID document names', () => {
 			}
 		);
 	};
+
+	it('gives up on a PDS that takes the connection and never answers, once the time limit is up', async () => {
+		// Connections it takes, which it holds open without a word.
+		const held: Socket[] = [];
+		const server = createNetServer((socket) => void held.push(socket));
+
+		await once(server.listen(0, '127.0.0.1'), 'listening');
+		// SAFETY: a server listening on a TCP port reports an AddressInfo.
+		const { port } = server.address() as AddressInfo;
+
+		try {
+			const started = performance.now();
+
+			expect(await signIn(`http://127.0.0.1:${port}`, true, 200)).toBe('The operation was aborted due to timeout');
+			expect(performance.now() - started).toBeLessThan(2_000);
+			expect(held).toHaveLength(1);
+		} finally {
+			for (const socket of held) socket.destroy();
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
 
 	it('refuses a PDS whose name points at loopback when it connects, and never reaches it', async () => {
 		expect(await signIn(`https://${PDS}:${loopback.port}`)).toBe('Hostname resolved to non-unicast address');
