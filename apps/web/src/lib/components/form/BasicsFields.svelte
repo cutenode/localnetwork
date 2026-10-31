@@ -65,7 +65,7 @@
 			<input id="avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="block w-full text-small text-fg-muted" />
 			<p class="hint">PNG, JPEG, or WebP, up to 1 MB.</p>
 			{#if avatarUrl}
-				<label class="mt-3 flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="removeAvatar" /> Remove the current image</label>
+				<label class="mt-3 flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="removeAvatar" checked={values.removeAvatar === 'on'} /> Remove the current image</label>
 			{/if}
 		</div>
 	</div>

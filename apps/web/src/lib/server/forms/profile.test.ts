@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formValues } from './project';
+import { formValues } from '#lib/project-form.ts';
 import { parseProfileForm, profileFormValues, sectionsOf } from './profile';
 
 function form(entries: [string, string][]): FormData {

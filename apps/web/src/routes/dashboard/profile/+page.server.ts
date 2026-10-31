@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
+import { formValues } from '#lib/project-form.ts';
 import { grantsProfile } from '#lib/server/atproto/oauth.ts';
-import { formValues } from '#lib/server/forms/project.ts';
 import { parseProfileForm, profileFormValues, sectionsOf } from '#lib/server/forms/profile.ts';
 import { act, limit, requireViewer, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';

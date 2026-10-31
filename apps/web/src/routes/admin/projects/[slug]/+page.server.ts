@@ -1,12 +1,6 @@
 import { error } from '@sveltejs/kit';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	withTracklists
-} from '#lib/server/forms/project.ts';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
+import { formValues } from '#lib/project-form.ts';
 import { act, requireAdmin, requireStaff, text } from '#lib/server/http.ts';
 import { isProjectStatus } from '#lib/server/services/projects.ts';
 import type { Actions, PageServerLoad } from './$types';

@@ -39,6 +39,7 @@ pub(super) fn list(all: &[Listed]) {
             say!("  {} {}", dim("may"), g.means);
         }
         let adds: Vec<String> = [
+            named("account type", &p.account_types),
             named("account", &p.accounts),
             named("command", &p.commands),
             named("destination", &p.destinations),
@@ -87,6 +88,10 @@ pub(super) fn info(d: &Described) {
         }
     };
     section("May:", d.capabilities.iter().map(|g| (g.means.clone(), String::new())).collect());
+    for t in &c.account_types {
+        section("Account type:", vec![(t.name.clone(), t.title.clone())]);
+        section("Scopes:", t.scopes.iter().map(|(name, s)| (name.clone(), s.title.clone())).collect());
+    }
     let accounts = d.accounts.iter().map(|a| {
         let signed = if a.signed_in { "signed in" } else { "not signed in" };
         (a.account.clone(), format!("{}: {signed}", a.title))

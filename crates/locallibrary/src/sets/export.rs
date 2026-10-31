@@ -1,5 +1,5 @@
-//! Writing a set out: text, Mixcloud, CUE, YouTube chapters, 1001Tracklists, CSV and M3U8, with
-//! the checks each needs.
+//! Writing a set out: text, Mixcloud, CUE, YouTube chapters, 1001Tracklists, Podcasting 2.0
+//! chapters, CSV and M3U8, with the checks each needs.
 //!
 //! Every format but CSV and M3U8 is for publishing, and names a track marked unnamed or hidden by
 //! the DJ's profile `ID - ID` (see [`SetEntry::may_name`]), as tracklists write a track nobody's
@@ -12,8 +12,9 @@ use std::fmt::Write as _;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use super::{Set, SetEntry};
+use super::{Set, SetEntry, chapters};
 use crate::export::{Locator, csv_line, numbered, one_line};
 use crate::mix::export::UNNAMED;
 use crate::model::{Library, Track, artist_credits, normalize};
@@ -36,6 +37,8 @@ pub enum SetFormat {
     /// paste format, so this is the cue-time style tracklists are usually written in.
     #[serde(rename = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time.
+    Chapters,
     /// `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`.
     Csv,
     /// A playlist of the tracks on a drive.
@@ -83,6 +86,11 @@ pub(crate) fn render(
             }),
             Vec::new(),
         ),
+        SetFormat::Chapters => {
+            let (chapters, notes) = chapters::chapters(set, None, |_, e| public_name(e, prefs));
+            let text = chapters_json(&set.heading(), &chapters);
+            return Ok(Rendered { text, tracks: chapters.len(), warnings: notes });
+        }
         SetFormat::Csv => (csv(set), Vec::new()),
         SetFormat::M3u8 => {
             let (library, locator) =
@@ -111,7 +119,12 @@ pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, 
 
 /// What a published tracklist calls `e`.
 fn public_name(e: &SetEntry, prefs: &ProfilePrefs) -> String {
-    match e.may_name(prefs) {
+    shown_name(e, e.may_name(prefs))
+}
+
+/// `e`'s name on one line, or `ID - ID` when it mustn't be `named`.
+pub(crate) fn shown_name(e: &SetEntry, named: bool) -> String {
+    match named {
         true => one_line(&e.name()),
         false => format!("{UNNAMED} - {UNNAMED}"),
     }
@@ -122,7 +135,7 @@ fn hms(secs: u32) -> (u32, u32, u32) {
 }
 
 /// `H:MM:SS`.
-fn clock(secs: u32) -> String {
+pub(super) fn clock(secs: u32) -> String {
     let (h, m, s) = hms(secs);
     format!("{h}:{m:02}:{s:02}")
 }
@@ -210,6 +223,14 @@ fn youtube(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
         warnings.push(format!("chapter {} is {} seconds long; YouTube needs 10", i + 1, w[1] - w[0]));
     }
     Ok((out, warnings))
+}
+
+/// `chapters` as Podcasting 2.0 JSON chapters, version 1.2.0
+/// (<https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/chapters/jsonChapters.md>),
+/// titled `title`.
+fn chapters_json(title: &str, chapters: &[chapters::Chapter]) -> String {
+    let chapters: Vec<_> = chapters.iter().map(|c| json!({ "startTime": c.start, "title": c.title })).collect();
+    format!("{:#}\n", json!({ "version": "1.2.0", "title": title, "chapters": chapters }))
 }
 
 /// CSV for the DJ: every track named, `yes` in the last column for those the set marks unnamed.

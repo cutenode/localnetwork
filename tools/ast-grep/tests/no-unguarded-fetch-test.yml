@@ -1,6 +1,15 @@
 id: no-unguarded-fetch
 valid:
   - |
+    async function avatar(did: string) {
+      const { pds } = await app.identity.resolve(did);
+      return app.identity.fetch(new URL('/xrpc/com.atproto.sync.getBlob', pds), { redirect: 'error' });
+    }
+  - |
+    async function health() {
+      return this.fetch(`${this.url}/health`, { signal: AbortSignal.timeout(2_000) });
+    }
+  - |
     async function blob(did: string) {
       const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
       return identity.serviceFetch(url, { redirect: 'error' });
@@ -21,6 +30,11 @@ valid:
       const ping = async () => fetch(RESEND_URL, { method: 'POST' });
     }
 invalid:
+  - |
+    async function recordingAudio(request: AudioRequest) {
+      const url = new URL('/xrpc/com.atproto.sync.getBlob', await request.pds(request.did));
+      return request.fetch(url, { redirect: 'error' });
+    }
   - |
     async function blob(did: string) {
       const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);

@@ -121,8 +121,9 @@ fn sets_publish_from_the_command_line() {
 
 /// `sets publish SET --upload`, with a stand-in ffmpeg on `PATH`: a dry run shows how the recording
 /// goes up and sends nothing; without a terminal or --yes nothing goes; with --yes one answer
-/// covers both, so a WAV is encoded as AAC, uploaded as audio/mp4 and published, and the set's
-/// record points at it (its envelope nested as `record`). Without ffmpeg, it says to install it.
+/// covers both, so a WAV is encoded as AAC with its timed track as a chapter (not named with
+/// --hide), uploaded as audio/mp4 and published, and the set's record points at it (its envelope
+/// nested as `record`). Without ffmpeg, it says to install it.
 #[cfg(unix)]
 #[test]
 fn sets_publish_upload_from_the_command_line() {
@@ -134,7 +135,8 @@ fn sets_publish_upload_from_the_command_line() {
     let (id, at) = ("3m4n5o6p7q8r9", "2026-10-03T23:00:00Z");
     let set = json!({
         "id": id, "title": "Friday", "date": "2026-10-03", "recording": { "path": recording },
-        "tracks": [{ "title": "Glue", "artist": "Bicep", "origin": "added" }], "created_at": at, "updated_at": at,
+        "tracks": [{ "title": "Glue", "artist": "Bicep", "origin": "added", "start_seconds": 0 }],
+        "created_at": at, "updated_at": at,
     });
     sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
     std::fs::write(env.store.join("sets.json"), json!({ "sets": [set] }).to_string()).unwrap();
@@ -170,6 +172,12 @@ fn sets_publish_upload_from_the_command_line() {
     assert_eq!(code, 0, "{out}\n{err}");
     assert!(out.contains("Upload this set's recording as @dj.example.com"), "{out}");
     assert!(out.contains("as AAC at 128 kbit/s in an M4A file") && out.contains("then this set's record"), "{out}");
+    assert!(out.contains("Chapters  1 track\n"), "{out}");
+    // Hidden, the chapter doesn't name it either.
+    let (code, out, err) = run(&bin, &["--json"], &["--dry-run", "--hide", "1"], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["plan"]["chapters"], json!([{ "start": 0, "title": "ID - ID" }]), "{out}");
     let (code, _, err) = run(&bin, &[], &[], None);
     assert_eq!(code, 3, "{err}");
     assert!(err.contains("not confirmed"), "{err}");
@@ -185,6 +193,10 @@ fn sets_publish_upload_from_the_command_line() {
     let ffmpeg: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(String::from).collect();
     assert!(
         ffmpeg.windows(2).any(|w| w == ["-b:a", "128k"]) && ffmpeg.windows(2).any(|w| w == ["-movflags", "+faststart"])
+    );
+    assert!(
+        ffmpeg.windows(3).any(|w| w[..2] == ["ffmetadata", "-i"])
+            && ffmpeg.windows(2).any(|w| w == ["-map_chapters", "1"])
     );
     let (recorded, cid) = pds.record(DID, "computer.localnetwork.dj.recording", id).unwrap();
     let blob = pds.blob(recorded["audio"]["ref"]["$link"].as_str().unwrap()).unwrap();

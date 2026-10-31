@@ -73,7 +73,9 @@ export class IdentityResolver {
 	readonly fetch: typeof globalThis.fetch;
 	/**
 	 * Like `fetch`, for a service a DID document names (a PDS or space host): a port is allowed, and nothing caps the
-	 * response, since repo exports and blobs run large, so callers bound what they read and how long they wait.
+	 * response or its time, since repo exports and blobs run large and recordings stream, so callers bound what they read
+	 * and pass their own `signal`. A time limit here would also pipe each body through a stream that reads ahead of the
+	 * caller and holds the upstream open after the caller cancels.
 	 */
 	readonly serviceFetch: typeof globalThis.fetch;
 	private readonly handleCache = new Map<string, { did: string | null; at: number }>();
@@ -93,7 +95,7 @@ export class IdentityResolver {
 			ssrfProtection: !options.allowPrivateNetwork,
 			allowCustomPort: true,
 			responseMaxSize: Infinity,
-			timeout: 60_000
+			timeout: Infinity
 		});
 
 		this.resolver = {
