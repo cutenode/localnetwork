@@ -208,9 +208,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader shows as one averaged speed. Chains only split after 4 slices
-      (about 16 s) without the track, so a ride stays one chain and its fitted slope averages the
-      speeds; showing them needs the matcher to split a chain's fit where its speed changes.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
