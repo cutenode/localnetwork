@@ -31,6 +31,13 @@ tracked_files := f.contents.files if {
 	regex.match(`(^|/)tracked-files\.json$`, f.path)
 }
 
+# The files the Rust code embeds from outside its own crate, which tools/policy.sh lists as
+# {"files": [...]} in embedded-files.json.
+embedded_files := f.contents.files if {
+	some f in input
+	regex.match(`(^|/)embedded-files\.json$`, f.path)
+}
+
 # A value that may be one string or a list of them, as a set.
 strings(x) := {x} if is_string(x)
 

@@ -6,12 +6,24 @@ name: Web CI
 on:
   workflow_call:
     inputs:
+      verify:
+        description: Whether to run the verify job (ci.yml's web paths, or on main web_integration's, for the sizes).
+        type: boolean
+        required: true
       integration:
         description: Whether what the integration tests cover changed (ci.yml's web_integration paths).
         type: boolean
         required: true
+      e2e:
+        description: Whether what the e2e tests run changed (web_e2e).
+        type: boolean
+        required: true
       lighthouse:
         description: Whether what the pages Lighthouse measures are built from changed (web_lighthouse).
+        type: boolean
+        required: true
+      docker:
+        description: Whether what the Docker image is built from changed (web_docker).
         type: boolean
         required: true
 
@@ -29,6 +41,7 @@ jobs:
   # JavaScript every page loads and each page's own within their budgets.
   verify:
     name: Format, lint, types, unit tests, stories, build
+    if: inputs.verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -95,6 +108,7 @@ jobs:
   # Every page the tests visit also goes through axe (tests/e2e/axe.ts).
   e2e:
     name: End-to-end (Playwright, Chromium)
+    if: inputs.e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -177,6 +191,7 @@ jobs:
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
+    if: inputs.docker
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -208,11 +223,13 @@ jobs:
   # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed
   # file's), then the client bundle's size against main's (.github/actions/size-report). Both go
   # to the run's summary too, which is all a fork's pull request gets: its token can't comment.
-  # It can't fail the call, so a comment that can't post never holds up a merge.
+  # It can't fail the call, so a comment that can't post never holds up a merge. It needs one of
+  # the two: the coverage, which integration uploads whether or not its tests pass, or the sizes,
+  # which verify uploads when it gets that far.
   report:
     name: Coverage and size report
     needs: [verify, integration]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.integration.result != 'skipped' || needs.verify.result == 'success') }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10

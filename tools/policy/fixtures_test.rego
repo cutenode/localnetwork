@@ -2,7 +2,9 @@
 # to break one file at a time.
 package fixtures
 
-passed_step := {"if": "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped')) }}", "run": "exit 1"}
+passed_if := "always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped')))"
+
+passed_step := {"run": "exit 1"}
 
 base_step := {"id": "base", "uses": "./.github/actions/last-passed"}
 
@@ -15,7 +17,7 @@ workflow(on, name, filter) := {
 	"concurrency": {"group": name, "cancel-in-progress": true},
 	"jobs": {
 		"changes": {"steps": changes_steps(filter)},
-		"passed": {"name": name, "if": "always()", "needs": ["changes"], "steps": [passed_step]},
+		"passed": {"name": name, "if": passed_if, "needs": ["changes"], "steps": [passed_step]},
 	},
 }
 
@@ -66,7 +68,7 @@ repo := [
 			"changes": {"steps": changes_steps("run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n")},
 			"verify": {"needs": "changes"},
 			"e2e": {"needs": "changes", "uses": "./.github/workflows/site-e2e.yml", "permissions": {"contents": "read", "pull-requests": "write"}},
-			"passed": {"name": "Site CI passed", "if": "always()", "needs": ["changes", "verify", "e2e"], "steps": [passed_step]},
+			"passed": {"name": "Site CI passed", "if": passed_if, "needs": ["changes", "verify", "e2e"], "steps": [passed_step]},
 		},
 	}},
 	{"path": ".github/workflows/site-e2e.yml", "contents": {
@@ -76,7 +78,7 @@ repo := [
 			"report": {"needs": "test", "continue-on-error": true, "permissions": {"pull-requests": "write"}},
 		},
 	}},
-	{"path": ".github/workflows/rust.yml", "contents": workflow("pull_request", "Rust passed", "rust:\n  - 'crates/**'\n  - 'plugins/**'\n  - '!Cargo.lock'\n")},
+	{"path": ".github/workflows/rust.yml", "contents": workflow("pull_request", "Rust passed", "locallibrary:\n  - 'crates/**'\n  - 'plugins/**'\n  - 'lexicons/computer/localnetwork/dj/**'\n  - '!Cargo.lock'\n  - '!**/*.md'\n")},
 	{"path": ".github/workflows/deps.yml", "contents": workflow({"pull_request": {"branches": ["main"]}}, "Deps passed", "run:\n  - 'vendor/**'\n")},
 	{"path": ".github/workflows/lint.yml", "contents": workflow(["push", "pull_request"], "Lint passed", "run: '.github/**'\n")},
 	{"path": ".github/workflows/labels.yml", "contents": {"true": ["push"], "jobs": {"sync": {}}}},
@@ -99,6 +101,7 @@ repo := [
 	{"path": "lexicons/computer/localnetwork/toolPublishing.json", "contents": {"id": "computer.localnetwork.toolPublishing"}},
 	{"path": "lexicons/computer/localnetwork/dj/set.json", "contents": {"id": "computer.localnetwork.dj.set"}},
 	{"path": "lexicons/community/lexicon/location/address.json", "contents": {"id": "community.lexicon.location.address"}},
+	{"path": "/scratch/embedded-files.json", "contents": {"files": ["lexicons/computer/localnetwork/dj/set.json", "plugins/p/locallibrary-plugin.toml"]}},
 	{"path": "/scratch/tracked-files.json", "contents": {"files": ["apps/site/src/app.ts", "README.md", "crates/x/README.md", "docs/b.txt", "apps/tool/x.rs"]}},
 ]
 
