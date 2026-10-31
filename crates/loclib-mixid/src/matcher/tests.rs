@@ -144,6 +144,31 @@ fn a_pitch_ride_carries_on_where_a_cue_jump_jumps() {
     assert_eq!(skip.iter().map(|p| (p.fits.len(), p.jumps)).collect::<Vec<_>>(), [(2, 1)], "{skip:#?}");
 }
 
+/// The pitch fader ridden from +0% to +4% (pitch and all) 45 s into a track keeps the track in
+/// one chain, as each slice carries on from the last within a chain's tolerance. Its play has a
+/// line per speed, meeting where the fader moved, rather than one through both at their average.
+#[test]
+fn a_ridden_pitch_fader_gives_a_line_per_speed() {
+    let secs = |s: f64| (s * RATE as f64) as usize;
+    let x = synth(100.0, 7919);
+    let index = LibraryIndex::build(vec![(1, print(&x))]);
+    let mix = [&x[..secs(45.0)], &faster(&x[secs(45.0)..], 1.04)[..]].concat();
+    let (q, frames) = peaks(&mix, QUERY);
+    let found = find(&index, &q, frames, 0.08, None, &Ctx::silent()).unwrap();
+    let [f] = &found[..] else { panic!("{found:#?}") };
+    let speeds: Vec<(f64, f64, f64)> =
+        f.fits.iter().map(|l| (l.ratio, l.start / FRAMES_PER_SEC, l.end / FRAMES_PER_SEC)).collect();
+    let [(slow, _, knot), (fast, at, _)] = speeds[..] else { panic!("{speeds:?}") };
+    assert!((slow - 1.0).abs() < 0.002 && (fast - 1.04).abs() < 0.002, "{speeds:?}");
+    assert!((knot - 45.0).abs() < 2.0 && knot == at, "{speeds:?}");
+    let (slowest, fastest) = f.speed_range().expect("a ride");
+    assert!(slowest == slow && fastest == fast, "{speeds:?}");
+    assert_eq!(f.jumps, 0);
+    // Traced along each line at its own speed, it's heard all the way: at their average, at
+    // neither, the first 45 s fell to under a fifth of the clearest stretch.
+    assert!(f.presence.iter().all(|&p| p >= 0.4), "{:?}", f.presence);
+}
+
 /// `x` at the fingerprint rate as a library print.
 fn print(x: &[f32]) -> TrackPrint {
     TrackPrint { duration_secs: x.len() as f32 / RATE as f32, peaks: peaks(x, LIBRARY).0 }
@@ -569,6 +594,70 @@ fn a_track_heard_in_pieces_is_a_play_for_each_stretch(tc: TestCase) {
     let shapes: Vec<(usize, u32)> = found.iter().map(|f| (f.fits.len(), f.jumps)).collect();
     assert_eq!(shapes, expected, "{found:#?}");
     assert!(found.iter().all(|f| (f.tempo - speed).abs() <= tempo_error(f)), "{speed}: {found:#?}");
+}
+
+/// A track played at one speed for any length of time is one line however its anchors are
+/// rounded, a frame early here and there as onsets land: whole frames never tip it into a ride.
+#[hegel::test(test_cases = 150)]
+fn a_play_at_one_speed_is_never_split(tc: TestCase) {
+    let variants = fingerprint::variants(0.08);
+    let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
+    let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(300.0));
+    let at = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(300.0));
+    let speed = tc.draw(gs::floats::<f64>().min_value(0.93).max_value(1.07));
+    let mut early = tc.draw(gs::integers::<u32>().min_value(1)) | 1;
+    let mut c = chain_at(&variants, from, to, at, speed);
+    c.detections.retain(|d| !d.pairs.is_empty());
+    for p in c.detections.iter_mut().flat_map(|d| &mut d.pairs) {
+        early ^= early << 13;
+        early ^= early >> 17;
+        early ^= early << 5;
+        p.1 = p.1.saturating_sub(early & 1);
+    }
+    let found = plays(chain(c.detections, &variants), &variants);
+    let [f] = &found[..] else { panic!("{found:#?}") };
+    assert_eq!((f.fits.len(), f.speed_range()), (1, None), "{speed}: {f:#?}");
+}
+
+/// The pitch fader moved by 1% or more (either way, with half a minute or more at each speed) is
+/// found where it moved: two lines, each at its speed give or take what whole frames tip a line by,
+/// meeting where it changed give or take what whole frames move that by, and the play's speeds
+/// run between them.
+#[hegel::test(test_cases = 150)]
+fn a_change_of_speed_is_found_where_it_happened(tc: TestCase) {
+    let variants = fingerprint::variants(0.08);
+    let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
+    let knot = from + tc.draw(gs::floats::<f64>().min_value(30.0).max_value(120.0));
+    let to = knot + tc.draw(gs::floats::<f64>().min_value(30.0).max_value(120.0));
+    let at = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(200.0));
+    let before = tc.draw(gs::floats::<f64>().min_value(0.94).max_value(1.06));
+    let change = tc.draw(gs::floats::<f64>().min_value(0.01).max_value(0.04));
+    let after = if tc.draw(gs::booleans()) { before + change } else { before - change };
+    tc.assume((0.93..=1.07).contains(&after));
+    // `chain_at` leaves out the slice a line ends partway through: the one the speed changes in
+    // holds both lines' anchors either side of the change.
+    let slice = f64::from(SLICE) / FRAMES_PER_SEC;
+    let mut detections = chain_at(&variants, from, knot + slice, at, before).detections;
+    let change_at = (knot * FRAMES_PER_SEC) as u32;
+    for d in &mut detections {
+        d.pairs.retain(|p| p.0 < change_at);
+    }
+    for d in chain_at(&variants, knot, to, at + before * (knot - from), after).detections {
+        match detections.iter_mut().find(|x| x.slice == d.slice) {
+            Some(x) => x.pairs.extend(d.pairs),
+            None => detections.push(d),
+        }
+    }
+    detections.retain(|d| !d.pairs.is_empty());
+    let found = plays(chain(detections, &variants), &variants);
+    let [f] = &found[..] else { panic!("{found:#?}") };
+    let [a, b] = f.fits[..] else { panic!("{before} then {after} at {knot}: {f:#?}") };
+    let error = tempo_error(f);
+    assert!((a.ratio - before).abs() <= error && (b.ratio - after).abs() <= error, "{before} then {after}: {f:#?}");
+    // A frame's rounding either side moves where two lines meet by a frame over the change.
+    assert!((a.end - knot * FRAMES_PER_SEC).abs() <= 2.0 / change && a.end == b.start, "at {knot}: {f:#?}");
+    assert_eq!(f.speed_range(), Some((a.ratio.min(b.ratio), a.ratio.max(b.ratio))));
+    assert_eq!(f.jumps, 0);
 }
 
 /// What tells two detections apart, for comparing lists of them.
