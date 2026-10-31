@@ -128,7 +128,7 @@ impl Destination for StoreDestination {
         self.slot.call_giving(method::MANIFEST_PUT, &req, &given, &[], store, ctx, &|_| {}, |_: Value, _, _| Ok(()))
     }
 
-    /// A record is taken in as what the plugin answers is ([`super::process::printed`]), when
+    /// A record is taken in as what the plugin answers is (`process::printed`), when
     /// it's JSON, but a snapshot's: that's checked against its id, the hash of what the store
     /// wrote, once it's read.
     fn get_manifest(&self, name: &str, ctx: &Ctx<'_>) -> Result<Option<Vec<u8>>> {
