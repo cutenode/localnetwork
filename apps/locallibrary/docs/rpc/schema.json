@@ -30332,6 +30332,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "smart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SmartPlaylist"
+          },
+          "description": "Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),\nwhich `smart apply` keeps up to date: kept in the store once the export is applied."
         }
       },
       "required": [
@@ -30358,7 +30365,8 @@
         "needed_bytes",
         "free_space",
         "fits",
-        "warnings"
+        "warnings",
+        "smart"
       ]
     },
     "CollectionExportReport": {
