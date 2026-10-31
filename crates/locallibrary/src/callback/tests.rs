@@ -190,3 +190,49 @@ fn only_the_sign_ins_own_redirect_ends_the_wait(tc: TestCase) {
     let err = wait(&listener, timeout, &Ctx::silent(), |_| true).unwrap_err().to_string();
     assert!(err.contains(&format!("no answer from the browser within {}; sign in again", span(timeout))), "{err}");
 }
+
+/// Wait until a connection is in `listener`'s queue: `connect` can return before it gets there
+/// (on macOS, now and then).
+fn queued(listener: &TcpListener) {
+    use mio::{Events, Interest, Poll, Token};
+    let mut poll = Poll::new().unwrap();
+    let mut queue = mio::net::TcpListener::from_std(listener.try_clone().unwrap());
+    poll.registry().register(&mut queue, Token(0), Interest::READABLE).unwrap();
+    let mut events = Events::with_capacity(1);
+    poll.poll(&mut events, Some(Duration::from_secs(10))).unwrap();
+    assert!(!events.is_empty(), "the connection never reached the listener");
+}
+
+/// A browser that came back before the deadline is answered even if the wait only gets to run
+/// after it (a busy machine, a laptop asleep): the deadline turns nobody away who's already
+/// waiting. With nobody waiting, or only someone without the sign-in's state, it ends as usual.
+#[hegel::test(test_cases = 25)]
+fn a_browser_back_in_time_is_answered_after_the_deadline(tc: TestCase) {
+    let state = tc.draw(gs::text().alphabet("abcdefghijklmnopqrstuvwxyz0123456789").min_size(1).max_size(12));
+    let waiting = tc.draw(gs::booleans());
+    let matches = tc.draw(gs::booleans());
+    let sent = if matches { state.clone() } else { format!("x{state}") };
+    let query = format!("code=c0de&state={sent}");
+
+    let (listener, _) = bind(0).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // Connected and sent in full before the wait starts, with a deadline that has already passed.
+    let browser = waiting.then(|| {
+        let browser = send(port, "GET", &format!("{CALLBACK_PATH}?{query}"));
+        queued(&listener);
+        browser
+    });
+    let waited = wait(&listener, Duration::ZERO, &Ctx::silent(), |s| s == state);
+    if waiting && matches {
+        assert_eq!(waited.unwrap().query, CallbackQuery::parse(&query));
+        return;
+    }
+    let err = waited.unwrap_err().to_string();
+    assert!(err.contains("no answer from the browser within 0 seconds; sign in again"), "{err}");
+    // Closed, the listener resets a connection it never took rather than leaving it hanging.
+    drop(listener);
+    if let Some(browser) = browser {
+        let answer = answer_to(browser);
+        assert!(answer.starts_with("HTTP/1.1 400"), "{answer:?}");
+    }
+}

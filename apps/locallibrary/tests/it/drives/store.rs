@@ -172,6 +172,12 @@ fn the_store_says_what_it_holds() {
     env.ok(&["--yes", "store", "copy", path(&copy)]);
     let info = env.ok(&["--store", path(&copy), "store", "info"]);
     assert!(line(&info, "copy of").contains("store (as of "), "{info}");
+    // A change planned for the copy says the next copy to it refuses unless forced.
+    let planned = env.ok(&["--store", path(&copy), "players", "set", "cdj-3000", "--dry-run"]);
+    let said = format!("{} is a copy of the store at ", copy.display());
+    assert!(planned.contains(&said) && planned.contains("refuse unless forced (--force)"), "{planned}");
+    let here = env.ok(&["players", "set", "cdj-3000", "--dry-run"]);
+    assert!(!here.contains("is a copy of the store"), "{here}");
 
     // A damaged file and a missing one are found.
     let objects: Vec<PathBuf> = std::fs::read_dir(env.store.join("objects"))
