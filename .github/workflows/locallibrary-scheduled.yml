@@ -2,8 +2,9 @@ name: locallibrary scheduled
 
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
-# combination, Bombadil, mutation testing, fuzzing, the Hegel property tests on fresh inputs, the
-# CLI's timings against a week earlier and a release build of every target. Also a weekly RustSec check, which catches advisories published against
+# combination, formatting and ejecting disk images, Bombadil, mutation testing, fuzzing, the Hegel
+# property tests on fresh inputs, the CLI's timings against a week earlier and a release build of
+# every target. Also a weekly RustSec check, which catches advisories published against
 # Cargo.lock between pushes.
 on:
   schedule:
@@ -57,6 +58,38 @@ jobs:
       - run: cargo clippy -p locallibrary-cli --no-default-features --features tui,account --all-targets --locked -- -D warnings
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo hack clippy --workspace --feature-powerset --all-targets --locked -- -D warnings
+
+  # format::apply and eject on a real disk, on each system: each test creates a small disk image,
+  # attaches it (hdiutil, a loop device, a VHD), formats or ejects it, and detaches it
+  # (crates/locallibrary/src/format/tests/disk_image.rs). Without LOCALLIBRARY_DISK_IMAGE_TESTS they
+  # return at once, so no other run touches a device. losetup, sfdisk and mkfs need root on Linux,
+  # so the test binary runs under sudo as nextest's target runner; Windows runners are
+  # administrators already.
+  disk-images:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
+      # nextest's `ci` profile, as the features job has it.
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y dosfstools exfatprogs
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=sudo --preserve-env" >> "$GITHUB_ENV"
+      - run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
 
   # Bombadil explores the TUI and the mix report (property-based UI testing; see
   # apps/locallibrary/bombadil/).
@@ -444,7 +477,19 @@ jobs:
   # that passes closes it (scheduled-issue.yml).
   report:
     needs:
-      [advisories, features, bombadil, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
+      [
+        advisories,
+        features,
+        disk-images,
+        bombadil,
+        mutants,
+        fuzz,
+        hegel,
+        cli-timings,
+        release-plan,
+        release-build,
+        release-global,
+      ]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
