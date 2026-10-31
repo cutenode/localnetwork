@@ -190,3 +190,29 @@ fn an_export_writes_out_only_what_its_exporter_says(tc: hegel::TestCase) {
         _ => assert!(written.starts_with("#EXTM3U"), "{written}"),
     }
 }
+
+/// For any sizes an exporter says its files are, near `u64::MAX` or not: the plan sums them,
+/// and sizes adding up to more than a `u64` holds are the plugin misbehaving, not a panic or a
+/// total that wrapped. Regression: they were summed unchecked.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_exports_sizes_that_overflow_are_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::echo();
+    let size = hegel::one_of!(gs::integers::<u64>().min_value(u64::MAX - 1000), gs::integers::<u64>().max_value(1000));
+    let sizes: Vec<u64> = tc.draw(gs::vecs(size).min_size(1).max_size(4));
+    let out = f._dir.path().join("out");
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
+    let planned = f.plugins.export_plan("echo", "m3u", source, &out, json!({ "sizes": sizes }), None, &Ctx::silent());
+    match sizes.iter().try_fold(0u64, |sum, &n| sum.checked_add(n)) {
+        Some(total) => {
+            let planned = planned.unwrap();
+            let size = if total > 0 { format!(" ({})", locallibrary::op::bytes(total)) } else { String::new() };
+            let said = format!("write {} file(s){size} to {}", sizes.len(), out.display());
+            assert_eq!(planned.summary[0], said);
+        }
+        None => {
+            let said = format!("the Echo plugin failed: its files' sizes add up to more than {} bytes", u64::MAX);
+            assert_eq!(failure(planned.err().unwrap()), said);
+        }
+    }
+}

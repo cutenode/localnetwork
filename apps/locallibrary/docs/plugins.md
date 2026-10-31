@@ -547,10 +547,13 @@ rekordbox's collection are is left out, and any other path is said from its driv
 (`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
-answering is stopped, and started again the next time it's needed.
+answering is stopped, and started again the next time it's needed. What a plugin says (its
+manifest, its answers, its errors and what it tells you) is shown without control characters or
+terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's
+answer that's only text, which keep their lines).
 
 A plugin goes online through locallibrary, which fetches only from the servers its `net:`
-capabilities name (`plugin info` lists them), at public https addresses, following redirects only
+capabilities name (`plugin info` lists them), at public https addresses without a user name or password, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
 such a request names it (an account's token, only where its manifest says it goes), filled in by

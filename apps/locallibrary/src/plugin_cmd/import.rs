@@ -8,7 +8,6 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Args;
 use clap::builder::{PossibleValue, PossibleValuesParser};
-use locallibrary::Store;
 use locallibrary::op::Planned;
 use locallibrary::plugin::PluginImport;
 use locallibrary::progress::Ctx;
@@ -66,7 +65,7 @@ pub fn import(args: ImportArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
     let drive = crate::jobs_cmd::drive_or_default(args.drive, store_path, "import")?;
     // Sessions are kept in the store, made for them if there's none yet.
     let store = match importer.provides.contains(&ImportKind::Sessions) {
-        true => Some(Store::open_or_init(store_path.clone().unwrap_or_else(Store::default_root))?),
+        true => Some(crate::open_store(store_path)?),
         false => crate::diff_cmd::existing_store(store_path)?,
     };
     let plan = plugins.import_plan(plugin, &importer.format, &file, &drive, options, store.as_ref(), ctx)?;

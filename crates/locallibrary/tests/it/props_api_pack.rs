@@ -40,7 +40,7 @@ fn packing_for_the_players_remembered_plans_what_naming_them_does(tc: TestCase) 
     let main = source().write(&volumes.join("Main"));
     let club = common::blank(&volumes, "Club");
     api::players_set(&store, &SetPlayers { models: vec!["CDJ-3000".into()], library: None }).unwrap();
-    let plan = api::players_set_plan(&store, &SetPlayers { models: models.clone(), library: None }).unwrap();
+    let plan = api::players_set_plan(Some(&store), &SetPlayers { models: models.clone(), library: None }).unwrap();
     let instead = plan.summary[0].ends_with("(instead of CDJ-3000)");
     assert!(instead, "{:?}", plan.summary);
     plan.apply(Some(&store), &ctx).unwrap();
