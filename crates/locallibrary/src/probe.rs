@@ -5,7 +5,9 @@
 //! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. Reading a file's audio
 //! ([`format()`], [`check_tracks`], mix fingerprinting) and opening it to play happen inside
 //! [`guarded`], so one bad file is that file's error rather than a crash. The player catches a
-//! panic while decoding as it plays on its own audio thread.
+//! panic while decoding as it plays on its own audio thread. An MP4 claiming more than it holds
+//! would make symphonia abort the process, which nothing can catch: [`vet_container`] refuses it
+//! first.
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
@@ -21,6 +23,8 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
 
+/// For the player, which opens files through rodio rather than [`open`].
+pub use loclib_mixid::audio::vet_container;
 use loclib_mixid::audio::{CRASHED, open};
 use loclib_model::audio;
 

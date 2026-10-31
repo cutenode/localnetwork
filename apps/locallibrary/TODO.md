@@ -210,9 +210,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
-- [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
-      without overcommit and on Windows: symphonia-format-isomp4's `stsz.rs` sizes a `Vec` from
-      them (`TODO: Apply a limit`). File it upstream.
 - [ ] `provision` shows the format plan's warnings twice: in the format plan and again in its own
       `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
@@ -232,9 +229,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       CLI's `sets export` reads with `store_to_read`.
 - [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
       that `main.rs` and `drive_cmd.rs` add.
-- [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
-      size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
-      steers around the case.
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
