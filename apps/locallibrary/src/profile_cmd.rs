@@ -264,8 +264,8 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             update(store_path, PrefsUpdate { pin: vec![name], ..Default::default() }, out, &msg)?;
         }
         ProfileCommand::Unpin { query } => {
-            let store = open_store(store_path)?;
-            let name = find_entry(&ProfilePrefs::load(&store)?.pinned, &query, "pinned")?;
+            let pinned = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?.pinned;
+            let name = find_entry(&pinned, &query, "pinned")?;
             let msg = format!("unpinned {name}");
             update(store_path, PrefsUpdate { unpin: vec![name], ..Default::default() }, out, &msg)?;
         }
@@ -279,7 +279,7 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             update(store_path, PrefsUpdate { hide: vec![name], ..Default::default() }, out, &msg)?;
         }
         ProfileCommand::Unhide { query, artist } => {
-            let prefs = ProfilePrefs::load(&open_store(store_path)?)?;
+            let prefs = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?;
             let u = if artist {
                 PrefsUpdate {
                     unhide_artist: vec![find_entry(&prefs.hidden_artists, &query, "hidden")?],

@@ -222,7 +222,7 @@ fn remembered_players_and_drives_with_one_database() {
     let unknown = SetPlayers { models: vec!["CDJ-9999".into()], library: None };
     assert!(matches!(api::players_set(&store, &unknown), Err(Error::Invalid(_))));
     let clear = ClearPlayers { library: Some(library.name.clone()) };
-    let plan = api::players_clear_plan(&store, &clear).unwrap();
+    let plan = api::players_clear_plan(Some(&store), &clear).unwrap();
     assert_eq!((plan.from.as_slice(), plan.to.is_empty()), (&["CDJ-3000X".to_string(), "CDJ-3000".into()][..], true));
     // Remembered differently since the plan: it's stale.
     api::players_set(&store, &SetPlayers { models: vec!["CDJ-3000".into()], library: None }).unwrap();
@@ -230,7 +230,7 @@ fn remembered_players_and_drives_with_one_database() {
     let cleared = api::players_clear(&store, &clear).unwrap();
     assert!(cleared.libraries.is_empty());
     assert_eq!(cleared.default, ["CDJ-3000"]);
-    assert!(api::players_clear_plan(&store, &clear).unwrap().noop);
+    assert!(api::players_clear_plan(Some(&store), &clear).unwrap().noop);
 }
 
 #[test]

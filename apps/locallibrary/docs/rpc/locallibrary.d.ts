@@ -7764,6 +7764,7 @@ export type ProvisionPlan = {
   steps: string[];
   /** The format's plan, when formatting (its `identity` confirms the disk on apply). */
   format: FormatPlan | null;
+  /** Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both). */
   warnings: string[];
 };
 
