@@ -61,7 +61,7 @@ impl Plugins {
 
     /// The store destination `spec` names (`<plugin>:<destination>`), for copying the store to,
     /// and restoring and repairing from: in `store`, once its plugin's accounts will do (see
-    /// [`super::accounts::ready`]).
+    /// [`Plugins::unready`]).
     pub fn store_destination(&self, spec: &str, store: Option<&Store>) -> Result<StoreDestination> {
         let (slot, name) = self.destination(spec, DestinationKind::Store)?;
         if let Some(store) = store {
