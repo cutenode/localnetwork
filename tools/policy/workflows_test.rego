@@ -134,6 +134,40 @@ test_pull_request_only_needs_no_base if {
 	count(workflows.deny) == 0 with input as with_ci(pr_only)
 }
 
+e2e := fixtures.file(".github/workflows/site-e2e.yml")
+
+with_e2e(contents) := fixtures.with_file(".github/workflows/site-e2e.yml", contents)
+
+test_called_workflows if {
+	called := {path | some path, _ in workflows.called} with input as fixtures.repo
+	called == {".github/workflows/site-e2e.yml"}
+}
+
+test_called_workflow_with_concurrency if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/concurrency", "value": {"group": "${{ github.workflow }}", "cancel-in-progress": true}}])
+	".github/workflows/site-e2e.yml: remove its concurrency group; a call gets the calling workflow's, so it would cancel the run that called it" in workflows.deny with input as with_e2e(broken)
+}
+
+test_called_workflow_on_push if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/true/push", "value": {"branches": ["main"]}}])
+	".github/workflows/site-e2e.yml: remove `on.push`; the workflow that calls it already runs it then" in workflows.deny with input as with_e2e(broken)
+}
+
+test_called_report_can_fail_the_call if {
+	broken := json.remove(e2e, ["jobs/report/continue-on-error"])
+	".github/workflows/site-e2e.yml: give job \"report\" `continue-on-error: true`, or it fails the call when it fails" in workflows.deny with input as with_e2e(broken)
+}
+
+test_call_without_a_permission_its_jobs_ask_for if {
+	broken := json.remove(ci, ["jobs/e2e/permissions"])
+	".github/workflows/site-ci.yml: job \"e2e\" should grant `pull-requests: write`, which .github/workflows/site-e2e.yml's \"report\" job asks for" in workflows.deny with input as with_ci(broken)
+}
+
+test_call_granting_read_where_write_is_asked if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/e2e/permissions/pull-requests", "value": "read"}])
+	".github/workflows/site-ci.yml: job \"e2e\" should grant `pull-requests: write`, which .github/workflows/site-e2e.yml's \"report\" job asks for" in workflows.deny with input as with_ci(broken)
+}
+
 test_project_outside_every_filter if {
 	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": "run:\n  - 'apps/tool/**'\n"}])
 	denied := workflows.deny with input as with_ci(broken)

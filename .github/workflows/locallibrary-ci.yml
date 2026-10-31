@@ -1,25 +1,19 @@
 name: locallibrary CI
 
-# Pull requests and pushes to main that touch the Rust workspace run the quick checks. The slow
-# suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
-# release build) and a weekly advisory check are in locallibrary-scheduled.yml, and the benchmarks
-# in locallibrary-bench.yml. Changes to Markdown alone skip CI, except the crates' READMEs, which are
-# their crate docs and doctests (the paths are in the changes job).
+# The quick checks of the Rust workspace, which ci.yml calls when a pull request or push touches it.
+# The slow suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's
+# timings, a release build) and a weekly advisory check are in locallibrary-scheduled.yml, and the
+# benchmarks in locallibrary-bench.yml.
 on:
-  push:
-    branches: [main]
-  # The default types, and ready_for_review for a draft's first run (see the changes job).
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      semver:
+        description: Whether a pull request changed the loclib-* crates' code (ci.yml's locallibrary_semver paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
-
-# A new push cancels the run for the push before it. On main, the next run's changes job still
-# picks up what the cancelled run didn't finish.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,79 +23,8 @@ env:
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
 # install` with no arguments installs it, with clippy and rustfmt.
 jobs:
-  # Pushes and pull requests always start this workflow, so the passed job at the end always
-  # reports. The other jobs run only when the files listed here change.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything. A
-    # draft skips the work until it's marked ready for review, which leaves the runners to the
-    # pull requests about to merge. `draft` says it skipped work there was to do, for passed.
-    outputs:
-      run: ${{ steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
-      draft: ${{ steps.pr.outputs.draft == 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
-      semver: ${{ github.event_name == 'pull_request' && steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
-    steps:
-      # A pull request's files come from the API. A push is diffed against the last commit this
-      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
-      - if: github.event_name == 'push'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: github.event_name == 'push'
-        id: base
-        uses: ./.github/actions/last-passed
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          base: ${{ steps.base.outputs.sha }}
-          predicate-quantifier: some-with-excludes
-          filters: |
-            rust:
-              - 'apps/locallibrary/**'
-              - 'crates/**'
-              - 'plugins/**'
-              - 'vendor/**'
-              - 'packages/tokens/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'rustfmt.toml'
-              - 'clippy.toml'
-              - 'deny.toml'
-              - '.cargo/**'
-              - 'lexicons/**'
-              - '.github/workflows/locallibrary-*.yml'
-              - '!**/*.md'
-            readmes:
-              - 'crates/*/README.md'
-            semver:
-              - 'crates/loclib-*/**'
-              - 'Cargo.toml'
-              - '.github/workflows/locallibrary-ci.yml'
-              - '!crates/*/tests/**'
-              - '!crates/*/examples/**'
-              - '!**/*.md'
-      # Whether the pull request is a draft now, from the API. The event has the pull request as it
-      # was when the event was made: #211 was marked ready a second after a push, GitHub started a
-      # run for the push and none for ready_for_review, and the push's event still said draft. A
-      # re-run gets the same event, so only this lets one see that the pull request is ready.
-      - if: github.event_name == 'pull_request'
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          NUMBER: ${{ github.event.pull_request.number }}
-        run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
-
   # Every OS runs lint, and its tests (locallibrary-ci-os.yml).
   lint:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -130,8 +53,6 @@ jobs:
   # for every OS's build before any test started, so a macOS runner GitHub never gave #88 skipped
   # the Linux and Windows tests too.
   tests:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -144,8 +65,6 @@ jobs:
   # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
   # other combination.
   features:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -162,8 +81,6 @@ jobs:
   # Only the library and the CLI, what `cargo install` builds (with their default features): the
   # tests' dev-dependencies may need a newer Rust.
   msrv:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -181,8 +98,6 @@ jobs:
       - run: cargo +1.91 check --workspace --locked
 
   docs:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -202,8 +117,6 @@ jobs:
   # RustSec advisories, banned crates and where crates come from (see deny.toml).
   # locallibrary-scheduled.yml also checks advisories weekly, for ones published between pushes.
   deny:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -219,10 +132,10 @@ jobs:
   # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
   # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the
   # next version, not a gate: what broke goes to the run's summary and a warning, and the job
-  # passes either way. It isn't in `passed`'s needs, so a pull request never waits on it.
+  # can't fail the call.
   semver:
-    needs: changes
-    if: needs.changes.outputs.semver == 'true'
+    if: inputs.semver
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -285,12 +198,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The coverage summary from the Linux coverage job on the pull request, in one comment each push
-  # updates. A fork's pull request gets a read-only token, so its summary stays in the run's. Not
-  # one of passed's needs, so a comment that can't post never holds up a merge.
+  # updates. A fork's pull request gets a read-only token, so its summary stays in the run's. It
+  # can't fail the call, so a comment that can't post never holds up a merge.
   report:
     name: Coverage report
-    needs: [changes, tests]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
+    needs: tests
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -315,26 +229,3 @@ jobs:
           marker: <!-- locallibrary-ci coverage -->
           section: coverage
           body-path: rust-coverage/coverage.md
-
-  # The check the "Protect Main" ruleset requires: it fails if any job above but semver and report
-  # failed or was cancelled, and passes when they all passed or were skipped because nothing they
-  # check changed. A job skipped when changes found something to check didn't run because one it
-  # needs didn't finish: #88's macOS build was cancelled for want of a runner, which skipped test,
-  # coverage and hegel, and this still passed.
-  passed:
-    name: locallibrary CI passed
-    if: always()
-    needs: [changes, lint, tests, features, msrv, docs, deny]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - if: >-
-          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-          || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped'))
-        run: exit 1
-      # A draft's skipped jobs would pass too, and this check would stay green if marking it ready
-      # started no run, as with #211, which merged without its tests running.
-      - if: needs.changes.outputs.draft == 'true'
-        run: |
-          echo "::error title=Draft::Nothing ran because the pull request was a draft. Marking it ready for review starts a new run; if none started, re-run this one."
-          exit 1

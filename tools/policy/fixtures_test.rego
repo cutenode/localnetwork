@@ -65,7 +65,15 @@ repo := [
 		"jobs": {
 			"changes": {"steps": changes_steps("run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n")},
 			"verify": {"needs": "changes"},
-			"passed": {"name": "Site CI passed", "if": "always()", "needs": ["changes", "verify"], "steps": [passed_step]},
+			"e2e": {"needs": "changes", "uses": "./.github/workflows/site-e2e.yml", "permissions": {"contents": "read", "pull-requests": "write"}},
+			"passed": {"name": "Site CI passed", "if": "always()", "needs": ["changes", "verify", "e2e"], "steps": [passed_step]},
+		},
+	}},
+	{"path": ".github/workflows/site-e2e.yml", "contents": {
+		"true": {"workflow_call": null, "schedule": [{"cron": "0 5 * * 1"}]},
+		"jobs": {
+			"test": {"permissions": {"contents": "read"}},
+			"report": {"needs": "test", "continue-on-error": true, "permissions": {"pull-requests": "write"}},
 		},
 	}},
 	{"path": ".github/workflows/rust.yml", "contents": workflow("pull_request", "Rust passed", "rust:\n  - 'crates/**'\n  - 'plugins/**'\n  - '!Cargo.lock'\n")},
