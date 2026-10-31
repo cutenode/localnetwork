@@ -35,3 +35,14 @@ deny contains msg if {
 	not workflows.runs_on(workflows.triggers(wf), "merge_group")
 	msg := sprintf("%s: add `on.merge_group`; the merge queue waits for %q, which never reports otherwise", [path, wf.jobs.passed.name])
 }
+
+# The code scanning rule waits for CodeQL's analysis of each group's commit too.
+deny contains msg if {
+	some queue in rules
+	queue.type == "merge_queue"
+	some scanning in rules
+	scanning.type == "code_scanning"
+	wf := lib.file(".github/workflows/codeql.yml")
+	not workflows.runs_on(workflows.triggers(wf), "merge_group")
+	msg := ".github/workflows/codeql.yml: add `on.merge_group`; the code scanning rule holds each merge queue group until CodeQL analyses its commit"
+}

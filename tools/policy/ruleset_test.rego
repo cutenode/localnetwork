@@ -32,6 +32,28 @@ test_merge_queue_with_merge_group if {
 	}
 }
 
+scanning := {"type": "code_scanning", "parameters": {"code_scanning_tools": [{"tool": "CodeQL"}]}}
+
+codeql(on) := {"path": ".github/workflows/codeql.yml", "contents": {"true": on, "jobs": {"analyze": {}}}}
+
+with_queue_and_scanning(on) := array.concat(
+	fixtures.with_file(".github/rulesets/protect-main.json", json.patch(fixtures.file(".github/rulesets/protect-main.json"), [
+		{"op": "add", "path": "/rules/-", "value": queue},
+		{"op": "add", "path": "/rules/-", "value": scanning},
+	])),
+	[codeql(on)],
+)
+
+codeql_msg := ".github/workflows/codeql.yml: add `on.merge_group`; the code scanning rule holds each merge queue group until CodeQL analyses its commit"
+
+test_merge_queue_with_codeql_off_merge_groups if {
+	codeql_msg in ruleset.deny with input as with_queue_and_scanning({"pull_request": null})
+}
+
+test_merge_queue_with_codeql_on_merge_groups if {
+	not codeql_msg in ruleset.deny with input as with_queue_and_scanning({"pull_request": null, "merge_group": null})
+}
+
 test_required_check_never_reports if {
 	repo := fixtures.without_file(".github/workflows/deps.yml")
 	".github/rulesets/protect-main.json: no workflow reports \"Deps passed\", so nothing can merge" in ruleset.deny with input as repo
