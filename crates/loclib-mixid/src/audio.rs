@@ -9,7 +9,8 @@
 //!
 //! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. [`decode`] catches
 //! that, so one bad file is that file's error rather than a crash; a program that wants the
-//! panic's message kept off stderr installs its own panic hook around the call.
+//! panic's message kept off stderr installs its own panic hook around the call. An MP4 claiming
+//! huge sample counts would make it abort the process instead, so [`open`] checks those first.
 
 use std::f64::consts::PI;
 use std::fs::File;
@@ -32,8 +33,16 @@ use loclib_progress::{Cancelled, Ctx};
 
 use crate::{Error, Result};
 
+mod mp4;
+pub use mp4::vet_container;
+
 /// What a decoder that panicked on a file is reported as.
 pub const CRASHED: &str = "the decoder crashed on it";
+
+/// The highest sample rate a file may say it has: 768 kHz (16 times 48 kHz) is the top of what
+/// PCM converters offer. A header saying more is damaged or crafted, and resampling from it would
+/// take memory in proportion to the rate.
+pub const MAX_RATE: u32 = 768_000;
 
 /// Native format of a decoded file.
 #[derive(Debug, Clone, Copy, Default)]
@@ -46,8 +55,10 @@ pub struct SourceFormat {
 
 /// Open `path` and read its first audio track's format, refusing one no decoder can play.
 /// symphonia can panic in here on a malformed header: [`decode`] catches that, other callers
-/// catch it themselves.
+/// catch it themselves. An MP4 that would have it ask for more memory than the file could fill,
+/// an abort nothing can catch, is refused before it reads it ([`vet_container`]).
 pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
+    vet_container(path)?;
     let file = File::open(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -65,8 +76,8 @@ pub fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
         .cloned()
         .ok_or_else(|| Error::parse(path, "no audio track"))?;
     let p = &track.codec_params;
-    if p.sample_rate == Some(0) || p.channels.is_some_and(|c| c.count() == 0) {
-        return Err(Error::parse(path, "its header says 0 Hz or no channels"));
+    if p.sample_rate.is_some_and(|r| r == 0 || r > MAX_RATE) || p.channels.is_some_and(|c| c.count() == 0) {
+        return Err(Error::parse(path, "its header says 0 Hz, over 768 kHz or no channels"));
     }
     Ok((probed.format, track))
 }
@@ -86,9 +97,9 @@ pub enum Damaged {
 /// Decode `path` at its own rate and channel count, handing `sink` each packet's samples
 /// (interleaved, as `S`) with their rate and channel count, until it breaks. The one decode loop
 /// over symphonia every other decode here is made from: a file the decoder can't make sense of
-/// is an error, [`CRASHED`] when it panicked on it, and one that decodes to 0 Hz or no channels
-/// (an ALAC whose cookie says so) is refused rather than handed on. `ctx` is checked every 256
-/// packets. [`SourceFormat::duration_secs`] is what was decoded.
+/// is an error, [`CRASHED`] when it panicked on it, and one that decodes to 0 Hz, a rate over
+/// [`MAX_RATE`] or no channels (an ALAC whose cookie says so) is refused rather than handed on.
+/// `ctx` is checked every 256 packets. [`SourceFormat::duration_secs`] is what was decoded.
 pub fn decode_native<S, E, F>(
     path: &Path,
     damaged: Damaged,
@@ -166,10 +177,10 @@ where
         };
         let spec = *decoded.spec();
         let channels = spec.channels.count();
-        // A decoder can say 0 Hz or no channels where the container didn't (ALAC reads both
-        // from its own cookie): there's nothing to hand on.
-        if spec.rate == 0 || channels == 0 {
-            return Err(Error::parse(path, "it decodes to 0 Hz or no channels").into());
+        // A decoder can say 0 Hz, a rate past MAX_RATE or no channels where the container
+        // didn't (ALAC reads both from its own cookie): there's nothing to hand on.
+        if spec.rate == 0 || spec.rate > MAX_RATE || channels == 0 {
+            return Err(Error::parse(path, "it decodes to 0 Hz, over 768 kHz or no channels").into());
         }
         if buf.as_ref().is_none_or(|b| b.capacity() < decoded.capacity() * channels) {
             buf = Some(SampleBuffer::new(decoded.capacity() as u64, spec));
@@ -262,6 +273,10 @@ pub fn decode_until(
 const ZERO_CROSSINGS: f64 = 8.0;
 /// Kernel samples per input sample.
 const PHASES: f64 = 64.0;
+/// The most weights [`Resampler::phases`] holds in all (16 MiB of them). An odd rate such as
+/// 44,056 Hz to 11,025 Hz takes about 3 MB; between rates whose phases would take more, each
+/// output works its weights out again instead.
+const CACHED_WEIGHTS: u64 = 1 << 22;
 
 /// Streaming windowed-sinc resampler (mono). Positions are kept exactly, as whole `1/to`ths of
 /// an input sample: the output is the same to the bit however the input is chunked, and an
@@ -275,7 +290,8 @@ pub struct Resampler {
     table: Vec<f32>,
     /// The kernel's weights for an output `r` units past an input sample (`phases[r]`), one a
     /// tap from the first input it reaches: outputs `unit` apart share their taps' distances,
-    /// so each phase's weights are worked out once, the first time an output needs them.
+    /// so each phase's weights are worked out once, the first time an output needs them. Empty
+    /// when they'd come to more than [`CACHED_WEIGHTS`].
     phases: Vec<Vec<f32>>,
     /// Input not yet fully consumed; `pos` (in units) indexes into it.
     pending: Vec<f32>,
@@ -307,12 +323,15 @@ impl Resampler {
             .collect();
         let g = gcd(from, to);
         let (step, unit) = (u64::from(from / g), u64::from(to / g));
+        let half = (half * unit as f64) as u64;
+        // Each phase has at most `2 * half / unit + 2` taps.
+        let cached = 2 * (half + unit) <= CACHED_WEIGHTS;
         Resampler {
             step,
             unit,
-            half: (half * unit as f64) as u64,
+            half,
             table,
-            phases: vec![Vec::new(); unit as usize],
+            phases: vec![Vec::new(); if cached { unit as usize } else { 0 }],
             pending: Vec::new(),
             pos: 0,
             out: Vec::new(),
@@ -348,10 +367,18 @@ impl Resampler {
             let before = (self.half - r) / self.unit;
             let lo = at.saturating_sub(before);
             let hi = (at + (r + self.half) / self.unit).min(n as u64 - 1);
-            if self.phases[r as usize].is_empty() {
+            if self.phases.get(r as usize).is_some_and(Vec::is_empty) {
                 self.phases[r as usize] = self.weights(r);
             }
-            let weights = &self.phases[r as usize][(lo + before - at) as usize..];
+            let fresh;
+            let phase = match self.phases.get(r as usize) {
+                Some(cached) => cached,
+                None => {
+                    fresh = self.weights(r);
+                    &fresh
+                }
+            };
+            let weights = &phase[(lo + before - at) as usize..];
             let mut acc = 0.0f32;
             for (x, w) in self.pending[lo as usize..=hi as usize].iter().zip(weights) {
                 acc += x * w;
