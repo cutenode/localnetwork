@@ -15,6 +15,7 @@ mod imports;
 mod jobs;
 mod net;
 mod panels;
+mod printable;
 mod props;
 mod providers;
 mod roles;

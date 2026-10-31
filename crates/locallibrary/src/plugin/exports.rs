@@ -109,7 +109,9 @@ impl Plugins {
         let files: Vec<ExportFile> =
             files.into_iter().map(|file| ExportFile { exists: file.path.exists(), file }).collect();
         let overwrites = files.iter().filter(|f| f.exists).count();
-        let size: u64 = files.iter().map(|f| f.file.bytes).sum();
+        let size = files.iter().try_fold(0u64, |sum, f| sum.checked_add(f.file.bytes));
+        let size =
+            size.ok_or_else(|| slot.misbehaved(format!("its files' sizes add up to more than {} bytes", u64::MAX)))?;
         let size = if size > 0 { format!(" ({})", crate::op::bytes(size)) } else { String::new() };
         let mut summary = vec![format!("write {} file(s){size} to {}", files.len(), output.display())];
         if !counts.is_empty() {
