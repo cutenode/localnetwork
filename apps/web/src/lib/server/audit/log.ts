@@ -41,6 +41,8 @@ export const AUDIT_ACTIONS = [
 	'epk.grant',
 	'epk.decline',
 	'epk.revoke',
+	'epk.view',
+	'epk.forget',
 	'show.save',
 	'show.delete',
 	'follow.create',

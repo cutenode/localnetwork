@@ -11,6 +11,7 @@ import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
+import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
@@ -114,6 +115,7 @@ export async function createTestServices(
 		throw new Error(`no such handle ${identifier}`);
 	});
 
+	const epkViews = new EpkViews(core, epks, 90);
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const follows = new FollowService(core, directory, 0);
 
@@ -162,6 +164,7 @@ export async function createTestServices(
 		tracklists,
 		supports,
 		epks,
+		epkViews,
 		shows,
 		follows,
 		verifications,
