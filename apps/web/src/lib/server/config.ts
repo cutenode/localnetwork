@@ -79,6 +79,11 @@ const envSchema = z.object({
 	ALLOW_PRIVATE_NETWORK: booleanString,
 	AUDIT_MAX_ATTEMPTS: intString(12, 1, 100),
 	SESSION_DAYS: intString(30, 1, 365),
+	EMAIL_PROVIDER: z.enum(['resend', 'log', 'none']).optional(),
+	RESEND_API_KEY: z.string().min(1).optional(),
+	EMAIL_FROM: z.string().min(1).optional(),
+	DM_PROVIDER: z.enum(['bluesky', 'log', 'none']).optional(),
+	CHAT_SERVICE_DID: z.string().startsWith('did:').default('did:web:api.bsky.chat'),
 	...backupVariables
 });
 
@@ -106,6 +111,17 @@ export type Config = {
 	allowPrivateNetwork: boolean;
 	auditMaxAttempts: number;
 	sessionDays: number;
+	/**
+	 * How inbox items go out by email: Resend's API, the log (development, so nothing leaves the machine), or not at
+	 * all, in which case the settings page says email isn't set up here.
+	 */
+	email: { provider: 'resend'; apiKey: string; from: string } | { provider: 'log' | 'none'; from: string };
+	/**
+	 * How inbox items go out as Bluesky DMs from the root account: through Bluesky chat (`chatService`), the log
+	 * (development, which has no chat service), or not at all. Off in production until set, since Bluesky's relay and
+	 * AppView have to know the root account first.
+	 */
+	dm: { provider: 'bluesky' | 'log' | 'none'; chatService: string };
 	/** The bucket the database is backed up to each day. Unset, the app takes no backups. */
 	backup?: BackupSettings;
 };
@@ -122,6 +138,19 @@ export function serviceDidFor(publicUrl: string): string {
 	const host = loopback ? `localhost${url.port ? `:${url.port}` : ''}` : url.host;
 
 	return `did:web:${encodeURIComponent(host)}`;
+}
+
+function emailConfig(value: z.output<typeof envSchema>, dev: boolean): Config['email'] {
+	const provider = value.EMAIL_PROVIDER ?? (dev ? 'log' : value.RESEND_API_KEY ? 'resend' : 'none');
+	const from = value.EMAIL_FROM ?? `Local Network <inbox@${new URL(value.PUBLIC_URL).hostname}>`;
+
+	if (provider !== 'resend') return { provider, from };
+
+	if (!value.RESEND_API_KEY) {
+		throw new Error('Invalid configuration:\n  RESEND_API_KEY: set it to send email through Resend');
+	}
+
+	return { provider, apiKey: value.RESEND_API_KEY, from };
 }
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -164,6 +193,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
 		sessionDays: value.SESSION_DAYS,
+		email: emailConfig(value, dev),
+		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID },
 		backup: backupSettings(value)
 	};
 }

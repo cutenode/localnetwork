@@ -471,6 +471,9 @@ importers:
       cloudflare:
         specifier: ^7.3.0
         version: 7.3.0
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
       knip:
         specifier: ^6.39.0
         version: 6.41.0

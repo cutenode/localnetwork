@@ -65,7 +65,7 @@ fn phases(events: &[Event]) -> Vec<u64> {
 /// through Local Network's token exchange at a fixed port, sending the token as `OAuth`, and
 /// keeps who can listen, the genre and the artwork as settings.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_soundcloud() {
+fn the_manifest_is_a_built_in_set_destination_on_soundcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     assert_eq!(manifest.capabilities, [Capability::Net("api.soundcloud.com".into())]);

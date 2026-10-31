@@ -32,6 +32,7 @@ const viewer: Viewer = {
 const data = {
 	viewer,
 	pendingRequests: 0,
+	unread: 0,
 	projects: Promise.resolve([project]),
 	project,
 	isNew: true,

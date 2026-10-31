@@ -115,7 +115,7 @@ fn drive() -> Library {
 /// Only plugins locallibrary ships have a top-level command; removing tracks needs
 /// `library:delete`.
 #[test]
-fn the_manifest_is_a_first_party_one_with_a_check_and_a_destructive_operation() {
+fn the_manifest_is_a_built_in_one_with_a_check_and_a_destructive_operation() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     assert!(manifest.validate(true).is_ok());
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");

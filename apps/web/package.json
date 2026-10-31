@@ -6,7 +6,8 @@
 	"license": "MIT",
 	"type": "module",
 	"imports": {
-		"#lib/*": "./src/lib/*"
+		"#lib/*": "./src/lib/*",
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",
@@ -87,6 +88,7 @@
 		"@vitest/browser-playwright": "^5.0.3",
 		"@vitest/coverage-v8": "^5.0.3",
 		"cloudflare": "^7.3.0",
+		"fast-check": "^4.10.2",
 		"knip": "^6.39.0",
 		"marked": "^18.1.0",
 		"marked-gfm-heading-id": "^4.1.4",

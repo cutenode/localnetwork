@@ -663,6 +663,7 @@ fn recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
             );
         }
         None => assert!(!embedded && guess.is_none(), "{guess:?}"),
+        Some(CoverSource::Given(p)) => panic!("only `mix --cover` gives a cover: {p:?}"),
     }
 }
 
@@ -781,4 +782,19 @@ fn a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
     let gaps: Vec<(f64, f64)> = r.unidentified.iter().map(|s| (s.start, s.end)).collect();
     let want = if secs >= 30 { vec![(0.0, secs as f64)] } else { Vec::new() };
     assert_eq!(gaps, want);
+}
+
+/// The website reads the blend threshold from packages/tokens/mix.json; the player, the HTML
+/// report and published sets use [`BLEND_SECS`]. A packaged crate has no repository around it.
+#[test]
+fn blends_are_called_as_the_website_calls_them() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/tokens/mix.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        eprintln!("skipped: {} isn't here", path.display());
+        return;
+    };
+    let terms: serde_json::Value = serde_json::from_str(&text).expect("mix.json is JSON");
+    assert_eq!(terms["blendSecs"].as_f64(), Some(BLEND_SECS));
+    let at = |overlap| Transition { from: 0, to: 1, at: 0.0, overlap, harmony: None, tempo_change: None };
+    assert!(at(BLEND_SECS).is_blend() && !at(BLEND_SECS - 0.1).is_blend());
 }

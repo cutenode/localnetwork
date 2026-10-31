@@ -913,6 +913,25 @@ pub fn settings_apply(reports: &IndexMap<String, ApplyReport>) {
     }
 }
 
+/// What importing a settings file does with each of its values that isn't as it is here: `+`
+/// added, `~` replaced, `=` kept as it is here.
+pub fn settings_file_changes(changes: &[settings::transfer::Change]) {
+    use settings::transfer::Action;
+    let shown = |v: &serde_json::Value| v.as_str().map_or_else(|| v.to_string(), str::to_string);
+    for c in changes {
+        let path = c.path.join(".");
+        let current = c.current.as_ref().map_or_else(|| "(not set)".into(), shown);
+        match c.action {
+            Action::Add if c.current.is_some() => say!("  {} {path}: adds {}", style("+").green(), shown(&c.imported)),
+            Action::Add => say!("  {} {path} = {}", style("+").green(), shown(&c.imported)),
+            Action::Replace => say!("  {} {path}: {current} → {}", style("~").yellow(), shown(&c.imported)),
+            Action::Keep => {
+                say!("  {} {path}: {current} {}", dim("="), dim(format!("(the file has {})", shown(&c.imported))))
+            }
+        }
+    }
+}
+
 fn verdict_mark(c: &Compatibility) -> console::StyledObject<String> {
     match c.verdict {
         Verdict::AllPlayers => style(format!("✓ {}", c.summary)).green(),

@@ -24,6 +24,9 @@ while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
+# Cargo.lock under a name conftest parses as TOML, for the policy that the dev profile keeps its
+# entries for the crates still in it.
+cp Cargo.lock "$scratch/Cargo.lock.toml"
 # .railway/railway.ts type-checks against the railway SDK, so a field it doesn't take fails here
 # rather than surprising `railway config apply`. Then the project as the SDK evaluates it, for the
 # railway policy.
@@ -45,4 +48,4 @@ if [ -n "$uncovered" ]; then
   echo "$uncovered"
   exit 1
 fi
-run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/railway-project.json
+run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/Cargo.lock.toml /scratch/railway-project.json

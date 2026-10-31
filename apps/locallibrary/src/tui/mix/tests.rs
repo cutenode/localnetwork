@@ -767,7 +767,7 @@ fn only_phrases_that_end_after_they_start_are_drawn() {
     let spans: Vec<(f64, f64)> = phrase_spans(&a, 10_000.0).into_iter().map(|s| (s.0, s.1)).collect();
     assert_eq!(spans, [(1000.0, 3000.0)]);
 }
-/// A cut, a plain gap, a track pitched without key lock and one with no key, alternates on
+/// A quick mix, a plain gap, a track pitched without key lock and one with no key, alternates on
 /// the drive, a cover: each is drawn as the set's report says it.
 #[test]
 fn every_kind_of_handoff_and_track_is_drawn() {
@@ -800,7 +800,7 @@ fn every_kind_of_handoff_and_track_is_drawn() {
 
     let screen = render(&mut t, &quiet(), 160, 60);
     for said in [
-        "↓ cut",
+        "↓ quick mix",
         "1:15 gap",
         "pitched -1.0 semitones",
         "Hessle Audio · Techno",
@@ -1177,8 +1177,8 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
 }
 
 /// The selected play is drawn as the set's report says it went, whatever that was: how it came in
-/// and went out (a blend, a cut, a gap) and the tempo then, its label and genre, played with key
-/// lock or pitched, its jumps, how sure the match is, the other tracks on the drive it may be,
+/// and went out (a blend, a quick mix, a gap) and the tempo then, its label and genre, played with
+/// key lock or pitched, its jumps, how sure the match is, the other tracks on the drive it may be,
 /// whether its key is known; with its waveform, cues and phrases from the drive, and the set's
 /// cover beside the title.
 #[hegel::test(test_cases = 60)]
@@ -1239,8 +1239,8 @@ fn a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
     let screen = render(&mut t, &Context { playhead, ..quiet() }, 160, 60);
     let mut want: Vec<String> = Vec::new();
     want.push(match overlap {
-        o if o >= 1.0 => format!("{} blend", secs(o)),
-        o if o > -1.0 => "cut".into(),
+        o if o >= locallibrary::mix::BLEND_SECS => format!("{} blend", secs(o)),
+        o if o > -1.0 => "quick mix".into(),
         o => format!("{} gap", secs(-o)),
     });
     match p.key_lock {
