@@ -6,6 +6,7 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
+import { Notifier } from '../notifications/notifier';
 import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
@@ -57,6 +58,8 @@ export async function createTestServices(
 		maxAttempts: 3
 	});
 
+	const notifications = new Notifier({ db, logger: silentLogger });
+
 	const core: Core = {
 		db,
 		logger: silentLogger,
@@ -67,6 +70,7 @@ export async function createTestServices(
 		userClient: async (did) => (capable.has(did) ? net.client(did) : null),
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
 			const blob = net.blobs.get(cid);
@@ -148,6 +152,7 @@ export async function createTestServices(
 		core,
 		audit,
 		accounts,
+		notifications,
 		projects,
 		requests,
 		staff,

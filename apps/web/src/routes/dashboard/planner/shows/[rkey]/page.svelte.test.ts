@@ -36,6 +36,7 @@ const show = {
 const data = {
 	viewer: null,
 	pendingRequests: 0,
+	unread: 0,
 	projects: { [neon.uri]: neon, [unclaimed.uri]: unclaimed },
 	saves: [],
 	show,

@@ -16,9 +16,9 @@ use std::path::Path;
 
 use chrono::{NaiveDate, Utc};
 use locallibrary::Track;
-use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetRef, SetSettings};
 use locallibrary::atmosphere;
-use locallibrary::atmosphere::lexicon::{self, PROFILE, SET, SETTINGS};
+use locallibrary::atmosphere::lexicon::{self, PROFILE, RECORDING, SET, SETTINGS};
 use locallibrary::error::Reason;
 use locallibrary::mix::{Transition, report};
 use locallibrary::profile::PrefsUpdate;
@@ -33,6 +33,7 @@ use sha2::Digest;
 use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
+const DELETE: &str = "com.atproto.repo.deleteRecord";
 /// How a record is read: from the directory, never from a data server.
 const GET: &str = "computer.localnetwork.directory.getRecords";
 const PDS_GET: &str = "com.atproto.repo.getRecord";
@@ -595,6 +596,93 @@ fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
     published_by_plays_publish(&other, "did:plc:someoneelse");
     let set = save_set(&other, "3m2abcdefgh22", &[SESSION]);
     assert_eq!(api::set_publish_plan(&other, &publish_set(&set.id)).unwrap().rkey, set.id);
+}
+
+/// Deleting a published set deletes its record and its recording's from the account too, in
+/// DPoP-bound `deleteRecord`s of whatever version is there, the set's first (so it never points at
+/// a recording that's gone), before the set: when the session may not delete them or the server
+/// refuses, the set stays. A set that isn't published, or deleted signed out, sends nothing.
+#[test]
+fn deleting_a_published_set_deletes_its_record_and_recording() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let id = "3m2abcdefgh22";
+    let by_id = |id: &str| SetRef { set: Some(id.into()), venue: None };
+    let left = |root: &Path| -> Vec<String> {
+        SetBook::load(&Store::open(root).unwrap()).unwrap().sets.into_iter().map(|s| s.id).collect()
+    };
+    // Its recording, as `sets upload` publishes it under the set's key.
+    let recording = json!({
+        "$type": RECORDING,
+        "audio": { "$type": "blob", "ref": { "$link": PLYR_TRACK_CID }, "mimeType": "audio/mpeg", "size": 1 },
+        "createdAt": "2026-10-05T00:00:00.000Z",
+    });
+    // Granted create and update only, as the permission set was before it took delete.
+    let mut without_delete = PUBLISHING.to_string();
+    for c in [SET, RECORDING] {
+        without_delete =
+            without_delete.replace(&format!("repo:{c} "), &format!("repo:{c}?action=create&action=update "));
+    }
+    sign_in(&root, &pds.url, &without_delete, LATER, Some("refresh-1"));
+    save_set(&root, id, &[]);
+    save_set(&root, "3m2zzzzzzzz22", &[]);
+    api::set_publish_apply(&root, &publish_set(id)).unwrap();
+    pds.put(DID, RECORDING, id, recording.clone());
+    let uris = [format!("at://{DID}/{SET}/{id}"), format!("at://{DID}/{RECORDING}/{id}")];
+    assert_eq!(api::set_published_uris(&root, id).unwrap(), uris);
+    assert!(api::set_published_uris(&root, "3m2zzzzzzzz22").unwrap().is_empty());
+    let store = Store::open(&root).unwrap();
+    let on_account = |c: &str| pds.record(DID, c, id).is_some();
+
+    let err = api::set_delete(&store, &by_id(id)).unwrap_err();
+    assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}");
+    assert!(err.to_string().contains("sign in again, allowing publishing"), "{err}");
+    assert!(pds.calls(DELETE).is_empty(), "stopped before the server");
+    assert!(on_account(SET) && on_account(RECORDING) && left(&root).contains(&id.to_string()));
+
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-2"));
+    pds.set_writes(Writes::RefuseToken);
+    let err = api::set_delete(&store, &by_id(id)).unwrap_err();
+    assert_eq!(err.reason(), Some(Reason::SessionEnded), "{err}");
+    assert!(on_account(SET) && on_account(RECORDING) && left(&root).contains(&id.to_string()));
+
+    pds.set_writes(Writes::Accept);
+    let before = pds.calls(DELETE).len();
+    assert_eq!(api::set_delete(&store, &by_id(id)).unwrap().id, id);
+    for c in [SET, RECORDING] {
+        assert!(!on_account(c) && pds.indexed(DID, c, id).is_none(), "{c} is gone");
+    }
+    assert_eq!(left(&root), ["3m2zzzzzzzz22"]);
+    let deleted: Vec<Value> = pds.calls(DELETE)[before..]
+        .iter()
+        .filter(|d| d.dpop().unwrap().1["nonce"] == "nonce-1")
+        .inspect(|d| assert_eq!(d.header("authorization"), Some("DPoP access-token")))
+        .map(|d| d.json())
+        .collect();
+    let body = |c: &str| json!({ "repo": DID, "collection": c, "rkey": id });
+    assert_eq!(deleted, [body(SET), body(RECORDING)], "whatever version is there, the set's first");
+    assert!(api::set_published_uris(&root, id).unwrap().is_empty());
+
+    // Never published: deleted here alone.
+    let before = pds.requests().len();
+    api::set_delete(&store, &by_id("3m2zzzzzzzz22")).unwrap();
+    assert!(pds.requests()[before..].iter().all(|r| r.path != format!("/xrpc/{DELETE}")));
+
+    // A recording published without the set's record: it goes too.
+    save_set(&root, id, &[]);
+    pds.put(DID, RECORDING, id, recording);
+    api::set_delete(&store, &by_id(id)).unwrap();
+    assert!(!on_account(RECORDING) && left(&root).is_empty());
+
+    // Signed out, nothing is asked: the set goes, and a record published from it stays.
+    save_set(&root, id, &[]);
+    api::set_publish_apply(&root, &publish_set(id)).unwrap();
+    atmosphere::logout(&root).unwrap();
+    let before = pds.requests().len();
+    api::set_delete(&store, &by_id(id)).unwrap();
+    assert_eq!(pds.requests().len(), before);
+    assert!(on_account(SET) && left(&root).is_empty());
 }
 
 #[test]

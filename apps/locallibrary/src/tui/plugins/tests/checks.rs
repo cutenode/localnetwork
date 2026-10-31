@@ -139,10 +139,12 @@ fn only_the_fixes_a_plugin_can_make_are_offered_and_planned(tc: hegel::TestCase)
         let plugin = tc.draw(gs::sampled_from(vec!["echo", "echo", "nope"]));
         let operation = tc.draw(gs::sampled_from(vec!["playlist", "playlist", "nope"]));
         let name = tc.draw(gs::sampled_from(vec!["Untitled", "Friday"]));
-        let fix = tc.draw(gs::booleans()).then(|| Fix {
-            plugin: plugin.into(),
-            operation: operation.into(),
-            params: json!({ "name": name }),
+        let fix = tc.draw(gs::booleans()).then(|| {
+            Fix::Plugin(PluginFix {
+                plugin: plugin.into(),
+                operation: operation.into(),
+                params: json!({ "name": name }),
+            })
         });
         let message = format!("finding {n}");
         if fix.is_some() && plugin == "echo" && operation == "playlist" {
