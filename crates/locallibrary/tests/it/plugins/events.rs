@@ -14,7 +14,7 @@ use serde_json::json;
 use super::*;
 
 /// The echo plugin's manifest, listening for `on` (granted).
-fn listening(on: &[&str]) -> String {
+pub(super) fn listening(on: &[&str]) -> String {
     let events: Vec<String> = on.iter().map(|e| format!("{e:?}")).collect();
     format!(
         "{}\n[[contributes.events]]\non = [{}]\n",
@@ -24,7 +24,10 @@ fn listening(on: &[&str]) -> String {
 }
 
 /// The plugins `specs` makes, and what they tell the user.
-fn told(specs: impl FnOnce(&Path) -> Vec<PluginSpec>, options: Options) -> (Fixture, Arc<Mutex<Vec<PluginNotice>>>) {
+pub(super) fn told(
+    specs: impl FnOnce(&Path) -> Vec<PluginSpec>,
+    options: Options,
+) -> (Fixture, Arc<Mutex<Vec<PluginNotice>>>) {
     let notices = Arc::new(Mutex::new(Vec::new()));
     let kept = notices.clone();
     let options = Options { notices: Arc::new(move |n| kept.lock().unwrap().push(n)), ..options };
@@ -183,7 +186,7 @@ fn what_a_plugin_tells_the_user_is_a_short_line() {
     let notices = notices.lock().unwrap().clone();
     let said: Vec<(&str, bool)> = notices[..2].iter().map(|n| (n.message.as_str(), n.suggests.is_some())).collect();
     assert_eq!(said, [("not an object", false), ("too long", false)]);
-    assert!(notices[2].message.starts_with("aredline xxx"));
+    assert!(notices[2].message.starts_with("ared line xxx"), "a newline is a space");
     assert_eq!(notices[2].message.chars().count(), 500);
     let logs = f.logs.lock().unwrap().clone();
     for refused in [

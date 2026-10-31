@@ -71,7 +71,7 @@ fn remembered_players_follow_a_model(tc: TestCase) {
                     v
                 });
             let req = SetPlayers { models: names.clone(), library: library.map(String::from) };
-            let planned = api::players_set_plan(&store, &req);
+            let planned = api::players_set_plan(Some(&store), &req);
             match (&canonical, known) {
                 (Some(models), true) if !models.is_empty() => {
                     let p = planned.unwrap();
@@ -104,7 +104,7 @@ fn remembered_players_follow_a_model(tc: TestCase) {
             }
         } else {
             let req = ClearPlayers { library: library.map(String::from) };
-            let planned = api::players_clear_plan(&store, &req);
+            let planned = api::players_clear_plan(Some(&store), &req);
             if !known {
                 assert_eq!(planned.unwrap_err().reason(), Some(Reason::UnknownLibrary));
                 Err(())

@@ -391,3 +391,42 @@ fn the_disk_holding_the_store_is_listed_as_not_to_be_formatted(tc: hegel::TestCa
     let holds = format!("it holds {}", store.root().display());
     assert_eq!(listed[0].problem, store_on_it.then_some(holds));
 }
+
+/// Regression: `provision --format` showed each of the format's warnings twice, in the format's
+/// plan and again in its own.
+#[test]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the sample disk isn't there"
+)]
+fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
+    crate::format::THREAD_OS.with(|o| o.set(Some("linux")));
+    let format = plan_format(store.root(), crate::format::tests::sample_disk(), &req, &Ctx::silent());
+    crate::format::THREAD_OS.with(|o| o.set(None));
+    let untested = "formatting hasn't been tested on Linux yet; check the result";
+    // Copied from a drive, as the store has no library to write.
+    let main = dir.path().join("Main");
+    std::fs::create_dir(&main).unwrap();
+    let req = ProvisionRequest {
+        target: "disk4".into(),
+        like: Some(main.display().to_string()),
+        library: None,
+        name: None,
+        format: true,
+        format_options: FormatOptions::default(),
+        role: None,
+        player_name: None,
+        player_colour: None,
+        settings: false,
+        verify: false,
+        eject: false,
+    };
+    let plan = drives::plan_provision(&store, &req, Some(format.unwrap())).unwrap();
+    let once = |w: &[String]| w.iter().filter(|w| *w == untested).count() == 1;
+    assert!(once(&plan.format.as_ref().unwrap().warnings), "{:?}", plan.format);
+    assert!(plan.plan.warnings.is_empty(), "its own: {:?}", plan.plan.warnings);
+    assert!(once(&plan.warnings), "every warning, once: {:?}", plan.warnings);
+}

@@ -295,7 +295,8 @@ fn a_guard_sees_the_edits_of_a_plan_kept_out_of_the_journal() {
 }
 
 /// What a check says is shown as it's safe to: without control characters or secrets, and cut
-/// short past a line; a file it names with a control character in it is no file on the drive.
+/// short past a line; a file it names with a control character in it is the file it names as it
+/// prints.
 #[test]
 fn what_a_check_says_is_printable_and_bounded() {
     let f = Fixture::checks(&["echo"]);
@@ -305,15 +306,17 @@ fn what_a_check_says_is_printable_and_bounded() {
     f.find("echo", json!({ "findings": [shown, { "level": "info", "message": long }] }));
     let items = f.run_checks();
     let mine: Vec<&CheckItem> = items.iter().filter(|i| i.check == "echo.found").collect();
-    assert_eq!((mine[0].message.as_str(), mine[0].playlist.as_deref()), ("red", Some("Sets/Friday")));
+    assert_eq!(
+        (mine[0].message.as_str(), mine[0].playlist.as_deref()),
+        ("red ", Some("Sets/Friday")),
+        "a newline is a space"
+    );
     assert_eq!(mine[1].message, format!("{}...", "a".repeat(500)));
     let path = json!({ "level": "info", "message": "m", "paths": ["Contents/\u{1b}[2Ja.mp3"] });
     f.find("echo", json!({ "findings": [path] }));
-    let found = f.found();
-    let warning = found.iter().find(|(c, ..)| c == "echo.found").expect("a warning");
-    assert_eq!(warning.1, Level::Warning);
-    assert!(warning.2.ends_with("which isn't a file on the drive"), "{}", warning.2);
-    assert!(!warning.2.contains('\u{1b}'), "{}", warning.2);
+    let items = f.run_checks();
+    let named = items.iter().find(|i| i.check == "echo.found").expect("a finding");
+    assert_eq!((named.level, named.paths.clone()), (Level::Info, vec!["Contents/a.mp3".to_string()]));
 }
 
 /// A finding a check might answer, valid or not: its JSON, and whether the host keeps it.

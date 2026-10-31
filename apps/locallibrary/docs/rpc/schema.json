@@ -29932,7 +29932,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both)."
         }
       },
       "required": [
