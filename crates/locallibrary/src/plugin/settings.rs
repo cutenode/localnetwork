@@ -1,7 +1,8 @@
 //! Plugins' settings, kept in the store (`<store>/plugins/<id>/settings.json`) and handed to
 //! each hook in its context; secret ones are kept apart (see [`super::secrets`]). Beside them, a
-//! switch for each of a plugin's services (`services.<name>`), which no hook is given. And the
-//! host's own settings for plugins, beside their folders.
+//! switch for each of a plugin's services (`services.<name>`) and the player's key for each of its
+//! commands and operations (`keys.<name>`), which no hook is given. And the host's own settings
+//! for plugins, beside their folders.
 
 use std::path::{Path, PathBuf};
 
@@ -10,7 +11,7 @@ use loclib_plugin::{Setting, SettingType};
 use serde_json::Value;
 
 use super::process::Plugin;
-use super::{Plugins, SERVICES};
+use super::{KEYS, Plugins, SERVICES};
 use crate::error::IoContext;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
@@ -80,16 +81,26 @@ impl Plugin {
     }
 
     /// Its settings, then a switch for each service, `services.<name>` (off until it's turned
-    /// on): what a user sets.
+    /// on), then the player's key for each command and operation, `keys.<name>` (none until one
+    /// is set; the player checks it): what a user sets.
     fn listed(&self) -> Vec<Setting> {
-        let services = self.manifest.contributes.services.iter().map(|s| Setting {
+        let c = &self.manifest.contributes;
+        let services = c.services.iter().map(|s| Setting {
             key: format!("{SERVICES}{}", s.name),
             title: format!("{}: keep it running", s.title),
             kind: SettingType::Boolean,
             default: Some(Value::Bool(false)),
             choices: Vec::new(),
         });
-        self.manifest.contributes.settings.iter().cloned().chain(services).collect()
+        let hooks = c.commands.iter().map(|x| (&x.name, &x.title));
+        let keys = hooks.chain(c.operations.iter().map(|x| (&x.name, &x.title))).map(|(name, title)| Setting {
+            key: format!("{KEYS}{name}"),
+            title: format!("{title}: its key in the player"),
+            kind: SettingType::String,
+            default: None,
+            choices: Vec::new(),
+        });
+        c.settings.iter().cloned().chain(services).chain(keys).collect()
     }
 
     /// The values of `settings`, by key: each one set (when what's kept still fits it), else
@@ -112,7 +123,8 @@ impl Plugin {
 
 impl Plugins {
     /// A plugin's settings, as its hooks get them, then whether each of its services is on
-    /// (`services.<name>`): each one set (when what's kept still fits it), else its default, and
+    /// (`services.<name>`) and the player's key for each command and operation set
+    /// (`keys.<name>`): each one set (when what's kept still fits it), else its default, and
     /// never a secret (see [`Plugins::secrets`]). Without a store, or one whose file for them
     /// can't be read, the defaults.
     pub fn settings(&self, plugin: &str, store: Option<&Store>) -> Result<IndexMap<String, Value>> {
@@ -121,7 +133,8 @@ impl Plugins {
     }
 
     /// What a user sets of a plugin's: its settings, then a switch for each of its services
-    /// (`services.<name>`, a boolean, off unless they turn it on).
+    /// (`services.<name>`, a boolean, off unless they turn it on), then the player's key for each
+    /// of its commands and operations (`keys.<name>`, text, none unless they set one).
     pub fn setting_list(&self, plugin: &str) -> Result<Vec<Setting>> {
         Ok(self.slot(plugin)?.listed())
     }

@@ -14,7 +14,7 @@ use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
 use crate::output::{self, Outcome, Output, dim};
-use crate::{DRIVE_HELP, SyncFlags, open_store, render};
+use crate::{DRIVE_HELP, SyncFlags, render};
 
 /// `library`: with no subcommand, the libraries; with a library, its snapshot history.
 #[derive(Args)]
@@ -132,13 +132,15 @@ pub fn run(args: LibraryArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             return out.one_step(
                 &change,
                 "Rename it?",
-                || Ok(api::library_rename(&open_store(store_path)?, &req)?),
+                || Ok(api::library_rename(&crate::diff_cmd::store_to_read(store_path)?, &req)?),
                 |l| output::ok(format!("{library} is now {}", l.name)),
             );
         }
         LibraryCommand::Log(a) => return log(a, &crate::diff_cmd::store_to_read(store_path)?, out),
         LibraryCommand::Push(a) => return push(a, store_path, out, ctx),
-        LibraryCommand::Prune(a) => return crate::store_cmd::prune(&open_store(store_path)?, a.options(), out, ctx),
+        LibraryCommand::Prune(a) => {
+            return crate::store_cmd::prune(&crate::diff_cmd::store_to_read(store_path)?, a.options(), out, ctx);
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -162,7 +164,7 @@ pub fn log(a: LogArgs, store: &Store, out: Output) -> Result<ExitCode> {
 /// `library push`: a stored snapshot onto a drive.
 pub fn push(a: PushArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let PushArgs { drive, library, snapshot, force, opts } = a;
-    let store = open_store(store_path)?;
+    let store = crate::diff_cmd::store_to_read(store_path)?;
     let req = api::PushRequest {
         drive,
         library,

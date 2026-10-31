@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{mounted_exports, resolve_drive};
 use crate::Result;
 use crate::device::Device;
-use crate::plays;
+use crate::plays::{self, DriveHistory};
 use crate::progress::Ctx;
 use crate::sets::session::{self, Gathered};
 use crate::sets::suggest::{self, Candidate};
@@ -53,7 +53,8 @@ pub(super) fn gather(
     let drives = vec![resolve_drive(spec)?];
     let library = drives[0].state().and_then(|s| s.library_id);
     let archive = store.map(|s| plays::archive(s, library, ctx)).transpose()?;
-    Ok((session::gather_from(archive.as_ref(), &drives, book), drives))
+    let histories: Vec<DriveHistory> = drives.iter().map(DriveHistory::read).collect();
+    Ok((session::gather_from(archive.as_ref(), &histories, book), drives))
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]

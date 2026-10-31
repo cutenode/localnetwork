@@ -14,11 +14,13 @@
 					"generatedAt": { "type": "string", "format": "datetime" },
 					"precision": {
 						"type": "string",
+						"maxLength": 32,
 						"description": "rounded: counts are round numbers the true count is at least, and shares are to 5%. exact: as counted.",
 						"knownValues": ["rounded", "exact"]
 					},
 					"basis": {
 						"type": "string",
+						"maxLength": 32,
 						"description": "plays: tracks as played in sets (a track in three sets counts three times). sessions: no sets declared yet, so the history lists players recorded (which can include practice) stand in; the sets section is then absent. collection: no sets were found, so the collection, each track once.",
 						"knownValues": ["plays", "sessions", "collection"]
 					},
@@ -110,6 +112,7 @@
 			"properties": {
 				"shape": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "What half the sets or more do, or varies.",
 					"knownValues": ["builds", "steady", "windsDown", "varies"]
 				},
@@ -215,13 +218,13 @@
 			"type": "object",
 			"description": "Player settings that say something about how the DJ plays. Values as in computer.localnetwork.locallibrary.settings.",
 			"properties": {
-				"quantize": { "type": "string", "knownValues": ["off", "on"] },
-				"sync": { "type": "string", "knownValues": ["off", "on"] },
-				"masterTempo": { "type": "string", "knownValues": ["off", "on"] },
-				"jogMode": { "type": "string", "knownValues": ["cdj", "vinyl"] },
-				"vinylSpeedAdjust": { "type": "string", "knownValues": ["touch-release", "touch", "release"] },
-				"tempoRange": { "type": "string", "knownValues": ["6", "10", "16", "wide"] },
-				"autoCue": { "type": "string", "knownValues": ["off", "on"] }
+				"quantize": { "type": "string", "maxLength": 32, "knownValues": ["off", "on"] },
+				"sync": { "type": "string", "maxLength": 32, "knownValues": ["off", "on"] },
+				"masterTempo": { "type": "string", "maxLength": 32, "knownValues": ["off", "on"] },
+				"jogMode": { "type": "string", "maxLength": 32, "knownValues": ["cdj", "vinyl"] },
+				"vinylSpeedAdjust": { "type": "string", "maxLength": 32, "knownValues": ["touch-release", "touch", "release"] },
+				"tempoRange": { "type": "string", "maxLength": 32, "knownValues": ["6", "10", "16", "wide"] },
+				"autoCue": { "type": "string", "maxLength": 32, "knownValues": ["off", "on"] }
 			}
 		}
 	}

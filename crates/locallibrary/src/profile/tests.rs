@@ -191,7 +191,7 @@ fn gen_track(i: usize, g: &GenTrack) -> Track {
 fn builder(options: &ProfileOptions) -> Builder<'_> {
     Builder {
         options,
-        files: Files { drives: &[], store: None, snapshots: Vec::new(), by_id: FxHashMap::default() },
+        files: Files { drives: &[], store: None, cache: None, snapshots: Vec::new(), by_id: FxHashMap::default() },
         recs: Vec::new(),
         by_key: FxHashMap::default(),
         by_file: FxHashMap::default(),
@@ -275,6 +275,7 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
         0
     } else {
         let mut short = 0;
+        let (mut sessions, mut archived) = (Vec::new(), FxHashSet::default());
         for (k, set) in s.sets.iter().enumerate() {
             let list = HistoryList {
                 name: format!("HISTORY {k:03}"),
@@ -285,7 +286,16 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
                 missing_at: set.missing_at.clone(),
             };
             let first_seen = set.age.map(|d| now - chrono::Duration::days(d));
-            b.add_list(list, "Main".into(), first_seen, Origin::Drive(0));
+            // As `sets::session::gather_from` finds it: in a snapshot taken `first_seen`, or only on
+            // the drive, recorded before the time it's gathered, which is after every snapshot.
+            let id = list.fingerprint();
+            if first_seen.is_some() {
+                archived.insert(id.clone());
+            }
+            let gathered = now + chrono::Duration::seconds(1);
+            let window = crate::sets::Window { after: None, before: first_seen.or(Some(gathered)), exact: false };
+            sessions.push(crate::sets::session::of_list(id, &list, None, window));
+            b.add_list(list, "Main".into(), Origin::Drive(0));
             let date = first_seen.map(|t| t.with_timezone(&Local).date_naive());
             let in_range = match date {
                 Some(d) => o.since.is_none_or(|x| d >= x) && o.until.is_none_or(|x| d <= x),
@@ -297,7 +307,8 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
                 played.push(Played { tracks: set.tracks.clone(), date, missing_at: set.missing_at.clone() });
             }
         }
-        assert_eq!(b.sessions_as_sets(), short);
+        crate::sets::session::newest_first(&mut sessions);
+        assert_eq!(b.sessions_as_sets(&sessions, &archived), short);
         short
     };
     for (i, g) in s.tracks.iter().enumerate() {
