@@ -13,7 +13,53 @@ permissions:
   contents: read
 
 jobs:
+  # Whether a run would save anything. rust-cache keys other-os's caches on the manifests, the
+  # lockfile, the toolchain and cargo's config, and saves nothing on an exact hit, so a night when
+  # none of them changed since the last run that passed needs no run, unless GitHub evicted the
+  # caches (after 7 days unread). A short Linux job, where other-os takes a macOS and a Windows
+  # runner for most of an hour.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name == 'workflow_dispatch' || steps.base.outputs.sha == '' || steps.filter.outputs.cache == 'true' || steps.caches.outputs.missing == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          filters: |
+            cache:
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '.github/workflows/locallibrary-cache.yml'
+      # One cache per OS, keyed `v0-rust-other-os-...` (the shared-key in locallibrary-ci.yml).
+      - id: caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          count=$(gh api "repos/$GH_REPO/actions/caches?ref=refs/heads/main&key=v0-rust-other-os-&per_page=100" --jq '.total_count')
+          echo "Caches for other-os on main: $count"
+          echo "missing=$([ "$count" -lt 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   other-os:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     # What locallibrary-ci.yml's jobs ask for, which a call has to grant even to the ones it skips
     # (its report job's comment), or GitHub won't start the run.
     permissions:
@@ -22,5 +68,9 @@ jobs:
     uses: ./.github/workflows/locallibrary-ci.yml
     with:
       linux: false
+      docs: false
+      cache: false
+      deny: false
+      dist: false
       other-os: true
       semver: false
