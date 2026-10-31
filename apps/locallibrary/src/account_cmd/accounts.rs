@@ -2,12 +2,11 @@
 //! besides the DJ account, signed in to in the browser through account plugins (their tokens
 //! never shown), and listed with the plugins that have access to them.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, ValueEnum};
-use locallibrary::Store;
 use locallibrary::local_time;
 use locallibrary::plugin::{Access, Account, AccountSignIn, AccountSignedIn, Accounts, Plugins};
 use locallibrary::progress::Ctx;
@@ -50,7 +49,7 @@ pub(super) fn run(
     target: &str,
     action: Action,
     args: SignInArgs,
-    root: &Path,
+    store_path: &Option<PathBuf>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
@@ -63,7 +62,7 @@ pub(super) fn run(
         return Err(usage("--with, --for and --scope go with sign-in"));
     }
     if action == Action::SignIn {
-        let store = Store::open_or_init(root)?;
+        let store = crate::open_store(store_path)?;
         // Signed in again as an account kept; one signed out is signed in to anew.
         let kept = plugins.store_accounts(&store)?;
         let again = named.map(|named| find(&kept, kind, named)).transpose()?;
@@ -80,7 +79,7 @@ pub(super) fn run(
     }
     let named =
         named.ok_or_else(|| usage(format!("name an account: {kind}:NAME (`locallibrary account` lists them)")))?;
-    let store = Store::open_existing(root)?;
+    let store = crate::diff_cmd::existing_store(store_path)?;
     let all = store.as_ref().map(|s| plugins.accounts_and_accesses(s)).transpose()?.unwrap_or_default();
     let a = find(&all.accounts, kind, named)?.clone();
     if action == Action::Status {

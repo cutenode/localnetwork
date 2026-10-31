@@ -16,6 +16,7 @@ mod imports;
 mod jobs;
 mod net;
 mod panels;
+mod printable;
 mod props;
 mod providers;
 mod roles;
@@ -194,6 +195,15 @@ impl Fixture {
     /// The echo plugin, as the test plugin.
     fn echo() -> Fixture {
         Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options::default())
+    }
+
+    /// The echo plugin, its exporter declaring the test plugin's own options: `outside`, a file
+    /// it says it writes in place of the export, and `extra`, one it writes besides.
+    fn exporting() -> Fixture {
+        let options = "options = { type = \"object\", properties = { extra = { type = \"string\" }, outside = { type = \"string\" } } }";
+        let manifest = ECHO.replace("extension = \"m3u\"\n", &format!("extension = \"m3u\"\n{options}\n"));
+        assert_ne!(manifest, ECHO);
+        Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default())
     }
 
     /// The user is on the drive.

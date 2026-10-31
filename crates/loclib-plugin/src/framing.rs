@@ -19,11 +19,16 @@ pub enum Line {
 
 /// The next line of `input` into `buf`, holding at most [`MAX_LINE`] bytes of it.
 pub fn read_line(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<Line> {
+    read_line_within(input, buf, MAX_LINE)
+}
+
+/// [`read_line`], with lines longer than `max` too long.
+pub(crate) fn read_line_within(input: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -> std::io::Result<Line> {
     buf.clear();
-    if input.by_ref().take(MAX_LINE as u64 + 1).read_until(b'\n', buf)? == 0 {
+    if input.by_ref().take(max as u64 + 1).read_until(b'\n', buf)? == 0 {
         return Ok(Line::End);
     }
-    if buf.len() <= MAX_LINE || buf.ends_with(b"\n") {
+    if buf.len() <= max || buf.ends_with(b"\n") {
         return Ok(Line::Read);
     }
     buf.clear();

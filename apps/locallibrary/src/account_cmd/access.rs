@@ -32,14 +32,13 @@ pub fn access(
 ) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     let manifest = plugins.manifest(plugin)?;
-    let root = store_path.clone().unwrap_or_else(Store::default_root);
     let Some(named) = default.as_deref().or(take_away.as_deref()) else {
-        let store = Store::open_existing(&root)?;
+        let store = crate::diff_cmd::existing_store(store_path)?;
         let accesses = store.as_ref().map(|s| plugins.accesses(s, Some(plugin), None)).transpose()?;
         out.emit(&accesses.unwrap_or_default(), |a| list(plugins, plugin, &manifest.accounts, a));
         return Ok(ExitCode::SUCCESS);
     };
-    let store = Store::open_or_init(&root)?;
+    let store = crate::open_store(store_path)?;
     let all = plugins.accounts_and_accesses(&store)?;
     let mut kinds: IndexSet<&str> = manifest.accounts.iter().map(|n| n.name.as_str()).collect();
     kinds.extend(all.accesses.iter().filter(|a| a.plugin == plugin).map(|a| a.kind.as_str()));

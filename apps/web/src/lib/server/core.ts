@@ -3,6 +3,7 @@ import type { RootSpaces } from './atproto/spaces';
 import type { AuditLog } from './audit/log';
 import type { Db } from './db';
 import type { Logger } from './logger';
+import type { Notifier } from './notifications/notifier';
 import type { AccountService } from './services/accounts';
 
 /** What every domain service needs. Built once the root account is connected. */
@@ -17,6 +18,8 @@ export type Core = {
 	userClient: (did: string) => Promise<RepoClient | null>;
 	audit: AuditLog;
 	accounts: AccountService;
+	/** Puts an item in people's inboxes. */
+	notify: Notifier['notify'];
 	/** Notifies the syncer that a new space should be watched. */
 	watchSpace?: (space: string) => Promise<void>;
 	/** Downloads a blob referenced from a space record, using the root's space credential. */

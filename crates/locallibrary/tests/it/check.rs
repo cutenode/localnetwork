@@ -222,7 +222,7 @@ fn remembered_players_and_drives_with_one_database() {
     let unknown = SetPlayers { models: vec!["CDJ-9999".into()], library: None };
     assert!(matches!(api::players_set(&store, &unknown), Err(Error::Invalid(_))));
     let clear = ClearPlayers { library: Some(library.name.clone()) };
-    let plan = api::players_clear_plan(&store, &clear).unwrap();
+    let plan = api::players_clear_plan(Some(&store), &clear).unwrap();
     assert_eq!((plan.from.as_slice(), plan.to.is_empty()), (&["CDJ-3000X".to_string(), "CDJ-3000".into()][..], true));
     // Remembered differently since the plan: it's stale.
     api::players_set(&store, &SetPlayers { models: vec!["CDJ-3000".into()], library: None }).unwrap();
@@ -230,7 +230,7 @@ fn remembered_players_and_drives_with_one_database() {
     let cleared = api::players_clear(&store, &clear).unwrap();
     assert!(cleared.libraries.is_empty());
     assert_eq!(cleared.default, ["CDJ-3000"]);
-    assert!(api::players_clear_plan(&store, &clear).unwrap().noop);
+    assert!(api::players_clear_plan(Some(&store), &clear).unwrap().noop);
 }
 
 #[test]
@@ -280,6 +280,59 @@ fn audio_cut_short_by_an_interrupted_copy() {
     assert_eq!(cut.len(), 1, "{cut:#?}");
     assert_eq!(cut[0].path, "Contents/Formats/cut.wav");
     assert_eq!(cut[0].detail.as_deref(), Some("stops at 0:15 of 0:30"));
+}
+
+/// MP3 and FLAC copies cut short are found as the WAV one is, whether the file's header still
+/// promises its whole length (an MP3 with an Info frame, FLAC) or its length comes from its size
+/// (a constant bit rate MP3 with no header); an M4A cut short in its audio is found as cut short too,
+/// though it won't open, because its boxes run past the end of the file. The M4A is a committed
+/// fixture (`tests/fixtures/audio/`): nothing here encodes AAC.
+#[test]
+fn compressed_audio_cut_short_by_an_interrupted_copy() {
+    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+    use loclib_transcode::{Container, Dither, Recipe};
+
+    let dir = tempfile::tempdir().unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    // 20 s at 44.1 kHz.
+    let frames = 20 * 44_100 / MP3_FRAME_SAMPLES + 1;
+    let wav = dir.path().join("src.wav");
+    fs::write(&wav, loclib_mixid::test_util::wav(22_050, 16, 20.0)).unwrap();
+    let flac = dir.path().join("src.flac");
+    let recipe = Recipe { container: Container::Flac, sample_rate: 22_050, bit_depth: 16, dither: Dither::None };
+    loclib_transcode::transcode(&wav, &recipe, &flac, &Ctx::silent()).unwrap();
+    let m4a = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/silence.m4a")).unwrap();
+    // Half its audio: the index is first, and the frames after it.
+    let mdat = m4a.windows(4).position(|w| w == b"mdat").unwrap() + 4;
+    let files = [
+        ("tagged.mp3", 44_100, mp3(frames, Some((1105, 1000))), None),
+        ("untagged.mp3", 44_100, mp3(frames, None), None),
+        ("tone.flac", 22_050, fs::read(&flac).unwrap(), None),
+        ("silence.m4a", 8_000, m4a.clone(), Some(mdat + (m4a.len() - mdat) / 2)),
+    ];
+    for (name, rate, whole, cut_at) in &files {
+        let size = whole.len() as u32;
+        export_track(&a, &format!("whole-{name}"), *rate, 16, 20, size, whole);
+        let cut = &whole[..cut_at.unwrap_or(whole.len() / 2)];
+        export_track(&a, &format!("cut-{name}"), *rate, 16, 20, size, cut);
+    }
+    let req = CheckRequest {
+        drives: vec![a.display().to_string()],
+        options: CheckOptions { players: vec!["CDJ-3000".into()], audio: true },
+    };
+    let r = api::check(None, &req, &Ctx::silent()).unwrap();
+    assert_eq!(level(&r, "A", "audio"), Level::Problem);
+    // What's wrong with each of these files, by name: the whole ones have nothing wrong.
+    let mut found: Vec<(&str, &str)> = r
+        .audio
+        .iter()
+        .flat_map(|g| &g.files)
+        .filter_map(|f| Some((f.track.file_path.strip_prefix("/Contents/Formats/")?, f.problem.kind())))
+        .collect();
+    found.sort_unstable();
+    let truncated =
+        ["cut-silence.m4a", "cut-tagged.mp3", "cut-tone.flac", "cut-untagged.mp3"].map(|f| (f, "truncated"));
+    assert_eq!(found, truncated, "{:#?}", r.audio);
 }
 
 /// rekordbox keeps the size a file had on import, and tag editors rewrite tags afterwards: a file

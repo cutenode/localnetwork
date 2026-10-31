@@ -16,9 +16,10 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the four record types it publishes, not to delete them, to upload audio files (a set's
-recording), and to ask Local Network's directory to read them again, and nothing else in the
-account. `account login --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
+and replace the four record types it publishes, to delete sets and their recordings (`sets
+delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
+Network's directory to read them again, and nothing else in the account. `account login
+--publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
 the same way, the first time, for permission to post bug reports and nothing else.
 
 - **Publishing's permission is a permission set**, the Lexicon
@@ -26,11 +27,12 @@ the same way, the first time, for permission to post bug reports and nothing els
   sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
   set's title and description when you approve, and the session is granted what the set lists in
   its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, the
-  same for `computer.localnetwork.dj.profile`, `computer.localnetwork.dj.set` and
-  `computer.localnetwork.dj.recording`, and `rpc:computer.localnetwork.directory.requestIndex?aud=*`,
-  a token for that one method of Local Network's website; see [Where records are
-  read](#where-records-are-read)). A permission set can't grant uploads, so the same sign-in asks
-  for `blob:audio/*` beside it: audio files, and no other kind. Servers
+  same for `computer.localnetwork.dj.profile`, `repo:computer.localnetwork.dj.set` and
+  `repo:computer.localnetwork.dj.recording` for creating, replacing and deleting them, and
+  `rpc:computer.localnetwork.directory.requestIndex?aud=*`, a token for that one method of Local
+  Network's website; see [Where records are read](#where-records-are-read)). A permission set
+  can't grant uploads, so the same sign-in asks for `blob:audio/*` beside it: audio files, and no
+  other kind. Servers
   look the set up when you sign in and every time the session is refreshed, so it has to be
   published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
   DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
@@ -102,14 +104,18 @@ paths stay on this computer. Tracks you marked unnamed (`sets edit <set> --unnam
 only their place in the set and when it starts. The venue, city and country also go out as a
 `community.lexicon.location.address`, which needs a country: without one, the city stays out. A
 set built from a single history list that an earlier version published with `plays publish`
-takes that list's key as its id the first time it's published. The old record stays where `plays
+takes that list's key as its id the first time it's published. `sets delete` deletes a published
+set's record and its recording's from the account first, and says so before it asks; signed out,
+they stay. A session signed in before publishing could delete them is told to sign in again
+(`account login --publish`), and the set stays until then. The old record stays where `plays
 publish` wrote it (`computer.localnetwork.locallibrary.set`), since publishing may only write
 today's set records.
 
 A track's artists go out one by one (split as the profile counts them) when its credit names
 several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
 rekordbox keeps none, so they're read from the files on the mounted drives when a set is made or
-edited (as MusicBrainz Picard tags files), else from what a plugin's analyzer worked out for the
+edited (as MusicBrainz Picard tags files), or from the store's copy of a file no mounted drive
+holds (its tags only), else from what a plugin's analyzer worked out for the
 `recording`, `release` and `artists` [roles](plugins.md#roles): the musicbrainz plugin's unless
 you choose another, which looks a track up on MusicBrainz by its ISRC. Before publishing, `sets
 publish` runs that analyzer on the tracks it will name that have no IDs yet, and keeps what it

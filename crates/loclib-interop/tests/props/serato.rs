@@ -570,6 +570,43 @@ fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
     }
 }
 
+/// Regression (`--write-tags`): an AIFF or WAV whose odd-sized last chunk has no pad byte after it
+/// reads back, but lofty can't write a tag into it, so the plan counted it as tagged and the write
+/// refused it only after the plan was confirmed. Now the plan refuses it as the write does, with a
+/// typed error naming the file (so `build` copies it without cues, warning why), and the same file
+/// with its pad byte is tagged within its planned size.
+#[hegel::test(test_cases = 40)]
+fn an_unpadded_last_chunk_is_refused_at_plan(tc: TestCase) {
+    let kind = tc.draw(gs::sampled_from(vec![Kind::Wav, Kind::Aiff]));
+    let named = Path::new(if kind == Kind::Wav { "x.wav" } else { "x.aiff" });
+    let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(600));
+    let odd = 2 * tc.draw(gs::integers::<usize>().max_value(49)) + 1;
+    let data = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(odd).max_size(odd));
+    let padded = tc.draw(gs::booleans());
+    let bytes = with_last_chunk(kind, audio_file(kind, &audio[..audio.len() / 2 * 2]), &data, padded);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let planned = serato::tag_growth(&path, named, b"markers");
+    let written = serato::write_markers(&path, named, b"markers");
+    if padded {
+        let growth = planned.unwrap();
+        written.unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() <= bytes.len() as u64 + growth);
+        let tag = id3v2(&path, kind).expect("an ID3v2 tag");
+        assert_eq!(
+            geobs(&tag),
+            [("Serato Markers2".into(), Some("application/octet-stream".into()), b"markers".to_vec())]
+        );
+        return;
+    }
+    let want = format!("{}: its last chunk is missing the pad byte after it", named.display());
+    assert!(matches!(&planned, Err(Error::Tags(e)) if *e == want), "planned: {planned:?}");
+    assert!(matches!(&written, Err(Error::Tags(e)) if *e == want), "written: {written:?}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
+}
+
 /// The audio file kinds Serato's tag is written into.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {
@@ -622,6 +659,21 @@ fn audio_file(kind: Kind, audio: &[u8]) -> Vec<u8> {
             out
         }
     }
+}
+
+/// `file` (a WAV or AIFF from [`audio_file`]) with a chunk of `data` (an odd number of bytes) at
+/// its end, followed by the pad byte that keeps chunks even or not, and its header's size to match.
+fn with_last_chunk(kind: Kind, mut file: Vec<u8>, data: &[u8], padded: bool) -> Vec<u8> {
+    let sized = |n: usize| if kind == Kind::Wav { (n as u32).to_le_bytes() } else { (n as u32).to_be_bytes() };
+    file.extend_from_slice(b"XTRA");
+    file.extend_from_slice(&sized(data.len()));
+    file.extend_from_slice(data);
+    if padded {
+        file.push(0);
+    }
+    let size = sized(file.len() - 8);
+    file[4..8].copy_from_slice(&size);
+    file
 }
 
 /// The ID3v2 tag of the file at `path`, read with lofty as `kind`.
@@ -729,9 +781,10 @@ fn markers_written_into_copies_read_back(tc: TestCase) {
     assert!(bytes.windows(audio.len()).any(|w| w == audio), "the audio is still there, in one piece");
 }
 
-/// Serato's tag can't go into a file that isn't there, a FLAC or MP4 copy, or bytes that aren't
-/// the MP3, AIFF or WAV its name says: each is a typed error and the file is left as it was. A
-/// file cut off after its header is either refused the same way or tagged so that it reads back.
+/// Serato's tag can't go into a file that isn't there, a FLAC or MP4 copy, bytes that aren't the
+/// MP3, AIFF or WAV its name says, or an AIFF or WAV whose header says it holds nothing: each is a
+/// typed error and the file is left as it was. A file cut off after its header is either refused
+/// the same way or tagged so that it reads back.
 #[hegel::test(test_cases = 60)]
 fn markers_refuse_files_they_cant_tag(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -746,14 +799,15 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
     let content = tc.draw(gs::optional(hegel::one_of!(
         // Bytes with no frame sync or chunk id in them.
         gs::vecs(gs::integers::<u8>().max_value(0x40)).max_size(300).map(|b| (b, false)),
-        // Not a WAV whose RIFF size says 0: lofty 0.25 writes its tag chunk before `WAVE`, and
-        // nothing can read the copy.
         gs::sampled_from(vec![
-            b"RIFF\x04\0\0\0WAVE".to_vec(),
-            b"FORM\0\0\0\x04AIFF".to_vec(),
-            b"ID3\x04\0\0\0\0\0\0".to_vec(),
-        ])
-        .map(|b| (b, true)),
+            (b"RIFF\x04\0\0\0WAVE".to_vec(), true),
+            (b"FORM\0\0\0\x04AIFF".to_vec(), true),
+            (b"ID3\x04\0\0\0\0\0\0".to_vec(), true),
+            // A size of 0 (a streamed file's header, never filled in): lofty 0.25 would write its
+            // tag's chunk before `WAVE` or `AIFF`, and nothing could read the copy.
+            (b"RIFF\0\0\0\0WAVE".to_vec(), false),
+            (b"FORM\0\0\0\0AIFF".to_vec(), false),
+        ]),
     )));
     if let Some((bytes, _)) = &content {
         std::fs::write(&path, bytes).unwrap();
@@ -773,6 +827,59 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
             );
         }
         (result, _) => panic!("{named} holding {content:?}: {result:?}"),
+    }
+}
+
+/// An AIFF or WAV whose header gives any size at all, with any bytes after the chunks, is either
+/// tagged so that it reads back with its tag and audio, or refused as a typed error and left as it
+/// was: lofty writes its tag's chunk where that size says the chunks end, so one ending anywhere
+/// else (0, or inside a chunk) is refused. Its true size, and the size of just its `WAVE` or
+/// `AIFF` id, are tagged.
+#[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 0u32, trailing = Vec::<u8>::new())]
+#[hegel::explicit_test_case(wav = false, audio = vec![1u8; 64], size = 0u32, trailing = Vec::<u8>::new())]
+#[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 28u32, trailing = Vec::<u8>::new())]
+#[hegel::explicit_test_case(wav = false, audio = vec![1u8; 64], size = 30u32, trailing = Vec::<u8>::new())]
+#[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 100u32, trailing = vec![0u8; 7])]
+fn header_sizes_are_tagged_or_refused(tc: TestCase) {
+    use lofty::config::ParseOptions;
+    use lofty::file::AudioFile;
+
+    let wav = tc.draw(gs::booleans());
+    let kind = if wav { Kind::Wav } else { Kind::Aiff };
+    // Bytes no chunk id starts with, to find the audio again.
+    let audio: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(200));
+    let audio = &audio[..audio.len() / 2 * 2];
+    let mut bytes = audio_file(kind, audio);
+    let true_size = bytes.len() as u32 - 8;
+    let size = tc
+        .draw(hegel::one_of!(gs::sampled_from(vec![0, 4, true_size]), gs::integers::<u32>().max_value(true_size + 8)));
+    bytes[4..8].copy_from_slice(&if wav { size.to_le_bytes() } else { size.to_be_bytes() });
+    // Bytes after the chunks the header counts, which lofty leaves alone.
+    let trailing: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(16));
+    bytes.extend_from_slice(&trailing);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("copy");
+    std::fs::write(&path, &bytes).unwrap();
+    let named = if wav { "x.wav" } else { "x.aiff" };
+    match serato::write_markers(&path, Path::new(named), b"markers") {
+        Ok(()) => {
+            let mut f = std::fs::File::open(&path).unwrap();
+            let read = match kind {
+                Kind::Wav => lofty::iff::wav::WavFile::read_from(&mut f, ParseOptions::new()).map(drop),
+                _ => lofty::iff::aiff::AiffFile::read_from(&mut f, ParseOptions::new()).map(drop),
+            };
+            assert!(read.is_ok(), "size {size} of {true_size}: {read:?}");
+            let tag = id3v2(&path, kind).expect("an ID3v2 tag");
+            assert_eq!(geobs(&tag).len(), 1, "size {size} of {true_size}");
+            let out = std::fs::read(&path).unwrap();
+            assert!(out.windows(audio.len()).any(|w| w == audio), "size {size} of {true_size}: the audio split");
+        }
+        Err(Error::Tags(e)) => {
+            assert!(size != true_size && size != 4, "size {size} of {true_size}: {e}");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
+        }
+        Err(e) => panic!("{e}"),
     }
 }
 

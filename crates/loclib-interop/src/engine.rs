@@ -201,7 +201,8 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
     });
     export.notes.push(
         "Beat grids, cues, loops and waveforms aren't written (Engine keeps them in its own encoded form): Engine \
-         analyses the tracks when it first reads them. Artwork, colours and history lists aren't carried."
+         analyses the tracks when it first reads them. Artwork and colours aren't carried, and history lists go only \
+         as playlists (`with_history`)."
             .into(),
     );
     if repeats > 0 {

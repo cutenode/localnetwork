@@ -50,6 +50,17 @@ use crate::{Error, Result};
 
 pub const STORE_FORMAT: u32 = 1;
 
+/// What the player remembers between runs, in the store once there is one.
+pub const PLAYER_FILE: &str = "tui.json";
+
+/// Where the player keeps [`PLAYER_FILE`] while there's no store at `store_root`: a folder beside
+/// it (`locallibrary-player` next to `locallibrary`), since the store refuses to be set up in a
+/// folder that holds anything else.
+pub fn player_fallback(store_root: &Path) -> Option<PathBuf> {
+    let name = store_root.file_name()?.to_string_lossy();
+    Some(store_root.with_file_name(format!("{name}-player")))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct StoreMeta {
     format: u32,
@@ -350,7 +361,7 @@ impl Store {
             crate::audio_cache::CACHE_DIR,
             crate::mix::report::REPORTS_DIR,
             "profile-document.json",
-            "tui.json",
+            PLAYER_FILE,
             "lock",
         ];
         const MAKING: [&str; 3] = ["objects", "snapshots", "store.json"];
@@ -982,7 +993,10 @@ impl Store {
             fsutil::remove_if_exists(p)?;
         }
         for (d, _) in &unread {
-            fs::remove_dir_all(d).at(d)?;
+            match d.is_dir() {
+                true => fs::remove_dir_all(d).at(d)?,
+                false => _ = fsutil::remove_if_exists(d)?,
+            }
         }
         for d in &scratch {
             fsutil::remove_if_exists(&d.with_extension("lock"))?;

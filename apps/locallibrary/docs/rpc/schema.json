@@ -2248,6 +2248,77 @@
       }
     },
     {
+      "name": "settings.export",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
+      "name": "settings.import_file.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "settings.import_file.apply",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFile"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSettingsFilePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "settings.import_file.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "settings.import_file.plan",
+      "operation": "settings.import_file",
+      "long_running": false,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ImportSettingsFile"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SettingsExport"
+      }
+    },
+    {
       "name": "art.missing",
       "aliases": [],
       "kind": "read",
@@ -9125,6 +9196,23 @@
         }
       }
     },
+    "ImportSettingsFile": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "A file `settings.export` wrote (`locallibrary settings export`)."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Where one of the file's values differs from the one here, take the file's (for a list of\nnames, the file's whole list). Default: keep the one here.",
+          "default": false
+        }
+      },
+      "required": [
+        "file"
+      ]
+    },
     "ArtworkRequest": {
       "anyOf": [
         {
@@ -10704,6 +10792,14 @@
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
           "default": null
         },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
+          "default": null
+        },
         "extras": {
           "type": "boolean",
           "description": "Also each play's overview waveform, hot cues and phrases (`extras`), for following\nalong without asking for every track's analysis.",
@@ -10741,6 +10837,14 @@
           ],
           "format": "double",
           "description": "Playback speeds to search, as a fraction: 0.16 is ±16%.",
+          "default": null
+        },
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The mix's cover, an image file, for its report and export (instead of one embedded in\nthe recording). Checked before identifying.",
           "default": null
         },
         "output": {
@@ -20389,6 +20493,137 @@
       ],
       "description": "One setting in the settings profile's base, before and after importing."
     },
+    "SettingsExport": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The file's format, [`VERSION`]."
+        },
+        "my_settings": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The My Settings profile: `base`, and per-drive `drives` overrides by drive id.",
+          "default": {}
+        },
+        "players": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player models `check` uses: `default`, and `libraries`' own by library id.",
+          "default": {}
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The profile's preferences: its sections, precision, pinned and hidden tracks, hidden\nartists, genre spellings and headline.",
+          "default": {}
+        },
+        "player": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
+          "default": {}
+        },
+        "plugin_host": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The host's settings for plugins: which analyzer each field role is read from, when a\nprovider's candidate is picked, and whether each check runs.",
+          "default": {}
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`\namong them).",
+          "default": {}
+        }
+      },
+      "required": [
+        "version",
+        "my_settings",
+        "players",
+        "profile",
+        "player",
+        "plugin_host",
+        "plugins"
+      ],
+      "description": "What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty\nmaps and lists left out."
+    },
+    "ImportSettingsFilePlan": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingsFileChange"
+          }
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "The file's values that are as they are here already."
+        }
+      },
+      "required": [
+        "file",
+        "changes",
+        "unchanged"
+      ],
+      "description": "What importing a settings file would change: the file's values missing here (added), and\nthose that differ (kept as they are here, or with `replace` taken from the file)."
+    },
+    "SettingsFileChange": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The section, then each key down to the value: `[\"plugins\", \"sound\", \"keys.analyze\"]`."
+        },
+        "action": {
+          "$ref": "#/$defs/SettingsFileAction"
+        },
+        "current": {
+          "description": "The value here (`None`: not set)."
+        },
+        "imported": {
+          "description": "The file's value; for names added to a list, the names it adds."
+        }
+      },
+      "required": [
+        "path",
+        "action",
+        "current",
+        "imported"
+      ],
+      "description": "One of the file's values that isn't as it is here."
+    },
+    "SettingsFileAction": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "add",
+          "description": "It's missing here, or adds names to a list: it's added."
+        },
+        {
+          "type": "string",
+          "const": "keep",
+          "description": "It differs, and the one here stays."
+        },
+        {
+          "type": "string",
+          "const": "replace",
+          "description": "It differs, and the file's takes its place (`replace`)."
+        }
+      ],
+      "description": "What importing does with one of the file's values."
+    },
     "OneOrMany_for_ArtworkImage": {
       "anyOf": [
         {
@@ -21726,7 +21961,7 @@
               "type": "null"
             }
           ],
-          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+          "description": "What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its\ncheck says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching\nartwork for its tracks without any)."
         }
       },
       "required": [
@@ -21758,6 +21993,17 @@
       "description": "How much a finding matters, least first."
     },
     "Fix": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PluginFix"
+        },
+        {
+          "$ref": "#/$defs/HostAction"
+        }
+      ],
+      "description": "What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a\nplugin's operation (what a plugin's check says), or one of the host's own flows (what its own\nchecks say), each as the sidecar's `check` answers it."
+    },
+    "PluginFix": {
       "type": "object",
       "properties": {
         "plugin": {
@@ -21773,7 +22019,226 @@
         "operation",
         "params"
       ],
-      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+      "description": "The plugin operation that fixes a finding, with its params (`plugins.op.plan`)."
+    },
+    "HostAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "art.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "track.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "export"
+            },
+            "params": {
+              "$ref": "#/$defs/ExportAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Export in one of its formats, to where the user picks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "analyze"
+            },
+            "params": {
+              "$ref": "#/$defs/AnalyzeAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "pull"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Save a drive in the store as a snapshot (`locallibrary pull`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "sync"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`)."
+        }
+      ],
+      "description": "One of the host's own flows, started with these params filled in, and planned and confirmed as\nwhen the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own\ncontributions alone so it never starts another plugin's work, and what fixes one of the host's\nown check findings. `pull` and `sync` are only ever the host's: no plugin suggests them."
+    },
+    "FetchAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name (as events name it)."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this provider of the plugin's [default: each of its providers of the kind; for the\nhost's fix, every plugin's]."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`art.fetch`'s and `track.fetch`'s params."
+    },
+    "ExportAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "One of the plugin's exporters, by format."
+        },
+        "drive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set exporter's set."
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix exporter's mix."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "As the exporter's `options` schema says."
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
+    },
+    "AnalyzeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analyzer": {
+          "type": "string",
+          "description": "One of the plugin's analyzers."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        }
+      },
+      "required": [
+        "analyzer",
+        "drive"
+      ],
+      "description": "`analyze`'s params."
+    },
+    "DriveAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`pull`'s and `sync`'s params."
     },
     "OrphanPlan": {
       "type": "object",
@@ -26440,7 +26905,7 @@
               "type": "null"
             }
           ],
-          "description": "Cover image: embedded in the audio file, else an image next to it named like it."
+          "description": "Cover image: one given (`mix --cover`), else embedded in the audio file, else an image\nnext to it named like it."
         }
       },
       "required": [
@@ -26513,7 +26978,25 @@
           "required": [
             "kind",
             "path"
-          ]
+          ],
+          "description": "An image found next to the recording."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "given"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "An image the DJ gave for it."
         }
       ]
     },
@@ -26545,6 +27028,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.0 as recorded, 1.03 is +3%."
+        },
+        "speed_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
         },
         "played_bpm": {
           "type": [
@@ -27020,7 +27522,7 @@
             "string",
             "null"
           ],
-          "description": "The cover embedded in the recording: a JPEG `data:` URL, 320 px square."
+          "description": "The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,\n320 px square."
         }
       },
       "required": [
@@ -27102,6 +27604,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.03 is +3%."
+        },
+        "speedRange": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average."
         },
         "playedBpm": {
           "type": [
@@ -29542,7 +30063,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both)."
         }
       },
       "required": [
@@ -30178,6 +30700,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "smart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SmartPlaylist"
+          },
+          "description": "Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),\nwhich `smart apply` keeps up to date: kept in the store once the export is applied."
         }
       },
       "required": [
@@ -30204,7 +30733,8 @@
         "needed_bytes",
         "free_space",
         "fits",
-        "warnings"
+        "warnings",
+        "smart"
       ]
     },
     "CollectionExportReport": {
@@ -34057,177 +34587,6 @@
         "params"
       ],
       "description": "What a plugin suggests (`host/notify`): an operation's or an action's name, and its params."
-    },
-    "HostAction": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "art.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "track.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "export"
-            },
-            "params": {
-              "$ref": "#/$defs/ExportAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Export in one of its formats, to where the user picks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "analyze"
-            },
-            "params": {
-              "$ref": "#/$defs/AnalyzeAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
-        }
-      ],
-      "description": "One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it\nwith these params filled in, and it's planned and confirmed as when the user starts it. Each is\non the plugin's own contributions alone, so it never starts another plugin's work."
-    },
-    "FetchAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name (as events name it)."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        },
-        "provider": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Only this provider of the plugin's [default: each of its providers of the kind]."
-        }
-      },
-      "required": [
-        "drive"
-      ],
-      "description": "`art.fetch`'s and `track.fetch`'s params."
-    },
-    "ExportAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "format": {
-          "type": "string",
-          "description": "One of the plugin's exporters, by format."
-        },
-        "drive": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
-        },
-        "set": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A set exporter's set."
-        },
-        "mix": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A mix exporter's mix."
-        },
-        "options": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "As the exporter's `options` schema says."
-        }
-      },
-      "required": [
-        "format"
-      ],
-      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
-    },
-    "AnalyzeAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "analyzer": {
-          "type": "string",
-          "description": "One of the plugin's analyzers."
-        },
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        }
-      },
-      "required": [
-        "analyzer",
-        "drive"
-      ],
-      "description": "`analyze`'s params."
     },
     "PluginNotice": {
       "type": "object",

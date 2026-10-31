@@ -133,10 +133,20 @@ impl Destination for StoreDestination {
         self.slot.call_giving(method::MANIFEST_PUT, &req, &given, &[], store, ctx, &|_| {}, |_: Value, _, _| Ok(()))
     }
 
+    /// A record is taken in as what the plugin answers is (`process::printed`), when
+    /// it's JSON, but a snapshot's: that's checked against its id, the hash of what the store
+    /// wrote, once it's read.
     fn get_manifest(&self, name: &str, ctx: &Ctx<'_>) -> Result<Option<Vec<u8>>> {
         let req = GetManifest { destination: self.name.clone(), name: name.into(), context: self.context() };
+        let take_in = |bytes: Vec<u8>| {
+            let record = serde_json::from_slice(&bytes).ok().filter(|_| !name.starts_with("snapshots/"));
+            match record.and_then(super::process::printed) {
+                Some(taken) => serde_json::to_vec_pretty(&taken).map_err(|e| Error::invalid(e.to_string())),
+                None => Ok(bytes),
+            }
+        };
         let read = |got: GotManifest, scratch: &super::blobs::Scratch, _: &_| {
-            got.blob.map(|blob| self.read(scratch, &blob)).transpose()
+            got.blob.map(|blob| self.read(scratch, &blob).and_then(take_in)).transpose()
         };
         self.slot.call_with(method::MANIFEST_GET, &req, self.store.as_ref(), ctx, &|_| {}, read)
     }

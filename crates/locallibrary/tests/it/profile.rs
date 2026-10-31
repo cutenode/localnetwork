@@ -534,3 +534,109 @@ fn sessions_are_never_counted_in_public() {
     assert_eq!(d.tags.len(), 2);
     assert!(d.headline.unwrap().ends_with("2 sets"));
 }
+
+/// What a report says, but for when it was built.
+fn said(r: &profile::ProfileReport) -> serde_json::Value {
+    let mut v = serde_json::to_value(r).unwrap();
+    v.as_object_mut().unwrap().remove("generated");
+    v
+}
+
+/// A profile built again, with the snapshots' history lists and the analysis files read the first
+/// time kept in the store's cache, reads none of them again and says exactly what the first one
+/// did; and so does one built after a pull adds a snapshot, from what's still kept.
+#[test]
+fn a_profile_built_from_the_cache_says_what_one_built_afresh_does() {
+    let dir = tempfile::tempdir().unwrap();
+    // Real analysis files, a session and a set played from them.
+    let root = common::demo_drive(dir.path(), "Demo");
+    common::add_history(&root, "HISTORY 001", &[1, 2]);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut d = Device::open(&root).unwrap();
+    let opts = PullOptions { library: Some("Demo library".into()), force: true, ..Default::default() };
+    sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    declare(&store, vec![("Listening party", "2026-09-20", entries(&root, &[2, 1]))]);
+
+    let cold = build(Some(&store), &request(&[&root])).report;
+    let (databases, analysis) = (cold.cached.databases, cold.cached.analysis);
+    assert_eq!((databases.0, analysis.0), (0, 0), "nothing kept yet");
+    assert!(databases.1 > 0 && analysis.1 > 0, "{:?}", cold.cached);
+    assert!(cold.energy.is_some() && cold.prep.is_some(), "the analysis files were read");
+    let warm = build(Some(&store), &request(&[&root])).report;
+    assert_eq!(warm.cached.databases, (databases.1, databases.1));
+    assert_eq!(warm.cached.analysis, (analysis.1, analysis.1));
+    assert_eq!(said(&warm), said(&cold));
+
+    common::add_history(&root, "HISTORY 002", &[2, 1, 2]);
+    sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    let after = build(Some(&store), &request(&[&root])).report;
+    let fresh = tempfile::tempdir().unwrap();
+    let copy = Store::open_or_init(fresh.path().join("store")).unwrap();
+    common::copy_dir(store.root(), copy.root());
+    std::fs::remove_dir_all(copy.root().join("cache")).unwrap();
+    let afresh = build(Some(&copy), &request(&[&root])).report;
+    assert!(after.cached.databases.0 > 0 && afresh.cached.databases.0 == 0);
+    assert_eq!(said(&after), said(&afresh));
+}
+
+/// Without declared sets, the profile's sessions are the ones `sets` and `plays` find, with the
+/// windows they find them in: the drive's and the store's lists and imported logs, newest first,
+/// but those the DJ dismissed and those too short.
+#[test]
+fn a_profile_stands_in_the_sessions_sets_finds() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = club_drive(dir.path(), "Main");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut d = Device::open(&root).unwrap();
+    let opts = PullOptions { library: Some("Club library".into()), force: true, ..Default::default() };
+    sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    common::add_history(&root, "HISTORY 004", &[5, 6, 7, 8, 9, 10]);
+
+    let mut book = SetBook::load(&store).unwrap();
+    let started = chrono::Utc::now() - chrono::Duration::days(3);
+    let plays = entries(&root, &[1, 2, 3, 4, 5])
+        .into_iter()
+        .enumerate()
+        .map(|(i, entry)| sets::TimedPlay {
+            entry,
+            started: started + chrono::Duration::minutes(5 * i as i64),
+            stopped: None,
+            player: None,
+        })
+        .collect();
+    book.imported.push(sets::ImportedSession {
+        id: "0123456789abcdef0123456789abcdef".into(),
+        name: "Friday".into(),
+        tool: "beat_link_trigger".into(),
+        file: dir.path().join("friday.log"),
+        imported_at: chrono::Utc::now(),
+        plays,
+    });
+    book.save(&store).unwrap();
+    let req = api::SessionsRequest { drive: Some(root.display().to_string()), unassigned: false };
+    let found = api::sessions(Some(&store), &req, &Ctx::silent()).unwrap().sessions;
+    let dismissed = found.iter().find(|s| s.name == "HISTORY 002").unwrap().id.clone();
+    book.dismissed.insert(dismissed.clone());
+    book.save(&store).unwrap();
+
+    let r = build(Some(&store), &request(&[&root])).report;
+    assert_eq!(r.basis, Basis::Sessions);
+    let want: Vec<&sets::Session> =
+        found.iter().filter(|s| s.id != dismissed && s.tracks.len() >= profile::DEFAULT_MIN_SET_TRACKS).collect();
+    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        r.sets.list.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+        want.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        ids(&r.sets.list.iter().map(|s| s.name.as_str()).collect::<Vec<_>>()),
+        ids(&["HISTORY 004", "HISTORY 001", "Friday"]),
+        "newest first: the drive's, then by when each was recorded"
+    );
+    // The log on the day it was played, the archived list the day it was pulled, the drive's not
+    // yet archived.
+    let local = |t: chrono::DateTime<chrono::Utc>| t.with_timezone(&chrono::Local).date_naive();
+    let dates: Vec<Option<chrono::NaiveDate>> = r.sets.list.iter().map(|s| s.date).collect();
+    assert_eq!(dates, [None, want[1].window.before.map(local), Some(local(started))]);
+    assert_eq!((r.sets.too_short, r.sets.not_archived), (1, 1));
+}
