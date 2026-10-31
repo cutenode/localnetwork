@@ -369,7 +369,7 @@ fn send_file(request: reqwest::RequestBuilder, path: &Path, size: u64, ctx: &Ctx
     let requests = Requests::new().map_err(|e| Error::Account(format!("the network: {e}")))?;
     let (sent, reported) = mpsc::channel();
     let body = Sending { file: File::open(path).at(path)?, sent };
-    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body));
+    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body, ctx.cancel.clone()));
     ctx.phase_start(Phase::Upload, 1, size);
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     ctx.emit(Event::Item { phase: Phase::Upload, path: name, bytes: size });

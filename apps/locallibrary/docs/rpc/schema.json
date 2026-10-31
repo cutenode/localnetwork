@@ -26892,6 +26892,25 @@
           "format": "double",
           "description": "Playback speed: 1.0 as recorded, 1.03 is +3%."
         },
+        "speed_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
+        },
         "played_bpm": {
           "type": [
             "number",
@@ -27448,6 +27467,25 @@
           "type": "number",
           "format": "double",
           "description": "Playback speed: 1.03 is +3%."
+        },
+        "speedRange": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average."
         },
         "playedBpm": {
           "type": [
@@ -30524,6 +30562,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "smart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SmartPlaylist"
+          },
+          "description": "Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),\nwhich `smart apply` keeps up to date: kept in the store once the export is applied."
         }
       },
       "required": [
@@ -30550,7 +30595,8 @@
         "needed_bytes",
         "free_space",
         "fits",
-        "warnings"
+        "warnings",
+        "smart"
       ]
     },
     "CollectionExportReport": {
