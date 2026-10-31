@@ -185,10 +185,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       newer one puts back edits the journal has forgotten.
 - [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
       finishes it, but taking it back needs `undo --force`.
-- [ ] `prep` syncs one pair at a time; it could use the parallel multi-drive sync when no drive came
-      back from a set.
-- [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
-      copy` refuses instead (without `--force`).
 - [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
       take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
       nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
@@ -286,10 +282,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `collection export` skips intelligent playlists: `SmartList` rules aren't read
-      (`masterdb.rs:38`).
-- [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
-      Tags.
 - [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
