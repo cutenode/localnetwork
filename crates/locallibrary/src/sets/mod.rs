@@ -322,9 +322,15 @@ impl MusicBrainzIds {
     }
 
     /// The IDs the tags of the audio file at `path` hold: none when it has none, or can't be read.
-    /// Anything that isn't a UUID is left out.
+    /// Anything that isn't a UUID is left out. A file whose name doesn't say its type (the store's
+    /// copy of one, named by its hash) is read as its first bytes say.
     pub fn read(path: &Path) -> MusicBrainzIds {
-        let Ok(tagged) = lofty::read_from_path(path) else { return MusicBrainzIds::default() };
+        let read = || {
+            let probe = lofty::probe::Probe::open(path).ok()?;
+            let probe = if probe.file_type().is_some() { probe } else { probe.guess_file_type().ok()? };
+            probe.read().ok()
+        };
+        let Some(tagged) = read() else { return MusicBrainzIds::default() };
         let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else { return MusicBrainzIds::default() };
         // ID3v2.4 keeps several values in one frame (lofty splits those); Picard writes ID3v2.3's
         // joined with `/`.

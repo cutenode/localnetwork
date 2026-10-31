@@ -2,15 +2,8 @@ import type { JsonValue } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { BlobRefJson } from '#lib/types.ts';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	sniffImage,
-	withTracklists
-} from './project';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, sniffImage, withTracklists } from './project';
+import { formValues } from '#lib/project-form.ts';
 
 function form(entries: [string, string | File][]): FormData {
 	const data = new FormData();

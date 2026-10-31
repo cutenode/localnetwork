@@ -314,7 +314,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `sets` made from it), `sessions.dismiss {sessions, undo?}`, `sessions.import {file, drive?,
   name?}` (a Beat Link Trigger log), `sets.suggest {drive?}` (`candidates`, and the `sessions`
   they're made of), `sets.list`, `sets.get {set | venue}`, `sets.new`, `sets.edit` (both answer
-  the `set` and `notes` to show), `sets.delete`, `sets.export {set, format, output?}` (without
+  the `set` and `notes` to show), `sets.delete` (which deletes a published set's record and its
+  recording's from the account first), `sets.export {set, format, output?}` (without
   `output`, the document comes back as `text`), `sets.played {track}` and
   `sets.playlist.plan/apply`. Sets are written to the store at once, so `sets.new`, `sets.edit`,
   `sets.delete`, `sets.export`, `sessions.dismiss` and `sessions.import` are `immediate`.
@@ -348,6 +349,13 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `playlist.restore.plan`. Their `.apply` applies a plan by `plan_id`, or plans and applies a
   request as before (`settings.write.apply` with a request still writes one `drive`, honouring
   `dry_run`).
+- Settings to and from a file: `settings.export` answers everything set in the store, as
+  `locallibrary settings export` writes it (described by
+  [`settings-export.schema.json`](settings-export.schema.json)), and
+  `settings.import_file.plan/apply` (`file`, optional `replace`) imports one: its `changes` say
+  what each of the file's values does (`add`, `keep` as it is here, or with `replace: true`
+  `replace`), and applying returns what's set then. `settings.import.*` stays the import from a
+  drive or rekordbox.
 - Parameter names are the fields of the request structs in `api.rs`, as `docs/rpc` describes
   them. Results that were pairs keep their JSON (`failed: [["Contents/a.mp3", "unreadable"]]`);
   the schema and the TypeScript types name each element (`[path: string, error: string]`).

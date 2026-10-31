@@ -349,6 +349,12 @@ and how it was made, so packing again keeps current copies and makes them again 
 replaced, even by a file of the same name, or the way copies are made changed. Packing again
 without `--playlist` keeps the copies' players and options too.
 
+`sync` has no `--transcode`: a synced drive is a byte-for-byte copy of another, which its history,
+fingerprints and safety checks rely on. `pack --transcode` is how to make a drive the players can
+play, of every playlist in a library too (a `--playlist` for each top-level folder and playlist;
+tracks in no playlist stay behind). A packed drive holds a library of its own, so `sync` never
+copies it over the source or the source over it: pack again to bring it up to date.
+
 ## My Tags
 
 ```bash

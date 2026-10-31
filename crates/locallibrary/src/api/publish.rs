@@ -508,6 +508,38 @@ impl Operation for RecordingUpload {
     }
 }
 
+/// The signed-in account, and the record types published for the set `id` on it under its key, as
+/// Local Network's directory has them: its record and its recording's. `None` signed out.
+fn published_for_set(store_root: &Path, id: &str) -> Result<Option<(AccountInfo, Vec<&'static str>)>> {
+    let Some(info) = atmosphere::status(store_root)? else { return Ok(None) };
+    // What the account published before the directory kept sets, read first.
+    directory::request_index(store_root, &info)?;
+    let mut published = Vec::new();
+    for collection in [lexicon::SET, lexicon::RECORDING] {
+        if directory::get_record(&info.did, collection, id)?.is_some() {
+            published.push(collection);
+        }
+    }
+    Ok(Some((info, published)))
+}
+
+/// The at:// URIs of what's published for the set `id` on the signed-in account: its record and
+/// its recording's. None signed out, or when neither is published.
+pub fn set_published_uris(store_root: &Path, id: &str) -> Result<Vec<String>> {
+    let Some((info, published)) = published_for_set(store_root, id)? else { return Ok(Vec::new()) };
+    Ok(published.into_iter().map(|c| repo::at_uri(&info.did, c, id)).collect())
+}
+
+/// Delete what's published for the set `id` on the signed-in account: its record, then its
+/// recording's, so the set's record never points at a recording that's gone.
+pub(crate) fn set_unpublish(store_root: &Path, id: &str) -> Result<()> {
+    let Some((info, published)) = published_for_set(store_root, id)? else { return Ok(()) };
+    for collection in published {
+        repo::delete_record(store_root, &info.did, collection, id)?;
+    }
+    Ok(())
+}
+
 /// What looking up the MusicBrainz IDs of a set's tracks did (`sets.lookup`), counting the tracks
 /// the record names without IDs by file, once however often the set plays them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, JsonSchema)]

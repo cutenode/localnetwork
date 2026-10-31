@@ -68,6 +68,41 @@ pub fn write_beat_grid(bytes: &[u8], beats: &[Beat]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// `beats` at twice the tempo: a beat halfway between each two, numbered on through the bar.
+/// The first beat keeps its place, counted in the new beats (its old bar's beats 1 and 3 become
+/// downbeats), and no beat goes after the last. Checked when written ([`checked_grid`]).
+pub fn doubled_grid(beats: &[Beat]) -> Vec<Beat> {
+    let Some(first) = beats.first() else { return Vec::new() };
+    let start = 2 * (first.beat_number.clamp(1, 4) - 1);
+    let mut out = Vec::with_capacity(beats.len() * 2);
+    for (i, b) in beats.iter().enumerate() {
+        out.push(Beat { bpm: b.bpm * 2.0, time_ms: b.time_ms, beat_number: 0 });
+        if let Some(next) = beats.get(i + 1) {
+            let half = b.time_ms + next.time_ms.saturating_sub(b.time_ms) / 2;
+            out.push(Beat { bpm: b.bpm * 2.0, time_ms: half, beat_number: 0 });
+        }
+    }
+    numbered(out, start)
+}
+
+/// `beats` at half the tempo: every other beat, from the first that's beat 1 or 3 of its bar
+/// (so downbeats stay downbeats), numbered on through the bar from there. Checked when written
+/// ([`checked_grid`]).
+pub fn halved_grid(beats: &[Beat]) -> Vec<Beat> {
+    let Some(from) = beats.iter().position(|b| b.beat_number % 2 == 1) else { return Vec::new() };
+    let start = beats[from].beat_number / 2;
+    let kept = beats[from..].iter().step_by(2).map(|b| Beat { bpm: b.bpm / 2.0, ..*b }).collect();
+    numbered(kept, start)
+}
+
+/// `beats` numbered 1-4 through their bars, the first `start` beats (0-3) into its bar.
+fn numbered(mut beats: Vec<Beat>, start: u16) -> Vec<Beat> {
+    for (i, b) in beats.iter_mut().enumerate() {
+        b.beat_number = ((usize::from(start) + i) % 4) as u16 + 1;
+    }
+    beats
+}
+
 /// A copy of an analysis file (an `.EXT`) without its extended beat grid (`PQT2`), which a new
 /// grid would contradict (see the module's docs). One without stays as it is.
 pub fn without_extended_grid(bytes: &[u8]) -> Result<Vec<u8>> {

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { describe, expect, it, vi } from 'vitest';
+import { IdentityResolver } from '../atproto/identity';
 import { silentLogger } from '../logger';
 import { type AudioRequest, parseRange, recordingAudio } from './audio';
 
@@ -195,5 +198,77 @@ describe('recordingAudio', () => {
 		});
 
 		expect(unreachable.status).toBe(502);
+	});
+
+	/** A DID resolving to a PDS at `endpoint`, checked as the route checks it in production. */
+	function resolvingTo(endpoint: string) {
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.test',
+			allowPrivateNetwork: false,
+			logger: silentLogger
+		});
+
+		vi.spyOn(identity, 'resolve').mockResolvedValue({
+			did: DJ,
+			handle: null,
+			pds: endpoint,
+			signingKey: 'did:key:zDJ',
+			kemKey: null
+		});
+
+		return (did: string) => identity.safePds(did);
+	}
+
+	it('refuses a recording whose DID points at a private address or plain HTTP, without asking it', async () => {
+		for (const endpoint of [
+			'https://127.0.0.1',
+			'https://10.0.0.1',
+			'https://169.254.169.254',
+			'https://[::1]',
+			'http://pds.example'
+		]) {
+			const upstream = pds();
+			const response = await ask(null, { pds: resolvingTo(endpoint), fetch: upstream.fetch });
+
+			expect(response.status).toBe(502);
+			expect(upstream.requests).toHaveLength(0);
+		}
+	});
+
+	it('still serves ranges from a public PDS', async () => {
+		const upstream = pds();
+		const response = await ask('bytes=5-30', { pds: resolvingTo('https://8.8.8.8'), fetch: upstream.fetch });
+
+		expect(response.status).toBe(206);
+		expect(await body(response)).toEqual(range(5, 30));
+		expect(new URL(upstream.requests[0].url).origin).toBe('https://8.8.8.8');
+	});
+
+	it("doesn't follow a PDS that redirects", async () => {
+		let followed = false;
+
+		const server = createServer((request, response) => {
+			if (request.url?.startsWith('/internal')) {
+				followed = true;
+				response.end(Buffer.from(BYTES));
+
+				return;
+			}
+
+			response.writeHead(302, { location: '/internal' }).end();
+		});
+
+		await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
+
+		try {
+			// SAFETY: a server listening on a TCP port has an address and port, not a pipe name.
+			const { port } = server.address() as AddressInfo;
+			const response = await ask(null, { pds: async () => `http://127.0.0.1:${port}`, fetch: globalThis.fetch });
+
+			expect(response.status).toBe(502);
+			expect(followed).toBe(false);
+		} finally {
+			await new Promise((closed) => server.close(closed));
+		}
 	});
 });

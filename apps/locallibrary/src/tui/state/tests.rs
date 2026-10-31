@@ -121,3 +121,108 @@ fn a_store_with_nothing_beside_it_keeps_nothing(tc: hegel::TestCase) {
     assert!(!root.join(FILE).exists());
     assert_eq!(load(root), Saved::default());
 }
+
+/// `saved` with only its preferences, the part `settings export` takes. Every field of [`Saved`]
+/// is named here, as a preference or as where the player was, so a new one doesn't build until
+/// it's one or the other (a preference also goes in `locallibrary::settings::transfer::PlayerPrefs`,
+/// or the test below fails).
+fn preferences_of(saved: &Saved) -> Saved {
+    let Saved {
+        // Where it was: never exported.
+        root: _,
+        node: _,
+        view: _,
+        volume: _,
+        details: _,
+        crate_panel: _,
+        output: _,
+        mixes: _,
+        mix_folders: _,
+        crate_list: _,
+        queue: _,
+        // The user's preferences.
+        sort,
+        search_all,
+        vis,
+        ratings,
+        tags_column,
+        field_columns,
+        theme,
+        shuffle,
+        repeat,
+        quantize,
+        single,
+        auto_cue,
+    } = saved.clone();
+    Saved {
+        sort,
+        search_all,
+        vis,
+        ratings,
+        tags_column,
+        field_columns,
+        theme,
+        shuffle,
+        repeat,
+        quantize,
+        single,
+        auto_cue,
+        ..Default::default()
+    }
+}
+
+/// The player's preferences go out with `settings export` and come back in another store's
+/// player; where it was (the drive, the list, the queue, its panels, the volume, the output)
+/// never goes out.
+#[hegel::test(test_cases = 30)]
+fn its_preferences_go_to_another_store_and_where_it_was_stays(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::api;
+    let dir = tempfile::tempdir().unwrap();
+    let (here, there) = (dir.path().join("here"), dir.path().join("there"));
+    let store = locallibrary::Store::open_or_init(&here).unwrap();
+    let maybe = |s: &str| tc.draw(gs::booleans()).then(|| s.to_string());
+    let on = || tc.draw(gs::booleans());
+    let saved = Saved {
+        root: Some(dir.path().join("drives/USB")),
+        node: Some(SavedNode::Group { category: Category::Key, key: "8A".into() }),
+        view: Some("Mixes".into()),
+        sort: on().then_some(SortKey { field: SortField::Bpm, descending: on() }),
+        search_all: on(),
+        volume: Some(0.4),
+        vis: maybe("deck"),
+        details: true,
+        crate_panel: true,
+        ratings: on(),
+        tags_column: on(),
+        field_columns: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("sound.f{i}")).collect(),
+        theme: maybe("themes.night"),
+        shuffle: on(),
+        repeat: maybe("one"),
+        quantize: tc.draw(gs::optional(gs::booleans())),
+        output: Some("Speakers".into()),
+        single: on(),
+        auto_cue: on(),
+        mixes: vec!["/m/a.wav".into()],
+        mix_folders: vec!["/m".into()],
+        crate_list: vec![SavedCrateTrack {
+            root: "/Volumes/USB".into(),
+            drive: "USB".into(),
+            track: Default::default(),
+        }],
+        queue: Some(SavedQueue { root: "/Volumes/USB".into(), tracks: vec!["/a.mp3".into()], ..Default::default() }),
+    };
+    save(&here, &saved);
+    let doc = api::settings_export(&store).unwrap();
+    // Every field where it was is set, so each is one `preferences_of` leaves out.
+    let (all, kept) = (serde_json::to_value(&saved).unwrap(), serde_json::to_value(preferences_of(&saved)).unwrap());
+    let session: Vec<&String> =
+        all.as_object().unwrap().keys().filter(|k| all[k.as_str()] != kept[k.as_str()]).collect();
+    assert_eq!(session.len(), 11, "{session:?}");
+    assert!(session.iter().all(|k| !doc.player.contains_key(k.as_str())), "{:?}", doc.player);
+    let file = dir.path().join("settings.json");
+    std::fs::write(&file, serde_json::to_vec(&doc).unwrap()).unwrap();
+    let other = locallibrary::Store::open_or_init(&there).unwrap();
+    api::settings_import_file(&other, &api::ImportSettingsFile { file, replace: false }).unwrap();
+    assert_eq!(load(&there), preferences_of(&saved));
+}

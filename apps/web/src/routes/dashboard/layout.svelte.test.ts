@@ -32,13 +32,14 @@ const menu = async () => {
 it('lists the sections, each project the viewer manages, and the way back to the site', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(false), pendingRequests: 0, projects: Promise.resolve([neon]) },
+		data: { viewer: viewer(false), pendingRequests: 0, unread: 0, projects: Promise.resolve([neon]) },
 		children
 	});
 	const nav = await menu();
 
 	for (const [name, href] of [
 		['Overview', '/dashboard'],
+		['Inbox', '/dashboard/inbox'],
 		['Bookings', '/dashboard/bookings'],
 		['Planner', '/dashboard/planner'],
 		['Requests', '/dashboard/requests'],
@@ -61,7 +62,7 @@ it('lists the sections, each project the viewer manages, and the way back to the
 it('adds the staff console, with the requests waiting, for staff', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(true), pendingRequests: 4, projects: Promise.resolve([]) },
+		data: { viewer: viewer(true), pendingRequests: 4, unread: 0, projects: Promise.resolve([]) },
 		children
 	});
 	const nav = await menu();
@@ -69,10 +70,21 @@ it('adds the staff console, with the requests waiting, for staff', async () => {
 	await expect.element(nav.getByRole('link', { name: 'Staff console 4' })).toHaveAttribute('href', '/admin');
 });
 
+it('counts what is unread in the inbox', async () => {
+	await render(Layout, {
+		params: {},
+		data: { viewer: viewer(false), pendingRequests: 0, unread: 3, projects: Promise.resolve([]) },
+		children
+	});
+	const nav = await menu();
+
+	await expect.element(nav.getByRole('link', { name: 'Inbox 3' })).toHaveAttribute('href', '/dashboard/inbox');
+});
+
 it('still offers to list a project when the directory is offline', async () => {
 	await render(Layout, {
 		params: {},
-		data: { viewer: viewer(false), pendingRequests: 0, projects: Promise.resolve(null) },
+		data: { viewer: viewer(false), pendingRequests: 0, unread: 0, projects: Promise.resolve(null) },
 		children
 	});
 	const nav = await menu();

@@ -16,7 +16,7 @@ export const GET: RequestHandler = async ({ params, request, locals, fetch }) =>
 		cid: params.cid,
 		range: request.headers.get('range'),
 		audio: (did, cid) => app.recordings.audio(did, cid),
-		pds: async (did) => (await app.identity.resolve(did)).pds,
+		pds: (did) => app.identity.safePds(did),
 		fetch,
 		log
 	});
