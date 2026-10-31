@@ -215,31 +215,45 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 
 ## Scripts
 
-| Script                              | What it does                                                              |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                      |
-| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`) |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                  |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                          |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin          |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                     |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)       |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container     |
-| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`   |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client JS budgets        |
-| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                         |
-| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it     |
-| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                   |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe      |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                |
-| `pnpm knip`                         | Unused files, exports, and dependencies                                   |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS         |
-| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))              |
-| `pnpm db:backups`                   | List the bucket's backups                                                 |
-| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`            |
-| `pnpm verify`                       | CI's quick checks, in order                                               |
+| Script                              | What it does                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
+| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
+| `pnpm check`                        | `svelte-check` with TypeScript 6                                                             |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container                        |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`                      |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client JS budgets                           |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                                            |
+| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it                        |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                                      |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                         |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                   |
+| `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
+| `pnpm knip`                         | Unused files, exports, and dependencies                                                      |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
+| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
+| `pnpm db:backups`                   | List the bucket's backups                                                                    |
+| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
+| `pnpm verify`                       | CI's quick checks, in order                                                                  |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
+
+### Lighthouse
+
+[`lighthouse/pages.json`](lighthouse/pages.json) lists the pages Lighthouse measures, each signed out or signed in as `neon.test` (`dj`) or `ada.test` (`admin`). Pull requests that change what the pages are built from measure the ones marked `pr` against the budgets in `lighthouserc.cjs`. `pnpm test:lighthouse:full` measures all of them on a phone and a desktop, three runs each, and keeps each page's medians in `lighthouse-history.jsonl`. Each run is held against the median of the last five recorded runs, and against the twenty before those to catch a slow creep. A regression past a metric's tolerance (in [`scripts/lib/lighthouse.ts`](scripts/lib/lighthouse.ts)) fails the run, as does a bad result: a failed run, a page that redirected or answered an error, or a failed budget (signed-in pages have no SEO budget, since search engines never see them). Runs that spread wide, and a new Lighthouse or a faster or slower machine, are noted too.
+
+To find the commit behind a regression, record a baseline of only the pages that moved on the last good commit (each history line names its commit), then let `git bisect` measure each commit against it, failing only on a regression (commits from before this suite landed lack its scripts):
+
+```bash
+git checkout <good>
+pnpm build && pnpm exec tsx scripts/lighthouse.ts --page /charts && node scripts/lighthouse-history.ts --record --history lighthouse-history-bisect.jsonl
+git bisect start <bad> <good>
+git bisect run sh -c 'pnpm build && pnpm exec tsx scripts/lighthouse.ts --page /charts && node scripts/lighthouse-history.ts --history lighthouse-history-bisect.jsonl --regressions-only'
+```
 
 Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
 

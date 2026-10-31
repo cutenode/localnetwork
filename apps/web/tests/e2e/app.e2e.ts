@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
+import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -28,20 +29,6 @@ function keepPdsCookies(page: Page) {
 }
 
 test.beforeEach(({ page }) => keepPdsCookies(page));
-
-/** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
-	await page.goto(`/login?next=${encodeURIComponent(next)}`);
-	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await page.locator('input[type="password"]').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('button', { name: 'Authorize' }).click();
-	const target = new URL(next, 'http://127.0.0.1:5199');
-	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
-	await page.waitForLoadState('networkidle');
-}
 
 /**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and

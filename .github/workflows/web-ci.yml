@@ -89,8 +89,8 @@ jobs:
             # What the pages Lighthouse measures are built and served from: the app's code, static
             # files and Lua (HappyView answers the directory's queries), the dev network and seed
             # data it measures them on, its build and Lighthouse config, the dependencies, and the
-            # README and guides of the one tool page lighthouserc.cjs visits (add a tool here when
-            # its page goes in there). Left out: the app's tests and the helpers and fixture only
+            # README and guides of the one tool page lighthouse/pages.json marks `pr` (add a tool here
+            # when its page is marked). Left out: the app's tests and the helpers and fixture only
             # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
             # everything outside these paths (tests/, .storybook/, the lint and format configs, the
             # website's README, the Dockerfile).
@@ -103,6 +103,7 @@ jobs:
               - 'apps/web/vite.config.ts'
               - 'apps/web/tsconfig.json'
               - 'apps/web/lighthouserc.cjs'
+              - 'apps/web/lighthouse/**'
               - 'apps/locallibrary/README.md'
               - 'apps/locallibrary/docs/*.md'
               - 'packages/tokens/**'
