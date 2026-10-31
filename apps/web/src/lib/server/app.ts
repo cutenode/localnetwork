@@ -1,7 +1,7 @@
 import { USERINPUT } from '#lib/bug-report.ts';
 import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
-import type { Viewer } from '#lib/types.ts';
+import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsSpaces, OAuthService } from './atproto/oauth';
@@ -22,6 +22,11 @@ import { INDEX_WAIT_MS, IndexedRepo } from './happyview/indexed';
 import { MANAGER_COLLECTIONS, refreshForScript } from './happyview/refresh';
 import { syncHappyView } from './happyview/sync';
 import { createLogger, type Logger } from './logger';
+import { NotificationChannels } from './notifications/channels';
+import { confirmationSender, emailChannel, LogEmailSender, ResendEmailSender } from './notifications/email';
+import { Notifier } from './notifications/notifier';
+import { dmChannel, LogDmSender, RootDmSender } from './notifications/dm';
+import { type ChannelSender, Outbox } from './notifications/outbox';
 import { PlyrClient } from './plyr';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
@@ -96,6 +101,56 @@ export async function createApp(options: CreateAppOptions) {
 		maxAttempts: config.auditMaxAttempts
 	});
 
+	const { email } = config;
+
+	const emailSender =
+		email.provider === 'resend'
+			? new ResendEmailSender({ apiKey: email.apiKey, from: email.from })
+			: email.provider === 'log'
+				? new LogEmailSender(logger.child({ component: 'email' }))
+				: null;
+
+	const notificationChannels = new NotificationChannels({
+		db,
+		logger: logger.child({ component: 'notifications' }),
+		sendConfirmation: emailSender
+			? confirmationSender(emailSender, config.publicUrl, logger.child({ component: 'email' }))
+			: undefined,
+		limits: {
+			account: new RateLimiter(5, 5 / 86_400),
+			accountAddress: new RateLimiter(3, 3 / 86_400),
+			address: new RateLimiter(10, 10 / 86_400),
+			all: new RateLimiter(100, 100 / 3600)
+		}
+	});
+
+	const dmLogger = logger.child({ component: 'dm' });
+
+	const dm =
+		config.dm.provider === 'bluesky'
+			? new RootDmSender({
+					chat: () => rootAccount.chat(config.dm.chatService),
+					logger: dmLogger
+				})
+			: config.dm.provider === 'log'
+				? new LogDmSender(dmLogger)
+				: null;
+
+	const senders: Partial<Record<NotificationChannel, ChannelSender>> = {};
+
+	if (emailSender) senders.email = emailChannel(emailSender, config.publicUrl);
+
+	if (dm) senders.dm = dmChannel(dm, config.publicUrl);
+
+	const outbox = new Outbox({
+		db,
+		logger: logger.child({ component: 'outbox' }),
+		channels: notificationChannels,
+		senders
+	});
+
+	const notifications = new Notifier({ db, logger: logger.child({ component: 'notifications' }), outbox });
+
 	const credentials = new SpaceCredentialManager({
 		source: async () => rootClient,
 		identity,
@@ -112,6 +167,7 @@ export async function createApp(options: CreateAppOptions) {
 		userClient,
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		// Services only call this from their methods, which run after `syncer` below exists.
 		watchSpace: async (space) => {
 			await syncer.watch(space);
@@ -186,7 +242,10 @@ export async function createApp(options: CreateAppOptions) {
 	const limits = {
 		login: new RateLimiter(10, 10 / 60),
 		write: new RateLimiter(30, 30 / 60),
-		search: new RateLimiter(60, 2)
+		search: new RateLimiter(60, 2),
+		/** Turning email or DMs on, or checking again, which asks other services each time. */
+		optIn: new RateLimiter(5, 5 / 600),
+		testSend: new RateLimiter(3, 3 / 3600)
 	};
 
 	const spaceJoins = new SpaceJoins(core, sharedSpaces, limits.write);
@@ -259,6 +318,11 @@ export async function createApp(options: CreateAppOptions) {
 		backfills,
 		audit,
 		accounts,
+		notifications,
+		notificationChannels,
+		outbox,
+		/** Bluesky DMs from the root, or null when this site doesn't send them. */
+		dm,
 		projects,
 		sets: projects.sets,
 		requests,
@@ -407,11 +471,18 @@ export async function createApp(options: CreateAppOptions) {
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
 			every(60 * 60_000, () => listings.reconcile(), 'listings');
+			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
+			every(15_000, () => outbox.processDue(), 'notification-delivery');
+			void outbox
+				.recover()
+				.then(() => outbox.processDue())
+				.catch((error) => logger.warn({ err: error }, 'could not resume notification delivery'));
 		},
 
 		async stop() {
 			for (const timer of timers) clearInterval(timer);
-			await audit.idle();
+			outbox.stop();
+			await Promise.all([audit.idle(), outbox.idle()]);
 			await db.destroy();
 		}
 	};

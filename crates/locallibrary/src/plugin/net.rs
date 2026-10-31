@@ -395,7 +395,7 @@ impl Plugin {
                     self.host.log(&self.manifest.id, &said);
                     request = request.timeout(TIMEOUT + Duration::from_secs(files / SLOWEST));
                 }
-                request = body.send(request, live)?;
+                request = body.send(request, live, cancel)?;
             }
             let sending = requests.run(|| request.send(), cancel);
             let response = sending.ok_or_else(RpcError::cancelled)?.map_err(|e| external(with_causes(&e)))?;
