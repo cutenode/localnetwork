@@ -1,0 +1,35 @@
+id = "soundcloud-account"
+name = "SoundCloud Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# SoundCloud wants a client secret when a code is traded for tokens and when they're refreshed,
+# so both go through Local Network's token exchange, which holds it. SoundCloud has no scopes to
+# ask for, takes the token as `Authorization: OAuth <token>`, and sends the browser back only to
+# the redirect URI its app was registered with, port and all: http://127.0.0.1:47110/callback.
+[[contributes.account_types]]
+type = "soundcloud"
+title = "SoundCloud"
+authorize_url = "https://secure.soundcloud.com/authorize"
+token_exchange = "https://localnetwork.computer/api/token-exchange/soundcloud"
+# PLACEHOLDER: Local Network's SoundCloud app isn't registered yet. Once it is, this is its client
+# id (public), the same as the website's SOUNDCLOUD_CLIENT_ID, which the token exchange sends with
+# it.
+client_id = "PLACEHOLDER-unregistered-soundcloud-client-id"
+token = { scheme = "OAuth" }
+redirect_port = 47110
+# The account's `urn` (`soundcloud:users:<id>`), which SoundCloud's API names users by.
+whoami = { url = "https://api.soundcloud.com/me", subject = "/urn", name = "/username" }
+
+# Uploading a track, and reading the account's newest tracks to find one an upload made before it
+# failed.
+[contributes.account_types.scopes.upload]
+title = "upload tracks to SoundCloud"
+requests = [
+    { method = "POST", url = "https://api.soundcloud.com/tracks" },
+    { method = "GET", url = "https://api.soundcloud.com/me/tracks?*" },
+]
+
+[contributes.account_types.scopes.read]
+title = "read from SoundCloud as you"
+requests = [{ method = "GET", url = "https://api.soundcloud.com/*" }]

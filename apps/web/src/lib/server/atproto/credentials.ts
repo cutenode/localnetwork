@@ -161,8 +161,7 @@ export class SpaceCredentialManager {
 		}
 
 		// An authority's PDS is its space host.
-		const host = (await this.deps.identity.resolve(ref.authority)).pds;
-		await this.deps.identity.assertSafeEndpoint(host);
+		const host = await this.deps.identity.safePds(ref.authority);
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 

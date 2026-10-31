@@ -14,7 +14,7 @@ const AUDIENCE = 'did:web:localnetwork.computer';
 
 const DJ = 'did:plc:dj';
 
-const LOCALLIBRARY = [COLLECTION.djSet, COLLECTION.djProfile, COLLECTION.locallibrarySettings];
+const LOCALLIBRARY = [COLLECTION.djSet, COLLECTION.djRecording, COLLECTION.djProfile, COLLECTION.locallibrarySettings];
 
 const backfillInput = z.object({ collection: z.string(), did: z.string() });
 
@@ -114,11 +114,11 @@ describe('requestIndex', () => {
 		await call(backfills, await token());
 		vi.advanceTimersByTime(9 * 60_000);
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: true } });
-		expect(backfilled).toHaveLength(3);
+		expect(backfilled).toHaveLength(LOCALLIBRARY.length);
 
 		vi.advanceTimersByTime(60_000);
 		await call(backfills, await token());
-		expect(backfilled).toHaveLength(6);
+		expect(backfilled).toHaveLength(2 * LOCALLIBRARY.length);
 	});
 
 	it('says a failed re-read is not done, and tries it again on the next call', async () => {
@@ -138,7 +138,7 @@ describe('requestIndex', () => {
 
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: false } });
 		expect(await call(backfills, await token())).toEqual({ status: 200, body: { indexed: false } });
-		expect(backfilled).toHaveLength(3);
+		expect(backfilled).toHaveLength(LOCALLIBRARY.length);
 	});
 
 	it("says nothing was re-read without HappyView's API key", async () => {

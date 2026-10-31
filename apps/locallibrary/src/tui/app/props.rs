@@ -759,7 +759,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
 const PLAY_KEYS: &[&str] =
     &[" ", " ", "n", "n", "p", "x", "s", "r", "S", "A", "c", "f", "\n", "j", "k", "o", "<right>"];
 
-/// Playing a queue of half-second tracks (at two sample rates; some with no audio in them, some
+/// Playing a queue of short tracks (at two sample rates; some with no audio in them, some
 /// whose file has gone) with the player's keys as time passes, while its output goes away (and
 /// space plays on through another), glitches, or a track breaks as it plays; with matches to
 /// queue next full screen, the crate to play, a recorded set played on its own, and the drive let
@@ -922,7 +922,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     && audible(&up.now.track)
                     && app.is_playing()
                     && !playing.is_some_and(|p| broke.contains(&p));
-                let left = Duration::from_millis(500).saturating_sub(app.position());
+                // (A quarter second at 16 kHz: past its end, the one ahead would play out too.)
+                let left = app.now.as_ref().unwrap().duration.saturating_sub(app.position());
                 let was = format!(
                     "pos {} of {:?}, at {:?}, upcoming queued {}, file {}, repeat {:?}, shuffle {}, opening {}",
                     app.queue.pos,

@@ -308,6 +308,8 @@ fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
         assert_eq!((failed, &with["problems"], &with["stopped"]), (code, &report["problems"], &Value::Null), "{with}");
         assert_eq!((mine.len(), &mine[0]["level"]), (1, &json!("warning")), "{answer}");
     }
+    // Long enough to answer on a busy machine: out of time, the problem would be a warning.
+    env.ok(&["--yes", "plugin", "checks", "--timeout", "60"]);
     let (stopped, with, _) = prep(json!({ "findings": [{ "level": "problem", "message": "unplayable" }] }));
     assert_eq!((stopped, &with["problems"]), (4, &json!(true)), "{with}");
 }

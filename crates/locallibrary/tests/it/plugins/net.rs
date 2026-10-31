@@ -3,7 +3,8 @@
 //! granted, redirects elsewhere, more than it may hold, and its secrets.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::AtomicU64;
 
 use indexmap::IndexMap;
 use locallibrary::keychain::Storage;
@@ -323,6 +324,109 @@ fn requests_to_a_limited_host_wait_their_turns() {
     assert_eq!(answer["error"]["data"]["kind"], "cancelled", "{answer}");
     waiting.join().unwrap();
     assert_eq!(server.got().len(), 4, "the second never went");
+}
+
+/// A server on this computer that takes connections and never reads or answers them: each one as
+/// it's taken.
+fn silent() -> (String, Receiver<TcpStream>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/up", listener.local_addr().unwrap());
+    let (taken, connections) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let _ = taken.send(stream.unwrap());
+        }
+    });
+    (url, connections)
+}
+
+/// Whether the other end closes `stream` within `bound`, what it sent read meanwhile.
+fn closes_within(mut stream: TcpStream, bound: Duration) -> bool {
+    let until = Instant::now() + bound;
+    let mut buf = vec![0; 64 << 10];
+    loop {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        stream.set_read_timeout(Some(left)).unwrap();
+        match stream.read(&mut buf) {
+            Ok(0) => return true,
+            Ok(_) => {}
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                return false;
+            }
+            // Reset.
+            Err(_) => return true,
+        }
+    }
+}
+
+/// How many bytes of its files a hook has sent, as its progress says: told once they're `all`.
+struct Sending {
+    bytes: AtomicU64,
+    all: u64,
+    told: Mutex<Sender<()>>,
+}
+
+impl locallibrary::Progress for Sending {
+    fn on_event(&self, event: &locallibrary::Event) {
+        let locallibrary::Event::Bytes { bytes, .. } = event else { return };
+        if self.bytes.fetch_add(*bytes, Ordering::SeqCst) + bytes >= self.all {
+            let _ = self.told.lock().unwrap().send(());
+        }
+    }
+}
+
+/// A request stops once it's cancelled, its connection closed, while a server that has stopped
+/// reading holds it up: not once its time is up, 30 s (and a second for each 128 KiB it sends)
+/// later. Cancelled once all its file is read, it only waits on the server then.
+#[test]
+fn a_request_a_server_holds_up_stops_once_cancelled() {
+    let (url, connections) = silent();
+    let f = fixture(&talking(100.0), &[], Options::default());
+    let (told, all_read) = mpsc::channel();
+    let sending = Sending { bytes: AtomicU64::new(0), all: 5, told: Mutex::new(told) };
+    let cancel = locallibrary::progress::CancelToken::new();
+    let cancelling = cancel.clone();
+    // The fixture's drive is this thread's: the hook runs here, the server's side on another.
+    let closed = std::thread::spawn(move || {
+        let connection = connections.recv_timeout(Duration::from_secs(10)).expect("the request is sent");
+        all_read.recv_timeout(Duration::from_secs(10)).expect("its file is read");
+        cancelling.cancel();
+        // Generous: it notices in 50 ms.
+        closes_within(connection, Duration::from_secs(5))
+    });
+    let fetch = json!({ "url": url, "method": "PUT", "body_blob": "sent" });
+    let params = json!({ "fetch": fetch, "blobs": { "sent": b"a mix" } });
+    let CommandOutput::Headless(answer) = f.command("echo", params, &Ctx::new(&sending, cancel)).unwrap() else {
+        panic!("headless")
+    };
+    assert_eq!(answer["error"]["data"]["kind"], "cancelled", "{answer}");
+    assert!(closed.join().unwrap(), "the request still waits on the server");
+}
+
+/// A plugin killed for not stopping once cancelled takes its requests with it, at once: even one
+/// it never cancels, sent by a process it started, which holds its output open for 15 s (so its
+/// end isn't read until then).
+#[test]
+fn a_killed_plugins_requests_stop_with_it() {
+    let (url, connections) = silent();
+    let f = fixture(&talking(100.0), &[], Options { grace: Duration::from_millis(200), ..Options::default() });
+    let cancel = locallibrary::progress::CancelToken::new();
+    let cancelling = cancel.clone();
+    let taken = std::thread::spawn(move || {
+        let connection = connections.recv_timeout(Duration::from_secs(10)).expect("the request is sent");
+        cancelling.cancel();
+        connection
+    });
+    let fetch = json!({ "url": url, "method": "PUT", "body_blob": "sent" });
+    let params = json!({ "orphan": fetch, "blobs": { "sent": b"a mix" }, "stuck": true });
+    let quiet = locallibrary::progress::NoProgress;
+    assert!(matches!(f.command("echo", params, &Ctx::new(&quiet, cancel)), Err(Error::Cancelled)));
+    assert!(f.logs.lock().unwrap().iter().any(|(_, line)| line.starts_with("killed:")));
+    // Generous: once it's killed, the request notices in 50 ms.
+    assert!(closes_within(taken.join().unwrap(), Duration::from_secs(5)), "the request outlived its plugin");
 }
 
 /// Plugins limiting one host take its turns between them: two plugins asking one server keep to

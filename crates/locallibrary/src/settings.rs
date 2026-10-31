@@ -27,6 +27,8 @@ use crate::fsutil;
 use crate::paths;
 use crate::{Error, Result};
 
+pub mod transfer;
+
 /// [`loclib_mysettings::validate`], failing with locallibrary's [`Error`]: an unknown key's
 /// carries the action that lists the settings.
 pub fn validate(key: &str, value: &str) -> Result<(&'static SettingDef, &'static Choice)> {

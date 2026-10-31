@@ -19,7 +19,7 @@ use indexmap::{IndexMap, IndexSet};
 use loclib_plugin::{
     Context, ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, Importer, ReadImport, TrackMatch, method,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -199,14 +199,15 @@ impl Plugins {
 
 /// A drive's tracks found as a file names them, and how each was.
 struct Found<'a> {
-    library: &'a Library,
+    /// The drive's tracks by id, the first of a repeated one (as [`Library::track`] finds).
+    by_id: FxHashMap<u32, &'a Track>,
     matcher: Matcher<'a>,
     matched: Vec<Matched>,
 }
 
 impl<'a> Found<'a> {
     fn new(library: &'a Library) -> Found<'a> {
-        Found { library, matcher: Matcher::new(library), matched: Vec::new() }
+        Found { by_id: super::by_id(library), matcher: Matcher::new(library), matched: Vec::new() }
     }
 
     /// The track `find` names (the file's `line`th), if it's one on the drive: none when it
@@ -228,7 +229,7 @@ impl<'a> Found<'a> {
     }
 
     fn get(&self, id: u32) -> &'a Track {
-        self.library.track(id).expect("found in the library")
+        self.by_id.get(&id).copied().expect("found in the library")
     }
 }
 
@@ -339,8 +340,9 @@ fn edits(
     };
     let (mut edits, mut left_out, mut refused) = (Vec::new(), 0, Vec::new());
     let mut tags: IndexMap<&str, Vec<String>> = IndexMap::new();
+    let by_id = super::by_id(library);
     for (&id, g) in gathered {
-        let t = library.track(id).expect("found in the library");
+        let t = by_id.get(&id).copied().expect("found in the library");
         let fields = key_and_bpm(t, g.key, g.bpm, false);
         if !fields.is_empty() {
             edits

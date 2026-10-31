@@ -402,8 +402,15 @@ impl Slot {
     }
 
     /// The process, started (and shaken hands with) if it isn't running: in its folder in
-    /// `store` (see [`Slot::spawn`]).
+    /// `store` (see [`Slot::spawn`]). Never an account plugin's: the host signs in from its
+    /// manifest, and nothing runs it.
     pub(crate) fn start(self: &Arc<Self>, store: Option<&Store>) -> Result<Arc<Process>> {
+        if self.manifest.is_account_plugin() {
+            return Err(Error::invalid(format!(
+                "{} is an account plugin, which nothing runs: locallibrary signs in from its manifest",
+                self.label()
+            )));
+        }
         if let Some(p) = self.running() {
             return Ok(p);
         }
@@ -674,6 +681,8 @@ impl Slot {
         self.host.log(&self.manifest.id, &format!("killed: it didn't stop within {grace:?} of being asked to"));
         p.dead.store(true, Ordering::SeqCst);
         let _ = lock(&p.child).kill();
+        // Its `net/fetch` requests too, now: its output may close only later.
+        p.peer.cancel_running();
         let mut running = lock(&self.hosting.process);
         let stopped = running.take_if(|r| Arc::ptr_eq(r, p));
         drop(running);

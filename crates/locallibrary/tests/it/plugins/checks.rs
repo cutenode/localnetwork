@@ -134,7 +134,8 @@ fn echos_check_finds_tracks_without_a_title() {
 #[test]
 fn a_check_that_fails_or_takes_too_long_is_a_warning() {
     let f = Fixture::checks(&["echo"]);
-    set_check_timeout(&f.store, Some(0.2)).unwrap();
+    // Long enough for the checks that answer, however busy the machine; those that don't get 0.2 s.
+    set_check_timeout(&f.store, Some(60.0)).unwrap();
     let warned = |answer: Value| {
         f.find("echo", answer);
         let found = f.found();
@@ -153,6 +154,7 @@ fn a_check_that_fails_or_takes_too_long_is_a_warning() {
     let said = warned(json!({ "findings": [{ "level": "info", "message": "m", "fix": fix }] }));
     assert_eq!(said, format!("{fails} its finding 0 is fixed by \"nope\", which isn't its operation"));
     // Asked to stop, it stops; one that doesn't is killed.
+    set_check_timeout(&f.store, Some(0.2)).unwrap();
     for answer in [json!({ "wait": true }), json!({ "stuck": true })] {
         assert_eq!(warned(answer), "took longer than 0.2s, so it was stopped");
     }
@@ -348,11 +350,15 @@ fn finding(tc: &TestCase) -> (Value, bool) {
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
     let f = Fixture::checks(&["echo"]);
-    set_check_timeout(&f.store, Some(0.3)).unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
         let drawn: Vec<(Value, bool)> =
             (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|_| finding(&tc)).collect();
-        let fails = tc.draw(gs::sampled_from(vec![None, Some(json!({ "fail": "io" })), Some(json!({ "wait": true }))]));
+        let waits = json!({ "wait": true });
+        let fails = tc.draw(gs::sampled_from(vec![None, Some(json!({ "fail": "io" })), Some(waits.clone())]));
+        // A check that waits never answers, so it times out however short its time; one that
+        // answers gets long enough to on a busy machine, so its time running out isn't the warning.
+        let timeout = if fails.as_ref() == Some(&waits) { 0.3 } else { 60.0 };
+        set_check_timeout(&f.store, Some(timeout)).unwrap();
         let answer =
             fails.clone().unwrap_or_else(|| json!({ "findings": drawn.iter().map(|(f, _)| f).collect::<Vec<_>>() }));
         f.find("echo", answer);
@@ -387,7 +393,8 @@ fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_plan_is_blocked_exactly_when_a_blocking_guard_finds_something(tc: TestCase) {
     let f = Fixture::checks(&["echo", "second"]);
-    set_check_timeout(&f.store, Some(0.3)).unwrap();
+    // Every guard answers: a time that runs out on a busy machine would be another warning.
+    set_check_timeout(&f.store, Some(60.0)).unwrap();
     let mut blocks = None;
     let mut said: Vec<String> = Vec::new();
     for plugin in ["echo", "second"] {

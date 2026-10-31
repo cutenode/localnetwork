@@ -82,7 +82,8 @@ and typed table columns, see [views](#views)).
    and reports the bytes it sends as the hook's progress: `bytes` events of phase `upload`, so a
    plugin starts that phase with how much it'll send, and ends it. Errors have kind `denied`
    (not a host it may reach), `invalid`, `too_big`, `external` (it couldn't be reached) or
-   `cancelled`. Nothing fetched is kept.
+   `cancelled`, which a request the plugin cancels fails with at once, as does one still under way
+   when the host kills the plugin. Nothing fetched is kept.
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -148,7 +149,7 @@ assert!(manifest.validate(false).is_err());
   for. Each host is limited once.
 - `where` is which menus offer a command or an operation: `track` (the tracks selected),
   `playlist` and `drive`, `["drive"]` unless it says. A palette has every one.
-- `cli` (first-party plugins only) is a command's or operation's own place on the command line:
+- `cli` (built-in plugins only) is a command's or operation's own place on the command line:
   one name (`import`) or two, the first a group of the host's commands (`playlist import`).
   Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
   line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`) and `positional = true`
@@ -166,14 +167,70 @@ assert!(manifest.validate(false).is_err());
   no default) is kept in the system's keychain and never given to the plugin: it's only filled
   into its `net/fetch` requests.
 
-Names (`id`, contributions' `name`, `format` and `key`, fields) are lowercase letters, digits,
-`-` and `_`, starting with a letter, each used once; titles aren't empty; `params` and `options`
-must be JSON Schemas for an object that compile.
+Names (`id`, contributions' `name`, `format`, `key` and `type`, fields, scopes) are lowercase
+letters, digits, `-` and `_`, starting with a letter, each used once; titles aren't empty;
+`params` and `options` must be JSON Schemas for an object that compile.
 
 ## Hooks
 
 Each family of hooks is a feature of its own, with the methods the host calls for it and what a
 manifest contributes for it. A plugin has a family's feature once it implements one of its hooks.
+
+### account types
+
+Data alone: no feature, no method. An account plugin is a manifest that provides one account type
+and nothing else (no capabilities, `[[net]]` or other contributions), so anyone can publish one.
+The host runs every sign-in from it (with PKCE, always), keeps the tokens and fills them only into
+requests a scope covers. Only an account plugin locallibrary ships may use Local Network's token
+exchange, since that signs people in as Local Network.
+
+```rust
+use loclib_plugin::Manifest;
+use url::Url;
+
+let manifest = Manifest::parse(r#"
+    id = "google"
+    name = "Google"
+    version = "0.1.0"
+    protocol = "^0.2"
+
+    [[contributes.account_types]]
+    type = "google"
+    title = "Google"
+    authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
+    token_exchange = "https://localnetwork.computer/api/token-exchange/google"
+    client_id = "local-network.apps.googleusercontent.com"
+    always = ["openid", "email"]
+    whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
+    one_account = { login_hint = "{subject}" }
+
+    [contributes.account_types.scopes.youtube-upload]
+    title = "upload videos to YouTube"
+    asks = ["https://www.googleapis.com/auth/youtube.upload"]
+    requests = [{ method = "POST", url = "https://www.googleapis.com/upload/youtube/v3/videos*" }]
+"#)?;
+assert!(manifest.is_account_plugin());
+assert!(manifest.validate(true).is_ok());
+assert!(manifest.validate(false).is_err());
+let upload = &manifest.contributes.account_types[0].scopes["youtube-upload"];
+assert!(upload.covers("POST", &Url::parse("https://www.googleapis.com/upload/youtube/v3/videos?part=snippet")?));
+assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.example/upload/youtube/v3/videos")?));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+- `[[contributes.account_types]]`: `type` (a name; several account plugins may provide the same
+  one), `title`, `authorize_url`, `token_url` or `token_exchange`, `client_id`, `revoke_url`,
+  `token` and `redirect_port`, as an account's (below). `always` is the service's scopes every
+  sign-in asks for. `whoami` is where the host asks who signed in: its `url`, and JSON pointers to
+  the account's `subject` (its id there) and `name` in the answer.
+- `one_account` and `another_account` are authorize params for signing in again as one account
+  the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
+  (`prompt = "select_account"`). They may be `login_hint`, `prompt`, `hd` and `access_type` only:
+  the host sets the rest itself, and others (`request_uri`) could replace what it sets.
+- `[contributes.account_types.scopes.<name>]`: `title`, `asks` (the service's scopes it needs,
+  none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
+  `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not
+  `https://a.example`), maybe ending in `*` for any address starting with it.
 
 ### accounts
 
@@ -310,10 +367,15 @@ content of: stored files by their BLAKE3 hash (in hex) and the store's records b
 
 A set destination publishes a set: `set/publish {destination, set: {id, date, title?, kind?,
 venue?, city?, country?}, recording, tracklist: [{artist?, title?, start_seconds?}], dry_run}` ->
-`{url?, warnings}`. `recording` is the set's audio file (absolute, to read), a track the DJ
-publishes unnamed has no artist or title, and the DJ's notes never go. The host always asks for a
-dry run first (which publishes nothing and may say where the set would be), shows it to the user
-and asks, then publishes and keeps `url` (https) as the set's link.
+`{url?, name?, record?, warnings}`. `recording` is the set's audio file (absolute, to read), a
+track the DJ publishes unnamed has no artist or title, and the DJ's notes never go. The host always
+asks for a dry run first (which publishes nothing and may say where the set would be), shows it to
+the user and asks, then publishes and keeps `url` (https) as the set's link, `name` as what that
+link is (`plyr.fm`, 64 characters at most, kept only with a `url`), and `record` (`{uri, cid}`, a
+`com.atproto.repo.strongRef`: an at:// URI and a CID) as the Atmosphere record the recording is,
+when the destination keeps it as one (a plyr.fm track). The set's published record names the link
+and points to the record. An answer with a link that isn't https, a name too long or a record that
+isn't one is the plugin misbehaving, and the host keeps none of it.
 
 - `[[contributes.destinations]]`: `name`, `title` and `kind`, `store` or `set`. Each method is
   only for a destination of its kind.

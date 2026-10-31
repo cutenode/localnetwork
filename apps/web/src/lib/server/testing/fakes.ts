@@ -12,6 +12,13 @@ import {
 } from '../atproto/repo-client';
 import type { RecordEvent } from './happyview';
 
+/** The most writes a PDS takes in one applyWrites, to a repo or a space (MAX_WRITES in @atproto/pds). */
+const MAX_WRITES = 200;
+
+const assertBatchSize = (writes: RepoWrite[]) => {
+	if (writes.length > MAX_WRITES) throw new XRPCError(400, 'InvalidRequest', `Too many writes. Max: ${MAX_WRITES}`);
+};
+
 /**
  * An in-memory stand-in for a network of PDSes, shared by every fake client
  * so tests can observe what each account wrote where.
@@ -25,7 +32,8 @@ export class FakeNetwork {
 		string,
 		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
 	>();
-	readonly blobs = new Map<string, Uint8Array>();
+	/** Each blob, by CID, with the type its uploader gave, which a PDS serves it as. */
+	readonly blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
 	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
 	readonly blobHolders = new Map<string, Set<string>>();
 	failures = new Map<string, { count: number; error: XRPCError }>();
@@ -144,6 +152,41 @@ export class FakeRootClient implements RootRepoClient {
 		this.net.spaceRecords.delete(`${input.space}|${this.did}|${input.collection}|${input.rkey}`);
 	}
 
+	/** Fails as a whole before writing anything, as the PDS does, checking each write against the ones before it. */
+	async applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void> {
+		this.net.maybeFail(this.did);
+		assertBatchSize(writes);
+		this.net.assertCanWrite(this.did, space);
+
+		if (space.startsWith(`at://${this.did}/`) && !this.net.spaces.has(space))
+			throw new XRPCError(400, 'SpaceNotFound', `${space} doesn't exist`);
+
+		const key = (write: RepoWrite) => `${space}|${this.did}|${write.collection}|${write.rkey}`;
+
+		const present = new Set(
+			this.net.spaceRecords.keys().filter((stored) => stored.startsWith(`${space}|${this.did}|`))
+		);
+
+		for (const write of writes) {
+			const exists = present.has(key(write));
+
+			if (write.action === 'create' && exists) throw new XRPCError(400, 'RecordAlreadyExists', key(write));
+
+			if (write.action !== 'create' && !exists) throw new XRPCError(400, 'RecordNotFound', key(write));
+
+			if (write.action === 'delete') present.delete(key(write));
+			else {
+				this.net.assertBlobsHeld(this.did, write.record);
+				present.add(key(write));
+			}
+		}
+
+		for (const write of writes) {
+			if (write.action === 'delete') this.net.spaceRecords.delete(key(write));
+			else await this.writeSpace(key(write), space, write.collection, write.rkey, write.record);
+		}
+	}
+
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
 		return this.net.spaceRecords.get(`${input.space}|${input.repo}|${input.collection}|${input.rkey}`) ?? null;
 	}
@@ -168,7 +211,7 @@ export class FakeRootClient implements RootRepoClient {
 
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
 		const cid = await recordCid({ bytes: Buffer.from(bytes).toString('base64') });
-		this.net.blobs.set(cid, bytes);
+		this.net.blobs.set(cid, { bytes, mimeType });
 		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };
@@ -314,6 +357,7 @@ export class FakeRootClient implements RootRepoClient {
 	/** Fails as a whole before writing anything, as the PDS does. */
 	async applyWrites(writes: RepoWrite[]): Promise<void> {
 		this.net.maybeFail(this.did);
+		assertBatchSize(writes);
 
 		for (const write of writes) {
 			const key = `${this.did}|${write.collection}|${write.rkey}`;

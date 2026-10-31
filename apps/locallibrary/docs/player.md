@@ -193,11 +193,11 @@ listening to your library the way the players see it:
   recordings opened are remembered; `del` forgets one, or the folder it was found in. The view draws
   the set's 3-band waveform with each track's lane under it (shaded by how clearly it's heard, so
   blends and EQ swaps show), the tempo played, the keys on the way, and the tracklist with every
-  handoff: blend, cut or gap, key move and tempo change. The selected track's own waveform, cues and
-  phrases show the stretch that was played. `enter` or `space` plays the set in the player, and the
-  timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on the timeline
-  seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set as data for
-  [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
+  handoff: blend, quick mix or gap, key move and tempo change. The selected track's own waveform,
+  cues and phrases show the stretch that was played. `enter` or `space` plays the set in the
+  player, and the timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on
+  the timeline seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set
+  as data for [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
 Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
 "default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a

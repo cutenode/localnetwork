@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { imageResponse, PHOTO_TYPES } from '#lib/server/images.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -16,14 +17,11 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const access = viewer ? await app.epks.accessState(kit, viewer) : null;
 	const photo = await app.epks.photo(kit.epk, params.cid, access?.kind === 'manager' || access?.kind === 'granted');
 
-	if (!photo?.mimeType.startsWith('image/')) error(404, 'Photo not found');
+	if (!photo) error(404, 'Photo not found');
 
-	return new Response(new Blob([new Uint8Array(photo.bytes)], { type: photo.mimeType }), {
-		headers: {
-			'content-type': photo.mimeType,
-			'cache-control': photo.isPublic ? 'public, max-age=86400, immutable' : 'private, max-age=3600',
-			'content-disposition': url.searchParams.has('download') ? 'attachment' : 'inline',
-			'x-content-type-options': 'nosniff'
-		}
+	return imageResponse(new Uint8Array(photo.bytes), photo.mimeType, PHOTO_TYPES, {
+		cacheControl: photo.isPublic ? 'public, max-age=86400, immutable' : 'private, max-age=3600',
+		download: url.searchParams.has('download'),
+		log: locals.log
 	});
 };

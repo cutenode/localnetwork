@@ -6,7 +6,8 @@ protocol = "^0.2"
 capabilities = ["net:api.plyr.fm"]
 
 # `sets publish SET --to plyr:track`: the recording becomes a track of the account the token is
-# for, its tracklist the description, and the track's page the set's link.
+# for, its tracklist the description, the track's page the set's link and its record the set's
+# recording.
 [[contributes.destinations]]
 name = "track"
 title = "A track on plyr.fm"

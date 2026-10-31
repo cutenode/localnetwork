@@ -15,6 +15,9 @@ use serde_json::Value;
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 
+/// What the set's link is, as its record names it.
+const NAME: &str = "Mixcloud";
+
 /// The recordings Mixcloud takes, by extension (help.mixcloud.com/hc/en-us/articles/360004031000:
 /// "WAV, AIFF, FLAC or AAC, OGG, M4A, MP2, MP3 or WMAs").
 const FORMATS: [&str; 10] = ["mp3", "m4a", "aac", "wav", "aiff", "aif", "flac", "ogg", "mp2", "wma"];
@@ -89,7 +92,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
     };
     let show = show::of(&req.set, &req.tracklist, tags, unlisted);
     if req.dry_run {
-        return Ok(Published { url: None, warnings: dry_run(&req, &show, picture.as_deref(), size) });
+        return Ok(Published { warnings: dry_run(&req, &show, picture.as_deref(), size), ..Published::default() });
     }
     let mp3 = FormPart {
         name: "mp3".into(),
@@ -116,7 +119,7 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
         });
     }
     let url = upload::upload(host, form, size + picture_size)?;
-    Ok(Published { url: Some(url), warnings: show.notes })
+    Ok(Published { url: Some(url), name: Some(NAME.into()), warnings: show.notes, ..Published::default() })
 }
 
 /// What a dry run says: what would go where, what was cut or left out, and what Mixcloud does
