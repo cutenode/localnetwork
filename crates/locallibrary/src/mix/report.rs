@@ -322,7 +322,7 @@ pub fn relative_url(page: &Path, target: &Path) -> String {
 /// tracks' waveforms, cues, phrases and art are left out).
 ///
 /// A page holds only what it shows: no drive name or library counts, no comments or ratings, a
-/// cover only when the recording embeds one, and the tracks `prefs` hides from the DJ's profile
+/// cover only when one was given or the recording embeds one, and the tracks `prefs` hides from the DJ's profile
 /// as "ID - ID". The store's own pages, opened on this computer, link the audio relative to the
 /// page. A `shared` page (`mix --html`, written to be moved or shared) holds no file paths at
 /// all: it links the audio by its file name alone, so it plays once the recording is next to it.
@@ -377,7 +377,7 @@ pub fn page(
                 .collect();
             json!({
                 "track": track, "start": p.start, "end": p.end, "track_start": p.track_start,
-                "track_end": p.track_end, "tempo": p.tempo, "played_bpm": p.played_bpm,
+                "track_end": p.track_end, "tempo": p.tempo, "speed_range": p.speed_range, "played_bpm": p.played_bpm,
                 "key_lock": p.key_lock, "semitones": p.semitones, "key": p.key, "played_key": p.played_key,
                 "confidence": p.confidence, "tentative": p.is_tentative(), "presence": p.presence,
                 "presence_step": p.presence_step, "jumps": p.jumps, "alternates": alternates,
@@ -407,6 +407,7 @@ pub fn page(
         "audioName": name,
         "extras": extras,
         "version": env!("CARGO_PKG_VERSION"),
+        "blendSecs": super::BLEND_SECS,
     });
     // `</script>` or `<!--` in a title would end the data block early: every `<` is escaped the
     // way JSON allows.
@@ -416,34 +417,49 @@ pub fn page(
 }
 
 /// The colours the page shares with the player and the website, as CSS custom properties: the
-/// waveform's bands, phrases by kind, cue defaults and the playhead, and good, warning and
+/// waveform's bands and the playhead, and the phrases by kind, cue defaults and good, warning and
 /// critical for the light page and the dark one (both ways it goes dark).
 fn tokens_css() -> String {
-    use crate::tokens::{PLAYHEAD, Rgb, bands, cues, phrases, status};
-    let props = |vars: &[(&str, Rgb)]| {
-        vars.iter().map(|(name, [r, g, b])| format!("  --{name}: #{r:02x}{g:02x}{b:02x};\n")).collect::<String>()
+    use crate::tokens::{PLAYHEAD, Rgb, bands, cues, cues_light, phrases, phrases_light, status};
+    let prop = |name: &str, [r, g, b]: Rgb| format!("  --{name}: #{r:02x}{g:02x}{b:02x};\n");
+    let props = |vars: &[(&str, Rgb)]| vars.iter().map(|&(name, rgb)| prop(name, rgb)).collect::<String>();
+    let roles = ["intro", "up", "verse", "chorus", "down", "bridge", "outro", "unknown"];
+    let palette = |phrases: [Rgb; 8], [hot, memory, loop_]: [Rgb; 3], [good, warning, critical]: [Rgb; 3]| {
+        let phrases: String =
+            roles.iter().zip(phrases).map(|(role, rgb)| prop(&format!("phrase-{role}"), rgb)).collect();
+        phrases
+            + &props(&[
+                ("cue-hot", hot),
+                ("cue-memory", memory),
+                ("cue-loop", loop_),
+                ("good", good),
+                ("warning", warning),
+                ("critical", critical),
+            ])
     };
-    let status = |s: [Rgb; 3]| props(&[("good", s[0]), ("warning", s[1]), ("critical", s[2])]);
     let [low, mid, high] = bands::SCALES;
     let shared = props(&[
         ("band-low", bands::LOW),
         ("band-mid", bands::MID),
         ("band-high", bands::HIGH),
-        ("phrase-intro", phrases::INTRO),
-        ("phrase-up", phrases::UP),
-        ("phrase-verse", phrases::VERSE),
-        ("phrase-chorus", phrases::CHORUS),
-        ("phrase-down", phrases::DOWN),
-        ("phrase-bridge", phrases::BRIDGE),
-        ("phrase-outro", phrases::OUTRO),
-        ("phrase-unknown", phrases::UNKNOWN),
-        ("cue-hot", cues::HOT),
-        ("cue-memory", cues::MEMORY),
-        ("cue-loop", cues::LOOP),
         ("playhead", PLAYHEAD),
     ]);
-    let light = status([status::light::GOOD, status::light::WARNING, status::light::CRITICAL]);
-    let dark = status([status::dark::GOOD, status::dark::WARNING, status::dark::CRITICAL]);
+    let light = palette(
+        {
+            use phrases_light::*;
+            [INTRO, UP, VERSE, CHORUS, DOWN, BRIDGE, OUTRO, UNKNOWN]
+        },
+        [cues_light::HOT, cues_light::MEMORY, cues_light::LOOP],
+        [status::light::GOOD, status::light::WARNING, status::light::CRITICAL],
+    );
+    let dark = palette(
+        {
+            use phrases::*;
+            [INTRO, UP, VERSE, CHORUS, DOWN, BRIDGE, OUTRO, UNKNOWN]
+        },
+        [cues::HOT, cues::MEMORY, cues::LOOP],
+        [status::dark::GOOD, status::dark::WARNING, status::dark::CRITICAL],
+    );
     format!(
         ":root {{\n{shared}  --band-scale-low: {low};\n  --band-scale-mid: {mid};\n  --band-scale-high: {high};\n{light}}}\n\
          @media (prefers-color-scheme: dark) {{\n  :root:where(:not([data-theme=\"light\"])) {{\n{dark}  }}\n}}\n\

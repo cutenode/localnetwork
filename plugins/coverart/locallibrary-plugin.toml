@@ -5,9 +5,11 @@ protocol = "^0.2"
 # It's given the tracks to find covers and tags for (their tags, which takes library:read) and
 # answers what it finds, which locallibrary offers and sets itself. The Cover Art Archive's images are
 # served by archive.org, which redirects them to its own servers (`ia800100.us.archive.org`...):
-# the host follows those redirects only to the servers named here.
+# the host follows those redirects only to the servers named here. It hears of drives changing
+# (events:drives) to suggest covers for their tracks without any, reading which they are.
 capabilities = [
     "library:read",
+    "events:drives",
     "net:musicbrainz.org",
     "net:coverartarchive.org",
     "net:archive.org",
@@ -39,3 +41,8 @@ key = "contact"
 title = "Contact for MusicBrainz (a web page or email address)"
 type = "string"
 default = "https://localnetwork.computer"
+
+# A drive plugged in, or its databases changed: it suggests fetching covers for the tracks
+# without artwork.
+[[contributes.events]]
+on = ["drive.mounted", "drive.changed"]

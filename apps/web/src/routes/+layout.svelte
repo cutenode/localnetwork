@@ -4,6 +4,7 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
+	import { clearDrafts } from '#lib/form-draft.svelte.ts';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
@@ -44,6 +45,15 @@
 		loadHotkeyPreference();
 	});
 
+	// Signing out, from the header or anywhere else that posts to the sign-out action, drops the account's
+	// unsent form drafts from this browser.
+	function onsubmit(event: SubmitEvent) {
+		const form = event.target;
+
+		if (data.viewer && nav.account && form instanceof HTMLFormElement && new URL(form.action).pathname === nav.account.signOut)
+			clearDrafts(data.viewer.did);
+	}
+
 	function onkeydown(event: KeyboardEvent) {
 		const href = hotkeyTarget(event, shortcuts);
 
@@ -59,6 +69,8 @@
 </svelte:head>
 
 <svelte:window {onkeydown} />
+
+<svelte:document {onsubmit} />
 
 <a href="#main" class="sr-only rounded-md focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-fg focus:px-3 focus:py-2 focus:text-fg-inverse">Skip to content</a>
 

@@ -1,7 +1,8 @@
 //! A pretend Atmosphere data server (PDS) on 127.0.0.1, for tests that publish without the
 //! network: it keeps records in memory, answers `com.atproto.repo.getRecord`, `putRecord`
 //! (`swapRecord: null` meaning there must be no record yet), `createRecord` (under a key of its
-//! own, numbered from 1) and `uploadBlob` (up to a limit, [`MockPds::set_blob_limit`]),
+//! own, numbered from 1), `deleteRecord` (a record that isn't there is deleted already, as the
+//! reference PDS answers) and `uploadBlob` (up to a limit, [`MockPds::set_blob_limit`]),
 //! `com.atproto.server.getSession`, `getServiceAuth` and token revocation the way a PDS does, and
 //! records every request it gets. [`granted`] is what
 //! its sign-in would grant: it doesn't sign anyone in, since that needs a browser.
@@ -541,12 +542,34 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
             let blob = json!({ "$type": "blob", "ref": { "$link": blob_cid }, "mimeType": mime, "size": size });
             (200, vec![], json!({ "blob": blob }))
         }
-        ("POST", path @ ("/xrpc/com.atproto.repo.putRecord" | "/xrpc/com.atproto.repo.createRecord")) => {
+        (
+            "POST",
+            path @ ("/xrpc/com.atproto.repo.putRecord"
+            | "/xrpc/com.atproto.repo.createRecord"
+            | "/xrpc/com.atproto.repo.deleteRecord"),
+        ) => {
             if let Some(refused) = refused(req, &s) {
                 return refused;
             }
             let body = req.json();
             let key = |k: &str| body[k].as_str().unwrap_or_default().to_string();
+            if path.ends_with("deleteRecord") {
+                let id = (key("repo"), key("collection"), key("rkey"));
+                if let Some(swap) = body.get("swapRecord").and_then(Value::as_str)
+                    && s.records.get(&id).map(|r| r.1.as_str()) != Some(swap)
+                {
+                    return (400, vec![], json!({ "error": "InvalidSwap", "message": "Record was at another CID" }));
+                }
+                s.records.shift_remove(&id);
+                if s.firehose {
+                    index(&mut s, &id);
+                }
+                return (
+                    200,
+                    vec![],
+                    json!({ "commit": { "cid": cid(&json!({ "deleted": id.2 })), "rev": "3l3qo2vutsw2c" } }),
+                );
+            }
             let created = path.ends_with("createRecord");
             let rkey = if created { format!("3mockrecord{:02}", s.records.len() + 1) } else { key("rkey") };
             let id = (key("repo"), key("collection"), rkey);

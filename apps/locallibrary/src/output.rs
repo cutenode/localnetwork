@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use console::style;
@@ -161,6 +161,11 @@ impl Output {
     /// Whether to go ahead with a planned change: `None` to go ahead, otherwise what the command
     /// came to (a dry run, or not confirmed).
     pub fn decide(&self, dry_run: bool, question: &str) -> Option<Outcome> {
+        if let Some(w) = STORE_COPY.get()
+            && !STORE_COPY_SAID.swap(true, Ordering::Relaxed)
+        {
+            warn(w);
+        }
         if dry_run {
             return Some(Outcome::DryRun);
         }
@@ -314,6 +319,18 @@ static JSON: AtomicBool = AtomicBool::new(false);
 static QUIET: AtomicBool = AtomicBool::new(false);
 static ASCII: AtomicBool = AtomicBool::new(false);
 static ALL: AtomicBool = AtomicBool::new(false);
+/// What every change's plan says once (see [`Output::decide`]) when the store is a copy of
+/// another (see [`store_is_copy`]).
+static STORE_COPY: OnceLock<String> = OnceLock::new();
+static STORE_COPY_SAID: AtomicBool = AtomicBool::new(false);
+
+/// The store this run uses is a copy `store copy` made, which `warning` says (see
+/// [`locallibrary::offsite::written_copy_warning`]): a change's plan says so before it's made.
+pub fn store_is_copy(warning: Option<String>) {
+    if let Some(w) = warning {
+        let _ = STORE_COPY.set(w);
+    }
+}
 
 /// When to colour the output (`--color`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

@@ -15,6 +15,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::Args;
+#[cfg(feature = "account")]
 use locallibrary::Store;
 use locallibrary::plugin::Accounts;
 use locallibrary::progress::Ctx;
@@ -55,19 +56,18 @@ struct Listing {
 }
 
 pub fn run(args: AccountArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let root = store.clone().unwrap_or_else(Store::default_root);
     #[cfg(feature = "account")]
     if let Some(command) = args.command {
         return atmosphere::run(command, store, out, ctx);
     }
     if let Some(target) = args.target {
         let action = args.action.unwrap_or(accounts::Action::Status);
-        return accounts::run(&target, action, args.sign_in, &root, out, ctx);
+        return accounts::run(&target, action, args.sign_in, store, out, ctx);
     }
     let plugins = plugins::host()?;
-    let kept = Store::open_existing(&root)?.map(|s| plugins.accounts_and_accesses(&s)).transpose()?;
+    let kept = crate::diff_cmd::existing_store(store)?.map(|s| plugins.accounts_and_accesses(&s)).transpose()?;
     #[cfg(feature = "account")]
-    let dj = locallibrary::api::account_status(&root)?;
+    let dj = locallibrary::api::account_status(&store.clone().unwrap_or_else(Store::default_root))?;
     let listing = Listing {
         #[cfg(feature = "account")]
         dj,

@@ -263,9 +263,20 @@ fn process_elevated() -> bool {
     }
 }
 
-/// `line` without terminal escape sequences or other control characters (but tabs), which would
-/// draw on a terminal UI's screen.
+/// `line` without terminal escape sequences or other control characters, which would draw on a
+/// terminal UI's screen: a newline, a carriage return or a tab is a space.
 pub(crate) fn printable(line: &str) -> String {
+    shown(line, false)
+}
+
+/// [`printable`] for text drawn as the lines it has (a text view's): its newlines are kept, and
+/// carriage returns left out.
+fn printable_lines(text: &str) -> String {
+    shown(text, true)
+}
+
+/// [`printable`], or with `lines` [`printable_lines`].
+fn shown(line: &str, lines: bool) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -286,12 +297,77 @@ pub(crate) fn printable(line: &str) -> String {
                 // Two characters.
                 _ => {}
             },
-            '\t' => out.push(c),
+            '\n' if lines => out.push('\n'),
+            '\r' if lines => {}
+            '\n' | '\r' | '\t' => out.push(' '),
             c if c.is_control() => {}
             c => out.push(c),
         }
     }
     out
+}
+
+/// [`printable`] for every string in `v`, and every key: the host takes what a plugin tells it
+/// in this way (see [`Peer::with_intake`]), as each string is shown sooner or later (a title, a
+/// view's rows, a plan's summary, an error, the tags it gives). Two are drawn as the lines they
+/// have, and keep them ([`printable_lines`]): a text view's text, and an answer that's only text
+/// (a headless command's). What leaves out the secrets the host filled in for the plugin matches
+/// them as they print too ([`net::State::saw`]).
+pub(crate) fn printable_value(v: &mut Value) {
+    match v {
+        Value::String(s) if s.contains(char::is_control) => *s = printable_lines(s),
+        v => printable_in(v),
+    }
+}
+
+/// [`printable_value`] for what's in an answer.
+fn printable_in(v: &mut Value) {
+    let unprintable = |s: &str| s.contains(char::is_control);
+    match v {
+        Value::String(s) if unprintable(s) => *s = printable(s),
+        Value::Array(list) => list.iter_mut().for_each(printable_in),
+        Value::Object(map) => {
+            let text_view = map.get("kind").and_then(Value::as_str) == Some("text");
+            let take = |k: &str, v: &mut Value| match v {
+                Value::String(text) if text_view && k == "text" => *text = printable_lines(text),
+                v => printable_in(v),
+            };
+            match map.keys().any(|k| unprintable(k)) {
+                true => {
+                    let printed = std::mem::take(map).into_iter().map(|(k, mut v)| {
+                        take(&k, &mut v);
+                        (printable(&k), v)
+                    });
+                    *map = printed.collect();
+                }
+                false => map.iter_mut().for_each(|(k, v)| take(k, v)),
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `v` as [`printable_value`] takes it in, or `None` when that leaves it as it was.
+pub(crate) fn printed(mut v: Value) -> Option<Value> {
+    let before = v.clone();
+    printable_value(&mut v);
+    (v != before).then_some(v)
+}
+
+/// What a plugin answered in a file (a blob), taken in as its messages are ([`printable_value`]).
+pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> serde_json::Result<R> {
+    let mut answer: Value = serde_json::from_reader(BufReader::new(file))?;
+    printable_value(&mut answer);
+    serde_json::from_value(answer)
+}
+
+/// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
+/// when all of it is.
+pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
+    match printed(serde_json::to_value(&manifest)?) {
+        None => Ok(manifest),
+        Some(v) => serde_json::from_value(v),
+    }
 }
 
 impl Plugin {
@@ -448,12 +524,13 @@ impl Slot {
         std::thread::spawn(move || {
             let (mut stderr, mut buf) = (BufReader::new(stderr), Vec::new());
             while let Ok(Line::Read | Line::TooLong) = read_line(&mut stderr, &mut buf) {
-                host.log(&id, net.scrub(&printable(&String::from_utf8_lossy(&buf))).trim_end());
+                host.log(&id, printable(&net.scrub(&String::from_utf8_lossy(&buf))).trim_end());
             }
         });
         let (host, id, net) = (self.host.clone(), self.manifest.id.clone(), self.net.clone());
         // What it sent that couldn't be read can quote it.
-        let (peer, incoming) = Peer::with_log(output, input, move |line| host.log(&id, &net.scrub(line)));
+        let log = move |line: &str| host.log(&id, &net.scrub(line));
+        let (peer, incoming) = Peer::with_intake(output, input, log, printable_value);
         let dead = Arc::new(AtomicBool::new(false));
         let live = Arc::new(Live::new(store.cloned()));
         let (answering, ended, slot, answered) = (peer.clone(), dead.clone(), Arc::downgrade(self), live.clone());
@@ -644,6 +721,8 @@ impl Slot {
         self.host.log(&self.manifest.id, &format!("killed: it didn't stop within {grace:?} of being asked to"));
         p.dead.store(true, Ordering::SeqCst);
         let _ = lock(&p.child).kill();
+        // Its `net/fetch` requests too, now: its output may close only later.
+        p.peer.cancel_running();
         let mut running = lock(&self.hosting.process);
         let stopped = running.take_if(|r| Arc::ptr_eq(r, p));
         drop(running);

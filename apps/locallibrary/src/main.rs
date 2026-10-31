@@ -1,4 +1,5 @@
-//! `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured.
+// `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured. (A plain
+// comment, as src/unit.rs includes this file, and an inner doc comment can't be included.)
 
 // First, for its `say!`.
 #[macro_use]
@@ -504,6 +505,11 @@ const SYNC_LONG_HELP: &str =
 drive groups`); archive and retired drives are left out. A drive back from a set whose only changes are the \
 players' (history lists, cues) is saved in the store, then updated.
 
+A synced drive is a byte-for-byte copy, so sync never transcodes. For a drive in a form your players play, \
+`locallibrary pack LIBRARY DRIVE --playlist FOLDER --transcode` writes copies they play of the lossless tracks \
+they can't (a --playlist for each top-level folder and playlist takes every playlist), and packing again keeps \
+them current.
+
 Examples:
   locallibrary sync                       every mounted library: its newest drive onto the others
   locallibrary sync Home                  the library Home's mounted drives
@@ -774,10 +780,23 @@ enum SettingsCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Write everything set here to one file, for a copy or another computer: My Settings, the
+    /// players, the profile's preferences and every plugin's settings (key bindings included)
+    Export {
+        /// The file to write [default: print it]
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// Replace the file if it's there already
+        #[arg(long, requires = "file")]
+        replace: bool,
+    },
     /// Set the profile's base from a drive's settings, rekordbox's own (no argument), or the My
-    /// Settings an Atmosphere account published (settings the source doesn't have stay)
+    /// Settings an Atmosphere account published (settings the source doesn't have stay); or add
+    /// what a file `settings export` wrote has to what's set here
     Import {
-        /// The drive to take them from [default: rekordbox's settings on this computer]
+        /// The drive to take them from, or a file `settings export` wrote [default: rekordbox's
+        /// settings on this computer]
+        #[arg(value_name = "DRIVE|FILE")]
         drive: Option<String>,
         /// The My Settings this account published (a handle or DID; alpha)
         #[cfg(feature = "account")]
@@ -787,8 +806,9 @@ enum SettingsCommand {
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "drive")]
         from_account: bool,
-        /// Replace the whole base with the account's, unsetting what it didn't publish
-        #[cfg(feature = "account")]
+        /// With a file: where a value differs, take the file's instead of keeping the one here.
+        /// With --from-handle or --from-account: replace the whole base with the account's,
+        /// unsetting what it didn't publish
         #[arg(long)]
         replace: bool,
         /// Show what would change without importing
@@ -1131,9 +1151,16 @@ fn describe(e: &anyhow::Error) -> String {
     out
 }
 
+/// The store at `--store` (else the default), made if there's none yet.
 fn open_store(cli_store: &Option<PathBuf>) -> Result<Store> {
+    open_store_with(cli_store, Store::open_or_init)
+}
+
+/// The store at `--store` (else the default) as `open` opens it (`Store::open_or_init`, `open`
+/// or `open_existing`), naming the store when it won't open.
+fn open_store_with<T>(cli_store: &Option<PathBuf>, open: impl FnOnce(PathBuf) -> locallibrary::Result<T>) -> Result<T> {
     let root = cli_store.clone().unwrap_or_else(Store::default_root);
-    Store::open_or_init(&root).with_context(|| format!("opening store at {}", root.display()))
+    open(root.clone()).with_context(|| format!("opening store at {}", root.display()))
 }
 
 fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> Result<ExitCode> {
@@ -1158,7 +1185,9 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             c.cancel();
         });
     }
-    api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    let store_root = cli.store.clone().unwrap_or_else(Store::default_root);
+    output::store_is_copy(locallibrary::offsite::written_copy_warning(&store_root));
+    api::set_store_root(store_root);
     // The check before a set, doctor and edit plans run the plugins' checks, and refresh their
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
@@ -1350,12 +1379,12 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
         Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
-            // Reads about the store never make one.
+            // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
             match command.unwrap_or(StoreCommand::Info) {
                 StoreCommand::Info => out.emit(&api::store_info(&existing()?)?, render::store_info),
                 StoreCommand::Gc { dry_run } => {
-                    let store = store()?;
+                    let store = existing()?;
                     let plan = api::store_gc_plan(&store)?;
                     if plan.noop {
                         return Ok(out.nothing(&plan, "nothing to collect"));
@@ -1378,19 +1407,23 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 }
                 StoreCommand::Label { snapshot, label } => {
                     let req = api::LabelRequest { label, snapshot: Some(snapshot), remove: false };
-                    return store_cmd::label(&store()?, req, out);
+                    return store_cmd::label(&existing()?, req, out);
                 }
                 StoreCommand::Unlabel { label } => {
-                    return store_cmd::label(&store()?, api::LabelRequest { label, snapshot: None, remove: true }, out);
+                    return store_cmd::label(
+                        &existing()?,
+                        api::LabelRequest { label, snapshot: None, remove: true },
+                        out,
+                    );
                 }
-                StoreCommand::Prune(a) => return store_cmd::prune(&store()?, a.options(), out, &ctx),
+                StoreCommand::Prune(a) => return store_cmd::prune(&existing()?, a.options(), out, &ctx),
                 StoreCommand::Copy { dir, to, mirror, verify, force, dry_run } => {
                     let options = api::CopyOptions { mirror, verify, force, dry_run };
                     return match (to, dir) {
-                        (Some(to), _) => store_cmd::copy_to(&store()?, &to, options, out, &ctx),
+                        (Some(to), _) => store_cmd::copy_to(&existing()?, &to, options, out, &ctx),
                         (None, dir) => {
                             let path = dir.expect("clap requires DIR without --to");
-                            store_cmd::copy(&store()?, api::StoreCopyRequest { path, options }, out, &ctx)
+                            store_cmd::copy(&existing()?, api::StoreCopyRequest { path, options }, out, &ctx)
                         }
                     };
                 }
@@ -1788,8 +1821,45 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let req = api::ImportPublishedSettings { from: from_handle, replace };
             return publish_cmd::settings_import(store_path, &req, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SettingsCommand::Import { replace: true, .. } => bail!("--replace goes with --from-handle or --from-account"),
+        SettingsCommand::Export { file, replace } => {
+            let doc = diff_cmd::read_or_empty(store_path, api::settings_export)?;
+            let mut text = serde_json::to_string_pretty(&doc)?;
+            text.push('\n');
+            let Some(path) = file else {
+                out.emit(&doc, |_| print!("{text}"));
+                return Ok(ExitCode::SUCCESS);
+            };
+            locallibrary::fsutil::write_output(&path, text.as_bytes(), replace)?;
+            out.done(&serde_json::json!({ "output": path, "settings": doc }), |_| {
+                output::ok(format!("wrote {}", path.display()));
+            });
+        }
+        SettingsCommand::Import { drive: Some(file), replace, dry_run, .. }
+            if std::path::Path::new(&file).is_file() =>
+        {
+            let store = open_store(store_path)?;
+            let req = api::ImportSettingsFile { file: locallibrary::fsutil::absolute(file.as_ref()), replace };
+            let plan = api::settings_import_file_plan(&store, &req)?;
+            if !out.json {
+                output::summary(&plan.summary, &plan.warnings);
+                render::settings_file_changes(&plan.plan.changes);
+            }
+            if plan.noop {
+                return Ok(out.nothing(&plan, "everything the file has is set here already"));
+            }
+            if let Some(o) = out.decide(dry_run, "Import them?") {
+                return Ok(out.not_applied(&plan, o));
+            }
+            let after = plan.apply(Some(&store), ctx)?;
+            let n =
+                plan.plan.changes.iter().filter(|c| c.action != locallibrary::settings::transfer::Action::Keep).count();
+            return Ok(out.applied(&plan, &after, Outcome::Applied, || {
+                output::ok(format!("imported {} from {file}", output::plural(n, "setting")));
+            }));
+        }
+        SettingsCommand::Import { replace: true, .. } => {
+            bail!("--replace goes with a file `settings export` wrote, --from-handle or --from-account")
+        }
         SettingsCommand::Import { drive, dry_run, .. } => {
             let store = open_store(store_path)?;
             let plan = api::settings_import_plan(&store, &api::ImportSettings { drive })?;
@@ -1809,7 +1879,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let profile = plan.apply(Some(&store), ctx)?;
             let from = plan.from.clone();
             return Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-                output::ok(format!("imported {} settings from {from}", profile.base.len()));
+                output::ok(format!("imported {} from {from}", output::plural(profile.base.len(), "setting")));
             }));
         }
     }
@@ -1928,7 +1998,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             });
         }
         ArtCommand::Unembed { backup, list: false, dry_run } => {
-            let store = open_store(store_path)?;
+            let store = diff_cmd::store_to_read(store_path)?;
             let plan = api::artwork_unembed_plan(&store, &api::UnembedRequest { backup })?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);

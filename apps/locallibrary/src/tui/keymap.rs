@@ -655,5 +655,6 @@ pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     (sections(rows.into_iter()), sections(global.into_iter()))
 }
 
+pub mod bound;
 #[cfg(test)]
 mod tests;

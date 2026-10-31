@@ -2,10 +2,18 @@ import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { COLLECTION } from '#lib/nsid.ts';
+import { COLLECTION, PERMISSIONS } from '#lib/nsid.ts';
 import { LEXICON_FILES } from '../../../../scripts/lib/lexicon-files.ts';
 import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
-import { LEXICON_DOCS, RecordValidationError, REFERENCED_DOCS, validateRecord } from './lexicons.ts';
+import {
+	LEXICON_DOCS,
+	permissionSetFor,
+	RecordValidationError,
+	REFERENCED_DOCS,
+	ROOT_AUTHORITY,
+	schemaRecord,
+	validateRecord
+} from './lexicons.ts';
 
 describe('the bundled lexicons', () => {
 	// The scripts' loader reads lexicons/ from disk, so this also checks the two loaders agree.
@@ -29,6 +37,30 @@ describe('LEXICON_DOCS', () => {
 
 		expect(refs.length).toBeGreaterThan(0);
 		expect(refs.filter((ref) => ref.startsWith('"lex:'))).toEqual([]);
+	});
+});
+
+describe('schemaRecord', () => {
+	const root = 'did:plc:root';
+	const authorities = (doc: LexiconDoc | JsonObject) => JSON.stringify(doc).match(/"authority":"[^"]*"/g) ?? [];
+
+	it("publishes the permission set with the root's DID for every shared space, and no open authority", () => {
+		const doc = LEXICON_DOCS.find((lexicon) => lexicon.id === PERMISSIONS)!;
+		const record = schemaRecord(doc, root);
+
+		expect(authorities(doc)).toContain(`"authority":"${ROOT_AUTHORITY}"`);
+		expect(authorities(record).length).toBe(authorities(doc).length);
+		expect(new Set(authorities(record))).toEqual(new Set([`"authority":"${root}"`]));
+		expect(record).toEqual({
+			$type: 'com.atproto.lexicon.schema',
+			...doc,
+			defs: { ...doc.defs, main: permissionSetFor(root) }
+		});
+	});
+
+	it('publishes every other lexicon as written', () => {
+		for (const doc of LEXICON_DOCS.filter((lexicon) => lexicon.id !== PERMISSIONS))
+			expect(schemaRecord(doc, root)).toEqual({ $type: 'com.atproto.lexicon.schema', ...doc });
 	});
 });
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use locallibrary::plugin::{CheckChange, Fix, Plugins, set_check_timeout};
+use locallibrary::plugin::{CheckChange, PluginFix, Plugins, set_check_timeout};
 use unicode_width::UnicodeWidthStr;
 
 use super::listing::invocation;
@@ -93,18 +93,12 @@ fn show(c: &Checks) {
 }
 
 /// The command line that runs `fix`, for the finding on `drive`: its plugin's operation.
-pub fn fix_line(plugins: &Plugins, fix: &Fix, drive: &str) -> String {
+pub fn fix_line(plugins: &Plugins, fix: &PluginFix, drive: &str) -> String {
     let manifest = plugins.manifest(&fix.plugin).ok();
     let operation = manifest.and_then(|m| m.contributes.operations.iter().find(|o| o.name == fix.operation));
     let run = invocation(&fix.plugin, &fix.operation, operation.and_then(|o| o.cli.as_deref()));
-    // JSON escapes C0 control characters but writes C1 ones (U+0080 to U+009F), which some
-    // terminals act on, as they are: escaped too, it's the same JSON.
-    let json: String = (fix.params.to_string().chars())
-        .map(|c| match c {
-            '\u{80}'..='\u{9f}' => format!("\\u{:04x}", c as u32),
-            c => c.to_string(),
-        })
-        .collect();
+    // Its params hold no control characters: the host takes in what a plugin says printable.
+    let json = fix.params.to_string();
     let params = match fix.params.as_object().is_some_and(|p| !p.is_empty()) {
         true => format!(" --params '{}'", json.replace('\'', r"'\''")),
         false => String::new(),

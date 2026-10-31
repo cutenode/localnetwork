@@ -106,9 +106,10 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
 }
 
 /// Publishing asks for `atproto`, the permission set, which a server grants as one
-/// create-and-replace scope per record type and one for asking the directory to read them again,
-/// and uploading audio files; a session granted them may write each of locallibrary's record types
-/// and nothing else's, and upload audio and nothing else.
+/// create-and-replace scope per record type (deleting too for sets and their recordings) and one
+/// for asking the directory to read them again, and uploading audio files; a session granted them
+/// may write each of locallibrary's record types and nothing else's, and upload audio and nothing
+/// else.
 #[hegel::test(test_cases = 50)]
 fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
     assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.into()]);

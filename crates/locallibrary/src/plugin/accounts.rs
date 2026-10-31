@@ -13,7 +13,6 @@
 //! tokens names Local Network's token exchange instead of the service's token endpoint: the host
 //! sends it the same request as JSON, and it adds the secret and answers as the service.
 
-use std::io::Read;
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
@@ -37,7 +36,7 @@ use super::net::unreachable;
 use super::process::{Host, Plugin};
 use crate::callback::{self, CallbackQuery};
 use crate::export::one_line;
-use crate::net::with_causes;
+use crate::net::{runtime, with_causes};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result, lock};
@@ -187,18 +186,24 @@ impl Plugin {
         }
         let client = self.client().map_err(|e| Unanswered(e.message))?;
         let (parts, body) = request.into_parts();
-        let response = client
-            .request(parts.method, url)
-            .headers(parts.headers)
-            .body(body)
-            .send()
+        let asked = client.request(parts.method, url).headers(parts.headers).body(body);
+        let (answer, body) = runtime()
+            .block_on(async {
+                let mut response = asked.send().await?;
+                let mut answer = oauth2::http::Response::builder().status(response.status());
+                if let Some(headers) = answer.headers_mut() {
+                    headers.extend(response.headers().clone());
+                }
+                let mut body = Vec::new();
+                while (body.len() as u64) < MAX_ANSWER
+                    && let Some(chunk) = response.chunk().await?
+                {
+                    body.extend_from_slice(&chunk);
+                }
+                body.truncate(MAX_ANSWER as usize);
+                Ok::<_, reqwest::Error>((answer, body))
+            })
             .map_err(|e| Unanswered(with_causes(&e)))?;
-        let mut answer = oauth2::http::Response::builder().status(response.status());
-        if let Some(headers) = answer.headers_mut() {
-            headers.extend(response.headers().clone());
-        }
-        let mut body = Vec::new();
-        response.take(MAX_ANSWER).read_to_end(&mut body).map_err(|e| Unanswered(with_causes(&e)))?;
         answer.body(body).map_err(|e| Unanswered(e.to_string()))
     }
 

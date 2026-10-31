@@ -13,10 +13,16 @@ struct Computer {
 
 impl Computer {
     fn new() -> Computer {
+        Computer::with("")
+    }
+
+    /// [`Computer::new`], with `sql` run on the collection first.
+    fn with(sql: &str) -> Computer {
         let dir = tempfile::tempdir().unwrap();
         let rb = dir.path().join("rekordbox");
         let music = dir.path().join("Music");
         let f = masterdb::tests::sample();
+        f.exec(sql);
         f.exec(&format!(
             "UPDATE djmdContent SET FolderPath = '{}/One More Time.mp3' WHERE ID = '84935471';
                  UPDATE djmdContent SET FolderPath = '/contents_7/Floorplan/ngo.mp3' WHERE ID = '205356547';
@@ -114,8 +120,61 @@ fn exports_the_collection_to_a_folder_players_read() {
     let names: Vec<(&str, Vec<&str>)> =
         tags.categories.iter().map(|c| (c.name.as_str(), c.tags.iter().map(|t| t.name.as_str()).collect())).collect();
     assert_eq!(names, [("Genre", vec!["Deep"]), ("Situation", vec!["Peak"])]);
+    assert_eq!(tags.sources, [crate::tags::Source::ExportExt, crate::tags::Source::OneLibrary], "both databases");
+    assert!(tags.differences.is_empty() && tags.warnings.is_empty(), "{:?} {:?}", tags.differences, tags.warnings);
+    let peak = &tags.categories[1].tags[0];
+    assert_eq!(peak.sources.len(), 2);
+    assert_eq!(peak.tracks.len(), 2);
+    let ext = std::fs::read(target.path(paths::EXPORT_EXT_PDB)).unwrap();
+    let listed = pdb::read_library(&target.path(paths::EXPORT_PDB)).unwrap();
+    assert_eq!(DbTags::ext(&ext, &listed).unwrap().tagged(), 2, "export.pdb's tracks carry them in exportExt.pdb");
     assert_eq!(report.tagged_tracks, 2);
     assert_eq!(record(&target).unwrap().unwrap().collection, plan.collection);
+}
+
+/// rekordbox's intelligent playlists hold the tracks their rules match. One a filter can say gets
+/// a smart rule for the target, which the next export takes away once it's gone; the plan says
+/// which one a filter can't say.
+#[test]
+fn intelligent_playlists_hold_what_their_rules_match() {
+    let node = |any: bool, conditions: &str| {
+        format!(r#"<NODE Id="1" LogicalOperator="{}" AutomaticUpdate="1">{conditions}</NODE>"#, if any { 2 } else { 1 })
+    };
+    let condition = |property: &str, operator: u8, value: &str| {
+        format!(
+            r#"<CONDITION PropertyName="{property}" Operator="{operator}" ValueUnit="" ValueLeft="{value}" ValueRight=""/>"#
+        )
+    };
+    let recent = node(false, &(condition("genre", 8, "house") + &condition("myTag", 8, "201")));
+    let floor = node(true, &condition("artist", 10, "floor"));
+    let pc = Computer::with(&format!(
+        "UPDATE djmdPlaylist SET SmartList = '{recent}' WHERE ID = '12';
+         INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, SmartList) VALUES ('14', 3, 'Floor', 4, 'root', '{floor}');"
+    ));
+    let mut target = pc.folder("Export");
+    let (plan, _) = pc.export(&mut target, &CollectionExportOptions::default());
+    let rules: Vec<(&str, &str)> = plan.smart.iter().map(|s| (s.path.as_str(), s.filter.as_str())).collect();
+    assert_eq!(rules, [("Recent", r#"genre:"house" tag:"Situation/Peak""#)]);
+    let says = |what: &str| plan.warnings.iter().any(|w| w.contains(what));
+    assert!(says(r#"1 intelligent playlist(s) are exported as the tracks they hold now"#), "{:?}", plan.warnings);
+    assert!(says(r#"Floor: artist starts with "floor""#), "{:?}", plan.warnings);
+    let lib = target.library().unwrap();
+    let titles = |path: &str| -> Vec<String> {
+        let p = lib.find_playlist(path).unwrap_or_else(|| panic!("{path} wasn't exported"));
+        p.track_ids.iter().map(|id| lib.track(*id).unwrap().title.clone()).collect()
+    };
+    assert_eq!(titles("Recent"), ["One More Time"]);
+    assert_eq!(titles("Floor"), ["Never Grow Old"]);
+    assert_eq!(record(&target).unwrap().unwrap().smart, ["Recent"]);
+
+    // Its rules gone, Recent stays behind, and its smart rule goes.
+    let mut collection = pc.collection();
+    collection.smart_lists.remove(&12);
+    let again =
+        super::plan(&collection, &pc.cloud(), &target, &CollectionExportOptions::default(), &Ctx::silent()).unwrap();
+    assert!(again.smart.is_empty());
+    assert_eq!(again.smart_gone, ["Recent"]);
+    assert!(again.warnings.iter().any(|w| w.contains("Recent: its rules can't be read")), "{:?}", again.warnings);
 }
 
 #[test]

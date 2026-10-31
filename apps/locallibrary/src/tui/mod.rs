@@ -53,6 +53,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     crate::plugins::events::notices_to(Some(app.plugin_notices()));
     crate::plugins::ask_to(Some(app.plugin_asker()));
     app.start_plugins();
+    app.bind_plugin_keys();
     app.warn_signing_out();
     // (Not `ratatui::init`, whose panic hook would put the screen back for a worker's panic.)
     enable_raw_mode()?;

@@ -100,6 +100,22 @@ fn audio_that_cant_be_copied_or_tagged_fails_naming_it() {
     assert!(e.message.starts_with(&at("album.mp3").display().to_string()), "{}", e.message);
 }
 
+/// Bytes with a frame sync somewhere in them are MP3 audio after junk, as lofty and players read
+/// them, and are tagged.
+#[test]
+fn audio_after_junk_is_tagged() {
+    let dir = tempfile::tempdir().unwrap();
+    let (from, to) = (dir.path().join("junk.mp3"), dir.path().join("out/junk.mp3"));
+    let mut bytes = vec![0; 32];
+    bytes[14..16].copy_from_slice(&[0xff, 0xe3]);
+    std::fs::write(&from, &bytes).unwrap();
+    let tagged = Content::TaggedCopy { from, markers: Some(vec![0]) };
+    let export = Export { files: vec![file(&to, 32, tagged)], ..Default::default() };
+    write(&export, dir.path(), &Ctx::silent()).unwrap();
+    let written = std::fs::read(&to).unwrap();
+    assert!(written.starts_with(b"ID3") && written.ends_with(&bytes), "{written:?}");
+}
+
 /// A folder that can't be written to fails naming it, without the temp file it tried.
 #[cfg(unix)]
 #[test]
@@ -198,7 +214,10 @@ fn a_write_puts_every_file_in_place_or_none(tc: TestCase) {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"old").unwrap();
         }
-        let bytes = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(1).max_size(64));
+        // Untaggable audio has no frame sync or chunk id in it: lofty reads a frame sync anywhere
+        // in a file's first KiB as MP3 audio after junk, and tags it.
+        let top = if made == Made::Untaggable { 0x40 } else { u8::MAX };
+        let bytes = tc.draw(gs::vecs(gs::integers::<u8>().max_value(top)).min_size(1).max_size(64));
         let from = src.join(format!("a{i}.mp3"));
         let content = match made {
             Made::Bytes => Content::Bytes(bytes.clone()),

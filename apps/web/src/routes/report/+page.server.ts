@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { githubIssueUrl, REPORT_LIMITS, type ReportFacts, reportBody } from '#lib/bug-report.ts';
-import { SCOPES } from '#lib/server/atproto/oauth.ts';
+import { OptionalScopeUnsupported } from '#lib/server/atproto/oauth.ts';
 import { browserLabel } from '#lib/server/services/bug-reports.ts';
 import { requireViewer, safeNext, text } from '#lib/server/http.ts';
 import type { Actions, PageServerLoad } from './$types';
@@ -29,11 +29,16 @@ export const actions: Actions = {
 		const from = url.searchParams.get('from');
 		const next = `/report${from ? `?from=${encodeURIComponent(from)}` : ''}`;
 		let to: URL;
+		const account = await locals.app.accounts.get(viewer.did);
 
 		try {
-			to = await locals.app.oauth.authorize(viewer.did, JSON.stringify({ next }), SCOPES.bugReport);
+			to = await locals.app.oauth.authorize(viewer.did, JSON.stringify({ next }), { account, optional: 'bugReport' });
 		} catch (error) {
 			locals.log.info({ err: error }, 'could not ask to post bug reports');
+
+			if (error instanceof OptionalScopeUnsupported) {
+				return fail(400, { error: "Your account's server doesn't let apps post bug reports for you." });
+			}
 
 			return fail(502, { error: "We couldn't reach your account's server. Try again in a minute." });
 		}

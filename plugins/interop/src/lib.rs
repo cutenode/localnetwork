@@ -20,7 +20,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use loclib_interop::{Error, Export, Software, Source, engine, rekordbox, serato, traktor};
+use loclib_interop::{Error, Export, HISTORY_FOLDER, Software, Source, engine, rekordbox, serato, traktor};
 use loclib_model::analysis::TrackAnalysis;
 use loclib_model::paths::{self, PathStyle};
 use loclib_model::{Library, Track};
@@ -60,6 +60,9 @@ struct Options {
     /// Engine DJ: track paths relative to where the library is written (`relative`), or to the
     /// drive's root (`drive`, for an `Engine Library` folder copied there).
     paths: PathStyle,
+    /// Traktor, Serato and Engine DJ: the drive's history lists too (those the source names, or
+    /// all), as playlists in a folder of their own (see [`loclib_interop::with_history`]).
+    include_history: bool,
 }
 
 /// Works out the export in memory, as loclib-interop does, and with `dry_run` answers the
@@ -67,8 +70,12 @@ struct Options {
 fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
     let software: Software = params(Value::from(req.exporter))?;
     let options: Options = params::<Option<Options>>(req.options)?.unwrap_or_default();
-    if !req.source.history.is_empty() {
-        return Err(invalid(format!("{} doesn't take history lists", software.name())));
+    if !req.source.history.is_empty() && !options.include_history {
+        let hint = match software {
+            Software::Rekordbox => "",
+            _ => ": include_history exports them as playlists",
+        };
+        return Err(invalid(format!("{} doesn't take history lists{hint}", software.name())));
     }
     if let Some(root) = options.location_root.as_deref().filter(|r| !r.is_absolute()) {
         return Err(invalid(format!("the location root must be an absolute path, not {}", root.display())));
@@ -76,17 +83,42 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
     if options.write_tags && options.location_root.is_some() {
         return Err(invalid("a location root doesn't go with writing tags: the crates list the tagged copies"));
     }
+    if options.include_history && (req.source.set.is_some() || req.source.mix.is_some()) {
+        return Err(invalid("include_history is for a drive's lists, not a set or a mix"));
+    }
     let played = set_export::read(&req.source, host)?;
     // The library exports are made from, with what only OneLibrary has.
     let drive = host.drive(&req.source.drive).combined();
     let drive_root = req.source.root.clone();
     let mut library = drive.library()?;
     let renumbered = library.number_for_files();
-    let (library, unplayed) = match played {
-        Some(played) => played.narrow(library)?,
+    let mut warnings = Vec::new();
+    let library = match played {
+        Some(played) => {
+            let (library, unplayed) = played.narrow(library)?;
+            warnings = unplayed;
+            library
+        }
+        None if options.include_history => {
+            let history = history(&library, &req.source.history)?;
+            let lists = history.iter().filter(|h| !h.is_folder).count();
+            warnings.push(format!(
+                "{lists} history list(s) go as playlists in the folder {HISTORY_FOLDER}: in {} they're playlists, not history",
+                software.name()
+            ));
+            // History lists named alone go instead of the playlists, as `export --history` asks.
+            let only = match req.source.playlists.is_empty() && !req.source.history.is_empty() {
+                true => Library { playlists: Vec::new(), tracks: Vec::new(), ..library.clone() },
+                false => library
+                    .clone()
+                    .subset(&req.source.playlists)
+                    .map_err(|q| invalid(format!("not found: playlist {q:?}")))?,
+            };
+            loclib_interop::with_history(only, &history, &library.tracks)
+        }
         None => {
             let only = library.subset(&req.source.playlists);
-            (only.map_err(|query| invalid(format!("not found: playlist {query:?}")))?, Vec::new())
+            only.map_err(|query| invalid(format!("not found: playlist {query:?}")))?
         }
     };
     // Engine keeps no analysis, and Serato's crates alone none either.
@@ -154,8 +186,16 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
         files: files.collect(),
         counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
         notes: notes(&export),
-        warnings: unplayed.into_iter().chain(export.warnings.iter().cloned()).chain(missing_audio(&source)).collect(),
+        warnings: warnings.into_iter().chain(export.warnings.iter().cloned()).chain(missing_audio(&source)).collect(),
     })
+}
+
+/// `library`'s history lists named in `only` (by name or path, with the folders above them and
+/// what's below them), or all of them.
+fn history(library: &Library, only: &[String]) -> Result<Vec<loclib_model::Playlist>, RpcError> {
+    let lists = Library { playlists: library.history.clone(), ..Library::default() };
+    let lists = lists.subset(only).map_err(|query| invalid(format!("not found: history list {query:?}")))?;
+    Ok(lists.playlists)
 }
 
 /// The analysis of each of `library`'s tracks, by its id, asked for by the id the host knows it
@@ -175,7 +215,11 @@ fn analyses(
 /// options that choose loclib-interop's.
 fn notes(export: &Export) -> Vec<String> {
     let notes = export.notes.iter();
-    notes.map(|n| n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags")).collect()
+    let named = |n: &String| {
+        let n = n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags");
+        n.replace("`with_history`", "include_history")
+    };
+    notes.map(named).collect()
 }
 
 /// Tracks whose audio isn't where the files will say it is, as a warning.
