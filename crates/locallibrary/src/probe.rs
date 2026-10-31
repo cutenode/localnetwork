@@ -231,7 +231,7 @@ fn packets_end(path: &Path) -> Option<f64> {
 /// `expected_bytes` (the database's size; 0 if unknown) tells a copy cut short from a file that
 /// replaced it when the length comes from the file's size (constant bit rate MP3s without a
 /// header saying how long they are): a cut copy lost as much of its size as of its length. A file
-/// that won't open is cut short too when it's smaller than it should be (see [`whole_size`]),
+/// that won't open is cut short too when it's smaller than it should be (see `whole_size`),
 /// where its size says it stops.
 pub fn health(path: &Path, expected_secs: f64, expected_bytes: u64) -> Option<AudioProblem> {
     let problem = health_of(path, expected_secs)?;
