@@ -186,10 +186,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       finishes it, but taking it back needs `undo --force`.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
-- [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
-      UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack

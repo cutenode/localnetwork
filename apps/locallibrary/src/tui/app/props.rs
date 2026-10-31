@@ -578,6 +578,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 app.focus = Focus::Tracks;
                 app.view = View::Library;
                 press(&mut app, "\n");
+                output_opened(&mut app);
                 if stale {
                     assert_eq!(last_message(&app), "the drive was unplugged");
                 }
@@ -797,7 +798,12 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 }
                 let idle = app.opener_idle();
                 let busy = idle.lock().unwrap();
-                while app.rx.try_recv().is_ok() {}
+                // (What tracks opened says is dropped; an output opening is still wanted.)
+                while let Ok(msg) = app.rx.try_recv() {
+                    if matches!(msg, Msg::Output(..)) {
+                        app.handle_msg(msg);
+                    }
+                }
                 for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
                     press(&mut app, "n");
                 }
@@ -977,6 +983,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     let next = app.queue.pos + 1 < app.queue.order.len() || app.repeat != Repeat::Off;
                     let before = said(&app, "can't play: no outputs");
                     press(&mut app, "n");
+                    output_opened(&mut app);
                     assert!(app.now.is_none() && app.audio.is_none(), "stopped");
                     assert_eq!(said(&app, "can't play: no outputs") > before, next);
                     app.outputs = super::super::audio::tests::OUTPUTS;
@@ -985,6 +992,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // Space plays on through the output there is now, from where it was.
                 if was.is_some() && tc.draw(gs::booleans()) {
                     press(&mut app, " ");
+                    output_opened(&mut app);
                     assert!(app.audio.is_some(), "an output opened again");
                     // Only an output not in the list falls back ("Phones" is there).
                     let fell_back = app.deck.output.as_deref() == Some("Old Speakers");
@@ -1031,20 +1039,19 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let set = root.join("Contents/1.wav");
                 let mut t = track(9, "DJ", "Set");
                 t.file_path = set.display().to_string();
-                if app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300)))) {
-                    assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
-                    assert!(!app.playing_queue());
-                    // Played to its end (through the output it started on), it stops.
-                    let t = Instant::now();
-                    while app.now.as_ref().is_some_and(|n| n.opening) && t.elapsed() < Duration::from_secs(5) {
-                        app.tick();
-                        std::thread::sleep(Duration::from_millis(1));
-                    }
-                    if fed && files[0].1 > 0 && app.is_playing() && app.now.is_some() {
-                        (&mut out).take(9000).for_each(drop);
-                        app.tick();
-                        assert!(app.now.is_none(), "a set stops at its end");
-                    }
+                app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300))));
+                assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
+                assert!(!app.playing_queue());
+                // Played to its end (through the output it started on), it stops.
+                let t = Instant::now();
+                while app.now.as_ref().is_some_and(|n| n.opening) && t.elapsed() < Duration::from_secs(5) {
+                    app.tick();
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                if fed && files[0].1 > 0 && app.is_playing() && app.now.is_some() {
+                    (&mut out).take(9000).for_each(drop);
+                    app.tick();
+                    assert!(app.now.is_none(), "a set stops at its end");
                 }
                 assert_eq!((app.queue.len(), app.queue.pos), (len, pos), "the queue stays, for afterwards");
             }
@@ -1278,14 +1285,15 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
 
 /// The screen redraws at animation rate while anything is under way (a read, a search waiting
 /// for typing to pause, the drives' status being read, a job, a lookup of the selected track's
-/// matches, a track's files being read, the outputs being listed, a cue's flash) and rests once
+/// matches, a track's files being read, the outputs being listed or one opening, a cue's flash) and
+/// rests once
 /// nothing is.
 #[hegel::test(test_cases = 100)]
 fn the_screen_moves_only_while_something_does(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     wait(&mut app, |a| a.loading.is_none());
     assert!(!app.animating(), "at rest");
-    let conditions: [fn(&mut App, bool); 7] = [
+    let conditions: [fn(&mut App, bool); 8] = [
         |a, on| a.loading = on.then(|| "Reading TEST…".into()),
         |a, on| a.search_due = on.then(|| Instant::now() + Duration::from_secs(60)),
         |a, on| a.status_loading = on,
@@ -1295,6 +1303,8 @@ fn the_screen_moves_only_while_something_does(tc: TestCase) {
         |a, on| a.show_details = on,
         // The outputs being listed (d), or listed.
         |a, on| a.deck.outputs = Some(super::super::deck::Outputs { listing: on.then_some(1), ..Default::default() }),
+        // An output picked, opening.
+        |a, on| a.deck.opening = on.then_some(1),
     ];
     // Each sets it going on its own.
     for c in &conditions {
@@ -1732,6 +1742,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                     quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                     // Played (no output here, which is said).
+                    output_opened(&mut app);
                     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
                 }
             }
@@ -1778,7 +1789,8 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 } else {
                     mouse(&mut app, LEFT, (r.x + x, r.y));
                 }
-                let d = app.now.as_ref().unwrap().duration;
+                // (A play that found no output to play through stopped it.)
+                let Some(d) = app.now.as_ref().map(|n| n.duration) else { continue };
                 let want = d.mul_f64((x as f64 + 0.5) / r.width as f64).min(d - Duration::from_millis(250));
                 let at = app.pending_seek.unwrap_or_default();
                 assert!(at.abs_diff(want) < Duration::from_millis(2), "{at:?} for {want:?}");
