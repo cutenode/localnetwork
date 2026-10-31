@@ -239,6 +239,36 @@ describe('OAuth scopes', () => {
 	});
 });
 
+describe('OAuthService', () => {
+	/** Signing in at an http PDS from a production build with ALLOW_PRIVATE_NETWORK as given. */
+	const signInAtHttpPds = async (allowPrivateNetwork: string) => {
+		const oauth = new OAuthService({
+			config: loadConfig({
+				NODE_ENV: 'production',
+				ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
+				ROOT_IDENTIFIER: 'did:plc:root',
+				ROOT_PASSWORD: 'x',
+				PUBLIC_URL: 'https://localnetwork.test',
+				HAPPYVIEW_URL: 'http://127.0.0.1:8000'
+			}),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger
+		});
+
+		// Port 9 is one fetch refuses to connect to, so nothing leaves the machine either way.
+		return oauth.client.authorize('http://127.0.0.1:9/');
+	};
+
+	it('signs in at an http PDS in a production build only on a private network it may reach', async () => {
+		const refusedHttp = expect.stringMatching(/Unsecure resource metadata URL \(http:\)/);
+
+		await expect(signInAtHttpPds('false')).rejects.toMatchObject({ cause: { message: refusedHttp } });
+		await expect(signInAtHttpPds('true')).rejects.toMatchObject({
+			cause: { message: expect.not.stringMatching(/Unsecure/) }
+		});
+	});
+});
+
 describe('OAuthService.authorize', () => {
 	const user = 'did:plc:user';
 	const page = new URL('https://pds.test/oauth/authorize');
