@@ -153,12 +153,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      # Keep the number of shards in step with the matrix.
-      SHARD: ${{ matrix.shard }}/4
+      # Keep the number of shards in step with the matrix. At 4, a week's diff was about 372
+      # mutants a shard at 13 to 30 s each, past the step's 90 minutes (run 40313079235).
+      SHARD: ${{ matrix.shard }}/8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -295,7 +296,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # As locallibrary-ci.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
+      # As locallibrary-ci-os.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
       # picks the tests with.
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
       - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"

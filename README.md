@@ -18,7 +18,7 @@ apps/locallibrary/    locallibrary's command line tool, player and sidecar, with
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
 lexicons/             Every tool's lexicons (computer.localnetwork.*), and copies of others' they use (its README)
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
-plugins/              locallibrary's own plugins, each a crate on its plugin SDK
+plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each
 packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
 packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates

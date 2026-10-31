@@ -3,7 +3,7 @@ use serde_json::json;
 use super::*;
 use crate::export_cmd::FormatArg;
 
-/// A first-party manifest with the id `id` and `contributes` (TOML) added.
+/// A built-in plugin's manifest with the id `id` and `contributes` (TOML) added.
 fn manifest(id: &str, contributes: &str) -> Manifest {
     let m = Manifest::parse(&format!(
         "id = \"{id}\"\nname = \"Test\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n{contributes}"
@@ -39,18 +39,44 @@ fn refused(manifests: &[Manifest]) -> String {
 fn the_plugins_locallibrary_ships_are_accepted() {
     let launch = Launch { program: "locallibrary".into(), args: Vec::new(), env_remove: Vec::new() };
     let specs: Vec<PluginSpec> =
-        FIRST_PARTY.iter().map(|(m, _)| PluginSpec::first_party(m, launch.clone()).unwrap()).collect();
-    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; FIRST_PARTY.len()]);
+        BUILT_IN.iter().map(|(m, _)| PluginSpec::built_in(m, launch.clone()).unwrap()).collect();
+    assert_eq!(check(&specs.iter().map(|s| &s.manifest).collect::<Vec<_>>()), vec![None; BUILT_IN.len()]);
 }
 
 /// The manifests locallibrary links in are valid, their JSON Schemas included: a release build
-/// doesn't check them as it starts (see `PluginSpec::first_party`), so this does, whatever the
+/// doesn't check them as it starts (see `PluginSpec::built_in`), so this does, whatever the
 /// build.
 #[test]
 fn the_manifests_locallibrary_ships_are_valid() {
-    for (manifest, _) in FIRST_PARTY {
+    for (manifest, _) in BUILT_IN {
         let m = Manifest::parse(manifest).unwrap();
         m.validate(true).unwrap_or_else(|e| panic!("the {} plugin's manifest: {e}", m.id));
+    }
+}
+
+/// Only account plugins ship without a crate to serve them, and every one does.
+#[test]
+fn only_account_plugins_ship_without_a_crate() {
+    for (manifest, serve) in BUILT_IN {
+        let m = Manifest::parse(manifest).unwrap();
+        assert_eq!(serve.is_none(), m.is_account_plugin(), "the {} plugin", m.id);
+    }
+}
+
+/// Each account plugin locallibrary ships that signs in through Local Network's token exchange
+/// names a service the exchange has.
+#[test]
+fn the_account_plugins_locallibrary_ships_use_services_the_token_exchange_has() {
+    let file =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/src/lib/server/token-exchange/services.json");
+    let services: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    let manifests = BUILT_IN.iter().map(|(m, _)| Manifest::parse(m).unwrap());
+    let exchanges: Vec<String> =
+        manifests.flat_map(|m| m.contributes.account_types).filter_map(|t| t.token_exchange).collect();
+    assert!(!exchanges.is_empty());
+    for exchange in exchanges {
+        let service = exchange.strip_prefix("https://localnetwork.computer/api/token-exchange/").unwrap_or(&exchange);
+        assert!(services["services"].get(service).is_some(), "{exchange} isn't a service of the token exchange");
     }
 }
 

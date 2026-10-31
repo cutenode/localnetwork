@@ -90,5 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      # Skipped while changes found something to check means it didn't run (see locallibrary-ci.yml).
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped'))
         run: exit 1

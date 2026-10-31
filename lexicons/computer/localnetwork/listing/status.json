@@ -1,0 +1,27 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.listing.status",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "Whether staff list a performer, party or venue in the directory. Written only by the Local Network root account, into the space it describes, when the space is made and on each staff decision.",
+			"record": {
+				"type": "object",
+				"required": ["listed", "createdBy", "createdAt"],
+				"properties": {
+					"listed": { "type": "boolean" },
+					"createdBy": { "type": "string", "format": "did" },
+					"createdAt": { "type": "string", "format": "datetime" },
+					"decidedBy": { "type": "string", "format": "did" },
+					"decidedAt": { "type": "string", "format": "datetime" },
+					"request": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The listing request staff decided, if there was one."
+					}
+				}
+			}
+		}
+	}
+}
