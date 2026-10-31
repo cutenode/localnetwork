@@ -1,10 +1,9 @@
 //! Property tests of the `locallibrary rpc` sidecar against the contract it publishes
-//! (docs/rpc/schema.json): every line it's sent, garbage included, gets the answer the protocol
-//! promises, in the shapes the contract gives; a read asked twice answers the same; and changes
-//! to the store made through it agree with a model.
+//! (`rpc.describe`, docs/rpc/schema.json): every line it's sent, garbage included, gets the
+//! answer the protocol promises, in the shapes the contract gives; a read asked twice answers
+//! the same; and changes to the store made through it agree with a model.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::process::Stdio;
 use std::sync::OnceLock;
 
@@ -16,12 +15,16 @@ use serde_json::{Map, Value, json};
 use crate::schema;
 use crate::support::{Env, Rpc, path};
 
-/// The contract the sidecar publishes.
+/// The contract the sidecar publishes, as this build's `rpc.describe` answers it: in the default
+/// build that's docs/rpc/schema.json (`the_contract_in_docs_is_current` checks), and a build
+/// without a feature leaves out its methods (`sets.lookup` without `account`).
 pub(crate) fn contract() -> &'static Value {
     static CONTRACT: OnceLock<Value> = OnceLock::new();
     CONTRACT.get_or_init(|| {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json");
-        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap()
+        let describe = json!({"jsonrpc": "2.0", "id": 0, "method": "rpc.describe"}).to_string().into_bytes();
+        let (mut out, clean) = run_batch(&Env::new(), &[describe]);
+        assert!(clean && out.len() == 1, "rpc.describe: {out:?}");
+        out[0]["result"].take()
     })
 }
 
@@ -107,7 +110,8 @@ fn string_for(tc: &TestCase, fx: &Env, key: &str, format: Option<&str>) -> Strin
         "plan_id" => pick(s(&["", "0", "no-such-plan"])),
         "method" => pick(s(&["tracks.query", "drive.adopt", "nope"])),
         "path" | "output" | "file" | "to" | "db" | "image" | "dir" | "files" | "look_in" => {
-            pick(vec![outside("out.txt"), outside("missing.mp3"), a, "relative.txt".into(), String::new()])
+            let settings = outside("settings.json");
+            pick(vec![outside("out.txt"), outside("missing.mp3"), settings, a, "relative.txt".into(), String::new()])
         }
         "name" | "title" | "label" | "message" | "headline" | "venue" | "city" => {
             pick(s(&["Friday", "Ünïcödé 日本", "", " padded ", "Main"]))

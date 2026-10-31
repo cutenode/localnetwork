@@ -470,7 +470,9 @@ pub fn drive_reidentify(store: Option<&Store>, req: &Reidentify) -> Result<Devic
     drive_reidentify_plan(store, req)?.apply(store, &Ctx::silent())
 }
 
-pub fn drive_sets(store: &Store) -> Result<Vec<DriveSet>> {
+/// The mounted drives grouped by the library each holds (see [`fleet::sets`]): with no store,
+/// unnamed.
+pub fn drive_sets(store: Option<&Store>) -> Result<Vec<DriveSet>> {
     fleet::sets(store, &known_drives(false))
 }
 
@@ -495,7 +497,7 @@ pub struct SyncSetRequest {
 impl SyncSetRequest {
     /// The [`SyncManyRequest`] for the chosen group.
     pub fn resolve(&self, store: &Store) -> Result<SyncManyRequest> {
-        let sets: Vec<DriveSet> = drive_sets(store)?.into_iter().filter(|s| s.members.len() >= 2).collect();
+        let sets: Vec<DriveSet> = drive_sets(Some(store))?.into_iter().filter(|s| s.members.len() >= 2).collect();
         let set = match &self.library {
             Some(name) => {
                 let lib = store.find_library(name)?.ok_or_else(|| Error::NotFound(format!("library {name:?}")))?;

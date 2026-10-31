@@ -1,8 +1,9 @@
 //! The plyr plugin: a set destination, `track`, that uploads a set's recording to plyr.fm (an AT
 //! Protocol audio host) as a track of the user's (see `upload`), titled after the set and with its
 //! tracklist as the description (see `track`), and answers the track's page, which locallibrary
-//! keeps as the set's link. plyr.fm takes a developer token, the secret setting `token`, which the
-//! host fills into the plugin's requests.
+//! keeps as the set's link, and the track's `fm.plyr.track` record, which the set's record points
+//! to. plyr.fm takes a developer token, the secret setting `token`, which the host fills into the
+//! plugin's requests.
 
 mod track;
 mod upload;
@@ -13,6 +14,9 @@ use loclib_plugin::{Hooks, Host, PublishSet, Published, RpcError};
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
+
+/// What the set's link is, as its record names it.
+const NAME: &str = "plyr.fm";
 
 /// Where plyr.fm shows a track, by its id.
 const TRACK_PAGE: &str = "https://plyr.fm/track/";
@@ -59,10 +63,15 @@ fn publish_set(req: PublishSet, host: &Host) -> Result<Published, RpcError> {
             n => format!(", its {n} tracks in the description"),
         };
         let line = format!("{what}, tagged {}{listed}", track::TAGS.join(", "));
-        return Ok(Published { url: None, warnings: [vec![line], track.notes].concat() });
+        return Ok(Published { warnings: [vec![line], track.notes].concat(), ..Published::default() });
     }
-    let (id, warnings) = upload::upload(host, recording, size, &filename, &track)?;
-    Ok(Published { url: Some(format!("{TRACK_PAGE}{id}")), warnings: [track.notes, warnings].concat() })
+    let uploaded = upload::upload(host, recording, size, &filename, &track)?;
+    Ok(Published {
+        url: Some(format!("{TRACK_PAGE}{}", uploaded.id)),
+        name: Some(NAME.into()),
+        record: uploaded.record,
+        warnings: [track.notes, uploaded.warnings].concat(),
+    })
 }
 
 #[cfg(test)]

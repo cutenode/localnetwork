@@ -201,3 +201,60 @@ fn collection_export_from_a_source_is_checked_then_written(tc: hegel::TestCase) 
     assert!(said.contains("the library source echo:folder -> "), "{said}");
     assert!(said.contains(&read_from(&music)), "{said}");
 }
+
+/// For any `plugins.source.plan` drawn in the sidecar (at most one thing wrong: the plugin, the
+/// source, no folder granted or one that isn't there; any page size; to a new folder
+/// or a drive holding a library, replaced or not): what's wrong, or a library not replaced, is an
+/// error and the drive stays as it was. Otherwise the plan says what the source read, and
+/// `plugins.source.apply` (when it's applied) builds the drive from the audio files granted.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_sidecar_plans_and_builds_any_source_drawn(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (env, music) = music();
+    let wrong = tc.draw(gs::sampled_from(vec!["", "", "", "plugin", "source", "no grant", "nowhere"]));
+    let on_demo = tc.draw(gs::booleans());
+    let replace = tc.draw(gs::booleans());
+    let apply = tc.draw(gs::booleans());
+    let stick = if on_demo { env.demo("DEMO") } else { env.outside("stick") };
+    let before = titles(&env, &stick);
+    let grants = match wrong {
+        "no grant" => json!([]),
+        "nowhere" => json!([env.outside("nowhere")]),
+        _ => json!([music]),
+    };
+    let options = tc.draw(gs::sampled_from(vec![json!({}), json!({ "per_page": 1 })]));
+    let req = json!({
+        "plugin": if wrong == "plugin" { "nope" } else { "echo" },
+        "source": if wrong == "source" { "nope" } else { "folder" },
+        "options": options,
+        "grants": grants,
+        "drive": path(&stick),
+        "replace": replace,
+    });
+    let mut s = Rpc::start(env.command());
+    let planned = s.call(1, "plugins.source.plan", req.clone());
+    let refused = match wrong {
+        "plugin" => Some("nope"),
+        "source" => Some("the echo plugin's library source \"nope\""),
+        "no grant" => Some("grant the plugin a folder"),
+        "nowhere" => Some("nowhere"),
+        _ if on_demo && !replace => Some("wasn't built from echo:folder; replace it"),
+        _ => None,
+    };
+    if let Some(said) = refused {
+        let message = planned["error"]["message"].as_str().unwrap_or_else(|| panic!("{req}: {planned}"));
+        assert!(message.contains(said), "{req}: {said:?} isn't in {message}");
+        assert_eq!(titles(&env, &stick), before, "nothing written");
+        return;
+    }
+    let plan = planned.get("result").unwrap_or_else(|| panic!("{req}: {planned}"));
+    assert_eq!((plan["operation"].as_str(), plan["tracks"].as_u64()), (Some("echo.source.folder"), Some(2)), "{plan}");
+    assert_eq!(plan["source"], "echo:folder");
+    if !apply {
+        assert_eq!(titles(&env, &stick), before, "a plan writes nothing");
+        return;
+    }
+    let applied = s.call(2, "plugins.source.apply", json!({ "plan_id": plan["plan_id"] }));
+    assert_eq!(applied["result"]["tracks"], 2, "{applied}");
+    assert_eq!(titles(&env, &stick), ["A", "b"]);
+}

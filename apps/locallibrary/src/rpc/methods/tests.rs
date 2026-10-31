@@ -470,6 +470,20 @@ fn a_mix_that_is_not_there_is_not_found(tc: TestCase) {
     assert_eq!((e.kind, e.message), ("not_found", format!("not found: {}", mix.display())), "{params}");
 }
 
+/// A cover that isn't an image is refused before the mix is looked for.
+#[test]
+fn a_cover_that_isnt_an_image_is_refused() {
+    let s = Sidecar::new();
+    let notes = s.dir.path().join("notes.txt");
+    std::fs::write(&notes, "not an image").unwrap();
+    for method in ["mix.identify", "mix.export"] {
+        let params = json!({ "mix": s.dir.path().join("gone.wav"), "cover": notes });
+        let e = s.call(method, params).err().unwrap_or_else(|| panic!("{method} took it"));
+        assert_eq!(e.kind, "invalid", "{method}: {}", e.message);
+        assert!(e.message.contains("notes.txt can't be a cover"), "{method}: {}", e.message);
+    }
+}
+
 /// Library files on a drive damaged in place (the same size and modification time, other
 /// bytes, as a failing flash drive leaves them) are what verifying the drive finds damaged, and
 /// repairing what it found puts each back as the store has it: the drive verifies clean again.

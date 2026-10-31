@@ -169,6 +169,52 @@ fn grids_that_cant_be_stored_are_refused() {
     assert_eq!(anlz::beat_grid(&out).unwrap()[0].bpm, 128.0);
 }
 
+/// Doubled (`doctor --fix-tempo`), a grid gets a beat halfway between each two (to the ms) at
+/// twice the tempo, numbered on through the bar, its downbeats still downbeats. Halved, it keeps
+/// every other beat from the first that's 1 or 3 of its bar, at half the tempo, and each new
+/// downbeat was one. Halving a doubled grid that starts on beat 1 or 2 gives it back.
+#[hegel::test(test_cases = 200)]
+fn grids_double_and_halve(tc: TestCase) {
+    let shift = tc.draw(gs::integers::<u16>().max_value(3));
+    let beats: Vec<Beat> =
+        grid(&tc).into_iter().map(|b| Beat { beat_number: (b.beat_number - 1 + shift) % 4 + 1, ..b }).collect();
+    let cyclic = |g: &[Beat]| g.windows(2).all(|w| w[1].beat_number == w[0].beat_number % 4 + 1);
+
+    let doubled = anlz::doubled_grid(&beats);
+    assert_eq!(doubled.len(), 2 * beats.len() - 1);
+    assert!(cyclic(&doubled), "{doubled:?}");
+    for (i, b) in beats.iter().enumerate() {
+        let on = doubled[2 * i];
+        assert_eq!((on.time_ms, on.bpm), (b.time_ms, b.bpm * 2.0));
+        if b.beat_number == 1 {
+            assert_eq!(on.beat_number, 1, "a downbeat stays one");
+        }
+        if let Some(next) = beats.get(i + 1) {
+            let half = doubled[2 * i + 1];
+            assert_eq!(half.bpm, b.bpm * 2.0);
+            assert!(b.time_ms <= half.time_ms && half.time_ms <= next.time_ms);
+            assert!((half.time_ms - b.time_ms).abs_diff(next.time_ms - half.time_ms) <= 1, "halfway");
+        }
+    }
+
+    let halved = anlz::halved_grid(&beats);
+    let Some(from) = beats.iter().position(|b| b.beat_number % 2 == 1) else {
+        assert!(halved.is_empty());
+        return;
+    };
+    assert_eq!(halved.len(), (beats.len() - from).div_ceil(2));
+    assert!(cyclic(&halved), "{halved:?}");
+    for (h, b) in halved.iter().zip(beats[from..].iter().step_by(2)) {
+        assert_eq!((h.time_ms, h.bpm), (b.time_ms, b.bpm / 2.0));
+        if h.beat_number == 1 {
+            assert_eq!(b.beat_number, 1, "a new downbeat was one");
+        }
+    }
+    if beats[0].beat_number <= 2 {
+        assert_eq!(anlz::halved_grid(&doubled), beats);
+    }
+}
+
 /// The kinds a mood names, each as rekordbox names it.
 fn kinds(mood: Mood) -> Vec<PhraseKind> {
     use PhraseKind::*;

@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use crate::error::{RpcError, ok, result};
-use crate::framing::{Line, MAX_LINE, read_line};
+use crate::framing::{Line, MAX_LINE, read_line_within};
 use crate::protocol::{Cancel, Partial, ProgressParams, ProgressReport, method};
 
 /// What the other end sent besides responses.
@@ -64,6 +64,9 @@ struct Shared {
     running: Mutex<Vec<(Value, CancelToken)>>,
     /// Where what the other end got wrong is said.
     log: Box<dyn Fn(&str) + Send + Sync>,
+    /// The longest line read or written: [`MAX_LINE`], or a short one in tests, which then
+    /// needn't push megabytes through a pipe.
+    max_line: usize,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -153,12 +156,23 @@ impl Peer {
         output: impl Write + Send + 'static,
         log: impl Fn(&str) + Send + Sync + 'static,
     ) -> (Peer, Receiver<Incoming>) {
+        Peer::with_max_line(input, output, log, MAX_LINE)
+    }
+
+    /// [`Peer::with_log`], with lines longer than `max_line` too long.
+    pub(crate) fn with_max_line(
+        input: impl Read + Send + 'static,
+        output: impl Write + Send + 'static,
+        log: impl Fn(&str) + Send + Sync + 'static,
+        max_line: usize,
+    ) -> (Peer, Receiver<Incoming>) {
         let peer = Peer(Arc::new(Shared {
             out: Mutex::new(Some(Box::new(output))),
             next: AtomicU64::new(1),
             waiting: Mutex::new(Some(Waiting::default())),
             running: Mutex::default(),
             log: Box::new(log),
+            max_line,
         }));
         let (tx, rx) = mpsc::channel();
         let reader = peer.clone();
@@ -170,8 +184,8 @@ impl Peer {
     /// would drop it.
     fn write(&self, msg: &Value) -> Result<(), RpcError> {
         let mut line = msg.to_string();
-        if line.len() > MAX_LINE {
-            return Err(RpcError::internal(format!("a message is longer than {} MiB", MAX_LINE >> 20)));
+        if line.len() > self.0.max_line {
+            return Err(RpcError::internal(format!("a message is longer than {}", self.max_line())));
         }
         line.push('\n');
         let mut out = lock(&self.0.out);
@@ -184,6 +198,15 @@ impl Peer {
     /// closes its output.
     pub fn close(&self) {
         lock(&self.0.out).take();
+    }
+
+    /// Cancels the other end's requests still running, as its output closing does: for when it
+    /// has gone (a plugin killed) before its output closes, which a process it started can hold
+    /// open.
+    pub fn cancel_running(&self) {
+        for (_, cancel) in lock(&self.0.running).drain(..) {
+            cancel.cancel();
+        }
     }
 
     /// Sends a request; [`Pending::wait`] for its response.
@@ -259,6 +282,14 @@ impl Peer {
             ok(params).and_then(|params| self.write(&json!({ "jsonrpc": "2.0", "method": method, "params": params })));
     }
 
+    /// The longest line, as errors say it: in MiB, or bytes for one shorter (a test's).
+    fn max_line(&self) -> String {
+        match self.0.max_line >> 20 {
+            0 => format!("{} bytes", self.0.max_line),
+            mib => format!("{mib} MiB"),
+        }
+    }
+
     /// Answers the other end's request `id`.
     pub fn respond(&self, id: &Value, result: Result<Value, RpcError>) {
         lock(&self.0.running).retain(|(running, _)| running != id);
@@ -284,12 +315,12 @@ impl Peer {
         let mut input = BufReader::new(input);
         let mut buf = Vec::new();
         loop {
-            match read_line(&mut input, &mut buf) {
+            match read_line_within(&mut input, &mut buf, self.0.max_line) {
                 Ok(Line::Read) => self.handle(buf.trim_ascii(), incoming),
                 Ok(Line::TooLong) => {
                     // If it was a response, nothing says to which request.
-                    (self.0.log)(&format!("skipped a line longer than {} MiB", MAX_LINE >> 20));
-                    let e = format!("a line is longer than {} MiB", MAX_LINE >> 20);
+                    (self.0.log)(&format!("skipped a line longer than {}", self.max_line()));
+                    let e = format!("a line is longer than {}", self.max_line());
                     self.answer(&Value::Null, Err(RpcError::parse_error(e)));
                 }
                 Ok(Line::End) => break,
@@ -302,9 +333,7 @@ impl Peer {
         for (_, waiter) in lock(&self.0.waiting).take().unwrap_or_default() {
             let _ = waiter.response.send(Err(RpcError::closed()));
         }
-        for (_, cancel) in lock(&self.0.running).drain(..) {
-            cancel.cancel();
-        }
+        self.cancel_running();
     }
 
     /// Handles one line: a response goes to whoever waits for it, `$/cancel` cancels, and the

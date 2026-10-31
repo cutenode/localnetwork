@@ -39,6 +39,9 @@ your output folder, and their bytes) and notes on what the format left out.
   track's details, beat grid (a `TEMPO` per tempo change), hot cues with their colours, memory
   cues, loops, and playlists and folders. Leaves out My Tags, artwork and waveforms.
 - `encode`: the XML escaping the formats are written with.
+- `with_history`: a library with its history lists as playlists, in a `History` folder, for the
+  formats that keep no history (Traktor, Serato, Engine DJ). The writers themselves leave history
+  lists out.
 
 ```rust
 use std::path::Path;

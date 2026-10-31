@@ -88,10 +88,9 @@ fn errors_say_what_went_wrong_and_what_to_do() {
     let r = env.run(&["sync", "A"]);
     assert_eq!(r.code, 2, "{}", r.err);
     assert!(r.err.contains("give two or more drives, or none"), "{}", r.err);
-    // Without the account, there's no such flag at all.
     let r = env.run(&["settings", "import", "--replace"]);
-    assert_eq!(r.code, if cfg!(feature = "account") { 1 } else { 2 }, "{}", r.err);
-    assert_eq!(r.err.contains("--replace goes with --from-handle or --from-account"), cfg!(feature = "account"));
+    assert_eq!(r.code, 1, "{}", r.err);
+    assert!(r.err.contains("--replace goes with a file `settings export` wrote"), "{}", r.err);
 
     let r = env.run(&["--json", "sync", "--no-such-flag"]);
     assert_eq!(r.code, 2);

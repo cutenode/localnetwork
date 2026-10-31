@@ -15,11 +15,11 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use jacquard_oauth::session::ClientSessionData;
 use locallibrary::api::{self, AccountLoginRequest};
-use locallibrary::atmosphere::lexicon::{PROFILE, SET, SETTINGS};
+use locallibrary::atmosphere::lexicon::{PROFILE, RECORDING, SET, SETTINGS};
 use locallibrary::atmosphere::store::{self, AccountFile, StoredAccount};
 use locallibrary::atmosphere::{
     self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, PUBLISH_SET, REPORT_SCOPE, SESSION_LIMIT_DAYS, Storage,
-    publish_scopes,
+    UPLOAD_SCOPE, publish_scopes,
 };
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
@@ -105,23 +105,28 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
     assert_eq!(atmosphere::missing_scope(&account, collection), expected, "{:?}", account.scopes);
 }
 
-/// Publishing asks for `atproto` and the permission set, which a server grants as one
-/// create-and-replace scope per record type and one for asking the directory to read them again,
-/// and a session granted them may write each of locallibrary's record types and nothing else's.
+/// Publishing asks for `atproto`, the permission set, which a server grants as one
+/// create-and-replace scope per record type (deleting too for sets and their recordings) and one
+/// for asking the directory to read them again, and uploading audio files; a session granted them
+/// may write each of locallibrary's record types and nothing else's, and upload audio and nothing
+/// else.
 #[hegel::test(test_cases = 50)]
 fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
-    assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}")]);
+    assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.into()]);
     let granted = crate::mock_pds::granted(&publish_scopes());
     let mut want: Vec<String> = PUBLISH_SCOPES.map(String::from).to_vec();
     // Servers write the `rpc` one with the audience jacquard leaves out.
-    want[3] += "?aud=*";
-    want.push("atproto".into());
+    want[4] += "?aud=*";
+    want.extend(["atproto".into(), UPLOAD_SCOPE.into()]);
     assert_eq!(granted, want);
     let order = tc.draw(gs::permutations(granted));
     let account = info("did:plc:abc", None, order, Utc::now());
-    for c in [SETTINGS, PROFILE, SET] {
+    for c in [SETTINGS, PROFILE, SET, RECORDING] {
         assert_eq!(atmosphere::missing_scope(&account, c), None, "{c}");
     }
+    // Audio files go up, and nothing else does.
+    assert!(atmosphere::may_upload(&account, "audio/mp4") && atmosphere::may_upload(&account, "audio/mpeg"));
+    assert!(!atmosphere::may_upload(&account, "video/mp4") && !atmosphere::may_upload(&account, "image/png"));
     assert!(atmosphere::missing_scope(&account, "app.example.thing").is_some());
 }
 

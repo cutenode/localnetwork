@@ -5,7 +5,7 @@
 		"main": {
 			"type": "permission-set",
 			"title": "Publish from locallibrary",
-			"detail": "Publish and update your DJ profile, your sets and your locallibrary settings, and ask Local Network's directory to read them again.",
+			"detail": "Publish and update your DJ profile, your sets, their recordings and your locallibrary settings, remove the sets you delete and their recordings, and ask Local Network's directory to read them again.",
 			"permissions": [
 				{
 					"type": "permission",
@@ -23,7 +23,13 @@
 					"type": "permission",
 					"resource": "repo",
 					"collection": ["computer.localnetwork.dj.set"],
-					"action": ["create", "update"]
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.dj.recording"],
+					"action": ["create", "update", "delete"]
 				},
 				{
 					"type": "permission",

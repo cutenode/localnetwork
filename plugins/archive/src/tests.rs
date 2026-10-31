@@ -274,17 +274,18 @@ fn decoded(value: &str) -> String {
     }
 }
 
-/// What a publish that went answers, its item at `id`.
+/// What a publish that went answers, its item at `id`, named the Internet Archive.
 fn published(id: &str, warnings: &[&str]) -> Published {
     let processing = "the Archive can take a few minutes to show it, while it processes the upload";
     let warnings = warnings.iter().chain([&processing]).map(|w| w.to_string()).collect();
-    Published { url: Some(format!("https://archive.org/details/{id}")), warnings }
+    let url = Some(format!("https://archive.org/details/{id}"));
+    Published { url, name: Some("Internet Archive".into()), record: None, warnings }
 }
 
 /// It reaches archive.org and its S3 alone, publishes sets at one destination, and keeps the keys
 /// as secrets.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_the_archive() {
+fn the_manifest_is_a_built_in_set_destination_on_the_archive() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let hosts = ["archive.org", "s3.us.archive.org"].map(|h| Capability::Net(h.into()));
@@ -559,7 +560,7 @@ fn a_dry_run_sends_nothing() {
         "titled \"Closing set\", by DJ Kit, dated 2026-10-03, in Community Audio, tagged dj mix, club, Warehouse, Leeds, its 2 tracks in the description".into(),
         rights.into(),
     ];
-    assert_eq!(answer.unwrap(), Published { url: None, warnings: lines.to_vec() });
+    assert_eq!(answer.unwrap(), Published { warnings: lines.to_vec(), ..Published::default() });
     let (answer, _, _) =
         s.publish_by(None, &PublishedSet { kind: None, venue: None, city: None, ..set() }, &path, &[], true);
     let about = "titled \"Closing set\", dated 2026-10-03, in Community Audio, tagged dj mix";

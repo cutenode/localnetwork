@@ -4,6 +4,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
+	import { draftKey } from '#lib/form-draft.svelte.ts';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
@@ -33,7 +34,7 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<div class="min-w-0">
 			{#if data.viewer?.isAdmin}
-				<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} />
+				<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} draft={draftKey(data.viewer, `admin:project:${project.uri}`)} />
 			{:else}
 				<p class="notice notice-info">Moderators can hide or unhide projects. Only admins edit them directly.</p>
 			{/if}

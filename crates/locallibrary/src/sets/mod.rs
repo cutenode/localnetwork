@@ -12,6 +12,7 @@
 //! logs imported from other tools (Beat Link Trigger), which carry real play times.
 
 pub mod build;
+pub mod chapters;
 pub mod edit;
 pub mod export;
 pub mod import;
@@ -70,6 +71,13 @@ pub struct Set {
     /// Where people can listen to it (Mixcloud, SoundCloud, YouTube...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// What the link is, as the plugin that published the set there named it (`plyr.fm`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_name: Option<String>,
+    /// The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin
+    /// that published it there said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording_record: Option<loclib_plugin::StrongRef>,
     /// The recording on this computer the tracklist was found in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,
@@ -314,9 +322,15 @@ impl MusicBrainzIds {
     }
 
     /// The IDs the tags of the audio file at `path` hold: none when it has none, or can't be read.
-    /// Anything that isn't a UUID is left out.
+    /// Anything that isn't a UUID is left out. A file whose name doesn't say its type (the store's
+    /// copy of one, named by its hash) is read as its first bytes say.
     pub fn read(path: &Path) -> MusicBrainzIds {
-        let Ok(tagged) = lofty::read_from_path(path) else { return MusicBrainzIds::default() };
+        let read = || {
+            let probe = lofty::probe::Probe::open(path).ok()?;
+            let probe = if probe.file_type().is_some() { probe } else { probe.guess_file_type().ok()? };
+            probe.read().ok()
+        };
+        let Some(tagged) = read() else { return MusicBrainzIds::default() };
         let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else { return MusicBrainzIds::default() };
         // ID3v2.4 keeps several values in one frame (lofty splits those); Picard writes ID3v2.3's
         // joined with `/`.

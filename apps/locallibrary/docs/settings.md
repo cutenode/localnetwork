@@ -36,3 +36,26 @@ per-drive overrides survive a sync, and `settings apply` writes each drive.
 `settings show` lists such bytes: rekordbox 7.2 writes one more display setting
 (`DEVSETTING.DAT` data byte 15) and five more mixer settings (`DJMMYSETTING.DAT` bytes 25-29)
 than rekordbox 6. Profiles don't manage them until their meaning is known.
+
+## Taking your settings to another computer
+
+`settings export` writes everything set here to one JSON file: the settings profile (base and
+per-drive overrides), the players `check` uses, your profile's preferences, the player's
+preferences (theme, columns, sort, visualiser, shuffle, repeat, quantize, single play, auto cue)
+and every plugin's settings, the player keys you gave their commands and the services you turned
+on included. Plugins' secrets stay in the keychain, and where the player was (the drive, list and
+queue, its panels, the volume and output) stays on this computer. `settings import FILE` brings it back, here or on another
+computer:
+
+```bash
+locallibrary settings export settings.json   # or with no file, print it
+locallibrary settings import settings.json   # adds what's missing here
+locallibrary settings import settings.json --replace
+```
+
+Importing adds the values this computer doesn't have and skips the ones it has already. Where a
+value differs, the one here stays and the plan lists it; `--replace` takes the file's instead (for
+a list, like the tracks your profile hides, the file's whole list). Lists otherwise get the names
+they lack. A plugin that isn't installed here keeps its settings for when it is. Close the player before
+importing: it saves what it remembers when it quits.
+[`settings-export.schema.json`](settings-export.schema.json) describes the file.

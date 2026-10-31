@@ -1067,5 +1067,8 @@ pub fn apply_orphans(plan: &OrphanPlan, device: &mut Device, ctx: &Ctx<'_>) -> R
     })
 }
 
+mod tempo;
+pub use tempo::tempo_fixes;
+
 #[cfg(test)]
 mod tests;
