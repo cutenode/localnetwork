@@ -130,7 +130,7 @@
 		{/if}
 
 		{#await data.dj}
-			<div aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
+			<div role="status" aria-busy="true" aria-label="Loading how they play" class="flex flex-col gap-4">
 				<div class="h-7 w-48 animate-pulse rounded-md bg-raised"></div>
 				<div class="h-28 animate-pulse rounded-xl bg-surface"></div>
 			</div>

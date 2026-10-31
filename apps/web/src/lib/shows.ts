@@ -75,3 +75,50 @@ export function bookingValues(show: ShowDetails): ShowFormValues {
 		lngE6: place?.lngE6?.toString() ?? ''
 	};
 }
+
+/** The booking inquiry form's fields, as text. */
+export type InquiryFormValues = Record<
+	| 'title'
+	| 'date'
+	| 'time'
+	| 'setMinutes'
+	| 'venue'
+	| 'capacity'
+	| 'budgetAmount'
+	| 'currency'
+	| 'budgetTier'
+	| 'setType'
+	| 'genres',
+	string
+>;
+
+export const inquiryDefaults: InquiryFormValues = {
+	title: '',
+	date: '',
+	time: '22:00',
+	setMinutes: '',
+	venue: '',
+	capacity: '',
+	budgetAmount: '',
+	currency: 'USD',
+	budgetTier: '',
+	setType: '',
+	genres: ''
+};
+
+/** The booking inquiry form filled in from a planner show, whose date is the venue's clock stored as UTC. */
+export function inquiryValues(show: ShowDetails): InquiryFormValues {
+	return {
+		title: show.title,
+		date: show.date ? venueDay(show.date) : '',
+		time: show.date ? venueClock(show.date) : inquiryDefaults.time,
+		setMinutes: show.setMinutes?.toString() ?? '',
+		venue: show.venue ?? '',
+		capacity: show.capacity?.toString() ?? '',
+		budgetAmount: show.budget?.amount.toString() ?? '',
+		currency: show.budget?.currency ?? inquiryDefaults.currency,
+		budgetTier: show.budgetTier ?? '',
+		setType: show.setType ?? '',
+		genres: show.genres?.join(', ') ?? ''
+	};
+}

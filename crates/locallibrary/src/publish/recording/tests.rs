@@ -82,6 +82,55 @@ fn a_recording_record_fits_its_lexicon() {
     assert_eq!(document(lexicon::RECORDING)["audio"]["maxSize"], MAX_BYTES, "the Lexicon's limit is this one");
 }
 
+/// Chapters as ffmpeg reads them: times in milliseconds, each ending where the next starts, and
+/// titles with `=`, `;`, `#`, `\` and newlines escaped by a backslash.
+#[test]
+fn ffmetadata_holds_the_chapters_escaped() {
+    let chapters =
+        [Chapter { start: 0, title: "A=B; C#1 \\ D".into() }, Chapter { start: 312, title: "two\nlines".into() }];
+    assert_eq!(
+        ffmetadata(&chapters, 3600),
+        ";FFMETADATA1\n\
+         [CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=312000\ntitle=A\\=B\\; C\\#1 \\\\ D\n\
+         [CHAPTER]\nTIMEBASE=1/1000\nSTART=312000\nEND=3600000\ntitle=two\\\nlines\n"
+    );
+    assert_eq!(ffmetadata(&[], 60), ";FFMETADATA1\n");
+}
+
+/// Escaping over drawn titles: unescaped, it's the title again, and nothing ffmpeg reads as
+/// special is left bare.
+#[hegel::test(test_cases = 300)]
+fn ffmetadata_escaping_round_trips(tc: TestCase) {
+    let title = tc.draw(gs::text().alphabet("ab=;#\\\n é").max_size(20));
+    let escaped = escape(&title);
+    let (mut back, mut chars) = (String::new(), escaped.chars());
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => back.push(chars.next().expect("an escape escapes something")),
+            '=' | ';' | '#' | '\n' => panic!("{c:?} bare in {escaped:?}"),
+            c => back.push(c),
+        }
+    }
+    assert_eq!(back, title);
+}
+
+/// Whether chapters can go into what goes up, over drawn recordings and encodings: anything ffmpeg
+/// encodes, and an MP3 as it is; not AAC or M4A as it is.
+#[hegel::test(test_cases = 100)]
+fn chapters_go_into_encodings_and_mp3s(tc: TestCase) {
+    let playable = tc.draw(gs::optional(gs::sampled_from(vec!["audio/mpeg", "audio/mp4", "audio/aac"])));
+    let encoded = tc.draw(gs::booleans());
+    let audio = Audio {
+        path: "set".into(),
+        format: String::new(),
+        bytes: 1,
+        duration_secs: 1,
+        playable: playable.map(String::from),
+    };
+    let how = if encoded { Encoding::Aac { kbps: KBPS, bytes: 1 } } else { Encoding::AsIs };
+    assert_eq!(takes_chapters(&audio, how), encoded || playable == Some("audio/mpeg"), "{playable:?} {how:?}");
+}
+
 fn document(nsid: &str) -> &'static Value {
     &lexicon::document(nsid).unwrap()["defs"]["main"]["record"]["properties"]
 }
@@ -105,14 +154,18 @@ mod with_ffmpeg {
         }
     }
 
-    /// A stand-in ffmpeg that notes its arguments, writes `out` to the file it's told to, says how
-    /// much it has written as ffmpeg's `-progress` does, and exits with `status` (saying `why` on
-    /// standard error when that isn't 0).
+    /// A stand-in ffmpeg that notes its arguments and keeps a copy of the metadata file it's given
+    /// (`-f ffmetadata -i FILE`, copied with the shell's builtins: `PATH` has only the stand-ins),
+    /// writes `out` to the file it's told to, says how much it has written as ffmpeg's `-progress`
+    /// does, and exits with `status` (saying `why` on standard error when that isn't 0).
     fn fake_ffmpeg(fake: &FakeTools, out: &str, status: u8, why: &str) {
         fake.script(
             "ffmpeg",
             &format!(
-                "printf '%s\\n' \"$@\" >\"$d/ffmpeg-args\"\nfor last; do :; done\nprintf '%s' '{out}' >\"$last\"\n\
+                "printf '%s\\n' \"$@\" >\"$d/ffmpeg-args\"\n\
+                 keep() {{ while IFS= read -r l; do printf '%s\\n' \"$l\"; done <\"$1\" >\"$d/ffmpeg-metadata\"; }}\n\
+                 f=; i=; for a; do [ \"$f\" = ffmetadata ] && [ \"$i\" = -i ] && keep \"$a\"; f=$i; i=$a; done\n\
+                 for last; do :; done\nprintf '%s' '{out}' >\"$last\"\n\
                  printf 'total_size=N/A\\nprogress=continue\\ntotal_size=3\\nprogress=continue\\ntotal_size={}\\nprogress=end\\n'\n\
                  printf '%s\\n' '{why}' >&2\nexit {status}\n",
                 out.len()
@@ -120,11 +173,36 @@ mod with_ffmpeg {
         );
     }
 
-    /// Over formats and limits, with a stand-in ffmpeg: ffmpeg runs exactly when the recording can't go
-    /// up as it is, as AAC at the bitrate the plan chose with its index at the front, and what goes
-    /// up is what it wrote, as audio/mp4, reported as it was written; otherwise what goes up is the
-    /// recording itself, as its own type.
-    #[hegel::test(test_cases = 30)]
+    /// The chapters an MP3's ID3v2 tag holds, in its table of contents' order: each one's times in
+    /// milliseconds and title.
+    fn id3_chapters(path: &Path) -> Vec<(std::ops::Range<u32>, String)> {
+        let mut file = std::fs::File::open(path).unwrap();
+        let mp3 = MpegFile::read_from(&mut file, ParseOptions::new()).unwrap();
+        let tag = mp3.id3v2().unwrap();
+        let toc = tag.iter().find_map(|f| match f {
+            Frame::TableOfContents(t) => Some(t),
+            _ => None,
+        });
+        let toc = toc.unwrap();
+        assert!(toc.flags.top_level && toc.flags.ordered);
+        let chapters = toc.entries.iter().map(|id| {
+            tag.iter()
+                .find_map(|f| match f {
+                    Frame::Chapter(c) if c.id == *id => Some((c.times.clone(), c.title().unwrap().to_string())),
+                    _ => None,
+                })
+                .unwrap()
+        });
+        chapters.collect()
+    }
+
+    /// Over formats, limits and chapters, with a stand-in ffmpeg: ffmpeg runs exactly when the
+    /// recording can't go up as it is, as AAC at the bitrate the plan chose with its index at the
+    /// front and the chapters from a metadata file it's given, and what goes up is what it wrote, as
+    /// audio/mp4, reported as it was written. Otherwise what goes up is the recording, as its own
+    /// type: an MP3 with chapters as a copy with them in its ID3v2 tag and the same audio, unless they
+    /// tip it over the limit, when it goes as it is with a warning.
+    #[hegel::test(test_cases = 40)]
     fn ffmpeg_encodes_only_what_cant_go_up_as_it_is(tc: TestCase) {
         let fake = FakeTools::new();
         fake_ffmpeg(&fake, "encoded", 0, "");
@@ -136,46 +214,83 @@ mod with_ffmpeg {
         };
         let path = fake.dir().join(name);
         std::fs::write(&path, &bytes).unwrap();
-        let limit = tc.draw(gs::integers::<u64>().min_value(8_000).max_value(2 * bytes.len() as u64));
+        // Tight: just big enough for the recording as it is.
+        let limit = match tc.draw(gs::booleans()) {
+            true => bytes.len() as u64,
+            false => tc.draw(gs::integers::<u64>().min_value(8_000).max_value(2 * bytes.len() as u64)),
+        };
         let audio = probe(&path).unwrap();
         let Ok(how) = encoding(audio.playable.is_some(), audio.bytes, audio.duration_secs, limit) else {
             return;
         };
+        let starts = tc.draw(gs::subsequences((0..audio.duration_secs as u32).collect::<Vec<_>>()));
+        let chapters: Vec<Chapter> = starts
+            .into_iter()
+            .map(|start| Chapter { start, title: tc.draw(gs::text().alphabet("ab=;#\\\n é").max_size(12)) })
+            .collect();
         let recorded = Recorded::default();
-        let upload = prepare(&audio, how, limit, &Ctx::new(&recorded, Default::default())).unwrap();
+        let upload = prepare(&audio, how, limit, &chapters, &Ctx::new(&recorded, Default::default())).unwrap();
         let args = std::fs::read_to_string(fake.dir().join("ffmpeg-args")).ok();
+        let metadata = std::fs::read_to_string(fake.dir().join("ffmpeg-metadata")).ok();
+        let events = recorded.0.lock().unwrap().clone();
+        let written: u64 = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Bytes { phase: Phase::Write, bytes } => Some(*bytes),
+                _ => None,
+            })
+            .sum();
+        let warned =
+            events.iter().any(|e| matches!(e, Event::Warning { message } if message.contains("without chapters")));
+        let made = upload.path().to_path_buf();
         match how {
             Encoding::AsIs => {
                 assert!(is_mp3 && bytes.len() as u64 <= limit);
-                assert_eq!((upload.path(), upload.mime.as_str()), (path.as_path(), "audio/mpeg"));
                 assert!(args.is_none(), "ffmpeg didn't run");
+                assert_eq!(upload.mime, "audio/mpeg");
+                assert_eq!(std::fs::read(&path).unwrap(), bytes, "the recording itself is left alone");
+                if chapters.is_empty() || warned {
+                    assert_eq!(made, path);
+                    // Warned only when the chapters didn't fit.
+                    assert_eq!(warned, !chapters.is_empty());
+                    assert!(warned || written == 0);
+                } else {
+                    assert_ne!(made, path);
+                    let copy = std::fs::read(&made).unwrap();
+                    assert!(copy.len() as u64 <= limit && copy.ends_with(&bytes), "the same audio after the tag");
+                    let want: Vec<(std::ops::Range<u32>, String)> = ends(&chapters, audio.duration_secs)
+                        .map(|(c, end)| (c.start * 1000..end as u32 * 1000, c.title.clone()))
+                        .collect();
+                    assert_eq!(id3_chapters(&made), want);
+                    assert_eq!(written, audio.bytes);
+                }
             }
             Encoding::Aac { kbps, .. } => {
                 assert!(!is_mp3 || bytes.len() as u64 > limit);
-                assert_eq!(std::fs::read_to_string(upload.path()).unwrap(), "encoded");
+                assert_eq!(std::fs::read_to_string(&made).unwrap(), "encoded");
                 assert_eq!(upload.mime, "audio/mp4");
                 let args = args.unwrap();
-                let expected =
-                    format!("-i\n{}\n-vn\n-c:a\naac\n-b:a\n{kbps}k\n-movflags\n+faststart\n", path.display());
-                assert!(args.contains(&expected), "{args}");
-                assert!(args.ends_with(&format!("{}\n", upload.path().display())), "{args}");
-                let written: u64 = recorded
-                    .0
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|e| match e {
-                        Event::Bytes { phase: Phase::Write, bytes } => Some(*bytes),
-                        _ => None,
-                    })
-                    .sum();
+                let given = args.lines().skip_while(|&a| a != "ffmetadata").nth(2);
+                let output = format!("-vn\n-c:a\naac\n-b:a\n{kbps}k\n-movflags\n+faststart\n");
+                match &metadata {
+                    None => {
+                        assert!(chapters.is_empty() && given.is_none(), "{args}");
+                        assert!(args.contains(&format!("-i\n{}\n{output}-progress", path.display())), "{args}");
+                    }
+                    Some(m) => {
+                        assert_eq!(m, &ffmetadata(&chapters, audio.duration_secs));
+                        assert!(!Path::new(given.unwrap()).exists(), "the metadata file goes once ffmpeg's done");
+                        let input = format!("-i\n{}\n-f\nffmetadata\n-i\n{}\n", path.display(), given.unwrap());
+                        assert!(args.contains(&format!("{input}{output}-map_chapters\n1\n-progress")), "{args}");
+                    }
+                }
+                assert!(args.ends_with(&format!("{}\n", made.display())), "{args}");
                 assert_eq!(written, "encoded".len() as u64);
-                // The encoding goes once the upload's done with it.
-                let encoded = upload.path().to_path_buf();
-                drop(upload);
-                assert!(!encoded.exists());
             }
         }
+        // What was made goes once the upload's done with it.
+        drop(upload);
+        assert_eq!(made.exists(), made == path);
     }
 
     /// Without ffmpeg, a recording that has to be encoded says to install it; an ffmpeg that fails
@@ -187,18 +302,18 @@ mod with_ffmpeg {
         std::fs::write(&path, wav(1)).unwrap();
         let audio = probe(&path).unwrap();
         let how = Encoding::Aac { kbps: KBPS, bytes: 16_000 };
-        let err = prepare(&audio, how, MAX_BYTES, &Ctx::silent()).err().unwrap();
+        let err = prepare(&audio, how, MAX_BYTES, &[], &Ctx::silent()).err().unwrap();
         assert_eq!(err.code(), "not_found");
         assert!(err.to_string().contains("ffmpeg, which encodes the recording (WAV)"), "{err}");
         assert!(err.to_string().contains("https://ffmpeg.org"), "{err}");
 
         fake_ffmpeg(&fake, "", 1, "set.wav: Invalid data found when processing input");
-        let err = prepare(&audio, how, MAX_BYTES, &Ctx::silent()).err().unwrap();
+        let err = prepare(&audio, how, MAX_BYTES, &[], &Ctx::silent()).err().unwrap();
         assert_eq!(err.code(), "external");
         assert!(err.to_string().ends_with("Invalid data found when processing input"), "{err}");
 
         fake_ffmpeg(&fake, "far too much", 0, "");
-        let err = prepare(&audio, how, 5, &Ctx::silent()).err().unwrap();
+        let err = prepare(&audio, how, 5, &[], &Ctx::silent()).err().unwrap();
         assert_eq!(err.to_string(), "ffmpeg's encoding of the recording came to 12 B, more than 5 B");
     }
 }

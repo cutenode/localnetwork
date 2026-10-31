@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["apps/locallibrary", "crates/*", "plugins/*", "vendor/rekordbox-pdb"]
+# Account plugins are a manifest alone, with no crate (see apps/locallibrary/build.rs).
+exclude = ["plugins/accounts"]
 
 [workspace.package]
 version = "0.1.0"
@@ -134,7 +136,7 @@ opt-level = 3
 
 # What every run of a debug build of the CLI does first: reading its command line (with clap's
 # checks of it) and checking the plugins' manifests, whose JSON Schemas are compiled against the
-# 2020-12 meta-schema (a release build skips that, see `PluginSpec::first_party`). Unoptimised,
+# 2020-12 meta-schema (a release build skips that, see `PluginSpec::built_in`). Unoptimised,
 # that was a third of the CPU time of the tests that run the CLI hundreds of times.
 [profile.dev.package.clap_builder]
 opt-level = 3

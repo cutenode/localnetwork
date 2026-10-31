@@ -307,6 +307,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "protocol": "^0.2",
         "capabilities": capabilities,
         "contributes": {
+            "account_types": [],
             "accounts": accounts,
             "commands": commands,
             "destinations": destinations,
@@ -340,6 +341,13 @@ fn unschema(mut v: Value) -> Value {
         o.shift_remove("schema");
     }
     v
+}
+
+/// Whether `plugin` (as `plugins.list` or `plugins.describe` has it) is running, taken out of
+/// it. The sidecar starts a plugin listening for `job.finished` as each request finishes, on a
+/// thread of its own, so whether it has by the next answer is a race.
+fn running(plugin: &mut Value) -> Value {
+    plugin.as_object_mut().unwrap().shift_remove("running").unwrap()
 }
 
 /// A value as the command line shows it: text as it is, a list joined, nothing as `-`.
@@ -376,6 +384,7 @@ fn listed_text(listed: &[Value]) -> String {
             out.push_str(&format!("  may {}\n", c["means"].as_str().unwrap()));
         }
         let kinds = [
+            ("account type", "account_types"),
             ("account", "accounts"),
             ("command", "commands"),
             ("destination", "destinations"),
@@ -1532,15 +1541,24 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     let env = env_with(&manifests);
     let root = env.demo("USB");
     let drive = path(&root).to_string();
-    let listed = env.json(&["plugin", "list"]);
-    let described: Vec<Value> =
+    let mut listed = env.json(&["plugin", "list"]);
+    let mut described: Vec<Value> =
         manifests.iter().map(|m| unschema(env.json(&["plugin", "info", m["id"].as_str().unwrap()]))).collect();
+    for p in listed.as_array_mut().unwrap().iter_mut().chain(&mut described) {
+        assert_eq!(running(p), false, "the command line runs no plugin to list or describe it");
+    }
 
     let mut s = Rpc::start(env.command());
     let call = &mut 0;
-    assert_eq!(answer(&mut s, call, "plugins.list", Value::Null).unwrap(), listed);
+    let mut got = answer(&mut s, call, "plugins.list", Value::Null).unwrap();
+    for p in got.as_array_mut().unwrap() {
+        running(p);
+    }
+    assert_eq!(got, listed);
     for (m, d) in manifests.iter().zip(&described) {
-        assert_eq!(&answer(&mut s, call, "plugins.describe", json!({ "plugin": m["id"] })).unwrap(), d);
+        let mut got = answer(&mut s, call, "plugins.describe", json!({ "plugin": m["id"] })).unwrap();
+        running(&mut got);
+        assert_eq!(&got, d);
     }
     let e = answer(&mut s, call, "plugins.describe", json!({ "plugin": "plug-z" })).unwrap_err();
     assert_eq!(e["kind"], "not_found");

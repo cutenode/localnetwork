@@ -9,3 +9,6 @@
 *.2EX binary
 *.db binary
 *.db-wal binary
+
+# Audio fixtures that can't be made in a test (crates/locallibrary/tests/fixtures/audio/).
+*.m4a binary

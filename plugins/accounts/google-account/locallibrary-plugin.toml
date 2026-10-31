@@ -1,0 +1,31 @@
+id = "google-account"
+name = "Google Account"
+version = "0.1.0"
+protocol = "^0.2"
+
+# Google wants a client secret when a code is traded for tokens, so the trade goes through Local
+# Network's token exchange, which holds it.
+[[contributes.account_types]]
+type = "google"
+title = "Google"
+authorize_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_exchange = "https://localnetwork.computer/api/token-exchange/google"
+# PLACEHOLDER: Local Network's Google client isn't registered yet. Once it is, this is its client
+# id (public), the same as the website's GOOGLE_CLIENT_ID, which the token exchange sends with it.
+client_id = "PLACEHOLDER-unregistered.apps.googleusercontent.com"
+revoke_url = "https://oauth2.googleapis.com/revoke"
+# Who signed in, from OpenID Connect's userinfo, which these two let a token read.
+always = ["openid", "email"]
+whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
+one_account = { login_hint = "{subject}" }
+another_account = { prompt = "select_account" }
+
+# YouTube's resumable upload: the POST that starts a session, and the PUTs that send the video to
+# the address it answers with, the same one with the session's `upload_id` in its query.
+[contributes.account_types.scopes.youtube-upload]
+title = "upload videos to YouTube"
+asks = ["https://www.googleapis.com/auth/youtube.upload"]
+requests = [
+    { method = "POST", url = "https://www.googleapis.com/upload/youtube/v3/videos?*" },
+    { method = "PUT", url = "https://www.googleapis.com/upload/youtube/v3/videos?*" },
+]

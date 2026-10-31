@@ -1,9 +1,6 @@
-import dns from 'node:dns';
-import { once } from 'node:events';
-import { syncBuiltinESMExports } from 'node:module';
-import { type AddressInfo, createServer } from 'node:net';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
+import { type Loopback, rebindToLoopback } from '../testing/rebind';
 import { FakeSpaceHost } from '../testing/space-host';
 import { SpaceCredentialManager } from './credentials';
 import { IdentityResolver } from './identity';
@@ -81,56 +78,19 @@ describe('SpaceCredentialManager', () => {
 
 describe('SpaceCredentialManager, given a space host from a DID document', () => {
 	const HOST = 'pds.rebind.localnetwork.computer';
-	let connections: number;
-	/** Where the host's connections land: a server on loopback that counts them. */
-	let port: number;
+	let loopback: Loopback;
 
 	beforeEach(async () => {
-		connections = 0;
-
-		const server = createServer((socket) => {
-			connections++;
-			socket.destroy();
-		});
-
-		await once(server.listen(0, '127.0.0.1'), 'listening');
-		// SAFETY: a server listening on a TCP port reports an AddressInfo.
-		({ port } = server.address() as AddressInfo);
-
-		// DNS that answers a public address to a lookup made before connecting, and loopback to the one a
-		// connection makes, as a name that rebinds between the two does.
-		const checked = async (_hostname: string, _options: dns.LookupAllOptions): Promise<dns.LookupAddress[]> => [
-			{ address: '93.184.216.34', family: 4 }
-		];
-
-		// SAFETY: the check before connecting asks for every address, the one form `checked` takes.
-		vi.spyOn(dns.promises, 'lookup').mockImplementation(checked as typeof dns.promises.lookup);
-		const connectLookup = dns.lookup;
-
-		const rebound = (
-			hostname: string,
-			options: dns.LookupOptions,
-			callback: (error: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void
-		) => {
-			if (hostname !== HOST) return connectLookup(hostname, options, callback);
-
-			if (options.all) callback(null, [{ address: '127.0.0.1', family: 4 }]);
-			else callback(null, '127.0.0.1', 4);
-		};
-
-		// SAFETY: a connection always calls lookup with (hostname, options, callback), the one form `rebound` takes.
-		vi.spyOn(dns, 'lookup').mockImplementation(rebound as typeof dns.lookup);
-		syncBuiltinESMExports();
+		loopback = await rebindToLoopback([HOST]);
 
 		return async () => {
 			vi.restoreAllMocks();
-			syncBuiltinESMExports();
-			await new Promise((resolve) => server.close(resolve));
+			await loopback.close();
 		};
 	});
 
 	it('refuses a host that resolves to a private address when it connects, and never reaches it', async () => {
-		const service = `https://${HOST}:${port}`;
+		const service = `https://${HOST}:${loopback.port}`;
 
 		const identity = new IdentityResolver({
 			plcUrl: 'https://plc.directory',
@@ -155,6 +115,6 @@ describe('SpaceCredentialManager, given a space host from a DID document', () =>
 		await expect(credentials.request({ space: SPACE, service, ...listRepos })).rejects.toMatchObject({
 			cause: { message: 'Hostname resolved to non-unicast address' }
 		});
-		expect(connections).toBe(0);
+		expect(loopback.connections()).toBe(0);
 	});
 });

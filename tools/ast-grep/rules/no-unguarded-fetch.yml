@@ -6,10 +6,11 @@
 # goes wherever it points.
 #
 # It can't follow a URL from where it was built to where it's fetched, so it flags the plain
-# fetch in any function that reads a host the way the app gets one: a `pds`, `service` or
-# `serviceEndpoint` (as a property or destructured), or `identity.resolve(...)`. A function
-# that fetches only a configured service (HappyView, Resend, the geocoder) reads none of those
-# and isn't flagged.
+# fetch, or one handed in as a dependency (`request.fetch`, `this.fetch`), in any function that
+# reads a host the way the app gets one: a `pds`, `service` or `serviceEndpoint` (as a property,
+# a method like `request.pds(did)`, or destructured), or `identity.resolve(...)`. A function that
+# fetches only a configured service (HappyView, Resend, the geocoder) reads none of those and
+# isn't flagged.
 id: no-unguarded-fetch
 language: TypeScript
 severity: error
@@ -25,6 +26,8 @@ rule:
   any:
     - pattern: fetch($$$)
     - pattern: ($_ ?? fetch)($$$)
+    # A fetch passed in, which could be anything, unless it's the identity resolver's own.
+    - pattern: $OWNER.fetch($$$)
   inside:
     # The nearest function only, so a host read in one function doesn't flag a fetch in another
     # that shares its outer scope.
@@ -47,3 +50,5 @@ rule:
           regex: ^(pds|service|serviceEndpoint)$
         - pattern: identity.resolve($$$)
         - pattern: $_.identity.resolve($$$)
+constraints:
+  OWNER: { not: { regex: (^|\.)identity$ } }
