@@ -11,7 +11,7 @@ symphonia (MP3, AAC and ALAC in `.m4a`, FLAC, WAV, AIFF), averaged to mono and r
 peaks are paired into landmark hashes, and every hash in the mix is looked up through a range of
 playback speeds, both time-stretched (key lock) and pitched with the tempo (no key lock). Votes
 that agree on where a track sits in the mix become a play, refined with a line fitted through
-them.
+them, or a line per speed where the pitch fader was ridden.
 
 ```rust,no_run
 use loclib_mixid::{LibraryIndex, fingerprint_file, listen, matcher};

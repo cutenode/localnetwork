@@ -45,6 +45,37 @@ fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
     assert_eq!(r.plays.iter().map(|p| p.track.id).collect::<Vec<_>>(), [1, 2]);
 }
 
+/// A track the pitch fader was ridden through (+0% for 45 s, then +4%, pitch and all) gives the
+/// slowest and fastest speeds it was played at; one played at +2% throughout gives none.
+#[test]
+fn a_ridden_pitch_fader_gives_the_speeds_it_went_between() {
+    use crate::mix::fingerprint::RATE;
+    use crate::probe::tests::wav_of;
+    use loclib_mixid::test_util::{resample, synth};
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir_all(root.join("Contents")).unwrap();
+    let (a, b) = (synth(90.0, 7919), synth(90.0, 3 * 7919));
+    let at = |x: &[f32], speed: f64| resample(x, (f64::from(RATE) * speed).round() as u32, RATE);
+    let half = a.len() / 2;
+    let set = [at(&a[..half], 1.0), at(&a[half..], 1.04), at(&b, 1.02)].concat();
+    let pcm = |x: &[f32]| wav_of(RATE, 16, x.iter().map(|s| (s * 12_000.0) as i32));
+    for (name, x) in [("a.wav", &a), ("b.wav", &b)] {
+        std::fs::write(root.join("Contents").join(name), pcm(x)).unwrap();
+    }
+    std::fs::write(dir.path().join("set.wav"), pcm(&set)).unwrap();
+    let tracks = vec![track(1, "A", "One", "/Contents/a.wav"), track(2, "B", "Two", "/Contents/b.wav")];
+    let library = Arc::new(Library { tracks, ..Default::default() });
+    let device = Device::open(&root).unwrap();
+    let id = Identifier::with_library(&device, library, &Cache::new(dir.path().join("cache")), &Ctx::silent()).unwrap();
+    let r = id.identify(&dir.path().join("set.wav"), &Options { tempo_range: 0.08 }, &Ctx::silent()).unwrap();
+    let plays: Vec<(u32, Option<(f64, f64)>)> = r.plays.iter().map(|p| (p.track.id, p.speed_range)).collect();
+    let [(1, Some((slowest, fastest))), (2, None)] = plays[..] else { panic!("{plays:?}") };
+    assert!((slowest - 1.0).abs() < 0.002 && (fastest - 1.04).abs() < 0.002, "{plays:?}");
+    assert!((slowest..=fastest).contains(&r.plays[0].tempo), "{plays:?}");
+}
+
 #[test]
 fn recorder_tags_are_not_a_title() {
     let mut info = MixInfo {
@@ -373,7 +404,13 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
         jumps: 0,
         alternates: tc
             .draw(gs::vecs(gs::tuples!(gs::integers::<u32>().max_value(n as u32 + 1), gs::booleans())).max_size(3)),
-        fits: Vec::new(),
+        fits: tc
+            .draw(
+                gs::vecs(gs::tuples!(gs::floats::<f64>().min_value(0.84).max_value(1.16), gs::booleans())).max_size(4),
+            )
+            .into_iter()
+            .map(|(ratio, measured)| matcher::Fit { ratio, intercept: 0.0, start: 0.0, end: 1.0, measured })
+            .collect(),
     };
     let Some(p) = id.play(&f) else { return assert!(slot as usize >= n) };
     let t = &tracks[slot as usize];
@@ -393,6 +430,18 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
     }
     let named: Vec<(u32, bool)> = f.alternates.iter().filter(|a| (a.0 as usize) < n).map(|a| (a.0 + 1, a.1)).collect();
     assert_eq!(p.alternates.iter().map(|a| (a.track_id, a.same_audio)).collect::<Vec<_>>(), named);
+    // The speeds a ridden pitch fader went between: of measured lines only, and only when they
+    // differ by a ride's worth.
+    let measured: Vec<f64> = f.fits.iter().filter(|f| f.measured).map(|f| f.ratio).collect();
+    match p.speed_range {
+        None => {
+            assert!(measured.iter().all(|r| measured.iter().all(|s| (r - s).abs() < matcher::RIDE)), "{measured:?}")
+        }
+        Some((slowest, fastest)) => {
+            assert!(fastest - slowest >= matcher::RIDE && measured.contains(&slowest) && measured.contains(&fastest));
+            assert!(measured.iter().all(|r| (slowest..=fastest).contains(r)), "{measured:?}");
+        }
+    }
 }
 
 /// Tags describe the mix, but a Pioneer DJ recorder's (`REC046`, `PIONEER DJ REC`, its

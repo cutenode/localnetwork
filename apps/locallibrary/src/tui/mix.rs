@@ -1547,14 +1547,18 @@ fn draw_tracklist(
                 (_, Some(played)) => played.clone(),
                 _ => p.track.key.clone(),
             };
-            let speed = format!("{:+.1}%", (p.tempo - 1.0) * 100.0);
+            // A ridden pitch fader: the slowest speed over the fastest.
+            let speed = match p.speed_range {
+                Some((slowest, fastest)) => format!("{}\n→{}", mix::percent(slowest), mix::percent(fastest)),
+                None => mix::percent(p.tempo),
+            };
             let mut cells = vec![
                 Cell::from(Line::from(number)),
                 Cell::from(Line::styled(clock(p.start), dim())),
                 Cell::from(Text::from(vec![Line::from(name), Line::from(next)])),
                 Cell::from(Line::styled(key, fg(theme::current().secondary))),
                 Cell::from(Line::styled(p.played_bpm.map(|b| format!("{b:.1}")).unwrap_or_default(), text())),
-                Cell::from(Line::styled(speed, dim())),
+                Cell::from(Text::styled(speed, dim())),
             ];
             if !narrow {
                 let lock = match p.key_lock {
@@ -1692,7 +1696,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
     if let Some(b) = p.played_bpm {
         how.push(Span::styled(format!(" · {b:.1} BPM"), text()));
         if t.bpm > 0.0 {
-            how.push(Span::styled(format!(" ({:+.1}% from {:.1})", (p.tempo - 1.0) * 100.0, t.bpm), dim()));
+            how.push(Span::styled(format!(" ({} from {:.1})", p.speed(), t.bpm), dim()));
         }
     }
     match p.key_lock {

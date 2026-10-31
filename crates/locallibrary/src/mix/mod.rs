@@ -143,6 +143,10 @@ pub struct Play {
     pub track_end: f64,
     /// Playback speed: 1.0 as recorded, 1.03 is +3%.
     pub tempo: f64,
+    /// The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+    /// (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_range: Option<(f64, f64)>,
     /// The track's BPM at that speed.
     pub played_bpm: Option<f64>,
     /// Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell.
@@ -176,6 +180,20 @@ impl Play {
     pub fn is_tentative(&self) -> bool {
         self.confidence < TENTATIVE
     }
+
+    /// Its speed as a percentage (`+2.3%`), or the slowest and fastest when the pitch fader was
+    /// ridden (`+0.0% to +4.0%`).
+    pub fn speed(&self) -> String {
+        match self.speed_range {
+            Some((slowest, fastest)) => format!("{} to {}", percent(slowest), percent(fastest)),
+            None => percent(self.tempo),
+        }
+    }
+}
+
+/// A playback speed as a signed percentage: 1.023 is `+2.3%`.
+pub fn percent(speed: f64) -> String {
+    format!("{:+.1}%", (speed - 1.0) * 100.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -388,6 +406,7 @@ impl Identifier {
             track_start: f.track_start,
             track_end: f.track_end,
             tempo: f.tempo,
+            speed_range: f.speed_range(),
             key_lock: f.key_lock,
             semitones,
             key,

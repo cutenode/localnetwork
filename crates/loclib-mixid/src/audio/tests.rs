@@ -451,3 +451,59 @@ fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
     assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
     assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
 }
+
+/// A WAV saying any rate at all decodes at it, to mono at the fingerprints' rate too, when it's
+/// at most [`MAX_RATE`]; above it (a crafted header, which resampling would take memory in
+/// proportion to) every way of decoding refuses it as that file's error.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(rate = 4_294_967_291u32, frames = 32usize)]
+#[hegel::explicit_test_case(rate = 768_001u32, frames = 32usize)]
+#[hegel::explicit_test_case(rate = 767_999u32, frames = 32usize)]
+fn rates_past_the_highest_are_refused(tc: TestCase) {
+    let rate = tc.draw(gs::integers::<u32>().min_value(1));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.wav");
+    std::fs::write(&path, crate::test_util::wav_of(rate, 16, (0..frames as i32).map(|i| i * 99))).unwrap();
+    let ctx = Ctx::silent();
+    let results = [
+        decode_native(&path, Damaged::Fail, &ctx, |_: &[f32], _, _| -> Result<_> { Ok(ControlFlow::Continue(())) }),
+        decode(&path, crate::fingerprint::RATE, &ctx, &mut |_| {}),
+    ];
+    for result in results {
+        match result {
+            Ok(format) if rate <= MAX_RATE => assert_eq!(format.sample_rate, rate),
+            Err(Error::Parse { path: at, message }) if rate > MAX_RATE => {
+                assert!(at == path && message.contains("768 kHz"), "{message}")
+            }
+            result => panic!("{rate} Hz: {result:?}"),
+        }
+    }
+}
+
+/// Between any two rates up to [`MAX_RATE`] (to one a decode asks for), the weights a resampler
+/// keeps stay under [`CACHED_WEIGHTS`] however much it's fed, and its output is the same to the
+/// bit as one that keeps none.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(from = 767_999u32, to = 11_025u32, chunk = 4096usize)]
+#[hegel::explicit_test_case(from = 1u32, to = 768_000u32, chunk = 1usize)]
+fn the_weight_cache_is_bounded_and_changes_nothing(tc: TestCase) {
+    let from = tc.draw(gs::integers::<u32>().min_value(1).max_value(MAX_RATE));
+    let to = tc.draw(gs::integers::<u32>().min_value(8_000).max_value(MAX_RATE));
+    let chunk = tc.draw(gs::integers::<usize>().min_value(1).max_value(4096));
+    // About 20,000 outputs, whatever the rates.
+    let n = (20_000 * u64::from(from) / u64::from(to)).clamp(1, 100_000) as usize;
+    let x: Vec<f32> = (0..n).map(|i| ((i * 7_919) % 2_001) as f32 / 1_000.0 - 1.0).collect();
+    let (mut cached, mut fresh) = (Resampler::new(from, to), Resampler::new(from, to));
+    fresh.phases.clear();
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    for c in x.chunks(chunk) {
+        cached.push(c, &mut |s| a.extend_from_slice(s));
+        fresh.push(c, &mut |s| b.extend_from_slice(s));
+    }
+    cached.finish(&mut |s| a.extend_from_slice(s));
+    fresh.finish(&mut |s| b.extend_from_slice(s));
+    let kept: usize = cached.phases.iter().map(Vec::len).sum();
+    assert!(kept as u64 <= CACHED_WEIGHTS, "{from} Hz to {to} Hz keeps {kept} weights");
+    assert!(a == b, "{from} Hz to {to} Hz");
+}
