@@ -5,7 +5,8 @@
 //! (`stopped`), exits (`exit`), never stops (`stuck`), answers its context (`context`) or the
 //! folder it runs in (`cwd`), calls back (`call` with `params`), fetches (`fetch`, a `net/fetch`
 //! request, its blobs named in its scratch folder, logging what it's answered and answering what
-//! it fetched into a blob) or sends its rows in parts (`partial`, `partial_items`) when its
+//! it fetched into a blob; with `orphan`, one a process it starts sends, see `--orphan`) or
+//! sends its rows in parts (`partial`, `partial_items`) when its
 //! params say so; its operation answers the `edits` (and `inputs`) it's given; both ask the
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
 //! command then answering each of its questions' params as text, with spaces between; both
@@ -18,7 +19,8 @@
 //! as JSON (beat grids, phrases and waveforms too, writing the files its `blobs` give first), and
 //! one named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming
 //! an empty audio file; its exporter names the playlists it's given in a note, and would write to
-//! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its
+//! `outside`, or files of the `sizes` given, or writes `extra` too without saying so first, and
+//! given a set or a mix writes its
 //! tracklist; its importer answers a JSON file as it is (in a blob with the `blob` option); its
 //! destinations are echo's (a store kept in `destination/` where it runs, and a set published
 //! nowhere, or as its `answer` setting says, or sending its recording as its `upload` setting says,
@@ -31,7 +33,8 @@
 //! another protocol and stops, `--silent` never answers, `--paused <file>` logs `paused` and
 //! serves only once `<file>` is there, `--wrong-fields` answers fields of the wrong type, and
 //! `--without <feature>` leaves out that feature's hooks, and the feature from its `hello` (the
-//! SDK's own too).
+//! SDK's own too). `--orphan <line>` writes the line and holds the output it was given open for
+//! 15 s: the host's, once the plugin that started it is killed.
 
 mod plugin;
 
@@ -51,6 +54,10 @@ fn main() {
             "--manifest" => manifest = std::fs::read_to_string(value()).unwrap(),
             "--protocol" => return hello(&value()),
             "--silent" => return std::io::stdin().lines().for_each(drop),
+            "--orphan" => {
+                println!("{}", value());
+                return std::thread::sleep(std::time::Duration::from_secs(15));
+            }
             "--paused" => paused = Some(value()),
             "--wrong-fields" => wrong_fields = true,
             "--without" => without.push(value()),

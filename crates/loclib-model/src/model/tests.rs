@@ -205,6 +205,24 @@ fn blank_names_in_a_query_are_no_names() {
     assert_eq!((found(" "), found("  "), found(" / ")), (None, None, None));
 }
 
+/// A doubled or blank-padded slash, or one at either end, names the same playlist as the plain
+/// path: `x//y` is `x/y`.
+#[test]
+fn blank_names_inside_a_path_are_left_out() {
+    let node = |id, parent_id, name: &str| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: parent_id.is_none(),
+        sort_order: id,
+        track_ids: vec![],
+    };
+    let lib = Library { playlists: vec![node(1, None, "x"), node(2, Some(1), "y")], ..Default::default() };
+    let found = |q| lib.find_playlist(q).map(|p| p.id);
+    assert_eq!(found("x/y"), Some(2));
+    assert_eq!((found("x//y"), found("x/ /y"), found("/x/y/")), (Some(2), Some(2), Some(2)));
+}
+
 #[test]
 fn untangled_trees_have_each_id_once_no_loops_and_bounded_depth() {
     let node = |id, parent_id, name: &str| Playlist {

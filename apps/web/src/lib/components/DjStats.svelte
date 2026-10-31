@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { countLabel, type DjProfile, trackBpm } from '#lib/dj.ts';
 	import { formatDate } from '#lib/format.ts';
-	import { colors } from '#lib/mix/report.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 
 	/**
@@ -24,9 +23,9 @@
 	const energy = $derived(
 		profile.energy
 			? [
-					{ label: 'High', share: profile.energy.high, colour: colors.phrases.chorus },
-					{ label: 'Mid', share: profile.energy.mid, colour: colors.phrases.up },
-					{ label: 'Low', share: profile.energy.low, colour: colors.phrases.down }
+					{ label: 'High', share: profile.energy.high, tone: 'bg-phrase-chorus' },
+					{ label: 'Mid', share: profile.energy.mid, tone: 'bg-phrase-up' },
+					{ label: 'Low', share: profile.energy.low, tone: 'bg-phrase-down' }
 				]
 			: []
 	);
@@ -127,7 +126,7 @@
 			{#if energy.length}
 				<section aria-label="Energy" class="flex flex-col gap-3">
 					<h3 class="m-0 eyebrow text-fg-subtle">Energy</h3>
-					<div aria-hidden="true" class="flex h-2 gap-0.5 overflow-hidden rounded-full">{#each energy as part (part.label)}<span style:flex-grow={part.share} style:background-color={part.colour}></span>{/each}</div>
+					<div aria-hidden="true" class="flex h-2 gap-0.5 overflow-hidden rounded-full">{#each energy as part (part.label)}<span class={part.tone} style:flex-grow={part.share}></span>{/each}</div>
 					<p class="m-0 flex flex-wrap gap-x-4 text-label text-fg-muted">{#each energy as part (part.label)}<span>{part.label} {percentOf(part.share)}</span>{/each}</p>
 				</section>
 			{/if}

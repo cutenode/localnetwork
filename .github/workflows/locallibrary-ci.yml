@@ -24,9 +24,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  # nextest's `ci` profile (.config/nextest.toml): a time limit for every test, and a JUnit file
-  # of their times that the test and hegel jobs upload.
-  NEXTEST_PROFILE: ci
 
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
@@ -101,11 +98,7 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
         run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
 
-  # Every OS runs the same jobs: lint, and build, then test in 3 shards, then coverage. The build
-  # job compiles the tests once, instrumented for coverage, into a nextest archive that the shards
-  # run, and the coverage job merges the shards' profiles and fails below the thresholds in
-  # .cargo/config.toml. A matrix job waits for every leg of the one it needs, so each stage starts
-  # once all three OSes have finished the one before.
+  # Every OS runs lint, and its tests (locallibrary-ci-os.yml).
   lint:
     needs: changes
     if: needs.changes.outputs.run == 'true'
@@ -133,235 +126,19 @@ jobs:
       # nextest doesn't run doctests.
       - run: cargo test --doc --workspace --locked
 
-  build:
+  # Each OS's build, test shards and coverage, in locallibrary-ci-os.yml. A matrix job would wait
+  # for every OS's build before any test started, so a macOS runner GitHub never gave #88 skipped
+  # the Linux and Windows tests too.
+  tests:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest,cargo-llvm-cov
-      - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: tests-${{ runner.os }}
-          path: tests.tar.zst
-          retention-days: 1
-
-  test:
-    needs: [changes, build]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-        shard: [1, 2, 3]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    env:
-      # Keep the number of shards in step with the matrix.
-      SHARD: ${{ matrix.shard }}/3
-      # The tests start processes by the thousand, and cargo-llvm-cov's default writes a profile for
-      # each (18 GB in all on macOS). With no `%p` they add to a pool of 4 files per binary instead
-      # (78 MB), named for the shard so the coverage job can hold every shard's.
-      LLVM_PROFILE_FILE_NAME: shard${{ matrix.shard }}-%4m.profraw
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      # The tests' temporary folders go on a Dev Drive: on the runner's C: drive, Defender scans
-      # every file they make and each flush takes milliseconds, which made the tests that write
-      # files run several times longer than on macOS or Linux. Defender's performance mode only
-      # applies to a trusted Dev Drive, and the runner is thrown away after the job.
-      - if: runner.os == 'Windows'
-        uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
-        with:
-          drive-size: 10GB
-          trusted-dev-drive: true
-          env-mapping: |
-            TMP,{{ DEV_DRIVE }}
-            TEMP,{{ DEV_DRIVE }}
-      # Performance mode still scans what the tests write there, late: a scan holding a file the
-      # tests just wrote fails the rename over it ("Access is denied", os error 5), a failure no
-      # replay repeats. So the drive is left out of real-time scanning.
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: Add-MpPreference -ExclusionPath "$env:DEV_DRIVE\"
-      # The sqlcipher CLI checks that SQLCipher itself reads what locallibrary encrypts;
-      # LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests fail when they can't find it, where they'd
-      # otherwise skip the check. Windows takes it from the runner's MSYS2, which isn't on PATH.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
-      - if: runner.os == 'macOS'
-        run: brew install sqlcipher
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed --noprogressbar mingw-w64-ucrt-x86_64-sqlcipher
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
-      - shell: bash
-        run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      # Windows runners run as an administrator, and locallibrary starts no plugin from an elevated
-      # process; debug builds take this to mean it isn't, so the tests can start theirs.
-      - if: runner.os == 'Windows'
-        shell: bash
-        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest,cargo-llvm-cov
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: tests-${{ runner.os }}
-      # cargo-llvm-cov unpacks the archive into target/llvm-cov-target, which has to exist.
-      - shell: bash
-        run: |
-          mkdir -p target/llvm-cov-target
-          cargo coverage --archive-file tests.tar.zst --partition "count:$SHARD" --no-report
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: profiles-${{ runner.os }}-${{ matrix.shard }}
-          path: target/llvm-cov-target/*.profraw
-          retention-days: 1
-      # Every test's time and result (the ci profile in .config/nextest.toml), also when one failed.
-      - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: junit-${{ runner.os }}-${{ matrix.shard }}
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: ignore
-          retention-days: 14
-
-  # The Hegel property tests alone, under coverage and held to the same thresholds
-  # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
-  # from the Linux archive the shards use, beside the shards, and the coverage job puts their
-  # totals next to the whole suite's.
-  hegel:
-    name: Hegel coverage
-    needs: [changes, build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      # A pool of profiles per binary, as the shards keep (see the test job).
-      LLVM_PROFILE_FILE_NAME: hegel-%4m.profraw
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      # As the Linux shards have them, and rg, which the script picks the tests with.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
-      - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest,cargo-llvm-cov
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: tests-Linux
-      - run: |
-          mkdir -p target/llvm-cov-target
-          tools/hegel-coverage.sh --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
-      - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: hegel-coverage
-          path: target/coverage-hegel.json
-          if-no-files-found: ignore
-          retention-days: 1
-      # As the test job's.
-      - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: junit-hegel
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: ignore
-          retention-days: 14
-
-  coverage:
-    needs: [changes, test, hegel]
-    # It reports on the shards whether or not the Hegel run passed, which fails the run on its own.
-    if: ${{ !cancelled() && needs.test.result == 'success' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      # nextest lists the tests by running each binary, which links ALSA on Linux.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-nextest,cargo-llvm-cov
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: tests-${{ runner.os }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: profiles-${{ runner.os }}-*
-          merge-multiple: true
-          path: target/llvm-cov-target
-      # Runs no tests: it unpacks the archive for the binaries and reports on the shards' profiles,
-      # which --no-clean keeps.
-      - if: runner.os != 'Linux'
-        run: cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
-      # Linux writes its totals as JSON for the summary below, in place of the per-file table.
-      - if: runner.os == 'Linux'
-        run: >-
-          cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
-          --json --summary-only --output-path target/coverage.json
-      # Into target/hegel/, from the hegel job; missing when it stopped early, and the summary leaves its row out.
-      - if: runner.os == 'Linux' && !cancelled()
-        continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: hegel-coverage
-          path: target/hegel
-      # To the run's summary, and for the report job to put on the pull request.
-      - if: runner.os == 'Linux' && !cancelled()
-        name: Coverage summary
-        run: |
-          totals() {
-            if [ -f "$2" ]; then
-              jq -r --arg tests "$1" '.data[0].totals | "| \($tests) | \([.lines, .functions, .regions]
-                | map("\(.percent * 100 | round / 100)% (\(.covered)/\(.count))") | join(" | ")) |"' "$2"
-            fi
-          }
-          {
-            echo "## Rust coverage"
-            echo
-            echo "From [run $GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Both are held to the thresholds in .cargo/config.toml."
-            echo
-            echo "| Tests | Lines | Functions | Regions |"
-            echo "| --- | ---: | ---: | ---: |"
-            totals All target/coverage.json
-            totals "Hegel property tests alone" target/hegel/coverage-hegel.json
-          } | tee coverage.md >> "$GITHUB_STEP_SUMMARY"
-      - if: runner.os == 'Linux' && !cancelled()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: rust-coverage
-          path: coverage.md
-          if-no-files-found: ignore
+    uses: ./.github/workflows/locallibrary-ci-os.yml
+    with:
+      os: ${{ matrix.os }}
 
   # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
   # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
@@ -512,7 +289,7 @@ jobs:
   # one of passed's needs, so a comment that can't post never holds up a merge.
   report:
     name: Coverage report
-    needs: [changes, coverage]
+    needs: [changes, tests]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -541,15 +318,19 @@ jobs:
 
   # The check the "Protect Main" ruleset requires: it fails if any job above but semver and report
   # failed or was cancelled, and passes when they all passed or were skipped because nothing they
-  # check changed.
+  # check changed. A job skipped when changes found something to check didn't run because one it
+  # needs didn't finish: #88's macOS build was cancelled for want of a runner, which skipped test,
+  # coverage and hegel, and this still passed.
   passed:
     name: locallibrary CI passed
     if: always()
-    needs: [changes, lint, build, test, hegel, coverage, features, msrv, docs, deny]
+    needs: [changes, lint, tests, features, msrv, docs, deny]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped'))
         run: exit 1
       # A draft's skipped jobs would pass too, and this check would stay green if marking it ready
       # started no run, as with #211, which merged without its tests running.

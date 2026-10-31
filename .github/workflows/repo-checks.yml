@@ -111,7 +111,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
-  # cancelled, and passes when they all passed or were skipped.
+  # cancelled, and passes when they all passed or were skipped because their condition said so. A
+  # job skipped any other way didn't run (see locallibrary-ci.yml).
   passed:
     name: Repo checks passed
     if: always()
@@ -119,5 +120,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || needs.policy.result == 'skipped'
+          || (needs.changes.outputs.lexicons == 'true' && needs.lexicons.result == 'skipped')
+          || (github.event_name != 'pull_request' && needs.ruleset.result == 'skipped')
         run: exit 1

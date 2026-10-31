@@ -53,7 +53,8 @@ finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.y
 
 **CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
 pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
-Windows each run the same jobs:
+Windows each run the same jobs, the tests in a call of `locallibrary-ci-os.yml` per OS, so an OS
+that can't get a runner holds up only its own:
 
 | Job | What it runs |
 | --- | --- |
@@ -289,8 +290,10 @@ print where the trace went; add Bombadil options after the script name (`./tui.s
 [dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml` at the
 repository root, `.github/workflows/locallibrary-release.yml`) when a version tag is pushed:
 
-1. In `CHANGELOG.md`, rename "Unreleased" to the version and date (`## [0.2.0] - 2026-11-02`)
-   and start a new "Unreleased" above it. The GitHub Release takes its notes from that section.
+1. Move the lines in each file in `changes/` but its README under the same heading in
+   Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
+   and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
+   takes its notes from that section.
 2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
    `Cargo.lock` follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:

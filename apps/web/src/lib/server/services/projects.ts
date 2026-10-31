@@ -21,9 +21,11 @@ import type { Backfills } from '../happyview/backfills';
 import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
 import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
 import { MANAGER_COLLECTIONS } from '../happyview/refresh';
+import type { PlyrClient } from '../plyr';
 import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
 import { ManagerSpaces } from './manager-spaces';
+import { withRecordings } from './mix-recordings';
 import { SetService } from './sets';
 
 export type ProjectSearch = {
@@ -114,12 +116,16 @@ export class ProjectService {
 	/** The spaces whose members follow each project's managers, which `publish` updates. */
 	private readonly managerSpaces: ManagerSpaces;
 
-	/** `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it). */
+	/**
+	 * `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it).
+	 * `plyr` finds the records of plyr.fm tracks that mixes link; without it, only recordings already published stay.
+	 */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
 		private readonly indexWaitMs = INDEX_WAIT_MS,
-		backfills?: Backfills
+		backfills?: Backfills,
+		private readonly plyr?: PlyrClient
 	) {
 		this.sets = new SetService(core, directory, backfills);
 		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
@@ -306,7 +312,8 @@ export class ProjectService {
 
 	/**
 	 * Writes a project to the root account's public repo (compare-and-swap on
-	 * the previous CID) once the sets its mixes newly link check out, moves its
+	 * the previous CID) once the sets its mixes newly link check out and its
+	 * plyr.fm mixes point at their tracks' records (see withRecordings), moves its
 	 * spaces' members along when its managers change, optionally updates its
 	 * private details in the industry space, and waits for the directory to
 	 * serve it. Returns field-level changes.
@@ -326,10 +333,11 @@ export class ProjectService {
 		const rkey = existing?.rkey ?? TID.nextStr();
 		const managers = [...new Set(input.managers)].slice(0, 10);
 		await this.sets.assertLinkable(input.profile, existing?.profile, managers);
+		const profile = await withRecordings(input.profile, existing?.profile, managers, this.plyr);
 
 		const record: ProjectRecord = {
-			slug: existing?.slug ?? (await this.uniqueSlug(input.profile.name)),
-			profile: input.profile,
+			slug: existing?.slug ?? (await this.uniqueSlug(profile.name)),
+			profile,
 			managers,
 			status: input.status,
 			revision: (existing?.revision ?? 0) + 1,

@@ -312,7 +312,9 @@ most) change that (kept
 in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
 `checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
 in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form
-for which run.
+for which run. locallibrary's own findings that something fixes are offered there the same way:
+a drive behind or ahead of the first is synced, history lists the store lacks are pulled, and
+tracks without artwork have covers fetched, when a plugin finds them.
 
 ## Commands and operations
 
@@ -386,7 +388,12 @@ form with its options and a set's own name for the file (where it goes is yours 
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
 mix's format. "dismiss: ..." lets it go. Suggestions are kept in the store until you
 do either (the newest 20), so they're still there when the player opens again; `watch` says what
-it's told and keeps its suggestions for the player the same way. The sidecar sends it as a
+it's told and keeps its suggestions for the player the same way. What you reviewed or dismissed
+is remembered (in the store's `plugins/seen.json`), and a plugin suggesting it again, or one
+waiting already, is left out: an action on tracks keeps only the tracks not suggested before.
+So the coverart plugin, which suggests fetching covers for a drive's tracks without artwork once
+it's plugged in or its databases change, and the sound plugin, which suggests analysing the tracks it has no
+tempo, key or loudness for, only bring up tracks that are new. The sidecar sends it as a
 `plugin.notice` event. A plugin can't suggest another plugin's work, and nothing it suggests is
 planned or applied unless you choose to.
 
@@ -518,6 +525,14 @@ One that stops or crashes is started again a second later, then twice that, and 
 off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
 plugin's services, and whether they're on.
 
+## Keys
+
+A plugin's command or operation can have a key of its own in the player:
+`locallibrary plugin settings ID keys.NAME KEY` (or its field in the plugin's settings form),
+where `KEY` is one character, `ctrl-` and a letter, or `f1` to `f12`. The player's own keys
+always win: one it uses anywhere, or one already bound to another command, is refused, saying
+why.
+
 ## Settings
 
 `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets one and `plugin
@@ -563,10 +578,13 @@ rekordbox's collection are is left out, and any other path is said from its driv
 (`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
-answering is stopped, and started again the next time it's needed.
+answering is stopped, and started again the next time it's needed. What a plugin says (its
+manifest, its answers, its errors and what it tells you) is shown without control characters or
+terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's
+answer that's only text, which keep their lines).
 
 A plugin goes online through locallibrary, which fetches only from the servers its `net:`
-capabilities name (`plugin info` lists them), at public https addresses, following redirects only
+capabilities name (`plugin info` lists them), at public https addresses without a user name or password, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
 such a request names it (an account's token, only where its account type says it goes and a scope

@@ -1,8 +1,5 @@
 <script lang="ts">
-	import EmptyState from '#lib/components/EmptyState.svelte';
-	import Handle from '#lib/components/Handle.svelte';
-	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { timeAgo } from '#lib/format.ts';
+	import RequestTable from '#lib/components/RequestTable.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
@@ -23,8 +20,6 @@
 		{ value: 'claim', label: 'Claims' },
 		{ value: 'update', label: 'Changes' }
 	] as const;
-
-	const kindLabel = { create: 'New project', claim: 'Claim', update: 'Changes' } as const;
 
 	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 </script>
@@ -51,23 +46,5 @@
 		</nav>
 	</div>
 
-	{#if data.requests.length === 0}
-		<EmptyState title="Nothing here" body="No requests match this filter." />
-	{:else}
-		<div class="card overflow-x-auto">
-			<table class="table-base min-w-150">
-				<thead><tr><th>Request</th><th>From</th><th>Submitted</th><th>Status</th></tr></thead>
-				<tbody>
-					{#each data.requests as request (request.uri)}
-						<tr class="transition-colors hover:bg-raised">
-							<td><a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>{#if request.record.onBehalfOf}<p class="text-label text-fg-subtle">Filed by root on their behalf</p>{/if}</td>
-							<td><Handle account={request.requester} /></td>
-							<td class="whitespace-nowrap text-fg-muted">{timeAgo(request.createdAt)}</td>
-							<td><StatusPill status={request.status} /></td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
+	<RequestTable requests={data.requests} />
 </div>

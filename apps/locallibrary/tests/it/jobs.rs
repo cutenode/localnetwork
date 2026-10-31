@@ -493,6 +493,31 @@ fn setup_refuses_a_name_two_drives_answer_to() {
     assert!(!main.join(".locallibrary").exists(), "nothing written");
 }
 
+/// Regression: `setup --role` was ignored for the drive that became the primary, even a role
+/// that isn't one. It's refused before anything is written, unless it's `primary`.
+#[test]
+fn setup_refuses_a_role_for_the_primary() {
+    let env = Env::new();
+    let main = demo_drive(&env.volumes, "REKORDBOX");
+    let backup = env.volumes.join("BACKUP");
+    copy_dir(&main, &backup);
+    let setup = |role: &str| env.run(&["--yes", "setup", "--library", "Home", "--primary", "BACKUP", "--role", role]);
+    for role in ["BACKUP=backup", "BACKUP=nope"] {
+        let (_, err, code) = setup(role);
+        assert_eq!(code, 2, "{role}: {err}");
+        assert!(err.contains("it's the primary"), "{role}: {err}");
+    }
+    // Without --primary and a terminal, the first drive named is the primary.
+    let role = format!("{}=set", path(&main));
+    let (_, err, code) = env.run(&["--yes", "setup", path(&main), "BACKUP", "--library", "Home", "--role", &role]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("it's the primary"), "{err}");
+    assert!(!main.join(".locallibrary").exists() && !backup.join(".locallibrary").exists(), "nothing written");
+
+    let (out, err, code) = setup("BACKUP=primary");
+    assert_eq!(code, 0, "{out}\n{err}");
+}
+
 /// Regression: setup took every mounted drive with no way to leave one out, started a second
 /// library over drives that were in one already, and stopped part way on an archive drive given
 /// contact details.

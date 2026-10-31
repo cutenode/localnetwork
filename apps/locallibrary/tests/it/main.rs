@@ -64,6 +64,7 @@ mod rpc;
 #[cfg(debug_assertions)]
 mod rpc_plugins;
 mod sets;
+mod settings_file;
 mod support;
 mod tags;
 mod tracklist;
