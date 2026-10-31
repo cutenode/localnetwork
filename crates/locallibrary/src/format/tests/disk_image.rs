@@ -257,4 +257,5 @@ mod os {
     }
 }
 
+#[path = "disk_image/tests.rs"]
 mod tests;

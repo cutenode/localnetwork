@@ -61,7 +61,7 @@ jobs:
 
   # format::apply and eject on a real disk, on each system: each test creates a small disk image,
   # attaches it (hdiutil, a loop device, a VHD), formats or ejects it, and detaches it
-  # (crates/locallibrary/src/format/disk_image.rs). Without LOCALLIBRARY_DISK_IMAGE_TESTS they
+  # (crates/locallibrary/src/format/tests/disk_image.rs). Without LOCALLIBRARY_DISK_IMAGE_TESTS they
   # return at once, so no other run touches a device. losetup, sfdisk and mkfs need root on Linux,
   # so the test binary runs under sudo as nextest's target runner; Windows runners are
   # administrators already.

@@ -841,4 +841,5 @@ pub(crate) mod json {
 pub(crate) mod tests;
 
 #[cfg(test)]
+#[path = "tests/disk_image.rs"]
 mod disk_image;
