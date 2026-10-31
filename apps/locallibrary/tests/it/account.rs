@@ -38,10 +38,10 @@ fn client_metadata_for_a_hosted_client() {
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["client_id"], id);
     assert_eq!(v["application_type"], "native");
-    // Every document allows publishing locallibrary's records and filing bug reports, so sign-in
-    // can ask for them.
-    let scope = "atproto include:computer.localnetwork.locallibraryPublishing repo:app.example.thing \
-                 repo:app.userinput.discussion?action=create";
+    // Every document allows publishing locallibrary's records (and uploading recordings) and filing
+    // bug reports, so sign-in can ask for them.
+    let scope = "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
+                 repo:app.example.thing repo:app.userinput.discussion?action=create";
     assert_eq!(v["scope"], scope);
     let file = env.outside("meta.json");
     let write = |more: &[&str]| {
@@ -115,7 +115,9 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     let out = env.ok(&["account", "status"]);
     assert!(out.contains(" (today)\n"), "{out}");
     assert!(
-        out.contains("can publish your My Settings, profile and sets; can't post or change anything else"),
+        out.contains(
+            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"
+        ),
         "{out}"
     );
     assert!(out.contains("session kept in atmosphere-session.json, readable only by you"), "{out}");

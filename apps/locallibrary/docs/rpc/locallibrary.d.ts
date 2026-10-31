@@ -1218,6 +1218,16 @@ export type ImportSettings = {
   drive?: string | null;
 };
 
+export type ImportSettingsFile = {
+  /** A file `settings.export` wrote (`locallibrary settings export`). */
+  file: string;
+  /**
+   * Where one of the file's values differs from the one here, take the file's (for a list of
+   * names, the file's whole list). Default: keep the one here.
+   */
+  replace?: boolean;
+};
+
 /** One track (`track`) or several (`tracks`). */
 export type ArtworkRequest = {
   drive: string;
@@ -1490,8 +1500,9 @@ export type AccountLoginRequest = {
   /** Scopes to ask for (default: `atproto`, which identifies you and nothing more). */
   scopes?: string[];
   /**
-   * Also allow publishing: writing the My Settings, profile and set records to the account
-   * ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.
+   * Also allow publishing: writing the My Settings, profile, set and recording records to the
+   * account ([`atmosphere::PUBLISH_SCOPES`]) and uploading recordings
+   * ([`atmosphere::UPLOAD_SCOPE`]), and nothing else.
    */
   publish?: boolean;
 };
@@ -1751,6 +1762,8 @@ export type SetFormat =
    * paste format, so this is the cue-time style tracklists are usually written in.
    */
   | "1001"
+  /** Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time. */
+  | "chapters"
   /** `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`. */
   | "csv"
   /** A playlist of the tracks on a drive. */
@@ -1821,6 +1834,11 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
   /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
+  /**
    * Also each play's overview waveform, hot cues and phrases (`extras`), for following
    * along without asking for every track's analysis.
    */
@@ -1838,6 +1856,11 @@ export type ExportMix = {
   drive?: string | null;
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
+  /**
+   * The mix's cover, an image file, for its report and export (instead of one embedded in
+   * the recording). Checked before identifying.
+   */
+  cover?: string | null;
   /** Also write the document to this file. */
   output?: string | null;
   /** Replace a file already at `output` (refused otherwise). */
@@ -4841,6 +4864,70 @@ export type BaseChange = {
   to: string | null;
 };
 
+/**
+ * What [`export`] writes and [`merge`] reads. Each section is as the store keeps it, with empty
+ * maps and lists left out.
+ */
+export type SettingsExport = {
+  /** The file's format, [`VERSION`]. */
+  version: number;
+  /** The My Settings profile: `base`, and per-drive `drives` overrides by drive id. */
+  my_settings: { [key: string]: unknown };
+  /** The player models `check` uses: `default`, and `libraries`' own by library id. */
+  players: { [key: string]: unknown };
+  /**
+   * The profile's preferences: its sections, precision, pinned and hidden tracks, hidden
+   * artists, genre spellings and headline.
+   */
+  profile: { [key: string]: unknown };
+  /**
+   * The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and
+   * playback modes.
+   */
+  player: { [key: string]: unknown };
+  /**
+   * The host's settings for plugins: which analyzer each field role is read from, when a
+   * provider's candidate is picked, and whether each check runs.
+   */
+  plugin_host: { [key: string]: unknown };
+  /**
+   * Each plugin's settings by its id, as it keeps them (`services.<name>` and `keys.<name>`
+   * among them).
+   */
+  plugins: { [key: string]: unknown };
+};
+
+/**
+ * What importing a settings file would change: the file's values missing here (added), and
+ * those that differ (kept as they are here, or with `replace` taken from the file).
+ */
+export type ImportSettingsFilePlan = {
+  file: string;
+  changes: SettingsFileChange[];
+  /** The file's values that are as they are here already. */
+  unchanged: number;
+};
+
+/** One of the file's values that isn't as it is here. */
+export type SettingsFileChange = {
+  /** The section, then each key down to the value: `["plugins", "sound", "keys.analyze"]`. */
+  path: string[];
+  action: SettingsFileAction;
+  /** The value here (`None`: not set). */
+  current: unknown;
+  /** The file's value; for names added to a list, the names it adds. */
+  imported: unknown;
+};
+
+/** What importing does with one of the file's values. */
+export type SettingsFileAction =
+  /** It's missing here, or adds names to a list: it's added. */
+  | "add"
+  /** It differs, and the one here stays. */
+  | "keep"
+  /** It differs, and the file's takes its place (`replace`). */
+  | "replace";
+
 /** One answer for `One`, a list in the order asked for `Many`. */
 export type OneOrMany_for_ArtworkImage = (ArtworkImage | null) | TrackArtwork_for_ArtworkImage[];
 
@@ -6394,6 +6481,13 @@ export type Set = {
   with?: Partner[];
   /** Where people can listen to it (Mixcloud, SoundCloud, YouTube...). */
   link?: string | null;
+  /** What the link is, as the plugin that published the set there named it (`plyr.fm`). */
+  link_name?: string | null;
+  /**
+   * The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin
+   * that published it there said.
+   */
+  recording_record?: StrongRef | null;
   /** The recording on this computer the tracklist was found in. */
   recording?: SetRecording | null;
   /** The DJ's own notes. Never published. */
@@ -6411,6 +6505,14 @@ export type Partner = {
   name: string;
   /** Their Atmosphere account, when known. */
   did?: string | null;
+};
+
+/** An Atmosphere record and the version of it meant, as `com.atproto.repo.strongRef` has them. */
+export type StrongRef = {
+  /** Its at:// URI. */
+  uri: string;
+  /** Its CID. */
+  cid: string;
 };
 
 /** A recording of a set. */
@@ -6677,7 +6779,10 @@ export type MixInfo = {
   channels: number;
   /** Labels from an Audacity project's label tracks. */
   labels: Label[];
-  /** Cover image: embedded in the audio file, else an image next to it named like it. */
+  /**
+   * Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+   * next to it named like it.
+   */
   cover: CoverSource | null;
 };
 
@@ -6688,13 +6793,21 @@ export type Label = {
   title: string;
 };
 
-export type CoverSource = {
-  kind: "embedded";
-  path: string;
-} | {
-  kind: "file";
-  path: string;
-};
+export type CoverSource =
+  | {
+    kind: "embedded";
+    path: string;
+  }
+  /** An image found next to the recording. */
+  | {
+    kind: "file";
+    path: string;
+  }
+  /** An image the DJ gave for it. */
+  | {
+    kind: "given";
+    path: string;
+  };
 
 /** One track heard in the mix. */
 export type Play = {
@@ -6850,7 +6963,10 @@ export type ExportedMix = {
   /** The player that recorded it, when the file says. */
   recorder?: string | null;
   durationSecs: number;
-  /** The cover embedded in the recording: a JPEG `data:` URL, 320 px square. */
+  /**
+   * The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+   * 320 px square.
+   */
   cover?: string | null;
 };
 
@@ -7780,10 +7896,11 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its accounts by id, its commands, destinations, operations, panels,
-   * analyzers, checks, providers, services, library sources and themes by name, the events it
-   * listens for, its export and import formats and its settings' keys.
+   * What it adds: its account types by type, its accounts by id, its commands, destinations,
+   * operations, panels, analyzers, checks, providers, services, library sources and themes by
+   * name, the events it listens for, its export and import formats and its settings' keys.
    */
+  account_types: string[];
   accounts: string[];
   commands: string[];
   destinations: string[];
@@ -7861,6 +7978,7 @@ export type Manifest = {
 };
 
 export type Contributions = {
+  account_types: AccountType[];
   accounts: Account[];
   commands: Command[];
   destinations: Destination[];
@@ -7876,6 +7994,109 @@ export type Contributions = {
   sources: LibrarySource[];
   themes: Theme[];
   settings: Setting[];
+};
+
+/** `[[contributes.account_types]]`: an account type, signed in to in the browser. */
+export type AccountType = {
+  /** The account type it provides (`google`), which other account plugins may provide too. */
+  type: string;
+  title: string;
+  /** The service's authorization endpoint, where the browser signs in (https). */
+  authorize_url: string;
+  /**
+   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
+   * them (https). An account type has this or `token_exchange`.
+   */
+  token_url?: string | null;
+  /**
+   * Local Network's token exchange for its service, in `token_url`'s place: only in an
+   * account plugin locallibrary ships, since it signs people in as Local Network.
+   */
+  token_exchange?: string | null;
+  /**
+   * Its client at the service: a public one, without a secret, or Local Network's, whose
+   * secret the token exchange holds.
+   */
+  client_id: string;
+  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
+  revoke_url?: string | null;
+  /** Where its access token goes in a request: `Authorization: Bearer <token>` unless it says. */
+  token?: TokenPlace;
+  /**
+   * The port on 127.0.0.1 the browser comes back to, for a service that compares the redirect
+   * URI with the one its client was registered with. Any free port otherwise.
+   */
+  redirect_port?: number | null;
+  /** The service's scopes every sign-in asks for, as the service names them (`openid`). */
+  always?: string[];
+  /** Where the host asks the service who signed in. */
+  whoami: Whoami;
+  /**
+   * The authorize params that sign in again as one account the host knows (`login_hint =
+   * "{subject}"`): their values may name it only as [`SUBJECT_PLACEHOLDER`].
+   */
+  one_account?: { [key: string]: string };
+  /**
+   * The authorize params that sign in to another account than those the browser has
+   * (`prompt = "select_account"`).
+   */
+  another_account?: { [key: string]: string };
+  /** What a plugin may be given access to, by name (`youtube-upload`). */
+  scopes?: { [key: string]: Scope };
+};
+
+/**
+ * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
+ * or `token = { query = "access_token" }`. The request names the account there, and only there.
+ */
+export type TokenPlace =
+  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
+  | {
+    scheme: string;
+  }
+  /**
+   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
+   * there (Mixcloud).
+   */
+  | {
+    query: string;
+  };
+
+/**
+ * `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
+ * new access token, and JSON pointers into its answer.
+ */
+export type Whoami = {
+  /** Where (https). */
+  url: string;
+  /** The account's id at the service, which tells two accounts apart (`/sub`). */
+  subject: string;
+  /** What the account is shown as (`/email`). */
+  name: string;
+};
+
+/** `[contributes.account_types.scopes.<name>]`: one thing a plugin may do with an account. */
+export type Scope = {
+  title: string;
+  /**
+   * The service's scopes it asks for at signing in, as the service names them. None for a
+   * scope only locallibrary knows, which the service's own scopes already allow.
+   */
+  asks?: string[];
+  /** The requests it covers: the only ones the host fills the account's token into for it. */
+  requests: ScopeRequest[];
+};
+
+/**
+ * `{ method = "POST", url = "https://www.googleapis.com/upload/youtube/v3/videos*" }`: requests
+ * with this method to this URL, or to any URL starting with it when it ends in `*`. The URL is
+ * written as it's read (`https://a.com/*`, not `https://a.com*`), so the start it names is a whole
+ * host.
+ */
+export type ScopeRequest = {
+  /** `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`. */
+  method: string;
+  url: string;
 };
 
 /** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
@@ -7916,23 +8137,6 @@ export type Account = {
    */
   redirect_port?: number | null;
 };
-
-/**
- * Where an account's access token goes in a `net/fetch` request: `token = { scheme = "OAuth" }`
- * or `token = { query = "access_token" }`. The request names the account there, and only there.
- */
-export type TokenPlace =
-  /** The `Authorization` header, as this scheme and the token (`OAuth <token>`). */
-  | {
-    scheme: string;
-  }
-  /**
-   * This query parameter's value (`?access_token=<token>`), for a service that takes it only
-   * there (Mixcloud).
-   */
-  | {
-    query: string;
-  };
 
 /** Run with `command/run`. */
 export type Command = {
@@ -8020,7 +8224,7 @@ export type Operation = {
   /**
    * Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
    * top-level command (`import`), or one in a group of the host's (`playlist import`).
-   * First-party plugins only.
+   * Built-in plugins only.
    */
   cli?: string | null;
 };
@@ -8536,6 +8740,10 @@ export type SetPublished = {
   set: string;
   /** Where it can be heard, which is the set's link now; none when the plugin didn't say. */
   url?: string | null;
+  /** What the link is (`plyr.fm`), when the plugin named it. */
+  name?: string | null;
+  /** The Atmosphere record holding the recording, when the plugin keeps it as one. */
+  record?: StrongRef | null;
   warnings?: string[];
 };
 
@@ -9471,6 +9679,12 @@ export interface Methods {
   "settings.import.apply": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
   /** apply method; paired with `settings.import.plan`; can delete or overwrite something; an older name for `settings.import.apply` */
   "settings.import": { params: ApplyPlan | (ImportSettings & WriteOptions); result: SettingsProfile };
+  /** read method */
+  "settings.export": { params: NoParams; result: SettingsExport };
+  /** plan method; paired with `settings.import_file.apply`; can delete or overwrite something */
+  "settings.import_file.plan": { params: ImportSettingsFile & WriteOptions; result: ImportSettingsFilePlan & PlanFields };
+  /** apply method; paired with `settings.import_file.plan`; can delete or overwrite something */
+  "settings.import_file.apply": { params: ApplyPlan | (ImportSettingsFile & WriteOptions); result: SettingsExport };
   /** read method */
   "art.missing": { params: DriveRef; result: TrackRef[] };
   /** read method */

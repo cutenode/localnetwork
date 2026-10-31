@@ -82,7 +82,7 @@ fn every_lexicon_parses_and_its_refs_resolve() {
         assert!(nsid.starts_with(group), "{nsid}");
         let main = &document(nsid).unwrap()["defs"]["main"];
         assert_eq!(main["type"], "record", "{nsid}");
-        let key = if nsid == SET { "tid" } else { "literal:self" };
+        let key = if [SET, RECORDING].contains(&nsid) { "tid" } else { "literal:self" };
         assert_eq!(main["key"], key, "{nsid}");
     }
     // Every file in the folders locallibrary owns is one of the documents. The rest of the
@@ -104,7 +104,7 @@ fn every_lexicon_parses_and_its_refs_resolve() {
     }
     let documents = DOCUMENTS.iter().map(|(nsid, _)| path(nsid)).filter(|p| ours.iter().any(|d| p.starts_with(d)));
     assert_eq!(found, documents.collect());
-    assert_eq!(found.len(), 4, "settings, and the DJ profile, set and defs");
+    assert_eq!(found.len(), 5, "settings, and the DJ profile, set, recording and defs");
 }
 
 #[test]

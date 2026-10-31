@@ -82,7 +82,8 @@ pub struct MixInfo {
     pub channels: u16,
     /// Labels from an Audacity project's label tracks.
     pub labels: Vec<Label>,
-    /// Cover image: embedded in the audio file, else an image next to it named like it.
+    /// Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+    /// next to it named like it.
     pub cover: Option<CoverSource>,
 }
 
@@ -90,26 +91,41 @@ pub struct MixInfo {
 #[serde(tag = "kind", content = "path", rename_all = "snake_case")]
 pub enum CoverSource {
     Embedded(PathBuf),
+    /// An image found next to the recording.
     File(PathBuf),
+    /// An image the DJ gave for it.
+    Given(PathBuf),
 }
 
 impl MixInfo {
-    /// The cover a report shared with others carries: the one embedded in the recording. An
-    /// image found beside it is a guess, fine to show here but not to publish.
+    /// The cover a report shared with others carries: one given for it, or the one embedded in the
+    /// recording. An image found beside it is a guess, fine to show here but not to publish.
     pub fn shared_cover(&self) -> Option<Vec<u8>> {
         match &self.cover {
-            Some(c @ CoverSource::Embedded(_)) => c.read().ok(),
+            Some(c @ (CoverSource::Embedded(_) | CoverSource::Given(_))) => c.read().ok(),
             _ => None,
         }
     }
 }
 
 impl CoverSource {
+    /// A cover given for a recording (`mix --cover`, `mix.identify`'s `cover`): an image file,
+    /// kept by its absolute path so a kept report finds it again from anywhere.
+    pub fn given(path: &Path) -> Result<CoverSource> {
+        let bytes = std::fs::read(path).at(path)?;
+        if let Err(e) = crate::artwork::Artwork::from_bytes(&bytes) {
+            return Err(Error::invalid(format!("{} can't be a cover: {e}", path.display())));
+        }
+        Ok(CoverSource::Given(std::path::absolute(path).at(path)?))
+    }
+
     pub fn read(&self) -> Result<Vec<u8>> {
         match self {
             CoverSource::Embedded(p) => crate::artwork::read_embedded(p)?
                 .ok_or_else(|| Error::NotFound(format!("no embedded artwork in {}", p.display()))),
-            CoverSource::File(p) => std::fs::read(p).map_err(|source| Error::Io { path: p.clone(), source }),
+            CoverSource::File(p) | CoverSource::Given(p) => {
+                std::fs::read(p).map_err(|source| Error::Io { path: p.clone(), source })
+            }
         }
     }
 }
@@ -170,6 +186,12 @@ pub struct Alternate {
     pub same_audio: bool,
 }
 
+/// How long two tracks must be heard together to call the transition a blend, in seconds:
+/// fingerprints don't hear fades, so a shorter overlap, or even a gap, may be a quick mix as well
+/// as a cut. Every report, the player and a published set's `technique` mean this; the website
+/// reads it from packages/tokens/mix.json, which a test keeps the same.
+pub const BLEND_SECS: f64 = 8.0;
+
 /// The change from one play to the next.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Transition {
@@ -184,6 +206,13 @@ pub struct Transition {
     pub harmony: Option<String>,
     /// Played tempo change, percent.
     pub tempo_change: Option<f64>,
+}
+
+impl Transition {
+    /// Whether both tracks are heard together for [`BLEND_SECS`] or more.
+    pub fn is_blend(&self) -> bool {
+        self.overlap >= BLEND_SECS
+    }
 }
 
 /// Stretch of the mix with no track found.

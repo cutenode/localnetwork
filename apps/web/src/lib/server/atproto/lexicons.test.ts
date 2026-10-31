@@ -1,7 +1,9 @@
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { COLLECTION, PERMISSIONS } from '#lib/nsid.ts';
+import { LEXICON_FILES } from '../../../../scripts/lib/lexicon-files.ts';
 import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
 import {
 	LEXICON_DOCS,
@@ -12,6 +14,22 @@ import {
 	schemaRecord,
 	validateRecord
 } from './lexicons.ts';
+
+describe('the bundled lexicons', () => {
+	// The scripts' loader reads lexicons/ from disk, so this also checks the two loaders agree.
+	const onDisk = LEXICON_FILES.map((file) => z.object({ id: z.string() }).parse(file).id).toSorted();
+
+	it("are every file in lexicons/, ours apart from other authorities'", () => {
+		const ids = (docs: LexiconDoc[]) => docs.map((doc) => doc.id);
+
+		expect([...ids(LEXICON_DOCS), ...ids(REFERENCED_DOCS)].toSorted()).toEqual(onDisk);
+		expect(ids(LEXICON_DOCS).toSorted()).toEqual(onDisk.filter((id) => id.startsWith('computer.localnetwork.')));
+		expect(ids(LEXICON_DOCS)).toContain('computer.localnetwork.locallibraryPublishing');
+		expect(ids(REFERENCED_DOCS)).toEqual(
+			expect.arrayContaining(['app.userinput.discussion', 'com.atproto.repo.strongRef'])
+		);
+	});
+});
 
 describe('LEXICON_DOCS', () => {
 	it('keeps the refs as written, so published schemas match lexicons/', () => {

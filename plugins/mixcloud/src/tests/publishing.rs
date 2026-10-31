@@ -54,7 +54,15 @@ fn a_set_goes_up_as_one_form_and_answers_its_page() {
     let r = s.stop();
 
     let left_off = "left the time off 1 of the tracks, each no later than a time before it";
-    assert_eq!(answer.unwrap(), Published { url: Some(PAGE.into()), warnings: vec![left_off.into()] });
+    assert_eq!(
+        answer.unwrap(),
+        Published {
+            url: Some(PAGE.into()),
+            name: Some("Mixcloud".into()),
+            warnings: vec![left_off.into()],
+            ..Published::default()
+        }
+    );
     let [form] = &r[..] else { panic!("one upload: {r:?}") };
     let expected = vec![
         ("mp3".into(), Part::File("Closing Set.FLAC".into(), std::fs::read(&recording).unwrap())),
@@ -92,7 +100,10 @@ fn a_bare_set_needs_no_scratch_folder() {
     let untitled = PublishedSet { title: None, venue: None, city: None, country: None, ..set() };
     let pending = s.send(&untitled, &recording, &[], json!({ "unlisted": false, "tags": " , " }), false, false);
     let answer = pending.wait_timeout::<Published>(Duration::from_secs(60)).expect("an answer");
-    assert_eq!(answer.unwrap(), Published { url: Some(PAGE.into()), warnings: Vec::new() });
+    assert_eq!(
+        answer.unwrap(),
+        Published { url: Some(PAGE.into()), name: Some("Mixcloud".into()), ..Published::default() }
+    );
     let r = s.stop();
     let expected = vec![
         ("mp3".into(), Part::File("set.mp3".into(), std::fs::read(&recording).unwrap())),
@@ -137,6 +148,7 @@ fn a_dry_run_says_what_would_go_and_sends_nothing() {
                 "Mixcloud takes 5 tags: left out f, g".into(),
                 MIXCLOUD.into(),
             ],
+            ..Published::default()
         }
     );
     let (answer, ..) = s.publish(&set(), &recording, &[], json!({}), true);

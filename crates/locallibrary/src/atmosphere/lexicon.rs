@@ -3,9 +3,9 @@
 //!
 //! Each type is a Lexicon document in the repo's `lexicons/`, in the folder its NSID names.
 //! [`SETTINGS`] (My Settings, one per account) is locallibrary's own, under the authority
-//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account) and
-//! [`SET`] (a set, one per set) are shared by Local Network's tools, under the authority
-//! `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. The documents others
+//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account), [`SET`]
+//! (a set, one per set) and [`RECORDING`] (a set's recording) are shared by Local Network's tools,
+//! under the authority `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. The documents others
 //! maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`], Lexicon
 //! Community's, where a set was played; [`DISCUSSION`], userinput.app's record type, which a bug
 //! report is; and [`STRONG_REF`] (a record's at:// URI and CID), which it uses.
@@ -36,6 +36,8 @@ pub const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
 pub const PROFILE: &str = "computer.localnetwork.dj.profile";
 /// A set: where and when it was played, and its tracklist (record key: a TID).
 pub const SET: &str = "computer.localnetwork.dj.set";
+/// A set's recording, uploaded to the account (record key: the set's).
+pub const RECORDING: &str = "computer.localnetwork.dj.recording";
 /// What [`PROFILE`] and [`SET`] share (tracks, keys, partners, shares, counts). Not a record type.
 pub const DEFS: &str = "computer.localnetwork.dj.defs";
 /// A street address, from Lexicon Community: where a set was played. Not a record type.
@@ -47,13 +49,14 @@ pub const DISCUSSION: &str = "app.userinput.discussion";
 pub const STRONG_REF: &str = "com.atproto.repo.strongRef";
 
 /// Every record type locallibrary publishes.
-pub const COLLECTIONS: [&str; 3] = [SETTINGS, PROFILE, SET];
+pub const COLLECTIONS: [&str; 4] = [SETTINGS, PROFILE, SET, RECORDING];
 
 /// The Lexicon documents locallibrary writes records of, by NSID, and the ones they share.
-pub const DOCUMENTS: [(&str, &str); 7] = [
+pub const DOCUMENTS: [(&str, &str); 8] = [
     (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
     (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
     (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
+    (RECORDING, include_str!("../../../../lexicons/computer/localnetwork/dj/recording.json")),
     (DEFS, include_str!("../../../../lexicons/computer/localnetwork/dj/defs.json")),
     (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
     (DISCUSSION, include_str!("../../../../lexicons/app/userinput/discussion.json")),

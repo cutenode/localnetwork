@@ -30,7 +30,7 @@ fn entry(artist: Option<&str>, title: Option<&str>, start: Option<u32>) -> Track
 /// through Local Network's token exchange with the token in the query, and keeps the tags, the
 /// picture and whether a show is unlisted as settings.
 #[test]
-fn the_manifest_is_a_first_party_set_destination_on_mixcloud() {
+fn the_manifest_is_a_built_in_set_destination_on_mixcloud() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     assert_eq!(manifest.capabilities, [Capability::Net("api.mixcloud.com".into())]);
@@ -58,6 +58,18 @@ fn the_manifest_is_a_first_party_set_destination_on_mixcloud() {
             ("unlisted", SettingType::Boolean, Some(&json!(false)))
         ]
     );
+}
+
+/// The Mixcloud account plugin's `upload` scope covers the upload, the token in its query or
+/// not, and nothing else of Mixcloud's API.
+#[test]
+fn mixclouds_upload_scope_covers_the_upload() {
+    let mixcloud = Manifest::parse(include_str!("../../accounts/mixcloud-account/locallibrary-plugin.toml")).unwrap();
+    let scope = &mixcloud.contributes.account_types[0].scopes["upload"];
+    let covers = |method: &str, url: &str| scope.covers(method, &url::Url::parse(url).unwrap());
+    assert!(covers("POST", upload::UPLOAD));
+    assert!(covers("POST", "https://api.mixcloud.com/upload/"));
+    assert!(!covers("POST", "https://api.mixcloud.com/upload/dj/show/edit/"));
 }
 
 /// A set without a title is named for where and when it was played, the description says where

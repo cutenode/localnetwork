@@ -1,8 +1,10 @@
 //! A pretend Atmosphere data server (PDS) on 127.0.0.1, for tests that publish without the
 //! network: it keeps records in memory, answers `com.atproto.repo.getRecord`, `putRecord`
-//! (`swapRecord: null` meaning there must be no record yet) and `createRecord` (under a key of its
-//! own, numbered from 1), `com.atproto.server.getSession`, `getServiceAuth` and
-//! token revocation the way a PDS does, and records every request it gets. [`granted`] is what
+//! (`swapRecord: null` meaning there must be no record yet), `createRecord` (under a key of its
+//! own, numbered from 1), `deleteRecord` (a record that isn't there is deleted already, as the
+//! reference PDS answers) and `uploadBlob` (up to a limit, [`MockPds::set_blob_limit`]),
+//! `com.atproto.server.getSession`, `getServiceAuth` and token revocation the way a PDS does, and
+//! records every request it gets. [`granted`] is what
 //! its sign-in would grant: it doesn't sign anyone in, since that needs a browser.
 //!
 //! It also stands in for Local Network's directory and website, at the same address: HappyView's
@@ -14,7 +16,7 @@
 //! is indexed as the directory's record script keeps it: without its `$type`, with fields of its
 //! own.
 //!
-//! Writes must be DPoP-bound: an `Authorization: DPoP <token>` header and a `DPoP` proof, which
+//! Writes and uploads must be DPoP-bound: an `Authorization: DPoP <token>` header and a `DPoP` proof, which
 //! must carry the nonce the server hands out (the first write is told to use one, as servers
 //! do). The proof's signature isn't checked; its key and claims are, by the tests.
 //!
@@ -80,8 +82,12 @@ pub enum Writes {
 type Records = IndexMap<(String, String, String), (Value, String)>;
 
 /// The record types the website has the directory read again (its `requestIndex`).
-const LOCALLIBRARY_COLLECTIONS: [&str; 3] =
-    ["computer.localnetwork.locallibrary.settings", "computer.localnetwork.dj.profile", "computer.localnetwork.dj.set"];
+const LOCALLIBRARY_COLLECTIONS: [&str; 4] = [
+    "computer.localnetwork.locallibrary.settings",
+    "computer.localnetwork.dj.profile",
+    "computer.localnetwork.dj.set",
+    "computer.localnetwork.dj.recording",
+];
 
 /// The account `getServiceAuth` signs for until [`MockPds::set_account`] names one: the tests'
 /// own (`session::DID`).
@@ -102,6 +108,10 @@ struct State {
     account: Option<(String, String)>,
     /// What revoking a token answers.
     revocation: u16,
+    /// The most an upload may be, in bytes.
+    blob_limit: usize,
+    /// The files uploaded, by CID: their type, as the upload said, and their bytes.
+    blobs: IndexMap<String, (String, Vec<u8>)>,
     requests: Vec<Request>,
 }
 
@@ -126,6 +136,8 @@ impl MockPds {
             nonce: "nonce-1".into(),
             account: None,
             revocation: 200,
+            blob_limit: usize::MAX,
+            blobs: IndexMap::new(),
             requests: Vec::new(),
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -172,6 +184,17 @@ impl MockPds {
     /// The status revoking a token answers (200 until set, as RFC 7009 says).
     pub fn set_revocation(&self, status: u16) {
         self.state.lock().unwrap().revocation = status;
+    }
+
+    /// The most an upload may be from now on, in bytes: a bigger one is refused with a 413, as a
+    /// PDS refuses one over its `PDS_BLOB_UPLOAD_LIMIT`.
+    pub fn set_blob_limit(&self, bytes: usize) {
+        self.state.lock().unwrap().blob_limit = bytes;
+    }
+
+    /// The file uploaded with this CID: its type, and its bytes.
+    pub fn blob(&self, cid: &str) -> Option<(String, Vec<u8>)> {
+        self.state.lock().unwrap().blobs.get(cid).cloned()
     }
 
     /// What's stored, and its CID.
@@ -459,6 +482,37 @@ fn percent_decode(s: &str) -> String {
 
 type Answer = (u16, Vec<(&'static str, String)>, Value);
 
+/// How a write or an upload is refused, when it is: without a DPoP-bound token, without the nonce
+/// the server hands out, or as [`Writes`] says.
+fn refused(req: &Request, s: &State) -> Option<Answer> {
+    let auth = req.header("authorization").unwrap_or_default();
+    if !auth.starts_with("DPoP ") || req.dpop().is_none() {
+        return Some((401, vec![], json!({ "error": "AuthRequired", "message": "a DPoP-bound token is required" })));
+    }
+    let (_, claims) = req.dpop().unwrap();
+    if claims["nonce"] != s.nonce.as_str() {
+        let headers =
+            vec![("WWW-Authenticate", r#"DPoP error="use_dpop_nonce""#.into()), ("DPoP-Nonce", s.nonce.clone())];
+        return Some((401, headers, json!({ "error": "use_dpop_nonce" })));
+    }
+    match s.writes {
+        Writes::Accept => None,
+        Writes::RefuseScope => Some((
+            403,
+            vec![],
+            json!({ "error": "ScopeMissingError", "message": "Missing required scope \"repo:...\"" }),
+        )),
+        Writes::RefuseToken => Some((
+            401,
+            vec![("WWW-Authenticate", r#"DPoP error="invalid_token", error_description="revoked""#.into())],
+            json!({ "error": "InvalidToken" }),
+        )),
+        Writes::RefuseRecord => {
+            Some((400, vec![], json!({ "error": "InvalidRequest", "message": "Record is too big" })))
+        }
+    }
+}
+
 fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
     let mut s = state.lock().unwrap();
     match (req.method.as_str(), req.path.as_str()) {
@@ -474,44 +528,48 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
                 None => (400, vec![], json!({ "error": "RecordNotFound", "message": "Could not locate record" })),
             }
         }
-        ("POST", path @ ("/xrpc/com.atproto.repo.putRecord" | "/xrpc/com.atproto.repo.createRecord")) => {
-            let auth = req.header("authorization").unwrap_or_default();
-            if !auth.starts_with("DPoP ") || req.dpop().is_none() {
-                return (401, vec![], json!({ "error": "AuthRequired", "message": "a DPoP-bound token is required" }));
+        ("POST", "/xrpc/com.atproto.repo.uploadBlob") => {
+            if let Some(refused) = refused(req, &s) {
+                return refused;
             }
-            let (_, claims) = req.dpop().unwrap();
-            if claims["nonce"] != s.nonce.as_str() {
-                return (
-                    401,
-                    vec![
-                        ("WWW-Authenticate", r#"DPoP error="use_dpop_nonce""#.into()),
-                        ("DPoP-Nonce", s.nonce.clone()),
-                    ],
-                    json!({ "error": "use_dpop_nonce" }),
-                );
+            if req.body.len() > s.blob_limit {
+                return (413, vec![], json!({ "error": "PayloadTooLarge", "message": "request entity too large" }));
             }
-            match s.writes {
-                Writes::Accept => {}
-                Writes::RefuseScope => {
-                    return (
-                        403,
-                        vec![],
-                        json!({ "error": "ScopeMissingError", "message": "Missing required scope \"repo:...\"" }),
-                    );
-                }
-                Writes::RefuseToken => {
-                    return (
-                        401,
-                        vec![("WWW-Authenticate", r#"DPoP error="invalid_token", error_description="revoked""#.into())],
-                        json!({ "error": "InvalidToken" }),
-                    );
-                }
-                Writes::RefuseRecord => {
-                    return (400, vec![], json!({ "error": "InvalidRequest", "message": "Record is too big" }));
-                }
+            let mime = req.header("content-type").unwrap_or("*/*").to_string();
+            let blob_cid = cid(&Value::from(String::from_utf8_lossy(&req.body)));
+            let size = req.body.len();
+            s.blobs.insert(blob_cid.clone(), (mime.clone(), req.body.clone()));
+            let blob = json!({ "$type": "blob", "ref": { "$link": blob_cid }, "mimeType": mime, "size": size });
+            (200, vec![], json!({ "blob": blob }))
+        }
+        (
+            "POST",
+            path @ ("/xrpc/com.atproto.repo.putRecord"
+            | "/xrpc/com.atproto.repo.createRecord"
+            | "/xrpc/com.atproto.repo.deleteRecord"),
+        ) => {
+            if let Some(refused) = refused(req, &s) {
+                return refused;
             }
             let body = req.json();
             let key = |k: &str| body[k].as_str().unwrap_or_default().to_string();
+            if path.ends_with("deleteRecord") {
+                let id = (key("repo"), key("collection"), key("rkey"));
+                if let Some(swap) = body.get("swapRecord").and_then(Value::as_str)
+                    && s.records.get(&id).map(|r| r.1.as_str()) != Some(swap)
+                {
+                    return (400, vec![], json!({ "error": "InvalidSwap", "message": "Record was at another CID" }));
+                }
+                s.records.shift_remove(&id);
+                if s.firehose {
+                    index(&mut s, &id);
+                }
+                return (
+                    200,
+                    vec![],
+                    json!({ "commit": { "cid": cid(&json!({ "deleted": id.2 })), "rev": "3l3qo2vutsw2c" } }),
+                );
+            }
             let created = path.ends_with("createRecord");
             let rkey = if created { format!("3mockrecord{:02}", s.records.len() + 1) } else { key("rkey") };
             let id = (key("repo"), key("collection"), rkey);

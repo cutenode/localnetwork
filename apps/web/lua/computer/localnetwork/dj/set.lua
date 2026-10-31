@@ -1,9 +1,10 @@
 -- Runs before HappyView stores a computer.localnetwork.dj.set event. Jetstream sends every account's sets, and all of
 -- them are kept, since anyone can come to manage a project; the queries read only managers' sets. What's kept is what
--- the site shows: when and where the set was played, who with, where to listen, and its tracklist as written (tempo,
--- keys and transitions included), plus each named track's title, artists, IDs and start, with the key the support
--- queries group a track by when it has no IDs. Its address, sources and createdAt are kept as written too, since
--- locallibrary reads its own sets back through getRecords before replacing them, and keeps a set's first createdAt.
+-- the site shows: when and where the set was played, who with, where to listen (its links, and the record its recording
+-- plays from), and its tracklist as written (tempo, keys and transitions included), plus each named track's title,
+-- artists, IDs and start, with the key the support queries group a track by when it has no IDs. Its address, sources
+-- and createdAt are kept as written too, since locallibrary reads its own sets back through getRecords before replacing
+-- them, and keeps a set's first createdAt.
 -- A set whose date isn't a YYYY-MM-DD day isn't kept at all. HappyView keeps the event's CID either way.
 -- HappyView stores the whole record when a script errors, so the gate runs under pcall and turns errors into a skip.
 
@@ -124,6 +125,7 @@ local function view(value)
 		tracks = toarray(value.tracks),
 		playedWith = type(value.playedWith) == 'table' and toarray(value.playedWith) or nil,
 		links = type(value.links) == 'table' and toarray(value.links) or nil,
+		recording = type(value.recording) == 'table' and value.recording or nil,
 		sources = type(value.sources) == 'table' and toarray(value.sources) or nil,
 		event = text(value.event),
 		createdAt = text(value.createdAt),

@@ -1,7 +1,9 @@
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
+import { openDatabase } from '../db';
+import { silentLogger } from '../logger';
 import { permissionSetFor } from './lexicons';
 import {
 	clientMetadata,
@@ -9,8 +11,12 @@ import {
 	grantsAll,
 	grantsPublicRecords,
 	grantsSpaces,
+	heldOptionalScopes,
 	isLoopback,
-	SCOPES
+	OAuthService,
+	OptionalScopeUnsupported,
+	SCOPES,
+	type SignedInAccount
 } from './oauth';
 
 const config = (publicUrl: string) =>
@@ -195,6 +201,30 @@ describe('OAuth scopes', () => {
 		expect(grantsAll(`${granted.join(' ')} ${SCOPES.bugReport}`, full, user, root)).toBe(true);
 	});
 
+	it('asks separately to read the email address, in either form a PDS knows, without touching sign-in', () => {
+		expect(DECLARED_SCOPES.split(' ')).toEqual(expect.arrayContaining([SCOPES.email, SCOPES.emailLegacy]));
+		// The PDS writes the default action out.
+		expect(grantsAll('atproto account:email?action=read', SCOPES.email, user, root)).toBe(true);
+		expect(grantsAll(SCOPES.emailLegacy, SCOPES.email, user, root)).toBe(false);
+		expect(new ScopePermissionsTransition([SCOPES.emailLegacy]).allowsAccount({ attr: 'email', action: 'read' })).toBe(
+			true
+		);
+		// An older grant without it still signs in, and one with it counts the same.
+		expect(grantsSpaces(granted.join(' '), user, root)).toBe(true);
+		expect(grantsSpaces(`${granted.join(' ')} ${SCOPES.email}`, user, root)).toBe(true);
+		expect(grantsAll(SCOPES.email, full, user, root)).toBe(false);
+	});
+
+	it('finds the optional scopes a grant holds, in the form it holds them', () => {
+		expect(heldOptionalScopes(granted.join(' '), user)).toEqual([]);
+		expect(heldOptionalScopes(null, user)).toEqual([]);
+		expect(heldOptionalScopes(`${granted.join(' ')} ${SCOPES.bugReport} account:email?action=read`, user)).toEqual([
+			SCOPES.bugReport,
+			SCOPES.email
+		]);
+		expect(heldOptionalScopes(`atproto ${SCOPES.emailLegacy}`, user)).toEqual([SCOPES.emailLegacy]);
+	});
+
 	it('builds loopback metadata for local development and web metadata otherwise', () => {
 		expect(isLoopback('http://127.0.0.1:5173')).toBe(true);
 		expect(isLoopback('https://localnetwork.computer')).toBe(false);
@@ -206,5 +236,107 @@ describe('OAuth scopes', () => {
 			redirect_uris: ['https://localnetwork.computer/oauth/callback'],
 			dpop_bound_access_tokens: true
 		});
+	});
+});
+
+describe('OAuthService.authorize', () => {
+	const user = 'did:plc:user';
+	const page = new URL('https://pds.test/oauth/authorize');
+
+	const account = (overrides: Partial<SignedInAccount> = {}): SignedInAccount => ({
+		did: user,
+		grantedScope: SCOPES.full,
+		spacesCapable: 1,
+		publicWrites: 1,
+		...overrides
+	});
+
+	/**
+	 * The OAuth service over a PDS that answers with `error` (a refused scope, by default) for every scope `refused`
+	 * matches, recording each scope asked for.
+	 */
+	const service = async (
+		refused: (scope: string) => boolean,
+		error = new Error('invalid_scope: unsupported scope')
+	) => {
+		const oauth = new OAuthService({
+			config: config('http://127.0.0.1:5173'),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger
+		});
+
+		const asked: string[] = [];
+
+		vi.spyOn(oauth.client, 'authorize').mockImplementation(async (_identifier, options) => {
+			const scope = options?.scope ?? '';
+			asked.push(scope);
+
+			if (refused(scope)) throw error;
+
+			return page;
+		});
+
+		return { oauth, asked };
+	};
+
+	it('falls back through the tiers on a first sign-in, and gives up on anything but a scope error', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+
+		expect(await oauth.authorize('alice.test', '{}')).toBe(page);
+		expect(asked).toEqual([SCOPES.full, SCOPES.base]);
+
+		const down = await service(() => true, new Error('fetch failed'));
+		await expect(down.oauth.authorize('alice.test', '{}')).rejects.toThrow('fetch failed');
+		expect(down.asked).toHaveLength(1);
+	});
+
+	it('asks again for the optional scopes an account holds, so signing in keeps them', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+		const holding = account({ grantedScope: `${SCOPES.base} ${SCOPES.bugReport} account:email?action=read` });
+
+		await oauth.authorize('alice.test', '{}', { account: holding });
+		expect(asked).toEqual([
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.email}`,
+			`${SCOPES.base} ${SCOPES.bugReport} ${SCOPES.email}`
+		]);
+	});
+
+	it('never lowers an account with spaces to get an optional scope, trying each form of it instead', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('email'));
+
+		await expect(
+			oauth.authorize(user, '{}', {
+				account: account({ grantedScope: `${SCOPES.full} ${SCOPES.bugReport}` }),
+				optional: 'email'
+			})
+		).rejects.toThrow(OptionalScopeUnsupported);
+		expect(asked).toEqual([
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.email}`,
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.emailLegacy}`
+		]);
+	});
+
+	it('lets an account without spaces try for them while opting in, but no lower than its own tier', async () => {
+		const base = account({ grantedScope: SCOPES.base, spacesCapable: 0 });
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+
+		await oauth.authorize(user, '{}', { account: base, optional: 'bugReport' });
+		expect(asked).toEqual([`${SCOPES.full} ${SCOPES.bugReport}`, `${SCOPES.base} ${SCOPES.bugReport}`]);
+
+		const refusing = await service((scope) => scope.includes('userinput'));
+		await expect(refusing.oauth.authorize(user, '{}', { account: base, optional: 'bugReport' })).rejects.toThrow(
+			OptionalScopeUnsupported
+		);
+		expect(refusing.asked).toHaveLength(2);
+
+		// Before the app asked for public records, nothing says whether the base scopes were granted.
+		const unknown = await service(() => true);
+		await expect(
+			unknown.oauth.authorize(user, '{}', {
+				account: account({ grantedScope: 'atproto', spacesCapable: 0, publicWrites: null }),
+				optional: 'bugReport'
+			})
+		).rejects.toThrow(OptionalScopeUnsupported);
+		expect(unknown.asked).toHaveLength(3);
 	});
 });

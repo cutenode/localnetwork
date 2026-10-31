@@ -9,7 +9,7 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"verbs": {
-			"description": "What a promoter does to find a DJ, capitalized: \"Find\", \"Dig up\".",
+			"description": "What a promoter or someone going out does with a DJ, capitalized: \"Find\", \"Dig up\", \"Catch\".",
 			"type": "array",
 			"minItems": 1,
 			"uniqueItems": true,
