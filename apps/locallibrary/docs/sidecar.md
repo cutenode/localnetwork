@@ -58,6 +58,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   Schemas for its `params` and `result`, with the `progress` and `event` notifications. A `read`
   never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
   when it's about the store itself (`store.info`, `store.history`, `store.verify`, `drive.log`).
+  Nor does a change to something the store holds already (`drive.forget`, `sets.delete`,
+  `store.gc.plan`...): with no store it fails with `not_found`.
   [`docs/rpc/locallibrary.d.ts`](../docs/rpc/locallibrary.d.ts) has the same as TypeScript types
   (`Methods["sync.apply"]["params"]`, `Params<"sync.apply">`, `Result<"sync.apply">`).
   `locallibrary rpc --emit-schema DIR` writes both for the version you run, and `rpc.describe`
@@ -377,7 +379,8 @@ operation (`where`: `track`, `playlist`, `drive`), each panel's title, each them
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
-default; `key` `services.<name>` turns a service on or off) answer `{plugin, settings: {key: value},
+default; `key` `services.<name>` turns a service on or off, `keys.<name>` sets the player's key
+for a command or operation) answer `{plugin, settings: {key: value},
 secrets: {key: set}}`: a secret setting is set
 like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
 not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
@@ -422,7 +425,9 @@ What plugins' checks find is in `check`'s `items` and `doctor`'s `checks` (the `
 each named `<plugin>.<check>`, and a plugin's problem counts as one; a check that failed or took
 too long is a warning saying so. An item a plugin can fix has `fix: {plugin, operation, params}`:
 plan it with `plugins.op.plan {plugin, operation, params, context: {drive}}`, confirmed as any
-plan is. Guards (checks run before a plan is applied) add what they say to the `warnings` of a
+plan is. One of locallibrary's own items with a fix has `fix: {name, params: {drive, ...}}`, one
+of its own flows: `pull` (`pull.plan`), `sync` (`sync.group.plan` for the drive's library)
+or `art.fetch` (`plugins.provide` with kind `artwork` for `params.tracks`). Guards (checks run before a plan is applied) add what they say to the `warnings` of a
 plan that edits a library (`edit`, a plugin's operation, `cues`, `playlist.restore`, a contact's
 playlist...); one the user made blocking that finds a warning or a problem sets the plan's `blocked`
 (`<plugin>.<check>`), and applying it fails with reason `blocked`. `plugins.checks` answers

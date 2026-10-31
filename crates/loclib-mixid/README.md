@@ -120,8 +120,8 @@ if r.correlation >= REFINE_MIN_CORRELATION {
 
 - Know anything about a DJ library: track names, keys, BPMs, where files live. You give each
   track an id and look your metadata up from it.
-- Store prints or indexes on disk. `TrackPrint::encode` and `decode` give bytes to keep;
-  where and under which key is up to you.
+- Store prints or indexes on disk. `TrackPrint::encode`, `LibraryIndex::encode` and their
+  `decode`s give bytes to keep; where and under which key is up to you.
 - Read DJ software's project files or audio editors' projects. Push their audio into a
   `fingerprint::Analyzer` yourself.
 - Identify tracks it hasn't been given: there's no online lookup.

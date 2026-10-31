@@ -946,7 +946,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		const sol = net.user('sol');
 
 		const holdsEmail = async () =>
-			grantsAll((await net.app.accounts.get(sol.did))?.grantedScope, SCOPES.email, sol.did);
+			grantsAll((await net.app.accounts.get(sol.did))?.grantedScope, SCOPES.email, sol.did, net.rootDid);
 
 		const email = async () => {
 			const session = await net.app.oauth.restore(sol.did);

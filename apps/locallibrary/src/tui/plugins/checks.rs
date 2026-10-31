@@ -1,16 +1,16 @@
 //! Checks in the player: what plugins' checks find shows with a check's results, and the fixes
-//! they give are in the palette until the next check, each planned and
-//! confirmed as any plugin operation is. Which checks run, and how long one has, is a form in the
-//! palette.
+//! they and locallibrary's own checks give are in the palette until the next check, each planned
+//! and confirmed as any plugin operation, or the player's own flow, is. Which checks run, and how
+//! long one has, is a form in the palette.
 
 use std::path::PathBuf;
 
 use locallibrary::Store;
 use locallibrary::check::CheckReport;
 use locallibrary::plugin::{
-    CheckChange, Cli, Fix, MAX_TIMEOUT, MIN_TIMEOUT, Plugins, TIMEOUT, check_timeout, set_check_timeout,
+    CheckChange, Cli, Fix, MAX_TIMEOUT, MIN_TIMEOUT, PluginFix, Plugins, TIMEOUT, check_timeout, set_check_timeout,
 };
-use loclib_plugin::{Context, When};
+use loclib_plugin::{Context, HostAction, ProviderKind, When};
 use serde_json::{Map, Value, json};
 
 use super::Run;
@@ -20,26 +20,38 @@ use crate::tui::form::{For, Form};
 use crate::tui::keymap::Act;
 use crate::tui::palette::Item;
 
-/// A fix a check gave: its plugin's operation on the drive it was found on, with its params, what
-/// it's about as the palette offers it, and its plugin's name.
+/// A fix a check gave, what it's about as the palette offers it, and who gave it (a plugin's
+/// name; empty for locallibrary's own checks).
 #[derive(Clone)]
 pub struct Fixing {
-    pub run: Run,
-    pub params: Value,
+    pub fix: Fixed,
     pub label: String,
     pub by: &'static str,
 }
 
+/// What a fix does on the drive it was found on.
+#[derive(Clone)]
+pub enum Fixed {
+    /// A plugin's operation, with its params.
+    Plugin(Run, Value),
+    /// One of the player's own flows, on the drive at this root.
+    Host(HostAction, PathBuf),
+}
+
 /// The fixes in `report`, of the drives at `roots` (in the order it checked them).
 pub fn fixes(roots: &[PathBuf], report: &CheckReport) -> Vec<Fixing> {
-    let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
     let fixing = report.items.iter().filter_map(|i| {
-        let Fix { plugin, operation, params } = i.fix.clone()?;
-        let m = plugins.manifest(&plugin).ok()?;
-        let op = m.contributes.operations.iter().find(|o| o.name == operation)?;
         let root = report.drives.iter().position(|d| *d == i.drive).and_then(|n| roots.get(n)).cloned();
-        let run = Run { plugin: &m.id, hook: Cli::Operation(op), root, context: Context::default() };
-        Some(Fixing { run, params, label: format!("fix on {}: {}", i.drive, i.message), by: &m.name })
+        let label = format!("fix on {}: {}", i.drive, i.message);
+        match i.fix.clone()? {
+            Fix::Host(action) => Some(Fixing { fix: Fixed::Host(action, root?), label, by: "" }),
+            Fix::Plugin(PluginFix { plugin, operation, params }) => {
+                let m = crate::plugins::host().ok()?.manifest(&plugin).ok()?;
+                let op = m.contributes.operations.iter().find(|o| o.name == operation)?;
+                let run = Run { plugin: &m.id, hook: Cli::Operation(op), root, context: Context::default() };
+                Some(Fixing { fix: Fixed::Plugin(run, params), label, by: &m.name })
+            }
+        }
     });
     fixing.collect()
 }
@@ -69,12 +81,26 @@ fn blocking_field(plugin: &str, check: &str) -> String {
 }
 
 impl App {
-    /// Plans the fix `i` the last check found, on its drive: its plugin's operation, confirmed as
-    /// any is.
+    /// Plans the fix `i` the last check found, on its drive, confirmed as any plan is: its
+    /// plugin's operation, or the player's own flow (saving a snapshot, syncing the drive's
+    /// library, fetching artwork for the tracks without any).
     pub(in crate::tui) fn fix(&mut self, i: usize) {
-        let Some(Fixing { mut run, params, .. }) = self.fixes.get(i).cloned() else { return };
-        run.context.drive = run.root.as_deref().and_then(|r| self.plugin_drive(r));
-        self.run_plugin(run, params);
+        let Some(Fixing { fix, .. }) = self.fixes.get(i).cloned() else { return };
+        match fix {
+            Fixed::Plugin(mut run, params) => {
+                run.context.drive = run.root.as_deref().and_then(|r| self.plugin_drive(r));
+                self.run_plugin(run, params);
+            }
+            Fixed::Host(HostAction::Pull(_), root) => self.pull(root),
+            Fixed::Host(HostAction::Sync(_), root) => self.sync_group(root),
+            Fixed::Host(HostAction::ArtFetch(f), root) => {
+                let (kind, tracks) = (ProviderKind::Artwork, crate::output::plural(f.tracks.len(), "track"));
+                let title = format!("Fetch {}: {tracks} on {}", kind.found(), self.drive_label(&root));
+                self.fetch_form_from(kind, title, root, f.tracks, None);
+            }
+            // No check of the host's gives another.
+            Fixed::Host(..) => {}
+        }
     }
 
     /// Which checks run, whether each guard stops changes it finds something about, and how long

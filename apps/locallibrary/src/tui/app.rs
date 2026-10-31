@@ -994,8 +994,10 @@ pub struct App {
     /// Dialogs from the background (a plan, a task's results) waiting for the one open to close.
     pub(super) waiting: VecDeque<Modal>,
     pub picking: Option<Pick>,
-    /// The fixes plugins' checks gave in the last check, offered in the palette.
+    /// The fixes the last check gave (plugins' and locallibrary's own), offered in the palette.
     pub fixes: Vec<super::plugins::checks::Fixing>,
+    /// The keys the user bound to plugins' commands and operations (see `keymap::bound`).
+    pub plugin_keys: Vec<keymap::bound::Bound>,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -1191,6 +1193,7 @@ impl App {
             waiting: VecDeque::new(),
             picking: None,
             fixes: Vec::new(),
+            plugin_keys: Vec::new(),
             job: None,
             last_backup: None,
             status: None,
@@ -3236,8 +3239,11 @@ impl App {
             return;
         }
         let scopes = keymap::scopes(self);
+        // The player's own keys first, then those bound to plugins' commands.
         if let Some(b) = keymap::lookup(&scopes, &key) {
             self.perform(b.act, Some(key));
+        } else if let Some(act) = keymap::bound::lookup(&self.plugin_keys, &key) {
+            self.perform(act, Some(key));
         }
     }
 

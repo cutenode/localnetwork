@@ -191,3 +191,61 @@ fn the_store_says_what_it_holds() {
     assert_eq!(r.code, 4, "problems found");
     assert!(r.out.contains("! corrupt: ") && r.out.contains("! missing: "), "{}", r.out);
 }
+
+/// Regression: commands that only look something up in the store made an empty one first, then
+/// failed or found nothing to do. On a fresh home none is left behind.
+#[test]
+fn lookups_with_no_store_leave_none_behind() {
+    let env = Env::new();
+    let a = env.demo("A");
+    let copy = env.outside("copy");
+    for args in [
+        &["--yes", "drive", "forget", "A"][..],
+        &["--yes", "drive", "role", "A", "backup"],
+        &["--yes", "drive", "retire", "A"],
+        &["drive", "adopt", "A", "--as", "Old", "--dry-run"],
+        &["drive", "verify", "A"],
+        &["drive", "fsck", "A"],
+        &["--yes", "sets", "delete", "Nope"],
+        &["sets", "playlist", "Nope", "A", "--dry-run"],
+        &["--yes", "smart", "rm", "Nope"],
+        &["smart", "apply", "--dry-run"],
+        &["--yes", "profile", "unpin", "Nope"],
+        &["--yes", "profile", "unhide", "Nope"],
+        &["--yes", "store", "label", "abc", "Friday"],
+        &["--yes", "store", "unlabel", "Friday"],
+        &["store", "gc", "--dry-run"],
+        &["store", "prune", "--keep-last", "1", "--dry-run"],
+        &["store", "copy", path(&copy), "--dry-run"],
+        &["library", "prune", "--keep-last", "1", "--dry-run"],
+        &["--yes", "library", "rename", "Nope", "New"],
+        &["push", path(&a)],
+        &["art", "unembed", "--dry-run"],
+        &["players", "set", "CDJ-3000", "--dry-run"],
+        &["--yes", "players", "clear"],
+    ] {
+        let r = env.run(args);
+        assert!(!env.store.exists(), "{args:?} made a store\n{}\n{}", r.out, r.err);
+    }
+}
+
+/// A store that won't open is named, whether a read, a lookup or a change reached it.
+#[test]
+fn a_store_that_wont_open_is_named() {
+    let env = Env::new();
+    env.demo("A");
+    env.demo("B");
+    std::fs::create_dir_all(&env.store).unwrap();
+    let newer = r#"{"format": 9999, "id": "00000000-0000-0000-0000-000000000000", "created": "2026-01-01T00:00:00Z"}"#;
+    std::fs::write(env.store.join("store.json"), newer).unwrap();
+    let named = format!("opening store at {}", env.store.display());
+    for args in [
+        &["diff", "A", "B"][..],
+        &["store"],
+        &["--yes", "smart", "rm", "Nope"],
+        &["--yes", "settings", "set", "quantize=off"],
+    ] {
+        let err = env.fails(1, args);
+        assert!(err.contains(&named) && err.contains("newer than this version"), "{args:?}: {err}");
+    }
+}

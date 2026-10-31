@@ -51,8 +51,8 @@ file, and its clippy may disagree with CI's. The oldest Rust locallibrary suppor
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
-pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
+**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+pull requests and pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
 Windows each run the same jobs, the tests in a call of `locallibrary-ci-os.yml` per OS, so an OS
 that can't get a runner holds up only its own:
 
