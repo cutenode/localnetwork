@@ -4,11 +4,11 @@ import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
 import { CALENDAR_EVENT, COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
-import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
+import type { DjSetView, ProfileRecord, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
-import type { DirectoryMatch, DirectoryOutputs, DirectoryProject, DirectoryShow } from './client';
+import type { DirectoryMatch, DirectoryOutputs, DirectoryProfile, DirectoryProject, DirectoryShow } from './client';
 
 const ROOT = 'did:plc:root';
 
@@ -937,6 +937,197 @@ describe('searchProjects', () => {
 	});
 });
 
+type ProfileView = Omit<DirectoryProfile, 'record'> & { record: ProfileRecord };
+
+type PerformerPage = Omit<DirectoryOutputs['searchPerformers'], 'performers'> & {
+	performers: ({ project: View } | { profile: ProfileView })[];
+};
+
+const performerNames = (page: PerformerPage) =>
+	page.performers.map((found) =>
+		'project' in found ? found.project.record.profile.name : found.profile.record.basics.name
+	);
+
+/** A valid profile record named `name`, in Berlin, with `sections` (the performer section on by default). */
+function profileRecord(name: string, sections: JsonObject = { performer: {} }, basics: JsonObject = {}): JsonObject {
+	return {
+		basics: { name, location: { city: 'Berlin', country: 'DE', ...BERLIN }, ...basics },
+		...sections,
+		createdAt: '2026-01-01T00:00:00.000Z',
+		updatedAt: '2026-01-01T00:00:00.000Z'
+	};
+}
+
+/**
+ * Delivers `did`'s profile, and the root's listing of it a minute after the last project or listing. Returns the
+ * listing's URI.
+ */
+async function listDj(hv: FakeHappyView, did: string, name: string, sections?: JsonObject, basics?: JsonObject) {
+	await ingest(hv, did, COLLECTION.profile, 'self', profileRecord(name, sections, basics));
+	published += 1;
+	const createdAt = new Date(Date.UTC(2026, 0, 1) + published * 60_000).toISOString();
+
+	return (await ingest(hv, ROOT, COLLECTION.listingProfile, did, { subject: did, createdAt })).uri;
+}
+
+describe('profile and DJ listing record scripts', () => {
+	it("keeps every account's profile at the key self when the site can read it", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const add = (did: string, record: JsonObject, rkey = 'self') => ingest(hv, did, COLLECTION.profile, rkey, record);
+
+		const both = profileRecord('Ada', {
+			performer: {
+				genres: ['techno'],
+				fees: [{ tier: 'emerging' }],
+				mixes: [{ title: 'Boiler', url: 'https://mixes.test/boiler' }]
+			},
+			promoter: { cities: [{ city: 'Leipzig', country: 'DE' }] }
+		});
+
+		const valid = await add('did:plc:ada', both);
+		const plain = await add('did:plc:bea', { ...profileRecord('Bea', {}), basics: { name: 'Bea' } });
+		const otherKey = await add('did:plc:ada', both, 'other');
+		const nameless = await add('did:plc:cy', { ...both, basics: {} });
+		const stringly = await add('did:plc:di', profileRecord('Di', { performer: { genres: 'techno' } }));
+		const badFee = await add('did:plc:ed', profileRecord('Ed', { performer: { fees: [{ tier: 2 }] } }));
+		const legacy = await add('did:plc:fi', profileRecord('Fi', {}, { avatar: { cid: 'bafy', mimeType: 'image/png' } }));
+		const cityless = await add('did:plc:gu', profileRecord('Gu', { promoter: { cities: [{ city: 'Leipzig' }] } }));
+		const uris = [valid, plain, otherKey, nameless, stringly, badFee, legacy, cityless].map(({ uri }) => uri);
+		const stored = async () => (await query<Records>(hv, 'getRecords', { uris })).records.map(({ uri }) => uri);
+
+		expect(await stored()).toEqual([valid.uri, plain.uri]);
+		expect(hv.logs).toEqual([
+			`skipped ${nameless.uri}: no basics.name`,
+			`skipped ${stringly.uri}: bad genres`,
+			`skipped ${badFee.uri}: bad fees`,
+			`skipped ${legacy.uri}: bad avatar`,
+			`skipped ${cityless.uri}: bad promoter`
+		]);
+
+		await hv.ingest({ did: 'did:plc:ada', collection: COLLECTION.profile, rkey: 'self', cid: '', record: null });
+		expect(await stored()).toEqual([plain.uri]);
+	});
+
+	it("keeps only the root's DJ listings, each keyed by the DJ it names", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const createdAt = '2026-01-01T00:00:00.000Z';
+
+		const list = (did: string, rkey: string, subject: string) =>
+			ingest(hv, did, COLLECTION.listingProfile, rkey, { subject, createdAt });
+
+		const listed = await list(ROOT, 'did:plc:ada', 'did:plc:ada');
+		const misKeyed = await list(ROOT, 'did:plc:bea', 'did:plc:ada');
+		const squatter = await list('did:plc:stranger', 'did:plc:ada', 'did:plc:ada');
+		const uris = [listed, misKeyed, squatter].map(({ uri }) => uri);
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records.map(({ uri }) => uri)).toEqual([listed.uri]);
+	});
+});
+
+describe('searchPerformers', () => {
+	const search = (hv: FakeHappyView, params: Params = {}) => query<PerformerPage>(hv, 'searchPerformers', params);
+
+	it('finds active projects and the DJs staff list whose performer section is on, newest first', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Crew' });
+		await publish(hv, { name: 'Gone' }, { status: 'hidden' });
+		const ada = await listDj(hv, 'did:plc:ada', 'Ada');
+		await listDj(hv, 'did:plc:pro', 'Promoter Only', { promoter: {} });
+		await ingest(hv, 'did:plc:unlisted', COLLECTION.profile, 'self', profileRecord('Unlisted'));
+		await ingest(hv, 'did:plc:squat', COLLECTION.profile, 'self', profileRecord('Squatter'));
+
+		await ingest(hv, 'did:plc:stranger', COLLECTION.listingProfile, 'did:plc:squat', {
+			subject: 'did:plc:squat',
+			createdAt: '2027-01-01T00:00:00.000Z'
+		});
+		await publish(hv, { name: 'Newest', kind: 'duo' });
+
+		const page = await search(hv);
+		expect(performerNames(page)).toEqual(['Newest', 'Ada', 'Crew']);
+		expect(page.performers[1]).toEqual({
+			profile: {
+				uri: `at://did:plc:ada/${COLLECTION.profile}/self`,
+				cid: expect.any(String),
+				record: { $type: COLLECTION.profile, ...profileRecord('Ada') },
+				listing: ada,
+				genres: []
+			}
+		});
+		expect(performerNames(await search(hv, { sort: 'name' }))).toEqual(['Ada', 'Crew', 'Newest']);
+		// A DJ's profile is a solo act.
+		expect(performerNames(await search(hv, { kinds: ['solo'] }))).toEqual(['Ada', 'Crew']);
+		expect(performerNames(await search(hv, { kinds: ['duo'] }))).toEqual(['Newest']);
+		expect(await search(hv, { limit: 2 })).toMatchObject({ total: 3, cursor: '2' });
+		expect(performerNames(await search(hv, { limit: 2, cursor: '2' }))).toEqual(['Crew']);
+
+		// Unlisting takes the DJ out.
+		await hv.ingest({ did: ROOT, collection: COLLECTION.listingProfile, rkey: 'did:plc:ada', cid: '', record: null });
+		expect(performerNames(await search(hv))).toEqual(['Newest', 'Crew']);
+	});
+
+	it('filters and ranks DJs like projects, by the genres they play most when their profile names none', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const at = (place: JsonObject) => ({ location: { country: 'DE', ...place } });
+		await publish(hv, { name: 'Iron Pulse', genres: ['hard techno'], ...at({ city: 'Hamburg', ...HAMBURG }) });
+
+		await listDj(hv, 'did:plc:ada', 'Deep Ada', {
+			performer: {
+				tagline: 'Late night grooves',
+				genres: ['deep house'],
+				formats: ['vinyl'],
+				setTypes: ['warmup'],
+				fees: [{ tier: 'emerging' }]
+			}
+		});
+		await listDj(hv, 'did:plc:bea', 'Bea', { performer: {} }, at({ city: 'Munich', ...MUNICH }));
+
+		await ingest(hv, 'did:plc:bea', COLLECTION.djProfile, 'self', {
+			genres: [
+				{ name: 'Techno', share: 60 },
+				{ name: 'Ambient', share: 20 }
+			]
+		});
+		// Genres the performer section names come first.
+		await listDj(hv, 'did:plc:cy', 'Cy', { performer: { genres: ['disco'] } }, at({ city: 'Potsdam', ...POTSDAM }));
+		await ingest(hv, 'did:plc:cy', COLLECTION.djProfile, 'self', { genres: [{ name: 'Techno', share: 90 }] });
+		// DJ stats are kept as written, so genres in another shape are passed over, and a DJ can leave out a place.
+		await listDj(hv, 'did:plc:di', 'Di', { performer: {} }, { location: undefined });
+		await ingest(hv, 'did:plc:di', COLLECTION.djProfile, 'self', { genres: 'techno' });
+		const find = async (params: Params) => performerNames(await search(hv, params));
+
+		expect(await find({ genres: 'house' })).toEqual(['Deep Ada']);
+		expect(await find({ genres: 'techno', sort: 'name' })).toEqual(['Bea', 'Iron Pulse']);
+		expect(await find({ q: 'ambient' })).toEqual(['Bea']);
+		expect(await find({ q: 'NIGHT deep' })).toEqual(['Deep Ada']);
+		expect(await find({ feeTiers: ['emerging'] })).toEqual(['Deep Ada']);
+		expect(await find({ formats: 'vinyl', setTypes: 'warmup' })).toEqual(['Deep Ada']);
+		expect(await find({ country: 'de', sort: 'name' })).toEqual(['Bea', 'Cy', 'Deep Ada', 'Iron Pulse']);
+		expect(await find({ sort: 'name' })).toEqual(['Bea', 'Cy', 'Deep Ada', 'Di', 'Iron Pulse']);
+
+		const near = await search(hv, { ...BERLIN, radiusKm: 700 });
+		expect(performerNames(near)).toEqual(['Deep Ada', 'Cy', 'Iron Pulse', 'Bea']);
+		expect(near.performers[0]).toMatchObject({ profile: { distanceM: 0 } });
+		expect((await search(hv, { q: 'bea' })).performers).toMatchObject([{ profile: { genres: ['Techno', 'Ambient'] } }]);
+	});
+
+	it('shows a listed DJ who manages a solo project alone once, as their profile, and unclaimed projects alone when asked', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Ada Solo' }, { managers: ['did:plc:ada'] });
+		await publish(hv, { name: 'Ada Duo', kind: 'duo' }, { managers: ['did:plc:ada'] });
+		await publish(hv, { name: 'Shared Solo' }, { managers: ['did:plc:ada', 'did:plc:bea'] });
+		await publish(hv, { name: 'Bea Solo' }, { managers: ['did:plc:bea'] });
+		await publish(hv, { name: 'Nobody Yet' });
+		await listDj(hv, 'did:plc:ada', 'Ada');
+		// Bea's profile is listed but has no performer section, so it doesn't stand in for her project.
+		await listDj(hv, 'did:plc:bea', 'Bea', {});
+		const find = async (params: Params = {}) => performerNames(await search(hv, { sort: 'name', ...params }));
+
+		expect(await find()).toEqual(['Ada', 'Ada Duo', 'Bea Solo', 'Nobody Yet', 'Shared Solo']);
+		expect(await find({ kinds: ['duo'] })).toEqual(['Ada Duo']);
+		expect(await find({ unclaimed: true })).toEqual(['Nobody Yet']);
+	});
+});
+
 describe('matchProjects', () => {
 	/** The candidate the scoring tests start from. */
 	const candidate: JsonObject = {
@@ -1502,6 +1693,78 @@ describe('instruction budget', () => {
 		];
 
 		expect(await overBudget(await directory(1), queries)).toEqual([]);
+	});
+
+	it('searches 1,000 projects and 1,000 listed DJs well under the limit', { tags: ['budget'] }, async () => {
+		const hv = await directory(1);
+		const cid = 'bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm';
+
+		hv.seed(
+			Array.from({ length: 1000 }, (_unused, i) => {
+				const did = `did:plc:dj${i}`;
+
+				const genres = Array.from(
+					{ length: 1 + (i % 6) },
+					(_, j) => KNOWN_GENRES[(i * 11 + j * 13) % KNOWN_GENRES.length]
+				);
+
+				const profile = profileRecord(
+					`DJ ${i}`,
+					{
+						performer: {
+							tagline: 'Deep grooves all night long',
+							// Every other DJ names no genres, so their DJ stats' are read.
+							genres: i % 2 ? genres : [],
+							highlights: ['Berghain', 'Tresor', 'Panorama Bar'],
+							formats: i % 2 ? ['vinyl'] : ['cdj', 'vinyl'],
+							setTypes: ['peak', 'closing'],
+							fees: [{ label: 'Clubs', tier: tiers[i % 4] }],
+							lookingFor: 'Warehouse parties and small clubs. '.repeat(5)
+						}
+					},
+					{
+						bio: 'A DJ who plays warehouse parties and small clubs. '.repeat(5),
+						location: {
+							city: `City ${i % 50}`,
+							country: 'DE',
+							latE6: 47_000_000 + ((i * 6007) % 8_000_000),
+							lngE6: 6_000_000 + ((i * 99_991) % 9_000_000)
+						}
+					}
+				);
+
+				const stats = {
+					generatedAt: '2026-10-01T00:00:00.000Z',
+					tempo: { low: 120, high: 132, median: 126 },
+					genres: genres.map((name, j) => ({ name, share: 40 - j * 5 }))
+				};
+
+				const listedAt = new Date(Date.UTC(2026, 1, 1) + i * 60_000).toISOString();
+
+				return [
+					{ did, collection: COLLECTION.profile, rkey: 'self', cid, record: profile },
+					{ did, collection: COLLECTION.djProfile, rkey: 'self', cid, record: stats },
+					{
+						did: ROOT,
+						collection: COLLECTION.listingProfile,
+						rkey: did,
+						cid,
+						record: { subject: did, createdAt: listedAt }
+					}
+				];
+			}).flat()
+		);
+
+		const queries: [keyof typeof DIRECTORY, Params][] = [
+			['searchPerformers', {}],
+			['searchPerformers', { sort: 'name' }],
+			['searchPerformers', { q: 'deep grooves' }],
+			['searchPerformers', { ...BERLIN, radiusKm: 2000, genres: ['techno', 'house'] }],
+			['searchPerformers', { ...BERLIN, radiusKm: 2000, sort: 'distance' }],
+			['searchPerformers', { feeTiers: ['emerging', 'established'] }]
+		];
+
+		expect(await overBudget(hv, queries)).toEqual([]);
 	});
 
 	it(

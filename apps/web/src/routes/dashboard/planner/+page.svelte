@@ -3,7 +3,8 @@
 	import { Lock, Plus, Trash2 } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { projectSummary } from '#lib/performers.ts';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { formatShowDate } from '#lib/format.ts';
 	import type { ProjectView } from '#lib/types.ts';
@@ -80,12 +81,12 @@
 				<div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 					{#each data.saves as save (save.rkey)}
 						{#if projects[save.project]}
-							<ProjectCard project={projects[save.project]}>
+							<PerformerCard performer={projectSummary(projects[save.project])}>
 								<form method="POST" action="?/unsave" use:enhance>
 									<input type="hidden" name="project" value={save.project} />
 									<button class="btn-ghost btn-sm">Remove</button>
 								</form>
-							</ProjectCard>
+							</PerformerCard>
 						{/if}
 					{/each}
 				</div>

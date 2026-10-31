@@ -8,10 +8,11 @@
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import EpkPhotos from '#lib/components/epk/EpkPhotos.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import { pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * A press kit published as records: the public part for everyone, and the rest for its project's managers and
@@ -89,7 +90,7 @@
 		</section>
 		<aside aria-labelledby="epk-facts" class="flex min-w-0 flex-[1_1_15rem] flex-col gap-4">
 			<h2 id="epk-facts" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</aside>
 	</div>
 
@@ -134,7 +135,7 @@
 							<Quote class="mt-1 size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
 							<figure class="m-0 flex flex-col gap-1">
 								<blockquote class="m-0 text-lede text-fg-soft">{quote.text}</blockquote>
-								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={quote.url} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
+								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={webHref(quote.url)} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
 							</figure>
 						</li>
 					{/each}

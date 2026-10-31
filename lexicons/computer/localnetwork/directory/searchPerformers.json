@@ -1,0 +1,82 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.searchPerformers",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Search performers: active published projects, and DJs whose profile has the performer section on and that staff list. A DJ's profile counts as a solo act, and a solo project managed only by a listed DJ is left out for their profile. Sorts by relevance with q, by distance with a location, and newest first otherwise (a profile by when it was listed).",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"q": {
+						"type": "string",
+						"maxLength": 100,
+						"description": "Words to find in names, taglines, bios, genres, and places. Each word matches as a prefix, and every word must match."
+					},
+					"latE6": {
+						"type": "integer",
+						"minimum": -90000000,
+						"maximum": 90000000,
+						"description": "Latitude in millionths of a degree, like a location's latE6."
+					},
+					"lngE6": {
+						"type": "integer",
+						"minimum": -180000000,
+						"maximum": 180000000,
+						"description": "Longitude in millionths of a degree."
+					},
+					"radiusKm": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 50 },
+					"genres": {
+						"type": "array",
+						"maxLength": 20,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches performers playing any of these genres or a close subgenre."
+					},
+					"kinds": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches projects of these kinds, and DJs' profiles when solo is one."
+					},
+					"formats": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches performers with any of these formats."
+					},
+					"setTypes": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches performers doing any of these set types."
+					},
+					"feeTiers": { "type": "array", "maxLength": 10, "items": { "type": "string", "maxLength": 48 } },
+					"country": { "type": "string", "minLength": 2, "maxLength": 2, "description": "ISO 3166-1 alpha-2 code." },
+					"unclaimed": {
+						"type": "boolean",
+						"default": false,
+						"description": "Only projects nobody manages yet, and so no DJs' profiles."
+					},
+					"sort": { "type": "string", "knownValues": ["relevance", "distance", "recent", "name"] },
+					"limit": { "type": "integer", "minimum": 1, "maximum": 60, "default": 24 },
+					"cursor": { "type": "string" }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["performers", "total"],
+					"properties": {
+						"performers": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#performerView" }
+						},
+						"total": { "type": "integer", "minimum": 0, "description": "Matching performers across every page." },
+						"cursor": { "type": "string" }
+					}
+				}
+			}
+		}
+	}
+}

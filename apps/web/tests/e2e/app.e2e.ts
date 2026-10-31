@@ -49,6 +49,8 @@ async function signIn(page: Page, handle: string, password: string, next = '/das
  */
 async function signOut(page: Page) {
 	await page.goto('/dashboard');
+	// The root layout drops the account's drafts as the form submits, which it can only do once it has hydrated.
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
 }
@@ -234,6 +236,40 @@ test.describe('signed in', () => {
 		await page.goto('/projects/saffron-social');
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test('a DJ asks to be listed in Find DJs, staff list them, and they show up there', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
+		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Ask to be listed' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await signOut(page);
+
+		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests?kind=list');
+		await page.getByRole('link', { name: 'Listing: @neon.test' }).first().click();
+		await expect(page.getByRole('heading', { name: 'Profile to list' })).toBeVisible();
+		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
+		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Submit decision' }).click();
+		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
+
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toHaveCount(0);
+		await expectAccessible(page);
+
+		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
+		await page.goto('/@neon.test');
+		await page.getByRole('link', { name: 'Manage' }).click();
+		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
+		await expectAccessible(page);
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.getByRole('button', { name: 'Take out of Find DJs' }).click();
+		await expect(page.getByText('Taken out of Find DJs')).toBeVisible();
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toBeVisible();
 	});
 
 	test("a project's manager goes from its public page to its dashboard, and others can't", async ({ page }) => {

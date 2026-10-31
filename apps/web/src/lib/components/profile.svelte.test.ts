@@ -8,7 +8,7 @@ import type { ProjectProfile } from '#lib/types.ts';
 import BookingDetails from './BookingDetails.svelte';
 import DjSets from './DjSets.svelte';
 import DjStats from './DjStats.svelte';
-import ProjectFacts from './ProjectFacts.svelte';
+import PerformerFacts from './PerformerFacts.svelte';
 
 const profile: ProjectProfile = {
 	name: 'Neon Tide',
@@ -64,9 +64,9 @@ describe('DjSets', () => {
 	});
 });
 
-describe('ProjectFacts', () => {
+describe('PerformerFacts', () => {
 	it('lists only the facts on file', async () => {
-		await render(ProjectFacts, { profile: { ...profile, travel: { radiusKm: 0 }, capacity: { max: 300 } } });
+		await render(PerformerFacts, { performer: { ...profile, travel: { radiusKm: 0 }, capacity: { max: 300 } } });
 
 		await expect.element(page.getByText('Local only')).toBeInTheDocument();
 		await expect.element(page.getByText('0–300 people')).toBeInTheDocument();
@@ -74,8 +74,8 @@ describe('ProjectFacts', () => {
 	});
 
 	it('lists every fee level, led by what it covers', async () => {
-		await render(ProjectFacts, {
-			profile: {
+		await render(PerformerFacts, {
+			performer: {
 				...profile,
 				fees: [
 					{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
@@ -94,16 +94,24 @@ describe('ProjectFacts', () => {
 	});
 
 	it('shows the one fee of a record written before fee levels', async () => {
-		await render(ProjectFacts, { profile: { ...profile, fee: { tier: 'emerging' } } });
+		await render(PerformerFacts, { performer: { ...profile, fee: { tier: 'emerging' } } });
 
 		await expect.element(page.getByRole('term')).toHaveTextContent('Fee');
 		await expect.element(page.getByRole('definition')).toHaveTextContent('Emerging');
 	});
 
 	it('leaves out the list when there is nothing to show', async () => {
-		await render(ProjectFacts, { profile });
+		await render(PerformerFacts, { performer: profile });
 
 		expect(page.getByRole('term').elements()).toHaveLength(0);
+	});
+
+	it("reads a DJ's performer section, which has only the fields they filled in", async () => {
+		await render(PerformerFacts, { performer: { setTypes: ['closing'], activeSince: 2016 } });
+
+		await expect.element(page.getByText('Closing')).toBeInTheDocument();
+		await expect.element(page.getByText('2016')).toBeInTheDocument();
+		await expect.element(page.getByText('Fee')).not.toBeInTheDocument();
 	});
 });
 

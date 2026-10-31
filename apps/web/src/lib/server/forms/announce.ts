@@ -1,5 +1,6 @@
 import { UserError } from '../core';
-import { CID, isWebUrl, limit, optionalInt, optionalText, text } from '../http';
+import { isWebUrl } from '#lib/web-url.ts';
+import { CID, limit, optionalInt, optionalText, text } from '../http';
 import type { ShowEdit, ShowInput, Venue } from '../services/shows';
 
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;

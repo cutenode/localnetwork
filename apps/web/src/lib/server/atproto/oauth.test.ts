@@ -1,6 +1,6 @@
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { describe, expect, it, vi } from 'vitest';
-import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { openDatabase } from '../db';
 import { silentLogger } from '../logger';
@@ -9,6 +9,7 @@ import {
 	clientMetadata,
 	DECLARED_SCOPES,
 	grantsAll,
+	grantsProfile,
 	grantsPublicRecords,
 	grantsSpaces,
 	heldOptionalScopes,
@@ -41,6 +42,26 @@ describe('OAuth scopes', () => {
 			)
 			.map(String),
 		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
+	];
+
+	/**
+	 * What accounts hold from before the profiles permissions: the grant `full` got from the permission set and scopes as
+	 * they were, written out as the PDS stores it, so it doesn't change with them.
+	 */
+	const beforeProfiles = [
+		'space:computer.localnetwork.space.audit?authority=*&skey=main&collection=computer.localnetwork.audit.entry&action=read_self&action=create',
+		'space:computer.localnetwork.space.moderation?authority=*&skey=main&collection=computer.localnetwork.moderation.request&action=read_self&action=create&action=update&action=delete',
+		'space:computer.localnetwork.space.booking?authority=*&collection=computer.localnetwork.booking.inquiry&collection=computer.localnetwork.booking.message&collection=computer.localnetwork.booking.status&action=read_self&action=create&action=update&action=delete',
+		`space:computer.localnetwork.space.planner?authority=${user}&skey=self&collection=computer.localnetwork.planner.save&collection=computer.localnetwork.planner.show&manage=create&manage=update`,
+		'repo:computer.localnetwork.epk',
+		'repo:computer.localnetwork.show',
+		'repo:computer.localnetwork.follow?action=create&action=delete',
+		`space:computer.localnetwork.space.epk?authority=${user}&collection=computer.localnetwork.epk.content&collection=computer.localnetwork.epk.grant&manage=create&manage=update&manage=delete`,
+		'space:computer.localnetwork.space.backstage?authority=*&collection=computer.localnetwork.epk.draft&action=read_self&action=create&action=update&action=delete',
+		'space:computer.localnetwork.space.epk?authority=*&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete',
+		'atproto',
+		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
+		'repo:community.lexicon.calendar.event?action=create&action=update&action=delete'
 	];
 
 	it('requests the permission set, keeping explicit only what a set cannot hold', () => {
@@ -99,13 +120,37 @@ describe('OAuth scopes', () => {
 		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
 	});
 
+	it("lets users keep their profile, edit their sets, draft in a performer's space, and answer events", () => {
+		const permissions = new ScopePermissions(granted);
+		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
+
+		for (const action of ['create', 'update', 'delete'] as const) {
+			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(true);
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
+			// Only staff list a DJ, from the root account.
+			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
+			// The root keeps a performer's people.
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.person })).toBe(false);
+		}
+
+		// locallibrary makes and removes sets; the site only edits them.
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'update' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'create' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'delete' })).toBe(false);
+		expect(permissions.allowsSpace({ ...performer, action: 'read_self' })).toBe(true);
+		expect(permissions.allowsSpace({ ...performer, action: 'read' })).toBe(false);
+	});
+
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
 		// The PDS checks uploadBlob against the token's scopes like this.
-		const permissions = new ScopePermissionsTransition(full);
+		for (const scope of [full, base]) {
+			const permissions = new ScopePermissionsTransition(scope);
 
-		for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
-			expect(permissions.allowsBlob({ mime })).toBe(true);
-		expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+			for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
+				expect(permissions.allowsBlob({ mime })).toBe(true);
+			expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+		}
 	});
 
 	it('has a base scope without spaces for fallback, which a full grant covers', () => {
@@ -117,9 +162,12 @@ describe('OAuth scopes', () => {
 		expect(SCOPES.minimal).toBe('atproto');
 	});
 
-	it('lets any account follow, and announce shows as calendar events, with or without spaces', () => {
+	it('lets any account keep a profile, follow, and announce shows as calendar events, with or without spaces', () => {
 		for (const scopes of [granted, base.split(' ')]) {
 			const permissions = new ScopePermissions(scopes);
+
+			for (const action of ['create', 'update', 'delete'] as const)
+				expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
 
 			for (const action of ['create', 'delete'] as const)
 				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
@@ -146,11 +194,37 @@ describe('OAuth scopes', () => {
 		expect(grantsSpaces(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user)).toBe(false);
 	});
 
+	it('says which grants can save a profile and its picture, so the editor asks the others to sign in first', () => {
+		expect(grantsProfile(granted.join(' '), user)).toBe(true);
+		expect(grantsProfile(base, user)).toBe(true);
+		expect(grantsProfile(beforeProfiles.join(' '), user)).toBe(false);
+		expect(grantsProfile(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user)).toBe(false);
+		expect(grantsProfile(null, user)).toBe(false);
+	});
+
+	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {
+		const before = beforeProfiles.join(' ');
+
+		// The app signs a spaces-capable account out when this is false for its stored grant.
+		expect(grantsSpaces(before, user)).toBe(true);
+		expect(grantsSpaces(`${before} account:email?action=read`, user)).toBe(true);
+		// It lacks the new writes, so the first one that needs them asks for a fresh sign-in, which gets them all.
+		expect(grantsAll(before, full, user)).toBe(false);
+		expect(grantsPublicRecords(before, user)).toBe(false);
+
+		// Every space write it had is still needed, drafts in a project's backstage included.
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+
+		for (const dropped of beforeProfiles.filter((scope) => !publicRecords(scope)))
+			expect(grantsSpaces(beforeProfiles.filter((scope) => scope !== dropped).join(' '), user)).toBe(false);
+	});
+
 	it('declares every scope it may ask for in its client metadata', () => {
 		const declared = DECLARED_SCOPES.split(' ');
 
 		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
 		expect(new Set(declared).size).toBe(declared.length);
+		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(true);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
