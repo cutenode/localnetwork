@@ -2,7 +2,7 @@
 //! form of text and files. Files are read as they're sent, never held whole, and opened again for
 //! each redirect that asks for the body again; the bytes sent are the progress of the hook call
 //! they're for (the one lent the file, or whose scratch folder it's in). A request cancelled stops
-//! reading them at once ([`crate::net::Requests`]).
+//! reading them at once ([`crate::net::streamed`]).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Take};
@@ -18,6 +18,7 @@ use super::invalid;
 use crate::net::streamed;
 use crate::plugin::blobs::Under;
 use crate::plugin::process::Live;
+use crate::progress::CancelToken;
 
 /// How often what's sent of a file is reported, at most.
 const REPORT_EVERY: Duration = Duration::from_millis(100);
@@ -84,18 +85,23 @@ impl Body {
 
     /// `request` sending it, its files opened again: as long as it is (`Content-Length`), and
     /// for a form, of its type.
-    pub(super) fn send(&self, request: RequestBuilder, live: &Live) -> Result<RequestBuilder, RpcError> {
+    pub(super) fn send(
+        &self,
+        request: RequestBuilder,
+        live: &Live,
+        cancel: &CancelToken,
+    ) -> Result<RequestBuilder, RpcError> {
+        let stream = |file: &FilePart| Ok::<_, RpcError>(streamed(file.reader(live)?, cancel.clone()));
         match self {
             Body::Text(bytes) => Ok(request.body(bytes.clone())),
-            Body::File(file) => Ok(request.header(CONTENT_LENGTH, file.length).body(streamed(file.reader(live)?))),
+            Body::File(file) => Ok(request.header(CONTENT_LENGTH, file.length).body(stream(file)?)),
             Body::Form(fields) => {
                 let mut form = multipart::Form::new();
                 for (name, field) in fields {
                     let part = match field {
                         Field::Text(value) => multipart::Part::text(value.clone()),
                         Field::File { file, filename, content_type } => {
-                            let mut part =
-                                multipart::Part::stream_with_length(streamed(file.reader(live)?), file.length);
+                            let mut part = multipart::Part::stream_with_length(stream(file)?, file.length);
                             if let Some(filename) = filename {
                                 part = part.file_name(filename.clone());
                             }

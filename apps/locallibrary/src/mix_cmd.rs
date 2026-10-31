@@ -264,14 +264,19 @@ fn tracklist(r: &MixReport) {
     }
 }
 
-/// The dimmed end of a play's row: the stretch of the track played, and that the match is
-/// tentative when it is (as the HTML report and the TUI say).
+/// The dimmed end of a play's row: the stretch of the track played, the speeds a ridden pitch
+/// fader went between (as the HTML report gives them), and that the match is tentative when it is
+/// (as the HTML report and the TUI say).
 fn played(p: &Play) -> String {
-    let stretch = format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64));
-    match p.is_tentative() {
-        true => format!("{stretch} · tentative ({:.0}%)", p.confidence * 100.0),
-        false => stretch,
+    let mut parts =
+        vec![format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64))];
+    if p.speed_range.is_some() {
+        parts.push(format!("ridden {}", p.speed()));
     }
+    if p.is_tentative() {
+        parts.push(format!("tentative ({:.0}%)", p.confidence * 100.0));
+    }
+    parts.join(" · ")
 }
 
 /// Where a report goes: `--html` as given (a directory when there are several mixes), or the

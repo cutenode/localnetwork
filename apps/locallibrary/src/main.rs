@@ -1180,7 +1180,9 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             c.cancel();
         });
     }
-    api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    let store_root = cli.store.clone().unwrap_or_else(Store::default_root);
+    output::store_is_copy(locallibrary::offsite::written_copy_warning(&store_root));
+    api::set_store_root(store_root);
     // The check before a set, doctor and edit plans run the plugins' checks, and refresh their
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
@@ -1862,7 +1864,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let profile = plan.apply(Some(&store), ctx)?;
             let from = plan.from.clone();
             return Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-                output::ok(format!("imported {} settings from {from}", profile.base.len()));
+                output::ok(format!("imported {} from {from}", output::plural(profile.base.len(), "setting")));
             }));
         }
     }

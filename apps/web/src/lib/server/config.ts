@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import { type BackupSettings, backupVariables, backupSettings, DEFAULT_DATABASE_PATH } from './backup/config.ts';
 
 const booleanString = z.enum(['true', 'false', '1', '0', 'yes', 'no']).optional();
 
@@ -60,7 +61,7 @@ const userinputSpace = z
 const envSchema = z.object({
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 	PUBLIC_URL: absoluteUrl.default('http://127.0.0.1:5173'),
-	DATABASE_PATH: z.string().min(1).default('data/localnetwork.db'),
+	DATABASE_PATH: z.string().min(1).default(DEFAULT_DATABASE_PATH),
 	LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
 	ROOT_IDENTIFIER: z.string().min(1, 'set ROOT_IDENTIFIER to the root account handle or DID'),
 	ROOT_PASSWORD: z.string().min(1, 'set ROOT_PASSWORD to the root account password (not an app password)'),
@@ -83,7 +84,8 @@ const envSchema = z.object({
 	RESEND_API_KEY: z.string().min(1).optional(),
 	EMAIL_FROM: z.string().min(1).optional(),
 	DM_PROVIDER: z.enum(['bluesky', 'log', 'none']).optional(),
-	CHAT_SERVICE_DID: z.string().startsWith('did:').default('did:web:api.bsky.chat')
+	CHAT_SERVICE_DID: z.string().startsWith('did:').default('did:web:api.bsky.chat'),
+	...backupVariables
 });
 
 export type Config = {
@@ -123,6 +125,8 @@ export type Config = {
 	 * AppView have to know the root account first.
 	 */
 	dm: { provider: 'bluesky' | 'log' | 'none'; chatService: string };
+	/** The bucket the database is backed up to each day. Unset, the app takes no backups. */
+	backup?: BackupSettings;
 };
 
 export const SYNC_SERVICE_FRAGMENT = 'localnetwork_syncer';
@@ -194,7 +198,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		sessionDays: value.SESSION_DAYS,
 		epkViewRetentionDays: value.EPK_VIEW_RETENTION_DAYS,
 		email: emailConfig(value, dev),
-		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID }
+		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID },
+		backup: backupSettings(value)
 	};
 }
 

@@ -5,12 +5,12 @@
 //! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. Reading a file's audio
 //! ([`format()`], [`check_tracks`], mix fingerprinting) and opening it to play happen inside
 //! [`guarded`], so one bad file is that file's error rather than a crash. The player catches a
-//! panic while decoding as it plays on its own audio thread.
+//! panic while decoding as it plays on its own audio thread. An MP4 claiming more than it holds
+//! would make symphonia abort the process, which nothing can catch: [`vet_container`] refuses it
+//! first.
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -21,6 +21,8 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
 
+/// For the player, which opens files through rodio rather than [`open`].
+pub use loclib_mixid::audio::vet_container;
 use loclib_mixid::audio::{CRASHED, open};
 use loclib_model::audio;
 
@@ -106,34 +108,21 @@ pub(crate) fn parallel<T: Sync, R: Send>(
         return Ok(Vec::new());
     }
     ctx.phase_start(phase, items.len() as u64, 0);
-    let next = AtomicUsize::new(0);
-    let done: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::with_capacity(items.len()));
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(items.len());
-    let cancelled = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                s.spawn(|| -> Result<()> {
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { return Ok(()) };
-                        ctx.check()?;
-                        let (path, bytes) = describe(item);
-                        ctx.emit(Event::Item { phase, path, bytes });
-                        let r = work(item);
-                        done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((i, r));
-                    }
-                })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().expect("probe worker panicked")).any(|r| r.is_err())
+    let results = crate::workers::each(items.iter().collect(), crate::workers::per_core(), |item| -> Result<R> {
+        ctx.check()?;
+        let (path, bytes) = describe(item);
+        ctx.emit(Event::Item { phase, path, bytes });
+        Ok(work(item))
     });
     ctx.phase_end(phase);
-    if cancelled {
-        return Err(Error::Cancelled);
+    let mut out = Vec::with_capacity(results.len());
+    for r in results {
+        match r {
+            Ok(r) => out.push(r?),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
-    let mut done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-    done.sort_by_key(|(i, _)| *i);
-    Ok(done.into_iter().map(|(_, r)| r).collect())
+    Ok(out)
 }
 
 /// What's wrong with an audio file.
