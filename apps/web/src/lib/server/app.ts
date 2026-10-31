@@ -10,6 +10,7 @@ import { RootAccount } from './atproto/root';
 import { rootSpaces } from './atproto/spaces';
 import { AuditLog } from './audit/log';
 import { WebSessions } from './auth/session';
+import { dailyBackups } from './backup/backups';
 import { ensureRootSpaces } from './bootstrap';
 import { type Config, getConfig } from './config';
 import type { Core } from './core';
@@ -280,6 +281,14 @@ export async function createApp(options: CreateAppOptions) {
 		userAgent: `LocalNetwork/1.0 (+${config.publicUrl})`
 	});
 
+	const backups = config.backup
+		? dailyBackups({
+				databasePath: config.databasePath,
+				settings: config.backup,
+				logger: logger.child({ component: 'backup' })
+			})
+		: undefined;
+
 	const timers: NodeJS.Timeout[] = [];
 	let bootstrapped = false;
 	/** How the last directory sync went. Stays null when this app doesn't manage HappyView. */
@@ -368,6 +377,11 @@ export async function createApp(options: CreateAppOptions) {
 
 		get directorySync() {
 			return directorySync;
+		},
+
+		/** How the database's backups are going. Null when no bucket is set, so the app takes none. */
+		get backupStatus() {
+			return backups?.status() ?? null;
 		},
 
 		/**
@@ -477,10 +491,17 @@ export async function createApp(options: CreateAppOptions) {
 				.recover()
 				.then(() => outbox.processDue())
 				.catch((error) => logger.warn({ err: error }, 'could not resume notification delivery'));
+
+			// The database's daily backup: now, if today's is missing, then on the first round after midnight UTC.
+			if (backups) {
+				void backups.runIfDue();
+				every(60 * 60_000, () => backups.runIfDue(), 'db-backup');
+			}
 		},
 
 		async stop() {
 			for (const timer of timers) clearInterval(timer);
+			backups?.close();
 			outbox.stop();
 			await Promise.all([audit.idle(), outbox.idle()]);
 			await db.destroy();

@@ -104,6 +104,36 @@ describe('loadConfig', () => {
 		])
 			expect(() => loadConfig({ ...base, USERINPUT_SPACE: wrong })).toThrow(/USERINPUT_SPACE/);
 	});
+
+	it('turns backups on with a bucket, which needs its endpoint and keys', () => {
+		const bucket = {
+			BACKUP_S3_ENDPOINT: 'https://t3.storageapi.dev',
+			BACKUP_S3_BUCKET: 'localnetwork-backups-x1',
+			BACKUP_S3_ACCESS_KEY_ID: 'id',
+			BACKUP_S3_SECRET_ACCESS_KEY: 'secret'
+		};
+
+		expect(loadConfig(base).backup).toBeUndefined();
+		expect(loadConfig({ ...base, ...bucket }).backup).toEqual({
+			endpoint: 'https://t3.storageapi.dev',
+			region: 'auto',
+			bucket: 'localnetwork-backups-x1',
+			accessKeyId: 'id',
+			secretAccessKey: 'secret',
+			pathStyle: false,
+			keep: { daily: 7, weekly: 8 }
+		});
+		expect(
+			loadConfig({ ...base, ...bucket, BACKUP_S3_PATH_STYLE: 'yes', BACKUP_KEEP_DAILY: '3', BACKUP_KEEP_WEEKLY: '0' })
+				.backup
+		).toMatchObject({ pathStyle: true, keep: { daily: 3, weekly: 0 } });
+		expect(() => loadConfig({ ...base, BACKUP_S3_BUCKET: 'b', BACKUP_S3_ACCESS_KEY_ID: 'id' })).toThrow(
+			'BACKUP_S3_BUCKET is set, so set BACKUP_S3_ENDPOINT, BACKUP_S3_SECRET_ACCESS_KEY too'
+		);
+		expect(() => loadConfig({ ...base, ...bucket, BACKUP_KEEP_DAILY: '0', BACKUP_S3_ENDPOINT: 'nope' })).toThrow(
+			/BACKUP_S3_ENDPOINT[\s\S]*BACKUP_KEEP_DAILY/
+		);
+	});
 });
 
 describe('serviceDidFor', () => {
