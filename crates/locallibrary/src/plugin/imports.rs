@@ -104,7 +104,7 @@ impl Plugins {
             return Err(Error::invalid(format!("{} isn't a file", file.display())));
         }
         let (context, device) = slot.context(Context { drive: Some(drive.into()), ..Context::default() }, store)?;
-        let options = super::fitting(declared.options.as_ref(), options, &context)?;
+        let options = super::fitting_options("format", declared.options.as_ref(), options, &context)?;
         let device = device.expect("a drive was named");
         let req = ReadImport { importer: importer.into(), file: file.into(), options, context };
         let read = |answer, scratch: &super::blobs::Scratch, _: &_| match answer {

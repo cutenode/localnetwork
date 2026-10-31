@@ -89,7 +89,7 @@ impl Plugins {
         let drive = Some(source.drive.clone()).filter(|d| !d.is_empty());
         let (context, device) =
             slot.context(Context { drive, set: source.set.clone(), ..Context::default() }, store)?;
-        let options = super::fitting(declared.options.as_ref(), options, &context)?;
+        let options = super::fitting_options("format", declared.options.as_ref(), options, &context)?;
         let root = device.map(|d| d.root().to_path_buf()).unwrap_or_default();
         let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), root, ..source };
         let mut write =
