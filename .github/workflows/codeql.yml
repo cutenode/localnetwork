@@ -7,12 +7,16 @@ name: CodeQL
 #
 # Every pull request, with no paths filter: the "Protect Main" ruleset's code scanning rule waits
 # for an analysis of the pull request's commit, and CodeQL's own result is the check, so there's
-# no passed job. Weekly too, for queries added since the last push.
+# no passed job. Each merge queue group too: the rule waits for an analysis of the group's commit
+# as well, and holds the group until it gets one (netresearch/.github#170 had every queued pull
+# request stuck on "Code scanning is still expecting 1 result from CodeQL"). Weekly too, for
+# queries added since the last push.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
   schedule:
     - cron: "23 4 * * 1"
 

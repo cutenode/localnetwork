@@ -1,15 +1,22 @@
 name: CI
 
-# Every pull request and push to main runs this one workflow: a changes job works out which tools'
-# files changed, each tool's workflow runs as a call when its did, and "CI passed", the one check
-# the "Protect Main" ruleset requires, reports either way. One changes job and one passed job per
-# run, where each tool's workflow used to start both of its own, leaves the runners to the work.
+# Every pull request, merge queue group and push to main runs this one workflow: a changes job works
+# out which tools' files changed, each tool's workflow runs as a call when its did, and "CI passed",
+# the one check the "Protect Main" ruleset requires, reports either way. One changes job and one
+# passed job per run, where each tool's workflow used to start both of its own, leaves the runners
+# to the work.
+#
+# Pull requests and pushes to main run on Linux. locallibrary's macOS and Windows jobs, which the
+# plan's 5 macOS runners can't keep up with on every push, run once for each merge queue group
+# instead, or on a pull request with the `all-os` label. A group runs nothing else: its pull
+# requests passed on Linux, and the push to main once it merges runs Linux again.
 on:
   push:
     branches: [main]
   # The default types, and ready_for_review for a draft's first run (see the changes job).
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
 
 permissions:
   contents: read
@@ -25,7 +32,8 @@ concurrency:
 jobs:
   # Each output says whether a tool's workflow has something to check. A draft checks nothing
   # until it's marked ready for review, which leaves the runners to the pull requests about to
-  # merge, and `draft` tells passed it skipped the work.
+  # merge, and `draft` tells passed it skipped the work. `linux` and `other_os` say which OSes this
+  # event runs (see the top of the file).
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -34,28 +42,31 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      locallibrary: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
-      locallibrary_semver: ${{ github.event_name == 'pull_request' && steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary_semver == 'true') }}
-      web: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web == 'true') }}
-      web_integration: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_integration == 'true') }}
-      web_lighthouse: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_lighthouse == 'true') }}
-      localtoolbox: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.localtoolbox == 'true') }}
-      atstore: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.atstore == 'true') }}
-      mix_report: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.mix_report == 'true') }}
-      npm_advisories: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.npm_advisories == 'true') }}
-      workflow_lint: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.workflow_lint == 'true') }}
+      locallibrary: ${{ (steps.scope.outputs.linux == 'true' || steps.scope.outputs.other_os == 'true') && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_linux: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_other_os: ${{ steps.scope.outputs.other_os == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_semver: ${{ github.event_name == 'pull_request' && steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary_semver == 'true') }}
+      web: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web == 'true') }}
+      web_integration: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_integration == 'true') }}
+      web_lighthouse: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_lighthouse == 'true') }}
+      localtoolbox: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.localtoolbox == 'true') }}
+      atstore: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.atstore == 'true') }}
+      mix_report: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.mix_report == 'true') }}
+      npm_advisories: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.npm_advisories == 'true') }}
+      workflow_lint: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.workflow_lint == 'true') }}
       # The policies are quick and read files from all over, so they always run.
-      repo_checks: ${{ steps.scope.outputs.skip != 'true' }}
-      repo_checks_lexicons: ${{ steps.scope.outputs.skip != 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.repo_checks_lexicons == 'true') }}
+      repo_checks: ${{ steps.scope.outputs.linux == 'true' }}
+      repo_checks_lexicons: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.repo_checks_lexicons == 'true') }}
       draft: ${{ steps.scope.outputs.skip == 'true' }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
-      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
-      - if: github.event_name == 'push'
+      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push,
+      # and a merge queue group against the commit it goes on top of.
+      - if: github.event_name != 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - if: github.event_name == 'push'
+      - if: github.event_name != 'pull_request'
         id: base
         uses: ./.github/actions/last-passed
       # Each tool's paths: its own files and the shared ones it depends on (the lockfile,
@@ -201,29 +212,43 @@ jobs:
               - 'lexicons/**'
               - 'tools/lexicons.sh'
               - '.github/workflows/repo-checks.yml'
-      # Whether the pull request is a draft now, from the API. The event has the pull request as it
-      # was when the event was made: #211 was marked ready a second after a push, GitHub started a
-      # run for the push and none for ready_for_review, and the push's event still said draft. A
-      # re-run gets the same event, so only this lets one see that the pull request is ready.
+      # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
+      # has the pull request as it was when the event was made: #211 was marked ready a second after
+      # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
+      # still said draft. A re-run gets the same event, so only this lets one see that the pull
+      # request is ready, or that the label was added since.
       - if: github.event_name == 'pull_request'
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
-        run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
+        run: |
+          gh api "repos/$GH_REPO/pulls/$NUMBER" \
+            --jq '"draft=\(.draft)", "all_os=\(any(.labels[]; .name == "all-os"))"' >> "$GITHUB_OUTPUT"
       # Everything runs for a pull request too big for the API's file list (it lists at most 3000),
-      # and for a change to this workflow. A draft runs nothing.
+      # and for a change to this workflow. A draft runs nothing. Which OSes run is at the top of the
+      # file.
       - id: scope
         env:
+          EVENT: ${{ github.event_name }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files || 0 }}
           CI_CHANGED: ${{ steps.filter.outputs.ci }}
           DRAFT: ${{ steps.pr.outputs.draft }}
+          ALL_OS: ${{ steps.pr.outputs.all_os }}
         run: |
           all=false
           if [ "$CHANGED_FILES" -ge 3000 ] || [ "$CI_CHANGED" = true ]; then all=true; fi
-          echo "all=$all" >> "$GITHUB_OUTPUT"
-          echo "skip=${DRAFT:-false}" >> "$GITHUB_OUTPUT"
+          linux=true
+          other_os=${ALL_OS:-false}
+          if [ "$EVENT" = merge_group ]; then linux=false; other_os=true; fi
+          if [ "$DRAFT" = true ]; then linux=false; other_os=false; fi
+          {
+            echo "all=$all"
+            echo "linux=$linux"
+            echo "other_os=$other_os"
+            echo "skip=${DRAFT:-false}"
+          } >> "$GITHUB_OUTPUT"
 
   locallibrary:
     needs: changes
@@ -234,6 +259,8 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/locallibrary-ci.yml
     with:
+      linux: ${{ needs.changes.outputs.locallibrary_linux == 'true' }}
+      other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
       semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
 
   web:
