@@ -6,8 +6,10 @@ package ruleset
 import data.lib
 import data.workflows
 
+rules := lib.file(".github/rulesets/protect-main.json").rules
+
 required := {c.context |
-	some rule in lib.file(".github/rulesets/protect-main.json").rules
+	some rule in rules
 	rule.type == "required_status_checks"
 	some c in rule.parameters.required_status_checks
 }
@@ -22,4 +24,14 @@ deny contains msg if {
 deny contains msg if {
 	some name in (required - passed)
 	msg := sprintf(".github/rulesets/protect-main.json: no workflow reports %q, so nothing can merge", [name])
+}
+
+# The merge queue waits for the required checks on each group's merge_group event, and takes the
+# group out when one never reports.
+deny contains msg if {
+	some rule in rules
+	rule.type == "merge_queue"
+	some path, wf in workflows.gated
+	not workflows.runs_on(workflows.triggers(wf), "merge_group")
+	msg := sprintf("%s: add `on.merge_group`; the merge queue waits for %q, which never reports otherwise", [path, wf.jobs.passed.name])
 }
