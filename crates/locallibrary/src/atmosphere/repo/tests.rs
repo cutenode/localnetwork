@@ -92,6 +92,12 @@ fn a_missing_scope_names_what_couldnt_be_published() {
     assert!(said("app.example.thing").contains("publish records;"));
 }
 
+/// A blob as a data server answers an upload.
+pub(crate) fn blob() -> Value {
+    let cid = "bafkreibme22gw2h7y2h7tg2fhqotaqjucnbc24deqo72b6mkl2egezxhvy";
+    json!({ "$type": "blob", "ref": { "$link": cid }, "mimeType": "audio/mp4", "size": 1000 })
+}
+
 pub(crate) type Answer = (u16, String, Value);
 /// A server's base URL, what it answers every request with, and how many requests it got.
 pub(crate) type Shared = (String, Arc<Mutex<Answer>>, Arc<AtomicUsize>);
@@ -208,6 +214,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
         lexicon::PROFILE => {
             json!({ "$type": collection, "generatedAt": "2026-10-04T09:30:00.000Z", "precision": "exact", "basis": "plays" })
         }
+        lexicon::RECORDING => crate::publish::recording::record(blob(), 3600, chrono::Utc::now()),
         _ => {
             json!({ "$type": collection, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z" })
         }

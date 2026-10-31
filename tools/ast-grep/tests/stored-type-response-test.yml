@@ -1,0 +1,15 @@
+id: stored-type-response
+valid:
+  - "return imageResponse(new Uint8Array(photo.bytes), photo.mimeType, PHOTO_TYPES, { cacheControl, log });"
+  - "return audioResponse(slice(upstream.body, start, length), audio.mimeType, { status, headers, log });"
+  - "new Response(stream, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8' } });"
+  - "if (options.body) headers.set('content-type', 'application/json');"
+  - "headers.set('cache-control', cacheControl);"
+  - "const blob = new Blob([bytes], { type: 'image/png' });"
+  - "const headers = { 'cache-control': photo.isPublic ? 'public' : 'private' };"
+invalid:
+  - "new Response(new Uint8Array(bytes), { headers: { 'content-type': mimeType } });"
+  - "new Response(upstream.body, { headers: { \"Content-Type\": type } });"
+  - "headers.set('content-type', photo.mimeType);"
+  - "response.headers.append('Content-Type', `${type}`);"
+  - "new Response(new Blob([new Uint8Array(photo.bytes)], { type: photo.mimeType }));"

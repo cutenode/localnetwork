@@ -1,6 +1,7 @@
 //! Rule-based ("smart") playlists: a filter, sort order and limit kept in the store and written to
 //! drives as ordinary playlists, which is what players can show. rekordbox's own Intelligent
-//! Playlists reach a drive the same way, as fixed lists from export time.
+//! Playlists reach a drive the same way, as fixed lists from export time; `collection export`
+//! keeps a rule for each one a filter can say (see [`SmartPlaylists::keep_for_drive`]).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -112,6 +113,25 @@ impl SmartPlaylists {
             }
         };
         Ok(self.playlists.remove(i))
+    }
+
+    /// Keep the rules a collection export made for the drive `drive` (see
+    /// [`crate::collection_export`]): each of `rules`, limited to it, added, or put in place of the
+    /// rule for its path when that one is limited to this drive alone too; and the rules for `gone`
+    /// (paths an earlier export kept) that are so limited taken away. Returns the paths of `rules`
+    /// left alone, as another rule is there.
+    pub fn keep_for_drive(&mut self, drive: Uuid, rules: &[SmartPlaylist], gone: &[String]) -> Result<Vec<String>> {
+        let own = |p: &SmartPlaylist| p.drives == [drive];
+        self.playlists.retain(|p| !(own(p) && gone.iter().any(|g| key(g) == p.key())));
+        let mut left = Vec::new();
+        for r in rules {
+            let rule = SmartPlaylist { drives: vec![drive], ..r.clone() };
+            match self.get(&rule.path) {
+                Some(p) if !own(p) => left.push(rule.path),
+                _ => self.set(rule)?,
+            }
+        }
+        Ok(left)
     }
 
     /// The edits that bring a drive's smart playlists up to date (see [`SmartPlaylist::applies_to`]).

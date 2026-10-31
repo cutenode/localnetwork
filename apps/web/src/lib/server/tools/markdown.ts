@@ -29,7 +29,7 @@ export function rewriteHref(href: string, tool: Tool, from: string): string | nu
 	return doc ? `/tools/${tool.id}/docs/${doc.slug}${hash}` : `${REPO}/${target}${hash}`;
 }
 
-const escapeHtml = (text: string) =>
+export const escapeHtml = (text: string) =>
 	text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const rendered = new Map<string, string>();

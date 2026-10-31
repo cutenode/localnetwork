@@ -166,6 +166,20 @@ impl Test {
         if let Some(code) = p["exit"].as_i64() {
             std::process::exit(code as i32);
         }
+        if p["orphan"].is_object() {
+            // A `net/fetch` sent by a process it starts, which holds its output open once it's
+            // killed and never hears of a `$/cancel`: the hook's isn't passed on to it.
+            write_blobs(&req.context, p)?;
+            let mut fetch: Fetch = params(p["orphan"].clone())?;
+            in_scratch(&req.context, &mut fetch);
+            let line = json!({ "jsonrpc": "2.0", "id": "orphan", "method": "net/fetch", "params": fetch });
+            let me = std::env::current_exe().map_err(|e| RpcError::failed("io", e.to_string()))?;
+            let started = std::process::Command::new(me)
+                .args(["--orphan", &line.to_string()])
+                .stdin(std::process::Stdio::null())
+                .spawn();
+            started.map_err(|e| RpcError::failed("io", e.to_string()))?;
+        }
         if p["stuck"] == true {
             // Never checks for being cancelled.
             loop {
@@ -194,12 +208,7 @@ impl Test {
         write_blobs(&req.context, p)?;
         if p["fetch"].is_object() {
             let mut fetch: Fetch = params(p["fetch"].clone())?;
-            // A name, in this request's scratch folder.
-            let scratch = req.context.scratch.clone().unwrap_or_default();
-            let files = fetch.multipart.iter_mut().filter_map(|p| p.file.as_mut());
-            for blob in [&mut fetch.body_blob, &mut fetch.into_blob].into_iter().flatten().chain(files) {
-                *blob = scratch.join(&*blob);
-            }
+            in_scratch(&req.context, &mut fetch);
             return Ok(match host.fetch(&fetch) {
                 Ok(fetched) => {
                     // What it was answered, in its log too.
@@ -595,4 +604,13 @@ fn write_blobs(context: &Context, p: &Value) -> Result<(), RpcError> {
         std::os::unix::fs::symlink(to.as_str().unwrap_or_default(), scratch()?.join(name)).map_err(io)?;
     }
     Ok(())
+}
+
+/// The files `fetch` names, by their names in the request's scratch folder.
+fn in_scratch(context: &Context, fetch: &mut Fetch) {
+    let scratch = context.scratch.clone().unwrap_or_default();
+    let files = fetch.multipart.iter_mut().filter_map(|p| p.file.as_mut());
+    for blob in [&mut fetch.body_blob, &mut fetch.into_blob].into_iter().flatten().chain(files) {
+        *blob = scratch.join(&*blob);
+    }
 }

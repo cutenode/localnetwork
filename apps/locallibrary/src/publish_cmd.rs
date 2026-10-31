@@ -12,16 +12,18 @@ use std::process::ExitCode;
 use anyhow::{Result, bail};
 use console::style;
 use locallibrary::Store;
-use locallibrary::api::{self, PlannedPublish, PublishPlan};
+use locallibrary::api::{self, PlannedPublish, PlannedUpload, PublishPlan};
+use locallibrary::atmosphere::AccountInfo;
 use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 use locallibrary::publish;
+use locallibrary::publish::recording::Encoding;
 use locallibrary::settings;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::browser::BrowserArgs;
-use crate::output::{Outcome, Output, dim, heading, ok, plural, warn};
+use crate::output::{Outcome, Output, dim, envelope, heading, ok, plural, print_json, warn};
 
 fn root(store: &Option<PathBuf>) -> PathBuf {
     store.clone().unwrap_or_else(Store::default_root)
@@ -38,17 +40,34 @@ struct Run<'a> {
     ctx: &'a Ctx<'a>,
 }
 
-/// Nothing published (or imported): `--json` prints the plan, not applied, and the outcome.
-fn stop(out: Output, plan: &impl Serialize, outcome: Outcome) -> ExitCode {
-    out.not_applied(plan, outcome)
+/// What publishing a record came to, its human output already printed: the outcome, and the
+/// `--json` envelope saying so, which another command's can hold.
+pub struct Done {
+    pub outcome: Outcome,
+    pub envelope: Value,
+}
+
+impl Done {
+    /// `--json` prints the envelope. Returns the exit status.
+    pub fn print(self, out: Output) -> ExitCode {
+        if out.json {
+            print_json(self.envelope);
+        }
+        self.outcome.exit()
+    }
+}
+
+/// Nothing published (or imported): the plan, not applied, and the outcome.
+fn stop(plan: &impl Serialize, outcome: Outcome) -> Done {
+    Done { outcome, envelope: envelope(plan, &Value::Null, false, outcome) }
 }
 
 /// Nothing to publish: what's published is the same.
-fn unchanged(out: Output, p: &PlannedPublish, what: &str) -> ExitCode {
+fn unchanged(out: Output, p: &PlannedPublish, what: &str) -> Done {
     if !out.json {
         ok(format!("{what} already published, unchanged"));
     }
-    stop(out, p, Outcome::NothingToDo)
+    stop(p, Outcome::NothingToDo)
 }
 
 /// The plan, then (once confirmed, and signed in again if the session may not publish) exactly
@@ -58,16 +77,16 @@ fn publish_flow(
     what: &str,
     plan: impl Fn() -> locallibrary::Result<PlannedPublish>,
     show: impl Fn(&Value, Option<&Value>),
-) -> Result<ExitCode> {
+) -> Result<Done> {
     let mut p = plan()?;
     if !out.json {
         render_plan(&p, what, &show);
     }
     if dry_run {
-        return Ok(stop(out, &p, Outcome::DryRun));
+        return Ok(stop(&p, Outcome::DryRun));
     }
     if out.json && !out.yes {
-        return Ok(stop(out, &p, Outcome::NotConfirmed));
+        return Ok(stop(&p, Outcome::NotConfirmed));
     }
     let Some(account) = p.account.clone() else {
         bail!("not signed in to an Atmosphere account: `locallibrary account login <handle> --publish` signs in");
@@ -77,22 +96,10 @@ fn publish_flow(
         return Ok(unchanged(out, &p, what));
     }
     if p.missing_scope.is_some() {
-        if out.json || !std::io::stdin().is_terminal() {
-            bail!(
-                "{}'s session doesn't allow publishing yet: sign in again with `locallibrary account login --publish`",
-                account.name()
-            );
-        }
-        eprintln!(
-            "Publishing needs your permission for locallibrary to write your My Settings, profile and \
-             sets to your account, and nothing else. That means signing in again."
-        );
-        if let Some(o) = out.decide(false, "Sign in again to allow publishing?") {
-            return Ok(stop(out, &p, o));
-        }
-        let publishing = locallibrary::atmosphere::publish_scopes();
-        let signed_in =
-            crate::account_cmd::sign_in_again(root, &account, &publishing, "publishing", browser, out, ctx)?;
+        let signed_in = match sign_in_to_publish(Run { root, dry_run, browser, out, ctx }, &account)? {
+            Ok(signed_in) => signed_in,
+            Err(o) => return Ok(stop(&p, o)),
+        };
         // Planned again for whoever the browser approved, which needn't be the account before.
         p = plan()?;
         if !out.json {
@@ -107,14 +114,37 @@ fn publish_flow(
     }
     let account = p.account.as_ref().map_or_else(|| account.name(), |a| a.name());
     if let Some(o) = out.decide(false, &format!("Publish {what} as {account}? Anyone can read it")) {
-        return Ok(stop(out, &p, o));
+        return Ok(stop(&p, o));
     }
     let published = p.apply(None, ctx)?;
-    let uri = published.uri.clone();
-    Ok(out.applied(&p, &published, Outcome::Applied, || {
+    if !out.json {
         ok(format!("published {what}"));
-        say!("  {}", dim(uri));
-    }))
+        say!("  {}", dim(&published.uri));
+    }
+    Ok(Done { outcome: Outcome::Applied, envelope: envelope(&p, &published, true, Outcome::Applied) })
+}
+
+/// Sign `account` in again allowing publishing, once the DJ says so: the account the browser
+/// approved, or the outcome when they don't.
+fn sign_in_to_publish(
+    Run { root, browser, out, ctx, .. }: Run<'_>,
+    account: &AccountInfo,
+) -> Result<std::result::Result<AccountInfo, Outcome>> {
+    if out.json || !std::io::stdin().is_terminal() {
+        bail!(
+            "{}'s session doesn't allow publishing yet: sign in again with `locallibrary account login --publish`",
+            account.name()
+        );
+    }
+    eprintln!(
+        "Publishing needs your permission for locallibrary to write your My Settings, profile, sets and \
+         their recordings to your account, and to upload recordings, and nothing else. That means signing in again."
+    );
+    if let Some(o) = out.decide(false, "Sign in again to allow publishing?") {
+        return Ok(Err(o));
+    }
+    let publishing = locallibrary::atmosphere::publish_scopes();
+    Ok(Ok(crate::account_cmd::sign_in_again(root, account, &publishing, "publishing", browser, out, ctx)?))
 }
 
 /// A record's time stamp as a day on this computer's calendar.
@@ -216,12 +246,13 @@ pub fn settings_publish(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let root = root(store);
-    publish_flow(
+    let done = publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "your My Settings",
         || api::settings_publish_plan(&root),
         render_settings,
-    )
+    )?;
+    Ok(done.print(out))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -394,12 +425,13 @@ pub fn profile_publish(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let root = root(store);
-    publish_flow(
+    let done = publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "your profile",
         || api::profile_publish_plan(&root, req, ctx),
         render_profile,
-    )
+    )?;
+    Ok(done.print(out))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -456,6 +488,7 @@ fn set_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
         ("playedWith", "With", Some(with.join(", "))),
         ("event", "Event", text("event")),
         ("links", "Listen", Some(links.join(", "))),
+        ("recording", "Audio", r["recording"]["uri"].as_str().map(String::from)),
         ("sources", "From", Some(names(&r["sources"], "kind"))),
     ]
     .into_iter()
@@ -483,10 +516,11 @@ fn render_set(record: &Value, current: Option<&Value>) {
     }
 }
 
-/// `locallibrary sets publish SET`. With `lookup`, MusicBrainz IDs are looked up first for the
-/// tracks it names (kept in the set, whether it's published or not), when it can be published
-/// from here: not when it's only shown, no one is asked to confirm it (without `--yes`, or a
-/// terminal), or no account is signed in (which the plan says first). What the lookup did is
+/// `locallibrary sets publish SET`, and the record `sets publish SET --to PLUGIN:DESTINATION`
+/// offers once the plugin has published the set. With `lookup`, MusicBrainz IDs are looked up
+/// first for the tracks it names (kept in the set, whether it's published or not), when it can be
+/// published from here: not when it's only shown, no one is asked to confirm it (without `--yes`,
+/// or a terminal), or no account is signed in (which the plan says first). What the lookup did is
 /// among the plan's notes.
 pub fn set_publish(
     store: &Option<PathBuf>,
@@ -496,7 +530,7 @@ pub fn set_publish(
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
-) -> Result<ExitCode> {
+) -> Result<Done> {
     let root = root(store);
     let confirmable = out.yes || (!out.json && std::io::stdin().is_terminal());
     let notes = match lookup && !dry_run && confirmable && locallibrary::atmosphere::status(&root)?.is_some() {
@@ -521,6 +555,126 @@ fn lookup_notes(looked: &api::SetLookup) -> Vec<String> {
     let unmounted = (looked.unmounted > 0)
         .then(|| format!("plug in the drive to look up MusicBrainz IDs for {}", plural(looked.unmounted, "track")));
     found.into_iter().chain(unmounted).collect()
+}
+
+fn render_upload(p: &PlannedUpload) {
+    match &p.account {
+        Some(a) => heading(&format!("Upload this set's recording as {}", a.name())),
+        None => heading("This set's recording, as it would be uploaded"),
+    }
+    if let Some(uri) = &p.uri {
+        let state = match p.current.as_ref().and_then(|c| date(&c.value, "createdAt")) {
+            None if p.current.is_none() => "not uploaded yet".to_string(),
+            None => "replaces the recording there".to_string(),
+            Some(d) => format!("replaces the recording you uploaded {d}"),
+        };
+        say!("  {}", dim(format!("{uri} · {state}")));
+    } else {
+        crate::output::hint_at("  ", "not signed in: `locallibrary account login <handle> --publish` signs in");
+    }
+    let a = &p.audio;
+    say!(
+        "  {:<9} {} {}",
+        "Recording",
+        a.path.display(),
+        dim(format!(
+            "· {} · {} · {}",
+            a.format,
+            crate::output::bytes(a.bytes),
+            crate::output::clock(a.duration_secs as f64)
+        ))
+    );
+    let how = match p.encoding {
+        Encoding::AsIs => "as it is".to_string(),
+        Encoding::Aac { kbps, bytes } => {
+            format!("as AAC at {kbps} kbit/s in an M4A file, about {} (ffmpeg encodes it)", crate::output::bytes(bytes))
+        }
+    };
+    say!("  {:<9} {how}", "Goes up");
+    if !p.chapters.is_empty() {
+        say!("  {:<9} {}", "Chapters", crate::output::plural(p.chapters.len(), "track"));
+    }
+    for note in &p.notes {
+        say!("  {}", dim(note));
+    }
+    if p.missing_scope.is_some() {
+        warn("this session can't upload yet: it was signed in without permission to (uploading signs in again)");
+    }
+    say!("  {}", dim("then this set's record, pointing at it"));
+    say!("{}", dim("Anyone can read what you publish, and copies stay on the network even after it's deleted."));
+}
+
+/// `locallibrary sets publish SET --upload`: the set's recording uploaded to the account (encoded
+/// first when it has to be) and published as a recording record, then the set's record pointing at
+/// it, published as `sets publish SET` publishes it. One question covers both. A set record that
+/// fails to publish says so (exit status 5), with the recording up.
+#[allow(clippy::too_many_arguments)]
+pub fn set_upload(
+    store: &Option<PathBuf>,
+    req: &api::SetPublishRequest,
+    max_bytes: Option<u64>,
+    dry_run: bool,
+    lookup: bool,
+    browser: BrowserArgs,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let root = root(store);
+    let upload = api::SetUploadRequest { set: req.set.clone(), max_bytes, hide: req.hide.clone() };
+    let mut p = api::set_upload_plan(&root, &upload)?;
+    if !out.json {
+        render_upload(&p);
+    }
+    if dry_run || (out.json && !out.yes) {
+        return Ok(out.not_applied(&p, if dry_run { Outcome::DryRun } else { Outcome::NotConfirmed }));
+    }
+    let Some(account) = p.account.clone() else {
+        bail!("not signed in to an Atmosphere account: `locallibrary account login <handle> --publish` signs in");
+    };
+    if p.missing_scope.is_some() {
+        let signed_in = match sign_in_to_publish(Run { root: &root, dry_run, browser, out, ctx }, &account)? {
+            Ok(signed_in) => signed_in,
+            Err(o) => return Ok(out.not_applied(&p, o)),
+        };
+        p = api::set_upload_plan(&root, &upload)?;
+        if !out.json {
+            render_upload(&p);
+        }
+        if p.missing_scope.is_some() {
+            bail!("{} didn't allow publishing (it wasn't granted when you signed in)", signed_in.name());
+        }
+    }
+    let account = p.account.as_ref().map_or_else(|| account.name(), |a| a.name());
+    let question = format!("Upload the recording and publish this set as {account}? Anyone can read them");
+    if let Some(o) = out.decide(false, &question) {
+        return Ok(out.not_applied(&p, o));
+    }
+    let uploaded = p.apply(None, ctx)?;
+    if !out.json {
+        ok("uploaded the recording");
+        say!("  {}", dim(&uploaded.uri));
+    }
+    let mut done = envelope(&p, &uploaded, true, Outcome::Applied);
+    // Already asked about: the set's record goes out without asking again.
+    let outcome = match set_publish(store, req, false, lookup, browser, Output { yes: true, ..out }, ctx) {
+        Ok(record) => {
+            done["record"] = record.envelope;
+            Outcome::Applied
+        }
+        Err(e) => {
+            let e = format!("{e:#}");
+            if !out.json {
+                warn(format!("the set's record wasn't published: {e}"));
+                crate::output::hint(format!("`locallibrary sets publish {}` publishes it later", p.set));
+            }
+            done["record"] = json!({ "error": { "message": e }, "outcome": "error" });
+            Outcome::Partial
+        }
+    };
+    if out.json {
+        print_json(done);
+    }
+    Ok(outcome.exit())
 }
 
 /// `locallibrary settings import --from-handle HANDLE` / `--from-account`.
@@ -565,15 +719,15 @@ pub fn settings_import(
         );
     }
     if plan.noop {
-        return Ok(stop(out, &plan, Outcome::NothingToDo));
+        return Ok(out.not_applied(&plan, Outcome::NothingToDo));
     }
     if let Some(o) = out.decide(dry_run, "Import these settings?") {
-        return Ok(stop(out, &plan, o));
+        return Ok(out.not_applied(&plan, o));
     }
     let profile = plan.apply(None, ctx)?;
     let (count, from) = (plan.published.values.len(), plan.from.name());
     Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-        ok(format!("imported {count} settings from {from}"));
+        ok(format!("imported {} from {from}", plural(count, "setting")));
         crate::output::hint("Run `locallibrary settings apply` to write the profile to your drives.");
     }))
 }

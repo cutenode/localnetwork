@@ -6,6 +6,8 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
+import { Notifier } from '../notifications/notifier';
+import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
@@ -14,11 +16,15 @@ import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
+import { type ListingSource, ListingWriter } from '../services/listings';
+import { SharedSpaces } from '../services/shared-spaces';
+import { SpaceJoins } from '../services/space-joins';
 import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
 import { VerificationService } from '../services/verifications';
+import type { SpaceKind } from '#lib/capabilities.ts';
 import type { Viewer } from '#lib/types.ts';
 import { FakeNetwork } from './fakes';
 import { FakeHappyView } from './happyview';
@@ -26,7 +32,9 @@ import { FakeHappyView } from './happyview';
 export const ROOT = 'did:plc:root';
 
 /** A fully wired set of services over an in-memory database, a fake PDS network, and a stand-in HappyView. */
-export async function createTestServices(options: { admins?: string[]; capable?: string[] } = {}) {
+export async function createTestServices(
+	options: { admins?: string[]; capable?: string[]; listingSources?: Partial<Record<SpaceKind, ListingSource>> } = {}
+) {
 	const db: Db = await openDatabase(':memory:');
 	const net = new FakeNetwork();
 	const happyView = new FakeHappyView(ROOT);
@@ -50,7 +58,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		maxAttempts: 3
 	});
 
-	const blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
+	const notifications = new Notifier({ db, logger: silentLogger });
 
 	const core: Core = {
 		db,
@@ -62,13 +70,14 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		userClient: async (did) => (capable.has(did) ? net.client(did) : null),
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
-			const bytes = net.blobs.get(cid);
+			const blob = net.blobs.get(cid);
 
-			if (!bytes) throw new Error('missing blob');
+			if (!blob) throw new Error('missing blob');
 
-			return blobs.get(cid) ?? { bytes, mimeType: 'image/png' };
+			return blob;
 		},
 		// The root reads a space only once it's a member, as the space host checks its credential.
 		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
@@ -80,11 +89,11 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 			return net.spaceRecords.get(`${space}|${repo}|${collection}|${rkey}`) ?? null;
 		},
 		fetchBlob: async (_did, cid) => {
-			const bytes = net.blobs.get(cid);
+			const blob = net.blobs.get(cid);
 
-			if (!bytes) throw new Error('missing blob');
+			if (!blob) throw new Error('missing blob');
 
-			return { bytes, mimeType: 'application/json' };
+			return blob;
 		}
 	};
 
@@ -115,6 +124,10 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		resolve: async (did) => ({ handle: handles.get(did) ?? null })
 	});
 
+	const listings = new ListingWriter(core, options.listingSources ?? {});
+	const sharedSpaces = new SharedSpaces(core, listings);
+	const spaceJoins = new SpaceJoins(core, sharedSpaces, new RateLimiter(30, 30 / 60));
+
 	await ensureRootSpaces(core);
 	await audit.idle();
 
@@ -139,6 +152,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		core,
 		audit,
 		accounts,
+		notifications,
 		projects,
 		requests,
 		staff,
@@ -151,6 +165,9 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		shows,
 		follows,
 		verifications,
+		sharedSpaces,
+		spaceJoins,
+		listings,
 		handles,
 		indexedRepo,
 		viewer,

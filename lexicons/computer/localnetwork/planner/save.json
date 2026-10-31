@@ -4,8 +4,8 @@
 	"defs": {
 		"main": {
 			"type": "record",
-			"key": "tid",
-			"description": "A project a promoter saved to their private shortlist (a personal space under their own DID).",
+			"key": "any",
+			"description": "A project a promoter saved to their private shortlist (a personal space under their own DID). Keyed by the SHA-256 hex of the project URI, so a project is saved once.",
 			"record": {
 				"type": "object",
 				"required": ["project", "createdAt"],

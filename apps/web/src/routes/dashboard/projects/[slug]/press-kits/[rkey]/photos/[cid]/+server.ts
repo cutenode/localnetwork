@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { loadEditor } from '#lib/server/epk-page.ts';
+import { imageResponse, PHOTO_TYPES } from '#lib/server/images.ts';
 import type { RequestHandler } from './$types';
 
 /** A photo in the editor: from the viewer's draft, or from the published press kit, public or not. Managers only. */
@@ -11,13 +12,11 @@ export const GET: RequestHandler = async ({ locals, url, params }) => {
 		(draft && (await epks.drafts.photo(project, draft, params.cid))) ??
 		(epk && (await epks.photo(epk, params.cid, true)));
 
-	if (!photo?.mimeType.startsWith('image/')) error(404, 'Photo not found');
+	if (!photo) error(404, 'Photo not found');
 
-	return new Response(new Blob([new Uint8Array(photo.bytes)], { type: photo.mimeType }), {
-		headers: {
-			'content-type': photo.mimeType,
-			'cache-control': 'private, max-age=3600',
-			'x-content-type-options': 'nosniff'
-		}
+	return imageResponse(new Uint8Array(photo.bytes), photo.mimeType, PHOTO_TYPES, {
+		cacheControl: 'private, max-age=3600',
+		download: url.searchParams.has('download'),
+		log: locals.log
 	});
 };

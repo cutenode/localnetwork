@@ -321,6 +321,52 @@ fn a_plugin_may_suggest_the_hosts_actions() {
     assert_eq!(forget_suggested(&f.store, &notices[0]).unwrap(), []);
 }
 
+/// What a plugin suggests that's waiting to be reviewed, or was reviewed or dismissed, isn't
+/// told again: an action on tracks is told for the others alone, and left out (logged) when it has
+/// none; an action on every track, or an operation, the same again is left out. Another plugin's,
+/// or another action, is told as it is.
+#[test]
+fn what_was_suggested_before_isnt_told_again() {
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let drive = drive_id(&f);
+    let analyze =
+        |tracks: Vec<u32>| HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: "USB".into(), tracks });
+    let fetch = HostAction::TrackFetch(FetchAction { drive: "USB".into(), tracks: vec![1], provider: None });
+    let left_out = "it suggests only what was reviewed, dismissed or is waiting: left out";
+    let left = || f.logs.lock().unwrap().iter().filter(|(_, l)| l == left_out).count();
+    // What's told of `action` next: its tracks, or none once it's left out.
+    let tell = |action: &HostAction| -> Option<Suggestion> {
+        let (told, logged) = (notices.lock().unwrap().len(), left());
+        let tell = serde_json::to_value(HostNotify::action("new", action)).unwrap();
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": tell }) };
+        f.plugins.deliver(&event, Some(&f.store));
+        eventually("it's told or left out", || notices.lock().unwrap().len() > told || left() > logged);
+        notices.lock().unwrap().get(told).map(|n| n.suggests.clone().unwrap())
+    };
+    let on = |tracks: Vec<u32>| {
+        let mut a = analyze(tracks);
+        *a.scope_mut().0.unwrap() = drive.clone();
+        Some(Suggestion::Action(a))
+    };
+    let notice = |suggests: Option<Suggestion>| PluginNotice { plugin: "echo".into(), message: "new".into(), suggests };
+    // Waiting.
+    let first = tell(&analyze(vec![1]));
+    assert_eq!(first, on(vec![1]));
+    keep_suggested(&f.store, &notice(first.clone())).unwrap();
+    assert_eq!(tell(&analyze(vec![1])), None);
+    assert_eq!(tell(&analyze(vec![1, 2])), on(vec![2]));
+    // Reviewed or dismissed.
+    forget_suggested(&f.store, &notice(first)).unwrap();
+    assert_eq!(tell(&analyze(vec![1])), None);
+    assert_eq!(tell(&analyze(vec![2, 1])), on(vec![2]));
+    assert!(matches!(tell(&fetch), Some(Suggestion::Action(HostAction::TrackFetch(_)))), "another action");
+    // On every track: all of them were.
+    forget_suggested(&f.store, &notice(on(Vec::new()))).unwrap();
+    assert_eq!(tell(&analyze(vec![2])), None);
+    assert_eq!(tell(&analyze(Vec::new())), None);
+    assert_eq!(suggested(&f.store).unwrap().notices, [], "nothing kept here but what the test kept");
+}
+
 /// Suggestions kept by an older version (operations alone) read as they were; ones this version
 /// can't read (an action it doesn't know, a newer version's say, or one that isn't a suggestion)
 /// aren't offered, are counted, and are kept as they are as the others are kept and forgotten.

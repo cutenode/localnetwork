@@ -4,7 +4,7 @@
 //! themes and settings, and listening for events. The CLI, the TUI and the RPC sidecar host them
 //! through [`Plugins`].
 //!
-//! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
+//! Only plugins locallibrary ships run for now ([`PluginSpec::built_in`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
 //! `plugin serve <id>`). A plugin starts when it's first used, in a folder of its own in the store,
 //! and must speak the protocol, describe itself exactly as its manifest does and have the features
@@ -63,12 +63,13 @@ use std::time::Duration;
 
 use indexmap::IndexMap;
 use loclib_plugin::{Command, Context, Manifest, Operation, Selection, check_params};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
 use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
+use crate::model::{Library, Track};
 use crate::{Error, Result};
 
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
@@ -79,7 +80,8 @@ pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
 pub use checks::{
-    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, PluginFix, TIMEOUT, check_timeout, set_check_timeout,
+    set_hosted,
 };
 pub use commands::CommandOutput;
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
@@ -92,7 +94,7 @@ pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
-pub(crate) use settings::{host_settings, set_host_setting};
+pub(crate) use settings::{all_saved_settings, host_settings, save_host_settings, save_settings, set_host_setting};
 pub use sources::SourceExport;
 
 pub(crate) use process::THREAD_ELEVATED;
@@ -121,7 +123,7 @@ pub struct PluginSpec {
     pub manifest: Manifest,
     pub launch: Launch,
     /// locallibrary ships it: the only plugins that run for now.
-    pub first_party: bool,
+    pub built_in: bool,
 }
 
 impl PluginSpec {
@@ -129,16 +131,16 @@ impl PluginSpec {
     /// which is checked only in builds with debug assertions (the tests'): it's the same on every
     /// start, and checking it compiles its JSON Schemas against the 2020-12 meta-schema, which
     /// added about a millisecond to every run of the CLI, `--version` included.
-    pub fn first_party(manifest: &str, launch: Launch) -> Result<PluginSpec> {
+    pub fn built_in(manifest: &str, launch: Launch) -> Result<PluginSpec> {
         let manifest = Manifest::parse(manifest).map_err(|e| Error::invalid(format!("a plugin's manifest: {e}")))?;
-        check_first_party(&manifest)?;
-        Ok(PluginSpec { manifest, launch, first_party: true })
+        check_built_in(&manifest)?;
+        Ok(PluginSpec { manifest, launch, built_in: true })
     }
 }
 
 /// [`Manifest::validate`] for a plugin locallibrary ships, in builds with debug assertions (see
-/// [`PluginSpec::first_party`]). The app's tests check each manifest it ships.
-fn check_first_party(m: &Manifest) -> Result<()> {
+/// [`PluginSpec::built_in`]). The app's tests check each manifest it ships.
+fn check_built_in(m: &Manifest) -> Result<()> {
     if !cfg!(debug_assertions) {
         return Ok(());
     }
@@ -205,6 +207,10 @@ pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
 /// `services.<name>`.
 pub const SERVICES: &str = "services.";
 
+/// What the player's key for one of a plugin's commands or operations is named with, among its
+/// settings: `keys.<name>`.
+pub const KEYS: &str = "keys.";
+
 impl Default for Options {
     fn default() -> Options {
         Options {
@@ -239,7 +245,7 @@ pub struct Plugins {
 impl Plugins {
     /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
     /// doesn't ship, an invalid manifest (in builds with debug assertions: see
-    /// [`PluginSpec::first_party`]), two plugins with one id, and two commands (or operations) with
+    /// [`PluginSpec::built_in`]), two plugins with one id, and two commands (or operations) with
     /// one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
         let host = Arc::new(process::Host { reads, options, turns: Mutex::default() });
@@ -247,10 +253,10 @@ impl Plugins {
         let mut cli: FxHashSet<String> = FxHashSet::default();
         for spec in specs {
             let m = &spec.manifest;
-            if !spec.first_party {
+            if !spec.built_in {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
             }
-            check_first_party(m)?;
+            check_built_in(m)?;
             let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
             let operations = m.contributes.operations.iter().filter_map(|o| o.cli.as_deref());
             if let Some(name) = commands.chain(operations).find(|n| !cli.insert(n.to_string())) {
@@ -415,3 +421,18 @@ fn fitting(schema: Option<&Value>, params: Value, context: &Context) -> Result<V
     })?;
     Ok(params)
 }
+
+/// A library's tracks by id, for finding many: [`Library::track`] for each would scan the library
+/// each time. Collected from the back, so the first of a repeated id wins, as there.
+fn by_id(library: &Library) -> FxHashMap<u32, &Track> {
+    library.tracks.iter().rev().map(|t| (t.id, t)).collect()
+}
+
+/// Each of `ids`' tracks, or an error naming the first the library lacks.
+fn tracks_named<'a>(library: &'a Library, ids: &[u32]) -> Result<Vec<&'a Track>> {
+    let by_id = by_id(library);
+    ids.iter().map(|&id| by_id.get(&id).copied().ok_or_else(|| Error::no_track(id))).collect()
+}
+
+#[cfg(test)]
+mod tests;

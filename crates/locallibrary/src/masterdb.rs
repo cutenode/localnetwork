@@ -35,8 +35,8 @@
 //!   it syncs, with their sizes; a file there whose copy on this computer has another size (or
 //!   none) hasn't finished syncing.
 //! * playlists and My Tags hang off `ParentID` `"root"`; a playlist's `Attribute` is 0 for a
-//!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`) aren't
-//!   evaluated here, so it reads as empty.
+//!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`, see
+//!   [`smartlist`]) are read but not evaluated here, so it reads as empty.
 //! * `djmdCue.Kind` is 0 for a memory cue, 1-3 for hot cues A-C, 4 for a memory loop and 5 on for
 //!   hot cues D onwards (checked against the analysis files of 1,594 tracks); `InMsec`/`OutMsec` are
 //!   milliseconds, `OutMsec` -1 for a cue that isn't a loop. A hot cue's colour is taken to be
@@ -63,6 +63,7 @@ use crate::model::{Library, LibrarySummary, Playlist, Track, TrackColor, TrackRe
 use crate::onelibrary::{self, cipher, wal};
 use crate::paths;
 use crate::{Error, Result};
+pub use smartlist::SmartList;
 
 /// The SQLCipher passphrase every rekordbox 6 and 7 installation uses for `master.db`, as
 /// pyrekordbox publishes it.
@@ -123,8 +124,12 @@ pub struct Collection {
     pub cues: IndexMap<u32, Vec<Cue>>,
     /// My Tags: categories in rekordbox's order, each with its tags and their tracks.
     pub tags: Vec<TagCategory>,
-    /// Ids of intelligent playlists, whose rules aren't evaluated.
+    /// Ids of intelligent playlists, whose rules aren't evaluated here.
     pub smart_playlists: Vec<u32>,
+    /// Their rules, by id: those whose `SmartList` could be read.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub smart_lists: FxHashMap<u32, SmartList>,
     /// The storage service Cloud Library Sync keeps audio in (`Dropbox`), if it's on.
     pub sync_service: Option<String>,
     /// Sizes of the files Cloud Library Sync syncs (`contentFile`), by lower-cased path in the
@@ -514,8 +519,14 @@ impl Db<'_> {
         }
         tracks.sort_by_key(|t| t.id);
 
-        let (playlists, smart_playlists) = self.tree("djmdPlaylist", "djmdSongPlaylist", "PlaylistID", &track_ids)?;
+        let (playlists, smart) = self.tree("djmdPlaylist", "djmdSongPlaylist", "PlaylistID", &track_ids)?;
         let (history, _) = self.tree("djmdHistory", "djmdSongHistory", "HistoryID", &track_ids)?;
+        let tag_paths = self.tag_paths()?;
+        let smart_lists = smart
+            .iter()
+            .filter_map(|(id, xml)| Some((*id, SmartList::parse(xml, |tag| tag_paths.get(tag).cloned())?)))
+            .collect();
+        let smart_playlists = smart.into_iter().map(|(id, _)| id).collect();
         let library =
             Library { tracks, playlists, history_playlists: history.iter().filter(|h| !h.is_folder).count(), history };
 
@@ -556,6 +567,7 @@ impl Db<'_> {
             cues,
             tags: self.tags(&track_ids)?,
             smart_playlists,
+            smart_lists,
             sync_service: self
                 .select("djmdCloudProperty", &["Reserved1", "Reserved2"])?
                 .into_iter()
@@ -571,15 +583,15 @@ impl Db<'_> {
     }
 
     /// A playlist-shaped tree and its entries (`djmdPlaylist` + `djmdSongPlaylist`, or the
-    /// history tables), plus the ids of intelligent playlists.
+    /// history tables), plus the intelligent playlists (see [`Smart`]).
     fn tree(
         &self,
         table: &str,
         entries: &str,
         list_column: &str,
         tracks: &FxHashMap<String, u32>,
-    ) -> Result<(Vec<Playlist>, Vec<u32>)> {
-        let rows = self.select(table, &["ID", "Seq", "Name", "Attribute", "ParentID"])?;
+    ) -> Result<(Vec<Playlist>, Smart)> {
+        let rows = self.select(table, &["ID", "Seq", "Name", "Attribute", "ParentID", "SmartList"])?;
         let ids = id_map(rows.iter().map(|r| text(&r[0])));
         let mut songs: FxHashMap<u32, Vec<(i64, usize, u32)>> = FxHashMap::default();
         for (n, r) in self.select(entries, &[list_column, "ContentID", "TrackNo"])?.into_iter().enumerate() {
@@ -593,7 +605,7 @@ impl Db<'_> {
             let id = ids[&text(&r[0])];
             let attribute = int(&r[3]);
             if attribute == 4 {
-                smart.push(id);
+                smart.push((id, text(&r[5])));
             }
             let mut entries = songs.remove(&id).unwrap_or_default();
             // rekordbox leaves entries on some folders, which it doesn't show; a folder holds none.
@@ -611,6 +623,17 @@ impl Db<'_> {
             });
         }
         Ok((untangle(out), smart))
+    }
+
+    /// Each My Tag's `Category/Tag` path by its `djmdMyTag` id, as intelligent playlists name them.
+    fn tag_paths(&self) -> Result<FxHashMap<String, String>> {
+        let rows = self.select("djmdMyTag", &["ID", "Name", "ParentID"])?;
+        let categories: FxHashMap<String, String> =
+            rows.iter().filter(|r| is_root(&text(&r[2]))).map(|r| (text(&r[0]), text(&r[1]))).collect();
+        Ok(rows
+            .iter()
+            .filter_map(|r| Some((text(&r[0]), format!("{}/{}", categories.get(&text(&r[2]))?, text(&r[1])))))
+            .collect())
     }
 
     /// My Tags: categories hang off `"root"`, tags off their category.
@@ -650,6 +673,26 @@ impl Db<'_> {
             .collect())
     }
 }
+
+/// `categories`' My Tags as `Category/Tag` by lower-cased file key of `library`'s tracks (whose ids
+/// they name), the shape track filters (`tag:`) take.
+pub(crate) fn tags_by_file(categories: &[TagCategory], library: &Library) -> FxHashMap<String, Vec<String>> {
+    let files: FxHashMap<u32, String> = library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
+    let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    for c in categories {
+        for tag in &c.tags {
+            for id in &tag.track_ids {
+                if let Some(f) = files.get(id) {
+                    out.entry(f.clone()).or_default().push(format!("{}/{}", c.name, tag.name));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Intelligent playlists by id, each with its `SmartList` column.
+type Smart = Vec<(u32, String)>;
 
 fn is_root(parent: &str) -> bool {
     parent.is_empty() || parent.eq_ignore_ascii_case("root")
@@ -768,19 +811,7 @@ impl Collection {
 
     /// My Tags as `Category/Tag` by lower-cased file key, the shape track filters (`tag:`) take.
     pub fn tags_by_file(&self) -> FxHashMap<String, Vec<String>> {
-        let files: FxHashMap<u32, String> =
-            self.library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
-        let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
-        for c in &self.tags {
-            for tag in &c.tags {
-                for id in &tag.track_ids {
-                    if let Some(f) = files.get(id) {
-                        out.entry(f.clone()).or_default().push(format!("{}/{}", c.name, tag.name));
-                    }
-                }
-            }
-        }
-        out
+        tags_by_file(&self.tags, &self.library)
     }
 
     /// What `drive` (a drive's library) lacks against the collection, and what it has that the
@@ -854,6 +885,8 @@ pub(crate) fn hot_cue_from_kind(kind: i64) -> Option<u8> {
 pub(crate) fn kind_for_hot_cue(h: u8) -> i64 {
     if h < 3 { i64::from(h) + 1 } else { i64::from(h) + 2 }
 }
+
+pub mod smartlist;
 
 #[cfg(test)]
 #[path = "../tests/support/sqlcipher.rs"]

@@ -48,7 +48,7 @@ impl OneLibrary {
     /// Remove nodes with their entries (children of a removed folder must be passed too).
     pub fn remove_nodes(&mut self, tree: Tree, ids: &[u32]) -> Result<()> {
         let t = tree.table();
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         for id in ids {
             tx.execute(&format!("DELETE FROM {t}_content WHERE {t}_id = ?1"), [id])?;
             if tx.execute(&format!("DELETE FROM {t} WHERE {t}_id = ?1"), [id])? != 1 {
@@ -61,7 +61,7 @@ impl OneLibrary {
 
     /// Replace a playlist's contents with `tracks`, in order, numbered from 1.
     pub fn set_playlist_entries(&mut self, playlist: u32, tracks: &[u32]) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         tx.execute("DELETE FROM playlist_content WHERE playlist_id = ?1", [playlist])?;
         {
             let mut insert =
@@ -77,7 +77,7 @@ impl OneLibrary {
     /// Point playlist and history entries for track `from` at `to`, and give `to` the My Tags
     /// `from` has. Returns how many entries changed.
     pub fn repoint_track(&mut self, from: u32, to: u32) -> Result<usize> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         let mut n = 0;
         for t in ["playlist_content", "history_content"] {
             n += tx.execute(&format!("UPDATE {t} SET content_id = ?1 WHERE content_id = ?2"), params![to, from])?;

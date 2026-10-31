@@ -1,12 +1,6 @@
 import { redirect } from '@sveltejs/kit';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	withTracklists
-} from '#lib/server/forms/project.ts';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
+import { formValues } from '#lib/project-form.ts';
 import { act, optionalText, requireViewer } from '#lib/server/http.ts';
 import { requireManager } from '#lib/server/manage.ts';
 import type { Actions, PageServerLoad } from './$types';

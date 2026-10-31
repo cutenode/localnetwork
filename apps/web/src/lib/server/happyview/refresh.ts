@@ -11,6 +11,7 @@ import type { HappyViewClient } from './client';
  */
 export const MANAGER_COLLECTIONS = [
 	COLLECTION.djSet,
+	COLLECTION.djRecording,
 	COLLECTION.djProfile,
 	COLLECTION.epk,
 	CALENDAR_EVENT,

@@ -219,6 +219,7 @@ atstore:
           - "plugins/mixcloud/**"
           - "plugins/musicbrainz/**"
           - "plugins/plyr/**"
+          - "plugins/soundcloud/**"
           - "plugins/youtube/**"
           - "lexicons/computer/localnetwork/{dj,locallibrary}/**"
           - "lexicons/computer/localnetwork/locallibraryPublishing.json"

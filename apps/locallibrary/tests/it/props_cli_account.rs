@@ -1,6 +1,6 @@
-//! Property tests of `locallibrary account` and publishing (`settings publish`, `profile
-//! publish`, `sets publish`, `settings import --from-account`) against a pretend data server on
-//! 127.0.0.1, signed in as a sign-in with `--session-file` leaves it (never the keychain): what
+//! Property tests of `locallibrary account`, publishing (`settings publish`, `profile publish`,
+//! `sets publish`, `settings import --from-account`) and bug reports (`bug`) against a pretend
+//! data server on 127.0.0.1, signed in as a sign-in with `--session-file` leaves it (never the keychain): what
 //! each prints is what its `--json` says, and what's published is the record the plan showed.
 //!
 //! Signing in itself happens in a browser, so it isn't run here: a session is written in place
@@ -30,10 +30,13 @@ fn allows(scopes: &[&str]) -> String {
     }
     match (publishes, reports) {
         (false, false) => "knows who you are; can't post or change anything".into(),
-        (true, false) => "can publish your My Settings, profile and sets; can't post or change anything else".into(),
+        (true, false) => {
+            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"
+                .into()
+        }
         (false, true) => "can post bug reports; can't post or change anything else".into(),
-        (true, true) => "can publish your My Settings, profile and sets and post bug reports; can't post or change \
-                         anything else"
+        (true, true) => "can publish your My Settings, profile, sets and their recordings and post bug reports; \
+                         can't post or change anything else"
             .into(),
     }
 }
@@ -606,21 +609,6 @@ fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
     }
 }
 
-/// `args` run in `fx` with a terminal for stdin, on which `typed` was typed ahead (stdout and
-/// stderr piped, so it isn't a terminal for output).
-#[cfg(unix)]
-fn typed_ahead(fx: &Env, args: &[&str], typed: &str) -> crate::support::Run {
-    use std::io::Write;
-    let (mut keyboard, stdin) = crate::support::terminal();
-    keyboard.write_all(typed.as_bytes()).unwrap();
-    let out = fx.command().args(args).stdin(std::process::Stdio::from(stdin)).output().unwrap();
-    crate::support::Run {
-        out: String::from_utf8(out.stdout).unwrap(),
-        err: String::from_utf8(out.stderr).unwrap(),
-        code: out.status.code().unwrap(),
-    }
-}
-
 /// A client document on this computer, which sign-in refuses before fetching anything.
 #[cfg(unix)]
 const LOCAL_CLIENT: &str = "https://localhost/c.json";
@@ -646,7 +634,7 @@ fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
     let hosted = tc.draw(gs::booleans());
     let client: &[&str] = if hosted { &["--client-id", LOCAL_CLIENT] } else { &["--dev-client"] };
     let args = [&["account", "login", "--session-file", "--no-browser"], client].concat();
-    let r = typed_ahead(&fx, &args, &format!("{typed}\n"));
+    let r = fx.typed_ahead(&args, &format!("{typed}\n"));
     let said = format!("{args:?} typed {typed:?} exited {}\n{}\n{}", r.code, r.out, r.err);
     let offered = if remembered { " [dj.example.com]" } else { "" };
     assert!(r.err.contains(&format!("Your Atmosphere handle, or your account's server{offered}: ")), "{said}");
@@ -686,7 +674,7 @@ fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     let words: &[&str] = tc
         .draw(gs::sampled_from(&[&["settings", "publish"][..], &["profile", "publish", "A", "--no-analysis"][..]][..]));
     let yes = tc.draw(gs::booleans());
-    let r = typed_ahead(&fx, words, if yes { "y\n" } else { "n\n" });
+    let r = fx.typed_ahead(words, if yes { "y\n" } else { "n\n" });
     let said = format!("{words:?} answered {yes} exited {}\n{}\n{}", r.code, r.out, r.err);
     assert!(r.err.contains("Publishing needs your permission"), "{said}");
     assert!(r.err.contains("? Sign in again to allow publishing? [y/N] "), "{said}");
@@ -700,4 +688,205 @@ fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
     }
     assert!(pds.calls("com.atproto.repo.putRecord").is_empty(), "{said}");
     assert_eq!(fx.json(&["account", "status"]), before, "{said}");
+}
+
+/// GitHub's bug report form, as `bug` prints it.
+const FORM: &str = "https://github.com/cutenode/localnetwork/issues/new?template=locallibrary-bug.yml&";
+
+/// Creating a record, as a post does.
+const CREATE: &str = "com.atproto.repo.createRecord";
+
+/// The space bug reports go to, a record of `DID`'s that Local Network's directory (the pretend
+/// server) has.
+fn space_on(pds: &MockPds) -> String {
+    pds.put(DID, "app.userinput.space", "3lspace", json!({ "name": "locallibrary" }));
+    format!("at://{DID}/app.userinput.space/3lspace")
+}
+
+/// `locallibrary ARGS` (a `bug` run) posting to `space` when there's one, with stdin a terminal
+/// on which `typed` was typed ahead when there's that.
+fn bug(fx: &Env, space: Option<&str>, args: &[&str], typed: Option<&str>) -> crate::support::Run {
+    let mut c = fx.command();
+    match space {
+        Some(space) => c.env("LOCALLIBRARY_USERINPUT_SPACE", space),
+        None => c.env_remove("LOCALLIBRARY_USERINPUT_SPACE"),
+    };
+    // Kept open until the run is over: closing it hangs the terminal up, losing what was typed.
+    #[cfg(unix)]
+    let _keyboard = typed.map(|typed| {
+        use std::io::Write;
+        let (mut keyboard, stdin) = crate::support::terminal();
+        keyboard.write_all(typed.as_bytes()).unwrap();
+        c.stdin(std::process::Stdio::from(stdin));
+        keyboard
+    });
+    #[cfg(not(unix))]
+    assert!(typed.is_none(), "only Unix has a terminal to type on here");
+    let out = c.args(args).output().unwrap();
+    crate::support::Run {
+        out: String::from_utf8(out.stdout).unwrap(),
+        err: String::from_utf8(out.stderr).unwrap(),
+        code: out.status.code().unwrap(),
+    }
+}
+
+/// The form's address in what a run printed: its JSON's `url`, or the address in its text.
+fn form_in(out: &str, as_json: bool) -> String {
+    let url = match as_json {
+        true => serde_json::from_str::<Value>(out).unwrap()["url"].as_str().unwrap().to_string(),
+        false => out[out.find(FORM).unwrap_or_else(|| panic!("no form in {out}"))..]
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string(),
+    };
+    assert!(url.starts_with(FORM), "{url}");
+    url
+}
+
+/// Any `bug` run without a terminal (signed out, or in with or without leave to post reports; a
+/// space named or not, gone, or not a space at all; a title or none, or one too long; `--yes` or
+/// not; text or `--json`): a space that isn't one, or a title too long, is refused before
+/// anything's sent; with an account allowed to post, a space and a title it shows the report and
+/// asks, posting with `--yes` (or, when the space is gone or the server refuses it, giving
+/// GitHub's form instead); anything else gives GitHub's form, filled in with what was typed.
+#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
+    let pds = MockPds::start();
+    let good = space_on(&pds);
+    let gone = format!("at://{DID}/app.userinput.space/3lgone");
+    let fx = Env::new().with_directory(&pds.url);
+    let reporting = ["atproto", REPORTING];
+    let scopes: Option<&[&str]> = tc.draw(gs::sampled_from(vec![None, Some(&reporting[..]), Some(&PUBLISHING[..])]));
+    if let Some(scopes) = scopes {
+        sign_in(&fx.store, &pds.url, scopes, json!({}));
+    }
+    let spaces = vec![None, Some(good.as_str()), Some(good.as_str()), Some(gone.as_str()), Some("bugs please")];
+    let space = tc.draw(gs::sampled_from(spaces));
+    let refused = tc.draw(gs::weighted_booleans(0.3));
+    if refused {
+        pds.set_writes(Writes::RefuseRecord);
+    }
+    let title = tc.draw(gs::sampled_from(vec![None, Some("Sync stops at 99%".to_string()), Some("a".repeat(301))]));
+    let message = tc.draw(gs::optional(gs::sampled_from(vec!["It stopped & said 100%", "line one\nline two"])));
+    let (yes, as_json) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let mut args: Vec<&str> = Vec::new();
+    args.extend(as_json.then_some("--json"));
+    args.extend(yes.then_some("--yes"));
+    args.extend(["bug", "--no-browser"]);
+    if let Some(t) = &title {
+        args.extend(["--title", t]);
+    }
+    args.extend(message.iter().flat_map(|m| ["-m", m]));
+    let r = bug(&fx, space, &args, None);
+    let said = format!("{scopes:?} {space:?} refused {refused} {args:?}: exit {}\n{}\n{}", r.code, r.out, r.err);
+    let printed = format!("{}{}", r.out, r.err);
+    let github = || {
+        assert_eq!(r.code, 0, "{said}");
+        let url = form_in(&r.out, as_json);
+        assert_eq!(url.contains("&title="), title.is_some(), "{said}");
+        assert_eq!(url.contains("&what-happened="), message.is_some(), "{said}");
+    };
+    let reports = scopes.is_some_and(|s| s.contains(&REPORTING));
+    let sent = pds.calls(CREATE);
+    match () {
+        _ if space == Some("bugs please") => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(printed.contains("isn't a userinput.app space"), "{said}");
+        }
+        _ if space.is_none() || scopes.is_none() || title.is_none() => github(),
+        _ if title.as_ref().is_some_and(|t| t.len() > 300) => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(printed.contains("the title is too long to post: 301 characters, 300 at most"), "{said}");
+        }
+        _ if !reports => {
+            assert!(printed.contains("can't post bug reports yet"), "{said}");
+            github();
+        }
+        _ if !yes => {
+            assert_eq!(r.code, 3, "{said}");
+            match as_json {
+                true => assert_eq!(serde_json::from_str::<Value>(&r.out).unwrap()["outcome"], "not_confirmed"),
+                false => assert!(r.out.contains("Bug report from @dj.example.com") && printed.contains(FORM), "{said}"),
+            }
+        }
+        _ if space == Some(gone.as_str()) || refused => {
+            assert!(printed.contains("couldn't post it"), "{said}");
+            assert_eq!(sent.is_empty(), !refused || space == Some(gone.as_str()), "{said}");
+            github();
+            return;
+        }
+        _ => {
+            assert_eq!(r.code, 0, "{said}");
+            let link = format!("https://userinput.app/d/{DID}/");
+            match as_json {
+                true => {
+                    let v: Value = serde_json::from_str(&r.out).unwrap();
+                    assert_eq!(v["outcome"], "applied", "{said}");
+                    assert!(v["report"]["url"].as_str().unwrap().starts_with(&link), "{said}");
+                }
+                false => assert!(r.out.contains("posted your bug report") && r.out.contains(&link), "{said}"),
+            }
+            let record = &sent.last().expect("posted").json()["record"];
+            assert_eq!(record["title"], json!(title), "{said}");
+            let body = record["body"].as_str().unwrap();
+            assert!(body.starts_with(message.unwrap_or("Version: locallibrary ")), "{said}");
+            return;
+        }
+    }
+    assert!(sent.is_empty(), "nothing is sent: {said}");
+}
+
+/// `bug` in a terminal with no title given asks for one and for what happened (lines up to an
+/// empty one), then: nothing typed for the title, GitHub's form with what was; from an account
+/// allowed to post, the report shown and the question answered (posted, or declined); from one
+/// that isn't, asked to sign in again, which declined or failed (its client is on this computer)
+/// gives GitHub's form instead. Only a post that went ahead reaches the server.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
+    let pds = MockPds::start();
+    let space = space_on(&pds);
+    let fx = Env::new().with_directory(&pds.url);
+    let reports = tc.draw(gs::booleans());
+    let scopes: &[&str] = if reports { &["atproto", REPORTING] } else { &PUBLISHING };
+    let client = json!({ "client": { "kind": "hosted", "client_id": LOCAL_CLIENT } });
+    sign_in(&fx.store, &pds.url, scopes, client);
+    let title = tc.draw(gs::sampled_from(vec!["", "  The map is grey  "]));
+    let lines: Vec<&str> =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["I added a venue", "and it stayed grey"])).max_size(2));
+    let answer = tc.draw(gs::booleans());
+    let typed = format!(
+        "{title}\n{}\n{}\n",
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+        if answer { "y" } else { "n" }
+    );
+    let r = bug(&fx, Some(&space), &["bug", "--no-browser"], Some(&typed));
+    let said = format!("{scopes:?} typed {typed:?}: exit {}\n{}\n{}", r.code, r.out, r.err);
+    assert!(r.err.contains("Title (a line saying what went wrong): "), "{said}");
+    assert!(r.err.contains("What happened? What were you doing? (an empty line ends it)"), "{said}");
+    let told = lines.join("\n");
+    let posted = !title.trim().is_empty() && reports && answer;
+    if title.trim().is_empty() {
+        assert_eq!(r.code, 0, "{said}");
+        let url = form_in(&r.out, false);
+        assert!(!url.contains("&title=") && url.contains("&what-happened=") != lines.is_empty(), "{said}");
+    } else if !reports {
+        assert!(r.err.contains("? Sign in again to allow bug reports? [y/N] "), "{said}");
+        assert_eq!(r.out.contains("couldn't sign in again"), answer, "{said}");
+        assert_eq!(r.code, 0, "{said}");
+        assert!(form_in(&r.out, false).contains("&title=The%20map%20is%20grey"), "{said}");
+    } else {
+        assert!(r.out.contains("  The map is grey\n"), "{said}");
+        assert!(r.err.contains("? Post it as @dj.example.com? Anyone can read it [y/N] "), "{said}");
+        assert_eq!(r.code, if answer { 0 } else { 3 }, "{said}");
+    }
+    let sent = pds.calls(CREATE);
+    assert_eq!(!sent.is_empty(), posted, "{said}");
+    if posted {
+        let record = &sent.last().unwrap().json()["record"];
+        assert_eq!(record["title"], "The map is grey", "{said}");
+        let body = record["body"].as_str().unwrap();
+        assert!(body.starts_with(&told) && body.contains("Version: locallibrary "), "{said}");
+    }
 }

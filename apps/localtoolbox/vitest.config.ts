@@ -15,6 +15,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import blankSpace from 'ts-blank-space';
+import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 
 const here = import.meta.dirname;
@@ -79,6 +80,9 @@ export default defineConfig({
 		conditions: ['browser']
 	},
 	test: {
+		// Its own module cache: the default is the workspace root's, shared with the web app's run (see
+		// apps/web/vite.config.ts).
+		fsModuleCachePath: resolve(here, 'node_modules/.vitest-cache'),
 		environment: 'jsdom',
 		environmentOptions: {
 			// The content script only ever runs on soundcloud.com; giving the test
@@ -92,6 +96,10 @@ export default defineConfig({
 		},
 		include: ['test/**/*.test.ts'],
 		setupFiles: ['test/setup.ts'],
+		// Vitest's default is a fork per core but one, each with a jsdom of its own. Past six the suite
+		// ran no faster on a 15-core Mac, and the extra forks only crowd out other checkouts' runs. Never
+		// more than the default, so CI's 4-core runners keep their three.
+		maxWorkers: Math.min(6, availableParallelism() - 1),
 		// Mounting a panel is quick; mounting one under coverage instrumentation,
 		// in a jsdom of its own, alongside every other file's, is not. The
 		// default five seconds is close enough to that to fail on a busy machine

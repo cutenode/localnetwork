@@ -9,8 +9,10 @@ use std::path::Path;
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
 use locallibrary::paths;
+use locallibrary::plugin::Fix;
 use locallibrary::progress::Ctx;
 use locallibrary::sync::{self, SyncOptions};
+use loclib_plugin::{DriveAction, HostAction};
 
 fn check(roots: &[&Path]) -> CheckReport {
     let devices: Vec<Device> = roots.iter().map(|r| Device::open(r).unwrap()).collect();
@@ -39,6 +41,10 @@ fn every_drive_is_compared_with_the_first() {
     assert_eq!(level, Level::Problem);
     assert_eq!(message, "newer than A (1 track(s) and 0 playlist(s) differ); sync the drives");
     assert_eq!(item(&r, "Other", "same_library"), (Level::Problem, "holds a different library from A".into()));
+    // A sync fixes the newer drive; nothing syncs another library.
+    let fix = |drive: &str| r.items.iter().find(|i| i.drive == drive && i.check == "same_library").unwrap().fix.clone();
+    assert_eq!(fix("B"), Some(Fix::Host(HostAction::Sync(DriveAction { drive: "B".into() }))));
+    assert_eq!(fix("Other"), None);
 
     common::export_new_track(a.root(), "New", "On A");
     let (level, message) = item(&check(&[a.root(), b.root()]), "B", "same_library");
@@ -88,6 +94,8 @@ fn artwork_missing_on_the_drive_is_a_warning() {
         "1 track(s) have no artwork image: {track}; `locallibrary art auto \"A\"` fills in art their files embed"
     );
     assert_eq!(message, want);
+    // Nothing fetches it: no plugin finds cover art.
+    assert!(check(&[&root]).items.iter().all(|i| i.fix.is_none()));
 }
 
 /// A file FAT32 can't hold is a warning while no drive in the check is FAT32. The file is sparse,

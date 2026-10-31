@@ -928,8 +928,8 @@ pub(crate) fn target_label(d: &Device) -> String {
 }
 
 /// Mirror `source` onto several drives at once. The source is scanned once; each target is
-/// scanned and planned in turn, then all of them are written in parallel (one thread each), so
-/// three sticks take about as long as the slowest. A failing target doesn't stop the others:
+/// scanned and planned in turn, then they're written in parallel (up to one per core at a time),
+/// so three sticks take about as long as the slowest. A failing target doesn't stop the others:
 /// results come back in `targets` order.
 pub fn sync_drive_to_many(
     source: &mut Device,
@@ -1018,43 +1018,35 @@ fn sync_many(
     let (items, bytes) =
         plans.iter().flatten().fold((0u64, 0u64), |(i, b), p| (i + p.copies.len() as u64, b + p.copy_bytes));
     ctx.phase_start(Phase::Copy, items, bytes);
-    let results = std::thread::scope(|s| {
-        let handles: Vec<_> = targets
-            .iter_mut()
-            .zip(plans)
-            .map(|(t, plan)| {
-                let (src, lineage, cancel) = (&src, &lineage, ctx.cancel.clone());
-                s.spawn(move || -> Result<SyncReport> {
-                    let plan = plan?;
-                    let scope = Scope { target: Some(target_label(t)), step: None };
-                    let progress = TargetProgress { inner: ctx.progress, label: t.name(), scope };
-                    let tctx = Ctx::new(&progress, cancel);
-                    let holds = Holds {
-                        lineage,
-                        entry: LineageEntry {
-                            fingerprint: src_fp,
-                            at: Utc::now(),
-                            op: LineageOp::Sync,
-                            snapshot: None,
-                            source: source_id,
-                            tracks,
-                        },
-                        library_id,
-                    };
-                    copy_library(&plan, src, t, opts, holds, &tctx)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join().unwrap_or_else(|p| {
-                    let said = crate::error::panic_text(&*p);
-                    Err(Error::invalid(format!("internal error: a sync thread panicked: {said}")))
-                })
-            })
-            .collect()
+    let jobs: Vec<(&mut Device, Result<SyncPlan>)> = targets.iter_mut().zip(plans).collect();
+    let results = crate::workers::each(jobs, crate::workers::per_core(), |(t, plan)| -> Result<SyncReport> {
+        let plan = plan?;
+        let scope = Scope { target: Some(target_label(t)), step: None };
+        let progress = TargetProgress { inner: ctx.progress, label: t.name(), scope };
+        let tctx = Ctx::new(&progress, ctx.cancel.clone());
+        let holds = Holds {
+            lineage: &lineage,
+            entry: LineageEntry {
+                fingerprint: src_fp,
+                at: Utc::now(),
+                op: LineageOp::Sync,
+                snapshot: None,
+                source: source_id,
+                tracks,
+            },
+            library_id,
+        };
+        copy_library(&plan, &src, t, opts, holds, &tctx)
     });
+    let results = results
+        .into_iter()
+        .map(|r| {
+            r.unwrap_or_else(|p| {
+                let said = crate::error::panic_text(&*p);
+                Err(Error::invalid(format!("internal error: a sync thread panicked: {said}")))
+            })
+        })
+        .collect();
     ctx.phase_end(Phase::Copy);
     Ok(results)
 }

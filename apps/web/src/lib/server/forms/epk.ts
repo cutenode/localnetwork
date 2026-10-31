@@ -17,12 +17,11 @@ import {
 import type { ProjectMix } from '#lib/types.ts';
 import { UserError } from '../core';
 import { CID, isWebUrl, text } from '../http';
+import { PHOTO_TYPES } from '../images';
 import { sniffImage } from './project';
 
 /** Big enough for a 3,000 px JPEG, the size press asks for, and under the 5 MiB some PDSes allow. */
 export const EPK_PHOTO_MAX_BYTES = 5_000_000;
-
-const PHOTO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 const QUOTE_ROWS = 5;
 

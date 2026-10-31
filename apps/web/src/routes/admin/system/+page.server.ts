@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		audit,
 		failed,
 		happyView: { url: app.happyView.url, reachable, sync: app.directorySync },
+		backups: app.backupStatus,
 		config: {
 			publicUrl: app.config.publicUrl,
 			serviceDid: app.config.serviceDid,

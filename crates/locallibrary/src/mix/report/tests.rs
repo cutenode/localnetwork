@@ -92,6 +92,7 @@ pub(crate) fn play(track: Track) -> Play {
         track_start: 0.0,
         track_end: 190.0,
         tempo: 1.0,
+        speed_range: None,
         played_bpm: Some(128.0),
         key_lock: None,
         semitones: 0.0,
@@ -186,21 +187,32 @@ fn the_page_reads_back_any_title() {
     let data = data.split_once("</script>").unwrap().0;
     let v: serde_json::Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{e}: {data}"));
     assert_eq!(v["report"]["mix"]["title"], title);
+    assert_eq!(v["blendSecs"], crate::mix::BLEND_SECS, "the page calls blends what the player does");
 }
 
-/// The page draws in the colours the player does: the bands and phrases, and good, warning
-/// and critical for the light page and both ways it goes dark.
+/// The page draws in the colours the player does: the bands, and the phrases, cue defaults and
+/// good, warning and critical for the light page and both ways it goes dark.
 #[test]
 fn the_page_shares_the_players_colours() {
-    use crate::tokens::{Rgb, bands, phrases, status};
+    use crate::tokens::{Rgb, bands, cues, cues_light, phrases, phrases_light, status};
     let html = page(&report("x"), None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
     let prop = |name: &str, [r, g, b]: Rgb| format!("--{name}: #{r:02x}{g:02x}{b:02x};");
     assert!(!html.contains("{{TOKENS}}"));
-    for (name, rgb) in [("band-low", bands::LOW), ("phrase-verse", phrases::VERSE), ("good", status::light::GOOD)] {
+    let light = [
+        ("band-low", bands::LOW),
+        ("phrase-verse", phrases_light::VERSE),
+        ("cue-hot", cues_light::HOT),
+        ("good", status::light::GOOD),
+    ];
+    for (name, rgb) in light {
         assert_eq!(html.matches(&prop(name, rgb)).count(), 1, "{name}");
     }
     assert!(html.contains("--band-scale-mid: 0.66;"));
-    assert_eq!(html.matches(&prop("critical", status::dark::CRITICAL)).count(), 2, "both dark blocks");
+    for (name, rgb) in
+        [("critical", status::dark::CRITICAL), ("phrase-bridge", phrases::BRIDGE), ("cue-hot", cues::HOT)]
+    {
+        assert_eq!(html.matches(&prop(name, rgb)).count(), 2, "{name} in both dark blocks");
+    }
 }
 
 /// A page made to be shared holds what it shows and nothing that only makes sense here (the
@@ -698,4 +710,21 @@ fn a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
         }
         None => assert_ne!(source, 0, "{}", v["cover"]),
     }
+}
+
+/// The page holds a ridden pitch fader's slowest and fastest speeds, which it shows in place of
+/// the average, and none for a play at one speed.
+#[test]
+fn a_page_holds_the_speeds_a_ridden_fader_went_between() {
+    use loclib_model::test_util::track;
+    let mut r = report("set");
+    let ridden =
+        Play { tempo: 1.02, speed_range: Some((1.0, 1.04)), ..play(track(1, "A", "One", "/Contents/one.wav")) };
+    r.plays = vec![ridden, play(track(2, "B", "Two", "/Contents/two.wav"))];
+    let html = page(&r, None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
+    let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
+    let v: serde_json::Value = serde_json::from_str(data.split_once("</script>").unwrap().0).unwrap();
+    let ranges: Vec<&serde_json::Value> =
+        v["report"]["plays"].as_array().unwrap().iter().map(|p| &p["speed_range"]).collect();
+    assert_eq!(ranges, [&serde_json::json!([1.0, 1.04]), &serde_json::Value::Null]);
 }
