@@ -14,7 +14,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{Check, Context, Finding, Findings, Level, PlanCheck, RunCheck, When, method};
+use loclib_plugin::{Check, Context, Finding, Findings, HostAction, Level, PlanCheck, RunCheck, When, method};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -56,10 +56,19 @@ const TICK: Duration = Duration::from_millis(50);
 /// What a check found: each finding with what fixes it.
 type Found = Vec<(Finding, Option<Fix>)>;
 
-/// The plugin operation that fixes a finding, with its params: planned and confirmed as any is
-/// (`plugins.op.plan`, with the drive it was found on).
+/// What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a
+/// plugin's operation (what a plugin's check says), or one of the host's own flows (what its own
+/// checks say), each as the sidecar's `check` answers it.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Fix {
+#[serde(untagged)]
+pub enum Fix {
+    Plugin(PluginFix),
+    Host(HostAction),
+}
+
+/// The plugin operation that fixes a finding, with its params (`plugins.op.plan`).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct PluginFix {
     pub plugin: String,
     pub operation: String,
     pub params: Value,
@@ -339,7 +348,9 @@ impl Slot {
                         self.misbehaved(format!("its finding {i} is fixed by {what:?}, which isn't its operation"))
                     );
                 }
-                fix => fix.map(|f| Fix { plugin: id.clone(), operation: f.operation, params: f.params }),
+                fix => {
+                    fix.map(|f| Fix::Plugin(PluginFix { plugin: id.clone(), operation: f.operation, params: f.params }))
+                }
             };
             let playlist = f.finding.playlist.as_deref().map(|p| self.said(p));
             found.push((Finding { check: name.clone(), message, playlist, ..f.finding }, fix));

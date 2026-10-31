@@ -4,7 +4,8 @@
 use locallibrary::Store;
 use locallibrary::api::{self, CheckRequest};
 use locallibrary::check::{CheckItem, Finding, Level};
-use locallibrary::plugin::{Fix, TIMEOUT, check_timeout};
+use locallibrary::plugin::{Fix, PluginFix, TIMEOUT, check_timeout};
+use loclib_plugin::{DriveAction, FetchAction, HostAction};
 use serde_json::json;
 
 use super::super::super::app::testing::{app_on, blank, last_message, plugged, plugins_once, press, say_yes, wait};
@@ -23,7 +24,8 @@ fn a_checks_fix_is_planned_from_the_palette_and_confirmed() {
     let mut app = app_on(&drive.0);
     let req = CheckRequest { drives: vec![drive.0.display().to_string()], options: Default::default() };
     let mut report = api::check(None, &req, &locallibrary::Ctx::silent()).unwrap();
-    let fix = Fix { plugin: "echo".into(), operation: "playlist".into(), params: json!({ "name": "Untitled" }) };
+    let fix = PluginFix { plugin: "echo".into(), operation: "playlist".into(), params: json!({ "name": "Untitled" }) };
+    let fix = Fix::Plugin(fix);
     let finding = Finding::new(Level::Warning, "echo.untitled", "1 track(s) have no title");
     report.items.push(CheckItem { drive: report.drives[0].clone(), finding, fix: Some(fix) });
     app.fixes = fixes(std::slice::from_ref(&drive.0), &report);
@@ -40,6 +42,48 @@ fn a_checks_fix_is_planned_from_the_palette_and_confirmed() {
     say_yes(&mut app);
     let lib = locallibrary::Device::open_export(&drive.0).unwrap().library().unwrap();
     assert!(lib.find_playlist("Untitled").is_some(), "{}", last_message(&app));
+}
+
+/// The fixes locallibrary's own checks give are in the palette too, with no plugin's name: each
+/// opens the player's own flow on the drive it was found on (saving a snapshot asks first, a
+/// sync of a drive alone says why it can't, and fetching covers opens the form for the tracks).
+#[test]
+fn the_checks_own_fixes_open_the_players_flows() {
+    plugins_once();
+    let drive = plugged();
+    let mut app = app_on(&drive.0);
+    let req = CheckRequest { drives: vec![drive.0.display().to_string()], options: Default::default() };
+    let mut report = api::check(None, &req, &locallibrary::Ctx::silent()).unwrap();
+    let name = report.drives[0].clone();
+    let on = |fix: HostAction, message: &str| CheckItem {
+        drive: name.clone(),
+        finding: Finding::new(Level::Warning, "files", message),
+        fix: Some(Fix::Host(fix)),
+    };
+    let fetch = FetchAction { drive: name.clone(), tracks: vec![1], provider: None };
+    report.items.extend([
+        on(HostAction::Pull(DriveAction { drive: name.clone() }), "history"),
+        on(HostAction::Sync(DriveAction { drive: name.clone() }), "behind"),
+        on(HostAction::ArtFetch(fetch), "no artwork"),
+    ]);
+    app.fixes = fixes(std::slice::from_ref(&drive.0), &report);
+    press(&mut app, ":");
+    let (items, acts) = palette(&app);
+    let i = acts.iter().position(|a| *a == Act::Fix(0)).expect("the fix is in the palette");
+    assert_eq!((items[i].label.clone(), items[i].detail.as_str()), (format!("fix on {name}: history"), ""));
+    press(&mut app, "\u{1b}");
+    app.perform(Act::Fix(0), None);
+    wait(&mut app, |a| a.job.is_none());
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no plan: {}", last_message(&app)) };
+    assert_eq!(c.plan.operation(), "pull");
+    app.modal = None;
+    app.perform(Act::Fix(1), None);
+    let why = ["try again in a moment", "save a snapshot of it first", "to sync them"];
+    assert!(app.modal.is_none() && why.iter().any(|w| last_message(&app).contains(w)), "{}", last_message(&app));
+    app.perform(Act::Fix(2), None);
+    let (title, fields) = form_open(&app);
+    assert_eq!(title, format!("Fetch cover art: 1 track on {}", app.drive_label(&drive.0)));
+    assert_eq!(fields, ["from", "replace"]);
 }
 
 /// "check settings…" is a form of every check (and whether each guard stops changes) and how long
@@ -95,10 +139,12 @@ fn only_the_fixes_a_plugin_can_make_are_offered_and_planned(tc: hegel::TestCase)
         let plugin = tc.draw(gs::sampled_from(vec!["echo", "echo", "nope"]));
         let operation = tc.draw(gs::sampled_from(vec!["playlist", "playlist", "nope"]));
         let name = tc.draw(gs::sampled_from(vec!["Untitled", "Friday"]));
-        let fix = tc.draw(gs::booleans()).then(|| Fix {
-            plugin: plugin.into(),
-            operation: operation.into(),
-            params: json!({ "name": name }),
+        let fix = tc.draw(gs::booleans()).then(|| {
+            Fix::Plugin(PluginFix {
+                plugin: plugin.into(),
+                operation: operation.into(),
+                params: json!({ "name": name }),
+            })
         });
         let message = format!("finding {n}");
         if fix.is_some() && plugin == "echo" && operation == "playlist" {

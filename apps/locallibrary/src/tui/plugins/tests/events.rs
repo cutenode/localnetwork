@@ -141,8 +141,9 @@ fn a_service_is_turned_on_in_the_settings_form() {
     let service = "\n[[contributes.services]]\nname = \"beat\"\ntitle = \"The beat\"\n";
     std::fs::write(&file, std::fs::read_to_string(&file).unwrap() + service).unwrap();
     let (mut app, _store) = blank(Screen::Library);
-    let last = settings_form(&mut app).fields.last().map(|x| (x.name.clone(), x.text.clone()));
-    assert_eq!(last, Some(("services.beat".into(), "false".into())));
+    // After the settings, before the commands' keys.
+    let fifth = settings_form(&mut app).fields.get(4).map(|x| (x.name.clone(), x.text.clone()));
+    assert_eq!(fifth, Some(("services.beat".into(), "false".into())));
     press(&mut app, "\t\t\t\t");
     let s = screen(&mut app, 120, 40);
     assert!(s.contains("services.beat") && s.contains("The beat: keep it running"));

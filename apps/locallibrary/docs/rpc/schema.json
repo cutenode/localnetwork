@@ -21824,7 +21824,7 @@
               "type": "null"
             }
           ],
-          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+          "description": "What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its\ncheck says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching\nartwork for its tracks without any)."
         }
       },
       "required": [
@@ -21856,6 +21856,17 @@
       "description": "How much a finding matters, least first."
     },
     "Fix": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PluginFix"
+        },
+        {
+          "$ref": "#/$defs/HostAction"
+        }
+      ],
+      "description": "What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a\nplugin's operation (what a plugin's check says), or one of the host's own flows (what its own\nchecks say), each as the sidecar's `check` answers it."
+    },
+    "PluginFix": {
       "type": "object",
       "properties": {
         "plugin": {
@@ -21871,7 +21882,226 @@
         "operation",
         "params"
       ],
-      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+      "description": "The plugin operation that fixes a finding, with its params (`plugins.op.plan`)."
+    },
+    "HostAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "art.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "track.fetch"
+            },
+            "params": {
+              "$ref": "#/$defs/FetchAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "export"
+            },
+            "params": {
+              "$ref": "#/$defs/ExportAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Export in one of its formats, to where the user picks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "analyze"
+            },
+            "params": {
+              "$ref": "#/$defs/AnalyzeAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "pull"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Save a drive in the store as a snapshot (`locallibrary pull`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "sync"
+            },
+            "params": {
+              "$ref": "#/$defs/DriveAction"
+            }
+          },
+          "required": [
+            "name",
+            "params"
+          ],
+          "description": "Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`)."
+        }
+      ],
+      "description": "One of the host's own flows, started with these params filled in, and planned and confirmed as\nwhen the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own\ncontributions alone so it never starts another plugin's work, and what fixes one of the host's\nown check findings. `pull` and `sync` are only ever the host's: no plugin suggests them."
+    },
+    "FetchAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name (as events name it)."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this provider of the plugin's [default: each of its providers of the kind; for the\nhost's fix, every plugin's]."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`art.fetch`'s and `track.fetch`'s params."
+    },
+    "ExportAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "One of the plugin's exporters, by format."
+        },
+        "drive": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set exporter's set."
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix exporter's mix."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "As the exporter's `options` schema says."
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
+    },
+    "AnalyzeAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analyzer": {
+          "type": "string",
+          "description": "One of the plugin's analyzers."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one]."
+        }
+      },
+      "required": [
+        "analyzer",
+        "drive"
+      ],
+      "description": "`analyze`'s params."
+    },
+    "DriveAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive, by id or name."
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "description": "`pull`'s and `sync`'s params."
     },
     "OrphanPlan": {
       "type": "object",
@@ -34092,177 +34322,6 @@
         "params"
       ],
       "description": "What a plugin suggests (`host/notify`): an operation's or an action's name, and its params."
-    },
-    "HostAction": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "art.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch cover art from its artwork providers (`locallibrary art fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "track.fetch"
-            },
-            "params": {
-              "$ref": "#/$defs/FetchAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Fetch tags from its metadata providers (`locallibrary track fetch`)."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "export"
-            },
-            "params": {
-              "$ref": "#/$defs/ExportAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Export in one of its formats, to where the user picks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "const": "analyze"
-            },
-            "params": {
-              "$ref": "#/$defs/AnalyzeAction"
-            }
-          },
-          "required": [
-            "name",
-            "params"
-          ],
-          "description": "Run one of its analyzers on a drive's tracks (`locallibrary analyze`)."
-        }
-      ],
-      "description": "One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it\nwith these params filled in, and it's planned and confirmed as when the user starts it. Each is\non the plugin's own contributions alone, so it never starts another plugin's work."
-    },
-    "FetchAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name (as events name it)."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        },
-        "provider": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Only this provider of the plugin's [default: each of its providers of the kind]."
-        }
-      },
-      "required": [
-        "drive"
-      ],
-      "description": "`art.fetch`'s and `track.fetch`'s params."
-    },
-    "ExportAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "format": {
-          "type": "string",
-          "description": "One of the plugin's exporters, by format."
-        },
-        "drive": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The drive, by id or name: a drive exporter's library, else whose tracks to give it."
-        },
-        "set": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A set exporter's set."
-        },
-        "mix": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "A mix exporter's mix."
-        },
-        "options": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "As the exporter's `options` schema says."
-        }
-      },
-      "required": [
-        "format"
-      ],
-      "description": "`export`'s params: what its exporter writes out (a drive's library, a set or a mix, as\n`export/write`'s source names them) and its options. Where to is the user's to pick."
-    },
-    "AnalyzeAction": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "analyzer": {
-          "type": "string",
-          "description": "One of the plugin's analyzers."
-        },
-        "drive": {
-          "type": "string",
-          "description": "The drive, by id or name."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "Only these tracks, by id [default: every one]."
-        }
-      },
-      "required": [
-        "analyzer",
-        "drive"
-      ],
-      "description": "`analyze`'s params."
     },
     "PluginNotice": {
       "type": "object",
