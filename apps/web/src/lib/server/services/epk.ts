@@ -299,7 +299,8 @@ export class EpkService {
 
 	/**
 	 * Asks for access. The request goes into the press kit's space from the asker's own PDS (or the root's, on their
-	 * behalf, when theirs can't write to spaces). When the rules approve it at once, the root writes the grant straight
+	 * behalf, when theirs can't write to spaces, or the press kit is a legacy one: the permission set grants requests
+	 * only in the root's press kit spaces). When the rules approve it at once, the root writes the grant straight
 	 * away; for a legacy press kit, only its maker could, so the grant waits for the press kit to move.
 	 */
 	async request(actor: Viewer, kit: PressKit, input: { role?: string; message?: string }): Promise<EpkAccessState> {
@@ -321,7 +322,10 @@ export class EpkService {
 		if (role) draft.role = role;
 
 		if (message) draft.message = message;
-		const { client, onBehalf } = await spaceWriter(this.core, actor);
+
+		const { client, onBehalf } = epk.legacy
+			? { client: await this.core.root(), onBehalf: true }
+			: await spaceWriter(this.core, actor);
 
 		if (onBehalf) draft.onBehalfOf = actor.did;
 		const record = validateRecord(COLLECTION.epkRequest, draft);

@@ -198,8 +198,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       Register it as what it is, or record only into a store that's there.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
-      let the TUI offer one-key fixes.
 - [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
@@ -270,9 +268,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       answers `deleteRecord` of a record that's already gone as done.
 - [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
       only `atproto`, publishing reports a missing scope, and sign-in loops.
-- [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
-      declared sets the profile finds sessions its own way (history lists, dated by the pull that
-      archived them) rather than with `sets::session::gather` and its windows.
 - [ ] File the jacquard-oauth issue on tangled (nonbinary.computer/jacquard): 0.12.2 and `main`
       panic when a token response grants a scope `Scopes` can't parse, in `callback_core`
       (`client.rs`) and on every refresh (`session.rs`'s `update_with_tokens`). Once a release

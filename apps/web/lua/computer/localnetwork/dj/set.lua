@@ -26,8 +26,12 @@ local PLACEHOLDER = {
 	['125ec42a-7229-4250-afc5-e057484327fe'] = true
 }
 
-local function text(value)
-	return type(value) == 'string' and value or nil
+-- `value` when it's a string, and at most `max` bytes long when there's a max. Nothing checks a record against its
+-- lexicon before this script, and the directory's views (lexicons/computer/localnetwork/directory/defs.json) cap the
+-- strings they take from a set, at dj.set's maxLength where it has one, so a longer one is left out here instead of
+-- failing every query that shows it.
+local function text(value, max)
+	return type(value) == 'string' and (max == nil or #value <= max) and value or nil
 end
 
 -- Lowercased, with each run of whitespace as one space and none at the ends, so "Ferrule " and "ferrule" credit one
@@ -56,7 +60,7 @@ local function credits(value, credit)
 	local out = {}
 	if type(value.artists) == 'table' then
 		for _, artist in ipairs(value.artists) do
-			local name = type(artist) == 'table' and text(artist.artistName)
+			local name = type(artist) == 'table' and text(artist.artistName, 2560)
 			local key = name and normalize(name)
 			local id = name and mbid(artist.artistMbId)
 			if key and key ~= '' and not PLACEHOLDER[key] and not PLACEHOLDER[id] then
@@ -73,10 +77,10 @@ end
 -- credited for.
 local function track(value)
 	if type(value) ~= 'table' or value.unidentified == true then return nil end
-	local title = text(value.title)
+	local title = text(value.title, 3000)
 	local key = title and normalize(title)
 	if not key or key == '' or PLACEHOLDER[key] then return nil end
-	local credit = text(value.artist)
+	local credit = text(value.artist, 3000)
 	local artists = credits(value, credit)
 	if #artists == 0 then return nil end
 	-- Without a credit line that names someone, the artists it names stand in for one, so two tracks with the same
@@ -86,6 +90,8 @@ local function track(value)
 		local keys = {}
 		for i, artist in ipairs(artists) do keys[i] = artist.key end
 		line = table.concat(keys, ', ')
+		-- At most a credit line's length, so a track's id (supportedTrack's, at most 6006 bytes) fits its title too.
+		if #line > 3000 then return nil end
 	end
 	local start = value.startSeconds
 	return {
@@ -111,9 +117,9 @@ local function view(value)
 	for _, item in ipairs(value.tracks) do named[#named + 1] = track(item) end
 	local out = {
 		date = value.date,
-		title = text(value.title),
-		kind = text(value.kind),
-		venue = text(value.venue),
+		title = text(value.title, 1000),
+		kind = text(value.kind, 640),
+		venue = text(value.venue, 1000),
 		trackCount = #value.tracks,
 		-- The app reads these leniently, a section at a time, so they're kept as written.
 		tracks = toarray(value.tracks),
@@ -126,7 +132,10 @@ local function view(value)
 		namedTracks = toarray(named)
 	}
 	local place = value.location
-	if type(place) == 'table' and place['$type'] == ADDRESS and text(place.country) then out.location = place end
+	local isAddress = type(place) == 'table' and place['$type'] == ADDRESS
+	if isAddress and text(place.country, 10) and (place.locality == nil or text(place.locality, 1000)) then
+		out.location = place
+	end
 	return out
 end
 

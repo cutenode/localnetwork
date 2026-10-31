@@ -80,7 +80,8 @@ pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
 pub use checks::{
-    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, PluginFix, TIMEOUT, check_timeout, set_check_timeout,
+    set_hosted,
 };
 pub use commands::CommandOutput;
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
@@ -205,6 +206,10 @@ pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
 /// What the switch turning one of a plugin's services on is named with, among its settings:
 /// `services.<name>`.
 pub const SERVICES: &str = "services.";
+
+/// What the player's key for one of a plugin's commands or operations is named with, among its
+/// settings: `keys.<name>`.
+pub const KEYS: &str = "keys.";
 
 impl Default for Options {
     fn default() -> Options {

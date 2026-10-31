@@ -32,8 +32,8 @@ pub use hooks::destinations::{
     Published, PublishedSet, PutBlob, PutManifest, StrongRef, TracklistEntry,
 };
 pub use hooks::events::{
-    AnalyzeAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,
-    MAX_SUGGESTED_PARAMS, Suggested, Suggestion,
+    AnalyzeAction, DriveAction, EventName, EventNotify, ExportAction, FetchAction, HostAction, HostNotify, Listener,
+    MAX_SUGGESTED_PARAMS, MAX_SUGGESTED_TRACKS, Suggested, Suggestion,
 };
 pub use hooks::exporters::{ExportFrom, ExportSource, ExportSources, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::importers::{

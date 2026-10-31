@@ -235,6 +235,7 @@ fn plays_hear_the_key_moved_by_the_speed() {
         report: IndexReport::default(),
         index: LibraryIndex::build(vec![(1, print()), (2, print())]),
         slots: FxHashMap::default(),
+        cache: Default::default(),
     };
     let semitone_up = 2f64.powf(1.0 / 12.0);
     let found = |slot, key_lock| Found {
@@ -381,6 +382,7 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
         report: IndexReport::default(),
         index: LibraryIndex::build(tracks.iter().map(|t| (t.id, print())).collect()),
         slots: FxHashMap::default(),
+        cache: Default::default(),
     };
     let slot = tc.draw(gs::integers::<u32>().max_value(n as u32 + 1));
     let tempo = tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16));
