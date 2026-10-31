@@ -15,9 +15,10 @@ ungated := {
 	".github/workflows/codeql.yml",
 }
 
-# Jobs that stay out of the passed check's needs on purpose: `report` posts coverage on the pull
-# request, so a comment that can't post never holds up a merge, and `semver` only reports breaking
-# changes in the loclib-* crates, which aren't published yet.
+# Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a
+# comment that can't post never holds up a merge, and `semver` only reports breaking changes in the
+# loclib-* crates, which aren't published yet. In a gated workflow they stay out of passed's needs;
+# in a workflow one calls, they can't fail the call.
 outside_passed := {"report", "semver"}
 
 # YAML 1.1 reads the `on:` key as true, which is how conftest parses it.
@@ -29,6 +30,14 @@ gated[path] := wf if {
 	not path in ungated
 	wf := lib.file(path)
 	runs_on(triggers(wf), "pull_request")
+}
+
+# The workflows a gated one calls (ci.yml's tools), which run as jobs of its run.
+called[path] := wf if {
+	some _, gated_wf in gated
+	some _, job in gated_wf.jobs
+	path := trim_prefix(job.uses, "./")
+	wf := lib.file(path)
 }
 
 # `on:` is an event, a list of them, or an object keyed by them (`pull_request:` is often empty).
@@ -143,6 +152,49 @@ deny contains msg if {
 # On every event: on main too, the next run's changes job covers what a cancelled run didn't check
 # (see the rule below).
 cancels_superseded(wf) if wf.concurrency["cancel-in-progress"] == true
+
+# A call evaluates its workflow's concurrency group with the caller's `github.workflow`, so the
+# group is the caller's own, and the call would cancel the run that started it.
+deny contains msg if {
+	some path, wf in called
+	wf.concurrency
+	msg := sprintf("%s: remove its concurrency group; a call gets the calling workflow's, so it would cancel the run that called it", [path])
+}
+
+deny contains msg if {
+	some path, wf in called
+	some event in ["push", "pull_request"]
+	runs_on(triggers(wf), event)
+	msg := sprintf("%s: remove `on.%s`; the workflow that calls it already runs it then", [path, event])
+}
+
+# A call has to grant every permission its workflow's jobs ask for, the ones it skips too, or GitHub
+# won't start the run. actionlint doesn't look across files for this.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	wf := lib.file(path)
+	some id, job in wf.jobs
+	callee_path := trim_prefix(job.uses, "./")
+	granted := object.get(job, "permissions", object.get(wf, "permissions", {}))
+	some callee_id, callee_job in lib.file(callee_path).jobs
+	some scope, level in object.get(callee_job, "permissions", {})
+	not grants(granted, scope, level)
+	msg := sprintf("%s: job %q should grant `%s: %s`, which %s's %q job asks for", [path, id, scope, level, callee_path, callee_id])
+}
+
+grants(granted, scope, _) if granted[scope] == "write"
+
+grants(granted, scope, "read") if granted[scope] == "read"
+
+# A call's result covers every job in it, so a report or semver job that fails would fail the call
+# and hold up the passed check.
+deny contains msg if {
+	some path, wf in called
+	some id, job in wf.jobs
+	id in outside_passed
+	object.get(job, "continue-on-error", false) != true
+	msg := sprintf("%s: give job %q `continue-on-error: true`, or it fails the call when it fails", [path, id])
+}
 
 # A push diffed against the commit before it drops what a cancelled or failed run never checked
 # whenever the next push touches other files, so it's diffed against the last commit the workflow
