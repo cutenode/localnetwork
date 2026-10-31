@@ -46,8 +46,8 @@ pub struct HistoryList {
     pub missing_at: Vec<usize>,
 }
 
-/// A database's name, as [`Databases::all`] has it. (An alias, so serde doesn't take the `&str`
-/// as borrowed from what a list is read back from.)
+/// A database's name: `device_library` or `onelibrary`. (An alias, so serde doesn't take the
+/// `&str` as borrowed from what a list is read back from.)
 pub type DatabaseName = &'static str;
 
 /// [`HistoryList::database`] read back: one of [`Databases::all`]'s names, or not a list.
