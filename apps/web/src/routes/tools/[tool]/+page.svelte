@@ -10,11 +10,6 @@
 	const tool = $derived(data.tool);
 </script>
 
-<svelte:head>
-	<title>{tool.name} · Local Network</title>
-	<meta name="description" content="{tool.name}: {tool.tagline}" />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-12 sm:py-14">
 	<div class="flex flex-col gap-5">
 		<nav aria-label="Breadcrumb"><a class="menu-link text-small" href="/tools">Tools</a></nav>

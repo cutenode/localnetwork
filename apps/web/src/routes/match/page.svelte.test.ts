@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const criteria = {
 	title: '',
@@ -22,7 +23,7 @@ it('switches between searching and matching a show, with matching current', asyn
 	await render(Page, {
 		params: {},
 		form: null,
-		data: { viewer: null, pendingRequests: 0, criteria, searched: false, results: [], geocoder: false }
+		data: { viewer: null, pendingRequests: 0, meta: PAGE_META, criteria, searched: false, results: [], geocoder: false }
 	});
 	const modes = page.getByRole('navigation', { name: 'Find DJs' });
 
