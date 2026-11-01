@@ -9,6 +9,9 @@ export const PHOTO_TYPES: ReadonlySet<string> = new Set(epkDefs.defs.photo.prope
 /** The types a project's avatar can be, as its lexicon's `accept` lists them. */
 export const AVATAR_TYPES: ReadonlySet<string> = new Set(projectDefs.defs.projectProfile.properties.avatar.accept);
 
+/** The most a project's avatar can weigh, as its lexicon's `maxSize` says. */
+export const AVATAR_MAX_BYTES = projectDefs.defs.projectProfile.properties.avatar.maxSize;
+
 /**
  * Serves a stored image from the site's origin, or 404s unless its type is one `accept` lists. The type is whatever
  * the blob's writer said, and a PDS doesn't hold it to the lexicon, so an SVG carrying a script would otherwise run as

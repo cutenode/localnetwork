@@ -271,6 +271,14 @@ test.describe('public pages', () => {
 			expect(page.robots, path).toBeUndefined();
 		}
 
+		// A performer's picture is their card, drawn on the server, which crawlers fetch as a PNG.
+		const performer = await head('/projects/neon-tide');
+		const card = await request.get(new URL(performer.property('og:image') ?? '').pathname);
+		expect(card.status()).toBe(200);
+		expect(card.headers()['content-type']).toBe('image/png');
+		expect(performer.property('og:image:width')).toBe('1200');
+		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
 		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
 		// reach the directory in a backfill after the app first syncs it, so this waits for them.
 		await expect(async () => {
