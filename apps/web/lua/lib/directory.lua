@@ -394,3 +394,130 @@ local function similarities(wanted)
 	end
 	return out
 end
+
+-- Performers ------------------------------------------------------------------------------------------------------
+
+-- searchProjects and searchPerformers filter and rank a performer, a project's profile or a DJ's, by what both have:
+-- name, tagline, bio, lookingFor, highlights, genres, formats, setTypes, and location (which a DJ can leave out).
+
+-- Up to 8 lowercase words from `q`. UTF-8 bytes count as word characters, so accented words stay whole.
+local function terms(q)
+	local out = {}
+	for term in q:lower():gmatch('[%w\128-\255]+') do
+		out[#out + 1] = term
+		if #out == 8 then break end
+	end
+	return out
+end
+
+-- `value` as lowercase words, each preceded by a space, so ' ' .. term finds a word starting with term.
+local function words(value)
+	return ' ' .. value:lower():gsub('[^%w\128-\255]+', ' ')
+end
+
+local find, concat = string.find, table.concat
+
+-- How well a performer matches `needles` (' ' .. term each), weighting fields like the old full-text index did
+-- (name 10, tagline 4, about 1, genres 6, place 3) for every term found. nil when some term matches nowhere. It runs
+-- for every performer a search's words prefilter keeps, so it's written out field by field, without tables.
+local function relevance(performer, needles)
+	local location = performer.location or {}
+	local name, tagline = words(performer.name), words(performer.tagline or '')
+	local about = words((performer.bio or '') .. ' ' .. (performer.lookingFor or '') .. ' '
+		.. concat(performer.highlights or {}, ' '))
+	local genres = words(concat(performer.genres, ' '))
+	local place = words((location.city or '') .. ' ' .. (location.region or '') .. ' ' .. (location.country or ''))
+	local total = 0
+	for i = 1, #needles do
+		local needle = needles[i]
+		local found = (find(name, needle, 1, true) and 10 or 0) + (find(tagline, needle, 1, true) and 4 or 0)
+			+ (find(about, needle, 1, true) and 1 or 0) + (find(genres, needle, 1, true) and 6 or 0)
+			+ (find(place, needle, 1, true) and 3 or 0)
+		if found == 0 then return nil end
+		total = total + found
+	end
+	return total
+end
+
+-- True when nothing is wanted or `offered` (a list, maybe missing) shares a value with `wanted`.
+local function overlaps(wanted, offered)
+	if #wanted == 0 then return true end
+	for _, value in ipairs(offered or {}) do
+		if contains(wanted, value) then return true end
+	end
+	return false
+end
+
+-- An SQL condition keeping records with a fee level (the objects at `fees`, a JSON path into `column`) in one of
+-- `tiers`, or whose one fee from before fee levels (at `legacy`, when given) is, and its placeholders' values.
+local function inFeeTiers(column, fees, tiers, legacy)
+	local inTiers, values = ' IN (' .. marks(#tiers) .. ')', table.move(tiers, 1, #tiers, 1, {})
+	local clause = 'EXISTS (SELECT 1 FROM json_each(' .. column .. ", '" .. fees .. "')"
+		.. " WHERE json_extract(value, '$.tier')" .. inTiers .. ')'
+	if not legacy then return clause, values end
+	table.move(tiers, 1, #tiers, #tiers + 1, values)
+	return '(' .. clause .. ' OR json_extract(' .. column .. ", '" .. legacy .. ".tier')" .. inTiers .. ')', values
+end
+
+-- The filters SQL can't apply, short of distance and search words, from the genres, formats and setTypes params: a
+-- function saying whether a performer plays one of those genres or a close subgenre, and has one of those formats
+-- and set types, each only when the params ask for any.
+local function performerFilter(params)
+	local close = {}
+	for _, want in ipairs(normalizeGenres(list(params.genres, 20), 20)) do
+		for genre, value in pairs(similarities(want)) do
+			if value >= 0.6 then close[genre] = true end
+		end
+	end
+	local wantsGenres = next(close) ~= nil
+	local formats, setTypes = list(params.formats, 10), list(params.setTypes, 10)
+	return function(performer)
+		if not (overlaps(formats, performer.formats) and overlaps(setTypes, performer.setTypes)) then return false end
+		if not wantsGenres then return true end
+		for _, genre in ipairs(normalizeGenres(performer.genres, 12)) do
+			if close[genre] then return true end
+		end
+		return false
+	end
+end
+
+-- How a search sorts: as the sort param says, else by relevance with search words, by distance from a place, or
+-- newest first.
+local function searchSort(params, needles, near)
+	return text(params.sort) or (#needles > 0 and 'relevance') or (near and 'distance') or 'recent'
+end
+
+-- Sorts search results ({ view, km, rank, i }, in order by name or newest first, which `i` numbers) by relevance (when
+-- there were search words) or distance when `sort` asks, ties keeping that order, and returns a page of their views,
+-- the total, and the next cursor.
+local function searchPage(items, sort, params, needles)
+	if sort == 'relevance' and #needles > 0 then
+		-- Relevance is a small whole number, so grouping by it sorts in one pass, each group in order, where a
+		-- comparison sort would cost thousands of instructions more per page.
+		local groups, top = {}, 0
+		for _, item in ipairs(items) do
+			local group = groups[item.rank]
+			if not group then
+				group = {}
+				groups[item.rank], top = group, math.max(top, item.rank)
+			end
+			group[#group + 1] = item
+		end
+		items = {}
+		for rank = top, 1, -1 do
+			for _, item in ipairs(groups[rank] or {}) do items[#items + 1] = item end
+		end
+	elseif sort == 'distance' then
+		table.sort(items, function(a, b)
+			local x, y = a.km or math.huge, b.km or math.huge
+			if x ~= y then return x < y end
+			return a.i < b.i
+		end)
+	end
+	local limit = pageSize(params.limit, 24, 60)
+	local offset = tonumber(text(params.cursor) or '')
+	offset = math.type(offset) == 'integer' and offset > 0 and offset or 0
+	local page = {}
+	for i = offset + 1, math.min(#items, offset + limit) do page[#page + 1] = items[i].view end
+	return toarray(page), #items, offset + limit < #items and tostring(offset + limit) or nil
+end

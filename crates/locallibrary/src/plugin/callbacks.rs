@@ -1,7 +1,7 @@
 //! What plugins read: requests named after the sidecar's read methods, answered by the app's
 //! (see [`Reads`]) once the host has checked them. A plugin may call only the reads its
 //! capabilities grant, with only the params listed for each, naming drives the host finds itself
-//! (never by path), in pages of a bounded size, a few calls at a time; what it gets back, errors
+//! or gave its hooks under way (never by path), in pages of a bounded size, a few calls at a time; what it gets back, errors
 //! too, says nothing of where things are on this computer (see [`answer_for_plugin`]). A plugin
 //! with the `net` feature calls `net/fetch` here too (see [`super::net`]).
 
@@ -28,7 +28,8 @@ pub trait Reads: Send + Sync {
 
     /// The root of the drive a plugin names: one known here (by identity, adopted name or
     /// volume name) or a library's lead clone, never a path or a folder
-    /// ([`api::resolve_known_drive`]). The host gives the app that root.
+    /// ([`api::resolve_known_drive`]). The host gives the app that root. A drive given to one of
+    /// the plugin's hooks under way is found before this is asked (see `Plugin::drive`).
     fn drive(&self, spec: &str) -> Result<PathBuf> {
         Ok(api::resolve_known_drive(spec)?.root().to_path_buf())
     }
@@ -111,6 +112,7 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "drive.verify" => (HealthRead, false, &[("drive", Drive), ("snapshot", Plain)]),
         "store.info" | "store.copies" | "library.list" | "smart.list" => (StoreRead, false, &[]),
         "store.history" => (StoreRead, false, &[("library", Plain), ("limit", Limit(MAX_PAGE))]),
+        "snapshot.library" => (StoreRead, false, &[("snapshot", Plain), ("offset", Plain), ("limit", Limit(MAX_PAGE))]),
         "settings.schema" | "settings.profile" | "players.models" | "players.show" => (SettingsRead, false, &[]),
         "settings.show" | "player.show" => (SettingsRead, false, &[("drive", Drive)]),
         "plays.stats" => (PlaysRead, false, &[("source", Drive), ("since", Plain), ("limit", Limit(MAX_PAGE))]),
@@ -187,10 +189,10 @@ pub(crate) fn answer(
             let run = || match req.method.as_str() {
                 method::NET_FETCH if live.sends(method::NET_FETCH) => plugin.fetch(&live, req.params, &req.cancel),
                 _ => {
-                    let params = check(&plugin.manifest, reads, &req.method, req.params);
+                    let params = check(&plugin.manifest, &|spec| plugin.drive(spec), &req.method, req.params);
                     let read =
                         params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
-                    let roots = known_roots(live.store.as_ref());
+                    let roots = known_roots(live.store.as_ref(), &plugin.given());
                     read.map(|answer| answer_for_plugin(&req.method, answer, &roots)).map_err(|e| for_plugin(e, &roots))
                 }
             };
@@ -204,8 +206,9 @@ pub(crate) fn answer(
 }
 
 /// `params` for the read `method`, once the plugin may call it with them: only params listed
-/// for it, each as its [`Param`] says (drives found, lists and pages bounded), or refused.
-pub(crate) fn check(manifest: &Manifest, reads: &dyn Reads, method: &str, params: Value) -> Result<Value, RpcFailure> {
+/// for it, each as its [`Param`] says (drives found by `drive`, lists and pages bounded), or
+/// refused.
+pub(crate) fn check(manifest: &Manifest, drive: Drive<'_>, method: &str, params: Value) -> Result<Value, RpcFailure> {
     let Some((capability, library, others)) = allowed(method) else {
         let e = format!("{method:?} isn't a read a plugin can call");
         return Err(RpcFailure::new(code::METHOD_NOT_FOUND, "method_not_found", e));
@@ -221,13 +224,13 @@ pub(crate) fn check(manifest: &Manifest, reads: &dyn Reads, method: &str, params
     }
     for (name, param) in listed {
         match (param, params.get_mut(name)) {
-            (Param::Drive, Some(v)) => *v = drive(reads, name, v)?,
+            (Param::Drive, Some(v)) => *v = root(drive, name, v)?,
             (Param::Drives, Some(Value::Array(list))) => {
                 for v in list {
-                    *v = drive(reads, name, v)?;
+                    *v = root(drive, name, v)?;
                 }
             }
-            (Param::Drives, Some(v)) => *v = drive(reads, name, v)?,
+            (Param::Drives, Some(v)) => *v = root(drive, name, v)?,
             (Param::AtMost(most), Some(Value::Array(list))) if list.len() > most => {
                 return Err(invalid_params(format!("`{name}` has {} items: at most {most} at a time", list.len())));
             }
@@ -280,20 +283,23 @@ fn without(v: &mut Value, parent: Option<&str>, places: &[(Option<&str>, &str)])
     }
 }
 
+/// How a callback finds the root of the drive a plugin names ([`super::process::Plugin::drive`]).
+pub(crate) type Drive<'a> = &'a dyn Fn(&str) -> Result<PathBuf>;
+
 /// The root of the drive the param `name` names, as the app is given it.
-fn drive(reads: &dyn Reads, name: &str, v: &Value) -> Result<Value, RpcFailure> {
+fn root(drive: Drive<'_>, name: &str, v: &Value) -> Result<Value, RpcFailure> {
     match v {
         Value::Null => Ok(Value::Null),
-        Value::String(spec) => Ok(Value::from(reads.drive(spec)?.to_string_lossy().into_owned())),
+        Value::String(spec) => Ok(Value::from(drive(spec)?.to_string_lossy().into_owned())),
         other => Err(invalid_params(format!("`{name}` names a drive, which {other} doesn't"))),
     }
 }
 
 /// What absolute paths here start with, longest first, each with what it's said as instead:
-/// the mounted drives' roots (their names), the store's and `store`'s (`<store>`), the temporary
+/// the mounted drives' roots and those `given` to the plugin's hooks (their names), the store's and `store`'s (`<store>`), the temporary
 /// folder's (`<temp>`) and the home folder's (`~`), each as given and resolved (a drive in the
 /// temporary folder through either of its spellings too), with either separator.
-pub(crate) fn known_roots(store: Option<&crate::Store>) -> Vec<(String, String)> {
+pub(crate) fn known_roots(store: Option<&crate::Store>, given: &[(String, PathBuf)]) -> Vec<(String, String)> {
     let (temp, home) = (std::env::temp_dir(), directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()));
     // Folders spelt otherwise once resolved (macOS's `/var` is `/private/var`).
     let aliases: Vec<(PathBuf, PathBuf)> = std::iter::once(temp.clone())
@@ -303,6 +309,7 @@ pub(crate) fn known_roots(store: Option<&crate::Store>) -> Vec<(String, String)>
         .collect();
     let mut roots: Vec<(PathBuf, String)> =
         api::known_drives(true).into_iter().map(|d| (d.root().to_path_buf(), d.name())).collect();
+    roots.extend(given.iter().map(|(name, root)| (root.clone(), name.clone())));
     let stores = api::registry().map(|s| s.root().to_path_buf()).into_iter().chain(store.map(|s| s.root().into()));
     roots.extend(stores.map(|root| (root, "<store>".into())));
     roots.push((temp, "<temp>".into()));

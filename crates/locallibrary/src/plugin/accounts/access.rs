@@ -104,7 +104,7 @@ impl Plugin {
 
     /// The scopes of type `kind` it's given when it's given `asked`: those it needs, and those of
     /// `asked` it can do without. One it doesn't ask for is refused.
-    pub(super) fn given(&self, kind: &str, asked: &[String]) -> Result<Vec<String>> {
+    pub(super) fn scopes_given(&self, kind: &str, asked: &[String]) -> Result<Vec<String>> {
         let need = self.needs(kind)?;
         let optional: Vec<&String> = need.optional.iter().flat_map(|o| &o.scopes).collect();
         if let Some(other) = asked.iter().find(|s| !need.scopes.contains(s) && !optional.contains(s)) {
@@ -132,7 +132,7 @@ impl Plugins {
         kept::update(store, |book| {
             let k = book.account(&account.plugin, &account.subject).cloned();
             let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
-            let given = slot.given(&k.kind, scopes)?;
+            let given = slot.scopes_given(&k.kind, scopes)?;
             Ok(book.give(plugin, &k, &given))
         })
     }
@@ -147,7 +147,7 @@ impl Plugins {
                 None => {
                     let k = book.account(&account.plugin, &account.subject).cloned();
                     let k = k.ok_or_else(|| not_kept(&account.plugin, &account.subject))?;
-                    let given = slot.given(&k.kind, &[])?;
+                    let given = slot.scopes_given(&k.kind, &[])?;
                     book.give(plugin, &k, &given);
                     book.accesses.len() - 1
                 }

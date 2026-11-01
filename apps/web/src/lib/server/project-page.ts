@@ -2,10 +2,11 @@ import { error } from '@sveltejs/kit';
 
 /**
  * What a project's public pages (its profile and its press kit) both load: the project, 404 when
- * it's hidden from this viewer, the booking details for signed-in members, its managers, and the
- * managers' own DJ records, streamed so a slow PDS never holds the page up. Records already at hand
- * (or no managers to ask) render with the page, so no placeholder comes and goes and moves what's
- * below it.
+ * it's hidden from this viewer, the booking details for its managers and staff, its managers, and
+ * the managers' own DJ records, streamed so a slow PDS never holds the page up. Everyone else sees
+ * booking details only in a press kit they have access to, which records the view. Records already
+ * at hand (or no managers to ask) render with the page, so no placeholder comes and goes and moves
+ * what's below it.
  */
 export async function loadProjectPage(locals: App.Locals, slug: string) {
 	const { app, viewer } = locals;
@@ -15,13 +16,20 @@ export async function loadProjectPage(locals: App.Locals, slug: string) {
 	const isManager = !!viewer && project.managers.includes(viewer.did);
 
 	if (project.status !== 'active' && !isManager && !viewer?.isStaff) error(404, 'No project with that name');
+	const seesDetails = isManager || !!viewer?.isStaff;
 
 	const [details, accounts] = await Promise.all([
-		viewer ? app.projects.details(project.uri) : Promise.resolve(null),
+		seesDetails ? app.projects.details(project.uri) : Promise.resolve(null),
 		app.accounts.views(project.managers)
 	]);
 
 	const managers = project.managers.map((did) => accounts.get(did) ?? { did, handle: null });
 
-	return { project, details, managers, isManager, dj: app.dj.fresh(managers) ?? app.dj.activity(managers) };
+	return {
+		project,
+		details: seesDetails ? (details ?? {}) : null,
+		managers,
+		isManager,
+		dj: app.dj.fresh(managers) ?? app.dj.activity(managers)
+	};
 }

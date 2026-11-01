@@ -107,16 +107,12 @@ pub struct Offered {
     pub unavailable: Option<String>,
 }
 
-/// Plugins' commands and operations offered in a menu of one of `places`, as it offers them on a
-/// drive: `drive` is `None` without one, `Some(false)` for a folder opened by path, which a plugin
-/// can't name. An operation always needs a drive; a command, when its plugin reads one.
-pub fn offered(drive: Option<bool>, places: &[Where]) -> Vec<Offered> {
+/// Plugins' commands and operations offered in a menu of one of `places`, as it offers them with
+/// a `drive` open or without one. An operation always needs a drive; a command, when its plugin
+/// reads one.
+pub fn offered(drive: bool, places: &[Where]) -> Vec<Offered> {
     let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
-    let why = match drive {
-        None => Some("open a drive first"),
-        Some(false) => Some("only on a plugged-in drive"),
-        Some(true) => None,
-    };
+    let why = (!drive).then_some("open a drive first");
     let mut all = Vec::new();
     for m in plugins.manifests() {
         let c = &m.contributes;
@@ -252,17 +248,11 @@ impl App {
         self.loaded.as_ref()?.library.track(id).map(|t| t.display_name())
     }
 
-    /// Whether plugins can run on the drive at `root`: one plugged in, rather than a folder
-    /// opened by path. `None` without a drive.
-    pub(super) fn pluggable(&self, root: Option<&Path>) -> Option<bool> {
-        root.map(|root| !self.extra_roots.iter().any(|r| r == root))
-    }
-
     /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers,
     /// export and import formats, as the palette and the drive menu list them for the drive at
     /// `root`: by title, with the plugin's name beside each.
     pub(super) fn plugin_items(&self, root: Option<&Path>, places: &[Where]) -> Vec<(Act, Item)> {
-        let drive = self.pluggable(root);
+        let drive = root.is_some();
         let all = offered(drive, places).into_iter();
         let mut items: Vec<(Act, Item)> = all
             .map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
@@ -277,12 +267,8 @@ impl App {
         }
         let Ok(plugins) = crate::plugins::host() else { return items };
         // An analyzer reads the tracks' audio files, an exporter the library, an importer's file is
-        // about its tracks and a library source writes one: on a drive plugged in, as a command.
-        let why = match drive {
-            None => Some("open a drive first"),
-            Some(false) => Some("only on a plugged-in drive"),
-            Some(true) => None,
-        };
+        // about its tracks and a library source writes one: on a drive, as a command.
+        let why = (!drive).then_some("open a drive first");
         // Each family's, in the order the palette lists them (a family's placed as loclib-plugin's
         // `hooks` says).
         // A set's formats run on the set open: the palette names them anyway, saying so, and a
@@ -297,19 +283,12 @@ impl App {
         items
     }
 
-    /// The drive at `root`, when plugins can run on it; else `None`, saying why.
-    fn plugged(&mut self, root: Option<PathBuf>) -> Option<PathBuf> {
-        match (self.pluggable(root.as_deref()), root) {
-            (Some(true), Some(root)) => Some(root),
-            (None, _) => {
-                self.toast("open a drive first", Level::Info);
-                None
-            }
-            _ => {
-                self.toast("only on a plugged-in drive", Level::Info);
-                None
-            }
+    /// The drive at `root`, when there's one; else `None`, saying so.
+    fn drive_open(&mut self, root: Option<PathBuf>) -> Option<PathBuf> {
+        if root.is_none() {
+            self.toast("open a drive first", Level::Info);
         }
+        root
     }
 
     /// The settings of each plugin that has some (or a service), signing in to and out of its
@@ -382,6 +361,9 @@ impl App {
                 _ => format!("{} settings saved", m.name),
             };
             Ok(Box::new(move |app: &mut App| {
+                if changed > 0 {
+                    app.panels.stale(plugin);
+                }
                 app.bind_plugin_keys();
                 if refused.is_empty() {
                     app.toast(said, Level::Info);

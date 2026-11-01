@@ -108,7 +108,27 @@ fn coming_back_to_a_track_asks_for_its_panels_again() {
     assert!(s.contains("back again"), "{s}");
 }
 
-/// A panel that fails says so, the messages why; one on a folder opened by path can't be asked.
+/// A panel is headed with its view's own title after its own, as `track show` heads it; once its
+/// plugin's settings change, the track's panels are asked for again, without moving off it.
+#[test]
+fn a_panel_shows_its_views_title_and_follows_its_settings() {
+    let (dir, root) = demo_drive();
+    said_plugin(dir.path());
+    let mut app = showing(&root);
+    let view = |text: &str| json!({ "view": { "kind": "text", "title": "Loudness", "text": text } });
+    saying(&app, view("first"));
+    settled(&mut app);
+    wait(&mut app, answered);
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("As it says · Loudness") && s.contains("first"), "{s}");
+    app.save_settings("echo", json!({ "panel": view("second").to_string() }));
+    wait(&mut app, |a| a.job.is_none() && answered(a) && a.selected_key().is_some_and(|k| a.panels.of_track(k)));
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("second") && !s.contains("first"), "{s}");
+}
+
+/// A panel that fails says so, the messages why; one on a folder opened by path is asked as on a
+/// drive.
 #[test]
 fn a_panel_that_cant_show_says_why() {
     let (dir, root) = demo_drive();
@@ -122,9 +142,11 @@ fn a_panel_that_cant_show_says_why() {
     assert!(app.log.iter().any(|(m, ..)| m.starts_with("As it says panel: ")));
     let mut app = showing(&root);
     app.extra_roots.push(app.loaded.as_ref().unwrap().root().to_path_buf());
+    saying(&app, json!({ "view": { "kind": "text", "text": "from the folder" } }));
     settled(&mut app);
-    assert!(matches!(app.panels.shown[0].state, State::Unavailable(_)));
-    assert!(screen(&mut app, 160, 45).contains("only on a plugged-in drive"));
+    wait(&mut app, answered);
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("from the folder"), "{s}");
 }
 
 /// A panel's picture is drawn in colour (without colours, what it shows is said), and its chart

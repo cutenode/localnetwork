@@ -20,7 +20,7 @@ use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
 use locallibrary::plugin::PluginExport;
 use locallibrary::progress::{Event, Phase, Progress};
-use locallibrary::query::{SortField, SortKey, TrackSelector};
+use locallibrary::query::{SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
 use loclib_plugin::Where;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -151,8 +151,6 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
-    /// The drive is a folder opened by path, not one plugged in: plugins can't name it.
-    pub folder_drive: bool,
 }
 
 pub struct MenuItem {
@@ -242,12 +240,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
                 _ => "sort this playlist on the drive".into(),
             },
             Action::SortList,
-            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")).or(
-                because(
-                    t.sort.is_some_and(|k| matches!(k.field, SortField::Field(_))),
-                    "a plugin's column can't sort the drive's playlists",
-                ),
-            ),
+            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")),
         ),
         item("N", format!("new playlist{into}…"), Action::NewPlaylist, stale.clone()),
         item("F", format!("new folder{into}…"), Action::NewFolder, stale.clone()),
@@ -279,7 +272,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
     ]
     .into_iter()
-    .chain(super::plugins::offered(Some(!t.folder_drive), &[Where::Track, Where::Playlist]).into_iter().map(|o| {
+    .chain(super::plugins::offered(true, &[Where::Track, Where::Playlist]).into_iter().map(|o| {
         // What it works on here: the tracks, or the playlist (not a folder).
         let on_tracks = o.offered.contains(&Where::Track) && !t.tracks.is_empty();
         let on_list = o.offered.contains(&Where::Playlist) && t.node.as_ref().is_some_and(|(_, folder)| !folder);
@@ -290,7 +283,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         let unavailable = stale.clone().or(o.unavailable).or(because(!on_tracks && !on_list, nothing));
         item("", o.label, Action::Plugin(o.plugin, o.name), unavailable)
     }))
-    .chain(super::plugins::providers::fetches(Some(!t.folder_drive)).into_iter().map(|(kind, label, _, why)| {
+    .chain(super::plugins::providers::fetches(true).into_iter().map(|(kind, label, _, why)| {
         let unavailable = stale.clone().or(why).or(because(t.tracks.is_empty(), "no track selected"));
         item("", label, Action::Fetch(kind), unavailable)
     }))
@@ -619,7 +612,6 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
-            folder_drive: self.pluggable(Some(l.root())) == Some(false),
         })
     }
 

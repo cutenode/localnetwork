@@ -107,6 +107,63 @@ export type ProjectProfile = {
 	avatar?: BlobRefJson;
 };
 
+/** Who a profile is (`computer.localnetwork.section.defs#basics`). */
+export type BasicsSection = {
+	name: string;
+	avatar?: BlobRefJson;
+	bio?: string;
+	pronouns?: string;
+	location?: Location;
+	links?: ProjectLink[];
+};
+
+/** What promoters need to book a performer (`#performer`), with the project profile's field names, all optional. */
+export type PerformerSection = Partial<
+	Pick<
+		ProjectProfile,
+		| 'tagline'
+		| 'genres'
+		| 'formats'
+		| 'setTypes'
+		| 'setLength'
+		| 'capacity'
+		| 'fees'
+		| 'travel'
+		| 'mixes'
+		| 'highlights'
+		| 'lookingFor'
+		| 'activeSince'
+	>
+>;
+
+/** Where a promoter books (`#promoter`). */
+export type PromoterSection = { cities?: Location[] };
+
+/** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
+export type ProfileRecord = {
+	basics: BasicsSection;
+	performer?: PerformerSection;
+	promoter?: PromoterSection;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A person's profile as the site shows it, read from what the directory indexed. */
+export type ProfileView = {
+	did: string;
+	uri: string;
+	cid: string;
+	record: ProfileRecord;
+	/** The avatar through this site's `/media`, or null without one. */
+	avatarUrl: string | null;
+};
+
+/** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
+export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
+
+/** One Find DJs result: a published project, or a listed DJ. */
+export type PerformerResult = { kind: 'project'; project: ProjectView } | { kind: 'dj'; dj: ListedDj };
+
 export type ProjectDetails = {
 	bookingEmail?: string;
 	bookingPhone?: string;
@@ -149,10 +206,24 @@ export type ProjectFormValues = ProjectDetails & {
 	mixes?: ProjectMix[];
 	highlights?: string;
 	lookingFor?: string;
+	/** A promoter's cities, one row each (the profile form's promoter section). */
+	cities?: CityFormRow[];
 	message?: string;
 	/** Fields only some forms have, like the admin form's `managers`, echo back as text too. */
-	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | FeeFormRow[] | undefined;
+	[field: string]:
+		| string
+		| number
+		| boolean
+		| string[]
+		| ProjectLink[]
+		| ProjectMix[]
+		| FeeFormRow[]
+		| CityFormRow[]
+		| undefined;
 };
+
+/** A city row in the profile form, as the text its inputs hold. */
+export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 
@@ -217,7 +288,7 @@ export type ShowView = {
 /** A project's follower count, and whether the viewer is one of them. */
 export type FollowState = { followers: number; following: boolean };
 
-export type RequestKind = 'create' | 'claim' | 'update';
+export type RequestKind = 'create' | 'claim' | 'update' | 'list';
 
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';
 
@@ -230,6 +301,8 @@ export type RequestRecord = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a list request: the profile to list, and the version it was asked for with. */
+	listing?: { subject: string; cid?: string };
 	message?: string;
 	onBehalfOf?: string;
 	withdrawnAt?: string;

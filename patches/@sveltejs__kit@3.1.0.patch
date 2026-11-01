@@ -1,0 +1,15 @@
+diff --git a/src/runtime/server/page/render.js b/src/runtime/server/page/render.js
+index 0a8042eb03fa01a378517d8b5ef48891438122be..6106bfd9b62b535f1de568ab913302c530f6d1d6 100644
+--- a/src/runtime/server/page/render.js
++++ b/src/runtime/server/page/render.js
+@@ -367,6 +367,10 @@ export async function render_response({
+ 		}
+ 
+ 		if (!client.inline) {
++			// The client awaits the root error page before it hydrates (`start` in client.js), so preload
++			// its JS too, or the browser only finds it after start.js has run (sveltejs/kit#17415).
++			for (const url of (await manifest.nodes[1]()).imports) modulepreloads.add(url);
++
+ 			for (const dep of modulepreloads) {
+ 				const path = prefixed(dep);
+ 

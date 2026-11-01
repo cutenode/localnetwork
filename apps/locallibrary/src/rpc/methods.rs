@@ -66,6 +66,9 @@ pub struct Call<'a> {
     pub root: &'a Path,
     pub plans: &'a Plans,
     pub ctx: &'a Ctx<'a>,
+    /// Sends the notification `method` (`serve`) about this request, as `{id, event}`.
+    #[cfg(feature = "peers")]
+    pub notify: &'a dyn Fn(&str, Value),
 }
 
 impl Call<'_> {
@@ -511,7 +514,7 @@ fn build() -> Registry {
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
     r.read("tracks.query", |c, req| {
-        let fields = crate::plugins::Installed::with(c.existing()?);
+        let fields = crate::plugins::installed(c.existing()?);
         Ok(api::tracks_query_with(&LIBRARIES, &req, Some(fields.source()))?)
     })
     .quick();
@@ -600,7 +603,24 @@ fn build() -> Registry {
         .writes_to("path");
     r.read("store.copies", |c, _: NoParams| c.or_empty(api::store_copies)).quick();
     r.immediate("snapshot.label", |c, req| Ok(api::snapshot_label(&c.to_read()?, &req)?));
+    r.read("snapshot.library", |c, req| Ok(api::snapshot_library(&c.to_read()?, &req)?));
     r.read("library.list", |c, _: NoParams| c.or_empty(api::libraries_list)).quick();
+    // Fetching snapshots from another computer's store, as `store serve` and `store fetch` do:
+    // serving runs until it's cancelled, telling what happens in `serve` notifications.
+    #[cfg(feature = "peers")]
+    {
+        use locallibrary::peers;
+        r.read("store.serve", |c, req: peers::ServeOptions| {
+            let told = |e: &peers::ServeEvent| (c.notify)("serve", serde_json::json!(e));
+            Ok(peers::serve(&c.to_read()?, &req, c.ctx, &mut |e| told(e))?)
+        })
+        .long();
+        r.immediate("store.fetch", |c, req: peers::FetchRequest| {
+            Ok(peers::fetch(&c.store()?, &req.code.parse()?, &req.options, c.ctx)?)
+        })
+        .long()
+        .keeps_cache();
+    }
     r.immediate("library.rename", |c, req| Ok(api::library_rename(&c.to_read()?, &req)?));
 
     // Editing a drive's library.

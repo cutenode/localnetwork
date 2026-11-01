@@ -157,8 +157,9 @@ pub struct CollectionExportPlan {
     /// What the target holds that the export replaces and only it has (history lists players
     /// recorded, changes since the last export): saved in the store first.
     pub unsaved: Option<Unsaved>,
-    /// Space the export needs on the target: the files it copies, its new databases and the
-    /// backup of what it replaces.
+    /// Space the export needs on the target: the files it copies, its new databases, the backup
+    /// of what it replaces, and the online-only files it downloads when their cloud folder is on
+    /// the same disk.
     pub needed_bytes: u64,
     pub free_space: Option<u64>,
     pub fits: bool,
@@ -383,6 +384,7 @@ pub(crate) fn plan_from(
     let mut written = library_write::plan(target, &scanned.tree, &layout.files, &[], databases, false);
     hash_checked(&mut written, &layout.checked, ctx)?;
     let downloads: Vec<&FileCopy> = written.copies.iter().filter(|c| layout.online_only.contains(&c.path)).collect();
+    let (downloaded_here, needed_bytes, fits) = space(&written, &downloads, target.root());
     // Without a record of an earlier export, whatever the target holds (a library, or loose audio
     // the export would remove) is only replaced when asked.
     let replaces_library = !exported && (target.has_export() || !written.deletes.is_empty());
@@ -417,10 +419,14 @@ pub(crate) fn plan_from(
         Some(source) => format!("writing {source}"),
     };
     warnings.extend(edit::journal::forget_warning(target, None, &exporting));
-    if !written.fits {
+    if !fits {
+        let downloads = match downloaded_here {
+            0 => String::new(),
+            n => format!(", and {n} bytes of online-only files downloading onto the same disk"),
+        };
         warnings.push(format!(
-            "the export needs about {} bytes (its files, databases and backup) but only {} are free on {}",
-            written.needed_bytes,
+            "the export needs about {needed_bytes} bytes (its files, databases and backup{downloads}) but only {} are \
+             free on {}",
             written.free_space.unwrap_or(0),
             target.name()
         ));
@@ -451,9 +457,9 @@ pub(crate) fn plan_from(
         replaces_library,
         made_folder: false,
         unsaved,
-        needed_bytes: written.needed_bytes,
+        needed_bytes,
         free_space: written.free_space,
-        fits: written.fits,
+        fits,
         warnings,
         smart,
         smart_gone,
@@ -463,6 +469,19 @@ pub(crate) fn plan_from(
         written,
         _made: layout.made.map(Arc::new),
     })
+}
+
+/// The online-only `downloads` that download onto the target's disk (their cloud folder is on
+/// it), the space the export needs with them, and whether that fits: the copies' space alone
+/// leaves an export to a folder on the boot disk filling it as the cloud files come down.
+fn space(written: &Planned, downloads: &[&FileCopy], target: &Path) -> (u64, u64, bool) {
+    let here: u64 = downloads
+        .iter()
+        .filter(|c| written.sources.get(&c.path).is_some_and(|s| fsutil::same_volume(&s.path, target)))
+        .map(|c| c.size)
+        .sum();
+    let needed = written.needed_bytes + here;
+    (here, needed, written.free_space.is_none_or(|f| needed <= f))
 }
 
 /// Hashes each audio file `written` copies that the plugin host checked (by key, `checked`), as

@@ -382,6 +382,47 @@ fn player_names_are_per_drive_and_survive_sync() {
     assert_eq!(c.relation, Relation::Identical);
 }
 
+/// Regression: a sync or pack onto a stick with no exportLibrary.db gave it the source's player
+/// name and colour, as there was none to keep, so a set stick showed up on the players as the main
+/// drive. It's left with none, and the plan says so.
+#[test]
+fn a_stick_without_onelibrary_gets_no_player_name() {
+    use locallibrary::pack::{self, PackOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let a_root = common::bigger_drive(dir.path(), "A");
+    common::add_onelibrary(&a_root);
+    let mut a = Device::open(&a_root).unwrap();
+    player::set(&mut a, Some("MAIN"), Some(3)).unwrap();
+    let said = |warnings: &[String], name: &str| {
+        warnings
+            .iter()
+            .any(|w| w.starts_with(&format!("{name} has no exportLibrary.db, so it gets one without a player name")))
+    };
+    let unnamed = |root: &std::path::Path| {
+        let id = player::db_identity(root).expect("a OneLibrary database");
+        assert_eq!((id.name, id.colour.unwrap_or(0)), (None, 0), "{}", root.display());
+    };
+
+    std::fs::create_dir(dir.path().join("B")).unwrap();
+    let mut b = Device::open(dir.path().join("B")).unwrap();
+    let (plan, _) = sync::plan_drive_to_drive(&a, &b, &SyncOptions::default(), &ctx()).unwrap();
+    assert!(said(&plan.warnings, &b.name()), "{:?}", plan.warnings);
+    mirror(&mut a, &mut b);
+    unnamed(b.root());
+    // Once it has one, a sync keeps what it has.
+    let (plan, _) = sync::plan_drive_to_drive(&a, &b, &SyncOptions::default(), &ctx()).unwrap();
+    assert!(!said(&plan.warnings, &b.name()), "{:?}", plan.warnings);
+
+    let club_root = dir.path().join("Club");
+    std::fs::create_dir(&club_root).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["aab".into()], ..Default::default() };
+    let plan = pack::plan(&a, &club, &opts, &ctx()).unwrap();
+    assert!(said(&plan.warnings, &club.name()), "{:?}", plan.warnings);
+    pack::apply(&plan, &a, &mut club, None, &ctx()).unwrap();
+    unnamed(&club_root);
+}
+
 /// Regression: a sync with `--delete-first` takes the target's database off before copying, and
 /// one cut off then left the run that finished the job no player name to put back: the drive got
 /// its source's. The name is kept with the drive's pending marker until it's back.

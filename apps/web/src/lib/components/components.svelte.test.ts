@@ -10,7 +10,8 @@ import GenreInput from './GenreInput.svelte';
 import MixList from './MixList.svelte';
 import MixReport from './mix/MixReport.svelte';
 import PlacePicker from './PlacePicker.svelte';
-import ProjectCard from './ProjectCard.svelte';
+import { djSummary, projectSummary } from '#lib/performers.ts';
+import PerformerCard from './PerformerCard.svelte';
 import ProjectForm from './ProjectForm.svelte';
 import ScoreBar from './ScoreBar.svelte';
 import StatusPill from './StatusPill.svelte';
@@ -98,10 +99,10 @@ describe('GenreInput', () => {
 	});
 });
 
-describe('ProjectCard', () => {
+describe('PerformerCard', () => {
 	it('links to the project and marks unclaimed projects', async () => {
-		await render(ProjectCard, {
-			project: {
+		await render(PerformerCard, {
+			performer: projectSummary({
 				uri: 'at://did:plc:root/computer.localnetwork.project/1',
 				rkey: '1',
 				cid: 'c',
@@ -121,11 +122,37 @@ describe('ProjectCard', () => {
 				updatedAt: '2026-01-01T00:00:00Z',
 				avatarUrl: null,
 				distanceKm: 3.2
-			}
+			})
 		});
 		await expect.element(page.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('href', '/projects/neon-tide');
 		await expect.element(page.getByText('Unclaimed')).toBeInTheDocument();
 		await expect.element(page.getByText('3.2 km')).toBeInTheDocument();
+	});
+
+	it("links a listed DJ to their profile, by the genres they were found by, without a place they didn't give", async () => {
+		await render(PerformerCard, {
+			performer: djSummary({
+				profile: {
+					did: 'did:plc:neon',
+					uri: 'at://did:plc:neon/computer.localnetwork.profile/self',
+					cid: 'c',
+					record: {
+						basics: { name: 'Neon' },
+						performer: { tagline: 'Hypnotic techno', fees: [{ tier: 'emerging' }] },
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z'
+					},
+					avatarUrl: null
+				},
+				handle: 'neon.test',
+				genres: ['Techno', 'Ambient']
+			})
+		});
+		await expect.element(page.getByRole('link', { name: 'Neon' })).toHaveAttribute('href', '/@neon.test');
+		await expect.element(page.getByText('Solo DJ', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByText('Ambient')).toBeInTheDocument();
+		await expect.element(page.getByText('Emerging')).toBeInTheDocument();
+		await expect.element(page.getByText('Unclaimed')).not.toBeInTheDocument();
 	});
 });
 

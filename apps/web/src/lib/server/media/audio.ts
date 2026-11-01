@@ -1,3 +1,4 @@
+import type { IdentityResolver } from '../atproto/identity';
 import { audioResponse, refuse } from '../audio';
 import type { Logger } from '../logger';
 import type { RecordingAudio } from '../services/recordings';
@@ -79,9 +80,11 @@ export type AudioRequest = {
 	range: string | null;
 	/** The declared audio of the recording that references the blob, or null when the site doesn't serve it. */
 	audio: (did: string, cid: string) => Promise<RecordingAudio | null>;
-	/** The account's PDS, which anyone can point anywhere, so checked first (see IdentityResolver.safePds). */
-	pds: (did: string) => Promise<string>;
-	fetch: typeof globalThis.fetch;
+	/**
+	 * Finds the account's PDS, which its DID document can point anywhere, and reads it with the guarded `serviceFetch`,
+	 * which refuses private addresses as it connects.
+	 */
+	identity: Pick<IdentityResolver, 'resolve' | 'serviceFetch'>;
 	log: Logger;
 };
 
@@ -115,10 +118,10 @@ export async function recordingAudio(request: AudioRequest): Promise<Response> {
 	try {
 		// Blobs come from the account's PDS until HappyView serves them (2.16 can't serve blob bytes).
 		// ast-grep-ignore: no-direct-pds-read
-		const url = new URL('/xrpc/com.atproto.sync.getBlob', await request.pds(did));
+		const url = new URL('/xrpc/com.atproto.sync.getBlob', (await request.identity.resolve(did)).pds);
 		url.searchParams.set('did', did);
 		url.searchParams.set('cid', cid);
-		upstream = await request.fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
+		upstream = await request.identity.serviceFetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
 	} catch (error) {
 		log.warn({ err: error, status: 502 }, 'could not reach the PDS for a recording');
 

@@ -18,7 +18,8 @@
 		{ value: '', label: 'Any kind' },
 		{ value: 'create', label: 'New' },
 		{ value: 'claim', label: 'Claims' },
-		{ value: 'update', label: 'Changes' }
+		{ value: 'update', label: 'Changes' },
+		{ value: 'list', label: 'Listings' }
 	] as const;
 
 	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
