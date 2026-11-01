@@ -1,0 +1,614 @@
+name: CI
+
+# Every pull request, merge queue group and push to main runs this one workflow: a changes job works
+# out which tools' files changed, each tool's workflow runs as a call when its did, and "CI passed",
+# the one check the "Protect Main" ruleset requires, fails when one of them did. One changes job per
+# run, where each tool's workflow used to start its own, leaves the runners to the work.
+#
+# Pull requests run on Linux. locallibrary's macOS and Windows jobs, which the plan's 5 macOS
+# runners can't keep up with on every push, run once for each merge queue group instead, or on a
+# pull request with the `all-os` label. A group runs nothing else but CodeQL: its pull requests
+# passed on Linux. A push to main runs only what main's runs keep for pull requests to use: the
+# web app's and localtoolbox's coverage and sizes to compare with, the Rust and Docker caches when
+# what they're keyed on changed, CodeQL's analysis, and the ruleset check when the ruleset changed.
+# Its commit is the merge queue group's, which already passed.
+on:
+  push:
+    branches: [main]
+  # The default types, and ready_for_review for a draft's first run (see the changes job).
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels the run for the push before it. On main a run finishes:
+# what it saves is what the next pull request restores, and a cancelled one would leave its work
+# to the next push's. GitHub keeps one run waiting per group, so a burst of merges still runs at
+# most two. The tools' workflows have no concurrency of their own: a call evaluates the group with
+# this workflow's name, so it would cancel this run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+# Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
+jobs:
+  # Each output says whether a tool's workflow, or one of its jobs, has something to do (the scope
+  # step works them out). A draft checks nothing until it's marked ready for review, which leaves
+  # the runners to the pull requests about to merge, and `draft` tells passed it skipped the work.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Cancelling a merge queue group's runs once the group is gone.
+      actions: write
+      contents: read
+      # Labelling the pull request.
+      pull-requests: write
+    outputs:
+      locallibrary: ${{ steps.scope.outputs.locallibrary }}
+      locallibrary_linux: ${{ steps.scope.outputs.locallibrary_linux }}
+      locallibrary_docs: ${{ steps.scope.outputs.locallibrary_docs }}
+      locallibrary_cache: ${{ steps.scope.outputs.locallibrary_cache }}
+      locallibrary_deny: ${{ steps.scope.outputs.locallibrary_deny }}
+      locallibrary_dist: ${{ steps.scope.outputs.locallibrary_dist }}
+      locallibrary_other_os: ${{ steps.scope.outputs.locallibrary_other_os }}
+      locallibrary_semver: ${{ steps.scope.outputs.locallibrary_semver }}
+      web: ${{ steps.scope.outputs.web }}
+      web_verify: ${{ steps.scope.outputs.web_verify }}
+      web_integration: ${{ steps.scope.outputs.web_integration }}
+      web_e2e: ${{ steps.scope.outputs.web_e2e }}
+      web_lighthouse: ${{ steps.scope.outputs.web_lighthouse }}
+      web_docker: ${{ steps.scope.outputs.web_docker }}
+      localtoolbox: ${{ steps.scope.outputs.localtoolbox }}
+      atstore: ${{ steps.scope.outputs.atstore }}
+      mix_report: ${{ steps.scope.outputs.mix_report }}
+      npm_advisories: ${{ steps.scope.outputs.npm_advisories }}
+      workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
+      repo_checks: ${{ steps.scope.outputs.repo_checks }}
+      repo_checks_policy: ${{ steps.scope.outputs.repo_checks_policy }}
+      repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
+      repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
+      codeql: ${{ steps.scope.outputs.codeql }}
+      codeql_languages: ${{ steps.scope.outputs.codeql_languages }}
+      draft: ${{ steps.scope.outputs.draft }}
+    steps:
+      # A pull request's files come from the API. A push is diffed against the last commit this
+      # workflow passed on, so what a failed run didn't check runs on the next push, and a merge
+      # queue group against the commit it goes on top of.
+      - if: github.event_name != 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name != 'pull_request'
+        id: base
+        uses: ./.github/actions/last-passed
+      # Each tool's paths: the files its jobs read, and the shared ones they depend on (the
+      # lockfile, `.node-version`, the lint and format configs, its workflow and the local actions
+      # it uses). tools/policy/workflows.rego checks that every project and every file the Rust code
+      # embeds is in one.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            # This workflow wires up every tool's, so a change to it runs them all on Linux.
+            ci:
+              - '.github/workflows/ci.yml'
+            # The Rust workspace. Changes to Markdown alone skip it (the crates' READMEs, which are
+            # their crate docs and doctests, run locallibrary_readmes' jobs), and so do the files
+            # only the weekly run (bombadil) or atstore (the icon) reads. Of the shared tokens and
+            # lexicons, only what the Rust code reads.
+            locallibrary:
+              - 'apps/locallibrary/**'
+              - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - 'packages/tokens/colors.json'
+              - 'packages/tokens/colors.schema.json'
+              - 'packages/tokens/mix.json'
+              - 'lexicons/computer/localnetwork/locallibrary/**'
+              - 'lexicons/computer/localnetwork/dj/**'
+              - 'lexicons/community/lexicon/location/address.json'
+              - 'lexicons/app/userinput/discussion.json'
+              - 'lexicons/com/atproto/repo/strongRef.json'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - '.cargo/**'
+              - '.config/nextest.toml'
+              - 'tools/hegel-coverage.sh'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '.github/actions/pr-comment/**'
+              - '!**/*.md'
+              - '!apps/locallibrary/bombadil/**'
+              - '!apps/locallibrary/assets/icon.svg'
+            locallibrary_readmes:
+              - 'crates/*/README.md'
+            # What cargo-deny reads.
+            locallibrary_deny:
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'deny.toml'
+              - '.github/workflows/locallibrary-ci.yml'
+            locallibrary_semver:
+              - 'crates/loclib-*/**'
+              - 'Cargo.toml'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '!crates/*/tests/**'
+              - '!crates/*/examples/**'
+              - '!**/*.md'
+            # What `dist plan` reads (see locallibrary-release.yml).
+            locallibrary_dist:
+              - '**/Cargo.toml'
+              - 'dist-workspace.toml'
+              - 'rust-toolchain.toml'
+              - '.github/actions/install-dist/**'
+              - '.github/workflows/locallibrary-release.yml'
+              - '.github/workflows/locallibrary-ci.yml'
+            # What rust-cache keys main's caches on: the manifests, the lockfile, the toolchain and
+            # cargo's config, and the jobs that save them.
+            rust_cache:
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - '.github/workflows/locallibrary-ci.yml'
+            # The web app, and what its Docker image copies in from outside apps/web: the shared
+            # tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
+            web: &web
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'apps/*/docs/*.md'
+              - 'README.md'
+              - '.github/CONTRIBUTING.md'
+              - '.github/SECURITY.md'
+              - '.github/labels.yml'
+              - 'packages/tokens/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.dockerignore'
+              - 'lexicons/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - '.github/workflows/web-ci.yml'
+              - '.github/actions/main-artifact/**'
+              - '.github/actions/size-report/**'
+              - '.github/actions/pr-comment/**'
+            # The integration tests (`pnpm test:coverage`, every vitest project but the build's): all
+            # of the above but the Markdown and labels that the tool pages and
+            # src/lib/tools/docs.test.ts read, which verify covers, the lint and format configs,
+            # which verify reads, and what only the e2e tests, Lighthouse and the Docker image use.
+            web_integration:
+              - *web
+              - '!apps/*/README.md'
+              - '!apps/*/docs/*.md'
+              - '!README.md'
+              - '!.github/CONTRIBUTING.md'
+              - '!.github/SECURITY.md'
+              - '!.github/labels.yml'
+              - '!.oxlintrc.json'
+              - '!.oxfmtrc.json'
+              - '!tools/oxlint/**'
+              - '!.dockerignore'
+              - '!apps/web/Dockerfile'
+              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/tests/e2e/**'
+              - '!apps/web/playwright.config.ts'
+              - '!apps/web/lighthouserc.cjs'
+              - '!apps/web/knip.json'
+            # What the e2e tests run: the app as `pnpm dev` serves it, on the dev network and seed
+            # data, and the tools' READMEs, which the home page's tool cards are made from. Left out:
+            # the unit, integration and build tests, stories and Storybook, and what only Lighthouse,
+            # knip and the Docker image read.
+            web_e2e:
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/web-ci.yml'
+              - '!apps/web/README.md'
+              - '!apps/web/**/*.test.ts'
+              - '!apps/web/**/*.stories.svelte'
+              - '!apps/web/**/*.mdx'
+              - '!apps/web/.storybook/**'
+              - '!apps/web/tests/integration/**'
+              - '!apps/web/Dockerfile'
+              - '!apps/web/scripts/docker-smoke.sh'
+              - '!apps/web/lighthouserc.cjs'
+              - '!apps/web/knip.json'
+            # What the Docker image is built from (.dockerignore lets in only these) and the smoke
+            # test that starts it, which runs the dev network from the workspace. Left out: the
+            # app's tests, stories and the configs only they read.
+            web_docker:
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'apps/*/docs/*.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.dockerignore'
+              - '.github/workflows/web-ci.yml'
+              - '!apps/web/**/*.test.ts'
+              - '!apps/web/**/*.stories.svelte'
+              - '!apps/web/**/*.mdx'
+              - '!apps/web/.storybook/**'
+              - '!apps/web/tests/**'
+              - '!apps/web/playwright.config.ts'
+              - '!apps/web/lighthouserc.cjs'
+              - '!apps/web/knip.json'
+            # What the pages Lighthouse measures are built and served from: the app's code, static
+            # files and Lua (HappyView answers the directory's queries), the dev network and seed
+            # data it measures them on, its build and Lighthouse config, the dependencies, and the
+            # README and guides of the one tool page lighthouse/pages.json marks `pr` (add a tool here
+            # when its page is marked). Left out: the app's tests and the helpers and fixture only
+            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
+            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
+            # website's README, the Dockerfile).
+            web_lighthouse:
+              - 'apps/web/src/**'
+              - 'apps/web/static/**'
+              - 'apps/web/lua/**'
+              - 'apps/web/scripts/**'
+              - 'apps/web/package.json'
+              - 'apps/web/vite.config.ts'
+              - 'apps/web/tsconfig.json'
+              - 'apps/web/lighthouserc.cjs'
+              - 'apps/web/lighthouse/**'
+              - 'apps/locallibrary/README.md'
+              - 'apps/locallibrary/docs/*.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/web-ci.yml'
+              - '!apps/web/**/*.test.ts'
+              - '!apps/web/**/*.spec.ts'
+              - '!apps/web/**/*.stories.svelte'
+              - '!apps/web/**/*.mdx'
+              - '!apps/web/src/lib/server/testing/**'
+              - '!apps/web/src/lib/mix/fixtures/**'
+            localtoolbox:
+              - 'apps/localtoolbox/**'
+              - 'packages/tokens/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/localtoolbox-ci.yml'
+              - '.github/actions/main-artifact/**'
+              - '.github/actions/size-report/**'
+              - '.github/actions/pr-comment/**'
+            atstore:
+              - 'packages/atstore/**'
+              - 'apps/locallibrary/assets/icon.svg'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/atstore-ci.yml'
+            # The mix report's writer and its reader in the web app. The writer is locallibrary's
+            # CLI, built from the workspace (scripts/mix-fixture.ts runs it on rekordcrate's demo
+            # tracks), so it's every Rust crate the CLI builds from.
+            mix_report:
+              - 'apps/locallibrary/src/**'
+              - 'apps/locallibrary/Cargo.toml'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - 'apps/web/src/lib/mix/**'
+              - 'apps/web/scripts/mix-fixture.ts'
+              - 'packages/tokens/colors.json'
+              - 'packages/tokens/mix.json'
+              - '.github/workflows/mix-report.yml'
+              - '!**/*.md'
+              - '!**/tests.rs'
+            # The lockfile and the advisories' ignore list (auditConfig in pnpm-workspace.yaml).
+            npm_advisories:
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/npm-advisories.yml'
+            # What actionlint and zizmor read.
+            workflow_lint:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - '.github/actionlint.yaml'
+              - '.github/zizmor.yml'
+              - '.github/dependabot.yml'
+            # The policies read config from all over and the list of every file, and ast-grep reads
+            # the code, so only a change to Markdown alone that adds or deletes nothing skips them.
+            repo_checks:
+              - '**'
+              - '!**/*.md'
+            repo_checks_files:
+              - added|deleted: '**'
+            repo_checks_lexicons:
+              - 'lexicons/**'
+              - 'tools/lexicons.sh'
+              - '.github/workflows/repo-checks.yml'
+            repo_checks_ruleset:
+              - '.github/rulesets/**'
+              - 'tools/ruleset.sh'
+              - '.github/workflows/repo-checks.yml'
+            # What CodeQL extracts for each language without a build, and its config.
+            codeql_rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
+            codeql_javascript:
+              - '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,svelte,vue,html}'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
+      # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
+      # has the pull request as it was when the event was made: #211 was marked ready a second after
+      # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
+      # still said draft. A re-run gets the same event, so only this lets one see that the pull
+      # request is ready, or that the label was added since.
+      - if: github.event_name == 'pull_request'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$GH_REPO/pulls/$NUMBER" \
+            --jq '"draft=\(.draft)", "all_os=\(any(.labels[]; .name == "all-os"))"' >> "$GITHUB_OUTPUT"
+      # Which jobs run. Everything runs for a pull request too big for the API's file list (it lists
+      # at most 3000), and for a change to this workflow, on the OSes the event runs (see the top of
+      # the file). A draft runs nothing.
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files || 0 }}
+          FILTER: ${{ toJSON(steps.filter.outputs) }}
+          DRAFT: ${{ steps.pr.outputs.draft }}
+          ALL_OS: ${{ steps.pr.outputs.all_os }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          matched() { [ "$(jq -r --arg f "$1" '.[$f] // "false"' <<< "$FILTER")" = true ]; }
+          all=false
+          if [ "$CHANGED_FILES" -ge 3000 ] || matched ci; then all=true; fi
+          changed() { [ "$all" = true ] || matched "$1"; }
+          linux=true
+          other_os=${ALL_OS:-false}
+          if [ "$EVENT" = merge_group ]; then linux=false; other_os=true; fi
+          if [ "$DRAFT" = true ]; then linux=false; other_os=false; fi
+
+          declare -A out=()
+          set_if() { if "${@:2}"; then out[$1]=true; else out[$1]=false; fi; }
+          for name in locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
+            locallibrary_dist locallibrary_other_os locallibrary_semver web_verify web_integration \
+            web_e2e web_lighthouse web_docker localtoolbox atstore mix_report npm_advisories \
+            workflow_lint repo_checks_policy repo_checks_lexicons repo_checks_ruleset; do
+            out[$name]=false
+          done
+          if [ "$linux" = true ] && [ "$EVENT" = pull_request ]; then
+            set_if locallibrary_linux changed locallibrary
+            set_if locallibrary_docs changed locallibrary_readmes
+            set_if locallibrary_deny changed locallibrary_deny
+            set_if locallibrary_dist changed locallibrary_dist
+            set_if locallibrary_semver changed locallibrary_semver
+            set_if web_verify changed web
+            set_if web_integration changed web_integration
+            set_if web_e2e changed web_e2e
+            set_if web_lighthouse changed web_lighthouse
+            set_if web_docker changed web_docker
+            set_if localtoolbox changed localtoolbox
+            set_if atstore changed atstore
+            set_if mix_report changed mix_report
+            set_if npm_advisories changed npm_advisories
+            set_if workflow_lint changed workflow_lint
+            if changed repo_checks || changed repo_checks_files; then out[repo_checks_policy]=true; fi
+            set_if repo_checks_lexicons changed repo_checks_lexicons
+          fi
+          # A push to main: what main's runs keep for pull requests. The sizes and coverage the
+          # reports compare with change only with the code (web_integration's paths), and the Rust
+          # caches (locallibrary's and the mix report's) only with what they're keyed on.
+          if [ "$linux" = true ] && [ "$EVENT" = push ]; then
+            set_if locallibrary_cache changed rust_cache
+            set_if mix_report changed rust_cache
+            set_if web_verify changed web_integration
+            set_if web_integration changed web_integration
+            set_if web_docker changed web_docker
+            set_if localtoolbox changed localtoolbox
+            set_if repo_checks_ruleset changed repo_checks_ruleset
+          fi
+          # Not `all`: a change to this workflow tests its wiring on Linux, and macOS and Windows
+          # run only what changed for them.
+          if [ "$other_os" = true ]; then set_if locallibrary_other_os matched locallibrary; fi
+
+          any() { local name; for name; do [ "${out[$name]}" = true ] && return 0; done; return 1; }
+          set_if locallibrary any locallibrary_linux locallibrary_docs locallibrary_cache locallibrary_deny \
+            locallibrary_dist locallibrary_other_os locallibrary_semver
+          set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
+          set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset
+
+          # CodeQL on every event but a draft's and a pull request's into another branch than main:
+          # the code scanning rule holds a pull request or a merge queue group until it has CodeQL's
+          # results for its commit, and pull requests' alerts are compared with main's. The workflows' analysis always runs (it takes about a minute),
+          # so every commit has a result; Rust's and TypeScript's only when their code changed.
+          languages=()
+          if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then
+            languages+=(actions)
+            if changed codeql_javascript; then languages+=(javascript-typescript); fi
+            if changed codeql_rust; then languages+=(rust); fi
+          fi
+          {
+            for name in "${!out[@]}"; do echo "$name=${out[$name]}"; done
+            echo "codeql=$([ ${#languages[@]} -gt 0 ] && echo true || echo false)"
+            echo "codeql_languages=$(jq -cn '$ARGS.positional' --args "${languages[@]}")"
+            echo "draft=${DRAFT:-false}"
+          } >> "$GITHUB_OUTPUT"
+      # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
+      # A fork's pull request gets a read-only token here, so pr-labels.yml labels those instead.
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+      # A merge queue group the queue rebuilt or took out gets a new branch name, so concurrency
+      # never cancels the run for the old one, and its macOS and Windows jobs would hold those
+      # runners to the end. Each group's run cancels this workflow's runs whose group branch GitHub
+      # has deleted.
+      - if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # Filtered here, not with the list's event and status parameters (see last-passed).
+          gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?per_page=100" --jq '.workflow_runs[]
+            | select(.event == "merge_group" and .status != "completed") | "\(.id) \(.head_branch)"' |
+          while read -r id branch; do
+            if [ "$id" = "$RUN_ID" ]; then continue; fi
+            if gh api "repos/$GH_REPO/git/ref/heads/$branch" --silent 2>&1 | grep -q 'HTTP 404'; then
+              echo "Cancelling run $id: $branch is gone"
+              gh run cancel "$id" || true
+            fi
+          done
+
+  locallibrary:
+    needs: changes
+    if: needs.changes.outputs.locallibrary == 'true'
+    permissions:
+      contents: read
+      # The coverage comment.
+      pull-requests: write
+    uses: ./.github/workflows/locallibrary-ci.yml
+    with:
+      linux: ${{ needs.changes.outputs.locallibrary_linux == 'true' }}
+      docs: ${{ needs.changes.outputs.locallibrary_docs == 'true' }}
+      cache: ${{ needs.changes.outputs.locallibrary_cache == 'true' }}
+      deny: ${{ needs.changes.outputs.locallibrary_deny == 'true' }}
+      dist: ${{ needs.changes.outputs.locallibrary_dist == 'true' }}
+      other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
+      semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    permissions:
+      contents: read
+      # main's coverage and sizes, from its runs' artifacts, and the comment.
+      actions: read
+      pull-requests: write
+    uses: ./.github/workflows/web-ci.yml
+    with:
+      verify: ${{ needs.changes.outputs.web_verify == 'true' }}
+      integration: ${{ needs.changes.outputs.web_integration == 'true' }}
+      e2e: ${{ needs.changes.outputs.web_e2e == 'true' }}
+      lighthouse: ${{ needs.changes.outputs.web_lighthouse == 'true' }}
+      docker: ${{ needs.changes.outputs.web_docker == 'true' }}
+
+  localtoolbox:
+    needs: changes
+    if: needs.changes.outputs.localtoolbox == 'true'
+    permissions:
+      contents: read
+      # As web's.
+      actions: read
+      pull-requests: write
+    uses: ./.github/workflows/localtoolbox-ci.yml
+
+  atstore:
+    needs: changes
+    if: needs.changes.outputs.atstore == 'true'
+    uses: ./.github/workflows/atstore-ci.yml
+
+  mix-report:
+    needs: changes
+    if: needs.changes.outputs.mix_report == 'true'
+    uses: ./.github/workflows/mix-report.yml
+
+  npm-advisories:
+    needs: changes
+    if: needs.changes.outputs.npm_advisories == 'true'
+    uses: ./.github/workflows/npm-advisories.yml
+
+  workflow-lint:
+    needs: changes
+    if: needs.changes.outputs.workflow_lint == 'true'
+    uses: ./.github/workflows/workflow-lint.yml
+
+  repo-checks:
+    needs: changes
+    if: needs.changes.outputs.repo_checks == 'true'
+    uses: ./.github/workflows/repo-checks.yml
+    with:
+      policy: ${{ needs.changes.outputs.repo_checks_policy == 'true' }}
+      lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
+      ruleset: ${{ needs.changes.outputs.repo_checks_ruleset == 'true' }}
+
+  codeql:
+    needs: changes
+    if: needs.changes.outputs.codeql == 'true'
+    permissions:
+      contents: read
+      # Uploading the results to code scanning.
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
+    with:
+      languages: ${{ needs.changes.outputs.codeql_languages }}
+
+  # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
+  # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't
+  # run), or on a draft. Otherwise it's skipped, which GitHub counts as passing. A call's result
+  # covers every job in it, so a job skipped because one it needs didn't finish (#88's tests, after
+  # its macOS build was cancelled) fails its tool's.
+  passed:
+    name: CI passed
+    if: >-
+      always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      || (needs.changes.outputs.locallibrary == 'true' && needs.locallibrary.result == 'skipped')
+      || (needs.changes.outputs.web == 'true' && needs.web.result == 'skipped')
+      || (needs.changes.outputs.localtoolbox == 'true' && needs.localtoolbox.result == 'skipped')
+      || (needs.changes.outputs.atstore == 'true' && needs.atstore.result == 'skipped')
+      || (needs.changes.outputs.mix_report == 'true' && needs.mix-report.result == 'skipped')
+      || (needs.changes.outputs.npm_advisories == 'true' && needs.npm-advisories.result == 'skipped')
+      || (needs.changes.outputs.workflow_lint == 'true' && needs.workflow-lint.result == 'skipped')
+      || (needs.changes.outputs.repo_checks == 'true' && needs.repo-checks.result == 'skipped')
+      || (needs.changes.outputs.codeql == 'true' && needs.codeql.result == 'skipped')
+      || needs.changes.outputs.draft == 'true')
+    needs: [changes, locallibrary, web, localtoolbox, atstore, mix-report, npm-advisories, workflow-lint, repo-checks, codeql]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: needs.changes.outputs.draft != 'true'
+        run: |
+          echo "::error title=CI failed::A job above failed, was cancelled, or was skipped with work to do."
+          exit 1
+      # A draft's skipped jobs would pass too, and this check would stay green if marking it ready
+      # started no run, as with #211, which merged without its tests running.
+      - if: needs.changes.outputs.draft == 'true'
+        run: |
+          echo "::error title=Draft::Nothing ran because the pull request was a draft. Marking it ready for review starts a new run; if none started, use \"Re-run all jobs\" (re-running failed jobs alone reuses the draft's result)."
+          exit 1

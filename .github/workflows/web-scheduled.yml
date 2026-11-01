@@ -4,7 +4,8 @@ name: Web scheduled
 # WebKit on the desktop, and a Pixel 7 and an iPhone 14. Then Lighthouse on every page in
 # lighthouse/pages.json, on a phone and a desktop, held against each page's history. Weekly and on
 # demand (Actions > Web scheduled > Run workflow, on any branch), so pull requests only wait for
-# web-ci.yml's Chromium run and its Lighthouse run on three pages.
+# web-ci.yml's Chromium run and its Lighthouse run on three pages. A week that changed none of what
+# they test skips them (see the changes job).
 on:
   schedule:
     - cron: "29 4 * * 1"
@@ -24,8 +25,52 @@ defaults:
 
 # Pinned the same way as web-ci.yml.
 jobs:
+  # Whether anything the end-to-end tests and Lighthouse read changed since the last weekly or hand-started run on
+  # main that passed. A run that failed doesn't count, so they run again each week until one
+  # passes. Started by hand, everything runs, as it does when none of the workflow's last 100 runs
+  # passed and there's nothing to compare with. The paths are what the e2e tests run: the app, the
+  # tools' READMEs its home page's cards come from, and the workspace's dependencies.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.web == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/web-scheduled.yml'
+
   e2e:
     name: End-to-end (every browser and phone)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -54,6 +99,8 @@ jobs:
   # run's report its lighthouse-<form factor> artifact.
   lighthouse:
     name: Lighthouse (${{ matrix.form-factor }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -95,9 +142,10 @@ jobs:
   # lighthouse-history artifact: each run on main downloads the newest one, adds itself and uploads
   # it again, so it lasts as long as runs on main come less than 90 days apart. Plain Node with
   # nothing installed, so no package from npm runs while the job can read the repository's artifacts.
+  # A week Lighthouse skips, it only uploads the history again, so the artifact doesn't expire.
   lighthouse-history:
     name: Lighthouse history
-    needs: lighthouse
+    needs: [changes, lighthouse]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -121,6 +169,7 @@ jobs:
         with:
           node-version-file: .node-version
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.lighthouse.result != 'skipped'
         with:
           pattern: lighthouse-summary-*
           path: apps/web/lighthouse-full
@@ -148,6 +197,7 @@ jobs:
           fi
       # Runs on other branches compare without recording, so main's history stays main's.
       - name: Compare with the history
+        if: needs.lighthouse.result != 'skipped'
         env:
           IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -162,10 +212,11 @@ jobs:
           retention-days: 90
 
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml).
+  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
   report:
-    needs: [e2e, lighthouse, lighthouse-history]
-    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    needs: [changes, e2e, lighthouse, lighthouse-history]
+    # A week the suites skip follows one that passed, so there's no issue to close.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.changes.outputs.run == 'true' }}
     permissions:
       actions: read
       issues: write

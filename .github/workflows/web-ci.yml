@@ -1,21 +1,34 @@
 name: Web CI
 
-# Runs for changes to the web app (apps/web), the lint and format config it shares, the pnpm
-# workspace around it, and what its Docker image copies in from outside apps/web: the shared
-# tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
+# The web app (apps/web), which ci.yml calls when it, the lint and format config it shares, the
+# pnpm workspace around it, or what its Docker image copies in from outside apps/web changes: the
+# shared tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
 on:
-  push:
-    branches: [main]
-  # The default types, and ready_for_review for a draft's first run (see the changes job).
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      verify:
+        description: Whether to run the verify job (ci.yml's web paths, or on main web_integration's, for the sizes).
+        type: boolean
+        required: true
+      integration:
+        description: Whether what the integration tests cover changed (ci.yml's web_integration paths).
+        type: boolean
+        required: true
+      e2e:
+        description: Whether what the e2e tests run changed (web_e2e).
+        type: boolean
+        required: true
+      lighthouse:
+        description: Whether what the pages Lighthouse measures are built from changed (web_lighthouse).
+        type: boolean
+        required: true
+      docker:
+        description: Whether what the Docker image is built from changed (web_docker).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 defaults:
   run:
@@ -24,118 +37,11 @@ defaults:
 # Actions are pinned to commits, as in locallibrary-ci.yml. Firefox, WebKit and the phone viewports
 # run weekly in web-scheduled.yml; pull requests run the e2e tests in Chromium only.
 jobs:
-  # Pushes and pull requests always start this workflow, so the passed job at the end always
-  # reports. The other jobs run only when the files listed here change.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything. A
-    # draft skips the work until it's marked ready for review, and `draft` tells passed it did, as
-    # in locallibrary-ci.yml. The integration and lighthouse paths are all in run's.
-    outputs:
-      run: ${{ steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true') }}
-      draft: ${{ steps.pr.outputs.draft == 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true') }}
-      integration: ${{ steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.integration == 'true') }}
-      lighthouse: ${{ steps.pr.outputs.draft != 'true' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lighthouse == 'true') }}
-    steps:
-      # A pull request's files come from the API. A push is diffed against the last commit this
-      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
-      - if: github.event_name == 'push'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: github.event_name == 'push'
-        id: base
-        uses: ./.github/actions/last-passed
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          base: ${{ steps.base.outputs.sha }}
-          predicate-quantifier: some-with-excludes
-          filters: |
-            run: &run
-              - 'apps/web/**'
-              - 'apps/*/README.md'
-              - 'apps/*/docs/*.md'
-              - 'README.md'
-              - '.github/CONTRIBUTING.md'
-              - '.github/SECURITY.md'
-              - '.github/labels.yml'
-              - 'packages/tokens/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.node-version'
-              - '.dockerignore'
-              - 'lexicons/**'
-              - '.oxlintrc.json'
-              - '.oxfmtrc.json'
-              - 'tools/oxlint/**'
-              - '.github/workflows/web-ci.yml'
-            # The integration tests: all of the above but the Markdown and labels that the tool pages
-            # and src/lib/tools/docs.test.ts read, which verify, e2e and the Docker smoke test cover.
-            integration:
-              - *run
-              - '!apps/*/README.md'
-              - '!apps/*/docs/*.md'
-              - '!README.md'
-              - '!.github/CONTRIBUTING.md'
-              - '!.github/SECURITY.md'
-              - '!.github/labels.yml'
-            # What the pages Lighthouse measures are built and served from: the app's code, static
-            # files and Lua (HappyView answers the directory's queries), the dev network and seed
-            # data it measures them on, its build and Lighthouse config, the dependencies, and the
-            # README and guides of the one tool page lighthouse/pages.json marks `pr` (add a tool here
-            # when its page is marked). Left out: the app's tests and the helpers and fixture only
-            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
-            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
-            # website's README, the Dockerfile).
-            lighthouse:
-              - 'apps/web/src/**'
-              - 'apps/web/static/**'
-              - 'apps/web/lua/**'
-              - 'apps/web/scripts/**'
-              - 'apps/web/package.json'
-              - 'apps/web/vite.config.ts'
-              - 'apps/web/tsconfig.json'
-              - 'apps/web/lighthouserc.cjs'
-              - 'apps/web/lighthouse/**'
-              - 'apps/locallibrary/README.md'
-              - 'apps/locallibrary/docs/*.md'
-              - 'packages/tokens/**'
-              - 'lexicons/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.node-version'
-              - '.github/workflows/web-ci.yml'
-              - '!apps/web/**/*.test.ts'
-              - '!apps/web/**/*.spec.ts'
-              - '!apps/web/**/*.stories.svelte'
-              - '!apps/web/**/*.mdx'
-              - '!apps/web/src/lib/server/testing/**'
-              - '!apps/web/src/lib/mix/fixtures/**'
-      # Whether the pull request is a draft now, from the API, since the event's can be stale (see
-      # locallibrary-ci.yml). From the root: a pull request's changes job checks nothing out.
-      - if: github.event_name == 'pull_request'
-        id: pr
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          NUMBER: ${{ github.event.pull_request.number }}
-        run: echo "draft=$(gh api "repos/$GH_REPO/pulls/$NUMBER" --jq .draft)" >> "$GITHUB_OUTPUT"
-
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
   # JavaScript every page loads and each page's own within their budgets.
   verify:
     name: Format, lint, types, unit tests, stories, build
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: inputs.verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -171,13 +77,12 @@ jobs:
               "Client CSS": $css, "Client CSS, brotli": $css_br}' > sizes.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sizes
+          name: web-sizes
           path: apps/web/sizes.json
 
   integration:
     name: Integration (real spaces PDS) + coverage
-    needs: changes
-    if: needs.changes.outputs.integration == 'true'
+    if: inputs.integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -197,14 +102,13 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: coverage
+          name: web-coverage
           path: apps/web/coverage/
 
   # Every page the tests visit also goes through axe (tests/e2e/axe.ts).
   e2e:
     name: End-to-end (Playwright, Chromium)
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: inputs.e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -229,12 +133,11 @@ jobs:
 
   # Lighthouse on the production build, with the e2e tests' network and seeded projects behind it,
   # against the floors and budgets in lighthouserc.cjs, when something the pages are built from
-  # changed (the changes job's lighthouse filter). The scores and any failed assertion go to the
+  # changed (ci.yml's web_lighthouse paths). The scores and any failed assertion go to the
   # run's summary and the reports to its artifacts, not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
-    needs: changes
-    if: needs.changes.outputs.lighthouse == 'true'
+    if: inputs.lighthouse
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -288,8 +191,7 @@ jobs:
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: inputs.docker
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -321,11 +223,14 @@ jobs:
   # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed
   # file's), then the client bundle's size against main's (.github/actions/size-report). Both go
   # to the run's summary too, which is all a fork's pull request gets: its token can't comment.
-  # Not one of passed's needs, so a comment that can't post never holds up a merge.
+  # It can't fail the call, so a comment that can't post never holds up a merge. It needs one of
+  # the two: the coverage, which integration uploads whether or not its tests pass, or the sizes,
+  # which verify uploads when it gets that far.
   report:
     name: Coverage and size report
-    needs: [changes, verify, integration]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
+    needs: [verify, integration]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.integration.result != 'skipped' || needs.verify.result == 'success') }}
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -344,17 +249,17 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          name: coverage
+          name: web-coverage
           path: apps/web/coverage
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          name: sizes
+          name: web-sizes
           path: apps/web/sizes
       - id: main-coverage
         uses: ./.github/actions/main-artifact
         with:
-          name: coverage
+          name: web-coverage
           path: ${{ runner.temp }}/main-coverage
       - if: hashFiles('apps/web/coverage/coverage-summary.json') != ''
         uses: davelosert/vitest-coverage-report-action@8f86cfb56ed6d5613ea8cdc5259f207fbfd51ece # v2.13.1
@@ -366,6 +271,7 @@ jobs:
         uses: ./.github/actions/size-report
         with:
           sizes: apps/web/sizes/sizes.json
+          artifact: web-sizes
           output: ${{ runner.temp }}/size.md
       # Added to the coverage action's comment, found by the marker its README documents (its
       # postfix is the working directory), so the pull request keeps one comment.
@@ -375,28 +281,3 @@ jobs:
           marker: <!-- vitest-coverage-report-marker-apps/web -->
           section: size
           body-path: ${{ runner.temp }}/size.md
-
-  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
-  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
-  # A job skipped when its changes output was true didn't run (see locallibrary-ci.yml).
-  passed:
-    name: Web CI passed
-    if: always()
-    needs: [changes, verify, integration, e2e, lighthouse, docker]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - if: >-
-          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-          || (needs.changes.outputs.run == 'true' && (needs.verify.result == 'skipped'
-            || needs.e2e.result == 'skipped' || needs.docker.result == 'skipped'))
-          || (needs.changes.outputs.integration == 'true' && needs.integration.result == 'skipped')
-          || (needs.changes.outputs.lighthouse == 'true' && needs.lighthouse.result == 'skipped')
-        working-directory: .
-        run: exit 1
-      # A draft's skipped jobs would pass too, as in locallibrary-ci.yml.
-      - if: needs.changes.outputs.draft == 'true'
-        working-directory: .
-        run: |
-          echo "::error title=Draft::Nothing ran because the pull request was a draft. Marking it ready for review starts a new run; if none started, re-run this one."
-          exit 1
