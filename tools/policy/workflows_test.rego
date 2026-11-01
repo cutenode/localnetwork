@@ -30,6 +30,7 @@ test_no_changes_job if {
 test_unfiltered_workflow_needs_no_changes_job if {
 	unfiltered := json.patch(ci, [
 		{"op": "remove", "path": "/jobs/changes"},
+		{"op": "remove", "path": "/jobs/e2e"},
 		{"op": "remove", "path": "/jobs/verify/needs"},
 		{"op": "replace", "path": "/jobs/passed/needs", "value": ["verify"]},
 	])
