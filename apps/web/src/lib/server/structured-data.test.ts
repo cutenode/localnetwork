@@ -119,7 +119,7 @@ describe('performers', () => {
 	});
 
 	it("names a press kit's profile page for the kit, from its public part", () => {
-		const epk = { rkey: 'k1', record: { title: 'Summer 2026', headline: 'Out now' } };
+		const epk = { rkey: 'k1', cid: 'bafykit', record: { title: 'Summer 2026', headline: 'Out now' } };
 
 		expect(withJsonLd(carded(pressKitMeta(SITE, project, epk)), pressKitProfile(project, epk.record)).jsonLd).toEqual({
 			'@context': 'https://schema.org',
