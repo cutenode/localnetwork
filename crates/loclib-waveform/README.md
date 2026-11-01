@@ -42,6 +42,7 @@ let drop = Cue {
     color: None,
     color_id: 0,
     loop_beats: None,
+    active_loop: false,
 };
 
 let area = Rect::new(0, 0, 40, 4);

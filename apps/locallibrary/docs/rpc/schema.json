@@ -14713,6 +14713,11 @@
             }
           ],
           "description": "A loop's length in beats as rekordbox stored it, numerator and denominator (4/1, 1/2),\nwhen it was set on the grid. Only the extended list has it."
+        },
+        "active_loop": {
+          "type": "boolean",
+          "description": "A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only\nthe basic list has it.",
+          "default": false
         }
       },
       "required": [
@@ -14722,7 +14727,8 @@
         "comment",
         "color",
         "color_id",
-        "loop_beats"
+        "loop_beats",
+        "active_loop"
       ]
     },
     "LoopBeats": {
