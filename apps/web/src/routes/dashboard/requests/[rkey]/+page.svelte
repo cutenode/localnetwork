@@ -15,6 +15,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -23,7 +24,13 @@
 	const editable = $derived(request.requester.did === data.viewer?.did && (request.status === 'pending' || request.status === 'changes_requested'));
 
 	const title = $derived(
-		request.kind === 'create' ? `New project: ${request.record.profile?.name}` : request.kind === 'claim' ? `Claim: ${request.project?.name}` : `Changes to ${request.project?.name}`
+		request.kind === 'create'
+			? `New project: ${request.record.profile?.name}`
+			: request.kind === 'claim'
+				? `Claim: ${request.project?.name}`
+				: request.kind === 'list'
+					? 'Listing in Find DJs'
+					: `Changes to ${request.project?.name}`
 	);
 
 	let editing = $state(false);
@@ -85,7 +92,7 @@
 			<p class="m-0"><span class="text-fg-subtle">Relationship:</span> {labelFor(CLAIM_RELATIONSHIPS, request.record.claim?.relationship)}</p>
 			<p class="m-0 whitespace-pre-line">{request.record.claim?.evidence}</p>
 			{#if request.record.claim?.links?.length}
-				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={link} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
+				<ul class="m-0 flex list-none flex-col gap-1 p-0">{#each request.record.claim.links as link, index (index)}<li class="break-all"><a class="link" href={webHref(link)} rel="noopener noreferrer nofollow" target="_blank">{link}</a></li>{/each}</ul>
 			{/if}
 		</Card>
 	{:else if request.kind === 'update'}
@@ -104,7 +111,11 @@
 
 	{#if editable}
 		<div class="flex flex-wrap gap-3">
-			<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{#if request.kind === 'list'}
+				<Button variant="secondary" href="/dashboard/profile">Edit your profile</Button>
+			{:else}
+				<Button variant="secondary" onclick={() => (editing = !editing)}>{editing ? 'Stop editing' : 'Edit request'}</Button>
+			{/if}
 			<form method="POST" action="?/withdraw" use:enhance={({ cancel }) => { if (!confirm('Withdraw this request?')) cancel(); }}>
 				<button class="btn-danger">Withdraw</button>
 			</form>

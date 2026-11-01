@@ -1,8 +1,17 @@
 <script lang="ts">
-	import { accountLabel } from '#lib/format.ts';
+	import { accountLabel, profileHref } from '#lib/format.ts';
 	import type { AccountView } from '#lib/types.ts';
 
-	let { account, class: className = '' }: { account: AccountView | null | undefined; class?: string } = $props();
+	/** An account by its handle, linking to its profile unless `link` is false (inside another link or a label). */
+	let {
+		account,
+		link = true,
+		class: className = ''
+	}: { account: AccountView | null | undefined; link?: boolean; class?: string } = $props();
 </script>
 
-<span class="text-fg {className}" title={account?.did}>{accountLabel(account)}</span>
+{#if account && link}
+	<a href={profileHref(account)} class="text-fg underline decoration-fg-subtle underline-offset-4 hover:decoration-fg {className}" title={account.did}>{accountLabel(account)}</a>
+{:else}
+	<span class="text-fg {className}" title={account?.did}>{accountLabel(account)}</span>
+{/if}

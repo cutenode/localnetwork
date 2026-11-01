@@ -14,6 +14,21 @@ export const QUERY_BYTES = 100;
 /** A published project as the directory serves it (`computer.localnetwork.directory.defs#projectView`). */
 export type DirectoryProject = { uri: string; cid: string; record: JsonObject; distanceM?: number };
 
+/** A listed DJ's profile as the directory serves it (`computer.localnetwork.directory.defs#profileView`). */
+export type DirectoryProfile = {
+	uri: string;
+	cid: string;
+	record: JsonObject;
+	/** The root's listing of it. */
+	listing: string;
+	/** What it was searched by: its performer section's genres, or the ones the DJ plays most. */
+	genres: string[];
+	distanceM?: number;
+};
+
+/** A performer the directory found (`computer.localnetwork.directory.defs#performerView`): a project or a DJ's profile. */
+export type DirectoryPerformer = { project: DirectoryProject } | { profile: DirectoryProfile };
+
 /** A record as the directory indexed it (`computer.localnetwork.directory.defs#recordView`), as its record script kept it. */
 export type DirectoryRecord = { uri: string; cid: string; value: JsonObject };
 
@@ -40,6 +55,7 @@ export type DirectoryMatch = {
 /** What each directory query answers, as its lexicon in lexicons/computer/localnetwork/directory describes it. */
 export type DirectoryOutputs = {
 	searchProjects: { projects: DirectoryProject[]; total: number; cursor?: string };
+	searchPerformers: { performers: DirectoryPerformer[]; total: number; cursor?: string };
 	matchProjects: { matches: DirectoryMatch[] };
 	getProject: { project?: DirectoryProject; pressKits?: number; upcomingShows?: number };
 	getProjects: { projects: DirectoryProject[] };

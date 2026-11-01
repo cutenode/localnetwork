@@ -455,14 +455,15 @@ impl Compare<f64> {
     }
 
     /// The value a filter term takes for this (`128..128`, `>5`, `1..3`), each number written by
-    /// `show`, and whether the term is negated.
+    /// `show`, and whether the term is negated. A range is written low end first: a filter's
+    /// date range from a later day to an earlier one holds nothing.
     fn filter_value(self, show: impl Fn(f64) -> String) -> (bool, String) {
         match self {
             Compare::Is(x) => (false, format!("{0}..{0}", show(x))),
             Compare::IsNot(x) => (true, format!("{0}..{0}", show(x))),
             Compare::Greater(x) => (false, format!(">{}", show(x))),
             Compare::Less(x) => (false, format!("<{}", show(x))),
-            Compare::Range(a, b) => (false, format!("{}..{}", show(a), show(b))),
+            Compare::Range(a, b) => (false, format!("{}..{}", show(a.min(b)), show(a.max(b)))),
         }
     }
 }

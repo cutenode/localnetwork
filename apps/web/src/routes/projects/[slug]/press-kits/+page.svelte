@@ -8,16 +8,17 @@
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import { presetFor, pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * A project's press kits: the ones its managers publish as records, listed first, then one put
 	 * together from what's on file (the profile, its mixes, the managers' playing stats and sets, and
-	 * booking details for members). That one reads like a document and prints on white.
+	 * booking details for its managers). That one reads like a document and prints on white.
 	 */
 	let { data }: PageProps = $props();
 
@@ -132,7 +133,7 @@
 		</section>
 		<aside aria-labelledby="epk-facts" class="flex min-w-0 flex-[1_1_15rem] flex-col gap-4">
 			<h2 id="epk-facts" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</aside>
 	</div>
 
@@ -174,7 +175,7 @@
 
 	<section aria-labelledby="epk-booking" class="card flex flex-col gap-4 p-5 print:break-inside-avoid">
 		<h2 id="epk-booking" class="m-0 text-heading font-semibold">Booking</h2>
-		<BookingDetails details={data.details} signedIn={!!data.viewer} claimed={project.managers.length > 0} loginHref="/login?next=/projects/{project.slug}/press-kits" />
+		<BookingDetails details={data.details} claimed={project.managers.length > 0} />
 		<div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-small">
 			{#if data.viewer && project.managers.length && !data.isManager}<a class="btn-primary btn-sm print:hidden" href="/dashboard/bookings/new?project={project.slug}">Send inquiry</a>{/if}
 			<span class="text-fg-muted">Profile: <a class="link break-all" href={data.profileUrl}>{data.profileUrl}</a></span>
@@ -182,7 +183,7 @@
 		{#if profile.links?.length}
 			<ul class="m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0 text-small">
 				{#each profile.links as link, index (index)}
-					<li><a class="link inline-flex items-center gap-1" href={link.url} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 print:hidden" /></a><span class="hidden break-all text-fg-muted print:inline">{' '}{link.url}</span></li>
+					<li><a class="link inline-flex items-center gap-1" href={webHref(link.url)} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 print:hidden" /></a><span class="hidden break-all text-fg-muted print:inline">{' '}{link.url}</span></li>
 				{/each}
 			</ul>
 		{/if}
