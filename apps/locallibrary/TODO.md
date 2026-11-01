@@ -15,8 +15,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
-      against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
-      headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
+      against the updated lockfile), docs, cargo-deny, and clippy on the headless CLI without ALSA
+      headers (in the lint job). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
       first run measures. Weekly and on demand, `locallibrary-scheduled.yml` runs Bombadil, the
       no-default-features tests, the cargo-hack feature powerset and cargo-deny's advisories:
@@ -37,8 +37,9 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       role, the RPC method aliases): they only map from builds nobody else ran, and after v0.1.0
       they're public contract. Fold CHANGELOG "Changed" into "Added" at the same time (it still
       lists `mirror` and `push`).
-- [ ] `dist plan` runs only on PRs that touch a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-      `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will trigger it. Then try
+- [ ] `dist plan` runs (in `locallibrary-ci.yml`'s lint job) only on PRs that touch a `Cargo.toml`,
+      `dist-workspace.toml`, `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will
+      trigger it. Then try
       the release pipeline with `locallibrary-v0.1.0-rc.1` (which skips the Homebrew push) before
       tagging `locallibrary-v0.1.0`.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
@@ -312,8 +313,9 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
       O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
 - [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
-      `codspeed-criterion-compat`, as `locallibrary-bench.yml` already says it is, and connect
-      the repo in CodSpeed after the first push (the free tier needs it public).
+      `codspeed-criterion-compat`, bring back `locallibrary-bench.yml` (removed while `main` had
+      no benchmarks; it's in the history), and connect the repo in CodSpeed after the first push
+      (the free tier needs it public).
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 
