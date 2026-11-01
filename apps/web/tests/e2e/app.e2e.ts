@@ -70,7 +70,11 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
-		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expect(page.getByText('Contacts, rates and the tech rider come with a press kit.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'See the press kits' })).toHaveAttribute(
+			'href',
+			'/projects/halflight/press-kits'
+		);
 		await expectAccessible(page);
 	});
 
@@ -80,7 +84,7 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kits' }).click();
+		await page.getByRole('link', { name: 'Press kits', exact: true }).click();
 		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();

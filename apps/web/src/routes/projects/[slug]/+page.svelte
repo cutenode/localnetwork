@@ -164,7 +164,7 @@
 
 		<section aria-labelledby="booking" class="card flex flex-col gap-3 p-5">
 			<h2 id="booking" class="m-0 inline-flex items-center gap-2 text-emphasis font-semibold"><Lock class="size-4" />Booking details</h2>
-			<BookingDetails details={data.details} signedIn={!!viewer} {claimed} {loginHref} />
+			<BookingDetails details={data.details} {claimed} kitsHref="/projects/{project.slug}/press-kits" />
 		</section>
 	</div>
 

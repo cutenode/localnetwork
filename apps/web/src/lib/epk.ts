@@ -238,6 +238,15 @@ export type EpkGrantView = {
 	createdAt: string;
 };
 
+/** A receipt of someone with access viewing a press kit's private part, for its project's managers. */
+export type EpkViewReceipt = {
+	/** The audit entry recording the view. */
+	id: string;
+	viewer: AccountView;
+	epk: { uri: string; rkey: string; title: string };
+	viewedAt: string;
+};
+
 /** Where the viewer stands with a press kit's private part. */
 export type EpkAccessState =
 	| { kind: 'manager' }
