@@ -61,7 +61,7 @@ On a pull request, each tool's workflow keeps one comment up to date with its co
 
 Pull requests that change a lockfile, a manifest or a workflow also get a dependency review (`dependency-review.yml`). It fails when a dependency the pull request adds or updates (dev tooling aside) has a known advisory or a licence `deny.toml` doesn't allow (fonts may also be OFL-1.1), and then comments on the pull request with what it found.
 
-CodeQL (`codeql.yml`, which `ci.yml` calls) scans the workflows on every pull request into `main`, merge queue group and push to `main`, and the TypeScript and the Rust when their code changed, and `main` won't take a pull request that adds a high or critical security alert, or an error. The Rust tests are left out (`.github/codeql/codeql-config.yml`), so a new `#[cfg(test)]` module needs one of the names listed there, which `ast-grep scan` checks.
+CodeQL (`codeql.yml`, which `ci.yml` calls) scans the workflows, the TypeScript and the Rust on every pull request into `main`, merge queue group and push to `main`, and `main` won't take a pull request that adds a high or critical security alert, or an error. The Rust tests are left out (`.github/codeql/codeql-config.yml`), so a new `#[cfg(test)]` module needs one of the names listed there, which `ast-grep scan` checks.
 
 ## Pull requests
 
