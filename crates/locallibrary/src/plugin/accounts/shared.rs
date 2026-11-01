@@ -168,8 +168,8 @@ impl Plugin {
 
     /// The access token of the account `subject` it signed in to in `store` to use instead of
     /// `refused`, which its service refused: the one another host refreshed it to since, else
-    /// `refused` refreshed (as [`Plugin::account_token`] refreshes). Without a refresh token, or
-    /// one the service won't refresh any more, it's signed out.
+    /// `refused` refreshed (as [`Plugin::account_token`] refreshes), else, without a refresh
+    /// token, `refused` itself. One the service won't refresh any more is signed out.
     pub(crate) fn account_token_refused(&self, store: &Store, subject: &str, refused: &str) -> Result<String> {
         self.token(store, subject, Some(refused))
     }
@@ -194,10 +194,9 @@ impl Plugin {
         }
         let storage = self.host.options.secrets;
         let Some(refresh) = tokens.refresh_token.clone() else {
-            if refused.is_some() {
-                forget(store, storage, &k)?;
-            }
-            return Err(signed_out());
+            // Nothing to refresh it with: the refusal is passed on, signing it out only when the
+            // service says the token is no good (see `Plugin::invalid_token`).
+            return refused.map(|_| tokens.access_token).ok_or_else(signed_out);
         };
         let Some(fresh) = self.refreshed(t, refresh, tokens)? else {
             forget(store, storage, &k)?;

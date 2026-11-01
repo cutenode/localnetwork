@@ -245,8 +245,10 @@ account by its type (`{account:TYPE}`) where the type says its token goes, the `
 header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
 token once it has checked the request against the scopes of the plugin's access, never sending it
 on to another server a redirect leads to. When the service refuses the token (a 401), locallibrary
-refreshes it and sends the request once more; one it can't refresh is signed out, and a second
-refusal saying the token is no good signs it out too. When the service says the token lacks a
+refreshes it and sends the request once more. A refusal that isn't sent again (the second, or
+one for an account with no refresh token) is passed on to the plugin, and signs the account out
+only when the service says the token is no good (`error="invalid_token"`); one the service won't
+refresh signs it out too. When the service says the token lacks a
 scope, the request fails saying which, and signing in again is offered.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was

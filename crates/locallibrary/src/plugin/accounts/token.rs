@@ -142,14 +142,19 @@ impl Plugin {
 
     /// Its service refused `token`, `usable`'s account's: the account's token is refreshed, unless
     /// another host already has (see [`Plugin::account_token_refused`]), for the request to be
-    /// sent again with it. `access` (`signed_out`) when the service won't refresh it.
-    pub(crate) fn refused_token(&self, usable: &Usable, token: &str, store: &Store) -> Result<(), RpcError> {
+    /// sent again with it. Whether there's another token to send, which there isn't without a
+    /// refresh token; `access` (`signed_out`) when the service won't refresh it.
+    pub(crate) fn refused_token(&self, usable: &Usable, token: &str, store: &Store) -> Result<bool, RpcError> {
         let subject = &usable.access.account.subject;
-        usable.with.account_token_refused(store, subject, token).map(drop).map_err(|e| self.token_failed(usable, e))
+        let instead =
+            usable.with.account_token_refused(store, subject, token).map_err(|e| self.token_failed(usable, e))?;
+        Ok(instead != token)
     }
 
-    /// Its service refused `token` again, saying it's no good: `usable`'s account is signed out,
-    /// unless another host signed it in again since.
+    /// Its service refused `token` with a 401 it won't be sent again after, saying
+    /// `error="invalid_token"`: `usable`'s account is signed out, unless another host signed it in
+    /// again since. Only the service saying so signs it out: a plugin can draw a 401 from any URL
+    /// its scope covers, for reasons of the service's own.
     pub(crate) fn invalid_token(&self, usable: &Usable, token: &str, store: &Store) -> Result<(), RpcError> {
         let subject = &usable.access.account.subject;
         usable.with.forget_refused(store, subject, token).map_err(|e| RpcError::failed("external", e.to_string()))
