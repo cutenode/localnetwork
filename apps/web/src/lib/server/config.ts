@@ -79,6 +79,7 @@ const envSchema = z.object({
 	ALLOW_PRIVATE_NETWORK: booleanString,
 	AUDIT_MAX_ATTEMPTS: intString(12, 1, 100),
 	SESSION_DAYS: intString(30, 1, 365),
+	EPK_VIEW_RETENTION_DAYS: intString(90, 1, 3650),
 	EMAIL_PROVIDER: z.enum(['resend', 'log', 'none']).optional(),
 	RESEND_API_KEY: z.string().min(1).optional(),
 	EMAIL_FROM: z.string().min(1).optional(),
@@ -111,6 +112,8 @@ export type Config = {
 	allowPrivateNetwork: boolean;
 	auditMaxAttempts: number;
 	sessionDays: number;
+	/** How long receipts of press kit views are kept before they expire. */
+	epkViewRetentionDays: number;
 	/**
 	 * How inbox items go out by email: Resend's API, the log (development, so nothing leaves the machine), or not at
 	 * all, in which case the settings page says email isn't set up here.
@@ -193,6 +196,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		allowPrivateNetwork: truthy(value.ALLOW_PRIVATE_NETWORK, dev),
 		auditMaxAttempts: value.AUDIT_MAX_ATTEMPTS,
 		sessionDays: value.SESSION_DAYS,
+		epkViewRetentionDays: value.EPK_VIEW_RETENTION_DAYS,
 		email: emailConfig(value, dev),
 		dm: { provider: value.DM_PROVIDER ?? (dev ? 'log' : 'none'), chatService: value.CHAT_SERVICE_DID },
 		backup: backupSettings(value)

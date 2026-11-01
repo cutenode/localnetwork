@@ -162,22 +162,10 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] The opener (`rundll32 url.dll,FileProtocolHandler`, used by sign-in, `mix --open` and the
       player's mix report) with a report path that has spaces.
 
-## Tests to add
-
-- [ ] A CI-only `format::apply` test on a disk image per OS (hdiutil, a diskpart vdisk, losetup).
-      Linux first needs loop devices treated as removable under `LOCALLIBRARY_FORMAT_VIRTUAL`
-      (`format/linux.rs`).
-- [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
-      another volume, and naming the volumes it unmounts.
-
 ## Open bugs and gaps
 
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
-- [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
-      UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack

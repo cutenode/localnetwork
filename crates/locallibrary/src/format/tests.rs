@@ -198,8 +198,7 @@ fn file_systems_are_named_and_small_volumes_get_small_clusters() {
     assert_eq!(Filesystem::Hfsplus.label(""), "REKORDBOX");
 }
 
-/// A disk image is refused unless tests allow them, and so is a disk holding `/` whatever it
-/// says about itself.
+/// A disk image is refused, and so is a disk holding `/` whatever it says about itself.
 #[test]
 fn refuses_disk_images_and_the_root_volume() {
     let image = Disk { virtual_disk: true, ..sample_disk() };
@@ -207,6 +206,30 @@ fn refuses_disk_images_and_the_root_volume() {
     let mut root = sample_disk();
     root.volumes[0].mount = Some("/".into());
     assert_eq!(root.problem(&[]).as_deref(), Some("it holds the running operating system"));
+}
+
+/// The disk image a test attached is let through, and only that one: a disk image under another
+/// identifier is refused, and so is a disk that isn't an image under the image's identifier.
+#[test]
+fn only_the_tests_own_image_is_let_through() {
+    let image = Disk { virtual_disk: true, internal: true, removable: false, ..sample_disk() };
+    TEST_IMAGE.set(Some(image.id.clone()));
+    assert_eq!(image.problem(&[]), None);
+    let other = Disk { id: "disk9".into(), ..image.clone() };
+    assert_eq!(
+        other.problem(&[]).as_deref(),
+        Some("it's an internal disk (only external and removable drives can be formatted)")
+    );
+    let real = Disk { virtual_disk: false, ..image.clone() };
+    assert!(real.problem(&[]).unwrap().contains("internal"));
+    // Read-only, holding the system or a protected path: refused all the same.
+    assert_eq!(Disk { read_only: true, ..image.clone() }.problem(&[]).as_deref(), Some("it's write-protected"));
+    assert!(Disk { system: true, ..image.clone() }.problem(&[]).unwrap().contains("operating system"));
+    assert!(image.problem(&[PathBuf::from("/Volumes/DNA/store")]).unwrap().contains("holds"));
+    // Nor is it listed: tests name it by its identifier.
+    assert!(views(vec![image.clone()], &[]).is_empty());
+    TEST_IMAGE.set(None);
+    assert!(image.problem(&[]).unwrap().contains("internal"));
 }
 
 /// Only external and removable physical disks are listed, each with why it can't be

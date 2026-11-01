@@ -30,6 +30,7 @@ use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::cue_edit::CueChange;
 use crate::device::{Device, LineageOp};
 use crate::error::{Action, Reason};
+use crate::fields::TrackValues;
 use crate::fsutil;
 use crate::harmony;
 use crate::hash::Hash;
@@ -38,7 +39,7 @@ use crate::onelibrary::{OneLibrary, Tree};
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
-use crate::query::{self, DriveContext, TrackSelector};
+use crate::query::{self, DriveContext, Filter, TrackSelector};
 use crate::tags::TagChange;
 use crate::{Error, Result};
 
@@ -1425,6 +1426,18 @@ impl<'a> Resolver<'a> {
         kept
     }
 
+    /// Says so when `sel`'s filter names a plugin's field no track here has a value of (none was
+    /// analyzed for it): the filter selects none of the tracks by it.
+    fn note_unanalyzed(&self, sel: &TrackSelector) {
+        let Some(values) = self.extra.fields() else { return };
+        let Some(filter) = sel.filter.as_deref().and_then(|f| Filter::parse(f).ok()) else { return };
+        for name in filter.fields().into_iter().filter(|name| values.declared.contains_key(*name)) {
+            if !values.tracks.values().any(|fields| fields.contains_key(name)) {
+                self.note(format!("no track here has a value for {name}: analyze the tracks first"));
+            }
+        }
+    }
+
     fn keys(lib: &Library, ids: &[u32]) -> Vec<String> {
         lib.tracks_by_id(ids).into_iter().map(|t| paths::file_key(&t.file_path)).collect()
     }
@@ -1434,6 +1447,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn select(&self, lib: &Library, sel: &TrackSelector, allow_empty: bool) -> Result<Vec<u32>> {
+        self.note_unanalyzed(sel);
         let ctx = self.extra.query(lib);
         if self.lenient && !sel.paths.is_empty() {
             let paths = self.present(lib, &sel.paths, "the edit selects");
@@ -1607,7 +1621,7 @@ impl<'a> Resolver<'a> {
                 let p = list(spec)?;
                 let mut add = self.select(lib, tracks, false)?;
                 if let Some(s) = sort {
-                    add = sorted(lib, &add, s)?;
+                    add = sorted(self.extra.fields(), lib, &add, s)?;
                 }
                 let old = entries(p);
                 if !allow_repeats {
@@ -1718,7 +1732,7 @@ impl<'a> Resolver<'a> {
             Edit::SetTracks { playlist: spec, tracks, sort, limit, create } => {
                 let mut ids = self.select(lib, tracks, true)?;
                 if let Some(s) = sort {
-                    ids = sorted(lib, &ids, s)?;
+                    ids = sorted(self.extra.fields(), lib, &ids, s)?;
                 }
                 if let Some(n) = limit {
                     ids.truncate(*n);
@@ -1775,7 +1789,7 @@ impl<'a> Resolver<'a> {
             }
             Edit::SortPlaylist { playlist: spec, by } => {
                 let p = list(spec)?;
-                let new = sorted(lib, &entries(p), by)?;
+                let new = sorted(self.extra.fields(), lib, &entries(p), by)?;
                 let canonical = Edit::SortPlaylist { playlist: named(p), by: by.clone() };
                 (vec![set(p, &new)], format!("sort {} by {by}", lib.playlist_path(p.id)), canonical)
             }
@@ -2108,10 +2122,12 @@ impl<'a> Resolver<'a> {
     }
 }
 
-fn sorted(lib: &Library, ids: &[u32], by: &str) -> Result<Vec<u32>> {
-    let keys = query::parse_sort(by)?;
+/// `ids` sorted by `by` (see [`query::parse_sort`]), a plugin's field by what the analyzers
+/// installed worked out (`fields`, read for a sort naming one).
+fn sorted(fields: Option<&TrackValues>, lib: &Library, ids: &[u32], by: &str) -> Result<Vec<u32>> {
+    let keys = query::parse_sort_with(by, fields.map(|f| &f.declared))?;
     let mut tracks = lib.tracks_by_id(ids);
-    query::sort_tracks(&mut tracks, &keys);
+    query::sort_tracks_with(&mut tracks, &keys, fields);
     Ok(tracks.iter().map(|t| t.id).collect())
 }
 
@@ -2285,7 +2301,8 @@ pub(crate) fn plan_writing(
     if !opts.lenient {
         edits = edits.into_iter().flat_map(with_tempo).collect();
     }
-    let extra = DriveContext::read(device, edits.iter().flat_map(Edit::selectors))?;
+    let extra =
+        DriveContext::read(device, edits.iter().flat_map(Edit::selectors), edits.iter().filter_map(Edit::sort))?;
     plan_with(device, &edits, opts, &extra, incoming, ctx)
 }
 
@@ -2303,6 +2320,15 @@ impl Edit {
     /// [`plan`]).
     pub(crate) fn is_step(&self) -> bool {
         matches!(self, Edit::MyTag(_) | Edit::Cues { .. } | Edit::SetArtwork { .. } | Edit::SetAnalysis { .. })
+    }
+
+    /// The order it sorts tracks in, if it sorts them (see [`query::parse_sort`]).
+    fn sort(&self) -> Option<&str> {
+        match self {
+            Edit::AddTracks { sort, .. } | Edit::SetTracks { sort, .. } => sort.as_deref(),
+            Edit::SortPlaylist { by, .. } => Some(by),
+            _ => None,
+        }
     }
 
     /// The track selections the edit makes.

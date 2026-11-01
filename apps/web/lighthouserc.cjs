@@ -1,7 +1,11 @@
 // Lighthouse CI (`pnpm test:lighthouse`, which builds first). It measures the production build on the
 // same local network and seeded projects as the end-to-end tests (scripts/dev-network.ts), so the
 // pages have real data in them. Ports apart from the e2e run's, so the two can run side by side.
+// The pages are the ones lighthouse/pages.json marks `pr`; scripts/lighthouse.ts measures all of them
+// weekly, on phones and desktops, and tracks each against its history.
 const { chromium } = require('playwright');
+
+const { pages } = require('./lighthouse/pages.json');
 
 const PORT = 5198;
 
@@ -24,7 +28,7 @@ module.exports = {
 			// adapter-node prints this once the app has connected its root account and is serving.
 			startServerReadyPattern: 'Listening on',
 			startServerReadyTimeout: 180_000,
-			url: ['/', '/projects/halflight', '/tools/locallibrary'].map((path) => `http://127.0.0.1:${PORT}${path}`),
+			url: pages.filter((page) => page.pr).map(({ path }) => `http://127.0.0.1:${PORT}${path}`),
 			numberOfRuns: 3,
 			// Playwright's Chromium, which the e2e tests install anyway, rather than whichever Chrome the
 			// machine has (or doesn't).

@@ -249,6 +249,7 @@ fn outputs_list_and_close() {
     // Picking the default: plays through it (with a device), or says there isn't one.
     press(&mut app, "d");
     key(&mut app, KeyCode::Enter);
+    output_opened(&mut app);
     let said = app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     match &app.audio {
         Some(_) => assert_eq!(said, "playing through the default output"),
@@ -300,6 +301,84 @@ fn a_late_listing_of_the_outputs_is_dropped() {
     assert_eq!(app.deck.outputs.as_ref().unwrap().names, ["Phones"]);
 }
 
+/// Playback reaching a loop rekordbox marks active goes round it, wherever it is in the track and
+/// however the output's reads fall; a loop that isn't active is played through to the next track.
+#[hegel::test(test_cases = 30)]
+fn playback_reaching_an_active_loop_goes_round_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let start = tc.draw(gs::integers::<u32>().min_value(20).max_value(300));
+    let end = start + tc.draw(gs::integers::<u32>().min_value(60).max_value(150));
+    let active = tc.draw(gs::booleans());
+    // Up to 50 ms of output between ticks.
+    let read = tc.draw(gs::sampled_from(&[8usize, 80, 400][..]));
+    let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
+    opened(&mut app);
+    app.now.as_mut().unwrap().analysis.cues = vec![Cue { active_loop: active, ..cue(None, start, Some(end)) }];
+    // Three quarters of a second: the half-second track and more.
+    for _ in 0..6000 / read {
+        (&mut out).take(read).for_each(drop);
+        app.tick();
+    }
+    let (title, at) = (app.now.as_ref().map(|n| n.track.title.clone()), app.position_ms());
+    match active {
+        true => {
+            let (start, end) = (start as f64, end as f64);
+            assert_eq!(app.deck.looped, Some(Loop { start, end, on: true }));
+            // (At the loop's end once its last frame has played, till the next goes back round.)
+            assert!((title.as_deref(), start <= at && at <= end) == (Some("Track 1"), true), "{title:?} at {at}");
+        }
+        false => assert!(app.deck.looped.is_none() && title.as_deref() == Some("Track 2"), "{title:?} at {at}"),
+    }
+}
+
+/// Picking an output that's slow to open (a Bluetooth or AirPlay device) doesn't hold up the
+/// player: the pick says it's opening, keys and ticks go on and the track plays on through the
+/// output it was on meanwhile; once it's open, the track plays through that.
+#[test]
+fn a_slow_output_opens_without_holding_up_the_player() {
+    use super::super::audio::Outputs;
+    use std::sync::{Condvar, Mutex};
+    static GATE: Gate = (Mutex::new(false), Condvar::new());
+    let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
+    app.outputs = Outputs { open: |name| open_when_let(&GATE, name), ..super::super::audio::tests::OUTPUTS };
+    opened(&mut app);
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    press(&mut app, "j\n");
+    assert_eq!(last_message(&app), "opening Phones…");
+    assert!(app.deck.opening.is_some() && app.animating());
+    let at = app.position();
+    (&mut out).take(800).for_each(drop);
+    app.tick();
+    assert!(app.position() > at, "plays on through the output it was on");
+    press(&mut app, "Q");
+    assert!(!app.deck.quantize, "keys go on");
+    let_open(&GATE);
+    output_opened(&mut app);
+    assert_eq!(app.audio.as_ref().and_then(|a| a.device()), Some("Phones"));
+    assert_eq!(last_message(&app), "playing through Phones");
+}
+
+/// A pick made while another output still opens wins: the one that opens after it is dropped.
+#[test]
+fn the_last_output_picked_wins() {
+    let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+    app.outputs = super::super::audio::tests::OUTPUTS;
+    opened(&mut app);
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    press(&mut app, "j\n");
+    let first = app.deck.opening.expect("opening");
+    press(&mut app, "d");
+    outputs_listed(&mut app);
+    press(&mut app, "\n");
+    output_opened(&mut app);
+    assert_eq!(app.audio.as_ref().map(|a| a.device()), Some(None), "the default, picked last");
+    let (phones, _) = super::super::audio::Audio::offline(8000);
+    app.handle_msg(Msg::Output(first, OutputAsk::Pick(Some("Phones".into())), Ok((Box::new(phones), None))));
+    assert_eq!((app.deck.output.as_deref(), last_message(&app)), (None, "playing through the default output"));
+}
+
 /// Outputs that can't be listed (or a listing that panics) say why in the list, which still
 /// plays through the system's default.
 #[test]
@@ -313,6 +392,7 @@ fn outputs_that_cant_be_listed_say_why() {
     assert!(s.contains("can't list the outputs: no sound server"), "{s}");
     assert_eq!(last_message(&app), "", "said in the list alone");
     key(&mut app, KeyCode::Enter);
+    output_opened(&mut app);
     assert_eq!(last_message(&app), "no audio output device", "the default, tried");
 
     app.outputs = Outputs { list: || panic!("a broken driver"), ..Outputs::NONE };
@@ -402,6 +482,7 @@ fn an_output_that_wont_open_is_said() {
     press(&mut app, "jjk");
     assert_eq!(app.deck.outputs.as_ref().and_then(|o| o.state.selected()), Some(0));
     press(&mut app, "j\n");
+    output_opened(&mut app);
     assert_eq!(last_message(&app), "the interface is gone");
     assert!(app.deck.output.is_none() && app.now.is_some());
 }
@@ -458,6 +539,91 @@ fn any_ms(tc: &hegel::TestCase, beats: &[locallibrary::anlz::Beat]) -> f64 {
     use hegel::generators as gs;
     let end = beats.last().unwrap().time_ms as i64 + 5_000;
     tc.draw(gs::integers::<i64>().min_value(-5_000).max_value(end)) as f64
+}
+
+/// `Q` from a terminal that reports keys by their codes (CSI u, xterm's modifyOtherKeys) comes as
+/// `q` with shift: it turns quantize off and on, as any other terminal's `Q` does, where the
+/// player took it for `q` and quit (LOC-11). Other capitals the deck has too.
+#[test]
+fn a_shifted_q_sent_as_its_code_quantizes_rather_than_quits() {
+    use ratatui::crossterm::event::KeyModifiers;
+    let (mut app, _dir) = playing(TrackAnalysis::default());
+    let shifted = |app: &mut App, c: char| app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
+    shifted(&mut app, 'q');
+    assert!(!app.quit && !app.deck.quantize, "quit {}", app.quit);
+    shifted(&mut app, 'q');
+    assert!(!app.quit && app.deck.quantize);
+    shifted(&mut app, 's');
+    shifted(&mut app, 'a');
+    assert!(app.deck.single && app.deck.auto_cue && !app.shuffle);
+    // Held with control, it's still control-q.
+    app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::SHIFT | KeyModifiers::CONTROL));
+    assert!(app.quit);
+}
+
+/// A beat grid as a damaged export can hold one: empty or one beat, out of order, beats at the
+/// same time or at the end of time, a tempo of 0 or barely more, beat numbers past 4.
+#[hegel::test_helper]
+fn odd_grid(tc: &hegel::TestCase) -> Vec<locallibrary::anlz::Beat> {
+    use hegel::generators as gs;
+    let time = hegel::one_of!(gs::sampled_from(&[0u32, 1, 250, 1_000, 60_000, u32::MAX][..]), gs::integers::<u32>());
+    let beat = gs::tuples!(time, gs::sampled_from(&[0.0, 0.01, 120.0, 655.35][..]), gs::integers::<u16>().max_value(5));
+    let beats: Vec<(u32, f64, u16)> = tc.draw(gs::vecs(beat).max_size(6));
+    beats
+        .into_iter()
+        .map(|(time_ms, bpm, beat_number)| locallibrary::anlz::Beat { beat_number, bpm, time_ms })
+        .collect()
+}
+
+/// Quantize on or off (LOC-11), playing or paused, on any grid at all and from anywhere in the
+/// track (past the grid's last beat too): every jump, loop and resize the deck has lands within
+/// the track, the deck draws at any size, and nothing panics, on the UI thread or the audio
+/// thread.
+#[hegel::test(test_cases = 100)]
+fn quantize_on_any_grid_never_breaks_the_deck(tc: hegel::TestCase) {
+    use super::super::ui::screen;
+    use hegel::generators as gs;
+    // Two seconds each.
+    let (_dir, mut app, mut out) = playing_files(&[(8000, 16_000), (8000, 16_000)]);
+    opened(&mut app);
+    let now = app.now.as_mut().unwrap();
+    now.analysis.beats = odd_grid(&tc);
+    now.track.bpm = tc.draw(gs::sampled_from(&[0.0, 0.01, 120.0][..]));
+    let cues: Vec<(Option<u8>, u32, Option<u32>)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::optional(gs::integers::<u8>().max_value(1)),
+            gs::integers::<u32>().max_value(3_000),
+            gs::optional(gs::integers::<u32>().max_value(3_000))
+        ))
+        .max_size(3),
+    );
+    now.analysis.cues = cues.into_iter().map(|(hot, start, end)| cue(hot, start, end.filter(|&e| e > start))).collect();
+    if tc.draw(gs::booleans()) {
+        now.phrases = vec![PhraseSpan { kind: PhraseKind::Intro, start_ms: 500.0, end_ms: 1_500.0, bars: 1 }];
+    }
+    const KEYS: &[&str] = &["Q", " ", ",", ".", "<", ">", "{", "}", "l", "(", ")", "c", "C", "N", "P", "1", "2", "'"];
+    let end = Duration::from_secs(2);
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(16)) {
+        match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 | 1 => press(&mut app, tc.draw(gs::sampled_from(KEYS))),
+            2 => {
+                app.seek_to(Duration::from_millis(tc.draw(gs::sampled_from(&[0u64, 1, 999, 1_740, 1_999, 60_000][..]))))
+            }
+            _ => {
+                (&mut out).take(tc.draw(gs::sampled_from(&[8usize, 800, 4_000][..]))).for_each(drop);
+                app.tick();
+            }
+        }
+        let (w, h) = tc.draw(gs::sampled_from(&[(80u16, 24u16), (160, 45), (30, 10)][..]));
+        app.fullscreen = tc.draw(gs::booleans());
+        screen(&mut app, w, h);
+        let broken = app.audio.as_ref().and_then(|a| a.broken());
+        assert!(broken.is_none(), "{broken:?}");
+        assert!(app.position() <= end, "at {:?}", app.position());
+        if let Some(l) = app.deck.looped {
+            assert!(l.start < l.end && l.start.is_finite() && l.end.is_finite(), "{l:?}");
+        }
+    }
 }
 
 /// A time's place on any grid (before it, along it, past it) and that place's time agree, and
@@ -699,6 +865,7 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
                     picked = (picked.saturating_sub(1) + 1).min(n);
                 }
                 key(&mut app, KeyCode::Enter);
+                output_opened(&mut app);
                 let name = picked.checked_sub(1).map(|i| ["Phones"][i]);
                 assert!(app.deck.outputs.is_none() && app.audio.is_some());
                 assert_eq!(app.deck.output.as_deref(), name);
@@ -757,6 +924,7 @@ fn cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
     outputs_listed(&mut app);
     key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
+    output_opened(&mut app);
     assert_eq!(last_message(&app), "the output is gone");
     assert_eq!(
         app.audio.as_ref().map(|a| a.device().map(str::to_string)),

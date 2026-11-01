@@ -28,6 +28,29 @@ fn parses_lsblk_old_and_new() {
     }
 }
 
+/// A loop device isn't a disk, unless it's the disk image this test attached.
+#[test]
+fn only_the_tests_own_loop_device_is_a_disk() {
+    let lsblk = |path: &str| {
+        json!({
+            "name": path.trim_start_matches("/dev/"), "path": path, "type": "loop", "size": 314572800u64,
+            "rm": false, "hotplug": false, "ro": false, "tran": null, "log-sec": 512, "pttype": "dos",
+            "children": [{
+                "name": "loop7p1", "path": format!("{path}p1"), "type": "part", "size": 313524224u64,
+                "fstype": "vfat", "fsver": "FAT32", "label": "LTF", "mountpoint": null
+            }]
+        })
+    };
+    assert!(parse_disk(&lsblk("/dev/loop7")).is_none());
+    super::super::TEST_IMAGE.set(Some("/dev/loop7".into()));
+    let d = parse_disk(&lsblk("/dev/loop7")).unwrap();
+    assert!(d.virtual_disk && !d.removable && d.internal);
+    assert_eq!(d.problem(&[]), None);
+    assert_eq!(d.volumes[0].filesystem, Some(FsKind::Fat32));
+    assert!(parse_disk(&lsblk("/dev/loop8")).is_none());
+    super::super::TEST_IMAGE.set(None);
+}
+
 #[test]
 fn system_disks_are_flagged() {
     let mut v = usb_drive(false);

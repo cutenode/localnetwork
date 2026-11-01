@@ -2,6 +2,7 @@
 	import { ArrowLeft, Check, Copy, Printer, Quote } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
+	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
 	import EpkAccessCard from '#lib/components/epk/EpkAccessCard.svelte';
@@ -34,6 +35,8 @@
 	const photos = $derived([...(record.photos ?? []), ...(content?.photos ?? []).map((photo) => ({ ...photo, onRequest: true }))]);
 
 	const isManager = $derived(data.access.kind === 'manager');
+
+	const hasDetails = $derived(!!data.details && Object.values(data.details).some(Boolean));
 
 	let copied = $state(false);
 
@@ -151,7 +154,9 @@
 					{#if content.contact?.note}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Note</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.contact.note}</dd></div>{/if}
 					{#if content.techRider}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Tech rider</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.techRider}</dd></div>{/if}
 				</dl>
-			{:else}
+			{/if}
+			{#if hasDetails}<BookingDetails details={data.details} claimed={data.project.managers.length > 0} />{/if}
+			{#if !content.contact && !content.techRider && !hasDetails}
 				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isManager}{' '}<a class="link" href="/dashboard/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
 			{/if}
 		</section>

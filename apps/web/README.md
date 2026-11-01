@@ -32,12 +32,13 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Sets with a recording play on the site, with the tracklist following along and a track's start to jump to. The server picks what plays when someone presses Play (`/sets/<did>/<rkey>/player.json`): the set's `recording` record first (an `fm.plyr.track`, whose file comes from plyr.fm's CDN, or plyr's own player when the track is gated; or a `computer.localnetwork.dj.recording` on the DJ's PDS, streamed through `/media/audio/<did>/<cid>`), then its links (archive.org downloads play directly, SoundCloud, Mixcloud, YouTube and plyr.fm in their own players). Audio the page plays itself always wins over a platform's player. SoundCloud's and Mixcloud's widget APIs let the tracklist follow those players too. `/sets/<did>/<rkey>/chapters.json` serves the tracklist as Podcasting 2.0 JSON chapters.
-- Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
+- Private booking details (email, phone, rates, tech rider, hospitality), shown to the project's managers and staff on its pages, and to everyone else only inside a press kit they've been let into, so each look at them leaves a receipt.
 - The project form and the booking inquiry keep unsent changes as a draft in the browser (`localStorage`, per account), so a reload or a trip to another page doesn't lose them. Files have to be picked again, and the draft goes once the form is sent, discarded, or back to its saved values, or its account signs out (the sign-out response sets an `ln_signed_out` cookie naming the account, and the next page load drops its drafts, so it works even if Sign out was pressed before the page's scripts ran).
 - A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from HappyView when the page loads and streamed in, so a slow answer never holds the page up. The app stores none of it; a few minutes' cache in memory keeps busy pages from asking again.
 - Press kits as records, which belong to the project, so all its managers share control of them. A project has up to 20 (`/dashboard/projects/<slug>/press-kits/new`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in the root account's repo, holding the mixes and photos shown to everyone, plus a space of its own under the root holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. Managers edit at `/dashboard/projects/<slug>/press-kits/<rkey>` through drafts kept in the project's backstage, a space under the root that only its current managers read and write, so each sees the others' work in progress and whether it's behind the published version. A draft saves only over the published version its form was opened on (otherwise the manager is asked to reload). Publishing a draft applies only the fields it changed, shows each field another manager published since next to the version the draft started from and lets the manager pick which of theirs to publish, and copies its photos into the root's repo so they outlive a manager leaving. People ask for access from `/projects/<slug>/press-kits/<rkey>`, with the form at `/dashboard/access/<slug>/<rkey>`; the rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people any of the managers follows on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Any manager answers requests and adds or removes people at `/dashboard/projects/<slug>/press-kits/<rkey>/access`; the root writes each grant record and adds the person to the space. The editor has a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
 - Press kits made before the root held them stay in their maker's repo and space until the maker next opens the dashboard, which moves each to the root with the same key: photos, private part, grants and open requests first, the public record last, then the old record and space go with the maker's session, the only one that can delete them. A move that fails part way finishes on a later visit.
-- `/projects/<slug>/press-kits` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for members) booking details. Both print or save as a PDF on white. Links from before press kits moved to the project (`/projects/<slug>/epk`, `/epk/<did>/<rkey>` and its photos) redirect there, since they sit in emails.
+- Receipts of press kit views. Each time someone let into a press kit opens it (once per person and press kit every 30 minutes at most), the audit log records a view with the root as its actor and an HMAC of the viewer's DID under a random salt, never the DID. The DID and the salt stay in the app's database, and the project's managers see who viewed which press kit, and when, at `/dashboard/projects/<slug>/press-kits`, where any of them can delete one. Receipts expire after `EPK_VIEW_RETENTION_DAYS` (90 by default), checked every hour. Deleting one drops the DID and the salt, so the hash chain still verifies but no longer says who viewed. Only views through the site get receipts: the people let in are members of the press kit's space, so they can still read its private part (not the booking details) with another atproto client.
+- `/projects/<slug>/press-kits` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for its managers) booking details. Both print or save as a PDF on white. Links from before press kits moved to the project (`/projects/<slug>/epk`, `/epk/<did>/<rkey>` and its photos) redirect there, since they sit in emails.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 - Managers announce upcoming shows (`/dashboard/projects/<slug>/shows/new`): name, date and times on the venue's clock, venue, city, and a ticket link. Each is a [`community.lexicon.calendar.event`](https://github.com/lexicon-community/lexicon) in the manager's own repo, so calendar apps like Smoke Signal can read it, plus a `computer.localnetwork.show` with the same record key that ties it to the project and copies what listings need. Times carry the venue's UTC offset, found from its coordinates, so the city has to be picked from the search. A confirmed booking thread offers "Announce this show", filled in from its show details. The announcing manager can edit (re-copying the event, marked rescheduled when the start moves), cancel, or delete a show. A new show's event and show are written together. The edit form carries the versions of the show and event it shows, and the save writes the event, then the show, each only over those versions, so a change made elsewhere since the form opened asks the manager to reload. A delete removes the event, then the show, so one that fails partway leaves the show listed to delete again. The project's dashboard page says when another app changed the event since.
 
@@ -82,7 +83,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Decisions                                                                 | Root's repo in the moderation space                               | Root                                 | Staff                   |
 | Staff roles (`computer.localnetwork.staff.role`)                          | Root's repo in the staff space                                    | Root                                 | Staff                   |
 | Verifications (`app.bsky.graph.verification`)                             | Root account's public repo                                        | Root, after admin action             | Everyone, via HappyView |
-| Private booking details                                                   | Root's repo in the industry space                                 | Root                                 | Any signed-in account   |
+| Private booking details                                                   | Root's repo in the industry space                                 | Root                                 | Staff (others via app)  |
 | Audit entries (`computer.localnetwork.audit.entry`)                       | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                   |
 | Booking threads                                                           | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only     |
 | Planner                                                                   | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only       |
@@ -91,6 +92,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Follows (`computer.localnetwork.follow`)                                  | The follower's public repo                                        | The follower                         | Everyone, via HappyView |
 | Press kits' private part, requests and grants                             | One space per press kit under the root                            | Root (content, grants), askers       | Managers, granted       |
 | Press kit drafts (`computer.localnetwork.epk.draft`)                      | Each manager's repo in the project's backstage space              | Managers                             | The project's managers  |
+| Press kit view receipts                                                   | The app's database only                                           | The app                              | The project's managers  |
 | People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Its people, staff       |
 | Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Its people, staff       |
 | Bluesky display names (`app.bsky.actor.profile`)                          | The account's own public repo                                     | The account, in any Bluesky app      | Admins, via HappyView   |
@@ -99,17 +101,17 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 Space policies (`com.atproto.simplespace`):
 
-| Space                   | Read policy                        | Write policy                                |
-| ----------------------- | ---------------------------------- | ------------------------------------------- |
-| audit                   | member list (staff)                | public (everyone records their own entries) |
-| moderation              | member list (staff)                | public (everyone can file requests)         |
-| staff                   | member list (staff)                | member list (root)                          |
-| industry                | public (any authenticated account) | member list (root)                          |
-| booking (per thread)    | member list (promoter + managers)  | member list                                 |
-| planner (personal)      | member list (owner)                | member list                                 |
-| epk (per press kit)     | member list (managers, granted)    | public (anyone can ask; only root's count)  |
-| backstage (per project) | member list (managers)             | member list (managers)                      |
-| performer, party, venue | member list (its people)           | member list (people who write)              |
+| Space                   | Read policy                       | Write policy                                |
+| ----------------------- | --------------------------------- | ------------------------------------------- |
+| audit                   | member list (staff)               | public (everyone records their own entries) |
+| moderation              | member list (staff)               | public (everyone can file requests)         |
+| staff                   | member list (staff)               | member list (root)                          |
+| industry                | member list (staff)               | member list (root)                          |
+| booking (per thread)    | member list (promoter + managers) | member list                                 |
+| planner (personal)      | member list (owner)               | member list                                 |
+| epk (per press kit)     | member list (managers, granted)   | public (anyone can ask; only root's count)  |
+| backstage (per project) | member list (managers)            | member list (managers)                      |
+| performer, party, venue | member list (its people)          | member list (people who write)              |
 
 ```mermaid
 flowchart LR
@@ -142,7 +144,7 @@ Every action (sign-in/out, submissions, revisions, withdrawals, decisions, direc
 2. In the actor's own repo inside the root's audit space, written with the actor's OAuth session.
 3. In the root account's repo in the same space, with the same record key and the chain fields (`seq`, `prev`, `hash`).
 
-Failed writes retry with exponential backoff. The syncer reads both copies back from the network and marks them _verified_ only if their content matches the chained entry; a copy edited later is flagged _failed_. If the local database is lost, the log is rebuilt from the root's chained copies. Denied attempts (e.g. a non-moderator trying to approve) are recorded with outcome `denied`. Booking message contents are never copied into the audit log, only metadata.
+Failed writes retry with exponential backoff. The syncer reads both copies back from the network and marks them _verified_ only if their content matches the chained entry; a copy edited later is flagged _failed_. If the local database is lost, the log is rebuilt from the root's chained copies. Denied attempts (e.g. a non-moderator trying to approve) are recorded with outcome `denied`. Booking message contents are never copied into the audit log, only metadata. A press kit view (`epk.view`) names no viewer: its details hold an HMAC of the viewer's DID under a salt only the app's receipt has, so deleting or expiring the receipt leaves the entry, and the chain, as they were.
 
 Accounts whose PDS doesn't run the spaces alpha can still sign in: the root files their requests and messages on their behalf (`onBehalfOf`), and their audit entries are marked "no spaces support".
 
@@ -215,31 +217,47 @@ The network is temporary; Ctrl-C stops it, and restarting resets everything (and
 
 ## Scripts
 
-| Script                              | What it does                                                              |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                      |
-| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`) |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                  |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                          |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin          |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                     |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)       |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container     |
-| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`   |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client JS budgets        |
-| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                         |
-| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it     |
-| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                   |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe      |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                |
-| `pnpm knip`                         | Unused files, exports, and dependencies                                   |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS         |
-| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))              |
-| `pnpm db:backups`                   | List the bucket's backups                                                 |
-| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`            |
-| `pnpm verify`                       | CI's quick checks, in order                                               |
+| Script                              | What it does                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                                         |
+| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`)                    |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                                     |
+| `pnpm check`                        | `svelte-check` with TypeScript 6                                                             |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin                             |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                                        |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)                          |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container                        |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`                      |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client JS budgets                           |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                                            |
+| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it                        |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                                      |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe                         |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                                   |
+| `pnpm test:lighthouse:full`         | Lighthouse on every page, phone and desktop, against its history ([Lighthouse](#lighthouse)) |
+| `pnpm knip`                         | Unused files, exports, and dependencies                                                      |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS                            |
+| `pnpm db:backup`                    | Back the database up to the bucket now ([Backups](#backups))                                 |
+| `pnpm db:backups`                   | List the bucket's backups                                                                    |
+| `pnpm db:restore <key> [path]`      | Restore a backup (or `latest`) over the database, or to `path`                               |
+| `pnpm verify`                       | CI's quick checks, in order                                                                  |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
+
+### Lighthouse
+
+[`lighthouse/pages.json`](lighthouse/pages.json) lists the pages Lighthouse measures, each signed out or signed in as `neon.test` (`dj`) or `ada.test` (`admin`). Pull requests that change what the pages are built from measure the ones marked `pr` against the budgets in `lighthouserc.cjs`. `pnpm test:lighthouse:full` measures all of them on a phone and a desktop, three runs each, and keeps each page's medians in `lighthouse-history.jsonl`. Each run is held against the median of the last five recorded runs, and against the twenty before those to catch a slow creep. A regression past a metric's tolerance (in [`scripts/lib/lighthouse.ts`](scripts/lib/lighthouse.ts)) fails the run, as does a bad result: a failed run, a page that redirected or answered an error, or a failed budget (signed-in pages have no SEO budget, since search engines never see them). Runs that spread wide, and a new Lighthouse or a faster or slower machine, are noted too.
+
+The Web scheduled workflow does the same weekly, one job per form factor, and keeps main's history as its `lighthouse-history` artifact. A week that changed nothing the website is built from skips it, and only uploads the history again so it doesn't expire. Its report is in the run's summary, with every run's report in the `lighthouse-mobile` and `lighthouse-desktop` artifacts.
+
+To find the commit behind a regression, record a baseline of only the pages that moved on the last good commit (each history line names its commit), then let `git bisect` measure each commit against it, failing only on a regression (commits from before this suite landed lack its scripts):
+
+```bash
+git checkout <good>
+pnpm build && pnpm exec tsx scripts/lighthouse.ts --page /charts && node scripts/lighthouse-history.ts --record --history lighthouse-history-bisect.jsonl
+git bisect start <bad> <good>
+git bisect run sh -c 'pnpm build && pnpm exec tsx scripts/lighthouse.ts --page /charts && node scripts/lighthouse-history.ts --history lighthouse-history-bisect.jsonl --regressions-only'
+```
 
 Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
 

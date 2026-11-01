@@ -177,7 +177,7 @@ fn a_filter_matches_what_the_rules_match(tc: TestCase) {
         limit: None,
         drives: Vec::new(),
     };
-    rule.validate().unwrap();
+    rule.validate(&Default::default()).unwrap();
     let library = Library { tracks, ..Default::default() };
     let ctx = QueryContext::new(&library).with_tags(&tags);
     for t in &library.tracks {
