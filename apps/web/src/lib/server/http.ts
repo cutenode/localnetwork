@@ -45,6 +45,12 @@ export function guardArea(locals: LocalsLike, url: URL, routeId: string | null):
 	if (isUnder(routeId, '/admin')) requireStaff(locals, url);
 }
 
+/** Areas search engines shouldn't list: the signed-in ones, and pages that only mean something to whoever opened them. */
+const UNLISTED = ['/dashboard', '/admin', '/login', '/report', '/notifications', '/mixes/preview'];
+
+/** Whether the route is in an area search engines shouldn't list, which the server hook says in `X-Robots-Tag`. */
+export const isUnlisted = (routeId: string | null) => UNLISTED.some((area) => isUnder(routeId, area));
+
 const SAME_SITE = 'http://same.site';
 
 /**

@@ -47,10 +47,15 @@ pub fn destination_spec(spec: &str) -> Result<(&str, &str)> {
 }
 
 impl Plugins {
-    /// The destination `spec` names (`<plugin>:<destination>`), which must be of `kind`.
-    fn destination(&self, spec: &str, kind: DestinationKind) -> Result<(&Arc<Slot>, String)> {
+    /// The destination `spec` names (`<plugin>:<destination>`), which must be of `kind`, its
+    /// plugin with access in `store` to an account of each type it asks for (see
+    /// [`Plugins::check_access`]).
+    fn destination(&self, spec: &str, kind: DestinationKind, store: Option<&Store>) -> Result<(&Arc<Slot>, String)> {
         let (plugin, name) = destination_spec(spec)?;
         let slot = self.slot(plugin)?;
+        if let Some(store) = store {
+            self.check_access(plugin, store)?;
+        }
         let declared = slot.declared("destination", name, &slot.manifest.contributes.destinations, |d| &d.name)?;
         if declared.kind != kind {
             let (title, kind) = (&declared.title, kind.name());
@@ -62,7 +67,7 @@ impl Plugins {
     /// The store destination `spec` names (`<plugin>:<destination>`), for copying the store to,
     /// and restoring and repairing from.
     pub fn store_destination(&self, spec: &str, store: Option<&Store>) -> Result<StoreDestination> {
-        let (slot, name) = self.destination(spec, DestinationKind::Store)?;
+        let (slot, name) = self.destination(spec, DestinationKind::Store, store)?;
         Ok(StoreDestination { slot: slot.clone(), name, store: store.cloned() })
     }
 }

@@ -69,9 +69,9 @@ and typed table columns, see [views](#views)).
    `key`, filled in once the request is checked, left out of the plugin's log and the errors
    it's told, and never sent on to another server a redirect leads to: the headers it was filled
    into (and `Authorization`, `Cookie`) are dropped there, and a body with it isn't sent on.
-   `{account:<id>}` is the same for one of its accounts' access tokens (see
+   `{account:<type>}` is the same for the access token of an account it has access to (see
    [accounts](#accounts)), as the whole value of the `Authorization` header or of the query
-   parameter the account names, and refused anywhere else in a request.
+   parameter the account type names, and refused anywhere else in a request.
    An answer is given as text up to 8 MiB, or written to `into_blob` (a new file in the
    request's scratch folder, absolute) as far as the folder has room. `body_blob` sends a file
    instead (absolute): one in the scratch folder, or the recording `set/publish` gives (not in a
@@ -96,9 +96,10 @@ A response is never answered, not even a bad one. Errors use the RPC sidecar's c
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
 `incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
 `not_found`, `conflict`, and `io` or `parse` about the file `data.fields.path` names), with the
-plugin named, and `cancelled` as the request stopping. Any other kind is the plugin failing,
-`stale_plan` (only the host's plans go stale) and `permission` (a plugin never runs elevated)
-included.
+plugin named, and `cancelled` as the request stopping. `access` and `scope` (a request that couldn't
+use an account, see [accounts](#accounts)) are `account` errors. Any other kind is the plugin
+failing, `stale_plan` (only the host's plans go stale) and `permission` (a plugin never runs
+elevated) included.
 
 ## The manifest
 
@@ -181,7 +182,8 @@ manifest contributes for it. A plugin has a family's feature once it implements 
 ### account types
 
 Data alone: no feature, no method. An account plugin is a manifest that provides one account type
-and nothing else (no capabilities, `[[net]]` or other contributions), so anyone can publish one.
+and nothing else (no capabilities, `[[accounts]]`, `[[net]]` or other contributions), so anyone
+can publish one.
 The host runs every sign-in from it (with PKCE, always), keeps the tokens and fills them only into
 requests a scope covers. Only an account plugin locallibrary ships may use Local Network's token
 exchange, since that signs people in as Local Network.
@@ -221,44 +223,12 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
 ```
 
 - `[[contributes.account_types]]`: `type` (a name; several account plugins may provide the same
-  one), `title`, `authorize_url`, `token_url` or `token_exchange`, `client_id`, `revoke_url`,
-  `token` and `redirect_port`, as an account's (below). `always` is the service's scopes every
-  sign-in asks for. `whoami` is where the host asks who signed in: its `url`, and JSON pointers to
-  the account's `subject` (its id there) and `name` in the answer.
-- `one_account` and `another_account` are authorize params for signing in again as one account
-  the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
-  (`prompt = "select_account"`). They may be `login_hint`, `prompt`, `hd` and `access_type` only:
-  the host sets the rest itself, and others (`request_uri`) could replace what it sets.
-- `[contributes.account_types.scopes.<name>]`: `title`, `asks` (the service's scopes it needs,
-  none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
-  `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not
-  `https://a.example`), maybe ending in `*` for any address starting with it.
-
-### accounts
-
-The host signs the user in to a plugin's accounts in the browser (OAuth 2's authorization code
-flow with PKCE, the browser coming back to `127.0.0.1`), keeps the tokens in the system's keychain
-and refreshes them a minute before they expire. The plugin never sees a token: a `net/fetch`
-request whose `Authorization` header is `{account:<id>}` is sent with `Bearer` and the access
-token, once it's checked, and never on to another server a redirect leads to. A request for an
-account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
-methods: it's the SDK's own.
-
-A service that wants the token some other way says so with the account's `token`:
-`token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and
-`token = { query = "access_token" }` sends it as that query parameter instead (Mixcloud). The
-request names the account there, `?access_token={account:<id>}`, and the `Authorization` header
-can't. The host never carries a token in the query to another server a redirect leads to, and
-where the answer's headers or text say the address back (a next page's link, say), the token is
-given back as `{account:<id>}`, so the link can be fetched as it is. An answer written to
-`into_blob` is kept as the server sent it.
-
-- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` or `token_exchange`
-  (one of them), `scopes`, `client_id` (a public client, without a secret), `pkce = true` (the
-  default; nothing else is taken), `revoke_url` (RFC 7009, optional), where the tokens are
-  revoked at signing out, `token` (optional, above) and `redirect_port` (optional). Each endpoint
-  is an https address without a user name or password. A plugin with an account needs a `net:`
-  capability, for the requests its token goes into.
+  one), `title`, `authorize_url`, `token_url` or `token_exchange` (one of them), `client_id` (a
+  public client, without a secret), `revoke_url` (RFC 7009, optional), where the tokens are
+  revoked at signing out, `token` (optional, see [accounts](#accounts)) and `redirect_port`
+  (optional). Each endpoint is an https address without a user name or password. `always` is the
+  service's scopes every sign-in asks for. `whoami` is where the host asks who signed in: its
+  `url`, and JSON pointers to the account's `subject` (its id there) and `name` in the answer.
 - `redirect_port`, 1024 or more, is for a service that compares the redirect URI with the one its
   client was registered with, port and all (SoundCloud). The browser then comes back to
   `http://127.0.0.1:<port>/callback`, which is what to register; without it, any free port.
@@ -272,6 +242,48 @@ given back as `{account:<id>}`, so the link can be fetched as it is. An answer w
   client at the service. The services it knows are in
   [`apps/web/src/lib/server/token-exchange/services.json`](../../apps/web/src/lib/server/token-exchange/services.json);
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
+- `one_account` and `another_account` are authorize params for signing in again as one account
+  the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
+  (`prompt = "select_account"`). They may be `login_hint`, `prompt`, `hd` and `access_type` only:
+  the host sets the rest itself, and others (`request_uri`) could replace what it sets.
+- `[contributes.account_types.scopes.<name>]`: `title`, `asks` (the service's scopes it needs,
+  none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
+  `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not
+  `https://a.example`), maybe ending in `*` for any address starting with it.
+
+### accounts
+
+A plugin asks for accounts by type in a top-level `[[accounts]]`: the account type
+(`type = "google"`), the `scopes` of it it needs by name (`["youtube-upload"]`), `why` it needs
+them, and `optional` groups of scopes it can do without, each with its own `scopes` and `why`.
+The host signs the user in through an account plugin that provides the type (OAuth 2's
+authorization code flow with PKCE, the browser coming back to `127.0.0.1`), keeps the tokens in
+the system's keychain, refreshes them a minute before they expire, and gives the plugin access to
+the account (the scopes it needs, and the optional ones the user allows). The feature has no
+methods: it's the SDK's own.
+
+The plugin never sees a token: a `net/fetch` request names the account as `{account:<type>}`
+(the plugin's default access for the type) or `{account:<type>/<access id>}` (the access's 8 hex
+digits) where the type's token goes, and the host fills it in once the request is checked, never
+sending it on to another server a redirect leads to. It does only for a request one of the
+access's scopes covers, while the access has every scope the plugin needs; otherwise the request
+fails before it's sent, as `access` (no such access, or `reason` `signed_out`) or `scope`, its
+`fields` naming the `type`, the `scopes` and the `account_plugins`. Passed on, either is an
+`account` error saying how to sign in.
+
+The type's `token` says where the token goes: `Authorization: Bearer <token>` unless it says
+otherwise. `token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and
+`token = { query = "access_token" }` sends it as that query parameter instead (Mixcloud). The
+request names the account there, `?access_token={account:<type>}`, and the `Authorization` header
+can't. The host never carries a token in the query to another server a redirect leads to, and
+where the answer's headers or text say the address back (a next page's link, say), the token is
+given back as the placeholder that named it, so the link can be fetched as it is. An answer
+written to `into_blob` is kept as the server sent it.
+
+Each type is a name, asked for once; each scope is a name, asked for once, and each list has one
+at least; a `why` isn't empty. A plugin asking for accounts needs a `net:` capability too,
+reaching every host its scopes' requests go to: locallibrary leaves out a plugin that asks for a
+scope no account plugin providing the type lists, or can't reach one of those hosts.
 
 ### analysis
 

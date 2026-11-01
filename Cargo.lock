@@ -4051,6 +4051,7 @@ dependencies = [
  "console",
  "ctrlc",
  "filetime",
+ "form_urlencoded",
  "hegeltest",
  "image",
  "indexmap",
@@ -4076,6 +4077,7 @@ dependencies = [
  "loclib-plugin",
  "loclib-progress",
  "loclib-waveform",
+ "oauth2",
  "os_info",
  "percent-encoding",
  "ratatui",
@@ -4226,6 +4228,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]

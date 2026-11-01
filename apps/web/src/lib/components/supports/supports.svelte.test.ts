@@ -2,7 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import type { DjSet } from '#lib/dj.ts';
-import type { ArtistSupports, Charts } from '#lib/types.ts';
+import type { Charts } from '#lib/types.ts';
 import DjSets from '../DjSets.svelte';
 import ArtistPage from './ArtistPage.svelte';
 import ArtistResults from './ArtistResults.svelte';
@@ -77,15 +77,9 @@ describe('ArtistSupport', () => {
 		await expect.element(more).toBeVisible();
 	});
 
-	it('shows placeholders while loading, and says when no set credits the artist or the directory is offline', async () => {
-		const screen = await render(ArtistSupport, {
-			supports: pending<ArtistSupports | null>(),
-			retryHref: '/artists/ferrule'
-		});
+	it('says when no set credits the artist or the directory is offline', async () => {
+		const screen = await render(ArtistSupport, { supports: { tracks: [], djs: {} }, retryHref: '/artists/ferrule' });
 
-		await expect.element(page.getByText('Loading who played their tracks')).toBeInTheDocument();
-
-		await screen.rerender({ supports: { tracks: [], djs: {} } });
 		await expect.element(page.getByText('No plays yet')).toBeVisible();
 		await expect.element(page.getByRole('link', { name: 'Find another artist' })).toHaveAttribute('href', '/artists');
 
@@ -95,30 +89,12 @@ describe('ArtistSupport', () => {
 });
 
 describe('ArtistPage', () => {
-	const canonical = () => document.head.querySelector('link[rel="canonical"]')?.getAttribute('href');
+	// Its title and canonical address come from the load (see src/lib/server/meta.test.ts).
+	it('shows the artist under a way back to all artists', async () => {
+		await render(ArtistPage, { supports: artistSupports });
 
-	it('names an MBID page and its canonical address before the data comes', async () => {
-		await render(ArtistPage, {
-			name: null,
-			canonical: '/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41',
-			origin: 'https://localnetwork.test',
-			supports: pending<ArtistSupports | null>()
-		});
-
-		await expect.poll(() => document.title).toBe('Artist · Local Network');
-		expect(canonical()).toBe('https://localnetwork.test/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41');
-	});
-
-	it('titles a name page by its name, and points it at the MBID page once sets give the name one', async () => {
-		await render(ArtistPage, {
-			name: 'ferrule',
-			canonical: null,
-			origin: 'https://localnetwork.test',
-			supports: Promise.resolve(artistSupports)
-		});
-
-		await expect.poll(() => document.title).toBe('Ferrule · Local Network');
-		expect(canonical()).toBe('https://localnetwork.test/artists/2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41');
+		await expect.element(page.getByRole('link', { name: 'Artists' })).toHaveAttribute('href', '/artists');
+		await expect.element(page.getByRole('heading', { level: 1, name: 'Ferrule' })).toBeVisible();
 	});
 });
 

@@ -137,6 +137,7 @@ pub fn copy(store: &Store, req: api::StoreCopyRequest, out: Output, ctx: &Ctx<'_
 
 /// `store copy --to PLUGIN:DESTINATION`.
 pub fn copy_to(store: &Store, spec: &str, options: api::CopyOptions, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    crate::account_cmd::access::ask(spec, store, out, ctx)?;
     let dest = crate::plugins::host()?.store_destination(spec, Some(store))?;
     copied(options, |options| Ok(locallibrary::offsite::copy_to(store, &dest, options, ctx)?), out)
 }
@@ -316,6 +317,7 @@ pub fn restore(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    crate::account_cmd::access::ask(spec, store, out, ctx)?;
     let dest = crate::plugins::host()?.store_destination(spec, Some(store))?;
     let r = locallibrary::offsite::restore(store, &dest, opts, ctx)?;
     Ok(fetched(&r, "the copy", "here and in the copy", out))

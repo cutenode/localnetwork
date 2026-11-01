@@ -5,7 +5,7 @@ expect rough edges and changes.
 
 ```bash
 locallibrary account login dj.example.com    # sign in in the browser
-locallibrary account                         # who's signed in, and until when
+locallibrary account                         # who's signed in, and until when (then the accounts plugins use)
 locallibrary account status --check          # ask the account's server (refreshes the session)
 locallibrary account logout                  # revoke the session and remove it from this computer
 ```

@@ -2,13 +2,15 @@
 //! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]) naming no user
 //! or password, redirects followed by the host and each one checked the same way, as
 //! `locallibrary/<version>` (with the plugin's `contact` setting, when it has one), spaced out as
-//! its manifest's `[[net]]` limits say, together with every other plugin's to that host. Its secret settings go only where a request names them (`{secret:<key>}`), and its
-//! accounts' access tokens only where a request names one (`{account:<id>}`, see
-//! [`super::accounts`]) and the account says its token goes: the `Authorization` header, or a query
-//! parameter. They're filled in once it's checked, never on to another server a redirect leads to,
-//! and left out of its log and the errors it's told (see [`State::scrub`]); what a server answers
-//! is passed on as it is, but for a token it was sent in the query, given back as the placeholder
-//! it was named with.
+//! its manifest's `[[net]]` limits say, together with every other plugin's to that host. Its
+//! secret settings go only where a request names them (`{secret:<key>}`), and its accounts' access
+//! tokens only where a request names one by type (`{account:<type>}`, see [`super::accounts`]) and
+//! the account type says its token goes: the `Authorization` header, or a query parameter; and only
+//! into a request a scope of the plugin's access covers (see [`super::accounts::token`]). They're
+//! filled in once it's checked, never on to another server a redirect leads to, nor to an address
+//! no scope of the access covers, and left out of its log and the errors it's told (see
+//! [`State::scrub`]); what a server answers is passed on as it is, but for a token it was sent in
+//! the query, given back as the placeholder it was named with.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 //! A request cancelled stops at once, sending or reading its answer ([`Requests`]).
@@ -22,7 +24,10 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace};
+use loclib_plugin::{
+    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, RpcError, Scope, SettingType, TokenPlace,
+    account_placeholder,
+};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
     LOCATION, PROXY_AUTHORIZATION, TRANSFER_ENCODING, USER_AGENT, WWW_AUTHENTICATE,
@@ -55,9 +60,6 @@ pub(crate) struct State {
     /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
     /// them), while this host runs.
     seen: Mutex<Vec<String>>,
-    /// Held while one of its accounts' tokens is read and refreshed, so one refresh is made at a
-    /// time.
-    pub(crate) refreshing: Mutex<()>,
 }
 
 impl State {
@@ -102,6 +104,8 @@ struct Sent {
     body: Option<Body>,
     /// Whether the body has a secret in it.
     secret: bool,
+    /// For each account of a type whose token is filled in, the scopes it may go to.
+    scopes: Vec<Vec<Scope>>,
 }
 
 fn denied(why: String) -> RpcError {
@@ -110,6 +114,17 @@ fn denied(why: String) -> RpcError {
 
 fn invalid(why: impl Into<String>) -> RpcError {
     RpcError::failed("invalid", why)
+}
+
+/// Where an account's token goes, which is at `place` (the `Authorization` header when it's not
+/// known), saying how a request names it.
+fn misplaced(place: Option<&TokenPlace>) -> RpcError {
+    match place {
+        Some(TokenPlace::Query(name)) => {
+            invalid(format!("this account goes only in the query: {name}={{account:<type>}}"))
+        }
+        _ => invalid("an account goes only in the Authorization header: {account:<type>}"),
+    }
 }
 
 /// Why the plugin may not reach `url`, if it may not: it names a user or a password (as an
@@ -252,6 +267,10 @@ impl Plugin {
         if let Some(text) = texts.clone().find(|t| t.contains(ACCOUNT_PLACEHOLDER)) {
             return Err(self.misplaced(text));
         }
+        // What a scope covers is the request as the plugin wrote it.
+        let asked = (method.clone(), url.clone());
+        let (plain, filled) = (HeaderMap::new(), HeaderMap::new());
+        let mut sent = Sent { method, plain, filled, body: None, secret: false, scopes: Vec::new() };
         // The accounts' tokens filled into the query, and the placeholders that named them.
         let mut in_query = Vec::new();
         if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
@@ -263,13 +282,12 @@ impl Plugin {
                     filled.push((k, self.fill(live, &v)?));
                     continue;
                 }
-                let token = self.account(live, &v, Some(&k))?;
+                let token = self.account(live, &v, Some(&k), &asked, &mut sent.scopes)?;
                 filled.push((k, token.clone()));
                 in_query.push((token, v));
             }
             url.query_pairs_mut().clear().extend_pairs(filled);
         }
-        let mut sent = Sent { method, plain: HeaderMap::new(), filled: HeaderMap::new(), body: None, secret: false };
         for (name, value) in &req.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| invalid(format!("{name:?} isn't a header's name")))?;
@@ -281,7 +299,7 @@ impl Plugin {
                 if name != AUTHORIZATION {
                     return Err(self.misplaced(value));
                 }
-                let mut filled = HeaderValue::from_str(&self.account(live, value, None)?)
+                let mut filled = HeaderValue::from_str(&self.account(live, value, None, &asked, &mut sent.scopes)?)
                     .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
                 filled.set_sensitive(true);
                 sent.filled.append(AUTHORIZATION, filled);
@@ -333,30 +351,53 @@ impl Plugin {
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
     }
 
-    /// What goes where a request names an account as the whole of `value`, `{account:<id>}`: in
-    /// the `Authorization` header (`query` is `None`), its scheme and access token; as the query
-    /// parameter `query`, the token. Only where the account says its token goes.
-    fn account(&self, live: &Live, value: &str, query: Option<&str>) -> Result<String, RpcError> {
-        let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
-        let Some(id) = id.filter(|id| !id.contains('}')) else { return Err(self.misplaced(value)) };
-        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
-        match (&account.token, query) {
-            (TokenPlace::Scheme(scheme), None) => Ok(format!("{scheme} {}", self.access_token(live, account)?)),
-            (TokenPlace::Query(name), Some(query)) if name == query => self.access_token(live, account),
-            _ => Err(self.misplaced(value)),
-        }
+    /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
+    /// account by type as the whole of `value`, `{account:<type>}` of a type the plugin asks for:
+    /// in the `Authorization` header (`query` is `None`), its scheme and access token; as the query
+    /// parameter `query`, the token. Only where the account type says its token goes, and where the
+    /// plugin's access may go, which `scopes` gets (see [`Plugin::usable`]).
+    fn account(
+        &self,
+        live: &Live,
+        value: &str,
+        query: Option<&str>,
+        asked: &(Method, Url),
+        scopes: &mut Vec<Vec<Scope>>,
+    ) -> Result<String, RpcError> {
+        let Some((need, access)) = self.by_type(value) else {
+            return Err(match account_placeholder(value) {
+                Some((kind, _)) => invalid(format!("{kind:?} isn't an account type it asks for")),
+                None => self.misplaced(value),
+            });
+        };
+        let (method, url) = asked;
+        let usable = self.usable(live, need, access, method.as_str(), url)?;
+        let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
+        let token = || self.usable_token(&usable, need, store);
+        let filled = match (&usable.place, query) {
+            (TokenPlace::Scheme(scheme), None) => format!("{scheme} {}", token()?),
+            (TokenPlace::Query(name), Some(query)) if name == query => token()?,
+            (place, _) => return Err(misplaced(Some(place))),
+        };
+        scopes.push(usable.scopes);
+        Ok(filled)
     }
 
-    /// Why `text`, which names an account, can't be where it is: where that account's token goes.
+    /// The account type `value` names as `{account:<type>}` or `{account:<type>/<access>}`, when
+    /// the plugin asks for it, and the access it names.
+    fn by_type<'a>(&self, value: &'a str) -> Option<(&AccountNeed, Option<&'a str>)> {
+        let (kind, access) = account_placeholder(value)?;
+        Some((self.manifest.accounts.iter().find(|n| n.name == kind)?, access))
+    }
+
+    /// Why `text`, which names an account, can't be where it is: where that account's token goes,
+    /// as the first account plugin providing its type says.
     fn misplaced(&self, text: &str) -> RpcError {
-        let id = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next());
-        let account = self.manifest.contributes.accounts.iter().find(|a| Some(a.id.as_str()) == id);
-        match account.map(|a| &a.token) {
-            Some(TokenPlace::Query(name)) => {
-                invalid(format!("this account goes only in the query: {name}={{account:<id>}}"))
-            }
-            _ => invalid("an account goes only in the Authorization header: {account:<id>}"),
-        }
+        let named = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next()).unwrap_or_default();
+        let need = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")).map(|(need, _)| need);
+        let with = need.and_then(|n| self.host.providing(&n.name).first().and_then(|id| self.host.account_plugin(id)));
+        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.token.clone()));
+        misplaced(place.as_ref())
     }
 
     /// A form's parts, its text's secrets filled in and its files checked.
@@ -375,9 +416,10 @@ impl Plugin {
 
     /// Sends `sent` to `url`, and follows the redirects it's answered with as browsers do, each
     /// to where the plugin may go ([`refused`]) and in its turn: its last answer. Once one leads
-    /// to another server, the headers its secrets were filled into, and those reqwest never sends
-    /// on to another (its credentials), are left out from then on; a body with a secret in it is
-    /// never sent there.
+    /// to another server, or where no scope of an access whose token it carries covers, the
+    /// headers its secrets were filled into are left out from then on; once it's another server,
+    /// those reqwest never sends on to another (its credentials) too, and a body with a secret in
+    /// it is never sent there.
     fn follow(
         &self,
         live: &Live,
@@ -431,15 +473,21 @@ impl Plugin {
                     sent.method = Method::GET;
                 }
             }
-            if next.origin() != url.origin() {
+            let leaves = next.origin() != url.origin();
+            let method = sent.method.as_str();
+            let uncovered = sent.scopes.iter().any(|scopes| !scopes.iter().any(|s| s.covers(method, &next)));
+            if leaves || uncovered {
                 // The server put a secret in the address it sent the request on to: it stays here.
                 if self.net.scrub(next.as_str()) != next.as_str() {
                     return Err(external(format!("redirected to {next}, which a secret in its address isn't for")));
                 }
+                sent.filled.clear();
+                sent.scopes.clear();
+            }
+            if leaves {
                 if sent.secret {
                     return Err(external(format!("redirected to {next}, which its body's secret isn't for")));
                 }
-                sent.filled.clear();
                 for name in [AUTHORIZATION, COOKIE, PROXY_AUTHORIZATION, WWW_AUTHENTICATE] {
                     sent.plain.remove(name);
                 }

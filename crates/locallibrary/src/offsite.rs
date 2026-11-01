@@ -42,8 +42,8 @@ use crate::store::{LibraryRecord, SnapshotLabel, Store};
 use crate::{Error, Result};
 
 /// The store's own files a copy takes besides stored files, snapshots and `libraries.json`. Not
-/// the account session (`atmosphere*.json`, secrets that stay on this computer), the lock,
-/// caches or reports.
+/// the accounts (`atmosphere*.json`, `accounts.json` and their secrets, which stay on this
+/// computer), the locks, caches or reports.
 const METADATA: &[&str] = &[
     "drives.json",
     "settings.json",

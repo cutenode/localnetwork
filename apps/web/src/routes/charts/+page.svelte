@@ -11,11 +11,6 @@
 	const f = $derived(data.filters);
 </script>
 
-<svelte:head>
-	<title>Charts · Local Network</title>
-	<meta name="description" content="The tracks and artists Local Network DJs play most." />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<SectionHeader level={1} eyebrow="Charts" tone="high" title="What our DJs play" align="split" lede="Tracks ranked by how many DJs played them. Each DJ counts once per track, a track needs three DJs to chart, and an artist gets at most five supports from one DJ.">
 		{#snippet actions()}<Button variant="secondary" href="/artists">Look up an artist</Button>{/snippet}

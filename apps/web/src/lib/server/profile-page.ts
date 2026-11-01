@@ -71,7 +71,6 @@ export async function loadProfilePage(locals: App.Locals, param: string, search:
 		profile,
 		name: profile?.record.basics.name ?? displayName ?? accountLabel(account),
 		account,
-		canonical: `${app.config.publicUrl}${profileHref(account)}`,
 		dj: app.dj.fresh([account]) ?? app.dj.activity([account]),
 		sets: linked.length ? app.sets.linked(linked) : undefined,
 		playsIn: unlessOffline(locals.log, async () =>

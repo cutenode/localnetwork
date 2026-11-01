@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { ACCESS_PRESETS } from '#lib/epk.ts';
 import type { ProjectView } from '#lib/types.ts';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 const project: ProjectView = {
 	uri: 'at://did:plc:root/computer.localnetwork.project/2',
@@ -32,6 +33,7 @@ const project: ProjectView = {
 const data = {
 	viewer: null,
 	pendingRequests: 0,
+	meta: PAGE_META,
 	project,
 	details: null,
 	managers: [{ did: 'did:plc:neon', handle: 'neon.test' }],
