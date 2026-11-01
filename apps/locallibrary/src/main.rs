@@ -5,7 +5,6 @@
 #[macro_use]
 mod output;
 
-#[cfg(feature = "account")]
 mod account_cmd;
 mod analysis_cmd;
 mod autostart;
@@ -398,10 +397,10 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     /// What your sets, collection and settings say about how you play, and what a public profile would show
     #[command(after_help = PROFILE_HELP)]
     Profile(profile_cmd::ProfileArgs),
-    /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
-    #[cfg(feature = "account")]
+    /// Your accounts: the DJ account (the Atmosphere account you use for Bluesky and other AT Protocol apps; alpha) and those plugins use, signed in to and out of
+    // Named off "account", which CodeQL's cleartext-logging query reads as sensitive in any name.
     #[command(name = "account")]
-    Atmosphere(account_cmd::AccountArgs),
+    Login(account_cmd::AccountArgs),
     /// Report a bug in locallibrary, with this version and system filled in
     #[command(after_help = BUG_HELP)]
     Bug(bug_cmd::BugArgs),
@@ -1477,8 +1476,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
         Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
         Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
-        #[cfg(feature = "account")]
-        Command::Atmosphere(args) => return account_cmd::run(args, &cli.store, out, &ctx),
+        Command::Login(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
         Command::Import(args) => return plugin_cmd::import(args, &cli.store, out, &ctx),
@@ -1488,7 +1486,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
         Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
-        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out, &ctx),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {

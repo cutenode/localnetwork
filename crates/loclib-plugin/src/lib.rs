@@ -20,7 +20,9 @@ pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
 pub use hooks::account_types::{AccountType, SUBJECT_PLACEHOLDER, Scope, ScopeRequest, Whoami};
-pub use hooks::accounts::{ACCOUNT_PLACEHOLDER, Account, TokenPlace, names_a_user, not_plain_https};
+pub use hooks::accounts::{
+    ACCOUNT_PLACEHOLDER, AccountNeed, OptionalScopes, TokenPlace, account_placeholder, names_a_user, not_plain_https,
+};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{
     Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,

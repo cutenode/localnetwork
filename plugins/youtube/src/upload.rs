@@ -226,7 +226,7 @@ fn refused(answer: &Fetched, what: &str) -> RpcError {
         (_, "youtubeSignupRequired") => {
             ("permission", "the Google account has no YouTube channel: make one and publish again")
         }
-        (401, _) => ("permission", "sign in again: locallibrary plugin account youtube google sign-in"),
+        (401, _) => ("permission", "sign in again: locallibrary account google sign-in --for youtube"),
         (_, "uploadLimitExceeded") => ("external", "the channel has uploaded as many videos as it may today"),
         (_, "quotaExceeded" | "dailyLimitExceeded") => {
             ("external", "Local Network's share of the YouTube API is used up for today: publish again tomorrow")
