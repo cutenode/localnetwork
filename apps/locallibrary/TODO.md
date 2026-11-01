@@ -165,14 +165,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] The opener (`rundll32 url.dll,FileProtocolHandler`, used by sign-in, `mix --open` and the
       player's mix report) with a report path that has spaces.
 
-## Tests to add
-
-- [ ] A CI-only `format::apply` test on a disk image per OS (hdiutil, a diskpart vdisk, losetup).
-      Linux first needs loop devices treated as removable under `LOCALLIBRARY_FORMAT_VIRTUAL`
-      (`format/linux.rs`).
-- [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
-      another volume, and naming the volumes it unmounts.
-
 ## Open bugs and gaps
 
 - [ ] Found while raising coverage, each a decision: a lenient replay that skips

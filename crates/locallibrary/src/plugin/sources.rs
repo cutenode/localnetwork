@@ -117,7 +117,7 @@ impl Plugins {
         let slot = self.slot(&req.plugin)?;
         let declared = slot.declared("library source", &req.source, &slot.manifest.contributes.sources, |s| &s.name)?;
         let roots = granted(&req.grants)?;
-        let (context, _) = slot.context(Context::default(), store)?;
+        let (context, ..) = slot.context(Context::default(), store)?;
         let options = super::fitting_options("source", declared.options.as_ref(), req.options.clone(), &context)?;
         let source = format!("{}:{}", req.plugin, req.source);
         let mut read = ReadLibrary { source: req.source.clone(), options, roots: roots.clone(), cursor: None, context };
