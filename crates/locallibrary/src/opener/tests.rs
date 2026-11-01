@@ -146,3 +146,26 @@ fn the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// With [`NO_OPEN`] set, or [`never_open`] called, nothing is started: an address or a file
+/// fails to open as if there were no opener, and the system's opener is never run.
+#[cfg(unix)]
+#[test]
+fn a_test_opens_nothing() {
+    let fake = fake_tools::FakeTools::new();
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let file = fake.dir().join("page.html");
+    std::fs::write(&file, "").unwrap();
+    let not_run = format!("{program} failed: not run: {NO_OPEN} is set");
+    // SAFETY: nextest gives each test a process of its own, and no other thread of it reads the
+    // environment while the test runs.
+    unsafe { std::env::set_var(NO_OPEN, "1") };
+    let by_env = [open_url("https://accounts.google.com/o/oauth2/v2/auth"), open_file(&file)];
+    unsafe { std::env::remove_var(NO_OPEN) };
+    never_open();
+    let by_call = [open_url("https://accounts.google.com/o/oauth2/v2/auth"), open_file(&file)];
+    for opened in by_env.iter().chain(&by_call) {
+        assert_eq!(opened.as_ref().map_err(ToString::to_string), Err(not_run.clone()));
+    }
+    assert!(fake.calls().is_empty(), "the opener was run: {:?}", fake.calls());
+}

@@ -96,6 +96,18 @@ fn command(a: &Action) -> Option<String> {
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
         "account.login.begin" => "locallibrary account login".into(),
+        "accounts.sign_in.begin" => {
+            let flags = [("with", p("with")), ("for", p("for"))]
+                .into_iter()
+                .filter_map(|(f, v)| Some(format!(" --{f} {}", v?)));
+            let scopes = a.params.get("scopes").and_then(Value::as_array).into_iter().flatten();
+            let scopes = scopes.filter_map(Value::as_str).map(|s| format!(" --scope {}", quote(s)));
+            format!("locallibrary account {} sign-in{}", p("type")?, flags.chain(scopes).collect::<String>())
+        }
+        "accounts.access.set_default" => {
+            let subject = a.params.get("account").and_then(|x| x.get("subject")).and_then(Value::as_str).map(quote);
+            format!("locallibrary plugin access {} --default {}", p("plugin")?, subject?)
+        }
         "settings.schema" => "locallibrary settings schema".into(),
         "settings.import.plan" => "locallibrary settings import <DRIVE>".into(),
         "library.list" => "locallibrary library ls".into(),

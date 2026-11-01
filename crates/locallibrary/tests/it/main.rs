@@ -10,6 +10,8 @@
 
 #[path = "../common/mod.rs"]
 mod common;
+#[path = "../support/mock_oauth.rs"]
+mod mock_oauth;
 #[cfg(feature = "account")]
 #[path = "../support/mock_pds.rs"]
 mod mock_pds;

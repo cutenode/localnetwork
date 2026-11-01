@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { type PageMeta, SITE_NAME } from '#lib/meta.ts';
+	import { jsonLdScript } from '#lib/structured-data.ts';
 
 	/** The head tags for a public page: its title and description, canonical address, and what link previews show. */
 	let { meta }: { meta: PageMeta } = $props();
@@ -7,6 +8,8 @@
 
 <svelte:head>
 	<title>{meta.documentTitle ?? `${meta.title} · ${SITE_NAME}`}</title>
+	<!-- A script tag only {@html} can write, with what people wrote in it escaped by jsonLdScript. -->
+	{#if meta.jsonLd}{@html jsonLdScript(meta.jsonLd)}{/if}
 	<meta name="description" content={meta.description} />
 	<link rel="canonical" href={meta.url} />
 	{#if meta.noindex}<meta name="robots" content="noindex" />{/if}
@@ -21,9 +24,13 @@
 	<meta property="og:url" content={meta.url} />
 	{#if meta.image}
 		<meta property="og:image" content={meta.image.url} />
+		{#if meta.image.width && meta.image.height}
+			<meta property="og:image:width" content={String(meta.image.width)} />
+			<meta property="og:image:height" content={String(meta.image.height)} />
+		{/if}
 		<meta property="og:image:alt" content={meta.image.alt} />
 		<meta name="twitter:image:alt" content={meta.image.alt} />
 	{/if}
-	<!-- Pictures so far are square avatars and photos, which the small card fits. -->
-	<meta name="twitter:card" content="summary" />
+	<!-- The site's cards are wide, which X shows large; a profile's square avatar fits the small card. -->
+	<meta name="twitter:card" content={meta.image?.width ? 'summary_large_image' : 'summary'} />
 </svelte:head>

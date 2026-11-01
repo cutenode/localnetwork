@@ -1,3 +1,5 @@
+import type { JsonLd } from '#lib/structured-data.ts';
+
 /** The site's name: after each page's title, and what link previews name the site. */
 export const SITE_NAME = 'Local Network';
 
@@ -7,6 +9,9 @@ export type PageImage = {
 	url: string;
 	/** What's in the picture, for people who can't see it. */
 	alt: string;
+	/** Known for the cards the site draws (1200×630); a stored picture's size isn't. */
+	width?: number;
+	height?: number;
 };
 
 /**
@@ -28,4 +33,6 @@ export type PageMeta = {
 	image?: PageImage;
 	/** Keeps search engines from listing a page only its managers and staff can see. */
 	noindex?: boolean;
+	/** What the page is about as schema.org structured data, which search engines read for richer results. */
+	jsonLd?: JsonLd;
 };

@@ -112,17 +112,22 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "convert.plan",
         #[cfg(feature = "account")]
         "account.login.begin",
+        "accounts.sign_in.begin",
+        "accounts.access.set_default",
         "settings.schema",
         "settings.import.plan",
         "library.list",
     ];
     let value = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(VALUES));
     let mut params = Map::new();
-    for key in ["drive", "left", "right", "source", "target", "label"] {
+    for key in ["drive", "left", "right", "source", "target", "label", "type", "with", "for", "plugin"] {
         if tc.draw(gs::weighted_booleans(0.8)) {
             params.insert(key.into(), value(&tc).into());
         }
     }
+    params.insert("account".into(), serde_json::json!({ "plugin": value(&tc), "subject": value(&tc) }));
+    let scopes: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(VALUES)).max_size(2));
+    params.insert("scopes".into(), scopes.clone().into());
     params.insert("role".into(), tc.draw(gs::sampled_from(&["backup", "primary", "archive"][..])).into());
     params.insert("to".into(), tc.draw(gs::sampled_from(&["one_library", "device_library"][..])).into());
     let direction = tc.draw(gs::sampled_from(&["left_to_right", "right_to_left", "either"][..]));
@@ -151,13 +156,17 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "sync.plan" => &["left", "right"],
         "merge.plan" => &["source", "target"],
         "snapshot.label" => &["label"],
+        "accounts.sign_in.begin" => &["type", "with", "for"],
+        "accounts.access.set_default" => &["plugin"],
         "undo.list" | "account.login.begin" | "settings.schema" | "settings.import.plan" | "library.list" => &[],
         _ => &["drive"],
     };
-    for key in used {
-        if let Some(v) = params.get(*key).and_then(Value::as_str) {
-            assert!(words.iter().any(|w| w == v), "{v:?} doesn't come back from {cmd}: {words:?}");
-        }
+    let comes_back = |v: &str| assert!(words.iter().any(|w| w == v), "{v:?} doesn't come back from {cmd}: {words:?}");
+    used.iter().filter_map(|key| params.get(*key).and_then(Value::as_str)).for_each(comes_back);
+    match method {
+        "accounts.sign_in.begin" => scopes.iter().for_each(|s| comes_back(s)),
+        "accounts.access.set_default" => comes_back(params["account"]["subject"].as_str().unwrap()),
+        _ => {}
     }
 
     // The request that failed, again with more parameters.

@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { UserError } from '#lib/server/core.ts';
 import { mixMeta } from '#lib/server/meta.ts';
 import { projectRecords, withRecords } from '#lib/server/meta-records.ts';
+import { mixRecording, withJsonLd } from '#lib/server/structured-data.ts';
 import type { PageServerLoad } from './$types';
 
 /** A mix's tracklist (a locallibrary mix report), by the mix's position on the profile. */
@@ -33,9 +34,12 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			source: app.recordings.forMix(mix),
 			n,
 			report,
-			// The mix lives in the project's record, so the project is the record that takes this page down.
-			meta: await withRecords(mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), () =>
-				projectRecords(app.requests, project, { alternate: [mix.set?.uri] })
+			meta: withJsonLd(
+				// The mix lives in the project's record, so the project is the record that takes this page down.
+				await withRecords(mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), () =>
+					projectRecords(app.requests, project, { alternate: [mix.set?.uri] })
+				),
+				mixRecording(project, mix, report)
 			)
 		};
 	} catch (cause) {
