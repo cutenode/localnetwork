@@ -104,12 +104,13 @@
 </FormSection>
 
 <FormSection title="Travel" description="How far you'll go for a booking.">
-	<div class="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-end">
-		<div>
+	<!-- Wraps, so large text puts the checkbox under the distance instead of pushing the card wider. -->
+	<div class="flex flex-wrap gap-4 sm:items-end">
+		<div class="grow basis-56 sm:grow-0">
 			<label class="label" for="travelRadiusKm">Will travel up to (km)</label>
 			<input id="travelRadiusKm" class="input" type="number" name="travelRadiusKm" min="0" max="20000" bind:value={fields.travelRadiusKm} />
 		</div>
-		<label class="flex min-h-11 items-center gap-2.5 text-small text-fg-soft">
+		<label class="flex min-h-11 grow basis-56 items-center gap-2.5 text-small text-fg-soft">
 			<input type="checkbox" class="checkbox" name="international" bind:checked={fields.international} /> Open to international bookings
 		</label>
 	</div>
@@ -168,13 +169,13 @@
 	<div class="flex flex-col gap-4">
 		{#each fees as fee (fee.key)}
 			<div class="flex flex-col gap-2">
-				<!-- On a phone the label takes its own row under the tier and the remove button. -->
-				<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+				<!-- On a phone, or with large text, the label takes its own row under the tier and the remove button. -->
+				<div class="flex flex-wrap gap-2">
 					<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="feeTier" aria-label="Fee tier">
 						<option value="">Pick a tier</option>
 						{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={fee.tier === option.value}>{option.label}</option>{/each}
 					</select>
-					<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="feeLabel" bind:value={fee.label} maxlength="64" placeholder="What it covers, like club nights" aria-label="What this fee covers" />
+					<input class="input order-last sm:order-none sm:min-w-0 sm:flex-[1_1_12rem]" name="feeLabel" bind:value={fee.label} maxlength="64" placeholder="What it covers, like club nights" aria-label="What this fee covers" />
 					<RemoveRow label="Remove fee" onclick={() => (fees = fees.filter((f) => f.key !== fee.key))} />
 				</div>
 				<div class="grid grid-cols-[5.5rem_1fr_1fr] gap-2 sm:grid-cols-[11rem_1fr_1fr] sm:pr-13">
@@ -192,9 +193,9 @@
 	<div class="flex flex-col gap-2">
 		{#each mixes as mix (mix.key)}
 			<div class="flex flex-col gap-2">
-				<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+				<div class="flex flex-wrap gap-2">
 					<input class="input min-w-0 flex-1 sm:w-56 sm:flex-none" name="mixTitle" bind:value={mix.title} placeholder="Title" aria-label="Mix title" />
-					<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
+					<input class="input order-last sm:order-none sm:min-w-0 sm:flex-[1_1_12rem]" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
 					<RemoveRow label="Remove mix" onclick={() => (mixes = mixes.filter((m) => m.key !== mix.key))} />
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-small text-fg-muted">

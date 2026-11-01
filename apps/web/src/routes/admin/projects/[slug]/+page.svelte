@@ -1,18 +1,21 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { ArrowLeft, ArrowUpRight } from '@lucide/svelte';
+	import { ArrowLeft, ArrowUpRight, TriangleAlert } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import { draftKey } from '#lib/form-draft.svelte.ts';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { timeAgo } from '#lib/format.ts';
+	import { REQUEST_KIND_LABEL, timeAgo } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 
 	const project = $derived(data.project);
+
+	// Each manager's change request starts from the published profile, so publishing here first leaves it out of date.
+	const pendingUpdate = $derived(data.requests.find((request) => request.kind === 'update' && request.status === 'pending'));
 </script>
 
 <svelte:head><title>{project.profile.name} · Staff</title></svelte:head>
@@ -34,6 +37,12 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<div class="min-w-0">
 			{#if data.viewer?.isAdmin}
+				{#if pendingUpdate}
+					<div class="notice mb-6 flex items-start gap-2">
+						<TriangleAlert aria-hidden="true" class="mt-0.5 size-4 shrink-0 text-warning" />
+						<p><Handle account={pendingUpdate.requester} /> has changes waiting for review. Saving here first leaves their request out of date. <a class="link" href="/admin/requests/{pendingUpdate.rkey}">Review their changes</a></p>
+					</div>
+				{/if}
 				<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} draft={draftKey(data.viewer, `admin:project:${project.uri}`)} />
 			{:else}
 				<p class="notice notice-info">Moderators can hide or unhide projects. Only admins edit them directly.</p>
@@ -76,7 +85,7 @@
 				<h2 class="section-title">Requests</h2>
 				<ul class="mt-1 divide-y divide-line">
 					{#each data.requests as request (request.uri)}
-						<li class="flex items-center justify-between gap-2 py-2.5"><a class="min-w-0 text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{request.kind} · <Handle account={request.requester} link={false} /></a><StatusPill status={request.status} /></li>
+						<li class="flex items-center justify-between gap-2 py-2.5"><a class="min-w-0 text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{REQUEST_KIND_LABEL[request.kind]} · <Handle account={request.requester} link={false} /></a><StatusPill status={request.status} /></li>
 					{:else}<li class="py-2.5 text-fg-muted">None.</li>{/each}
 				</ul>
 			</Card>

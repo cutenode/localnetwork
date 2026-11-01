@@ -24,7 +24,7 @@
 <FormSection title="Where you book" description="The cities you put on shows in, so DJs there can find you.">
 	<div class="flex flex-col gap-2">
 		{#each cities as row (row.key)}
-			<div class="grid grid-cols-[1fr_5.5rem_2.75rem] gap-2 sm:grid-cols-[1fr_1fr_7rem_2.75rem]">
+			<div class="grid grid-cols-[minmax(0,1fr)_5.5rem_2.75rem] gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_2.75rem]">
 				<input class="input" name="bookCity" bind:value={row.city} maxlength="100" placeholder="City" aria-label="City" />
 				<input class="input max-sm:hidden" name="bookRegion" bind:value={row.region} maxlength="100" placeholder="Region (optional)" aria-label="Region" />
 				<input class="input uppercase" name="bookCountry" bind:value={row.country} minlength="2" maxlength="2" placeholder="DE" aria-label="Country" />
