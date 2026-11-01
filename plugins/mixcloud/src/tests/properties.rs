@@ -117,7 +117,15 @@ fn the_form_goes_until_mixcloud_makes_or_refuses_it(tc: TestCase) {
     let last = tries.len() - 1;
     match (&tries[last], answer) {
         (Try::Made, Ok(published)) => {
-            assert_eq!(published, Published { url: Some(PAGE.into()), warnings: made.notes.clone() });
+            assert_eq!(
+                published,
+                Published {
+                    url: Some(PAGE.into()),
+                    name: Some("Mixcloud".into()),
+                    warnings: made.notes.clone(),
+                    ..Published::default()
+                }
+            );
         }
         (Try::Refused(_, kind), Err(e)) => assert_eq!(e.kind(), Some(*kind), "{e:?}"),
         (Try::Failed(_), Err(e)) => assert_eq!(e.kind(), Some("external"), "{e:?}"),

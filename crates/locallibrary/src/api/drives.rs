@@ -470,7 +470,9 @@ pub fn drive_reidentify(store: Option<&Store>, req: &Reidentify) -> Result<Devic
     drive_reidentify_plan(store, req)?.apply(store, &Ctx::silent())
 }
 
-pub fn drive_sets(store: &Store) -> Result<Vec<DriveSet>> {
+/// The mounted drives grouped by the library each holds (see [`fleet::sets`]): with no store,
+/// unnamed.
+pub fn drive_sets(store: Option<&Store>) -> Result<Vec<DriveSet>> {
     fleet::sets(store, &known_drives(false))
 }
 
@@ -495,7 +497,7 @@ pub struct SyncSetRequest {
 impl SyncSetRequest {
     /// The [`SyncManyRequest`] for the chosen group.
     pub fn resolve(&self, store: &Store) -> Result<SyncManyRequest> {
-        let sets: Vec<DriveSet> = drive_sets(store)?.into_iter().filter(|s| s.members.len() >= 2).collect();
+        let sets: Vec<DriveSet> = drive_sets(Some(store))?.into_iter().filter(|s| s.members.len() >= 2).collect();
         let set = match &self.library {
             Some(name) => {
                 let lib = store.find_library(name)?.ok_or_else(|| Error::NotFound(format!("library {name:?}")))?;
@@ -1079,6 +1081,7 @@ pub struct ProvisionPlan {
     pub steps: Vec<String>,
     /// The format's plan, when formatting (its `identity` confirms the disk on apply).
     pub format: Option<FormatPlan>,
+    /// Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both).
     pub warnings: Vec<String>,
 }
 
@@ -1087,18 +1090,29 @@ pub fn provision_plan(
     req: &ProvisionRequest,
     ctx: &Ctx<'_>,
 ) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
+    let format = match req.format {
+        true => Some(super::format_plan(
+            store.root(),
+            &FormatRequest { drive: req.target.clone(), options: req.format_options.clone() },
+            ctx,
+        )?),
+        false => None,
+    };
+    plan_provision(store, req, format)
+}
+
+/// [`provision_plan`] with the format's plan, when formatting.
+pub(super) fn plan_provision(
+    store: &Store,
+    req: &ProvisionRequest,
+    format: Option<Planned<FormatPlan, FormatRequest>>,
+) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
     let role = req.role.as_deref().map(Role::parse).transpose()?;
     let mut steps = Vec::new();
     let mut warnings = Vec::new();
     let mut touched = None;
-    let format = if req.format {
-        let p = super::format_plan(
-            store.root(),
-            &FormatRequest { drive: req.target.clone(), options: req.format_options.clone() },
-            ctx,
-        )?;
+    let format = if let Some(p) = format {
         steps.extend(p.steps.iter().cloned());
-        warnings.extend(p.warnings.iter().cloned());
         Some(p.plan)
     } else {
         let d = resolve_one_drive(&req.target)?;
@@ -1170,9 +1184,10 @@ pub fn provision_plan(
         steps.push("eject it".into());
         warnings.extend(format::untested_here("ejecting"));
     }
-    let plan = ProvisionPlan { steps: steps.clone(), format, warnings: warnings.clone() };
+    let every: Vec<String> = format.iter().flat_map(|f| f.warnings.iter()).chain(&warnings).cloned().collect();
+    let plan = ProvisionPlan { steps: steps.clone(), format, warnings };
     let mut planned =
-        Planned::new("provision", plan, req.clone()).summary(steps).warnings(warnings).destructive(destructive);
+        Planned::new("provision", plan, req.clone()).summary(steps).warnings(every).destructive(destructive);
     if let Some(t) = touched {
         planned = planned.touches(t);
     }

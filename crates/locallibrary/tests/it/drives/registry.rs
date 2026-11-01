@@ -159,7 +159,7 @@ fn drive_groups_follow_the_library_and_the_roles() {
     fleet::retire(&store, ids[3], false).unwrap();
     members.push(Device::open(dir.path()).unwrap());
 
-    let sets = fleet::sets(&store, &members).unwrap();
+    let sets = fleet::sets(Some(&store), &members).unwrap();
     assert_eq!(sets.len(), 1, "a folder that isn't a drive is in no group");
     let set = &sets[0];
     assert_eq!((set.library_id, set.library.as_deref()), (library, Some("Main")));

@@ -4,7 +4,7 @@
 	"defs": {
 		"main": {
 			"type": "procedure",
-			"description": "Have the directory read the caller's own locallibrary records (computer.localnetwork.dj.set, computer.localnetwork.dj.profile and computer.localnetwork.locallibrary.settings) again from their repo, for records it hasn't indexed yet. Requires inter-service auth; the caller is the issuer. An account's records are read at most every ten minutes, and a call in between answers from the last read.",
+			"description": "Have the directory read the caller's own locallibrary records (computer.localnetwork.dj.set, computer.localnetwork.dj.recording, computer.localnetwork.dj.profile and computer.localnetwork.locallibrary.settings) again from their repo, for records it hasn't indexed yet. Requires inter-service auth; the caller is the issuer. An account's records are read at most every ten minutes, and a call in between answers from the last read.",
 			"output": {
 				"encoding": "application/json",
 				"schema": {

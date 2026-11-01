@@ -1097,3 +1097,84 @@ fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hege
         assert_eq!(t.album_artist, artist);
     }
 }
+
+/// An edit setting the fields of tracks named by id, as imports and analyses make one for each
+/// track: at times one with no album to keep an album artist with, or an id no track has.
+#[hegel::test_helper]
+fn draw_fields_edit(tc: &hegel::TestCase) -> Edit {
+    use hegel::generators as gs;
+    let ids = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(9)).min_size(1).max_size(3));
+    let fields = TrackFields {
+        key: tc.draw(gs::optional(gs::sampled_from(vec!["8A", "11B", " "]))).map(String::from),
+        bpm: tc.draw(gs::optional(gs::sampled_from(vec![120.0, 128.5]))),
+        title: tc.draw(gs::optional(gs::sampled_from(vec!["T1", "New"]))).map(String::from),
+        album_artist: tc.draw(gs::optional(gs::sampled_from(vec!["", "Bicep"]))).map(String::from),
+        rating: tc.draw(gs::optional(gs::integers::<u8>().max_value(6))),
+        ..Default::default()
+    };
+    Edit::EditTracks { tracks: TrackSelector { ids, ..Default::default() }, fields }
+}
+
+/// What planning `edits` one by one makes, each result as text, and the model after, edits that
+/// set only fields made on the tracks they name (`indexed`) or on the whole library.
+fn plan_each(start: &Library, edits: &[Edit], indexed: bool) -> (Vec<String>, Library, Vec<String>) {
+    let (_dir, device) = empty_drive();
+    let extra = DriveContext::default();
+    let r = Resolver::new(&device, &extra, false, Ctx::silent());
+    let mut model = ModelDb { lib: start.clone(), pdb: None };
+    let (mut index, mut warnings) = (None, Vec::new());
+    let made = edits
+        .iter()
+        .map(|edit| {
+            let made = match indexed {
+                true => track_index::plan_edit_indexed(&r, &mut model, &mut index, edit, &mut warnings),
+                false => plan_edit(&r, &mut model, edit, &mut warnings),
+            };
+            format!("{:?} {:?}", made.map_err(|e| e.to_string()), r.notes.take())
+        })
+        .collect();
+    (made, model.lib, warnings)
+}
+
+/// Edits that set only fields, planned on the tracks they name, make what planning them on the
+/// whole library made: the same ops, descriptions, recorded edits, refusals and model, among
+/// other edits, with tracks sharing a file or an id. And so do their ops on the other database.
+#[hegel::test(test_cases = 300)]
+fn edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = drawn_lib(&tc);
+    if tc.draw(gs::booleans()) {
+        start.tracks.push(track(8, "B", "Same file", "/Contents/2.mp3"));
+    }
+    if tc.draw(gs::booleans()) {
+        start.tracks.insert(1, track(3, "C", "Same id", "/Contents/other.mp3"));
+    }
+    let edits: Vec<Edit> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)))
+        .map(|_| if tc.draw(gs::weighted_booleans(0.7)) { draw_fields_edit(&tc) } else { draw_model_edit(&tc) })
+        .collect();
+    let whole = plan_each(&start, &edits, false);
+    assert_eq!(plan_each(&start, &edits, true), whole);
+
+    // Their ops, on a database that may lack some tracks.
+    let (_dir, device) = empty_drive();
+    let extra = DriveContext::default();
+    let r = Resolver::new(&device, &extra, false, Ctx::silent());
+    let mut model = ModelDb { lib: start.clone(), pdb: None };
+    let ops: Vec<Op> = edits
+        .iter()
+        .filter_map(|e| plan_edit(&r, &mut model, e, &mut Vec::new()).ok())
+        .flat_map(|(ops, _, _)| ops)
+        .collect();
+    let mut other = start.clone();
+    let lacking = tc.draw(gs::integers::<u32>().min_value(1).max_value(9));
+    other.tracks.retain(|t| t.id != lacking);
+    let (mut a, mut b) = (ModelDb { lib: other.clone(), pdb: None }, ModelDb { lib: other, pdb: None });
+    let (mut index, mut warn_a, mut warn_b) = (None, Vec::new(), Vec::new());
+    for op in &ops {
+        let made_a = apply_op(&mut a, op, false, "other", &mut warn_a).map_err(|e| e.to_string());
+        let made_b = track_index::apply_op_indexed(&mut b, &mut index, op, false, "other", &mut warn_b)
+            .map_err(|e| e.to_string());
+        assert_eq!(made_b, made_a, "{op:?}");
+    }
+    assert_eq!((b.lib, warn_b), (a.lib, warn_a));
+}

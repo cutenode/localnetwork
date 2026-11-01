@@ -82,7 +82,8 @@ fn hosted_metadata_is_a_native_public_client() {
     assert_eq!(m["client_uri"], "https://locallibrary.example");
     assert_eq!(
         m["scope"],
-        "atproto include:computer.localnetwork.locallibraryPublishing repo:app.userinput.discussion?action=create"
+        "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
+         repo:app.userinput.discussion?action=create"
     );
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
 }
@@ -91,8 +92,13 @@ fn hosted_metadata_is_a_native_public_client() {
 fn the_published_document_allows_publishing() {
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &publish_scopes()), Ok(()));
-    let mut publish: Vec<String> =
-        lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
+    // Sets and their recordings may be deleted too (`sets delete`), which a server writes as the
+    // bare `repo:<nsid>`.
+    let deletes = |c: &str| [lexicon::SET, lexicon::RECORDING].contains(&c);
+    let mut publish: Vec<String> = lexicon::COLLECTIONS
+        .iter()
+        .map(|&c| if deletes(c) { format!("repo:{c}") } else { format!("repo:{c}?action=create&action=update") })
+        .collect();
     publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
     // The server grants the permission set's scopes in its place: these, each one jacquard
@@ -100,19 +106,20 @@ fn the_published_document_allows_publishing() {
     let granted = mock_pds::granted(&publish_scopes());
     assert!(granted.contains(&"rpc:computer.localnetwork.directory.requestIndex?aud=*".to_string()), "{granted:?}");
     let mut written: Vec<String> = scopes(&granted).unwrap().iter().map(|s| s.to_string()).collect();
-    let mut want = [&PUBLISH_SCOPES[..], &["atproto"]].concat();
+    let mut want = [&PUBLISH_SCOPES[..], &["atproto", UPLOAD_SCOPE]].concat();
     written.sort();
     want.sort();
     assert_eq!(written, want);
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
-    // Creating and replacing, and nothing more: not deleting.
+    // Creating and replacing, and nothing more: deleting only sets and their recordings.
     let granted = scopes(&granted).unwrap();
     for c in lexicon::COLLECTIONS {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
-        assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
+        assert_eq!(granted.grants(&Scope::repo_delete(c).unwrap()), deletes(c), "{c}");
     }
+    assert!(!granted.grants(&Scope::repo_create("app.example.thing").unwrap()));
     // A service token for asking the directory to read them again, and for no other method.
     assert!(granted.grants(&Scope::rpc(directory::REQUEST_INDEX).unwrap()));
     assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));
@@ -1104,6 +1111,9 @@ fn signing_in_again_keeps_what_the_session_may_do() {
     let publishing = mock_pds::granted(&publish_scopes());
     let publishing: Vec<&str> = publishing.iter().map(String::as_str).collect();
     assert_eq!(kept_scopes(&signed_in_with(&publishing)), publish_scopes());
+    // Granted before the set covered recordings, it still publishes.
+    let older: Vec<&str> = publishing.iter().copied().filter(|s| !s.contains(lexicon::RECORDING)).collect();
+    assert_eq!(kept_scopes(&signed_in_with(&older)), publish_scopes());
     assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), ["atproto".to_string(), report()]);
     let both = [&publishing[..], &[REPORT_SCOPE]].concat();
     assert_eq!(kept_scopes(&signed_in_with(&both)), [publish_scopes(), vec![report()]].concat());

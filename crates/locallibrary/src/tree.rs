@@ -208,11 +208,15 @@ fn add_entry_as(tree: &mut FileTree, rel: &Path, abs: &Path, class: FileClass) -
 pub struct HashIndex {
     #[serde(default)]
     entries: FxHashMap<String, IndexEntry>,
+    /// Entries [`HashIndex::forget`] took out. One recorded again as it was goes back unchanged,
+    /// so a rescan that finds nothing new leaves the file alone.
+    #[serde(skip)]
+    forgotten: FxHashMap<String, IndexEntry>,
     #[serde(skip)]
     dirty: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 struct IndexEntry {
     size: u64,
     mtime: i64,
@@ -222,14 +226,28 @@ struct IndexEntry {
     at: i64,
 }
 
+impl IndexEntry {
+    /// Hashed clearly after the file was last modified (see [`HashIndex::lookup`]).
+    fn settled(&self) -> bool {
+        fsutil::settled(self.mtime, self.at)
+    }
+
+    /// `other` answers lookups as this entry does: only when it was recorded differs.
+    fn answers_as(&self, other: &IndexEntry) -> bool {
+        (self.size, self.mtime, self.hash, self.settled()) == (other.size, other.mtime, other.hash, other.settled())
+    }
+}
+
 impl HashIndex {
     pub fn load(path: &Path) -> HashIndex {
         // A broken cache is never fatal: it only costs re-hashing.
         fsutil::read_json_opt(path).ok().flatten().unwrap_or_default()
     }
 
+    /// Write the cache (atomically, synced) if lookups would now answer differently from the
+    /// last one saved or loaded. Recording a hash it holds already doesn't count.
     pub fn save(&self, path: &Path) -> Result<()> {
-        if self.dirty { fsutil::write_json_atomic(path, self) } else { Ok(()) }
+        if self.dirty || !self.forgotten.is_empty() { fsutil::write_json_atomic(path, self) } else { Ok(()) }
     }
 
     /// The cached hash, if the file's size and mtime are unchanged *and* the hash was recorded
@@ -237,10 +255,7 @@ impl HashIndex {
     /// same (FAT: 2 s) window it was written in could change again without its mtime moving
     /// ("racy" entries, as in git).
     pub fn lookup(&self, e: &FileEntry) -> Option<Hash> {
-        self.entries
-            .get(&e.path)
-            .filter(|i| i.size == e.size && i.mtime == e.mtime && fsutil::settled(i.mtime, i.at))
-            .map(|i| i.hash)
+        self.entries.get(&e.path).filter(|i| i.size == e.size && i.mtime == e.mtime && i.settled()).map(|i| i.hash)
     }
 
     /// Whether `e` looks like the file recorded at its path, by size and mtime, but was recorded
@@ -249,20 +264,27 @@ impl HashIndex {
     pub fn racy(&self, e: &FileEntry) -> bool {
         self.entries
             .get(&e.path)
-            .is_some_and(|i| i.size == e.size && fsutil::mtime_eq(i.mtime, e.mtime) && !fsutil::settled(i.mtime, i.at))
+            .is_some_and(|i| i.size == e.size && fsutil::mtime_eq(i.mtime, e.mtime) && !i.settled())
     }
 
     pub fn record(&mut self, e: &FileEntry) {
-        if let Some(hash) = e.hash {
-            let at = chrono::Utc::now().timestamp();
-            self.entries.insert(e.path.clone(), IndexEntry { size: e.size, mtime: e.mtime, hash, at });
-            self.dirty = true;
-        }
+        let Some(hash) = e.hash else { return };
+        let fresh = IndexEntry { size: e.size, mtime: e.mtime, hash, at: chrono::Utc::now().timestamp() };
+        let old = self.forgotten.remove(&e.path).or_else(|| self.entries.get(&e.path).copied());
+        let entry = match old {
+            Some(old) if old.answers_as(&fresh) => old,
+            _ => {
+                self.dirty = true;
+                fresh
+            }
+        };
+        self.entries.insert(e.path.clone(), entry);
     }
 
+    /// Stop trusting `key`'s entry: lookups miss it until it's recorded again.
     pub fn forget(&mut self, key: &str) {
-        if self.entries.remove(key).is_some() {
-            self.dirty = true;
+        if let Some(old) = self.entries.remove(key) {
+            self.forgotten.insert(key.to_string(), old);
         }
     }
 

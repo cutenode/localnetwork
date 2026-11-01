@@ -256,8 +256,9 @@ describe('set record script', () => {
 				locality: 'Berlin',
 				street: 'Köpenicker'
 			},
-			// Only locallibrary reads these, through getRecords, so setViews leave them out.
-			sources: [{ kind: 'history' }]
+			// These are read through getRecords, never from a setView, so setViews leave them out.
+			sources: [{ kind: 'history' }],
+			recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' }
 		});
 
 		const bare = await publishSet(hv, 'did:plc:dj', { location: { $type: 'other.place', name: 'Somewhere' } });
@@ -292,7 +293,7 @@ describe('set record script', () => {
 		expect((await query<Sets>(hv, 'getSets', { uris: kept.uri })).sets).toHaveLength(1);
 	});
 
-	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, sources and address as written', async () => {
+	it('keeps what the DJ sets block and locallibrary read: the tracklist, people, links, recording, sources and address as written', async () => {
 		const hv = new FakeHappyView(ROOT);
 
 		const tracks = [
@@ -304,6 +305,7 @@ describe('set record script', () => {
 			tracks,
 			playedWith: [{ name: 'Two Rooms' }],
 			links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+			recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' },
 			event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
 			sources: [{ kind: 'history' }],
 			location: address('Berlin')
@@ -317,12 +319,45 @@ describe('set record script', () => {
 				tracks,
 				playedWith: [{ name: 'Two Rooms' }],
 				links: [{ uri: 'https://mixes.test/one', name: 'Mixcloud' }],
+				recording: { uri: 'at://did:plc:dj/fm.plyr.track/one', cid: 'bafyreie5737gdxlw' },
 				event: 'at://did:plc:dj/community.lexicon.calendar.event/one',
 				sources: [{ kind: 'history' }],
 				location: address('Berlin'),
 				createdAt: '2026-10-01T00:00:00.000Z',
 				trackCount: 2
 			})
+		});
+	});
+
+	it("leaves out strings longer than the directory's views allow, so the queries that show them still answer", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const long = (bytes: number) => 'x'.repeat(bytes);
+
+		const set = await publishSet(hv, 'did:plc:dj', {
+			title: long(1001),
+			kind: long(641),
+			venue: 'Tresor',
+			location: { ...address('Berlin'), locality: long(1001) },
+			tracks: [
+				{ title: long(3001), artist: 'A' },
+				{ title: 'Credit', artist: long(3001) },
+				{ title: 'Names', artists: [{ artistName: long(2561) }, { artistName: 'B' }] },
+				{ title: 'Pair', artists: [{ artistName: long(2000) }, { artistName: long(2000) }] },
+				{ title: 'Kept', artist: 'C' }
+			]
+		});
+
+		expect((await query<Sets>(hv, 'getSets', { uris: set.uri })).sets).toEqual([
+			{ ...set, date: expect.any(String), venue: 'Tresor', trackCount: 5 }
+		]);
+
+		const [record] = (await query<Records>(hv, 'getRecords', { uris: set.uri })).records;
+		expect(record.value).toMatchObject({
+			namedTracks: [
+				{ title: 'Names', artists: [{ artistName: 'B' }] },
+				{ title: 'Kept', artists: [{ artistName: 'C' }] }
+			]
 		});
 	});
 
@@ -334,6 +369,58 @@ describe('set record script', () => {
 
 		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.djSet, rkey, cid: '', record: null });
 		expect((await query<Sets>(hv, 'getSets', { uris: [set.uri] })).sets).toEqual([]);
+	});
+});
+
+describe('recording record script', () => {
+	const AUDIO = {
+		$type: 'blob',
+		ref: { $link: 'bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku' },
+		mimeType: 'audio/mp4',
+		size: 125_000_000
+	};
+
+	it("keeps every account's recordings with only what the site plays them by, and removes a deleted one", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const createdAt = '2026-10-01T00:00:00.000Z';
+
+		const recording = (rkey: string, record: JsonObject) =>
+			ingest(hv, 'did:plc:anyone', COLLECTION.djRecording, rkey, record);
+
+		const kept = await recording('3kept', {
+			audio: AUDIO,
+			durationSeconds: 7_200,
+			createdAt,
+			title: 'not in the lexicon'
+		});
+
+		const unmeasured = await recording('3unmeasured', { audio: AUDIO, durationSeconds: 0, createdAt });
+
+		const skipped = [
+			await recording('3link', { audio: 'https://mixes.test/one.m4a', createdAt }),
+			await recording('3unlinked', { audio: { ...AUDIO, ref: {} }, createdAt }),
+			await recording('3negative', { audio: { ...AUDIO, size: -1 }, createdAt }),
+			await recording('3silent', { createdAt })
+		];
+
+		const uris = [kept, unmeasured, ...skipped].map(({ uri }) => uri);
+
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...kept, value: { audio: AUDIO, durationSeconds: 7_200, createdAt } },
+			{ ...unmeasured, value: { audio: AUDIO, createdAt } }
+		]);
+		expect(hv.logs).toEqual(skipped.map(({ uri }) => `skipped ${uri}: no audio blob`));
+
+		await hv.ingest({
+			did: 'did:plc:anyone',
+			collection: COLLECTION.djRecording,
+			rkey: '3kept',
+			cid: '',
+			record: null
+		});
+		expect((await query<Records>(hv, 'getRecords', { uris })).records).toEqual([
+			{ ...unmeasured, value: { audio: AUDIO, createdAt } }
+		]);
 	});
 });
 

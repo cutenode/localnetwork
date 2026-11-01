@@ -9,7 +9,7 @@ use locallibrary::api::EditRequest;
 use locallibrary::check::{CheckItem, Finding, Level};
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::op::Planned;
-use locallibrary::plugin::{CheckChange, CheckSettings, Fix, TIMEOUT, check_timeout, set_check_timeout};
+use locallibrary::plugin::{CheckChange, CheckSettings, Fix, PluginFix, TIMEOUT, check_timeout, set_check_timeout};
 use locallibrary::progress::NoProgress;
 use locallibrary::{CancelToken, Device};
 
@@ -99,7 +99,11 @@ fn a_checks_findings_are_named_after_it_with_what_fixes_them() {
         paths: vec!["Contents/a.mp3".into()],
         ..Finding::new(Level::Problem, "echo.found", "two copies")
     };
-    let fix = Fix { plugin: "echo".into(), operation: "playlist".into(), params: json!({ "name": "Copies" }) };
+    let fix = Fix::Plugin(PluginFix {
+        plugin: "echo".into(),
+        operation: "playlist".into(),
+        params: json!({ "name": "Copies" }),
+    });
     assert_eq!(mine[0].finding, finding);
     assert_eq!(mine[0].fix, Some(fix));
     assert_eq!((mine[1].level, mine[1].message.as_str(), &mine[1].fix), (Level::Info, "fine", &None));
@@ -125,7 +129,7 @@ fn echos_check_finds_tracks_without_a_title() {
     let items = f.run_checks();
     let echo = items.iter().find(|i| i.check == "echo.untitled").expect("found");
     assert_eq!((echo.level, &echo.tracks), (Level::Warning, &untitled(&f)));
-    assert_eq!(echo.fix.as_ref().map(|x| x.operation.as_str()), Some("playlist"));
+    assert!(matches!(&echo.fix, Some(Fix::Plugin(f)) if f.operation == "playlist"), "{:?}", echo.fix);
 }
 
 /// A check that fails, answers what it may not, or takes longer than the setting gives it is a
@@ -134,7 +138,8 @@ fn echos_check_finds_tracks_without_a_title() {
 #[test]
 fn a_check_that_fails_or_takes_too_long_is_a_warning() {
     let f = Fixture::checks(&["echo"]);
-    set_check_timeout(&f.store, Some(0.2)).unwrap();
+    // Long enough for the checks that answer, however busy the machine; those that don't get 0.2 s.
+    set_check_timeout(&f.store, Some(60.0)).unwrap();
     let warned = |answer: Value| {
         f.find("echo", answer);
         let found = f.found();
@@ -153,6 +158,7 @@ fn a_check_that_fails_or_takes_too_long_is_a_warning() {
     let said = warned(json!({ "findings": [{ "level": "info", "message": "m", "fix": fix }] }));
     assert_eq!(said, format!("{fails} its finding 0 is fixed by \"nope\", which isn't its operation"));
     // Asked to stop, it stops; one that doesn't is killed.
+    set_check_timeout(&f.store, Some(0.2)).unwrap();
     for answer in [json!({ "wait": true }), json!({ "stuck": true })] {
         assert_eq!(warned(answer), "took longer than 0.2s, so it was stopped");
     }
@@ -289,7 +295,8 @@ fn a_guard_sees_the_edits_of_a_plan_kept_out_of_the_journal() {
 }
 
 /// What a check says is shown as it's safe to: without control characters or secrets, and cut
-/// short past a line; a file it names with a control character in it is no file on the drive.
+/// short past a line; a file it names with a control character in it is the file it names as it
+/// prints.
 #[test]
 fn what_a_check_says_is_printable_and_bounded() {
     let f = Fixture::checks(&["echo"]);
@@ -299,15 +306,17 @@ fn what_a_check_says_is_printable_and_bounded() {
     f.find("echo", json!({ "findings": [shown, { "level": "info", "message": long }] }));
     let items = f.run_checks();
     let mine: Vec<&CheckItem> = items.iter().filter(|i| i.check == "echo.found").collect();
-    assert_eq!((mine[0].message.as_str(), mine[0].playlist.as_deref()), ("red", Some("Sets/Friday")));
+    assert_eq!(
+        (mine[0].message.as_str(), mine[0].playlist.as_deref()),
+        ("red ", Some("Sets/Friday")),
+        "a newline is a space"
+    );
     assert_eq!(mine[1].message, format!("{}...", "a".repeat(500)));
     let path = json!({ "level": "info", "message": "m", "paths": ["Contents/\u{1b}[2Ja.mp3"] });
     f.find("echo", json!({ "findings": [path] }));
-    let found = f.found();
-    let warning = found.iter().find(|(c, ..)| c == "echo.found").expect("a warning");
-    assert_eq!(warning.1, Level::Warning);
-    assert!(warning.2.ends_with("which isn't a file on the drive"), "{}", warning.2);
-    assert!(!warning.2.contains('\u{1b}'), "{}", warning.2);
+    let items = f.run_checks();
+    let named = items.iter().find(|i| i.check == "echo.found").expect("a finding");
+    assert_eq!((named.level, named.paths.clone()), (Level::Info, vec!["Contents/a.mp3".to_string()]));
 }
 
 /// A finding a check might answer, valid or not: its JSON, and whether the host keeps it.
@@ -345,11 +354,15 @@ fn finding(tc: &TestCase) -> (Value, bool) {
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
     let f = Fixture::checks(&["echo"]);
-    set_check_timeout(&f.store, Some(0.3)).unwrap();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
         let drawn: Vec<(Value, bool)> =
             (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|_| finding(&tc)).collect();
-        let fails = tc.draw(gs::sampled_from(vec![None, Some(json!({ "fail": "io" })), Some(json!({ "wait": true }))]));
+        let waits = json!({ "wait": true });
+        let fails = tc.draw(gs::sampled_from(vec![None, Some(json!({ "fail": "io" })), Some(waits.clone())]));
+        // A check that waits never answers, so it times out however short its time; one that
+        // answers gets long enough to on a busy machine, so its time running out isn't the warning.
+        let timeout = if fails.as_ref() == Some(&waits) { 0.3 } else { 60.0 };
+        set_check_timeout(&f.store, Some(timeout)).unwrap();
         let answer =
             fails.clone().unwrap_or_else(|| json!({ "findings": drawn.iter().map(|(f, _)| f).collect::<Vec<_>>() }));
         f.find("echo", answer);
@@ -372,7 +385,11 @@ fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
             assert_eq!(item.message, json["message"].as_str().unwrap());
             assert_eq!(serde_json::to_value(&item.tracks).unwrap(), json["tracks"]);
             assert_eq!(item.paths.first().map(String::as_str), json["paths"][0].as_str());
-            assert_eq!(item.fix.as_ref().map(|x| x.operation.as_str()), json["fix"]["operation"].as_str());
+            let operation = match &item.fix {
+                Some(Fix::Plugin(f)) => Some(f.operation.as_str()),
+                _ => None,
+            };
+            assert_eq!(operation, json["fix"]["operation"].as_str());
             assert_eq!(item.drive, "USB");
         }
     }
@@ -384,7 +401,8 @@ fn what_a_check_finds_is_what_it_answered(tc: TestCase) {
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_plan_is_blocked_exactly_when_a_blocking_guard_finds_something(tc: TestCase) {
     let f = Fixture::checks(&["echo", "second"]);
-    set_check_timeout(&f.store, Some(0.3)).unwrap();
+    // Every guard answers: a time that runs out on a busy machine would be another warning.
+    set_check_timeout(&f.store, Some(60.0)).unwrap();
     let mut blocks = None;
     let mut said: Vec<String> = Vec::new();
     for plugin in ["echo", "second"] {

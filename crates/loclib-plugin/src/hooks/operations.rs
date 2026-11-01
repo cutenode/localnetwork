@@ -110,7 +110,7 @@ pub struct Operation {
     pub params: Option<Value>,
     /// Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
     /// top-level command (`import`), or one in a group of the host's (`playlist import`).
-    /// First-party plugins only.
+    /// Built-in plugins only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
 }

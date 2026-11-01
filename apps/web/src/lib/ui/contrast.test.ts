@@ -9,6 +9,29 @@ describe('contrast', () => {
 	});
 });
 
+describe('the light palette', () => {
+	/**
+	 * The lightest backgrounds DJ data is drawn on: the website's light canvas and raised surface
+	 * (theme.css), and the HTML mix report's light page, its surfaces and a selected track
+	 * (crates/locallibrary/src/mix/report.html, its accent wash over the surface).
+	 */
+	const backgrounds = ['#ffffff', '#f4f4f5', '#f9f9f7', '#fcfcfb', '#f3f2ef', '#e7eff7'];
+
+	test('every phrase strip and cue mark stands out at 3:1 or better', () => {
+		for (const [role, hex] of Object.entries({ ...colors.phrasesLight, ...colors.cuesLight })) {
+			for (const background of backgrounds)
+				expect(contrast(hex, background), `${role} on ${background}`).toBeGreaterThanOrEqual(3);
+		}
+	});
+
+	test('good, warning and critical read as text at 4.5:1 or better', () => {
+		for (const [level, hex] of Object.entries(colors.status.light)) {
+			for (const background of backgrounds)
+				expect(contrast(hex, background), `${level} on ${background}`).toBeGreaterThanOrEqual(4.5);
+		}
+	});
+});
+
 describe('onColour', () => {
 	test('every track colour gets an ink that reads at 4.5:1 or better', () => {
 		for (const hex of Object.values(colors.trackColors)) {

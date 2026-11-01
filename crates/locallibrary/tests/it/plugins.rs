@@ -15,6 +15,7 @@ mod imports;
 mod jobs;
 mod net;
 mod panels;
+mod printable;
 mod props;
 mod providers;
 mod roles;
@@ -59,7 +60,7 @@ fn spec(dir: &Path, manifest: &str, args: &[&str]) -> PluginSpec {
         std::fs::write(&file, manifest).unwrap();
         args.extend(["--manifest".into(), file.display().to_string()]);
     }
-    PluginSpec::first_party(
+    PluginSpec::built_in(
         manifest,
         Launch { program: program(), args: args.into_iter().map(Into::into).collect(), env_remove: Vec::new() },
     )
@@ -194,6 +195,16 @@ impl Fixture {
         Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options::default())
     }
 
+    /// The echo plugin, its exporter declaring the test plugin's own options: `outside`, a file
+    /// it says it writes in place of the export, `extra`, one it writes besides, and `sizes`, the
+    /// sizes of the files it says it writes.
+    fn exporting() -> Fixture {
+        let options = "options = { type = \"object\", properties = { extra = { type = \"string\" }, outside = { type = \"string\" }, sizes = { type = \"array\", items = { type = \"integer\" } } } }";
+        let manifest = ECHO.replace("extension = \"m3u\"\n", &format!("extension = \"m3u\"\n{options}\n"));
+        assert_ne!(manifest, ECHO);
+        Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default())
+    }
+
     /// The user is on the drive.
     fn context(&self) -> Context {
         Context { drive: Some("USB".into()), ..Context::default() }
@@ -273,7 +284,7 @@ fn only_plugins_locallibrary_ships_are_hosted() {
     };
     let echo = spec(dir.path(), ECHO, &[]);
     assert_eq!(new(vec![echo.clone()]), "");
-    let third = PluginSpec { first_party: false, ..echo.clone() };
+    let third = PluginSpec { built_in: false, ..echo.clone() };
     assert_eq!(new(vec![third]), "echo: third-party plugins aren't supported yet");
     assert_eq!(new(vec![echo.clone(), echo.clone()]), "two plugins are called \"echo\"");
     let cli = |id: &str| {
@@ -296,9 +307,9 @@ fn only_plugins_locallibrary_ships_are_hosted() {
     let mut invalid = echo;
     invalid.manifest.name = " ".into();
     assert_eq!(new(vec![invalid]), "the echo plugin's manifest: name: is empty");
-    let e = PluginSpec::first_party("id = 1", launch_nothing()).unwrap_err().to_string();
+    let e = PluginSpec::built_in("id = 1", launch_nothing()).unwrap_err().to_string();
     assert!(e.starts_with("a plugin's manifest: "), "{e}");
-    let e = PluginSpec::first_party(&ECHO.replace("name = \"Echo\"", "name = \"\""), launch_nothing()).unwrap_err();
+    let e = PluginSpec::built_in(&ECHO.replace("name = \"Echo\"", "name = \"\""), launch_nothing()).unwrap_err();
     assert_eq!(e.to_string(), "the echo plugin's manifest: name: is empty");
 }
 

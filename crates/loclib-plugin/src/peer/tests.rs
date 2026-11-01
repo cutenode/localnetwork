@@ -165,6 +165,24 @@ fn cancel_reaches_the_request_it_names() {
     assert_eq!(request(&incoming).id, json!(1));
 }
 
+/// The other end's requests still running are cancelled when the owner says so, its input still
+/// open (a plugin killed, its output held by a process it started); one answered isn't, nor one
+/// that comes after.
+#[test]
+fn running_requests_are_cancelled_before_the_input_closes() {
+    let (peer, incoming, mut raw) = connect();
+    raw.send(r#"{"jsonrpc":"2.0","id":1,"method":"net/fetch"}"#);
+    raw.send(r#"{"jsonrpc":"2.0","id":2,"method":"net/fetch"}"#);
+    let (one, two) = (request(&incoming), request(&incoming));
+    peer.respond(&one.id, Ok(Value::Null));
+    raw.recv();
+    peer.cancel_running();
+    assert!(two.cancel.is_cancelled());
+    assert!(!one.cancel.is_cancelled());
+    raw.send(r#"{"jsonrpc":"2.0","id":2,"method":"net/fetch"}"#);
+    assert!(!request(&incoming).cancel.is_cancelled(), "its id is free again, and it runs");
+}
+
 #[test]
 fn an_id_a_running_request_has_is_refused() {
     let (_peer, incoming, mut raw) = connect();
@@ -420,16 +438,18 @@ fn what_the_other_end_gets_wrong_is_logged() {
 /// The log a peer writes to, as lines.
 type Log = Arc<Mutex<Vec<String>>>;
 
-/// [`connect`], with the peer's input wrapped in `wrap` and what it logs kept.
+/// [`connect`], with the peer's input wrapped in `wrap`, lines up to `max_line` bytes long, and
+/// what it logs kept.
 fn connect_logged<R: Read + Send + 'static>(
     wrap: impl FnOnce(PipeReader) -> R,
+    max_line: usize,
 ) -> (Peer, Receiver<Incoming>, Raw, Log) {
     let (peer_in, to_peer) = pipe().unwrap();
     let (from_peer, peer_out) = pipe().unwrap();
     let logged = Log::default();
     let log = logged.clone();
     let (peer, incoming) =
-        Peer::with_log(wrap(peer_in), peer_out, move |line| log.lock().unwrap().push(line.to_string()));
+        Peer::with_max_line(wrap(peer_in), peer_out, move |line| log.lock().unwrap().push(line.to_string()), max_line);
     (peer, incoming, Raw { to_peer: Some(to_peer), from_peer: BufReader::new(from_peer) }, logged)
 }
 
@@ -511,7 +531,7 @@ enum Owned {
 /// is in use. Nothing else is answered.
 #[hegel::test(test_cases = 80)]
 fn any_lines_get_what_json_rpc_says_they_should(tc: TestCase) {
-    let (peer, incoming, mut raw, logged) = connect_logged(|r| r);
+    let (peer, incoming, mut raw, logged) = connect_logged(|r| r, MAX_LINE);
     let (mut owned, mut answers, mut logs) = (Vec::new(), Vec::new(), 0);
     let mut running: Vec<Value> = Vec::new();
     let mut cancelled: Vec<Value> = Vec::new();
@@ -883,8 +903,8 @@ impl Read for Broken {
 fn however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
     let how = tc.draw(gs::sampled_from(vec!["input closes", "input breaks", "output closes"]));
     let (peer, incoming, mut raw, logged) = match how {
-        "input breaks" => connect_logged(Broken),
-        _ => connect_logged(|r| r),
+        "input breaks" => connect_logged(Broken, MAX_LINE),
+        _ => connect_logged(|r| r, MAX_LINE),
     };
     let running: Vec<(Request, bool)> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
         .map(|n| {
@@ -931,16 +951,20 @@ fn however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
     assert_eq!(broke, how == "input breaks");
 }
 
-/// A message is sent whole on one line exactly when it fits in [`MAX_LINE`] bytes, and refused
-/// otherwise with nothing written; a response too long goes out as an error instead. A line too
-/// long coming in is skipped and answered with a parse error, and the peer reads on.
+/// A message is sent whole on one line exactly when it fits in the peer's longest line, and
+/// refused otherwise with nothing written; a response too long goes out as an error instead. A
+/// line too long coming in is skipped and answered with a parse error, and the peer reads on.
+/// With lines of a few KiB, so the cases don't depend on how fast megabytes go through a pipe
+/// (`a_line_too_long_is_skipped` and `a_message_too_long_to_send_isnt_sent` try [`MAX_LINE`]),
+/// but long enough for the peer's own errors.
 #[hegel::test(test_cases = 6)]
 fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(tc: TestCase) {
-    let (peer, incoming, mut raw, logged) = connect_logged(|r| r);
+    let max = tc.draw(gs::integers::<usize>().min_value(1024).max_value(8192));
+    let (peer, incoming, mut raw, logged) = connect_logged(|r| r, max);
     // The first request's id is 1: with it, the line is `{"jsonrpc":"2.0","id":1,"method":"m","params":"..."}`.
     let overhead = json!({ "jsonrpc": "2.0", "id": 1, "method": "m", "params": "" }).to_string().len();
     let over = tc.draw(gs::integers::<i64>().min_value(-2).max_value(2));
-    let text = "a".repeat((MAX_LINE as i64 + over) as usize - overhead);
+    let text = "a".repeat((max as i64 + over) as usize - overhead);
     // Sent from a thread of its own, so this one can read what's sent meanwhile.
     let (p, params) = (peer.clone(), text.clone());
     let sending = std::thread::spawn(move || {
@@ -957,7 +981,7 @@ fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(t
         }
         Err(e) => {
             assert!(over > 0, "{over}");
-            assert_eq!((e.code, e.message.as_str()), (code::INTERNAL, "a message is longer than 16 MiB"));
+            assert_eq!((e.code, e.message), (code::INTERNAL, format!("a message is longer than {max} bytes")));
             assert!(lines.is_empty(), "nothing went out");
         }
     }
@@ -966,7 +990,7 @@ fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(t
     // The same for a response: `{"jsonrpc":"2.0","id":"r","result":"..."}`.
     let overhead = json!({ "jsonrpc": "2.0", "id": "r", "result": "" }).to_string().len();
     let over = tc.draw(gs::integers::<i64>().min_value(-2).max_value(2));
-    let text = "a".repeat((MAX_LINE as i64 + over) as usize - overhead);
+    let text = "a".repeat((max as i64 + over) as usize - overhead);
     let (p, len) = (peer.clone(), text.len());
     let responding = std::thread::spawn(move || p.respond(&r.id, Ok(json!(text))));
     let response = raw.recv();
@@ -978,7 +1002,7 @@ fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(t
         }
         None => assert_eq!((over > 0, &response["error"]["code"]), (true, &json!(code::INTERNAL))),
     }
-    let long = (MAX_LINE as i64 + 1 + tc.draw(gs::integers::<i64>().max_value(1 << 16).min_value(0))) as usize;
+    let long = (max as i64 + 1 + tc.draw(gs::integers::<i64>().max_value(1 << 16).min_value(0))) as usize;
     let mut to = raw.to_peer.take().unwrap();
     let writer = std::thread::spawn(move || {
         to.write_all(&vec![b'x'; long]).unwrap();
@@ -987,10 +1011,10 @@ fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(t
     });
     let e = raw.recv();
     assert_eq!((e["id"].clone(), e["error"]["code"].clone()), (Value::Null, json!(code::PARSE_ERROR)));
-    assert_eq!(e["error"]["message"], "parse error: a line is longer than 16 MiB");
+    assert_eq!(e["error"]["message"], format!("parse error: a line is longer than {max} bytes"));
     assert!(matches!(next(&incoming), Incoming::Notification { method, .. } if method == "after"), "read on");
     drop(writer.join().unwrap());
-    assert_eq!(*logged.lock().unwrap(), ["skipped a line longer than 16 MiB"]);
+    assert_eq!(*logged.lock().unwrap(), [format!("skipped a line longer than {max} bytes")]);
 }
 
 /// Requests sent while answering the other end's requests are cancelled with them: when the other
@@ -1106,4 +1130,73 @@ fn a_response_id_is_found_in_any_line_cut_short(tc: TestCase) {
     });
     let expected = (!string_id && !method).then_some(id);
     assert_eq!(response_id(line.as_bytes()), expected, "{line}");
+}
+
+/// Every string in `v` the test sent (`x-...`), in capitals.
+fn shout(v: &mut Value) {
+    match v {
+        Value::String(s) if s.starts_with("x-") => *s = s.to_uppercase(),
+        Value::Array(list) => list.iter_mut().for_each(shout),
+        Value::Object(map) => map.values_mut().for_each(shout),
+        _ => {}
+    }
+}
+
+/// For any text the other end sends in a response (its result or its error), a notification,
+/// progress or a partial, what reads it gets it as the intake left it; in a request, as it was
+/// sent.
+#[hegel::test(test_cases = 40)]
+fn what_the_other_end_tells_goes_through_the_intake(tc: TestCase) {
+    let (peer_in, to_peer) = pipe().unwrap();
+    let (from_peer, peer_out) = pipe().unwrap();
+    let mut raw = Raw { to_peer: Some(to_peer), from_peer: BufReader::new(from_peer) };
+    let (peer, incoming) = Peer::with_intake(peer_in, peer_out, |_| {}, shout);
+    // What the intake changes: text of the test's, not the protocol's own (`warning`).
+    let said: String = tc.draw(gs::from_regex("x-[a-z]{1,6}").fullmatch(true));
+    let told = said.to_uppercase();
+    match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => {
+            let pending = peer.send_request("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "label": said } }).to_string());
+            assert_eq!(pending.wait::<Value>().unwrap(), json!({ "label": told }));
+        }
+        1 => {
+            let pending = peer.send_request("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": said } }).to_string());
+            assert_eq!(pending.wait::<Value>().unwrap_err().message, told);
+        }
+        2 => {
+            raw.send(&json!({ "jsonrpc": "2.0", "method": "host/notify", "params": { "message": said } }).to_string());
+            let Incoming::Notification { params, .. } = next(&incoming) else { panic!("a notification") };
+            assert_eq!(params, json!({ "message": told }));
+        }
+        3 | 4 => {
+            let pending = peer.send_request_reporting("command/run", &json!({})).unwrap();
+            let id = raw.recv()["id"].clone();
+            let (method, params) = match tc.draw(gs::booleans()) {
+                true => (method::PARTIAL, json!({ "id": id, "items": [{ "label": said }] })),
+                false => (method::PROGRESS, json!({ "id": id, "event": { "event": "warning", "message": said } })),
+            };
+            raw.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }).to_string());
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 1 }).to_string());
+            assert_eq!(pending.wait_timeout::<u32>(Duration::from_secs(60)).unwrap(), Ok(1));
+            let got: Vec<Value> = match method {
+                method::PARTIAL => pending.partials().map(|p| serde_json::to_value(p.items).unwrap()).collect(),
+                _ => pending.progress().map(|r| serde_json::to_value(r).unwrap()["message"].clone()).collect(),
+            };
+            let want = match method {
+                method::PARTIAL => json!([{ "label": told }]),
+                _ => json!(told),
+            };
+            assert_eq!(got, [want]);
+        }
+        _ => {
+            raw.send(
+                &json!({ "jsonrpc": "2.0", "id": 1, "method": "net/fetch", "params": { "url": said } }).to_string(),
+            );
+            assert_eq!(request(&incoming).params, json!({ "url": said }), "a request goes on as it was sent");
+        }
+    }
 }

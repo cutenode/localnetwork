@@ -152,6 +152,12 @@ pub(crate) fn export_planned(
             bytes(plan.download_bytes)
         ));
     }
+    if !plan.smart.is_empty() {
+        summary.push(format!(
+            "keep a smart rule for {} intelligent playlist(s), so `smart apply` keeps them up to date",
+            plan.smart.len()
+        ));
+    }
     let destructive = !plan.deletes.is_empty() || plan.replaces_library;
     let warnings = plan.warnings.clone();
     Ok(Planned::new(operation, plan, options.clone())
@@ -195,9 +201,27 @@ impl Operation for CollectionExportPlan {
         if let Some(store) = store {
             crate::sync::register_drive(store, &dst, report.fingerprint)?;
             crate::fleet::record_write(store, &dst, report.copied_bytes)?;
+            keep_smart_rules(store, &dst, &planned.plan, ctx)?;
         }
         Ok(report)
     }
+}
+
+/// Keep the smart rules of the intelligent playlists `plan` exported to `drive` in the store,
+/// and take away those of the ones its last export had and this one doesn't.
+fn keep_smart_rules(store: &Store, drive: &Device, plan: &CollectionExportPlan, ctx: &Ctx<'_>) -> Result<()> {
+    let Some(id) = drive.id().filter(|_| !plan.smart.is_empty() || !plan.smart_gone.is_empty()) else { return Ok(()) };
+    let _lock = store.lock()?;
+    let mut all = store.smart_playlists()?;
+    let left = all.keep_for_drive(id, &plan.smart, &plan.smart_gone)?;
+    store.save_smart_playlists(&all)?;
+    if let Some(first) = left.first() {
+        ctx.warn(format!(
+            "{} intelligent playlist(s) got no smart rule, as the store has another rule for the same path (e.g. {first})",
+            left.len()
+        ));
+    }
+    Ok(())
 }
 
 /// Plan and export in one go, for callers that don't confirm (see [`collection_export_plan`]).

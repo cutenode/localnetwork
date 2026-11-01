@@ -8,6 +8,8 @@ import {
 	plannerSpace,
 	publicRecordUri,
 	rootSpaces,
+	sharedSpace,
+	sharedSpaceKind,
 	spaceOfRecord,
 	spaceRecordUri,
 	spaceUri
@@ -43,5 +45,14 @@ describe('space URIs', () => {
 		expect(plannerSpace('did:plc:pat')).toBe('at://did:plc:pat/space/computer.localnetwork.space.planner/self');
 		expect(isSpaceType('computer.localnetwork.space.booking')).toBe(true);
 		expect(isSpaceType('app.bsky.feed.post')).toBe(false);
+	});
+
+	it("names performers', parties' and venues' spaces, and tells their kind from the type", () => {
+		const party = sharedSpace(ROOT, 'party', 'tid1');
+
+		expect(party).toBe(`at://${ROOT}/space/computer.localnetwork.space.party/tid1`);
+		expect(sharedSpaceKind(parseSpaceUri(party)!.type)).toBe('party');
+		expect(sharedSpaceKind('computer.localnetwork.space.venue')).toBe('venue');
+		expect(sharedSpaceKind('computer.localnetwork.space.backstage')).toBeNull();
 	});
 });

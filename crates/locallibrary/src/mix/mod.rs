@@ -26,6 +26,7 @@ pub use loclib_mixid::{Heard, audio, fingerprint, matcher};
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use lofty::prelude::*;
@@ -43,7 +44,7 @@ use crate::error::IoContext;
 use crate::harmony::Camelot;
 use crate::model::{Library, Track};
 use crate::progress::{Ctx, Phase};
-use crate::{Error, Result, probe};
+use crate::{Error, Result, audio_cache, probe};
 
 /// What a mix file is: `audio` or `audacity`. (An alias, so serde doesn't take the `&str` as
 /// borrowed from what a report is read back from.)
@@ -82,7 +83,8 @@ pub struct MixInfo {
     pub channels: u16,
     /// Labels from an Audacity project's label tracks.
     pub labels: Vec<Label>,
-    /// Cover image: embedded in the audio file, else an image next to it named like it.
+    /// Cover image: one given (`mix --cover`), else embedded in the audio file, else an image
+    /// next to it named like it.
     pub cover: Option<CoverSource>,
 }
 
@@ -90,26 +92,41 @@ pub struct MixInfo {
 #[serde(tag = "kind", content = "path", rename_all = "snake_case")]
 pub enum CoverSource {
     Embedded(PathBuf),
+    /// An image found next to the recording.
     File(PathBuf),
+    /// An image the DJ gave for it.
+    Given(PathBuf),
 }
 
 impl MixInfo {
-    /// The cover a report shared with others carries: the one embedded in the recording. An
-    /// image found beside it is a guess, fine to show here but not to publish.
+    /// The cover a report shared with others carries: one given for it, or the one embedded in the
+    /// recording. An image found beside it is a guess, fine to show here but not to publish.
     pub fn shared_cover(&self) -> Option<Vec<u8>> {
         match &self.cover {
-            Some(c @ CoverSource::Embedded(_)) => c.read().ok(),
+            Some(c @ (CoverSource::Embedded(_) | CoverSource::Given(_))) => c.read().ok(),
             _ => None,
         }
     }
 }
 
 impl CoverSource {
+    /// A cover given for a recording (`mix --cover`, `mix.identify`'s `cover`): an image file,
+    /// kept by its absolute path so a kept report finds it again from anywhere.
+    pub fn given(path: &Path) -> Result<CoverSource> {
+        let bytes = std::fs::read(path).at(path)?;
+        if let Err(e) = crate::artwork::Artwork::from_bytes(&bytes) {
+            return Err(Error::invalid(format!("{} can't be a cover: {e}", path.display())));
+        }
+        Ok(CoverSource::Given(std::path::absolute(path).at(path)?))
+    }
+
     pub fn read(&self) -> Result<Vec<u8>> {
         match self {
             CoverSource::Embedded(p) => crate::artwork::read_embedded(p)?
                 .ok_or_else(|| Error::NotFound(format!("no embedded artwork in {}", p.display()))),
-            CoverSource::File(p) => std::fs::read(p).map_err(|source| Error::Io { path: p.clone(), source }),
+            CoverSource::File(p) | CoverSource::Given(p) => {
+                std::fs::read(p).map_err(|source| Error::Io { path: p.clone(), source })
+            }
         }
     }
 }
@@ -126,6 +143,10 @@ pub struct Play {
     pub track_end: f64,
     /// Playback speed: 1.0 as recorded, 1.03 is +3%.
     pub tempo: f64,
+    /// The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+    /// (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_range: Option<(f64, f64)>,
     /// The track's BPM at that speed.
     pub played_bpm: Option<f64>,
     /// Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell.
@@ -159,6 +180,20 @@ impl Play {
     pub fn is_tentative(&self) -> bool {
         self.confidence < TENTATIVE
     }
+
+    /// Its speed as a percentage (`+2.3%`), or the slowest and fastest when the pitch fader was
+    /// ridden (`+0.0% to +4.0%`).
+    pub fn speed(&self) -> String {
+        match self.speed_range {
+            Some((slowest, fastest)) => format!("{} to {}", percent(slowest), percent(fastest)),
+            None => percent(self.tempo),
+        }
+    }
+}
+
+/// A playback speed as a signed percentage: 1.023 is `+2.3%`.
+pub fn percent(speed: f64) -> String {
+    format!("{:+.1}%", (speed - 1.0) * 100.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -169,6 +204,12 @@ pub struct Alternate {
     /// The same recording (a duplicate or re-encode) rather than one sharing some material.
     pub same_audio: bool,
 }
+
+/// How long two tracks must be heard together to call the transition a blend, in seconds:
+/// fingerprints don't hear fades, so a shorter overlap, or even a gap, may be a quick mix as well
+/// as a cut. Every report, the player and a published set's `technique` mean this; the website
+/// reads it from packages/tokens/mix.json, which a test keeps the same.
+pub const BLEND_SECS: f64 = 8.0;
 
 /// The change from one play to the next.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -184,6 +225,13 @@ pub struct Transition {
     pub harmony: Option<String>,
     /// Played tempo change, percent.
     pub tempo_change: Option<f64>,
+}
+
+impl Transition {
+    /// Whether both tracks are heard together for [`BLEND_SECS`] or more.
+    pub fn is_blend(&self) -> bool {
+        self.overlap >= BLEND_SECS
+    }
 }
 
 /// Stretch of the mix with no track found.
@@ -255,6 +303,18 @@ pub struct Identifier {
     index: LibraryIndex,
     /// Each indexed track's slot, by its file's key ([`Cache::key`]).
     slots: FxHashMap<String, u32>,
+    pub cache: Kept,
+}
+
+/// What an [`Identifier`] keeps for next time, and what it found kept from before.
+#[derive(Default)]
+pub struct Kept {
+    /// Where what's heard in recordings is kept: beside the library's prints.
+    recordings: Option<audio_cache::Cache<index::Recordings>>,
+    /// Whether the index was the one kept for the drive ([`index::library_index`]).
+    pub index: bool,
+    /// Recordings [`Identifier::identify`] heard before, from the cache.
+    pub heard: AtomicUsize,
 }
 
 impl Identifier {
@@ -268,17 +328,27 @@ impl Identifier {
         let (prints, mut report) = index::fingerprint_library(device, &library, cache, ctx)?;
         let slots = prints.iter().enumerate().map(|(slot, f)| (f.key.clone(), slot as u32)).collect();
         ctx.phase_start(Phase::Index, 0, 0);
-        let index = LibraryIndex::build(prints.into_iter().map(|f| (f.id, f.print)).collect());
+        let drive = device.id().map_or_else(|| device.name(), |id| id.to_string());
+        let (index, index_kept) = index::library_index(cache, &drive, prints, ctx);
         ctx.phase_end(Phase::Index);
         report.hashes = index.hashes();
-        Ok(Identifier { drive: device.name(), drive_id: device.id(), library, report, index, slots })
+        Ok(Identifier {
+            drive: device.name(),
+            drive_id: device.id(),
+            library,
+            report,
+            index,
+            slots,
+            cache: Kept { recordings: Some(index::recordings(cache)), index: index_kept, heard: AtomicUsize::new(0) },
+        })
     }
 
     /// Find the library's tracks in the mix at `path`.
     pub fn identify(&self, path: &Path, options: &Options, ctx: &Ctx<'_>) -> Result<MixReport> {
         let started = Instant::now();
         matcher::check_tempo_range(options.tempo_range)?;
-        let (mut info, heard) = listen(path, ctx)?;
+        let (mut info, heard, before) = listen_with(path, self.cache.recordings.as_ref(), ctx)?;
+        self.cache.heard.fetch_add(usize::from(before), Ordering::Relaxed);
         // The recording itself, when it's on the drive too (a set imported into rekordbox).
         let itself = Cache::key(path).and_then(|k| self.slots.get(&k).copied());
         let found = matcher::find(&self.index, &heard.peaks, heard.frames, options.tempo_range, itself, ctx)?;
@@ -336,6 +406,7 @@ impl Identifier {
             track_start: f.track_start,
             track_end: f.track_end,
             tempo: f.tempo,
+            speed_range: f.speed_range(),
             key_lock: f.key_lock,
             semitones,
             key,
@@ -370,6 +441,16 @@ pub fn recordings_in(dir: &Path) -> Vec<PathBuf> {
 
 /// Decode and fingerprint a mix, and gather what its file says about it.
 pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
+    listen_with(path, None, ctx).map(|(info, heard, _)| (info, heard))
+}
+
+/// [`listen`], hearing the mix from `recordings` when it was heard before (and keeping it there
+/// when it wasn't), and whether it was.
+pub fn listen_with(
+    path: &Path,
+    recordings: Option<&audio_cache::Cache<index::Recordings>>,
+    ctx: &Ctx<'_>,
+) -> Result<(MixInfo, Heard, bool)> {
     // Absolute: its folder is looked in (for a cover, a project's audio), and a kept report
     // finds it again by this path from anywhere.
     let path = &std::path::absolute(path).at(path)?;
@@ -397,9 +478,16 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
         let project = Project::open(path)?;
         tags = project.tags.clone();
         info.labels = project.labels.clone();
-        let mut analyzer = Analyzer::new(QUERY, true);
-        let rendered = project.render(RATE, ctx, &mut |s| analyzer.push(s));
-        rendered.map(|format| (format, Heard::from(analyzer)))
+        index::heard(
+            recordings,
+            path,
+            || {
+                let mut analyzer = Analyzer::new(QUERY, true);
+                let rendered = project.render(RATE, ctx, &mut |s| analyzer.push(s));
+                rendered.map(|format| (format, Heard::from(analyzer)))
+            },
+            ctx,
+        )
     } else {
         if let Ok(tagged) = lofty::read_from_path(path)
             && let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag())
@@ -420,10 +508,15 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
         }
         // loclib-mixid turns a decoder's panic into an error, but the panic still prints: guarded,
         // it doesn't.
-        probe::guarded(path, || loclib_mixid::listen(path, ctx).map_err(Error::from))
+        index::heard(
+            recordings,
+            path,
+            || probe::guarded(path, || loclib_mixid::listen(path, ctx).map_err(Error::from)),
+            ctx,
+        )
     };
     ctx.phase_end(Phase::Listen);
-    let (format, heard) = result?;
+    let ((format, heard), before) = result?;
     info.duration_secs = format.duration_secs;
     info.sample_rate = format.sample_rate;
     info.channels = format.channels;
@@ -431,7 +524,7 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
     if info.cover.is_none() {
         info.cover = cover_next_to(path).map(CoverSource::File);
     }
-    Ok((info, heard))
+    Ok((info, heard, before))
 }
 
 /// Title, artist and so on from tags. Pioneer DJ's recorders write `REC046` as the title,

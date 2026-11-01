@@ -173,7 +173,8 @@ fn tidy_says_what_it_couldnt_remove() {
     std::fs::create_dir(&locked).unwrap();
     std::fs::write(locked.join(".DS_Store"), "finder").unwrap();
     set_mode(&locked, 0o555);
-    let out = env.ok(&["--yes", "drive", "tidy", path(&main)]);
+    // Exits as a partial change does.
+    let out = env.exits(5, &["--yes", "drive", "tidy", path(&main)]);
     set_mode(&locked, 0o755);
     assert!(out.contains("removed 0 file(s)") && line(&out, "Locked/.DS_Store: ").starts_with("! "), "{out}");
 }

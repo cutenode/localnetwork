@@ -4,7 +4,12 @@ import type { Logger } from '../logger';
 import type { Backfills } from './backfills';
 
 /** What locallibrary reads back from HappyView before it replaces it. */
-const LOCALLIBRARY_COLLECTIONS = [COLLECTION.djSet, COLLECTION.djProfile, COLLECTION.locallibrarySettings];
+const LOCALLIBRARY_COLLECTIONS = [
+	COLLECTION.djSet,
+	COLLECTION.djRecording,
+	COLLECTION.djProfile,
+	COLLECTION.locallibrarySettings
+];
 
 type RequestIndexOptions = {
 	/** This app's did:web, which the caller's PDS signs the token for. */

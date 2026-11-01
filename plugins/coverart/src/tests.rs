@@ -11,7 +11,8 @@ use hegel::generators as gs;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
 use loclib_plugin::{
-    Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Provider, ProviderKind, method,
+    EventName, Fetch, Fetched, HelloReply, Incoming, Listener, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Provider,
+    ProviderKind, Suggestion, method,
 };
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -289,17 +290,26 @@ fn kind(e: &RpcError) -> (&str, &str) {
 }
 
 /// It reads the tracks it's given and provides artwork and metadata, says which servers it talks
-/// to and asks the host to keep to MusicBrainz's limit. It plans nothing: the host sets what's
-/// chosen.
+/// to and asks the host to keep to MusicBrainz's limit, and hears of drives changing. It plans
+/// nothing: the host sets what's chosen.
 #[test]
-fn the_manifest_is_a_first_party_artwork_and_metadata_provider() {
+fn the_manifest_is_a_built_in_artwork_and_metadata_provider() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();
     assert_eq!(
         capabilities,
-        ["library:read", "net:musicbrainz.org", "net:coverartarchive.org", "net:archive.org", "net:*.archive.org"]
+        [
+            "library:read",
+            "events:drives",
+            "net:musicbrainz.org",
+            "net:coverartarchive.org",
+            "net:archive.org",
+            "net:*.archive.org"
+        ]
     );
+    let on = vec![EventName::DriveMounted, EventName::DriveChanged];
+    assert_eq!(manifest.contributes.events, [Listener { on }]);
     assert_eq!(manifest.net, [NetLimit { host: "musicbrainz.org".into(), per_second: 1.0 }]);
     let covers = Provider { name: "covers".into(), title: SOURCE.into(), kind: ProviderKind::Artwork };
     let tags = Provider { name: "tags".into(), title: TAGS_SOURCE.into(), kind: ProviderKind::Metadata };
@@ -315,11 +325,121 @@ fn the_manifest_is_a_first_party_artwork_and_metadata_provider() {
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
     let hello: HelloReply = host.request(method::HELLO, &hello).unwrap();
     let has = |f: &&str| hello.features.iter().any(|had| had == f);
-    assert!(["providers", "blobs", "net"].iter().all(has), "{:?}", hello.features);
+    assert!(["providers", "events", "blobs", "net"].iter().all(has), "{:?}", hello.features);
     let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     host.close();
     served.join().unwrap();
+}
+
+/// The plugin served over pipes past `hello`, told `events` in order while the host answers each
+/// `drive.library` it asks with `tracks`: what it suggests, and how many times it read the library.
+fn told(events: &[EventNotify], tracks: &[loclib_model::Track]) -> (Vec<HostNotify>, usize) {
+    let (plugin_in, to_plugin) = pipe().unwrap();
+    let (from_plugin, plugin_out) = pipe().unwrap();
+    let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
+    let (host, incoming) = Peer::new(from_plugin, to_plugin);
+    let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
+    host.request::<_, Value>(method::HELLO, &hello).unwrap();
+    for e in events {
+        host.notify(method::EVENT_NOTIFY, e);
+    }
+    // One last event that suggests something, so everything before it has been handled.
+    host.notify(method::EVENT_NOTIFY, &databases_changed("LAST"));
+    let (mut suggested, mut reads) = (Vec::new(), 0);
+    for msg in incoming {
+        match msg {
+            Incoming::Request(req) => {
+                assert_eq!(req.method, "drive.library");
+                reads += 1;
+                let mut tracks = tracks.to_vec();
+                if req.params["drive"] == "LAST" {
+                    tracks = vec![loclib_model::Track { id: 1, ..Default::default() }];
+                }
+                let total = tracks.len();
+                let library = loclib_model::Library { tracks, ..Default::default() };
+                host.respond(&req.id, Ok(json!({ "library": library, "page": { "total": total } })));
+            }
+            Incoming::Notification { method: m, params } if m == method::HOST_NOTIFY => {
+                let notice: HostNotify = serde_json::from_value(params).unwrap();
+                if notice.action.as_ref().is_some_and(|a| a.params["drive"] == "LAST") {
+                    break;
+                }
+                suggested.push(notice);
+            }
+            Incoming::Notification { .. } => {}
+        }
+    }
+    host.close();
+    served.join().unwrap();
+    (suggested, reads - 1)
+}
+
+/// `drive.changed` for `drive`, its databases changed.
+fn databases_changed(drive: &str) -> EventNotify {
+    EventNotify {
+        event: EventName::DriveChanged,
+        drive: Some(drive.into()),
+        payload: json!({ "changed": ["databases"] }),
+    }
+}
+
+/// Once a drive's databases change, it suggests fetching covers from its own provider for the
+/// tracks without artwork (the host leaves out those it suggested before). A drive whose tracks all
+/// have artwork, and a change to a drive's state alone, suggest nothing: the state alone isn't
+/// even read.
+#[test]
+fn a_drive_whose_databases_changed_has_covers_suggested_for_its_bare_tracks() {
+    let track = |id: u32, artwork_id: Option<u32>| loclib_model::Track { id, artwork_id, ..Default::default() };
+    let (suggested, reads) = told(&[databases_changed("USB")], &[track(1, Some(9)), track(2, None), track(3, None)]);
+    let fetch = FetchAction { drive: "USB".into(), tracks: vec![2, 3], provider: Some("covers".into()) };
+    let expected = HostNotify::action("new tracks have no cover art", &HostAction::ArtFetch(fetch));
+    assert_eq!((suggested, reads), (vec![expected.clone()], 1));
+    // The host takes it: it's on its own provider.
+    let taken = expected.suggestion(&Manifest::parse(MANIFEST).unwrap()).unwrap();
+    assert!(matches!(taken, Some(Suggestion::Action(HostAction::ArtFetch(_)))), "{taken:?}");
+    let state = EventNotify { payload: json!({ "changed": ["state"] }), ..databases_changed("USB") };
+    let (suggested, reads) = told(&[state, databases_changed("USB")], &[track(1, Some(9))]);
+    assert_eq!((suggested, reads), (vec![], 1));
+}
+
+/// A drive plugged in with an export (perhaps exported on another computer) has covers suggested
+/// for its bare tracks as one whose databases changed does; one without an export isn't read.
+#[test]
+fn a_drive_plugged_in_has_covers_suggested_for_its_bare_tracks() {
+    let mounted = |has_export: bool| EventNotify {
+        event: EventName::DriveMounted,
+        drive: Some("USB".into()),
+        payload: json!({ "name": "USB", "has_export": has_export }),
+    };
+    let bare = [loclib_model::Track { id: 4, ..Default::default() }];
+    let (suggested, reads) = told(&[mounted(false), mounted(true)], &bare);
+    let fetch = FetchAction { drive: "USB".into(), tracks: vec![4], provider: Some("covers".into()) };
+    let expected = HostNotify::action("new tracks have no cover art", &HostAction::ArtFetch(fetch));
+    assert_eq!((suggested, reads), (vec![expected], 1));
+}
+
+/// For any library, what it suggests is the tracks without artwork, in the library's order, the
+/// first [`MAX_SUGGESTED_TRACKS`] of them, and nothing when there are none.
+#[hegel::test(test_cases = 20)]
+fn it_suggests_the_first_tracks_without_artwork(tc: TestCase) {
+    let n = tc.draw(gs::sampled_from(vec![0, 1, 3, 40, MAX_SUGGESTED_TRACKS * 2]));
+    // Every `every`th track has artwork, after the first `offset`.
+    let (every, offset) =
+        (tc.draw(gs::integers::<usize>().min_value(1).max_value(4)), tc.draw(gs::integers::<usize>().max_value(3)));
+    let tracks: Vec<loclib_model::Track> = (0..n)
+        .map(|i| {
+            let artwork_id = (i >= offset && (i - offset) % every == 0).then_some(1);
+            loclib_model::Track { id: i as u32 + 1, artwork_id, ..Default::default() }
+        })
+        .collect();
+    let (suggested, _) = told(&[databases_changed("USB")], &tracks);
+    let bare = tracks.iter().filter(|t| t.artwork_id.is_none()).map(|t| t.id);
+    let expected: Vec<u32> = bare.take(MAX_SUGGESTED_TRACKS).collect();
+    let tracks_of =
+        |n: &HostNotify| serde_json::from_value::<Vec<u32>>(n.action.clone().unwrap().params["tracks"].clone());
+    let got: Vec<Vec<u32>> = suggested.iter().map(|n| tracks_of(n).unwrap()).collect();
+    assert_eq!(got, if expected.is_empty() { vec![] } else { vec![expected] });
 }
 
 /// Each album is looked up once (by an ISRC when a track has one), and its cover offered for its

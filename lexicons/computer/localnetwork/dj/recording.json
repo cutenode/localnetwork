@@ -1,0 +1,34 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.dj.recording",
+	"description": "A recording of a DJ set, kept in the DJ's own repo.",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "One per set whose recording the DJ uploaded to their own account, under the set's record key. The set's recording field points at it.",
+			"record": {
+				"type": "object",
+				"required": ["audio", "createdAt"],
+				"properties": {
+					"audio": {
+						"type": "blob",
+						"accept": ["audio/*", "video/mp4"],
+						"maxSize": 314572800,
+						"description": "The recording, in a format browsers play: AAC in an M4A file, or MP3. video/mp4 is accepted too because a data server names a blob's type from its contents, and an MP4 file that doesn't say it's audio reads as video."
+					},
+					"durationSeconds": {
+						"type": "integer",
+						"minimum": 1,
+						"description": "How long it plays, in whole seconds."
+					},
+					"createdAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "When it was first uploaded."
+					}
+				}
+			}
+		}
+	}
+}

@@ -426,3 +426,44 @@ fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
     without.ids.retain(|id| clean.ids.contains(id));
     assert_eq!(without, clean, "the rows that belong somewhere read as they did");
 }
+
+/// [`new_ext`]: a new exportExt.pdb holds the drawn categories and tags in order (up to
+/// rekordbox's limits, the rest said as skipped) and links exactly the tracks that carry them,
+/// and nothing of its template.
+#[hegel::test(test_cases = 30)]
+fn a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
+    let library = six_tracks();
+    let names = || gs::sampled_from(vec!["Genre", "Deep", "Peak Time", "Ünï", "x", "Situation"]);
+    let mut categories: Vec<crate::masterdb::TagCategory> = Vec::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(MAX_CATEGORIES + 1)) {
+        let name = tc.draw(names()).to_string();
+        if categories.iter().any(|c| c.name == name) {
+            continue;
+        }
+        let mut tags: Vec<crate::masterdb::TagEntry> = Vec::new();
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+            let name = tc.draw(names()).to_string();
+            if tags.iter().any(|t| t.name == name) {
+                continue;
+            }
+            let ids: BTreeSet<u32> =
+                tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6))).into_iter().collect();
+            tags.push(crate::masterdb::TagEntry { name, track_ids: ids.into_iter().collect() });
+        }
+        categories.push(crate::masterdb::TagCategory { name, tags });
+    }
+    let given = DbTags::collection(&categories, &library);
+    let (bytes, carried) = new_ext(&given, &library).unwrap();
+    let got = DbTags::ext(&bytes, &library).unwrap();
+    let kept: Vec<CategoryNode> = given.tree.categories.iter().take(MAX_CATEGORIES).cloned().collect();
+    assert_eq!(got.tree.categories, kept);
+    assert_eq!(got.tree.strays, 0, "nothing of the template is left");
+    let past: BTreeSet<String> = given
+        .tree
+        .categories
+        .iter()
+        .skip(MAX_CATEGORIES)
+        .flat_map(|c| c.tags.iter().filter(|t| !t.tracks.is_empty()).map(move |t| format!("{}/{}", c.name, t.name)))
+        .collect();
+    assert_eq!(carried.skipped, past);
+}

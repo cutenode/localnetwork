@@ -14,6 +14,8 @@ use crate::support::account::{DID, PUBLISHING, sign_in, test_key};
 use crate::support::{Env, Rpc, path, play};
 
 const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
+const SET: &str = "computer.localnetwork.dj.set";
+const DELETE: &str = "com.atproto.repo.deleteRecord";
 
 #[test]
 fn settings_publish_and_import_from_the_command_line() {
@@ -117,6 +119,110 @@ fn sets_publish_from_the_command_line() {
 
     let out = env.ok(&["sets", "publish", "Friday", "--yes"]);
     assert!(out.contains("this set already published, unchanged"), "{out}");
+}
+
+/// `sets publish SET --upload`, with a stand-in ffmpeg on `PATH`: a dry run shows how the recording
+/// goes up and sends nothing; without a terminal or --yes nothing goes; with --yes one answer
+/// covers both, so a WAV is encoded as AAC with its timed track as a chapter (not named with
+/// --hide), uploaded as audio/mp4 and published, and the set's record points at it (its envelope
+/// nested as `record`). Without ffmpeg, it says to install it.
+#[cfg(unix)]
+#[test]
+fn sets_publish_upload_from_the_command_line() {
+    let pds = MockPds::start();
+    pds.set_account(DID, "dj.example.com");
+    let env = Env::new().with_directory(&pds.url);
+    let recording = env.outside("friday.wav");
+    std::fs::write(&recording, loclib_mixid::test_util::wav(8000, 16, 2.0)).unwrap();
+    let (id, at) = ("3m4n5o6p7q8r9", "2026-10-03T23:00:00Z");
+    let set = json!({
+        "id": id, "title": "Friday", "date": "2026-10-03", "recording": { "path": recording },
+        "tracks": [{ "title": "Glue", "artist": "Bicep", "origin": "added", "start_seconds": 0 }],
+        "created_at": at, "updated_at": at,
+    });
+    sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
+    std::fs::write(env.store.join("sets.json"), json!({ "sets": [set] }).to_string()).unwrap();
+    let (bin, nothing) = (env.outside("bin"), env.outside("empty"));
+    for dir in [&bin, &nothing] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let args = env.outside("ffmpeg-args");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >'{}'\nfor last; do :; done\nprintf 'encoded audio' >\"$last\"\n\
+         printf 'total_size=13\\nprogress=end\\n'\n",
+        args.display()
+    );
+    std::fs::write(bin.join("ffmpeg"), script).unwrap();
+    crate::support::set_mode(&bin.join("ffmpeg"), 0o755);
+    // With `typed`, on a terminal it was typed ahead on.
+    let run = |path: &std::path::Path, global: &[&str], more: &[&str], typed: Option<&str>| {
+        let publish = ["sets", "publish", "Friday", "--upload"];
+        let mut command = env.command();
+        command.env("PATH", path).args(global).args(publish).args(more);
+        // The keyboard stays open until the command's done, as a terminal would.
+        let _keyboard = typed.map(|typed| {
+            let (mut keyboard, stdin) = crate::support::terminal();
+            std::io::Write::write_all(&mut keyboard, typed.as_bytes()).unwrap();
+            command.stdin(std::process::Stdio::from(stdin));
+            keyboard
+        });
+        let out = command.output().unwrap();
+        (out.status.code().unwrap(), String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
+    };
+
+    let (code, out, err) = run(&bin, &[], &["--dry-run"], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("Upload this set's recording as @dj.example.com"), "{out}");
+    assert!(out.contains("as AAC at 128 kbit/s in an M4A file") && out.contains("then this set's record"), "{out}");
+    assert!(out.contains("Chapters  1 track\n"), "{out}");
+    // Hidden, the chapter doesn't name it either.
+    let (code, out, err) = run(&bin, &["--json"], &["--dry-run", "--hide", "1"], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["plan"]["chapters"], json!([{ "start": 0, "title": "ID - ID" }]), "{out}");
+    let (code, _, err) = run(&bin, &[], &[], None);
+    assert_eq!(code, 3, "{err}");
+    assert!(err.contains("not confirmed"), "{err}");
+    assert!(pds.calls("com.atproto.repo.uploadBlob").is_empty() && !args.exists(), "nothing goes unasked");
+
+    // One answer covers the upload and the set's record.
+    let (code, out, err) = run(&bin, &[], &[], Some("y\n"));
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert_eq!(err.matches("[y/N]").count(), 1, "{err}");
+    assert!(err.contains("Upload the recording and publish this set as @dj.example.com?"), "{err}");
+    assert!(out.contains("uploaded the recording") && out.contains("published this set"), "{out}");
+    let uri = format!("at://{DID}/computer.localnetwork.dj.recording/{id}");
+    let ffmpeg: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(String::from).collect();
+    assert!(
+        ffmpeg.windows(2).any(|w| w == ["-b:a", "128k"]) && ffmpeg.windows(2).any(|w| w == ["-movflags", "+faststart"])
+    );
+    assert!(
+        ffmpeg.windows(3).any(|w| w[..2] == ["ffmetadata", "-i"])
+            && ffmpeg.windows(2).any(|w| w == ["-map_chapters", "1"])
+    );
+    let (recorded, cid) = pds.record(DID, "computer.localnetwork.dj.recording", id).unwrap();
+    let blob = pds.blob(recorded["audio"]["ref"]["$link"].as_str().unwrap()).unwrap();
+    assert_eq!(blob, ("audio/mp4".to_string(), b"encoded audio".to_vec()));
+    assert_eq!(recorded["durationSeconds"], 2);
+    let (set_record, _) = pds.record(DID, "computer.localnetwork.dj.set", id).unwrap();
+    assert_eq!(set_record["recording"], json!({ "uri": uri, "cid": cid }));
+
+    // Again, as JSON: the same recording, so neither record changes, and the set's is nested.
+    let (code, out, err) = run(&bin, &["--json", "--yes"], &[], None);
+    assert_eq!(code, 0, "{out}\n{err}");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        (&v["outcome"], &v["plan"]["operation"], &v["report"]["uri"], &v["report"]["written"]),
+        (&json!("applied"), &json!("sets.upload"), &json!(uri), &json!(false))
+    );
+    assert_eq!(v["plan"]["encoding"], json!({ "kind": "aac", "kbps": 128, "bytes": 32000 }));
+    assert_eq!(v["record"]["outcome"], "nothing_to_do");
+    assert_eq!(v["record"]["plan"]["record"]["recording"], set_record["recording"]);
+
+    std::fs::remove_file(&args).unwrap();
+    let (code, _, err) = run(&nothing, &["--yes"], &[], None);
+    assert_ne!(code, 0);
+    assert!(err.contains("ffmpeg, which encodes the recording (WAV)") && err.contains("https://ffmpeg.org"), "{err}");
 }
 
 /// `sets publish` first runs the analyzer chosen for the MusicBrainz roles on the tracks it names
@@ -381,4 +487,54 @@ fn a_set_is_shown_against_what_was_published() {
     let out = env.ok(&["sets", "publish", "Friday", "--dry-run"]);
     assert!(out.contains("  Venue   no longer published\n"), "{out}");
     assert!(out.contains("  2 tracks (changed)\n"), "{out}");
+}
+
+/// Every step of signing in, publishing and unpublishing that doesn't need a real account, one
+/// after another as a DJ would take them: the session is written in place of `account login`'s
+/// browser round trip, and the pretend server stands in for the account's PDS, Local Network's
+/// directory and its website.
+#[test]
+fn sign_in_publish_and_unpublish_end_to_end() {
+    let pds = MockPds::start();
+    pds.set_account(DID, "dj.example.com");
+    let env = Env::from_template().with_directory(&pds.url);
+    sign_in(&env.store, &pds.url, &PUBLISHING, json!({}));
+
+    let out = env.ok(&["account", "status", "--check"]);
+    assert!(out.contains(&format!("{} answered for this session", pds.url)), "{out}");
+    let out = env.ok(&["account"]);
+    assert!(out.contains("can publish your My Settings, profile, sets and their recordings;"), "{out}");
+
+    env.ok(&["--yes", "settings", "set", "quantize=off"]);
+    env.ok(&["--yes", "settings", "publish"]);
+    assert_eq!(pds.record(DID, SETTINGS, "self").unwrap().0["player"]["quantize"], "off");
+    env.ok(&["--yes", "profile", "publish", "A", "--no-analysis"]);
+    assert!(pds.record(DID, "computer.localnetwork.dj.profile", "self").is_some());
+    env.ok(&["--yes", "sets", "new", "--from", "HISTORY 001", "--title", "Friday", "--date", "2026-10-03"]);
+    env.ok(&["--yes", "sets", "publish", "Friday"]);
+    let id = env.json(&["sets", "show", "Friday"])["id"].as_str().unwrap().to_string();
+    let uri = format!("at://{DID}/{SET}/{id}");
+    assert!(pds.record(DID, SET, &id).is_some());
+
+    // Another computer, signed out, imports the My Settings published.
+    let other = Env::new().with_directory(&pds.url);
+    let out = other.ok(&["--yes", "settings", "import", "--from-handle", DID]);
+    assert!(out.contains(&format!("imported 1 setting from {DID}")), "{out}");
+
+    // Deleting the set says it takes the record off the account, and does.
+    let out = env.exits(3, &["sets", "delete", "Friday"]);
+    assert!(out.contains(&format!("and its record on your Atmosphere account ({uri})")), "{out}");
+    assert!(pds.record(DID, SET, &id).is_some(), "not confirmed: still there");
+    let out = env.ok(&["--yes", "sets", "delete", "Friday"]);
+    assert!(out.contains("deleted"), "{out}");
+    assert!(pds.record(DID, SET, &id).is_none() && pds.indexed(DID, SET, &id).is_none());
+    assert_eq!(pds.calls(DELETE).len(), 2, "told to use the server's nonce once");
+    assert_eq!(env.json(&["sets"]).as_array().map(Vec::len), Some(0));
+    // The rest stays.
+    assert!(pds.record(DID, SETTINGS, "self").is_some());
+
+    let out = env.ok(&["account", "logout"]);
+    assert!(out.starts_with("✓ Signed out of @dj.example.com\n"), "{out}");
+    assert!(env.ok(&["account"]).contains("`locallibrary account login dj.example.com` signs in"));
+    assert_eq!(env.run(&["account", "status", "--check"]).code, 1);
 }

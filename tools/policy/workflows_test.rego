@@ -18,7 +18,7 @@ test_gated_workflows if {
 
 test_ungated_workflow_is_skipped if {
 	broken := json.remove(ci, ["jobs/passed"])
-	repo := fixtures.with_file(".github/workflows/locallibrary-bench.yml", broken)
+	repo := fixtures.with_file(".github/workflows/dependency-review.yml", broken)
 	count(workflows.deny) == 0 with input as repo
 }
 
@@ -37,9 +37,16 @@ test_no_passed_job if {
 	".github/workflows/site-ci.yml: add a `passed` job that fails when any other job fails (see localtoolbox-ci.yml)" in workflows.deny with input as with_ci(broken)
 }
 
-test_passed_without_always if {
+always_msg := ".github/workflows/site-ci.yml: the passed job's `if` should be `always() && (...)`, with the conditions it fails on, so it runs when jobs fail or are skipped"
+
+test_passed_without_if if {
 	broken := json.remove(ci, ["jobs/passed/if"])
-	".github/workflows/site-ci.yml: the passed job needs `if: always()`, so it reports when jobs are skipped" in workflows.deny with input as with_ci(broken)
+	always_msg in workflows.deny with input as with_ci(broken)
+}
+
+test_passed_always_runs if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/if", "value": "always()"}])
+	always_msg in workflows.deny with input as with_ci(broken)
 }
 
 test_passed_misses_a_job if {
@@ -60,9 +67,21 @@ test_passed_misnamed if {
 	".github/workflows/site-ci.yml: name the passed job \"<workflow> passed\"; the ruleset requires it by name" in workflows.deny with input as with_ci(broken)
 }
 
-test_passed_never_fails if {
-	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/steps", "value": [{"if": "contains(needs.*.result, 'failure')", "run": "exit 1"}]}])
-	".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed or was cancelled" in workflows.deny with input as with_ci(broken)
+fails_msg := ".github/workflows/site-ci.yml: the passed job should exit 1 when a job it needs failed, was cancelled, or was skipped with work to do"
+
+test_passed_ignores_cancelled_jobs if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/if", "value": "always() && (contains(needs.*.result, 'failure') || needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped'))"}])
+	fails_msg in workflows.deny with input as with_ci(broken)
+}
+
+test_passed_ignores_skipped_jobs if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/if", "value": "always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))"}])
+	fails_msg in workflows.deny with input as with_ci(broken)
+}
+
+test_passed_never_exits if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/steps", "value": [{"run": "echo failed"}]}])
+	fails_msg in workflows.deny with input as with_ci(broken)
 }
 
 draft_outputs := {
@@ -71,6 +90,10 @@ draft_outputs := {
 }
 
 draft_step := {"if": "needs.changes.outputs.draft == 'true'", "run": "exit 1"}
+
+draft_if := "always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || (needs.changes.outputs.run == 'true' && contains(needs.*.result, 'skipped')) || needs.changes.outputs.draft == 'true')"
+
+draft_msg := ".github/workflows/site-ci.yml: the passed job should exit 1 when the changes job's draft output is true, or a draft's skipped jobs pass it"
 
 test_draft_from_event if {
 	broken := json.patch(ci, [
@@ -82,12 +105,22 @@ test_draft_from_event if {
 
 test_draft_passes if {
 	broken := json.patch(ci, [{"op": "add", "path": "/jobs/changes/outputs", "value": draft_outputs}])
-	".github/workflows/site-ci.yml: the passed job should exit 1 when the changes job's draft output is true, or a draft's skipped jobs pass it" in workflows.deny with input as with_ci(broken)
+	draft_msg in workflows.deny with input as with_ci(broken)
+}
+
+# The step never runs when the job's `if` leaves drafts out.
+test_draft_step_skipped_with_the_job if {
+	broken := json.patch(ci, [
+		{"op": "add", "path": "/jobs/changes/outputs", "value": draft_outputs},
+		{"op": "add", "path": "/jobs/passed/steps/-", "value": draft_step},
+	])
+	draft_msg in workflows.deny with input as with_ci(broken)
 }
 
 test_draft_fails_passed if {
 	drafts := json.patch(ci, [
 		{"op": "add", "path": "/jobs/changes/outputs", "value": draft_outputs},
+		{"op": "replace", "path": "/jobs/passed/if", "value": draft_if},
 		{"op": "add", "path": "/jobs/passed/steps/-", "value": draft_step},
 	])
 	count(workflows.deny) == 0 with input as with_ci(drafts)
@@ -101,6 +134,11 @@ test_job_ignores_changes if {
 test_no_concurrency if {
 	broken := json.remove(ci, ["concurrency"])
 	".github/workflows/site-ci.yml: add a concurrency group that cancels superseded runs" in workflows.deny with input as with_ci(broken)
+}
+
+test_main_pushes_finish if {
+	finishing := json.patch(ci, [{"op": "replace", "path": "/concurrency/cancel-in-progress", "value": "${{ github.event_name != 'push' }}"}])
+	count(workflows.deny) == 0 with input as with_ci(finishing)
 }
 
 test_main_runs_not_cancelled if {
@@ -129,9 +167,53 @@ test_pull_request_only_needs_no_base if {
 	count(workflows.deny) == 0 with input as with_ci(pr_only)
 }
 
+e2e := fixtures.file(".github/workflows/site-e2e.yml")
+
+with_e2e(contents) := fixtures.with_file(".github/workflows/site-e2e.yml", contents)
+
+test_called_workflows if {
+	called := {path | some path, _ in workflows.called} with input as fixtures.repo
+	called == {".github/workflows/site-e2e.yml"}
+}
+
+test_called_workflow_with_concurrency if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/concurrency", "value": {"group": "${{ github.workflow }}", "cancel-in-progress": true}}])
+	".github/workflows/site-e2e.yml: remove its concurrency group; a call gets the calling workflow's, so it would cancel the run that called it" in workflows.deny with input as with_e2e(broken)
+}
+
+test_called_workflow_on_push if {
+	broken := json.patch(e2e, [{"op": "add", "path": "/true/push", "value": {"branches": ["main"]}}])
+	".github/workflows/site-e2e.yml: remove `on.push`; the workflow that calls it already runs it then" in workflows.deny with input as with_e2e(broken)
+}
+
+test_called_report_can_fail_the_call if {
+	broken := json.remove(e2e, ["jobs/report/continue-on-error"])
+	".github/workflows/site-e2e.yml: give job \"report\" `continue-on-error: true`, or it fails the call when it fails" in workflows.deny with input as with_e2e(broken)
+}
+
+test_call_without_a_permission_its_jobs_ask_for if {
+	broken := json.remove(ci, ["jobs/e2e/permissions"])
+	".github/workflows/site-ci.yml: job \"e2e\" should grant `pull-requests: write`, which .github/workflows/site-e2e.yml's \"report\" job asks for" in workflows.deny with input as with_ci(broken)
+}
+
+test_call_granting_read_where_write_is_asked if {
+	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/e2e/permissions/pull-requests", "value": "read"}])
+	".github/workflows/site-ci.yml: job \"e2e\" should grant `pull-requests: write`, which .github/workflows/site-e2e.yml's \"report\" job asks for" in workflows.deny with input as with_ci(broken)
+}
+
 test_project_outside_every_filter if {
 	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/changes/steps/1/with/filters", "value": "run:\n  - 'apps/tool/**'\n"}])
 	denied := workflows.deny with input as with_ci(broken)
 	"apps/site/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in denied
 	"packages/kit/package.json: no pull request workflow runs when it changes; add its folder to one's path filter" in denied
+}
+
+embedded(files) := fixtures.with_file("/scratch/embedded-files.json", {"files": files})
+
+test_embedded_file_outside_the_filter if {
+	".github/labels.yml: the Rust code embeds it, so add it to the locallibrary paths filter" in workflows.deny with input as embedded([".github/labels.yml"])
+}
+
+test_embedded_file_the_filter_excludes if {
+	"crates/x/README.md: the Rust code embeds it, so add it to the locallibrary paths filter" in workflows.deny with input as embedded(["crates/x/README.md"])
 }

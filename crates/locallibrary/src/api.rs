@@ -2095,3 +2095,5 @@ mod tui;
 pub use tui::*;
 mod sidecar;
 pub use sidecar::*;
+mod settings_file;
+pub use settings_file::*;

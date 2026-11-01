@@ -104,3 +104,91 @@ fn entries_recorded_as_the_file_was_written_are_racy() {
         assert!(!index.racy(&FileEntry { size: 6, ..seen.clone() }), "another size isn't the recorded file");
     }
 }
+
+/// What's saved answers lookups as the index recording every hash afresh did (only when entries
+/// were recorded can differ), and recording what the cache holds already writes nothing.
+#[hegel::test(test_cases = 100)]
+fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("index.json");
+    let now = chrono::Utc::now().timestamp();
+    // Hashed now, files modified this long before are settled (see `fsutil::settled`); ones
+    // modified this long after (negative) aren't, however long the test takes.
+    let ages = [-1000, -5000, 1000, 5000];
+    let entry = |path: usize, size: u64, age: usize, hash: u8| FileEntry {
+        path: ["a", "b", "c"][path].to_string(),
+        size,
+        mtime: now - ages[age],
+        class: FileClass::Analysis,
+        hash: Some(Hash::of(&[hash])),
+    };
+    // What the index answered before (every hash recorded afresh): path -> (entry, settled).
+    let mut model: FxHashMap<String, (FileEntry, bool)> = FxHashMap::default();
+    // A cache saved earlier, its entries hashed at some time after the file changed.
+    let mut index = HashIndex::default();
+    for path in 0..3 {
+        if tc.draw(gs::booleans()) {
+            let mut e = entry(path, 0, tc.draw(gs::integers::<usize>().max_value(3)), 0);
+            let after = tc.draw(gs::sampled_from(vec![0, 1, 3, 100]));
+            let cached = IndexEntry { size: e.size, mtime: e.mtime, hash: e.hash.unwrap(), at: e.mtime + after };
+            index.entries.insert(e.path.clone(), cached);
+            e.mtime = cached.mtime;
+            model.insert(e.path.clone(), (e, cached.settled()));
+        }
+    }
+    index.dirty = true;
+    index.save(&file).unwrap();
+    let mut index = HashIndex::load(&file);
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(30)) {
+        let path = tc.draw(gs::integers::<usize>().max_value(2));
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => {
+                let size = tc.draw(gs::integers::<u64>().max_value(1));
+                let age = tc.draw(gs::integers::<usize>().max_value(3));
+                let e = entry(path, size, age, tc.draw(gs::integers::<u8>().max_value(1)));
+                index.record(&e);
+                model.insert(e.path.clone(), (e, ages[age] > 0));
+            }
+            1 => {
+                index.forget(&entry(path, 0, 0, 0).path);
+                model.remove(&entry(path, 0, 0, 0).path);
+            }
+            _ => {
+                index.save(&file).unwrap();
+                index = HashIndex::load(&file);
+            }
+        }
+    }
+    index.save(&file).unwrap();
+    let saved = HashIndex::load(&file);
+    let queries =
+        (0..3).flat_map(|p| (0..2).flat_map(move |s| (0..4).flat_map(move |a| (0..2).map(move |h| (p, s, a, h)))));
+    for (path, size, age, hash) in queries {
+        let e = entry(path, size, age, hash);
+        let expected = model.get(&e.path).filter(|(m, settled)| *settled && m.size == e.size && m.mtime == e.mtime);
+        assert_eq!(saved.lookup(&e), expected.and_then(|(m, _)| m.hash), "{e:?}");
+        assert_eq!(index.lookup(&e), saved.lookup(&e), "{e:?}");
+    }
+    // Hashing every file again, as a scan does for the database files, saves fresh answers;
+    // doing it once more finds nothing new and writes nothing (the file, removed once loaded,
+    // stays away).
+    for pass in 0..2 {
+        let mut again = HashIndex::load(&file);
+        if pass == 1 {
+            std::fs::remove_file(&file).unwrap();
+        }
+        for (m, _) in model.values() {
+            again.forget(&m.path);
+            again.record(m);
+        }
+        again.save(&file).unwrap();
+        if pass == 0 {
+            let saved = HashIndex::load(&file);
+            for (m, _) in model.values() {
+                assert_eq!(saved.lookup(m), m.hash.filter(|_| m.mtime < now), "{m:?}");
+            }
+        }
+    }
+    assert!(!file.exists(), "rewrote an unchanged cache");
+}
