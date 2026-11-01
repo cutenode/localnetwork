@@ -12,7 +12,7 @@ use crate::error::IoContext;
 use crate::export::one_line;
 use crate::{Error, Result};
 
-/// `url` as the browser may be given it: a public `https:` address ([`crate::net::public`])
+/// `url` as the browser may be given it: a public `https:` address (`net::public`)
 /// without a user name or password, written out as parsed. One with a space, a control character
 /// or a quote is refused rather than tidied, as the parser would drop some of those silently.
 pub fn web_address(url: &str) -> Result<String> {
