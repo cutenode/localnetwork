@@ -2,7 +2,10 @@
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 </script>
 
-<svelte:head><title>Privacy · Local Network</title></svelte:head>
+<svelte:head>
+	<title>Privacy · Local Network</title>
+	<meta name="description" content="What Local Network stores, where each kind of data lives, and who can read it." />
+</svelte:head>
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<SectionHeader level={1} eyebrow="Privacy" title="What we store and where" lede="Where each kind of data lives, and who can read it." />
