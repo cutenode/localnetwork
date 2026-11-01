@@ -1,0 +1,35 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Lighthouse pages",
+	"description": "The pages Lighthouse measures (lighthouserc.cjs on pull requests, scripts/lighthouse.ts weekly), on the seeded network of scripts/dev-network.ts.",
+	"type": "object",
+	"required": ["pages"],
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"pages": {
+			"type": "array",
+			"minItems": 1,
+			"items": {
+				"type": "object",
+				"required": ["path"],
+				"additionalProperties": false,
+				"properties": {
+					"path": {
+						"description": "The page's path and query, on the seeded network.",
+						"type": "string",
+						"pattern": "^/"
+					},
+					"account": {
+						"description": "The seeded account the page is measured signed in as: dj (neon.test) or admin (ada.test). Signed out without one.",
+						"enum": ["dj", "admin"]
+					},
+					"pr": {
+						"description": "Also measured on pull requests that change what the pages are built from (web-ci.yml), against lighthouserc.cjs's budgets.",
+						"type": "boolean"
+					}
+				}
+			}
+		}
+	}
+}

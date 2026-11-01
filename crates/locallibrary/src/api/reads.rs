@@ -65,12 +65,17 @@ pub struct Page {
 /// The drive's library ([`super::drive_library`]), its tracks paged when asked.
 pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Result<LibraryPage> {
     let (_, _, lib) = cache.read(&req.library)?;
+    Ok(library_page(&lib, req.offset, req.limit))
+}
+
+/// `lib` with its tracks from `offset`, at most `limit` of them; every track when neither is given.
+pub(super) fn library_page(lib: &Library, offset: Option<usize>, limit: Option<usize>) -> LibraryPage {
     let summary = lib.summary();
-    if req.offset.is_none() && req.limit.is_none() {
-        return Ok(LibraryPage { summary, library: Library::clone(&lib), page: None });
+    if offset.is_none() && limit.is_none() {
+        return LibraryPage { summary, library: lib.clone(), page: None };
     }
-    let offset = req.offset.unwrap_or(0);
-    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
+    let offset = offset.unwrap_or(0);
+    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(limit.unwrap_or(usize::MAX)).cloned().collect();
     let page = Page { offset, count: tracks.len(), total: lib.tracks.len() };
     let library = Library {
         tracks,
@@ -78,7 +83,7 @@ pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Resul
         history_playlists: lib.history_playlists,
         history: lib.history.clone(),
     };
-    Ok(LibraryPage { summary, library, page: Some(page) })
+    LibraryPage { summary, library, page: Some(page) }
 }
 
 /// A playlist or folder in [`PlaylistTree`].
@@ -416,10 +421,16 @@ pub struct AnalysisView {
     pub structure: Option<SongStructure>,
 }
 
+/// A track's beat grid, cues, waveforms and phrases on `device`: what `track.analysis`,
+/// `tracks.analysis`, `track.show` and the player read.
+pub fn analysis_of(device: &Device, track: &Track) -> TrackAnalysis {
+    anlz::load(device, track)
+}
+
 impl AnalysisView {
     /// The track's analysis on `device`, with the waveforms chosen and encoded as asked.
     fn of(device: &Device, track: &Track, waveform: WaveformChoice, encoding: WaveformEncoding) -> AnalysisView {
-        let a: TrackAnalysis = anlz::load(device, track);
+        let a = analysis_of(device, track);
         let encode = |w: Waveform| match encoding {
             WaveformEncoding::Json => WaveformData::Json(w),
             WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),

@@ -185,6 +185,27 @@ fn paths_are_folded_part_by_part(tc: TestCase) {
     assert_eq!(absolute_with(&below, real), folded, "{below:?}");
 }
 
+/// The part of a path that exists is resolved (symlinks too, a `..` after one stepping out of its
+/// target), the rest appended; `..` below a folder that isn't there yet takes it away.
+/// Regressions: `..` after a link went back to the link's folder; export's own copy of this left
+/// such a path unresolved, so `/tmp/new/../out` and `/private/tmp/out` didn't compare.
+#[test]
+fn the_part_that_exists_is_resolved() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = without_verbatim_prefix(dir.path().canonicalize().unwrap());
+    assert_eq!(resolved(&dir.path().join("new/../out/x")), real.join("out/x"));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&real, real.join("link")).unwrap();
+        assert_eq!(resolved(&real.join("link/missing/../there")), real.join("there"));
+        // `..` out of a link is the folder its target is in, where the OS takes it.
+        std::fs::create_dir_all(real.join("deep/er")).unwrap();
+        std::os::unix::fs::symlink(real.join("deep/er"), real.join("up")).unwrap();
+        assert_eq!(resolved(&real.join("up/../x")), real.join("deep/x"));
+        assert_eq!(resolved(&real.join("new/../up/x")), real.join("deep/er/x"));
+    }
+}
+
 #[test]
 fn relative_paths() {
     assert_eq!(

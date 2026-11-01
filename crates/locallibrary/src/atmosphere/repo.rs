@@ -1,10 +1,11 @@
 //! Reading and writing records in an account's repository.
 //!
-//! Writes go through the signed-in session ([`put_record`], [`create_record`]): jacquard sends
-//! them to the account's data server (PDS) with the DPoP-bound access token, refreshing it when it
-//! has run out. Before a write, the record is checked against its Lexicon and the session's
-//! scopes against what it needs, so a session signed in without permission to publish fails here,
-//! not at the server. [`upload_blob`] sends a file the same way, read from disk as it goes.
+//! Writes go through the signed-in session ([`put_record`], [`create_record`], [`delete_record`]):
+//! jacquard sends them to the account's data server (PDS) with the DPoP-bound access token,
+//! refreshing it when it has run out. Before a write, the record is checked against its Lexicon
+//! and the session's scopes against what it needs, so a session signed in without permission to
+//! publish fails here, not at the server. [`upload_blob`] sends a file the same way, read from
+//! disk as it goes.
 //! Reads need no session, and come from Local Network's directory ([`super::directory`]), never
 //! the PDS: a write that replaces a record names the version the directory had ([`put_record`]'s
 //! `swap`), so it only lands on what the DJ saw. [`resolve`] finds an account's DID from its
@@ -19,6 +20,7 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jacquard_api::com_atproto::repo::create_record::{CreateRecord, CreateRecordError};
+use jacquard_api::com_atproto::repo::delete_record::{DeleteRecord, DeleteRecordError};
 use jacquard_api::com_atproto::repo::put_record::{PutRecord, PutRecordError};
 use jacquard_api::com_atproto::server::get_session::GetSession;
 use jacquard_common::error::{AuthError, ClientError, ClientErrorKind, HttpError};
@@ -37,7 +39,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{
-    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, may_upload, missing_scope, net,
+    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, may_delete, may_upload, missing_scope, net,
     not_signed_in, resolver, restore, status, store,
 };
 use crate::error::{Action, IoContext, Reason};
@@ -177,6 +179,24 @@ pub fn create_record(root: &Path, did: &str, collection: &str, record: &Value) -
     match response.into_output() {
         Ok(out) => Ok(Written { uri: out.uri.to_string(), cid: out.cid.to_string() }),
         Err(XrpcError::Xrpc(CreateRecordError::Other { error, message })) => {
+            Err(refusal(&info, collection, status.as_u16(), &error, message.as_deref().unwrap_or_default()))
+        }
+        Err(e) => Err(answer_error(&info, collection, status.as_u16(), e)),
+    }
+}
+
+/// Delete `collection/rkey` from the repository of `did`, which has to be the signed-in account,
+/// whatever version is there. A server answers a record that isn't there as deleted.
+pub fn delete_record(root: &Path, did: &str, collection: &str, rkey: &str) -> Result<()> {
+    let (_lock, info) = writer(root, did, collection, |info| may_delete(info, collection))?;
+    let session = restore(root)?;
+    let request = from_json_value::<DeleteRecord>(json!({ "repo": info.did, "collection": collection, "rkey": rkey }))
+        .map_err(|e| Error::invalid(format!("deleting the {} record: {e}", lexicon::short_name(collection))))?;
+    let response = block_on(session.send(request)).map_err(|e| client_error(&info, collection, e))?;
+    let status = response.status();
+    match response.into_output() {
+        Ok(_) => Ok(()),
+        Err(XrpcError::Xrpc(DeleteRecordError::Other { error, message })) => {
             Err(refusal(&info, collection, status.as_u16(), &error, message.as_deref().unwrap_or_default()))
         }
         Err(e) => Err(answer_error(&info, collection, status.as_u16(), e)),
@@ -349,7 +369,7 @@ fn send_file(request: reqwest::RequestBuilder, path: &Path, size: u64, ctx: &Ctx
     let requests = Requests::new().map_err(|e| Error::Account(format!("the network: {e}")))?;
     let (sent, reported) = mpsc::channel();
     let body = Sending { file: File::open(path).at(path)?, sent };
-    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body));
+    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body, ctx.cancel.clone()));
     ctx.phase_start(Phase::Upload, 1, size);
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     ctx.emit(Event::Item { phase: Phase::Upload, path: name, bytes: size });

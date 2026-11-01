@@ -250,7 +250,7 @@ fn write(
                 ))
             );
         }
-        for s in plan.summary.iter().filter(|s| s.starts_with("read the files")) {
+        for s in plan.summary.iter().filter(|s| s.starts_with("read the files") || s.starts_with("keep a smart rule")) {
             say!("  {}", dim(s));
         }
         for w in &plan.warnings {

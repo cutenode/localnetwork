@@ -92,8 +92,13 @@ fn hosted_metadata_is_a_native_public_client() {
 fn the_published_document_allows_publishing() {
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &publish_scopes()), Ok(()));
-    let mut publish: Vec<String> =
-        lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
+    // Sets and their recordings may be deleted too (`sets delete`), which a server writes as the
+    // bare `repo:<nsid>`.
+    let deletes = |c: &str| [lexicon::SET, lexicon::RECORDING].contains(&c);
+    let mut publish: Vec<String> = lexicon::COLLECTIONS
+        .iter()
+        .map(|&c| if deletes(c) { format!("repo:{c}") } else { format!("repo:{c}?action=create&action=update") })
+        .collect();
     publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
     // The server grants the permission set's scopes in its place: these, each one jacquard
@@ -108,12 +113,13 @@ fn the_published_document_allows_publishing() {
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
-    // Creating and replacing, and nothing more: not deleting.
+    // Creating and replacing, and nothing more: deleting only sets and their recordings.
     let granted = scopes(&granted).unwrap();
     for c in lexicon::COLLECTIONS {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
-        assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
+        assert_eq!(granted.grants(&Scope::repo_delete(c).unwrap()), deletes(c), "{c}");
     }
+    assert!(!granted.grants(&Scope::repo_create("app.example.thing").unwrap()));
     // A service token for asking the directory to read them again, and for no other method.
     assert!(granted.grants(&Scope::rpc(directory::REQUEST_INDEX).unwrap()));
     assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));

@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use locallibrary::anlz::{self, TrackAnalysis, Waveform};
+use locallibrary::anlz::{TrackAnalysis, Waveform};
 use locallibrary::api;
 use locallibrary::mix::export;
 use locallibrary::mix::index::Cache;
@@ -507,7 +507,7 @@ fn identify(
     let store = Store::open_or_init(store_root)?;
     let id = Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &ctx)?;
     let report = id.identify(path, &mix::Options::default(), &ctx)?;
-    let analyses = report.plays.iter().map(|p| anlz::load(&device, &p.track)).collect();
+    let analyses = report.plays.iter().map(|p| api::analysis_of(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
     // The player plays the recording itself; for a project, the audio exported from it.
     let audio = match mix::aup::is_project(&report.mix.path) {
@@ -1547,14 +1547,18 @@ fn draw_tracklist(
                 (_, Some(played)) => played.clone(),
                 _ => p.track.key.clone(),
             };
-            let speed = format!("{:+.1}%", (p.tempo - 1.0) * 100.0);
+            // A ridden pitch fader: the slowest speed over the fastest.
+            let speed = match p.speed_range {
+                Some((slowest, fastest)) => format!("{}\n→{}", mix::percent(slowest), mix::percent(fastest)),
+                None => mix::percent(p.tempo),
+            };
             let mut cells = vec![
                 Cell::from(Line::from(number)),
                 Cell::from(Line::styled(clock(p.start), dim())),
                 Cell::from(Text::from(vec![Line::from(name), Line::from(next)])),
                 Cell::from(Line::styled(key, fg(theme::current().secondary))),
                 Cell::from(Line::styled(p.played_bpm.map(|b| format!("{b:.1}")).unwrap_or_default(), text())),
-                Cell::from(Line::styled(speed, dim())),
+                Cell::from(Text::styled(speed, dim())),
             ];
             if !narrow {
                 let lock = match p.key_lock {
@@ -1692,7 +1696,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
     if let Some(b) = p.played_bpm {
         how.push(Span::styled(format!(" · {b:.1} BPM"), text()));
         if t.bpm > 0.0 {
-            how.push(Span::styled(format!(" ({:+.1}% from {:.1})", (p.tempo - 1.0) * 100.0, t.bpm), dim()));
+            how.push(Span::styled(format!(" ({} from {:.1})", p.speed(), t.bpm), dim()));
         }
     }
     match p.key_lock {

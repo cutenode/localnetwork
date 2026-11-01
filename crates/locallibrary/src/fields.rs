@@ -146,6 +146,37 @@ pub struct Source<'a> {
     pub declared: &'a Declared,
 }
 
+/// The analyzers installed and the fields they declare, and the store what they worked out is
+/// kept in: what filters and sorts naming their fields (`sound.bpm:>120`) read. Plugins that were
+/// refused have none.
+pub struct Installed {
+    store: Option<Store>,
+    analyzers: Vec<Analyzer>,
+    declared: Declared,
+}
+
+impl Installed {
+    /// The analyzers of `plugins` (none without), what they worked out kept in `store`.
+    pub fn new(store: Option<Store>, plugins: Option<&crate::plugin::Plugins>) -> Installed {
+        Installed {
+            store,
+            analyzers: plugins.map(crate::plugin::Plugins::analyzers).unwrap_or_default(),
+            declared: plugins.map(crate::plugin::Plugins::fields).unwrap_or_default(),
+        }
+    }
+
+    /// [`Installed::new`] for the plugins the app hosts ([`crate::plugin::set_hosted`]), in the
+    /// store drive lookups consult ([`crate::api::store_root`]): what edits' selectors and sorts
+    /// and smart playlists' rules read.
+    pub(crate) fn hosted() -> Installed {
+        Installed::new(crate::api::registry(), crate::plugin::hosted())
+    }
+
+    pub fn source(&self) -> Source<'_> {
+        Source { store: self.store.as_ref(), analyzers: &self.analyzers, declared: &self.declared }
+    }
+}
+
 /// What the analyzers installed worked out for a library's tracks, as filters and sorts read it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrackValues {

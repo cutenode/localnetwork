@@ -13,7 +13,8 @@
 //!    a play; a remix or the original matches part of one. The stronger match is kept and the
 //!    others are reported alongside it.
 //! 5. **Refine.** A line fitted through each chain's matching (mix time, track time) pairs gives
-//!    the playback speed and where the track came in and went out.
+//!    the playback speed and where the track came in and went out. Where the pitch fader was
+//!    ridden, the pairs bend, and a line either side of the bend gives each speed.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Mutex;
@@ -55,6 +56,13 @@ const EDGE_GAP: f64 = 1.0;
 const PLAY_SECS: f64 = 16.0;
 /// Votes a play needs to be reported.
 const PLAY_VOTES: u32 = 60;
+/// The least two lines of a play differ by in speed for the pitch fader to count as ridden
+/// (0.3%): under the finest step of the speeds searched (0.38%), and over what whole frames can
+/// tip two lines [`RIDE_SECS`] long apart by (anchors land up to a frame early, which tips a line
+/// over `n` frames by up to `1.5 / n`).
+pub const RIDE: f64 = 0.003;
+/// The shortest line, in seconds, a chain is split into where the pitch fader was ridden.
+pub const RIDE_SECS: f64 = 24.0;
 /// Presence curve resolution, seconds.
 pub const PRESENCE_STEP: f64 = 2.0;
 /// Speeds whose votes are counted at once. A slice's votes for every speed together run to
@@ -320,18 +328,10 @@ impl Fit {
 }
 
 fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
-    let mut pairs: Vec<(f64, f64)> =
-        chain.detections.iter().flat_map(|d| d.pairs.iter().map(|&(t, tau)| (t as f64, tau as f64))).collect();
+    let mut pairs = chain_pairs(chain);
     let best = chain.detections.iter().max_by_key(|d| d.votes).expect("chains are never empty");
     let guess = variants[best.variant as usize].ratio;
-    let line = |pairs: &[(f64, f64)]| -> (f64, f64) {
-        let n = pairs.len() as f64;
-        let (mt, mtau) = pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0 / n, a.1 + p.1 / n));
-        let (sxy, sxx) =
-            pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + (p.0 - mt) * (p.1 - mtau), a.1 + (p.0 - mt).powi(2)));
-        let ratio = if sxx > 0.0 { sxy / sxx } else { guess };
-        (ratio, mtau - ratio * mt)
-    };
+    let line = |pairs: &[(f64, f64)]| least_squares(pairs, guess);
     let span = |pairs: &[(f64, f64)]| pairs.iter().fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.0), a.1.max(p.0)));
     // Too short a stretch to measure a slope: trust the searched speed.
     let (lo, hi) = span(&pairs);
@@ -343,10 +343,7 @@ fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
         intercept = offsets[offsets.len() / 2];
     }
     // Drop outliers (stray votes that landed in the cell) and refit.
-    let mut residuals: Vec<f64> = pairs.iter().map(|p| (p.1 - intercept - ratio * p.0).abs()).collect();
-    residuals.sort_by(f64::total_cmp);
-    let limit = (residuals[residuals.len() / 2] * 4.0).max(3.0);
-    pairs.retain(|p| (p.1 - intercept - ratio * p.0).abs() <= limit);
+    drop_strays(&mut pairs, |p| p.1 - intercept - ratio * p.0);
     if pairs.len() >= 2 && measurable {
         (ratio, intercept) = line(&pairs);
     }
@@ -358,22 +355,176 @@ fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
         offsets.sort_by(f64::total_cmp);
         intercept = offsets.get(offsets.len() / 2).copied().unwrap_or(intercept);
     }
-    // A stray vote of other audio can land on the line too, up to a slice from where the track is
-    // heard. Along the track every pair has another within a second, so the stretch runs between
-    // the first and last pairs that do. One a frame away doesn't count: an onset spans two frames.
+    let (start, end) = match edges(&pairs) {
+        Some(edges) => edges,
+        None if pairs.is_empty() => (lo, hi),
+        None => span(&pairs),
+    };
+    Fit { ratio, intercept, start, end, measured: measurable && plausible }
+}
+
+/// A chain's matching (mix frame, track frame) pairs, in mix order.
+fn chain_pairs(chain: &Chain) -> Vec<(f64, f64)> {
+    let mut pairs: Vec<(f64, f64)> =
+        chain.detections.iter().flat_map(|d| d.pairs.iter().map(|&(t, tau)| (t as f64, tau as f64))).collect();
     pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    pairs
+}
+
+/// Drop the pairs further off their line (`residual`, in track frames) than 4 times the median, or
+/// 3 frames when that's less: stray votes that landed in the cell.
+fn drop_strays(pairs: &mut Vec<(f64, f64)>, residual: impl Fn(&(f64, f64)) -> f64) {
+    let mut residuals: Vec<f64> = pairs.iter().map(|p| residual(p).abs()).collect();
+    residuals.sort_by(f64::total_cmp);
+    let Some(median) = residuals.get(residuals.len() / 2) else { return };
+    let limit = (median * 4.0).max(3.0);
+    pairs.retain(|p| residual(p).abs() <= limit);
+}
+
+/// The first and last of `pairs` (in mix order) along the track. A stray vote of other audio can
+/// land on the line too, up to a slice from where the track is heard. Along the track every pair
+/// has another within a second, so the stretch runs between the first and last pairs that do. One a
+/// frame away doesn't count: an onset spans two frames.
+fn edges(pairs: &[(f64, f64)]) -> Option<(f64, f64)> {
     let backed = |p: &&(f64, f64)| {
         pairs.iter().any(|q| {
             let apart = (q.0 - p.0).abs();
             apart > 1.0 && apart <= EDGE_GAP * FRAMES_PER_SEC
         })
     };
-    let (start, end) = match (pairs.iter().find(backed), pairs.iter().rfind(backed)) {
-        (Some(first), Some(last)) => (first.0, last.0),
-        _ if pairs.is_empty() => (lo, hi),
-        _ => span(&pairs),
+    Some((pairs.iter().find(backed)?.0, pairs.iter().rfind(backed)?.0))
+}
+
+/// The least-squares line through `pairs` as (slope, intercept), or the line of slope `fallback`
+/// through their middle when they're all at one mix time.
+fn least_squares(pairs: &[(f64, f64)], fallback: f64) -> (f64, f64) {
+    let n = pairs.len() as f64;
+    let (mt, mtau) = pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0 / n, a.1 + p.1 / n));
+    let (sxy, sxx) = pairs.iter().fold((0.0, 0.0), |a, p| (a.0 + (p.0 - mt) * (p.1 - mtau), a.1 + (p.0 - mt).powi(2)));
+    let ratio = if sxx > 0.0 { sxy / sxx } else { fallback };
+    (ratio, mtau - ratio * mt)
+}
+
+/// A chain's lines, one per speed: its [`fit`], or where the pitch fader was ridden during it,
+/// the lines either side of each change, meeting where it happened. A ride of a few percent keeps
+/// every slice within a chain's tolerance of the last, so one chain holds both speeds.
+fn lines(chain: &Chain, variants: &[Variant]) -> Vec<Fit> {
+    let whole = fit(chain, variants);
+    // Stray votes are told by how far they are from the bend, not from one line: one line through
+    // a ride strays furthest from where the track is at either end of it.
+    let mut pairs = chain_pairs(chain);
+    let (Some(&(first, _)), Some(&(last, _))) = (pairs.first(), pairs.last()) else { return vec![whole] };
+    let Some(b) = Bend::best(&pairs, first, last) else { return vec![whole] };
+    drop_strays(&mut pairs, |p| p.1 - b.track_frame(p.0));
+    let Some((start, end)) = edges(&pairs) else { return vec![whole] };
+    let (ratio, intercept) = least_squares(&pairs, whole.ratio);
+    // The speeds searched that the slices between two mix frames voted for, on average by their
+    // votes.
+    let guess = |from: f64, to: f64| {
+        let middle = |d: &&Detection| (f64::from(d.slice) + 0.5) * f64::from(SLICE);
+        let (sum, votes) =
+            chain.detections.iter().filter(|d| (from..=to).contains(&middle(d))).fold((0.0, 0.0), |a, d| {
+                (a.0 + variants[d.variant as usize].ratio * f64::from(d.votes), a.1 + f64::from(d.votes))
+            });
+        (votes > 0.0).then(|| sum / votes)
     };
-    Fit { ratio, intercept, start, end, measured: measurable && plausible }
+    let mut out = Vec::new();
+    split(&pairs, Fit { ratio, intercept, start, end, measured: true }, &guess, &mut out);
+    if out.len() == 1 { vec![whole] } else { out }
+}
+
+/// Push `line` onto `out`, or, when its pairs bend where the speed changed, the two lines either
+/// side of the bend (each split again the same way).
+///
+/// The two lines meeting at a [`Bend`] that fit the line's pairs best are kept when their speeds
+/// differ by [`RIDE`] or more, each is within 2% of the speeds its slices voted for (as [`fit`]
+/// asks of a line), and they fit better by the Bayesian information criterion, `n ln(RSS / n) +
+/// k ln n` over the `n` pairs: `k` is 2 for one line (slope, intercept) and 4 for two (a slope
+/// each, where they meet, and the bend's mix frame, which was searched for). That asks the
+/// residual to drop by a factor of `n^(2 / n)`, which a real change of speed clears by far. Whole
+/// frames clear it too now and then, as their rounding errors run in long sawtooth stretches
+/// rather than at random; [`RIDE`] over lines of [`RIDE_SECS`] is what rules that out.
+fn split(pairs: &[(f64, f64)], line: Fit, guess: &dyn Fn(f64, f64) -> Option<f64>, out: &mut Vec<Fit>) {
+    let inside: Vec<(f64, f64)> = pairs.iter().copied().filter(|p| (line.start..=line.end).contains(&p.0)).collect();
+    let Some(b) = Bend::best(&inside, line.start, line.end) else { return out.push(line) };
+    let n = inside.len() as f64;
+    // BIC(one line) - BIC(two lines), with a floor under the sums so lines through every pair
+    // (which only made-up data has) compare as equal.
+    let gain = n * (b.rss_line.max(f64::MIN_POSITIVE) / b.rss.max(f64::MIN_POSITIVE)).ln() - 2.0 * n.ln();
+    let plausible = |ratio: f64, from: f64, to: f64| guess(from, to).is_some_and(|g| (ratio - g).abs() < 0.02);
+    if gain <= 0.0
+        || (b.after - b.before).abs() < RIDE
+        || !plausible(b.before, line.start, b.knot)
+        || !plausible(b.after, b.knot, line.end)
+    {
+        return out.push(line);
+    }
+    let side =
+        |ratio: f64, start: f64, end: f64| Fit { ratio, intercept: b.at - ratio * b.knot, start, end, measured: true };
+    split(pairs, side(b.before, line.start, b.knot), guess, out);
+    split(pairs, side(b.after, b.knot, line.end), guess, out);
+}
+
+/// Two lines meeting at mix frame `knot`, track frame `at`, that fit some pairs best.
+struct Bend {
+    knot: f64,
+    at: f64,
+    before: f64,
+    after: f64,
+    /// The sums of squared residuals the two lines leave, and one line does.
+    rss: f64,
+    rss_line: f64,
+}
+
+impl Bend {
+    /// The bend that fits `pairs` (between mix frames `start` and `end`) best, at a mix frame
+    /// [`RIDE_SECS`] or more from either end on a grid of half a second: `None` when there's no
+    /// room for one.
+    fn best(pairs: &[(f64, f64)], start: f64, end: f64) -> Option<Bend> {
+        let shortest = RIDE_SECS * FRAMES_PER_SEC;
+        if end - start < 2.0 * shortest || pairs.is_empty() {
+            return None;
+        }
+        let (slope, intercept) = least_squares(pairs, 1.0);
+        // Two lines meeting at `k` are this one plus `a + c1 min(0, t - k) + c2 max(0, t - k)`,
+        // whose last two terms are each 0 on one side of `k`, fitted to what it leaves.
+        let residuals: Vec<(f64, f64)> = pairs.iter().map(|p| (p.0, p.1 - intercept - slope * p.0)).collect();
+        let rss_line: f64 = residuals.iter().map(|r| r.1 * r.1).sum();
+        let at = |k: f64| -> Option<Bend> {
+            let (mut n, mut y) = (0.0, 0.0);
+            // Sums of `d`, `d²` and `d e` either side of `k`, for `d = t - k`.
+            let (mut l, mut r) = ([0.0; 3], [0.0; 3]);
+            for &(t, e) in &residuals {
+                let d = t - k;
+                let side = if d < 0.0 { &mut l } else { &mut r };
+                (side[0], side[1], side[2]) = (side[0] + d, side[1] + d * d, side[2] + d * e);
+                (n, y) = (n + 1.0, y + e);
+            }
+            let det = n - l[0] * l[0] / l[1] - r[0] * r[0] / r[1];
+            if !(l[1] > 0.0 && r[1] > 0.0 && det > 0.0) {
+                return None;
+            }
+            let a = (y - l[0] * l[2] / l[1] - r[0] * r[2] / r[1]) / det;
+            let (c1, c2) = ((l[2] - a * l[0]) / l[1], (r[2] - a * r[0]) / r[1]);
+            Some(Bend {
+                knot: k,
+                at: intercept + slope * k + a,
+                before: slope + c1,
+                after: slope + c2,
+                // Least squares leaves what one line did less what the fit explains.
+                rss: rss_line - (a * y + c1 * l[2] + c2 * r[2]),
+                rss_line,
+            })
+        };
+        let step = FRAMES_PER_SEC / 2.0;
+        let knots = ((end - start - 2.0 * shortest) / step).floor() as usize;
+        (0..=knots).filter_map(|i| at(start + shortest + i as f64 * step)).min_by(|x, y| x.rss.total_cmp(&y.rss))
+    }
+
+    fn track_frame(&self, mix_frame: f64) -> f64 {
+        let ratio = if mix_frame < self.knot { self.before } else { self.after };
+        self.at + ratio * (mix_frame - self.knot)
+    }
 }
 
 /// A track heard in the mix, before library metadata is attached.
@@ -387,7 +538,8 @@ pub struct Found {
     /// Track seconds at `start` and `end`.
     pub track_start: f64,
     pub track_end: f64,
-    /// Playback speed (1.0 as recorded).
+    /// Playback speed (1.0 as recorded): the average of its lines' speeds, by how long each was
+    /// heard and how clearly, when the pitch fader was ridden (see [`Found::speed_range`]).
     pub tempo: f64,
     /// Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0, or the
     /// votes too even, to tell.
@@ -404,7 +556,8 @@ pub struct Found {
     pub jumps: u32,
     /// Other library entries matching the same stretch: (slot, same audio?).
     pub alternates: Vec<(u32, bool)>,
-    /// The play's chains as lines through (mix frame, track frame), in mix order.
+    /// The play as lines through (mix frame, track frame), in mix order: one per chain, or one per
+    /// speed of a chain the pitch fader was ridden through.
     pub fits: Vec<Fit>,
 }
 
@@ -433,6 +586,15 @@ impl Found {
         let density = self.votes as f64 / self.spanned.max(1) as f64;
         let continuity = self.heard as f64 / self.spanned.max(1) as f64;
         ((1.0 - (-density / 14.0).exp()) * continuity.sqrt()).clamp(0.0, 1.0)
+    }
+
+    /// The slowest and fastest measured speeds of the play's lines, when they differ by [`RIDE`]
+    /// or more: the pitch fader was ridden during it. A speed only searched at says too little.
+    pub fn speed_range(&self) -> Option<(f64, f64)> {
+        let measured = self.fits.iter().filter(|f| f.measured).map(|f| f.ratio);
+        let (slowest, fastest) =
+            measured.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), r| (lo.min(r), hi.max(r)));
+        (fastest - slowest >= RIDE).then_some((slowest, fastest))
     }
 }
 
@@ -473,11 +635,11 @@ pub fn plays(chains: Vec<Chain>, variants: &[Variant]) -> Vec<Found> {
         for (c, f) in kept {
             let end = group.iter().map(|g| g.1.end).fold(f64::MIN, f64::max);
             if !group.is_empty() && f.start - end > PLAY_GAP * FRAMES_PER_SEC {
-                found.extend(play(slot, std::mem::take(&mut group)));
+                found.extend(play(slot, std::mem::take(&mut group), variants));
             }
             group.push((c, f));
         }
-        found.extend(play(slot, group));
+        found.extend(play(slot, group, variants));
     }
     found
 }
@@ -531,23 +693,30 @@ fn merge_collinear(chains: Vec<(Chain, Fit)>, variants: &[Variant]) -> Vec<(Chai
     }
 }
 
-fn play(slot: u32, chains: Vec<(Chain, Fit)>) -> Option<Found> {
+fn play(slot: u32, chains: Vec<(Chain, Fit)>, variants: &[Variant]) -> Option<Found> {
     let votes: u32 = chains.iter().map(|(c, _)| c.votes()).sum();
     let heard: u32 = chains.iter().map(|(c, _)| c.detections.len() as u32).sum();
     let strongest = chains.iter().map(|(c, _)| c.votes()).max()?;
     if votes < PLAY_VOTES || strongest < PLAY_VOTES * 3 / 4 {
         return None;
     }
-    let (first, last) = (
-        chains.iter().min_by(|a, b| a.1.start.total_cmp(&b.1.start))?,
-        chains.iter().max_by(|a, b| a.1.end.total_cmp(&b.1.end))?,
-    );
-    let (start, end) = (first.1.start, last.1.end);
+    // Each chain's lines, with its votes shared out by how long each line is.
+    let mut fits: Vec<(Fit, f64)> = chains
+        .iter()
+        .flat_map(|(c, _)| {
+            let lines = lines(c, variants);
+            let span: f64 = lines.iter().map(|l| l.end - l.start).sum();
+            let votes = c.votes() as f64;
+            lines.into_iter().map(move |l| (l, if span > 0.0 { votes * (l.end - l.start) / span } else { votes }))
+        })
+        .collect();
+    fits.sort_by(|a, b| a.0.start.total_cmp(&b.0.start));
+    let (first, last) = (fits.first()?.0, fits.iter().max_by(|a, b| a.0.end.total_cmp(&b.0.end))?.0);
+    let (start, end) = (first.start, last.end);
     // Speed: measured slopes weighted by votes, else the searched speeds.
-    let measured: Vec<(f64, f64)> =
-        chains.iter().filter(|(_, f)| f.measured).map(|(c, f)| (f.ratio, c.votes() as f64)).collect();
+    let measured: Vec<(f64, f64)> = fits.iter().filter(|(f, _)| f.measured).map(|&(f, w)| (f.ratio, w)).collect();
     let pool: Vec<(f64, f64)> =
-        if measured.is_empty() { chains.iter().map(|(c, f)| (f.ratio, c.votes() as f64)).collect() } else { measured };
+        if measured.is_empty() { fits.iter().map(|&(f, w)| (f.ratio, w)).collect() } else { measured };
     let weight: f64 = pool.iter().map(|p| p.1).sum();
     let tempo = pool.iter().map(|p| p.0 * p.1).sum::<f64>() / weight;
 
@@ -567,8 +736,7 @@ fn play(slot: u32, chains: Vec<(Chain, Fit)>) -> Option<Found> {
         None
     };
 
-    let mut fits: Vec<Fit> = chains.iter().map(|(_, f)| *f).collect();
-    fits.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let fits: Vec<Fit> = fits.into_iter().map(|(f, _)| f).collect();
     let first_slice = chains.iter().map(|(c, _)| c.detections[0].slice).min()?;
     let last_slice = chains.iter().map(|(c, _)| c.last().slice).max()?;
     Some(Found {
@@ -576,8 +744,8 @@ fn play(slot: u32, chains: Vec<(Chain, Fit)>) -> Option<Found> {
         slot,
         start: start / FRAMES_PER_SEC,
         end: end / FRAMES_PER_SEC,
-        track_start: first.1.track_frame(start).max(0.0) / FRAMES_PER_SEC,
-        track_end: last.1.track_frame(end).max(0.0) / FRAMES_PER_SEC,
+        track_start: first.track_frame(start).max(0.0) / FRAMES_PER_SEC,
+        track_end: last.track_frame(end).max(0.0) / FRAMES_PER_SEC,
         tempo,
         key_lock,
         votes,
@@ -673,15 +841,18 @@ const TRACE_TOLERANCE: f64 = 3.0;
 /// (which needs far fewer votes than finding the track did), extend the play into the fades on
 /// either side, and measure how clearly it's heard along the way.
 fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: &mut Found) {
-    let near: Vec<&Variant> = variants
+    // The speeds searched near each line's own: a ridden pitch fader leaves the play's average
+    // far from either end of the ride.
+    let near: Vec<Vec<&Variant>> = f
+        .fits
         .iter()
-        .filter(|v| {
-            (v.ratio - f.tempo).abs() <= 0.013
-                && match f.key_lock {
-                    Some(true) => !v.pitch,
-                    Some(false) => v.pitch || v.ratio == 1.0,
-                    None => true,
-                }
+        .map(|l| {
+            let lock = |v: &Variant| match f.key_lock {
+                Some(true) => !v.pitch,
+                Some(false) => v.pitch || v.ratio == 1.0,
+                None => true,
+            };
+            variants.iter().filter(|v| (v.ratio - l.ratio).abs() <= 0.013 && lock(v)).collect()
         })
         .collect();
     let track_len = index.durations.get(f.slot as usize).copied().unwrap_or(0.0) as f64 * FRAMES_PER_SEC;
@@ -690,10 +861,10 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
     let hi = end + EXTEND * FRAMES_PER_SEC;
     let from = landmarks.partition_point(|l| (l.t as f64) < lo);
     let to = landmarks.partition_point(|l| (l.t as f64) < hi);
-    let line = |t: f64| -> &Fit {
-        f.fits
-            .iter()
-            .min_by(|a, b| {
+    // The line nearest mix frame `t`, by its place in `fits`.
+    let line = |t: f64| -> usize {
+        (0..f.fits.len())
+            .min_by(|&a, &b| {
                 let d = |x: &Fit| {
                     if t < x.start {
                         x.start - t
@@ -703,7 +874,7 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
                         0.0
                     }
                 };
-                d(a).total_cmp(&d(b))
+                d(&f.fits[a]).total_cmp(&d(&f.fits[b]))
             })
             .expect("plays have fits")
     };
@@ -715,12 +886,12 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
     // frame's window spans two hops, so one onset gives the same bin in neighbouring frames too.
     let (mut used, mut used_in) = (FxHashSet::<(u32, u8)>::default(), usize::MAX);
     for lm in &landmarks[from..to] {
-        let fit = line(lm.t as f64);
-        let expect = fit.track_frame(lm.t as f64);
+        let i = line(lm.t as f64);
+        let expect = f.fits[i].track_frame(lm.t as f64);
         if expect < -TRACE_TOLERANCE || (track_len > 0.0 && expect > track_len + TRACE_TOLERANCE) {
             continue;
         }
-        let hit = near.iter().any(|v| {
+        let hit = near[i].iter().any(|v| {
             v.original_hash(lm).is_some_and(|h| {
                 index
                     .bucket(h)
@@ -804,8 +975,8 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
     f.presence = smoothed.iter().map(|p| ((p / top).min(1.0) * 100.0).round() / 100.0).collect();
     f.start = new_start / FRAMES_PER_SEC;
     f.end = new_end / FRAMES_PER_SEC;
-    f.track_start = line(new_start).track_frame(new_start).max(0.0) / FRAMES_PER_SEC;
-    f.track_end = line(new_end).track_frame(new_end).max(0.0) / FRAMES_PER_SEC;
+    f.track_start = f.fits[line(new_start)].track_frame(new_start).max(0.0) / FRAMES_PER_SEC;
+    f.track_end = f.fits[line(new_end)].track_frame(new_end).max(0.0) / FRAMES_PER_SEC;
 }
 
 /// Refuse a tempo range that isn't a number from 0 to 0.25. NaN is in no range, so it's refused

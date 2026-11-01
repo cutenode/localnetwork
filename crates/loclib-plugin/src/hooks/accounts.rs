@@ -106,7 +106,7 @@ const LOWEST_PORT: u16 = 1024;
 /// name or password.
 pub(crate) fn endpoint(url: &str) -> Option<Url> {
     let plain = !url.chars().any(|c| c.is_whitespace() || c.is_control());
-    let parsed = Url::parse(url).ok().filter(|u| plain && u.username().is_empty() && u.password().is_none())?;
+    let parsed = Url::parse(url).ok().filter(|u| plain && !names_a_user(u))?;
     let this_computer = match parsed.host()? {
         Host::Domain(name) => name == "localhost",
         Host::Ipv4(ip) => ip == Ipv4Addr::LOCALHOST,
@@ -117,6 +117,18 @@ pub(crate) fn endpoint(url: &str) -> Option<Url> {
         "http" if this_computer => Some(parsed),
         _ => None,
     }
+}
+
+/// Whether `url` names a user or a password, which the host sends to no server: not an account's
+/// endpoint, nor in a plugin's `net/fetch`.
+pub fn names_a_user(url: &Url) -> bool {
+    !url.username().is_empty() || url.password().is_some()
+}
+
+/// Why the host sends nothing to `url`: it isn't https (but on this computer, in tests), or it
+/// names a user or a password.
+pub fn not_plain_https(url: &str) -> String {
+    format!("{url:?} isn't an https:// address without a user name or password")
 }
 
 /// Whether `url` is Local Network's token exchange for a service, or the same path on this
@@ -170,8 +182,7 @@ pub(crate) fn endpoints<'a>(
 ) -> Result<(), ManifestError> {
     for (key, url) in urls {
         if let Some(url) = url.filter(|u| endpoint(u).is_none()) {
-            let why = format!("{url:?} isn't an https:// address without a user name or password");
-            return Err(invalid(format!("{at}.{key}"), why));
+            return Err(invalid(format!("{at}.{key}"), not_plain_https(url)));
         }
     }
     Ok(())

@@ -36,6 +36,8 @@ const show = {
 const data = {
 	viewer: null,
 	pendingRequests: 0,
+	unread: 0,
+	sections: Promise.resolve(null),
 	projects: { [neon.uri]: neon, [unclaimed.uri]: unclaimed },
 	saves: [],
 	show,

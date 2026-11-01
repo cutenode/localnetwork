@@ -148,13 +148,16 @@ fn the_stores_records_match_the_model(tc: TestCase) {
     // What's kept beside the snapshots reads back as saved.
     let mut smart = SmartPlaylists::default();
     smart
-        .set(SmartPlaylist {
-            path: "Smart/Peak".into(),
-            filter: "bpm:>=128".into(),
-            sort: None,
-            limit: Some(3),
-            drives: vec![],
-        })
+        .set(
+            SmartPlaylist {
+                path: "Smart/Peak".into(),
+                filter: "bpm:>=128".into(),
+                sort: None,
+                limit: Some(3),
+                drives: vec![],
+            },
+            &Default::default(),
+        )
         .unwrap();
     store.save_smart_playlists(&smart).unwrap();
     assert_eq!(store.smart_playlists().unwrap(), smart);

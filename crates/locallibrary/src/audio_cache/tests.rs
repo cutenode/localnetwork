@@ -240,3 +240,63 @@ fn a_cancelled_run_keeps_what_it_finished(tc: TestCase) {
     );
     assert_eq!((run.computed, after.load(Ordering::Relaxed)), (n - kept.len(), n - kept.len()));
 }
+
+/// Lengths kept with the version that wrote them: a kind whose version the test can bump.
+struct Stamped<const V: u32>;
+
+impl<const V: u32> Kind for Stamped<V> {
+    const DIR: &'static str = "stamped";
+    const EXT: &'static str = "len";
+    const WHAT: &'static str = "a length";
+    const VERSION: u32 = V;
+    type Value = u64;
+    fn encode(value: &u64) -> Vec<u8> {
+        [V.to_le_bytes().as_slice(), &value.to_le_bytes()].concat()
+    }
+    fn decode(bytes: &[u8]) -> Option<u64> {
+        (Self::written_by(bytes)? == V).then_some(u64::from_le_bytes(bytes.get(4..12)?.try_into().ok()?))
+    }
+    fn written_by(head: &[u8]) -> Option<u32> {
+        Some(u32::from_le_bytes(head.get(..4)?.try_into().ok()?))
+    }
+}
+
+/// A new version of a kind reads none of what the old one kept, by either key (the audio file's,
+/// or the contents'), and works everything out again; `store gc` finds the old values as
+/// nothing reads them, and nothing of the new one's.
+#[hegel::test(test_cases = 40)]
+fn a_new_version_reads_nothing_an_old_one_kept(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let (files, outcomes): (Vec<Audio>, Vec<Outcome>) = audio_files(&tc, dir.path()).into_iter().unzip();
+    let contents: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(8)).max_size(4));
+    let root = dir.path().join("cache");
+    let (old, new) = (Cache::<Stamped<1>>::new(&root), Cache::<Stamped<2>>::new(&root));
+    let calls = AtomicUsize::new(0);
+    for_files(&files, &old, Phase::Scan, |p, _| work_out(p, &calls), &Ctx::silent()).unwrap();
+    for (i, c) in contents.iter().enumerate() {
+        old.put(&Cache::<Stamped<1>>::key_of(c), &(i as u64)).unwrap();
+    }
+    let decoded = outcomes.iter().filter(|o| **o == Outcome::Decodes).count();
+    let kept = old.older().len();
+    assert_eq!(kept, 0, "an old version's values are current to it");
+
+    for c in &contents {
+        assert_ne!(Cache::<Stamped<1>>::key_of(c), Cache::<Stamped<2>>::key_of(c));
+        assert_eq!(new.get(&Cache::<Stamped<2>>::key_of(c)), None);
+    }
+    for f in &files {
+        assert_eq!(Cache::<Stamped<1>>::key(&f.path).is_some(), Cache::<Stamped<2>>::key(&f.path).is_some());
+        if let Some(k) = Cache::<Stamped<2>>::key(&f.path) {
+            assert_ne!(Some(&k), Cache::<Stamped<1>>::key(&f.path).as_ref());
+            assert_eq!(new.get(&k), None);
+        }
+    }
+    let again = AtomicUsize::new(0);
+    let run = for_files(&files, &new, Phase::Scan, |p, _| work_out(p, &again), &Ctx::silent()).unwrap();
+    assert_eq!(run.computed, decoded, "everything that decodes is worked out again");
+    let mut distinct: Vec<&String> = contents.iter().collect();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(new.older().len(), decoded + distinct.len(), "what the old version kept, and nothing new");
+    assert_eq!(old.older().len(), 0);
+}

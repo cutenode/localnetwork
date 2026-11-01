@@ -3,6 +3,7 @@
 	import { Download, ShieldCheck, ShieldX } from '@lucide/svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { formatDateTime } from '#lib/format.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
@@ -12,6 +13,8 @@
 	let { data, form }: PageProps = $props();
 
 	const f = $derived(data.filters);
+
+	const fields = $derived(formFields(f));
 
 	// Encoded, so a search with spaces or an ampersand survives the next page.
 	const olderHref = $derived(`?${new URLSearchParams({ ...f, before: String(data.entries.at(-1)?.seq) })}`);
@@ -47,8 +50,8 @@
 	</div>
 
 	<form method="GET" class="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_12rem_9rem_9rem_auto]">
-		<input name="q" class="input sm:col-span-2 xl:col-span-1" value={f.q} placeholder="Search summaries and subjects" aria-label="Search" />
-		<input name="actor" class="input" value={f.actor} placeholder="Actor handle or DID" aria-label="Actor" />
+		<input name="q" class="input sm:col-span-2 xl:col-span-1" bind:value={fields.q} placeholder="Search summaries and subjects" aria-label="Search" />
+		<input name="actor" class="input" bind:value={fields.actor} placeholder="Actor handle or DID" aria-label="Actor" />
 		<select name="action" class="input" aria-label="Action">
 			<option value="">Any action</option>
 			{#each data.actionGroups as prefix (prefix)}<option value={prefix} selected={f.action === prefix}>{prefix}.*</option>{/each}

@@ -148,9 +148,27 @@ pub struct MergePlan {
     matches: FxHashMap<u32, u32>,
     #[serde(skip)]
     folder_name: String,
+    /// The target has the folder an earlier merge of the source made, which this one merges into
+    /// by name (see [`holds_merge`]).
+    #[serde(skip)]
+    again: bool,
 }
 
 impl MergePlan {
+    /// [`write_playlists`] as this plan writes them (see [`playlist_mode`]).
+    fn write_playlists(
+        &self,
+        editor: &mut impl PlaylistDb,
+        src: &Library,
+        dst: &Library,
+        opts: &MergeOptions,
+        id_map: &FxHashMap<u32, u32>,
+    ) -> Result<(usize, usize)> {
+        let (playlists, prefix) = playlist_mode(opts.playlists, self.again, &self.folder_name);
+        let opts = MergeOptions { playlists, ..opts.clone() };
+        write_playlists(editor, src, dst, &opts, prefix, id_map)
+    }
+
     pub fn is_noop(&self) -> bool {
         self.new_tracks.is_empty()
             && self.playlists.iter().all(|p| !p.create && p.tracks_added == 0)
@@ -326,8 +344,12 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         ));
     }
 
-    let folder_name =
-        unique_top_level_name(&dst_lib, opts.folder_name.clone().unwrap_or_else(|| source.name()).as_str());
+    let base = opts.folder_name.clone().unwrap_or_else(|| source.name());
+    // Merging the same source again goes into the folder the first merge made, by name, so it
+    // adds only what's new there rather than a "(2)" copy of every playlist.
+    let again = opts.playlists == PlaylistMode::Folder && holds_merge(&dst_lib, &base, &src_lib, &selected);
+    let folder_name = if again { base } else { unique_top_level_name(&dst_lib, &base) };
+    let (mode, prefix) = playlist_mode(opts.playlists, again, &folder_name);
     // What the target's export.pdb can't hold is found now, not when applying.
     let dst_pdb = match target.has_device_library() {
         true => Some(pdb::parse_database(target.pdb_bytes()?, &target.path(paths::EXPORT_PDB))?),
@@ -349,9 +371,9 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         .filter_map(|id| src_lib.history.iter().find(|h| h.id == *id))
         .map(|h| h.name.clone())
         .collect();
-    let playlists = plan_playlists(&src_lib, &dst_lib, &selected, opts.playlists, &folder_name, &matches, &new_ids);
+    let playlists = plan_playlists(&src_lib, &dst_lib, &selected, mode, prefix, &matches, &new_ids);
     if let Some(db) = &dst_pdb {
-        check_names(db, &src_lib, &dst_lib, &selected, opts.playlists, &folder_name, &history)?;
+        check_names(db, &src_lib, &dst_lib, &selected, mode, prefix, &history)?;
     }
     let (tagged_tracks, new_tags) =
         plan_my_tags(source, &src_lib, target, &dst_lib, &dst_plus, &new_tracks, &mut warnings);
@@ -391,6 +413,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         history_ids,
         matches,
         folder_name,
+        again,
         state: Some(crate::commit::database_state(target)),
     })
 }
@@ -481,7 +504,7 @@ fn check_names(
         }
         PlaylistMode::ByName => {
             for p in src.playlists.iter().filter(|p| selected.contains(&p.id) && !p.is_folder) {
-                let path = src.playlist_path(p.id);
+                let path = below(folder_name, src.playlist_path(p.id));
                 if merge_target(dst, &path, false).is_some() {
                     continue;
                 }
@@ -636,6 +659,32 @@ pub(crate) fn analysis_dir(audio: &str, attempt: u32) -> String {
     format!("PIONEER/USBANLZ/P{p:03X}/{q:08X}")
 }
 
+/// Whether `dst` has a top-level folder `name` holding every one of `src`'s `selected` playlists
+/// and folders at the same path below it: the folder an earlier merge of the same source made.
+fn holds_merge(dst: &Library, name: &str, src: &Library, selected: &FxHashSet<u32>) -> bool {
+    merge_target(dst, name, true).is_some()
+        && src
+            .playlists
+            .iter()
+            .filter(|p| selected.contains(&p.id))
+            .all(|p| merge_target(dst, &format!("{name}/{}", src.playlist_path(p.id)), p.is_folder).is_some())
+}
+
+/// How playlists are written, and below which folder by name (`""`: the top): `mode`, or by name
+/// into `folder_name` when the merge goes into the folder an earlier one made (`again`).
+fn playlist_mode(mode: PlaylistMode, again: bool, folder_name: &str) -> (PlaylistMode, &str) {
+    match (mode, again) {
+        (PlaylistMode::Folder, true) => (PlaylistMode::ByName, folder_name),
+        (PlaylistMode::ByName, _) => (PlaylistMode::ByName, ""),
+        _ => (mode, folder_name),
+    }
+}
+
+/// `path` below the folder at `prefix` (`""`: the top).
+fn below(prefix: &str, path: String) -> String {
+    if prefix.is_empty() { path } else { format!("{prefix}/{path}") }
+}
+
 fn unique_top_level_name(lib: &Library, base: &str) -> String {
     let names: FxHashSet<String> = lib.children(None).iter().map(|p| fold(&p.name)).collect();
     let mut name = base.to_string();
@@ -680,7 +729,7 @@ pub(crate) fn plan_playlists(
         }
         PlaylistMode::ByName => {
             for p in src.playlists.iter().filter(|p| selected.contains(&p.id) && !p.is_folder) {
-                let path = src.playlist_path(p.id);
+                let path = below(folder_name, src.playlist_path(p.id));
                 let existing = merge_target(dst, &path, false);
                 let already: FxHashSet<u32> =
                     existing.map(|d| d.track_ids.iter().copied().collect()).unwrap_or_default();
@@ -828,8 +877,7 @@ pub fn apply(
                 id_map.insert(t.source_id, new_id);
                 report.tracks_added += 1;
             }
-            let (created, entries) =
-                write_playlists(&mut editor, &src_lib, &target_lib, opts, &plan.folder_name, &id_map)?;
+            let (created, entries) = plan.write_playlists(&mut editor, &src_lib, &target_lib, opts, &id_map)?;
             report.playlists_created = created;
             report.playlist_entries_added = entries;
             report.history_playlists_added = write_history(&mut editor, &src_lib, &plan.history_ids, &id_map)?;
@@ -1068,7 +1116,7 @@ impl PlusMerge<'_> {
                 report.tracks_added += 1;
             }
         }
-        let (created, entries) = write_playlists(one, self.src_lib, self.plus_lib, opts, &plan.folder_name, &id_map)?;
+        let (created, entries) = plan.write_playlists(one, self.src_lib, self.plus_lib, opts, &id_map)?;
         let history = write_history(one, self.src_lib, &plan.history_ids, &id_map)?;
         if self.primary {
             report.playlists_created = created;
@@ -1345,8 +1393,9 @@ fn copy_hot_cue_bank_lists(
     Ok(added)
 }
 
-/// Recreate the source's playlists in `db`, whose library is `dst`, as `opts` says (in a folder named
-/// `folder_name`, or by name). `id_map` maps source track ids to `db`'s.
+/// Recreate the source's playlists in `db`, whose library is `dst`, as `opts` says (in a new folder
+/// named `folder_name`, or by name below `folder_name`, `""` for the top). `id_map` maps source
+/// track ids to `db`'s.
 pub(crate) fn write_playlists(
     editor: &mut impl PlaylistDb,
     src: &Library,
@@ -1402,7 +1451,7 @@ pub(crate) fn write_playlists(
             // Folder path -> id of the folders we create.
             let mut made: FxHashMap<String, u32> = FxHashMap::default();
             for p in src.playlists.iter().filter(|p| selected.contains(&p.id) && !p.is_folder) {
-                let path = src.playlist_path(p.id);
+                let path = below(folder_name, src.playlist_path(p.id));
                 let existing = merge_target(dst, &path, false);
                 let (id, already) = match existing {
                     Some(d) => (d.id, d.track_ids.iter().copied().collect()),

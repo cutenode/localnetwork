@@ -92,7 +92,7 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     let cover = args.cover.as_deref().map(CoverSource::given).transpose()?;
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
-    let store = Store::open_or_init(store.clone().unwrap_or_else(Store::default_root))?;
+    let store = crate::open_store(store)?;
     let id = Identifier::new(&device, &Cache::in_store(&store), ctx)?;
     if args.mixes.is_empty() {
         out.emit(&id.report, |r| index_summary(&id.drive, r));
@@ -148,6 +148,17 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
             if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
                 let fingerprinted = reports[0].library.fingerprinted;
                 say!("{}", dim(format!("fingerprinted {fingerprinted} new track(s) on {}", id.drive)));
+            }
+            let heard = id.cache.heard.load(std::sync::atomic::Ordering::Relaxed);
+            let kept: Vec<String> = [
+                id.cache.index.then(|| "the library's index".to_string()),
+                (heard > 0).then(|| format!("{heard} recording(s) heard before")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if !kept.is_empty() {
+                say!("{}", dim(format!("from the cache: {}", kept.join(", "))));
             }
             for p in &written {
                 let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
@@ -264,14 +275,19 @@ fn tracklist(r: &MixReport) {
     }
 }
 
-/// The dimmed end of a play's row: the stretch of the track played, and that the match is
-/// tentative when it is (as the HTML report and the TUI say).
+/// The dimmed end of a play's row: the stretch of the track played, the speeds a ridden pitch
+/// fader went between (as the HTML report gives them), and that the match is tentative when it is
+/// (as the HTML report and the TUI say).
 fn played(p: &Play) -> String {
-    let stretch = format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64));
-    match p.is_tentative() {
-        true => format!("{stretch} · tentative ({:.0}%)", p.confidence * 100.0),
-        false => stretch,
+    let mut parts =
+        vec![format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64))];
+    if p.speed_range.is_some() {
+        parts.push(format!("ridden {}", p.speed()));
     }
+    if p.is_tentative() {
+        parts.push(format!("tentative ({:.0}%)", p.confidence * 100.0));
+    }
+    parts.join(" · ")
 }
 
 /// Where a report goes: `--html` as given (a directory when there are several mixes), or the

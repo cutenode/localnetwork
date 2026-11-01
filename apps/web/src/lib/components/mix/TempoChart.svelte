@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clock, niceTicks, playColor, speed, timeStep, type MixReport } from '#lib/mix/report.ts';
+	import { clock, niceTicks, playColor, playSpeed, timeStep, type MixReport } from '#lib/mix/report.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
@@ -92,7 +92,7 @@
 	</ul>
 	<p class="m-0 mt-1 min-h-10 text-label text-fg-muted" aria-live="polite">
 		{#if shown}
-			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shown.played.toFixed(1)} BPM</span>, recorded at {shown.recorded.toFixed(1)} ({speed(shown.play.tempo)})
+			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shown.played.toFixed(1)} BPM</span>, recorded at {shown.recorded.toFixed(1)} ({playSpeed(shown.play)})
 		{:else}
 			Point at the chart for each track’s tempo.
 		{/if}

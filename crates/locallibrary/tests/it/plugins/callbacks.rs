@@ -82,6 +82,35 @@ fn a_plugin_names_no_folder_as_a_drive() {
     assert_eq!(folder["error"]["data"]["kind"], "not_found", "{folder}");
 }
 
+/// A hook run on a folder opened by path, which isn't a drive known here, may name it as its
+/// context does while it runs, and is told its name rather than where it is. Nothing else
+/// opens up: not the folder by path, not another folder, not the folder once the hook is done.
+#[test]
+fn a_hook_on_a_folder_reads_only_that_folder() {
+    let f = Fixture::echo();
+    let elsewhere = f._dir.path().join("elsewhere");
+    let folder = common::demo_drive(&elsewhere, "Export");
+    common::demo_drive(&elsewhere, "Other");
+    let on_folder = Context { drive: Some(folder.display().to_string()), ..Context::default() };
+    let run = |context: &Context, params: Value| {
+        let ran = f.plugins.run_command("echo", "echo", params, context.clone(), None, &Ctx::silent(), &|_| {});
+        match ran.unwrap() {
+            CommandOutput::Headless(v) => v,
+            view => panic!("{view:?}"),
+        }
+    };
+    let call =
+        |context: &Context, drive: &str| run(context, json!({ "call": "tags.list", "params": { "drive": drive } }));
+    assert_eq!(run(&on_folder, json!({ "context": true }))["drive"], "Export");
+    // The app is given the folder's root, which the plugin is told as the folder's name.
+    assert_eq!(call(&on_folder, "Export")["result"]["params"]["drive"], "Export");
+    assert_eq!(call(&on_folder, "USB")["result"]["params"]["drive"], "USB");
+    let path = call(&on_folder, &folder.display().to_string())["error"].clone();
+    assert_eq!(path["data"]["kind"], "invalid", "{path}");
+    assert_eq!(call(&on_folder, "Other")["error"]["data"]["kind"], "not_found");
+    assert_eq!(call(&Context::default(), "Export")["error"]["data"]["kind"], "not_found");
+}
+
 /// Params a read takes that a plugin may not give are refused, as every one not listed is.
 #[test]
 fn a_plugin_gives_only_the_params_listed() {

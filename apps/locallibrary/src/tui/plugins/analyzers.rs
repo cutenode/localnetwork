@@ -79,7 +79,7 @@ impl App {
         tracks: Option<Vec<u32>>,
     ) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let Some(declared) =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.analyzers.iter().find(|a| a.name == analyzer))
         else {
@@ -117,7 +117,7 @@ impl App {
     /// it must be; then the plan comes back to confirm, as any edit's does.
     pub(in crate::tui) fn apply_fields(&mut self, plugin: &'static str, analyzer: &'static str, root: Option<PathBuf>) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let declared =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.analyzers.iter().find(|a| a.name == analyzer));
         let Some(a) = declared else { return };

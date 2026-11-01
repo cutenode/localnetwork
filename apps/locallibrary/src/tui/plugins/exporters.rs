@@ -90,7 +90,7 @@ impl App {
         suggested: Option<&ExportAction>,
     ) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let exporter =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.exporters.iter().find(|e| e.format == format));
         let Some(e) = exporter else { return };

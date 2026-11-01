@@ -19,6 +19,7 @@ fn play(i: usize, start: f64, end: f64, key: &str, bpm: f64) -> Play {
         track_start: 10.0,
         track_end: 10.0 + (end - start),
         tempo: bpm / 124.0,
+        speed_range: None,
         played_bpm: Some(bpm),
         key_lock: Some(i.is_multiple_of(2)),
         semitones: 0.0,
@@ -1507,4 +1508,22 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
             }
         }
     }
+}
+
+/// A track the pitch fader was ridden through shows the slowest speed over the fastest in the
+/// tracklist, and both in its details, where one played at a steady speed shows that speed.
+#[test]
+fn a_ridden_pitch_fader_shows_both_speeds() {
+    let mut t = tab();
+    if let Some(Ok(o)) = &mut t.opened {
+        o.report.plays[1].speed_range = Some((1.0, 1.04));
+    }
+    let screen = render(&mut t, &quiet(), 160, 60);
+    let lines: Vec<&str> = screen.lines().collect();
+    let row = lines.iter().position(|l| l.contains("Signal Path") && l.contains("+0.0%")).expect("its row");
+    assert!(lines[row + 1].contains("→+4.0%"), "{screen}");
+    assert!(screen.contains("126.0 BPM (+0.0% to +4.0% from 124.0)"), "{screen}");
+    t.rows.select(Some(0));
+    let screen = render(&mut t, &quiet(), 160, 60);
+    assert!(screen.contains("126.0 BPM (+1.6% from 124.0)") && !screen.contains("+1.6% to"), "{screen}");
 }

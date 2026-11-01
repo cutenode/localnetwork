@@ -52,16 +52,45 @@ function pds({ chunk = 7, status = 200, bytes = BYTES } = {}) {
 
 const declared = { mimeType: 'audio/mpeg', size: BYTES.length };
 
-function ask(range: string | null, overrides: Partial<AudioRequest> = {}) {
+/**
+ * The DJ's identity as the route has it: a DID document naming the PDS at `endpoint` (or failing with it), reached
+ * through `network` with the guarded fetch, private addresses allowed or not.
+ */
+function identityOf(endpoint: string | Error, network: typeof globalThis.fetch, allowPrivateNetwork: boolean) {
+	const identity = new IdentityResolver({
+		plcUrl: 'https://plc.test',
+		allowPrivateNetwork,
+		logger: silentLogger,
+		fetch: network
+	});
+
+	vi.spyOn(identity, 'resolve').mockImplementation(async () => {
+		if (endpoint instanceof Error) throw endpoint;
+
+		return { did: DJ, handle: null, pds: endpoint, signingKey: 'did:key:zDJ', kemKey: null };
+	});
+
+	return identity;
+}
+
+/** What a request can change: the recording, and the PDS the DJ's DID document names, how it's reached and checked. */
+type Overrides = Partial<Omit<AudioRequest, 'identity'>> & {
+	endpoint?: string | Error;
+	fetch?: typeof globalThis.fetch;
+	allowPrivateNetwork?: boolean;
+};
+
+function ask(range: string | null, overrides: Overrides = {}) {
+	const { endpoint = 'https://pds.example', fetch = pds().fetch, allowPrivateNetwork = true, ...request } = overrides;
+
 	return recordingAudio({
 		did: DJ,
 		cid: CID,
 		range,
 		audio: async (did, cid) => (did === DJ && cid === CID ? declared : null),
-		pds: async () => 'https://pds.example',
-		fetch: pds().fetch,
+		identity: identityOf(endpoint, fetch, allowPrivateNetwork),
 		log: silentLogger,
-		...overrides
+		...request
 	});
 }
 
@@ -191,33 +220,10 @@ describe('recordingAudio', () => {
 		expect((await ask(null, { fetch: pds({ status: 404 }).fetch })).status).toBe(404);
 		expect((await ask(null, { fetch: pds({ status: 500 }).fetch })).status).toBe(502);
 
-		const unreachable = await ask(null, {
-			pds: async () => {
-				throw new Error('no PDS in the DID document');
-			}
-		});
+		const unreachable = await ask(null, { endpoint: new Error('no PDS in the DID document') });
 
 		expect(unreachable.status).toBe(502);
 	});
-
-	/** A DID resolving to a PDS at `endpoint`, checked as the route checks it in production. */
-	function resolvingTo(endpoint: string) {
-		const identity = new IdentityResolver({
-			plcUrl: 'https://plc.test',
-			allowPrivateNetwork: false,
-			logger: silentLogger
-		});
-
-		vi.spyOn(identity, 'resolve').mockResolvedValue({
-			did: DJ,
-			handle: null,
-			pds: endpoint,
-			signingKey: 'did:key:zDJ',
-			kemKey: null
-		});
-
-		return (did: string) => identity.safePds(did);
-	}
 
 	it('refuses a recording whose DID points at a private address or plain HTTP, without asking it', async () => {
 		for (const endpoint of [
@@ -228,7 +234,7 @@ describe('recordingAudio', () => {
 			'http://pds.example'
 		]) {
 			const upstream = pds();
-			const response = await ask(null, { pds: resolvingTo(endpoint), fetch: upstream.fetch });
+			const response = await ask(null, { endpoint, fetch: upstream.fetch, allowPrivateNetwork: false });
 
 			expect(response.status).toBe(502);
 			expect(upstream.requests).toHaveLength(0);
@@ -237,7 +243,12 @@ describe('recordingAudio', () => {
 
 	it('still serves ranges from a public PDS', async () => {
 		const upstream = pds();
-		const response = await ask('bytes=5-30', { pds: resolvingTo('https://8.8.8.8'), fetch: upstream.fetch });
+
+		const response = await ask('bytes=5-30', {
+			endpoint: 'https://8.8.8.8',
+			fetch: upstream.fetch,
+			allowPrivateNetwork: false
+		});
 
 		expect(response.status).toBe(206);
 		expect(await body(response)).toEqual(range(5, 30));
@@ -263,7 +274,7 @@ describe('recordingAudio', () => {
 		try {
 			// SAFETY: a server listening on a TCP port has an address and port, not a pipe name.
 			const { port } = server.address() as AddressInfo;
-			const response = await ask(null, { pds: async () => `http://127.0.0.1:${port}`, fetch: globalThis.fetch });
+			const response = await ask(null, { endpoint: `http://127.0.0.1:${port}`, fetch: globalThis.fetch });
 
 			expect(response.status).toBe(502);
 			expect(followed).toBe(false);

@@ -48,6 +48,7 @@ describe('BugReportService', () => {
 	const service = (space: string | undefined, sessions = [USER], indexed = directory()) =>
 		new BugReportService({
 			space,
+			rootDid: OWNER,
 			indexed,
 			userClient: async (did) => (sessions.includes(did) ? net.client(did) : null),
 			accounts,

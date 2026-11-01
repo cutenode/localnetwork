@@ -1,5 +1,5 @@
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
-import type { AccountView, DjSetView, ProjectFee, ProjectProfile } from './types';
+import type { AccountView, DjSetView, Location, ProjectFee, ProjectProfile, RequestKind, RequestView } from './types';
 
 export function shortDid(did: string): string {
 	if (did.length <= 24) return did;
@@ -11,6 +11,26 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	if (!account) return 'unknown';
 
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
+}
+
+/** What each kind of request to staff is called in lists. */
+export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
+	create: 'New project',
+	claim: 'Claim',
+	update: 'Changes',
+	list: 'Listing'
+};
+
+/** Who or what a request is about: its project, the profile it proposes, or for a listing request, the requester. */
+export function requestSubject(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+	if (request.kind === 'list') return accountLabel(request.requester);
+
+	return request.project?.name ?? request.record.profile?.name ?? 'Project';
+}
+
+/** Where an account's profile is: at its handle, or at its DID when it has no verified handle. */
+export function profileHref(account: AccountView): string {
+	return `/@${account.handle ?? account.did}`;
 }
 
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -59,7 +79,7 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 }
 
 /** A profile's fee levels, reading a record written before `fees` as one level. */
-export function feeLevels(profile: ProjectProfile): ProjectFee[] {
+export function feeLevels(profile: Pick<ProjectProfile, 'fees' | 'fee'>): ProjectFee[] {
 	return profile.fees ?? (profile.fee ? [profile.fee] : []);
 }
 
@@ -87,7 +107,7 @@ export function feeLabel(fee: ProjectFee): string {
 }
 
 /** The first fee level, and how many more there are, for one-line listings. Empty without fees. */
-export function feeSummary(profile: ProjectProfile): string {
+export function feeSummary(profile: Pick<ProjectProfile, 'fees' | 'fee'>): string {
 	const [first, ...rest] = feeLevels(profile);
 
 	if (!first) return '';
@@ -99,8 +119,8 @@ export function kindLabel(kind: string): string {
 	return labelFor(PROJECT_KINDS, kind);
 }
 
-export function placeLabel(profile: ProjectProfile): string {
-	const { city, region, country } = profile.location;
+export function placeLabel(place: { location: Location }): string {
+	const { city, region, country } = place.location;
 
 	// A city that's its own region (Berlin, Berlin) is named once.
 	return [city, region === city ? undefined : region, country].filter(Boolean).join(', ');

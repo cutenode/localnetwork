@@ -615,7 +615,7 @@ pub fn track_analysis(req: &TrackRequest) -> Result<TrackAnalysis> {
     let d = resolve_drive(&req.drive)?;
     let lib = d.library()?;
     let t = lib.track(req.track).ok_or_else(|| Error::no_track(req.track))?;
-    Ok(anlz::load(&d, t))
+    Ok(super::analysis_of(&d, t))
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -742,7 +742,7 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
                 copies: fingerprint(t)
                     .and_then(|k| recordings.get(&k))
                     .map_or_else(Vec::new, |v| v.iter().filter(|o| o.id != t.id).map(|o| TrackRef::from(*o)).collect()),
-                analysis: AnalysisSummary::of(&anlz::load(&d, t), analysed),
+                analysis: AnalysisSummary::of(&super::analysis_of(&d, t), analysed),
                 track: t.clone(),
             }
         })
@@ -769,6 +769,12 @@ pub struct HarmonicMatch {
     pub tempo_gap: f64,
 }
 
+/// The tracks of `library` that mix into `track` ([`harmony::suggestions`]), at most `limit`, best
+/// first: what `track.matches` and the player list.
+pub fn matches_in(library: &Library, track: &Track, limit: usize) -> Vec<harmony::Suggestion> {
+    harmony::suggestions(library, track, limit)
+}
+
 /// Tracks that mix into a track: a compatible key and a close tempo, best first.
 pub fn harmonic_matches(req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
     harmonic_matches_cached(LibraryCache::none(), req)
@@ -778,7 +784,7 @@ pub fn harmonic_matches(req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
 pub fn harmonic_matches_cached(cache: &LibraryCache, req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
     let (_, _, lib) = cache.read(&req.library)?;
     let t = lib.track(req.track).ok_or_else(|| Error::no_track(req.track))?;
-    Ok(harmony::suggestions(&lib, t, req.limit.unwrap_or(40))
+    Ok(matches_in(&lib, t, req.limit.unwrap_or(40))
         .into_iter()
         .map(|s| HarmonicMatch {
             track: s.track,
@@ -912,13 +918,14 @@ pub fn smart_set(store: &Store, req: &SetSmartPlaylist) -> Result<SmartPlaylists
         });
     }
     let mut all = store.smart_playlists()?;
-    all.set(SmartPlaylist {
+    let rule = SmartPlaylist {
         path: req.path.trim().trim_matches('/').to_string(),
         filter: req.filter.clone(),
         sort: req.sort.clone(),
         limit: req.limit,
         drives,
-    })?;
+    };
+    all.set(rule, &crate::plugin::hosted().map(crate::plugin::Plugins::fields).unwrap_or_default())?;
     store.save_smart_playlists(&all)?;
     Ok(all)
 }

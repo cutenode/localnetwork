@@ -6,12 +6,17 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { IndexedRepo } from '../happyview/indexed';
 import { silentLogger } from '../logger';
+import { Notifier } from '../notifications/notifier';
 import { RateLimiter } from '../rate-limit';
 import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
+import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
+import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
+import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
+import { ProfileService } from '../services/profiles';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
@@ -57,6 +62,8 @@ export async function createTestServices(
 		maxAttempts: 3
 	});
 
+	const notifications = new Notifier({ db, logger: silentLogger });
+
 	const core: Core = {
 		db,
 		logger: silentLogger,
@@ -67,6 +74,7 @@ export async function createTestServices(
 		userClient: async (did) => (capable.has(did) ? net.client(did) : null),
 		audit,
 		accounts,
+		notify: notifications.notify.bind(notifications),
 		watchSpace: async () => {},
 		fetchSpaceBlob: async (_space, _repo, cid) => {
 			const blob = net.blobs.get(cid);
@@ -94,7 +102,6 @@ export async function createTestServices(
 	};
 
 	const projects = new ProjectService(core, directory);
-	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -110,7 +117,12 @@ export async function createTestServices(
 		throw new Error(`no such handle ${identifier}`);
 	});
 
+	const epkViews = new EpkViews(core, epks, 90);
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
+	const profiles = new ProfileService(core, indexedRepo);
+	const djListings = new DjListings(core, indexedRepo);
+	const performers = new PerformerSearch(core, directory, projects, profiles);
+	const requests = new RequestService(core, projects, profiles, djListings);
 	const follows = new FollowService(core, directory, 0);
 
 	/** Each account's handle, as the identity resolver would report it once checked both ways. */
@@ -148,6 +160,7 @@ export async function createTestServices(
 		core,
 		audit,
 		accounts,
+		notifications,
 		projects,
 		requests,
 		staff,
@@ -157,6 +170,7 @@ export async function createTestServices(
 		tracklists,
 		supports,
 		epks,
+		epkViews,
 		shows,
 		follows,
 		verifications,
@@ -165,6 +179,9 @@ export async function createTestServices(
 		listings,
 		handles,
 		indexedRepo,
+		profiles,
+		djListings,
+		performers,
 		viewer,
 		capable,
 		spaces

@@ -226,13 +226,10 @@ struct IndexEntry {
     at: i64,
 }
 
-/// mtime granularity to distrust (FAT32 rounds to 2 s).
-const RACY_SECS: i64 = 2;
-
 impl IndexEntry {
     /// Hashed clearly after the file was last modified (see [`HashIndex::lookup`]).
     fn settled(&self) -> bool {
-        self.at > self.mtime + RACY_SECS
+        fsutil::settled(self.mtime, self.at)
     }
 
     /// `other` answers lookups as this entry does: only when it was recorded differs.
@@ -254,10 +251,20 @@ impl HashIndex {
     }
 
     /// The cached hash, if the file's size and mtime are unchanged *and* the hash was recorded
-    /// clearly after the file was last modified. A file hashed in the same (FAT: 2 s) window it
-    /// was written in could change again without its mtime moving ("racy" entries, as in git).
+    /// clearly after the file was last modified (see [`fsutil::settled`]). A file hashed in the
+    /// same (FAT: 2 s) window it was written in could change again without its mtime moving
+    /// ("racy" entries, as in git).
     pub fn lookup(&self, e: &FileEntry) -> Option<Hash> {
         self.entries.get(&e.path).filter(|i| i.size == e.size && i.mtime == e.mtime && i.settled()).map(|i| i.hash)
+    }
+
+    /// Whether `e` looks like the file recorded at its path, by size and mtime, but was recorded
+    /// too soon after it was written for that to say it's unchanged (see [`fsutil::settled`]):
+    /// a file copied moments after its source was written may have missed a rewrite of it.
+    pub fn racy(&self, e: &FileEntry) -> bool {
+        self.entries
+            .get(&e.path)
+            .is_some_and(|i| i.size == e.size && fsutil::mtime_eq(i.mtime, e.mtime) && !i.settled())
     }
 
     pub fn record(&mut self, e: &FileEntry) {

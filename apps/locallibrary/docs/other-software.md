@@ -41,12 +41,15 @@ Exporting again copies only what changed, and a stopped export finishes when you
 It exports every track and playlist, or the playlists you name (`--playlist`, repeatable, with the
 tracks they use), which it remembers for next time; `--all` goes back to everything. Audio goes in `Contents/<artist>/<album>/`, and
 each track gets the analysis files rekordbox made on this computer (beat grid, waveforms, cues,
-phrases), with artwork and My Tags. A few things don't come along:
+phrases), with artwork and My Tags, in `exportExt.pdb` for players that read `export.pdb`
+(CDJ-3000 and older) as well as in OneLibrary.
 
-- intelligent playlists, whose rules aren't read;
-- history lists from rekordbox's own History;
-- My Tags on players that read `export.pdb` (CDJ-3000 and older): `exportExt.pdb` isn't made, so
-  only OneLibrary players show them.
+Intelligent playlists hold the tracks their rules match now. One whose rules a
+[filter](editing.md#filters) can say also gets a [rule-based playlist](editing.md#rule-based-playlists) for
+that drive, kept in the store, so `smart apply` keeps it up to date; the plan names the ones that
+are only their tracks as they are now (an artist rule, "starts with", "in the last 30 days" and a
+few fields filters lack), and the ones whose rules can't be read, which stay behind. History lists
+from rekordbox's own History don't come along.
 
 With Cloud Library Sync on, tracks kept in Dropbox or Google Drive are read from the folder
 rekordbox records for the service, and the plan says how many are online only and download as

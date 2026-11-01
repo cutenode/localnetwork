@@ -94,6 +94,15 @@ pub struct FetchOptions {
     pub dry_run: bool,
 }
 
+/// `store.fetch`: the code to fetch with, and what to fetch.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct FetchRequest {
+    /// The share code the other computer's `store.serve` gave (its `ready` event).
+    pub code: String,
+    #[serde(flatten)]
+    pub options: FetchOptions,
+}
+
 /// What serving is doing, as it happens.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(tag = "event", rename_all = "snake_case")]

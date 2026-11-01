@@ -50,21 +50,20 @@ enum PlayersCommand {
 }
 
 pub fn run(args: PlayersArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let store = || crate::open_store(store_path);
     match args.command.unwrap_or(PlayersCommand::Show) {
         PlayersCommand::Show => {
             let r = crate::diff_cmd::read_or_empty(store_path, api::players_show)?;
             out.emit(&r, show);
         }
         PlayersCommand::Set { models, library, dry_run } => {
-            let store = store()?;
-            let plan = api::players_set_plan(&store, &SetPlayers { models, library })?;
-            return change(&store, plan, dry_run, "Remember them?", "remembered", out, ctx);
+            let store = crate::diff_cmd::existing_store(store_path)?;
+            let plan = api::players_set_plan(store.as_ref(), &SetPlayers { models, library })?;
+            return change(store_path, plan, dry_run, "Remember them?", "remembered", out, ctx);
         }
         PlayersCommand::Clear { library, dry_run } => {
-            let store = store()?;
-            let plan = api::players_clear_plan(&store, &ClearPlayers { library })?;
-            return change(&store, plan, dry_run, "Forget them?", "forgotten", out, ctx);
+            let store = crate::diff_cmd::existing_store(store_path)?;
+            let plan = api::players_clear_plan(store.as_ref(), &ClearPlayers { library })?;
+            return change(store_path, plan, dry_run, "Forget them?", "forgotten", out, ctx);
         }
         PlayersCommand::Models { model: None } => out.emit_paged(&api::player_models(), |m| models(m)),
         PlayersCommand::Models { model: Some(name) } => {
@@ -77,9 +76,9 @@ pub fn run(args: PlayersArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     Ok(ExitCode::SUCCESS)
 }
 
-/// Show the plan, ask, and remember (or forget) the models.
+/// Show the plan, ask, and remember (or forget) the models: the store is made only then.
 fn change(
-    store: &locallibrary::Store,
+    store_path: &Option<PathBuf>,
     plan: Planned<PlayersPlan, PlayersChange>,
     dry_run: bool,
     question: &str,
@@ -96,7 +95,7 @@ fn change(
     if let Some(o) = out.decide(dry_run, question) {
         return Ok(out.not_applied(&plan, o));
     }
-    let r = plan.apply(Some(store), ctx)?;
+    let r = plan.apply(Some(&crate::open_store(store_path)?), ctx)?;
     Ok(out.applied(&plan, &r, Outcome::Applied, || {
         ok(done);
         show(&r);

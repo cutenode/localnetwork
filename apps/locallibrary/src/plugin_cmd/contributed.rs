@@ -269,14 +269,7 @@ pub fn options(what: &str, schema: Option<&Value>, given: &[String]) -> Result<V
     }
     let mut options = Map::new();
     for (key, raws) in raws {
-        let known = properties(schema).find(|(name, _)| *name == key).map(|(_, p)| p);
-        let property = known.ok_or_else(|| {
-            let all: Vec<&str> = properties(schema).map(|(name, _)| name.as_str()).collect();
-            usage(match all.is_empty() {
-                true => format!("this {what} has no options, not even {key:?}"),
-                false => format!("this {what} has no option {key:?}: its options are {}", all.join(", ")),
-            })
-        })?;
+        let property = locallibrary::plugin::declared_option(what, schema, key).map_err(usage)?;
         options.insert(key.to_string(), params::value(property, &raws, &format!("the {key} option")).map_err(usage)?);
     }
     Ok(Value::Object(options))

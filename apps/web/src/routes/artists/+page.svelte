@@ -7,6 +7,9 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Bound, so a search typed before the page hydrated stays (see formFields).
+	let q = $derived(data.q);
 </script>
 
 <svelte:head>
@@ -21,7 +24,7 @@
 
 	<form method="GET" role="search" aria-label="Find an artist" class="flex gap-2" data-sveltekit-reset="false">
 		<label class="sr-only" for="q">Artist</label>
-		<input id="q" name="q" class="input" value={data.q} placeholder="Artist name" maxlength="100" />
+		<input id="q" name="q" class="input" bind:value={q} placeholder="Artist name" maxlength="100" />
 		<button class="btn-primary"><Search class="size-4" />Search</button>
 	</form>
 

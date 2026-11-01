@@ -9,7 +9,6 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-dunce = "1.0.5"
 fs4.workspace = true
 loclib-interop.workspace = true
 loclib-model.workspace = true

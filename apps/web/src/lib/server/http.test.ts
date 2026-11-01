@@ -16,6 +16,7 @@ import {
 	requireViewer,
 	safeNext,
 	stringValues,
+	withQuery,
 	wholeNumber
 } from './http';
 
@@ -97,6 +98,20 @@ describe('safeNext', () => {
 
 		expect(safeNext('/ /evil.test')).toBe('/dashboard');
 		expect(safeNext('/%09/evil.test')).toBe('/%09/evil.test');
+	});
+
+	it('hands back the path as a browser would resolve it, so building on it stays on the site', () => {
+		// Each resolves to the path `//evil.test`, which a redirect built from the parsed URL would send off the site.
+		for (const next of ['/.//evil.test', '/x/..//evil.test', '/%2e//evil.test']) {
+			expect(safeNext(next)).toBe('/dashboard');
+			expect(withQuery(next, { email: 'declined' })).toBe('/dashboard');
+		}
+
+		expect(safeNext('/x/../inbox?a=1#top')).toBe('/inbox?a=1#top');
+		expect(safeNext('/%2F%2Fevil.test')).toBe('/%2F%2Fevil.test');
+		expect(withQuery('/dashboard/inbox/settings?tab=1', { email: 'declined' })).toBe(
+			'/dashboard/inbox/settings?tab=1&email=declined'
+		);
 	});
 });
 

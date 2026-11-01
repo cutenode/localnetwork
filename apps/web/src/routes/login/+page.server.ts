@@ -26,9 +26,13 @@ export const actions: Actions = {
 		}
 
 		let url: URL;
+		// An account that signed in before keeps the optional scopes it approved (OAuthService.authorize). Without it,
+		// this is a first sign-in, or one whose handle doesn't resolve, which authorize reports below.
+		const did = await locals.app.identity.resolveIdentifier(handle).catch(() => null);
+		const account = did ? await locals.app.accounts.get(did) : undefined;
 
 		try {
-			url = await locals.app.oauth.authorize(handle, JSON.stringify({ next }));
+			url = await locals.app.oauth.authorize(handle, JSON.stringify({ next }), { account });
 		} catch (error) {
 			locals.log.info({ err: error, handle }, 'authorize failed');
 

@@ -62,7 +62,7 @@ and typed table columns, see [views](#views)).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
    body_blob?, body_range?, multipart?, into_blob?}` -> `{status, headers, body? | blob?}`. The
    host sends it only to a host the manifest's `net:` capabilities grant, at a public https
-   address, following redirects itself and each only there, at most five; as
+   address without a user name or password, following redirects itself and each only there, at most five; as
    `locallibrary/<version> (+<contact>)`, the plugin's `contact` setting when it has one;
    waiting its turn when the manifest limits that host (`[[net]]`). `{secret:<key>}` in a
    header's value, a query value, `body` or a form part's `value` is the plugin's secret setting
@@ -95,8 +95,10 @@ A response is never answered, not even a bad one. Errors use the RPC sidecar's c
 (parse error), -32600 (invalid request), -32601 (method not found), -32602 (invalid params),
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
 `incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
-`not_found`, `conflict`, `stale_plan`, `permission`, and `io` or `parse` about the file
-`data.fields.path` names), with the plugin named; any other kind is the plugin failing.
+`not_found`, `conflict`, and `io` or `parse` about the file `data.fields.path` names), with the
+plugin named, and `cancelled` as the request stopping. Any other kind is the plugin failing,
+`stale_plan` (only the host's plans go stale) and `permission` (a plugin never runs elevated)
+included.
 
 ## The manifest
 
@@ -409,8 +411,10 @@ tracks the drive has, each once, refusing one with none. The actions:
   `options` fitting the exporter's. Where to is always the user's to pick.
 - `analyze` `{analyzer, drive, tracks?}`: its analyzer on the drive's tracks.
 
-The host refuses (and logs) a suggestion with both, an action it doesn't know or params the action
-doesn't take, and one on another plugin's contributions, and tells the line alone. A host older
+`pull` and `sync` `{drive}` are the host's alone (what fixes one of its own check findings), never
+a plugin's to suggest. The host refuses (and logs) a suggestion with both, an action it doesn't
+know, one of its own, params the action doesn't take, and one on another plugin's contributions,
+and tells the line alone. A host older
 than actions leaves `action` out (`HostNotify` takes keys it doesn't know), so it tells the line
 alone too.
 
@@ -599,7 +603,8 @@ and its row in `FEATURES`.
 `Peer` is the connection itself, for a host or a plugin: either end sends requests and
 notifications from any thread, and its reader thread hands the other end's to its owner (a
 host's hook sent with `send_request_reporting` gets its own `progress`, in order before its
-answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`).
+answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`), and
+a host can change what the other end tells it before anything reads it (`Peer::with_intake`).
 `check_params` checks a hook's params or options against the contribution's schema. Here it plays
 the host:
 

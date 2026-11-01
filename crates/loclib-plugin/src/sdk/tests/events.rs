@@ -147,8 +147,8 @@ fn a_plugin_suggests_the_hosts_actions_on_its_own_contributions() {
 
 /// The host refuses a suggestion the plugin may not make, saying why: an action on an exporter,
 /// an analyzer or a provider that isn't its own, on what its exporter doesn't take, with params
-/// the action doesn't take, one that isn't an action, both an operation and an action, and params
-/// too long. An operation alone is as it was.
+/// the action doesn't take, one that isn't an action, one only the host takes (`pull`, `sync`),
+/// both an operation and an action, and params too long. An operation alone is as it was.
 #[test]
 fn a_suggestion_the_plugin_may_not_make_is_refused() {
     let m = Manifest::parse(echo::MANIFEST).unwrap();
@@ -182,6 +182,8 @@ fn a_suggestion_the_plugin_may_not_make_is_refused() {
         ),
         (action("track.fetch", json!(["USB"])), "\"track.fetch\" with params that aren't an object"),
         (action("delete", json!({})), "\"delete\", which it can't: unknown variant `delete`"),
+        (action("pull", json!({ "drive": "USB" })), "\"pull\", which it can't: it's the host's own"),
+        (action("sync", json!({ "drive": "USB" })), "\"sync\", which it can't: it's the host's own"),
         (action("analyze", long), "\"analyze\" with params longer than 65536 bytes"),
         (
             action("analyze", json!({ "analyzer": "size", "drive": "/Users/me/OldBackup" })),
@@ -238,7 +240,8 @@ fn a_suggested_export_takes_a_source_its_exporter_writes_out() {
 #[hegel::test(test_cases = 200)]
 fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
     let m = Manifest::parse(echo::MANIFEST).unwrap();
-    let name: &str = tc.draw(gs::sampled_from(vec!["art.fetch", "track.fetch", "export", "analyze", "delete"]));
+    let name: &str =
+        tc.draw(gs::sampled_from(vec!["art.fetch", "track.fetch", "export", "analyze", "pull", "sync", "delete"]));
     let fields = [
         (
             "drive",
@@ -257,6 +260,7 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
     let takes: &[&str] = match name {
         "art.fetch" | "track.fetch" => &["drive", "tracks", "provider"],
         "export" => &["format", "drive", "options"],
+        "pull" | "sync" => &["drive"],
         _ => &["analyzer", "drive", "tracks"],
     };
     let mut params: Map<String, Value> = fields
@@ -283,7 +287,7 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
             is("format", "m3u") && has("drive") && !has("set") && !has("mix") && only(&["format", "drive", "options"])
         }
         "analyze" => is("analyzer", "size") && has("drive") && only(&["analyzer", "drive", "tracks"]),
-        // No artwork provider, and no such action.
+        // No artwork provider, the host's own, and no such action.
         _ => false,
     };
     let taken = fits && !both && !long;
@@ -302,4 +306,36 @@ fn only_actions_on_the_plugins_own_contributions_are_taken(tc: TestCase) {
         Ok(other) => panic!("{other:?}"),
         Err(why) => assert!(!taken && why.starts_with("it suggests "), "{why}"),
     }
+}
+
+/// For any event, its drive's tracks may be new exactly when it's about a drive and is
+/// `drive.mounted` with an export (its payload's `has_export` not false), or `drive.changed` with
+/// its payload's `changed` saying `databases`.
+#[hegel::test(test_cases = 100)]
+fn new_tracks_are_a_drive_plugged_in_or_its_databases_changed(tc: TestCase) {
+    let event = tc.draw(gs::sampled_from(EventName::ALL.to_vec()));
+    let drive: Option<String> = tc.draw(gs::optional(gs::sampled_from(vec!["USB".to_string(), "1f0e".into()])));
+    let changed: Vec<String> =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["databases".to_string(), "state".into()])).max_size(2));
+    let payload = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => json!({ "changed": changed }),
+        1 => json!({ "name": "USB", "has_export": tc.draw(gs::booleans()) }),
+        _ => json!({ "name": "USB" }),
+    };
+    let databases = payload["changed"].as_array().is_some_and(|c| c.contains(&json!("databases")));
+    let export = payload.get("has_export") != Some(&json!(false));
+    let e = EventNotify { event, drive: drive.clone(), payload };
+    let new = (event == EventName::DriveChanged && databases) || (event == EventName::DriveMounted && export);
+    assert_eq!(e.new_tracks(), drive.as_deref().filter(|_| new));
+}
+
+/// An action on the most tracks a suggestion names, every id as long as one can be, is short
+/// enough for the host to take.
+#[test]
+fn the_most_tracks_suggested_fit_the_params() {
+    let m = Manifest::parse(echo::MANIFEST).unwrap();
+    let tracks = vec![u32::MAX; crate::MAX_SUGGESTED_TRACKS];
+    let analyze = HostAction::Analyze(AnalyzeAction { analyzer: "size".into(), drive: "USB".into(), tracks });
+    let taken = HostNotify::action("m", &analyze).suggestion(&m);
+    assert_eq!(taken, Ok(Some(Suggestion::Action(analyze))));
 }

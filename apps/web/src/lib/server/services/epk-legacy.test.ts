@@ -200,6 +200,16 @@ describe('LegacyEpks', () => {
 		expect(f.t.net.records.has(`${DJ}|${COLLECTION.epk}|${legacy.rkey}`)).toBe(true);
 	});
 
+	it("asks for a legacy press kit from the root, on the asker's behalf, since sessions can't write to its space", async () => {
+		const requests = f.t.net
+			.spaceRecordsIn(legacy.space)
+			.filter((record) => record.uri.includes(COLLECTION.epkRequest));
+
+		expect(f.t.capable.has(STRANGER)).toBe(true);
+		expect(requests.map((record) => record.uri.slice(legacy.space.length + 1).split('/')[0])).toEqual([ROOT, ROOT]);
+		expect(new Set(requests.map((record) => record.value.onBehalfOf))).toEqual(new Set([PROMOTER, STRANGER]));
+	});
+
 	it('carries one request per asker, even when two askers picked the same key', async () => {
 		// ADMIN picks the same key for their request as an asker already in the space.
 		const [first] = await f.t.epks.requests(legacy);

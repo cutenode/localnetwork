@@ -74,3 +74,11 @@ expect /projects/halflight 'Halflight'
 # The tools' guides come from apps/<tool>/, which only the image's build context brings in.
 expect /tools/locallibrary/docs/install 'Installing locallibrary'
 expect /robots.txt 'User-agent'
+# The image runs scripts/db-backup.ts from source. With no bucket set it stops at asking for one,
+# which it only gets to once every file it imports is in the image.
+backup=$(docker exec "$name" node scripts/db-backup.ts list 2>&1 || true)
+if ! grep --quiet --fixed-strings 'Set BACKUP_S3_BUCKET' <<<"$backup"; then
+	echo "scripts/db-backup.ts doesn't run in the image: $backup" >&2
+	exit 1
+fi
+echo "ok  scripts/db-backup.ts"

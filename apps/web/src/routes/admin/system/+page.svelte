@@ -45,7 +45,8 @@
 				<dt class="text-label text-fg-subtle">Write notifications</dt><dd class="max-sm:mb-2">{data.config.syncNotify ? 'registered' : 'off (polling only)'} · poll every {Math.round(data.config.pollMs / 1000)}s</dd>
 				<dt class="text-label text-fg-subtle">Geocoder</dt><dd class="max-sm:mb-2">{data.config.geocoder}</dd>
 				<dt class="text-label text-fg-subtle">HappyView</dt><dd class="break-all max-sm:mb-2">{data.happyView.url} · {#if data.happyView.reachable}<span class="text-good">answering</span>{:else}<span class="text-critical">not answering</span>{/if}</dd>
-				<dt class="text-label text-fg-subtle">Directory scripts</dt><dd>{#if !data.happyView.sync}managed outside this app (no API key){:else if data.happyView.sync.error}<span class="text-critical">sync failed {timeAgo(data.happyView.sync.at)}: {data.happyView.sync.error}</span>{:else}synced {timeAgo(data.happyView.sync.at)}{/if}</dd>
+				<dt class="text-label text-fg-subtle">Directory scripts</dt><dd class="max-sm:mb-2">{#if !data.happyView.sync}managed outside this app (no API key){:else if data.happyView.sync.error}<span class="text-critical">sync failed {timeAgo(data.happyView.sync.at)}: {data.happyView.sync.error}</span>{:else}synced {timeAgo(data.happyView.sync.at)}{/if}</dd>
+				<dt class="text-label text-fg-subtle">Backups</dt><dd>{#if !data.backups}off (no bucket set){:else}{#if data.backups.lastAttempt?.error}<span class="text-critical">failed {timeAgo(data.backups.lastAttempt.at)}: {data.backups.lastAttempt.error}</span>{' · '}{/if}{#if !data.backups.latestAt}<span class={data.backups.stale ? 'text-critical' : ''}>none yet</span>{:else if data.backups.stale}<span class="text-critical">last backed up {timeAgo(data.backups.latestAt)}</span>{:else}backed up {timeAgo(data.backups.latestAt)}{/if}{/if}</dd>
 			</dl>
 		</Card>
 	</div>

@@ -993,7 +993,10 @@ impl Store {
             fsutil::remove_if_exists(p)?;
         }
         for (d, _) in &unread {
-            fs::remove_dir_all(d).at(d)?;
+            match d.is_dir() {
+                true => fs::remove_dir_all(d).at(d)?,
+                false => _ = fsutil::remove_if_exists(d)?,
+            }
         }
         for d in &scratch {
             fsutil::remove_if_exists(&d.with_extension("lock"))?;

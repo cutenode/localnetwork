@@ -4,6 +4,10 @@ name: Scheduled failure issue
 # an issue titled for the workflow, or comments on the one still open, and the next run that
 # passes closes it. Runs started by hand (on any branch) leave the issue alone. The calling job
 # grants the permissions below.
+#
+# A skipped job isn't a failure: a workflow's changes job skips its suites only when nothing they
+# test changed since a run that passed. So a skip never opens an issue, and a run whose jobs all
+# passed or were skipped closes the open one.
 on:
   workflow_call:
     inputs:

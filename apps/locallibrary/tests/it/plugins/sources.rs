@@ -100,6 +100,12 @@ fn the_sidecar_builds_a_drive_from_a_library_source() {
     let echo = listed["result"].as_array().unwrap().iter().find(|p| p["id"] == "echo").cloned().unwrap();
     assert_eq!(echo["sources"], json!(["folder"]));
     assert!(echo["capabilities"].as_array().unwrap().iter().any(|c| c["capability"] == "fs:read"), "{echo}");
+    // An option the source doesn't declare is refused, as the command line refuses it.
+    let req = json!({ "plugin": "echo", "source": "folder", "grants": [music], "drive": path(&stick), "options": { "x": 1 } });
+    let refused = s.call(5, "plugins.source.plan", req);
+    assert_eq!(refused["error"]["data"]["kind"], "invalid", "{refused}");
+    assert_eq!(refused["error"]["data"]["fields"]["path"], "/x", "{refused}");
+    assert_eq!(refused["error"]["message"], "this source has no option \"x\": its options are per_page", "{refused}");
 }
 
 /// The titles of the tracks on the drive at `root`, sorted (none when there's no library).

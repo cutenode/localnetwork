@@ -239,7 +239,7 @@ impl Plugins {
                 tracks: tags.iter().map(|t| t.id).collect(),
                 ..Context::default()
             };
-            let (context, _) = slot.context(context, store)?;
+            let (context, _, _given) = slot.context(context, store)?;
             let ask =
                 ProvideCandidates { provider: provider.name.clone(), kind: req.kind, tracks: tags.clone(), context };
             let read =

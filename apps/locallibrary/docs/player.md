@@ -41,14 +41,16 @@ listening to your library the way the players see it:
   plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
   takes it back. A question one asks first (which track an entry is) is a list to pick from
   (`space` marks items when it takes several, `enter` takes them, `esc` stops the run). An
-  operation, or a command of a plugin that reads the drive, needs one plugged in, not a folder
-  opened by path. What plugins log goes to the messages (`!`). See
+  operation, or a command of a plugin that reads the drive, needs a drive open (a folder opened
+  by path too, which the plugin can read only while it runs on it). What plugins log goes to the
+  messages (`!`). See
   [Plugins](plugins.md).
 - **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
   analyzer over the drive's tracks in the background, those not analysed already. "show the
   sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
   it found nothing to show; shown as its analyzer says, in bytes or as a meter, say), sorted by a click on its header like any column, and the search box
-  filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
+  filters by it: `sound.bpm:>120`. Sorted by it, a playlist is sorted on the drive by it too
+  (`s` in the actions menu). "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
 - **Checks**: a drive's check (in its `e` menu) shows what plugins' checks found too, and a fix

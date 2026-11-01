@@ -25,9 +25,10 @@ use crate::Result;
 use crate::device::Device;
 use crate::doctor::Databases;
 use crate::fsutil;
+use crate::hash;
 use crate::model::{Library, LibraryDiff};
 use crate::paths::FileClass;
-use crate::progress::Ctx;
+use crate::progress::{Ctx, Phase};
 use crate::store::{Snapshot, SnapshotInfo, Store};
 
 /// The library databases (their changes are judged through the library diff).
@@ -118,16 +119,26 @@ pub fn changes_since(store: &Store, device: &Device, ancestor: &Snapshot, ctx: &
     let old_files: FxHashMap<String, &crate::tree::FileEntry> =
         ancestor.files.iter().map(|f| (f.path.to_lowercase(), f)).collect();
     let mut seen = FxHashSet::default();
+    let pulled = ancestor.created.timestamp();
     for e in scanned.tree.library_entries() {
         let key = e.path.to_lowercase();
         seen.insert(key.clone());
         let old = old_files.get(&key);
         let changed = match old {
             None => true,
-            Some(o) => match (o.hash, e.hash) {
-                (Some(a), Some(b)) => a != b,
-                _ => o.size != e.size || !fsutil::mtime_eq(o.mtime, e.mtime),
-            },
+            Some(o) => {
+                let stamped = o.size == e.size && fsutil::mtime_eq(o.mtime, e.mtime);
+                match (o.hash, e.hash) {
+                    (Some(a), Some(b)) => a != b,
+                    // Written moments before the snapshot, it may have changed since without its
+                    // size or mtime showing it: by content.
+                    (Some(a), None) if stamped && !fsutil::settled(o.mtime, pulled) => {
+                        let path = scanned.tree.fs_path(&e.path);
+                        !hash::hash_file(&path, ctx, Phase::Hash).is_ok_and(|now| now == a)
+                    }
+                    _ => !stamped || !fsutil::settled(o.mtime, pulled),
+                }
+            }
         };
         if !changed {
             continue;

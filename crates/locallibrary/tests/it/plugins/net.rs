@@ -152,6 +152,7 @@ fn a_plugin_fetches_from_a_server_it_may_talk_to_as_locallibrary() {
 fn a_plugin_reaches_only_where_it_may() {
     let server = Server::new(|base, got| match got.target.as_str() {
         "/away" => redirect(format!("{}/there", base.replace("127.0.0.1", "localhost"))),
+        "/named" => redirect(format!("{}/there", base.replace("://", "://me:pw@"))),
         "/hop/6" => ok("arrived"),
         target => match target.strip_prefix("/hop/") {
             Some(n) => redirect(format!("{base}/hop/{}", n.parse::<u8>().unwrap() + 1)),
@@ -169,6 +170,16 @@ fn a_plugin_reaches_only_where_it_may() {
     let (kind, why) = refused(format!("{}/away", server.url));
     assert_eq!(kind, "external");
     assert!(why.as_str().unwrap().contains("redirected to where it may not go: localhost isn't a server"), "{why}");
+    // Nor with a user name or password, as an account's endpoint isn't, also by a redirect.
+    let named = server.url.replace("://", "://me:pw@");
+    let (kind, why) = refused(format!("{named}/"));
+    assert_eq!(kind, "denied");
+    assert_eq!(why, format!("\"{named}/\" isn't an https:// address without a user name or password"));
+    let (kind, why) = refused(format!("{}/named", server.url));
+    assert_eq!(kind, "external");
+    let said = format!("redirected to where it may not go: \"{named}/there\" isn't an https:// address");
+    assert!(why.as_str().unwrap().contains(&said), "{why}");
+    assert!(server.got().iter().all(|got| got.target != "/there"), "neither reached the server");
     let (kind, why) = refused(format!("{}/hop/0", server.url));
     assert!(kind == "external" && why.as_str().unwrap().contains("too many redirects"), "{why}");
     assert_eq!(f.fetch(json!({ "url": format!("{}/hop/1", server.url) }))["result"]["body"], "arrived", "five");
@@ -210,7 +221,8 @@ fn a_big_answer_goes_to_a_file_in_the_scratch_folder() {
     // the folder has room.
     let into = |to: &str, url: &str| json!({ "url": format!("{}/{url}", server.url), "into_blob": to });
     let answer = f.fetch(into("a.jpg", "image"));
-    assert_eq!(answer["read"], String::from_utf8_lossy(&[0xff, 0xd8, 0xff, 0x00]).as_ref(), "{answer}");
+    // What the plugin read of it, as the host takes in what it says: printable, without the NUL.
+    assert_eq!(answer["read"], String::from_utf8_lossy(&[0xff, 0xd8, 0xff]).as_ref(), "{answer}");
     assert!(answer["result"]["blob"].as_str().unwrap().ends_with("a.jpg") && answer["result"]["body"].is_null());
     let e = f.fetch(json!({ "url": format!("{}/big", server.url), "into_blob": "big", "body_blob": "big" }));
     assert!(e["error"]["message"].as_str().unwrap().contains("big: "), "the file to send isn't there: {e}");
@@ -974,4 +986,41 @@ fn a_file_is_sent_again_where_a_redirect_asks_for_the_body() {
     assert_eq!(got.iter().map(|g| g.body.as_str()).collect::<Vec<_>>(), ["a mix"; 3]);
     assert_eq!(send("/r/303/same/end"), "GET ");
     assert_eq!(server.got()[3].body, "a mix", "sent to the first");
+}
+
+/// For any secret setting with control characters among its letters, once the host has filled it
+/// into a request, no part of it reaches what the plugin fails with or logs: as it is, as it
+/// prints, or as a URL spells it. (What a server answers is passed on as it is.) Regression: the
+/// plugin's text was made printable before its secrets were left out, so a secret with control
+/// characters no longer matched, and came through as it prints.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_secret_with_control_characters_never_comes_back(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    // Letters no other text here has three of in a row, between control characters.
+    let parts: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[q-z]{3}").fullmatch(true)).min_size(2).max_size(4));
+    let between = vec!["\u{1b}[1m", "\r", "\n", "\t", "\u{1b}]0;\u{7}", "\u{7f}", "\u{9b}", "\u{8}"];
+    let mut secret = parts[0].clone();
+    for part in &parts[1..] {
+        secret.push_str(tc.draw(gs::sampled_from(between.clone())));
+        secret.push_str(part);
+    }
+    let server = Server::new(|_, got| ok(format!("{} {}", got.method, got.body)));
+    let f = fixture(&talking(100.0), &[], Options::default());
+    f.plugins.set_setting("echo", &f.store, "token", Some(json!(secret))).unwrap();
+    let post = json!({ "url": format!("{}/post", server.url), "method": "POST", "body": "{secret:token}" });
+    assert_eq!(f.fetch(post)["result"]["status"], 200);
+    assert_eq!(server.got()[0].body, secret, "the server gets it");
+    let fail = json!({ "fail": "invalid", "message": format!("bad {secret}"), "fields": { "about": secret } });
+    let failed = f.echo_params(fail).unwrap_err();
+    let mut said = vec![json!(failed.to_string()), json!(RpcFailure::from(failed).data())];
+    // Its log is read a line at a time: a secret across lines isn't one there.
+    if !secret.contains('\n') {
+        f.echo_params(json!({ "log": format!("log {secret}") })).unwrap();
+        eventually("it logs", || f.logs.lock().unwrap().iter().any(|(_, l)| l.starts_with("log ")));
+        said.extend(f.logs.lock().unwrap().iter().map(|(_, l)| json!(l)));
+    }
+    let said = Value::Array(said).to_string();
+    for part in &parts {
+        assert!(!said.contains(part.as_str()), "{part:?} of {secret:?} came back: {said}");
+    }
 }

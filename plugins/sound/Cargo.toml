@@ -11,12 +11,14 @@ repository.workspace = true
 [dependencies]
 loclib-analysis.workspace = true
 loclib-plugin.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
 loclib-mixid = { workspace = true, features = ["test-util"] }
 loclib-progress.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -222,7 +222,7 @@ fn remembered_players_and_drives_with_one_database() {
     let unknown = SetPlayers { models: vec!["CDJ-9999".into()], library: None };
     assert!(matches!(api::players_set(&store, &unknown), Err(Error::Invalid(_))));
     let clear = ClearPlayers { library: Some(library.name.clone()) };
-    let plan = api::players_clear_plan(&store, &clear).unwrap();
+    let plan = api::players_clear_plan(Some(&store), &clear).unwrap();
     assert_eq!((plan.from.as_slice(), plan.to.is_empty()), (&["CDJ-3000X".to_string(), "CDJ-3000".into()][..], true));
     // Remembered differently since the plan: it's stale.
     api::players_set(&store, &SetPlayers { models: vec!["CDJ-3000".into()], library: None }).unwrap();
@@ -230,7 +230,7 @@ fn remembered_players_and_drives_with_one_database() {
     let cleared = api::players_clear(&store, &clear).unwrap();
     assert!(cleared.libraries.is_empty());
     assert_eq!(cleared.default, ["CDJ-3000"]);
-    assert!(api::players_clear_plan(&store, &clear).unwrap().noop);
+    assert!(api::players_clear_plan(Some(&store), &clear).unwrap().noop);
 }
 
 #[test]
@@ -284,8 +284,9 @@ fn audio_cut_short_by_an_interrupted_copy() {
 
 /// MP3 and FLAC copies cut short are found as the WAV one is, whether the file's header still
 /// promises its whole length (an MP3 with an Info frame, FLAC) or its length comes from its size
-/// (a constant bit rate MP3 with no header); an M4A cut short is found too, as a file that won't
-/// open. The M4A is a committed fixture (`tests/fixtures/audio/`): nothing here encodes AAC.
+/// (a constant bit rate MP3 with no header); an M4A cut short in its audio is found as cut short too,
+/// though it won't open, because its boxes run past the end of the file. The M4A is a committed
+/// fixture (`tests/fixtures/audio/`): nothing here encodes AAC.
 #[test]
 fn compressed_audio_cut_short_by_an_interrupted_copy() {
     use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
@@ -329,11 +330,9 @@ fn compressed_audio_cut_short_by_an_interrupted_copy() {
         .filter_map(|f| Some((f.track.file_path.strip_prefix("/Contents/Formats/")?, f.problem.kind())))
         .collect();
     found.sort_unstable();
-    let truncated = ["cut-tagged.mp3", "cut-tone.flac", "cut-untagged.mp3"].map(|f| (f, "truncated"));
-    // An M4A cut short in its audio doesn't open at all: its last box runs past the end.
-    assert_eq!(found, [&[("cut-silence.m4a", "unreadable")][..], &truncated].concat(), "{:#?}", r.audio);
-    let m4a = r.audio.iter().flat_map(|g| &g.files).find(|f| f.track.file_path.ends_with("cut-silence.m4a"));
-    assert!(m4a.unwrap().problem.to_string().ends_with(": end of stream"), "{m4a:?}");
+    let truncated =
+        ["cut-silence.m4a", "cut-tagged.mp3", "cut-tone.flac", "cut-untagged.mp3"].map(|f| (f, "truncated"));
+    assert_eq!(found, truncated, "{:#?}", r.audio);
 }
 
 /// rekordbox keeps the size a file had on import, and tag editors rewrite tags afterwards: a file

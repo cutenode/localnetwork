@@ -5,7 +5,7 @@ fn only_public_https_addresses_are_public() {
     for ok in
         ["https://bsky.social/xrpc", "https://pds.example.com:8443/", "https://8.8.8.8/", "https://[2606:4700::1]/"]
     {
-        assert_eq!(public(ok), Ok(()), "{ok}");
+        assert_eq!(public(ok).map(String::from).as_deref(), Ok(ok), "{ok}");
     }
     for refused in [
         "http://bsky.social/",
@@ -204,8 +204,8 @@ fn a_request_cancelled_lets_go_of_its_body_at_once() {
     // Taken and held, never read.
     let held = std::thread::spawn(move || listener.accept().unwrap());
     let (tx, said) = std::sync::mpsc::channel();
-    let request = reqwest::Client::new().put(url).body(streamed(Endless { said: tx }));
     let cancel = CancelToken::new();
+    let request = reqwest::Client::new().put(url).body(streamed(Endless { said: tx }, cancel.clone()));
     let cancelling = cancel.clone();
     // Its connection goes with the runtime, once the request has given up.
     let sent = std::thread::spawn(move || Requests::new().unwrap().run(|| request.send(), &cancelling).is_none());

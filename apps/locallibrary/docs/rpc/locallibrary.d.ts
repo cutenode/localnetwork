@@ -449,6 +449,34 @@ export type LabelRequest = {
   remove?: boolean;
 };
 
+/** `snapshot.library`, optionally paged as `drive.library` is. */
+export type SnapshotLibraryRequest = {
+  /** A label, or an id or its first 4 or more characters, with or without `snapshot:` in front. */
+  snapshot: string;
+  offset?: number | null;
+  limit?: number | null;
+};
+
+export type ServeOptions = {
+  /**
+   * Stay on the local network: no relays, so only computers that can reach this one directly
+   * can fetch.
+   */
+  local_only?: boolean;
+};
+
+/** `store.fetch`: the code to fetch with, and what to fetch. */
+export type FetchRequest = {
+  /** The share code the other computer's `store.serve` gave (its `ready` event). */
+  code: string;
+  /** Libraries to fetch, by name or id on the other computer. Empty: all of them. */
+  libraries?: string[];
+  /** Stay on the local network: no relays. */
+  local_only?: boolean;
+  /** Say what would be copied, and copy nothing. */
+  dry_run?: boolean;
+};
+
 export type RenameLibrary = {
   /** The library's name (any case) or id. */
   library: string;
@@ -3211,6 +3239,11 @@ export type Cue = {
    * when it was set on the grid. Only the extended list has it.
    */
   loop_beats: LoopBeats | null;
+  /**
+   * A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only
+   * the basic list has it.
+   */
+  active_loop: boolean;
 };
 
 export type LoopBeats = [numerator: number, denominator: number];
@@ -3580,6 +3613,12 @@ export type EmbeddedFile = {
   /** The file once the art went in: it's only put back while it's still that. */
   size: number;
   mtime: number;
+  /**
+   * What it held once the art went in, by content: its size and mtime, taken moments after it
+   * was written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).
+   * Missing from embeds an earlier version made, which go by size and mtime alone.
+   */
+  hash?: Hash | null;
 };
 
 export type Comparison = {
@@ -4094,6 +4133,54 @@ export type LibraryListing = {
   /** Drives linked to it, by name. */
   drives: string[];
 };
+
+export type ServeReport = {
+  /** Computers that fetched. */
+  peers: number;
+  files: number;
+  bytes: number;
+};
+
+export type FetchReport = {
+  /**
+   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
+   * destination (`<plugin>:<destination>`).
+   */
+  peer: string;
+  libraries: FetchedLibrary[];
+  snapshots: number;
+  /** Stored files copied, and the store had already. */
+  files: number;
+  bytes: number;
+  present: number;
+  dry_run: boolean;
+};
+
+export type FetchedLibrary = {
+  /** Its name in this store. */
+  name: string;
+  /** Its name on the other computer, when that was taken here. */
+  was?: string | null;
+  id: string;
+  /** The other computer's latest snapshot. */
+  head: Hash | null;
+  outcome: LibraryOutcome;
+};
+
+export type LibraryOutcome =
+  /** This store didn't have it. */
+  | "added"
+  /** It moved to the other computer's newer latest snapshot. */
+  | "updated"
+  /** This store was as new, or newer. */
+  | "up_to_date"
+  /** Both changed: this store keeps its latest, and has the other's beside it. */
+  | "diverged"
+  /**
+   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
+   * missing from its store): the library is left as it was.
+   */
+  | "unavailable";
 
 export type EditPlan = {
   drive: string;
@@ -5333,8 +5420,9 @@ export type CheckItem = {
   /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
   paths?: string[];
   /**
-   * What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
-   * confirmed as any is.
+   * What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its
+   * check says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching
+   * artwork for its tracks without any).
    */
   fix?: Fix | null;
 };
@@ -5349,13 +5437,101 @@ export type Level =
   | "problem";
 
 /**
- * The plugin operation that fixes a finding, with its params: planned and confirmed as any is
- * (`plugins.op.plan`, with the drive it was found on).
+ * What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a
+ * plugin's operation (what a plugin's check says), or one of the host's own flows (what its own
+ * checks say), each as the sidecar's `check` answers it.
  */
-export type Fix = {
+export type Fix = PluginFix | HostAction;
+
+/** The plugin operation that fixes a finding, with its params (`plugins.op.plan`). */
+export type PluginFix = {
   plugin: string;
   operation: string;
   params: unknown;
+};
+
+/**
+ * One of the host's own flows, started with these params filled in, and planned and confirmed as
+ * when the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own
+ * contributions alone so it never starts another plugin's work, and what fixes one of the host's
+ * own check findings. `pull` and `sync` are only ever the host's: no plugin suggests them.
+ */
+export type HostAction =
+  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
+  | {
+    name: "art.fetch";
+    params: FetchAction;
+  }
+  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
+  | {
+    name: "track.fetch";
+    params: FetchAction;
+  }
+  /** Export in one of its formats, to where the user picks. */
+  | {
+    name: "export";
+    params: ExportAction;
+  }
+  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
+  | {
+    name: "analyze";
+    params: AnalyzeAction;
+  }
+  /** Save a drive in the store as a snapshot (`locallibrary pull`). */
+  | {
+    name: "pull";
+    params: DriveAction;
+  }
+  /** Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`). */
+  | {
+    name: "sync";
+    params: DriveAction;
+  };
+
+/** `art.fetch`'s and `track.fetch`'s params. */
+export type FetchAction = {
+  /** The drive, by id or name (as events name it). */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+  /**
+   * Only this provider of the plugin's [default: each of its providers of the kind; for the
+   * host's fix, every plugin's].
+   */
+  provider?: string | null;
+};
+
+/**
+ * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
+ * `export/write`'s source names them) and its options. Where to is the user's to pick.
+ */
+export type ExportAction = {
+  /** One of the plugin's exporters, by format. */
+  format: string;
+  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
+  drive?: string | null;
+  /** A set exporter's set. */
+  set?: string | null;
+  /** A mix exporter's mix. */
+  mix?: string | null;
+  /** As the exporter's `options` schema says. */
+  options?: { [key: string]: unknown };
+};
+
+/** `analyze`'s params. */
+export type AnalyzeAction = {
+  /** One of the plugin's analyzers. */
+  analyzer: string;
+  /** The drive, by id or name. */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+};
+
+/** `pull`'s and `sync`'s params. */
+export type DriveAction = {
+  /** The drive, by id or name. */
+  drive: string;
 };
 
 export type OrphanPlan = {
@@ -6820,6 +6996,11 @@ export type Play = {
   track_end: number;
   /** Playback speed: 1.0 as recorded, 1.03 is +3%. */
   tempo: number;
+  /**
+   * The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+   * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+   */
+  speed_range?: [number, number] | null;
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -6991,6 +7172,8 @@ export type ExportPlay = {
   trackEnd: number;
   /** Playback speed: 1.03 is +3%. */
   tempo: number;
+  /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
+  speedRange?: [number, number] | null;
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7668,6 +7851,7 @@ export type ProvisionPlan = {
   steps: string[];
   /** The format's plan, when formatting (its `identity` confirms the disk on apply). */
   format: FormatPlan | null;
+  /** Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both). */
   warnings: string[];
 };
 
@@ -7859,13 +8043,19 @@ export type CollectionExportPlan = {
    */
   unsaved: Unsaved | null;
   /**
-   * Space the export needs on the target: the files it copies, its new databases and the
-   * backup of what it replaces.
+   * Space the export needs on the target: the files it copies, its new databases, the backup
+   * of what it replaces, and the online-only files it downloads when their cloud folder is on
+   * the same disk.
    */
   needed_bytes: number;
   free_space: number | null;
   fits: boolean;
   warnings: string[];
+  /**
+   * Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),
+   * which `smart apply` keeps up to date: kept in the store once the export is applied.
+   */
+  smart: SmartPlaylist[];
 };
 
 export type CollectionExportReport = {
@@ -8679,47 +8869,6 @@ export type Section = {
   view: View;
 };
 
-export type FetchReport = {
-  /**
-   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
-   * destination (`<plugin>:<destination>`).
-   */
-  peer: string;
-  libraries: FetchedLibrary[];
-  snapshots: number;
-  /** Stored files copied, and the store had already. */
-  files: number;
-  bytes: number;
-  present: number;
-  dry_run: boolean;
-};
-
-export type FetchedLibrary = {
-  /** Its name in this store. */
-  name: string;
-  /** Its name on the other computer, when that was taken here. */
-  was?: string | null;
-  id: string;
-  /** The other computer's latest snapshot. */
-  head: Hash | null;
-  outcome: LibraryOutcome;
-};
-
-export type LibraryOutcome =
-  /** This store didn't have it. */
-  | "added"
-  /** It moved to the other computer's newer latest snapshot. */
-  | "updated"
-  /** This store was as new, or newer. */
-  | "up_to_date"
-  /** Both changed: this store keeps its latest, and has the other's beside it. */
-  | "diverged"
-  /**
-   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
-   * missing from its store): the library is left as it was.
-   */
-  | "unavailable";
-
 /** A set a plugin will publish, as its dry run said. */
 export type SetPublish = {
   plugin: string;
@@ -9213,70 +9362,6 @@ export type Suggested = {
 };
 
 /**
- * One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it
- * with these params filled in, and it's planned and confirmed as when the user starts it. Each is
- * on the plugin's own contributions alone, so it never starts another plugin's work.
- */
-export type HostAction =
-  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
-  | {
-    name: "art.fetch";
-    params: FetchAction;
-  }
-  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
-  | {
-    name: "track.fetch";
-    params: FetchAction;
-  }
-  /** Export in one of its formats, to where the user picks. */
-  | {
-    name: "export";
-    params: ExportAction;
-  }
-  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
-  | {
-    name: "analyze";
-    params: AnalyzeAction;
-  };
-
-/** `art.fetch`'s and `track.fetch`'s params. */
-export type FetchAction = {
-  /** The drive, by id or name (as events name it). */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
-  /** Only this provider of the plugin's [default: each of its providers of the kind]. */
-  provider?: string | null;
-};
-
-/**
- * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
- * `export/write`'s source names them) and its options. Where to is the user's to pick.
- */
-export type ExportAction = {
-  /** One of the plugin's exporters, by format. */
-  format: string;
-  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
-  drive?: string | null;
-  /** A set exporter's set. */
-  set?: string | null;
-  /** A mix exporter's mix. */
-  mix?: string | null;
-  /** As the exporter's `options` schema says. */
-  options?: { [key: string]: unknown };
-};
-
-/** `analyze`'s params. */
-export type AnalyzeAction = {
-  /** One of the plugin's analyzers. */
-  analyzer: string;
-  /** The drive, by id or name. */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
-};
-
-/**
  * A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of
  * its operations (`operation`) or one of the host's actions (`action`) on its own contributions.
  * The front end offers to start it, and the user confirms it as when they start it themselves.
@@ -9288,6 +9373,39 @@ export type PluginNotice = {
   operation?: Suggested;
   action?: HostAction;
 };
+
+/** A `serve` notification's parameters: what `store.serve` is doing. */
+export type ServeParams = {
+  /** The `store.serve` request it's about. */
+  id: RequestId | null;
+  event: ServeEvent;
+};
+
+/** What serving is doing, as it happens. */
+export type ServeEvent =
+  /** Serving: give `code` to the other computer. */
+  | {
+    event: "ready";
+    code: string;
+  }
+  /** A computer with the code connected (`peer`: its key, shortened). */
+  | {
+    event: "connected";
+    peer: string;
+  }
+  /** A computer without the right code was turned away. */
+  | {
+    event: "refused";
+    peer: string;
+  }
+  /** A computer that fetched disconnected, having been sent this much. */
+  | {
+    event: "done";
+    peer: string;
+    snapshots: number;
+    files: number;
+    bytes: number;
+  };
 
 /** An error response's `error.data`: what a front end can act on without reading the message. */
 export type ErrorData = {
@@ -9584,7 +9702,13 @@ export interface Methods {
   /** immediate method */
   "snapshot.label": { params: LabelRequest & WriteOptions; result: SnapshotLabel };
   /** read method */
+  "snapshot.library": { params: SnapshotLibraryRequest; result: LibraryPage };
+  /** read method */
   "library.list": { params: NoParams; result: LibraryListing[] };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "store.serve": { params: ServeOptions; result: ServeReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "store.fetch": { params: FetchRequest & WriteOptions; result: FetchReport };
   /** immediate method */
   "library.rename": { params: RenameLibrary & WriteOptions; result: LibraryRecord };
   /** plan method; paired with `edit.apply`; can delete or overwrite something */
@@ -10039,4 +10163,5 @@ export type Result<M extends MethodName> = Methods[M]["result"];
 export interface Notifications {
   progress: ProgressParams;
   event: Notice;
+  serve: ServeParams;
 }

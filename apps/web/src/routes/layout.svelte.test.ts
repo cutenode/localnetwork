@@ -1,7 +1,7 @@
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { draftKey } from '#lib/form-draft.svelte.ts';
+import { draftKey, SIGNED_OUT_COOKIE } from '#lib/form-draft.svelte.ts';
 import type { Viewer } from '#lib/types.ts';
 import Layout from './+layout.svelte';
 
@@ -14,40 +14,35 @@ const viewer: Viewer = {
 	spacesCapable: true
 };
 
-// A page with the dashboard's own sign-out form beside an ordinary one.
-const children = createRawSnippet(() => ({
-	render: () =>
-		'<div><form method="POST" action="/logout" id="sign-out"></form><form method="POST" action="?/save" id="save"></form></div>'
-}));
+const children = createRawSnippet(() => ({ render: () => '<div></div>' }));
 
 const mine = draftKey(viewer, 'project:new')!;
 
 const theirs = draftKey({ did: 'did:plc:neon' }, 'project:new')!;
 
-// The browser would leave the page on submit; the layout's handler has run by the time this one does.
-const stay = (event: SubmitEvent) => event.preventDefault();
-
-const submit = (id: string) => document.querySelector<HTMLFormElement>(`#${id}`)!.requestSubmit();
+const signedOut = () => document.cookie.includes(`${SIGNED_OUT_COOKIE}=`);
 
 beforeEach(() => {
-	window.addEventListener('submit', stay);
-
 	for (const key of [mine, theirs]) localStorage.setItem(key, JSON.stringify({ savedAt: '', base: '', values: {} }));
 });
 
 afterEach(() => {
-	window.removeEventListener('submit', stay);
-
 	for (const key of [mine, theirs]) localStorage.removeItem(key);
+	document.cookie = `${SIGNED_OUT_COOKIE}=; Max-Age=0; Path=/`;
 });
 
-it("drops the signed-in account's drafts when it signs out, and only then", async () => {
-	await render(Layout, { params: {}, data: { viewer, pendingRequests: 0 }, children });
+it('drops the drafts of the accounts the sign-out response names on the next page load, and only theirs', async () => {
+	// As /logout sets it: encoded, and naming each account signed out since the app's scripts last ran.
+	document.cookie = `${SIGNED_OUT_COOKIE}=${encodeURIComponent(`did:plc:other ${viewer.did}`)}; Path=/`;
+	await render(Layout, { params: {}, data: { viewer: null, pendingRequests: 0 }, children });
 
-	submit('save');
-	expect([localStorage.getItem(mine), localStorage.getItem(theirs)]).not.toContain(null);
-
-	submit('sign-out');
 	expect(localStorage.getItem(mine)).toBeNull();
 	expect(localStorage.getItem(theirs)).not.toBeNull();
+	expect(signedOut()).toBe(false);
+});
+
+it('keeps drafts when nobody signed out, like a session that needs signing in again', async () => {
+	await render(Layout, { params: {}, data: { viewer: null, pendingRequests: 0 }, children });
+
+	expect([localStorage.getItem(mine), localStorage.getItem(theirs)]).not.toContain(null);
 });

@@ -36,7 +36,8 @@ fn every_history_list_is_one_session_naming_its_drives(tc: TestCase) {
         }
         drives.push(Device::open_export(&root).unwrap());
     }
-    let gathered = session::gather_from(None, &drives, &SetBook::default());
+    let histories: Vec<plays::DriveHistory> = drives.iter().map(plays::DriveHistory::read).collect();
+    let gathered = session::gather_from(None, &histories, &SetBook::default());
 
     // Each drive's own lists, as the drive reads them.
     let mut want: Vec<(String, Vec<String>)> = Vec::new();

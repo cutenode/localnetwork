@@ -26,6 +26,19 @@ describe('ensureRootSpaces', () => {
 		for (const space of spaces) expect(await t.audit.list({ action: 'system.space', subject: space })).toHaveLength(2);
 	});
 
+	it('closes an industry space that any signed-in account could read to staff only', async () => {
+		const industry = t.net.spaces.get(t.spaces.industry)!;
+		industry.readPolicy = { $type: 'com.atproto.simplespace.defs#publicPolicy' };
+
+		await ensureRootSpaces(t.core);
+
+		expect(industry.readPolicy.$type).toBe('com.atproto.simplespace.defs#memberListPolicy');
+		expect(await t.audit.list({ action: 'system.space', subject: t.spaces.industry })).toMatchObject([
+			{ summary: 'Corrected the industry space policies' },
+			{ summary: 'Created the industry space' }
+		]);
+	});
+
 	it("watches the root's performer, party and venue spaces again", async () => {
 		const actor = await t.viewer('did:plc:ada');
 		const spaces = [await t.sharedSpaces.create(actor, 'performer'), await t.sharedSpaces.create(actor, 'venue')];

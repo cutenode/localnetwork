@@ -136,6 +136,18 @@ pub fn marker(root: &Path) -> Result<Option<CopyRecord>> {
     fsutil::read_json_opt(&root.join("copy.json"))
 }
 
+/// What to say before a change is made to the store at `root` when it's a copy `store copy`
+/// made: the next copy to it refuses what changed unless forced. `None` for any other store.
+pub fn written_copy_warning(root: &Path) -> Option<String> {
+    let copy = marker(root).ok()??;
+    Some(format!(
+        "{} is a copy of the store at {}: a change written to it makes the next `store copy` there refuse unless \
+         forced (--force)",
+        root.display(),
+        copy.from.display()
+    ))
+}
+
 /// The copies a store has made, most recent first.
 pub fn copies(store: &Store) -> Result<Vec<CopyStatus>> {
     let id = store.id()?;

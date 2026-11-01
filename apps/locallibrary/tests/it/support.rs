@@ -245,6 +245,7 @@ impl Env {
 
     /// The commands find Local Network's directory and website at `url` (a pretend data server,
     /// which stands in for both), not nowhere.
+    #[cfg(feature = "account")]
     pub fn with_directory(mut self, url: &str) -> Env {
         self.directory = Some(url.to_string());
         self
@@ -299,7 +300,7 @@ impl Env {
 
     /// `args` run with a terminal for stdin, on which `typed` was typed ahead (stdout and stderr
     /// piped, so it isn't a terminal for output).
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "account"))]
     pub fn typed_ahead(&self, args: &[&str], typed: &str) -> Run {
         let (mut keyboard, stdin) = terminal();
         keyboard.write_all(typed.as_bytes()).unwrap();

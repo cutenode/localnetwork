@@ -20,6 +20,9 @@
 
 	const preset = $derived(presetFor(data.epk.record.access));
 
+	// Bound, so a handle typed before the page hydrated stays (see formFields).
+	let handle = $derived(form && 'values' in form ? (form.values?.handle ?? '') : '');
+
 	const VIA = { auto: 'Let in automatically', approved: 'Approved', invited: 'Added by a manager' } as const;
 </script>
 
@@ -93,7 +96,7 @@
 		<form method="POST" action="?/invite" class="flex flex-wrap items-end gap-2" use:enhance>
 			<div class="flex min-w-60 flex-1 flex-col gap-1.5">
 				<label for="handle" class="text-label font-medium text-fg-soft">Add someone</label>
-				<input id="handle" name="handle" placeholder="promoter.bsky.social" class={control} value={form && 'values' in form ? (form.values?.handle ?? '') : ''} />
+				<input id="handle" name="handle" placeholder="promoter.bsky.social" class={control} bind:value={handle} />
 			</div>
 			<button class="btn-secondary">Add</button>
 		</form>

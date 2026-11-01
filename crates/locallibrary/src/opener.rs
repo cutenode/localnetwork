@@ -1,28 +1,38 @@
 //! Handing a web page to the default browser, or a file to the app the system opens it with.
 //!
-//! Only `https:` addresses and files that exist are handed over, as a single argument and never
-//! through a shell, so nothing else can be started this way: no other URL scheme's handler, no
-//! command-line option, no shell command.
+//! Only public `https:` addresses and files that exist are handed over, as a single argument and
+//! never through a shell, so nothing else can be started this way: no other URL scheme's handler,
+//! no command-line option, no shell command, nothing on this computer or its local network.
 
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::error::IoContext;
+use crate::export::one_line;
 use crate::{Error, Result};
 
-/// `url`, when it's an `https:` address the browser may be given.
-pub fn web_address(url: &str) -> Result<&str> {
-    let https = url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) && url.len() > 8;
-    if !https || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
-        return Err(Error::invalid(format!("only https:// addresses are opened in the browser, not {url:?}")));
+/// `url` as the browser may be given it: a public `https:` address (`net::public`)
+/// without a user name or password, written out as parsed. One with a space, a control character
+/// or a quote is refused rather than tidied, as the parser would drop some of those silently.
+pub fn web_address(url: &str) -> Result<String> {
+    let refused = |why: String| {
+        Error::invalid(format!("only https:// addresses on the internet are opened in the browser: {why}"))
+    };
+    if url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return Err(refused(format!("{} has a space, a control character or a quote", one_line(url))));
     }
-    Ok(url)
+    let parsed = crate::net::public(url).map_err(refused)?;
+    // Not shown: it may be a password.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(refused("the address has a user name or password".into()));
+    }
+    Ok(parsed.into())
 }
 
-/// Open `url`, an `https:` address, in the default browser.
+/// Open `url`, a public `https:` address, in the default browser.
 pub fn open_url(url: &str) -> Result<()> {
-    launch(OsStr::new(web_address(url)?))
+    launch(OsStr::new(&web_address(url)?))
 }
 
 /// Open the file at `path` with the app the system opens it with.

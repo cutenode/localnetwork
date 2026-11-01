@@ -8,6 +8,7 @@
 	import Tag from '#lib/ui/Tag.svelte';
 	import SetPlayer from './mix/SetPlayer.svelte';
 	import ArtistLinks from './supports/ArtistLinks.svelte';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * Sets a DJ played, newest first, each with its tracklist folded away under it. A set with a recording plays
@@ -64,7 +65,7 @@
 					</p>
 					{#if set.links?.length}
 						<p class="m-0 flex flex-wrap gap-x-4 text-small">
-							{#each set.links as link (link.uri)}<a class="link inline-flex items-center gap-1" href={link.uri} rel="noopener noreferrer nofollow" target="_blank">{link.name ?? 'Listen'}<ExternalLink class="size-3" /></a>{/each}
+							{#each set.links as link (link.uri)}<a class="link inline-flex items-center gap-1" href={webHref(link.uri)} rel="noopener noreferrer nofollow" target="_blank">{link.name ?? 'Listen'}<ExternalLink class="size-3" /></a>{/each}
 						</p>
 					{/if}
 				</div>
@@ -88,8 +89,15 @@
 				<SetPlayer bind:this={player} bind:current id="set-player-{n}" load={load(set.uri)} title={name(set)} tracks={playerTracks(set)} />
 			{/if}
 			{#if set.tracks.length}
-				<!-- Open while the player is, so the tracklist can follow along. -->
-				<details class="group border-t border-line pt-2 print:hidden" open={isOpen || undefined}>
+				<!-- Open while the player is, so the tracklist can follow along. Not `open={isOpen}`: hydrating applies that and closes a tracklist someone opened before the script ran. -->
+				<details
+					class="group border-t border-line pt-2 print:hidden"
+					{@attach (details) => {
+						if (!isOpen) return;
+						details.open = true;
+						return () => (details.open = false);
+					}}
+				>
 					<summary class="cursor-pointer text-small text-fg-muted marker:text-fg-subtle hover:text-fg">Tracklist</summary>
 					<ol class="m-0 mt-2 list-none p-0">
 						{#each set.tracks as track, i (i)}

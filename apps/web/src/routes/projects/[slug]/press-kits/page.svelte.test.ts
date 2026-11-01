@@ -118,3 +118,29 @@ it('lists the press kits its managers publish, and links a manager to manage the
 	await expect.element(page.getByRole('link', { name: 'New press kit' })).not.toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Send inquiry' })).not.toBeInTheDocument();
 });
+
+it('holds one card of room for each press kit the project has while they load, and none when it has none', async () => {
+	const loading = new Promise<never>(() => {});
+
+	const { unmount } = await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...data, project: { ...project, counts: { pressKits: 3, upcomingShows: 0 } }, epks: loading },
+		form: null
+	});
+
+	const placeholder = page.getByRole('status', { name: 'Loading press kits' });
+	await expect.element(placeholder).toBeInTheDocument();
+	expect(placeholder.element().children).toHaveLength(3);
+	await unmount();
+
+	await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...data, project: { ...project, counts: { pressKits: 0, upcomingShows: 0 } }, epks: loading },
+		form: null
+	});
+
+	await expect
+		.element(page.getByText('None published yet. Below is one put together from the profile.'))
+		.toBeInTheDocument();
+	await expect.element(page.getByRole('status', { name: 'Loading press kits' })).not.toBeInTheDocument();
+});

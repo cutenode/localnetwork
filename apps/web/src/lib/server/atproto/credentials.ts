@@ -116,7 +116,6 @@ export class SpaceCredentialManager {
 			source: () => Promise<CredentialSource>;
 			identity: IdentityResolver;
 			logger: Logger;
-			fetch?: typeof fetch;
 		}
 	) {}
 
@@ -161,17 +160,20 @@ export class SpaceCredentialManager {
 		}
 
 		// An authority's PDS is its space host.
-		const host = await this.deps.identity.safePds(ref.authority);
+		const host = (await this.deps.identity.resolve(ref.authority)).pds;
 		// The credential is bound to this key (its `cnf.kid`), which signs every request it authorizes.
 		const key = await P256Keypair.create();
 
-		const response = await (this.deps.fetch ?? fetch)(new URL('/xrpc/com.atproto.space.getSpaceCredential', host), {
-			method: 'POST',
-			redirect: 'error',
-			headers: { 'content-type': 'application/json', accept: 'application/json' },
-			body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
-			signal: AbortSignal.timeout(15_000)
-		});
+		const response = await this.deps.identity.serviceFetch(
+			new URL('/xrpc/com.atproto.space.getSpaceCredential', host),
+			{
+				method: 'POST',
+				redirect: 'error',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({ space, credentialKid: key.did(), delegationToken }),
+				signal: AbortSignal.timeout(15_000)
+			}
+		);
 
 		const body = await readBody(response);
 
@@ -227,12 +229,10 @@ export class SpaceCredentialManager {
 		body: unknown;
 		schema: z.ZodType<T>;
 	}): Promise<T> {
-		await this.deps.identity.assertSafeEndpoint(input.service);
-
 		return this.retryRejected(input.space, async () => {
 			const credential = await this.get(input.space);
 
-			const response = await (this.deps.fetch ?? fetch)(new URL(`/xrpc/${input.nsid}`, input.service), {
+			const response = await this.deps.identity.serviceFetch(new URL(`/xrpc/${input.nsid}`, input.service), {
 				method: 'POST',
 				redirect: 'error',
 				headers: { ...(await credential.headers(input.audience)), 'content-type': 'application/json' },
@@ -250,8 +250,6 @@ export class SpaceCredentialManager {
 
 	/** Like {@link query} but returns the raw response (for blob downloads). */
 	async request(input: RequestInput): Promise<Response> {
-		await this.deps.identity.assertSafeEndpoint(input.service);
-
 		return this.retryRejected(input.space, () => this.send(input, {}));
 	}
 
@@ -261,8 +259,6 @@ export class SpaceCredentialManager {
 	 * and returns what checking it needs.
 	 */
 	async macRequest(input: RequestInput & { mac: MacRequest }): Promise<{ response: Response; macParams: MacParams }> {
-		await this.deps.identity.assertSafeEndpoint(input.service);
-
 		return this.retryRejected(input.space, async () => {
 			// A fresh ephemeral key for every request, retries included, so no two responses share a secret.
 			const { keyShare, sharedSecret } = await encapsulate(input.mac.kemKey);
@@ -352,7 +348,7 @@ export class SpaceCredentialManager {
 			if (value !== undefined) url.searchParams.set(name, String(value));
 		}
 
-		const response = await (this.deps.fetch ?? fetch)(url, {
+		const response = await this.deps.identity.serviceFetch(url, {
 			redirect: 'error',
 			headers: { ...(await credential.headers(input.audience)), ...headers },
 			signal: AbortSignal.timeout(30_000)

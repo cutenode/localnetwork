@@ -1,3 +1,5 @@
+import { Agent } from '@atproto/api';
+import { isRedirect } from '@sveltejs/kit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../scripts/seed-data.ts';
 import { ACCESS_PRESETS, type EpkFields } from '../../src/lib/epk.ts';
@@ -12,6 +14,7 @@ import {
 	SPACE_TYPE,
 	VERIFICATION
 } from '../../src/lib/nsid.ts';
+import { grantsAll, SCOPES } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, NotFoundError, ReauthError, UserError } from '../../src/lib/server/core.ts';
@@ -28,6 +31,7 @@ import { load as adminRequest } from '../../src/routes/admin/requests/[rkey]/+pa
 import { load as adminRequests } from '../../src/routes/admin/requests/+page.server.ts';
 import { actions as proposeChanges } from '../../src/routes/dashboard/projects/[slug]/profile/+page.server.ts';
 import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
+import { GET as oauthCallback } from '../../src/routes/oauth/callback/+server.ts';
 import { POST as requestIndex } from '../../src/routes/xrpc/computer.localnetwork.directory.requestIndex/+server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
@@ -920,7 +924,7 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.bugReports.canPost(sol.did)).toBe(false);
 		await expect(net.app.bugReports.post(sol.did, report)).rejects.toThrow('Missing required scope');
 		// Approving it later keeps everything else they'd approved.
-		await net.signInWithOAuth('sol', undefined, { extra: net.app.oauth.scopes.bugReport });
+		await net.signInWithOAuth('sol', undefined, { optional: 'bugReport' });
 		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
 		expect((await net.viewer('sol')).spacesCapable).toBe(true);
 
@@ -936,6 +940,67 @@ describe('Local Network on a real atproto spaces network', () => {
 		const { data: space } = await read(net.rootDid, USERINPUT.space, net.app.config.userinputSpace!.split('/').at(-1)!);
 
 		expect(data.value).toMatchObject({ ...report, tags: ['bug', 'web'], space: { uri: space.uri, cid: space.cid } });
+	});
+
+	it('reads the email address only once someone opts in, and keeps every approval across sign-ins', async () => {
+		const sol = net.user('sol');
+
+		const holdsEmail = async () =>
+			grantsAll((await net.app.accounts.get(sol.did))?.grantedScope, SCOPES.email, sol.did, net.rootDid);
+
+		const email = async () => {
+			const session = await net.app.oauth.restore(sol.did);
+
+			return (await new Agent(session!).com.atproto.server.getSession()).data.email;
+		};
+
+		await net.signInWithOAuth('sol');
+		expect(await holdsEmail()).toBe(false);
+		expect(await email()).toBeUndefined();
+
+		await net.signInWithOAuth('sol', undefined, { optional: 'email' });
+		expect(await holdsEmail()).toBe(true);
+		expect(await email()).toBe('sol@example.test');
+
+		// As the sign-in callback does for someone turning email on. The dev PDS never confirms an address.
+		const optIn = await net.app.notificationChannels.onSignIn({
+			did: sol.did,
+			scope: (await net.app.accounts.get(sol.did))?.grantedScope ?? '',
+			optIn: true,
+			session: async () =>
+				(await new Agent((await net.app.oauth.restore(sol.did))!).com.atproto.server.getSession()).data
+		});
+
+		expect(optIn).toBe('read');
+		expect(await net.app.notificationChannels.get(sol.did, 'email')).toMatchObject({
+			address: 'sol@example.test',
+			status: 'paused',
+			pausedReason: 'email_unconfirmed'
+		});
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
+		expect((await net.viewer('sol')).spacesCapable).toBe(true);
+
+		// A later sign-in, on another device say, asks for both again.
+		await net.signInWithOAuth('sol');
+		expect(await holdsEmail()).toBe(true);
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
+	});
+
+	it('brings someone who turns down sharing their email back to the settings, and anyone else to sign-in', async () => {
+		const callback = async (url: URL) => {
+			try {
+				await oauthCallback({ url, locals: { app: net.app, log: silentLogger } });
+			} catch (thrown) {
+				return isRedirect(thrown) ? thrown.location : thrown;
+			}
+		};
+
+		const state = JSON.stringify({ next: '/dashboard/inbox/settings', intent: 'email' });
+		const declined = await net.declineOAuth('sol', { optional: 'email', state });
+		expect(declined.searchParams.get('error')).toBe('access_denied');
+		expect(await callback(declined)).toBe('/dashboard/inbox/settings?email=declined');
+
+		expect(await callback(await net.declineOAuth('sol'))).toBe('/login?error=denied');
 	});
 
 	it('files on behalf of accounts whose PDS lacks spaces support, and says so in the audit log', async () => {

@@ -90,7 +90,7 @@ fn lists_the_rules_in_the_store() {
         limit: Some(20),
         drives: vec![uuid::Uuid::new_v4()],
     };
-    all.set(rule).unwrap();
+    all.set(rule, &Default::default()).unwrap();
     store.save_smart_playlists(&all).unwrap();
     let lines = rules(&mut app);
     assert_eq!(lines[..2], ["Smart/Peak", "bpm:>=128  ·  sorted by -bpm  ·  at most 20  ·  some libraries only"]);

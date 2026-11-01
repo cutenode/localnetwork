@@ -127,7 +127,7 @@ impl Plugins {
         }
         let unnamed = set.unnamed(hide, &ProfilePrefs::load(store)?)?;
         let (details, tracklist) = published(set, &unnamed);
-        let (context, _) = slot.context(loclib_plugin::Context::default(), Some(store))?;
+        let (context, ..) = slot.context(loclib_plugin::Context::default(), Some(store))?;
         let mut publish =
             PublishSet { destination: destination.clone(), set: details, recording, tracklist, dry_run: true, context };
         let Published { url, warnings, .. } = slot.call(method::SET_PUBLISH, &publish, Some(store), ctx)?;

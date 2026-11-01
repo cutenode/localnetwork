@@ -28,12 +28,13 @@
 					},
 					"sort": {
 						"type": "string",
+						"maxLength": 32,
 						"knownValues": ["date", "distance"],
 						"default": "date",
 						"description": "distance needs latE6 and lngE6."
 					},
 					"limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
-					"cursor": { "type": "string" }
+					"cursor": { "type": "string", "maxLength": 512 }
 				}
 			},
 			"output": {
@@ -46,7 +47,7 @@
 							"type": "array",
 							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#showView" }
 						},
-						"cursor": { "type": "string" }
+						"cursor": { "type": "string", "maxLength": 512 }
 					}
 				}
 			}

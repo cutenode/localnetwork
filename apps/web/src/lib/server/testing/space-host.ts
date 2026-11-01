@@ -47,7 +47,10 @@ const xrpcError = (status: number, error: string) => Response.json({ error }, { 
 
 const isSpaceRef = (value: string): value is Commit['space'] => parseSpaceUri(value) !== null;
 
-/** Resolves every account to the host and the KEM key it holds for them, as a DID document cache would. */
+/**
+ * Resolves every account to the host and the KEM key it holds for them, as a DID document cache would, and sends
+ * every request for a service to the host.
+ */
 class HostIdentity extends IdentityResolver {
 	/** KEM keys cached from before a rotation, served until a forced refresh. */
 	readonly staleKemKeys = new Map<string, string>();
@@ -57,7 +60,13 @@ class HostIdentity extends IdentityResolver {
 	readonly refreshed: string[] = [];
 
 	constructor(private readonly host: FakeSpaceHost) {
-		super({ plcUrl: 'https://plc.test', allowPrivateNetwork: true, logger: silentLogger });
+		super({
+			plcUrl: 'https://plc.test',
+			allowPrivateNetwork: true,
+			logger: silentLogger,
+			// The host's own fetch is a field set after this one.
+			fetch: (input, init) => host.fetch(input, init)
+		});
 	}
 
 	override async resolve(did: string, forceRefresh = false): Promise<ResolvedIdentity> {

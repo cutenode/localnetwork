@@ -17,6 +17,7 @@ fn report() -> MixReport {
         track_start: 2.0,
         track_end: 130.0,
         tempo: 1.0234567,
+        speed_range: None,
         played_bpm: Some(131.0),
         key_lock: Some(true),
         semitones: 0.0,
@@ -177,6 +178,7 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
             color: hot_cue.map(|h| [h, 0, 255]),
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         })
         .collect();
     TrackAnalysis {
@@ -208,6 +210,10 @@ fn exports_count_what_the_report_found(tc: TestCase) {
                 start,
                 end: start + tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0)),
                 tempo: tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16)),
+                speed_range: tc.draw(gs::optional(gs::tuples!(
+                    gs::floats::<f64>().min_value(0.84).max_value(1.0),
+                    gs::floats::<f64>().min_value(1.0).max_value(1.16)
+                ))),
                 presence: tc.draw(gs::vecs(gs::floats::<f32>().min_value(-0.5).max_value(1.5)).max_size(20)),
                 ..base.clone()
             };
@@ -269,6 +275,9 @@ fn exports_count_what_the_report_found(tc: TestCase) {
     let hundredth = |a: f64, b: f64| (a - b).abs() <= 0.005 + 1e-9;
     for (x, p) in e.plays.iter().zip(&r.plays) {
         assert!(hundredth(x.start, p.start) && hundredth(x.end, p.end) && (x.tempo - p.tempo).abs() <= 5e-5);
+        let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() <= 5e-5 && (a.1 - b.1).abs() <= 5e-5;
+        assert!(x.speed_range.is_some() == p.speed_range.is_some(), "{:?}", p.speed_range);
+        assert!(x.speed_range.zip(p.speed_range).is_none_or(|(a, b)| near(a, b)), "{:?}", p.speed_range);
         let presence: Vec<u8> = p.presence.iter().map(|v| (v.clamp(0.0, 1.0) * 100.0).round() as u8).collect();
         assert_eq!(x.presence, presence);
         let named = may_name(&prefs, &p.track);

@@ -14,13 +14,14 @@ const open = { $type: 'com.atproto.simplespace.defs#open' } as const;
  * - audit: anyone may write (their own audit entries are tracked); only staff read.
  * - moderation: anyone may file requests; only staff read.
  * - staff: only the root writes; staff read.
- * - industry: only the root writes; any signed-in atproto account may read.
+ * - industry: only the root writes; only staff read, so everyone else sees booking details through the app, in a press
+ *   kit they were let into, which leaves a receipt.
  */
 export const ROOT_SPACE_POLICIES: Record<keyof Core['spaces'], SimpleSpaceConfig> = {
 	audit: { readPolicy: memberList, writePolicy: publicPolicy, appAccess: open },
 	moderation: { readPolicy: memberList, writePolicy: publicPolicy, appAccess: open },
 	staff: { readPolicy: memberList, writePolicy: memberList, appAccess: open },
-	industry: { readPolicy: publicPolicy, writePolicy: memberList, appAccess: open }
+	industry: { readPolicy: memberList, writePolicy: memberList, appAccess: open }
 };
 
 /** Each root space's name and URI, with the policies it should have. */

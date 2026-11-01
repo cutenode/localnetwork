@@ -28,13 +28,19 @@ fn started(f: &Fixture, name: &str) -> usize {
 
 /// A service is a switch among its plugin's settings, off until it's turned on; turned on, it
 /// runs, telling the user, and keeps its plugin from being stopped as idle until it's turned
-/// off again.
+/// off again. After the switches, each command's and operation's key in the player is a setting
+/// too, text and unset until it's set. Hooks are given neither.
 #[test]
 fn a_service_runs_once_its_turned_on_and_keeps_its_plugin() {
     let options = Options { idle: Duration::from_millis(100), ..Options::default() };
     let (f, notices) = service("beat", options);
     let keys: Vec<String> = f.plugins.setting_list("echo").unwrap().into_iter().map(|s| s.key).collect();
-    assert_eq!(keys, ["greeting", "services.beat"]);
+    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.wait", "keys.playlist"];
+    assert_eq!(keys, [&["greeting", "services.beat"][..], &commands].concat());
+    let key = f.plugins.set_setting("echo", &f.store, "keys.titles", Some(json!("%"))).unwrap();
+    assert_eq!((key.get("keys.titles"), key.get("keys.steps")), (Some(&json!("%")), None));
+    let e = f.plugins.set_setting("echo", &f.store, "keys.titles", Some(json!(1))).unwrap_err();
+    assert_eq!(e.to_string(), "keys.titles is a string, not 1");
     assert_eq!(f.plugins.settings("echo", Some(&f.store)).unwrap()["services.beat"], false);
     f.plugins.run_services(Some(&f.store));
     assert!(!f.plugins.service_running("echo", "beat") && !f.plugins.is_running("echo"), "it's off");

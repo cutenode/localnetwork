@@ -48,32 +48,39 @@ impl Requests {
         tokio::runtime::Builder::new_current_thread().enable_all().build().map(Requests)
     }
 
-    /// What the future `f` makes gives, or `None` once `cancel` is cancelled first (checked every
-    /// [`CHECK_EVERY`]). `f` is called on the runtime: reqwest starts a request's timer there.
+    /// What the future `f` makes gives, or `None` once `cancel` is cancelled (checked every
+    /// [`CHECK_EVERY`], and once `f` is done: a body [`streamed`] fails as soon as it's
+    /// cancelled). `f` is called on the runtime: reqwest starts a request's timer there.
     pub(crate) fn run<F: Future>(&self, f: impl FnOnce() -> F, cancel: &CancelToken) -> Option<F::Output> {
         let cancelled = async {
             while !cancel.is_cancelled() {
                 tokio::time::sleep(CHECK_EVERY).await;
             }
         };
-        self.0.block_on(async {
+        let out = self.0.block_on(async {
             tokio::select! {
                 out = f() => Some(out),
                 () = cancelled => None,
             }
-        })
+        });
+        out.filter(|_| !cancel.is_cancelled())
     }
 }
 
 /// `reader` as a request's body, read a chunk at a time as it's sent, off the runtime's own
-/// threads (a file's reads block). Its length is the request's `Content-Length` to say.
-pub(crate) fn streamed(reader: impl Read + Send + 'static) -> reqwest::Body {
-    let chunks = futures_util::stream::try_unfold(reader, |mut reader| async move {
+/// threads (a file's reads block). Its length is the request's `Content-Length` to say. Once
+/// `cancel` is, it fails at the next chunk: a server reading it gets no more than was read,
+/// where [`Requests::run`] would notice only at its next check, sending meanwhile.
+pub(crate) fn streamed(reader: impl Read + Send + 'static, cancel: CancelToken) -> reqwest::Body {
+    let chunks = futures_util::stream::try_unfold((reader, cancel), |(mut reader, cancel)| async move {
         let read = tokio::task::spawn_blocking(move || {
+            if cancel.is_cancelled() {
+                return Err(std::io::Error::other("cancelled"));
+            }
             let mut chunk = vec![0; CHUNK];
             let n = reader.read(&mut chunk)?;
             chunk.truncate(n);
-            Ok::<_, std::io::Error>((n > 0).then_some((chunk, reader)))
+            Ok((n > 0).then_some((chunk, (reader, cancel))))
         });
         read.await.map_err(std::io::Error::other)?
     });
@@ -95,8 +102,8 @@ pub(crate) fn with_causes(e: &(dyn std::error::Error + 'static)) -> String {
     out
 }
 
-/// `Ok` when `url` is a public https address; otherwise why not.
-pub(crate) fn public(url: &str) -> Result<(), String> {
+/// `url` parsed, when it's a public https address; otherwise why not.
+pub(crate) fn public(url: &str) -> Result<reqwest::Url, String> {
     let shown = one_line(url);
     let parsed = reqwest::Url::parse(url).map_err(|_| format!("{shown} isn't a web address"))?;
     if parsed.scheme() != "https" {
@@ -106,7 +113,7 @@ pub(crate) fn public(url: &str) -> Result<(), String> {
     if host.is_empty() || this_computer(&parsed) || ip(&parsed).is_some_and(local) {
         return Err(format!("{shown} is on this computer or its local network"));
     }
-    Ok(())
+    Ok(parsed)
 }
 
 /// Whether `url` names this computer: `localhost` or a name below it, or a loopback address.

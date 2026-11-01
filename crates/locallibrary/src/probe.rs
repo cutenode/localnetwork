@@ -5,12 +5,12 @@
 //! symphonia trusts what a file's headers say: a WAV saying 0 Hz panics it. Reading a file's audio
 //! ([`format()`], [`check_tracks`], mix fingerprinting) and opening it to play happen inside
 //! [`guarded`], so one bad file is that file's error rather than a crash. The player catches a
-//! panic while decoding as it plays on its own audio thread.
+//! panic while decoding as it plays on its own audio thread. An MP4 claiming more than it holds
+//! would make symphonia abort the process, which nothing can catch: [`vet_container`] refuses it
+//! first.
 
 use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -21,6 +21,8 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
 
+/// For the player, which opens files through rodio rather than [`open`].
+pub use loclib_mixid::audio::vet_container;
 use loclib_mixid::audio::{CRASHED, open};
 use loclib_model::audio;
 
@@ -106,34 +108,21 @@ pub(crate) fn parallel<T: Sync, R: Send>(
         return Ok(Vec::new());
     }
     ctx.phase_start(phase, items.len() as u64, 0);
-    let next = AtomicUsize::new(0);
-    let done: Mutex<Vec<(usize, R)>> = Mutex::new(Vec::with_capacity(items.len()));
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(items.len());
-    let cancelled = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                s.spawn(|| -> Result<()> {
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { return Ok(()) };
-                        ctx.check()?;
-                        let (path, bytes) = describe(item);
-                        ctx.emit(Event::Item { phase, path, bytes });
-                        let r = work(item);
-                        done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((i, r));
-                    }
-                })
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().expect("probe worker panicked")).any(|r| r.is_err())
+    let results = crate::workers::each(items.iter().collect(), crate::workers::per_core(), |item| -> Result<R> {
+        ctx.check()?;
+        let (path, bytes) = describe(item);
+        ctx.emit(Event::Item { phase, path, bytes });
+        Ok(work(item))
     });
     ctx.phase_end(phase);
-    if cancelled {
-        return Err(Error::Cancelled);
+    let mut out = Vec::with_capacity(results.len());
+    for r in results {
+        match r {
+            Ok(r) => out.push(r?),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
-    let mut done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-    done.sort_by_key(|(i, _)| *i);
-    Ok(done.into_iter().map(|(_, r)| r).collect())
+    Ok(out)
 }
 
 /// What's wrong with an audio file.
@@ -230,11 +219,22 @@ fn packets_end(path: &Path) -> Option<f64> {
 ///
 /// `expected_bytes` (the database's size; 0 if unknown) tells a copy cut short from a file that
 /// replaced it when the length comes from the file's size (constant bit rate MP3s without a
-/// header saying how long they are): a cut copy lost as much of its size as of its length.
+/// header saying how long they are): a cut copy lost as much of its size as of its length. A file
+/// that won't open is cut short too when it's smaller than it should be (see `whole_size`),
+/// where its size says it stops.
 pub fn health(path: &Path, expected_secs: f64, expected_bytes: u64) -> Option<AudioProblem> {
     let problem = health_of(path, expected_secs)?;
-    let size = std::fs::metadata(path).map_or(0, |m| m.len());
+    let metadata = std::fs::metadata(path);
+    let size = metadata.as_ref().map_or(0, |m| m.len());
     match problem {
+        p @ AudioProblem::Unreadable { .. } if expected_secs > 0.0 && metadata.is_ok() => {
+            Some(match whole_size(path, size, expected_bytes) {
+                Some(whole) => {
+                    AudioProblem::Truncated { ends_secs: expected_secs * size as f64 / whole as f64, expected_secs }
+                }
+                None => p,
+            })
+        }
         AudioProblem::LengthDiffers { file_secs, expected_secs }
             if expected_bytes > 0
                 && file_secs < expected_secs
@@ -244,6 +244,63 @@ pub fn health(path: &Path, expected_secs: f64, expected_bytes: u64) -> Option<Au
         }
         p => Some(p),
     }
+}
+
+/// How big `path` (`size` bytes, and it won't open) should be, when it's a copy cut short: its
+/// own boxes run past its end (an M4A whose audio does won't open), or it's smaller than
+/// `expected_bytes` (the database's size) and reading its headers runs out of file. Another file
+/// that won't open, for what's in it, isn't one.
+fn whole_size(path: &Path, size: u64, expected_bytes: u64) -> Option<u64> {
+    let boxes = mp4_len(path).filter(|&n| n > size);
+    let recorded = (size < expected_bytes && runs_out(path)).then_some(expected_bytes);
+    boxes.max(recorded)
+}
+
+/// Whether reading `path`'s headers runs out of file before they say what's in it.
+fn runs_out(path: &Path) -> bool {
+    use symphonia::core::{formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions, probe::Hint};
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let source = MediaSourceStream::new(Box::new(file), Default::default());
+    let probed =
+        symphonia::default::get_probe().format(&hint, source, &FormatOptions::default(), &MetadataOptions::default());
+    matches!(probed, Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof)
+}
+
+/// How long an MP4 (M4A) file's top-level boxes say it is; `None` for a file that isn't one.
+fn mp4_len(path: &Path) -> Option<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    let mut at = 0;
+    while at < size {
+        let mut header = [0; 16];
+        file.seek(SeekFrom::Start(at)).ok()?;
+        // A header cut short is a box that runs past the end (one too short to say it's MP4 isn't).
+        if file.read_exact(&mut header[..8]).is_err() {
+            return (at > 0).then_some(at + 8);
+        }
+        if at == 0 && &header[4..8] != b"ftyp" {
+            return None;
+        }
+        let len = match u32::from_be_bytes(header[..4].try_into().unwrap()) {
+            // The box runs to the end of the file.
+            0 => return Some(size),
+            1 => match file.read_exact(&mut header[8..]) {
+                Ok(()) => u64::from_be_bytes(header[8..].try_into().unwrap()),
+                Err(_) => return Some(at + 16),
+            },
+            n => n.into(),
+        };
+        if len < 8 {
+            return None;
+        }
+        at = at.checked_add(len)?;
+    }
+    Some(at)
 }
 
 fn health_of(path: &Path, expected_secs: f64) -> Option<AudioProblem> {

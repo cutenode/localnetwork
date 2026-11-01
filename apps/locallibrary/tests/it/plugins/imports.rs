@@ -113,6 +113,11 @@ fn the_sidecar_imports_and_writes_out_sets() {
     assert_eq!((applied["edits"].is_null(), applied["sessions"].as_array().map(Vec::len)), (true, Some(1)));
     let listed = result(s.call(3, "sessions.list", json!({})));
     assert!(listed["sessions"].as_array().unwrap().iter().any(|s| s["source"] == "echo.given"), "{listed}");
+    // An option the format doesn't declare is refused, as `--option` refuses it.
+    let mut odd = import.clone();
+    odd["options"] = json!({ "a": "b" });
+    let refused = s.call(9, "plugins.import.plan", odd);
+    assert_eq!(refused["error"]["message"], "this format has no options, not even \"a\"", "{refused}");
     result(s.call(4, "plugins.import.apply", import));
 
     let set = result(s.call(5, "sets.new", json!({ "title": "Friday", "date": "2026-10-03" })))["set"].clone();

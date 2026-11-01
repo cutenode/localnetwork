@@ -48,7 +48,7 @@ fn apply_without_store(store: &Store, main: &str, new: &str, plan: Plan) -> Resu
         }
         Plan::Players => {
             let req = api::SetPlayers { models: vec!["cdj-3000".into()], library: Some("Main".into()) };
-            refused(api::players_set_plan(store, &req)?.apply(None, &ctx).map(|_| ()))
+            refused(api::players_set_plan(Some(store), &req)?.apply(None, &ctx).map(|_| ()))
         }
         Plan::SetJob => {
             let req = api::SetJobRequest { drives: vec![main.into()], eject: false, ..Default::default() };

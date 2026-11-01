@@ -284,10 +284,14 @@ pub fn set_get(store: &Store, req: &SetRef) -> Result<Set> {
     Ok(find(&SetBook::load(store)?, req)?.clone())
 }
 
-/// Delete a set (its sessions and recording stay). Returns what was deleted.
+/// Delete a set (its sessions and recording stay), and its record and its recording's from the
+/// signed-in account when they're published there. Returns what was deleted.
 pub fn set_delete(store: &Store, req: &SetRef) -> Result<Set> {
     let mut book = SetBook::load(store)?;
     let set = find(&book, req)?.clone();
+    // The record first: once the set is gone, nothing here says what to take off the account.
+    #[cfg(feature = "account")]
+    super::publish::set_unpublish(store.root(), &set.id)?;
     book.sets.retain(|s| s.id != set.id);
     book.save(store)?;
     Ok(set)

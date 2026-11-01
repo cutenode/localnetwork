@@ -25,7 +25,9 @@
 	const requests = [
 		request('3m2k7xj4a2c2a', 'claim', 'pending', 'Neon Tide'),
 		request('3m2k7xj4a2c2b', 'create', 'changes_requested', 'Pirate Signal Sound System', 'did:plc:pat'),
-		request('3m2k7xj4a2c2c', 'update', 'approved', 'Harbour Lights')
+		request('3m2k7xj4a2c2c', 'update', 'approved', 'Harbour Lights'),
+		// A DJ asking to be listed in Find DJs names no project, so it reads as the DJ.
+		{ ...request('3m2k7xj4a2c2d', 'list', 'pending', ''), project: null }
 	];
 </script>
 

@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger';
+import { type Loopback, rebindToLoopback } from '../testing/rebind';
 import { FakeSpaceHost } from '../testing/space-host';
 import { SpaceCredentialManager } from './credentials';
+import { IdentityResolver } from './identity';
 import { bookingSpace } from './spaces';
 
 const SPACE = bookingSpace('did:plc:root', 'gig');
@@ -22,8 +24,7 @@ describe('SpaceCredentialManager', () => {
 		credentials = new SpaceCredentialManager({
 			source: async () => ({ getDelegationToken: async () => 'delegation-token' }),
 			identity: host.identity,
-			logger: silentLogger,
-			fetch: host.fetch
+			logger: silentLogger
 		});
 	});
 
@@ -72,5 +73,48 @@ describe('SpaceCredentialManager', () => {
 			'does not match its MAC'
 		);
 		expect(host.identity.refreshed).toEqual([DJ]);
+	});
+});
+
+describe('SpaceCredentialManager, given a space host from a DID document', () => {
+	const HOST = 'pds.rebind.localnetwork.computer';
+	let loopback: Loopback;
+
+	beforeEach(async () => {
+		loopback = await rebindToLoopback([HOST]);
+
+		return async () => {
+			vi.restoreAllMocks();
+			await loopback.close();
+		};
+	});
+
+	it('refuses a host that resolves to a private address when it connects, and never reaches it', async () => {
+		const service = `https://${HOST}:${loopback.port}`;
+
+		const identity = new IdentityResolver({
+			plcUrl: 'https://plc.directory',
+			allowPrivateNetwork: false,
+			logger: silentLogger
+		});
+
+		vi.spyOn(identity, 'resolve').mockImplementation(async (did) => ({
+			did,
+			handle: null,
+			pds: service,
+			signingKey: '',
+			kemKey: null
+		}));
+
+		const credentials = new SpaceCredentialManager({
+			source: async () => ({ getDelegationToken: async () => 'delegation-token' }),
+			identity,
+			logger: silentLogger
+		});
+
+		await expect(credentials.request({ space: SPACE, service, ...listRepos })).rejects.toMatchObject({
+			cause: { message: 'Hostname resolved to non-unicast address' }
+		});
+		expect(loopback.connections()).toBe(0);
 	});
 });

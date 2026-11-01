@@ -66,6 +66,8 @@ const playSchema = z.object({
 	trackStart: secs,
 	trackEnd: secs,
 	tempo: z.number().min(0.25).max(4),
+	/** The slowest and fastest speeds, when the pitch fader was ridden. */
+	speedRange: z.tuple([z.number().min(0.25).max(4), z.number().min(0.25).max(4)]).optional(),
 	playedBpm: z.number().positive().max(800).optional(),
 	keyLock: z.boolean().nullable(),
 	semitones: z.number().min(-48).max(48),

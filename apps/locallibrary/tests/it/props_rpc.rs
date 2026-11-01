@@ -71,14 +71,16 @@ fn the_schema_checker_tells_right_from_wrong() {
 }
 
 /// Methods left out of random calls: they reach servers on the internet (the account,
-/// publishing, firmware, the providers locallibrary ships), touch this machine's disks
-/// (formatting, ejecting, fsck), take minutes (mix identification, the analysis benchmark), are
-/// only for tests, or end the session.
+/// publishing, firmware, the providers locallibrary ships) or another computer (`store.fetch`),
+/// touch this machine's disks (formatting, ejecting, fsck), take minutes (mix identification, the
+/// analysis benchmark) or run until cancelled (`store.serve`), are only for tests, or end the
+/// session.
 pub(crate) fn excluded(m: &str) -> bool {
     let prefixes = ["account.", "firmware.", "format.", "provision.", "prep.", "drive.eject", "mix.", "$/test."];
     prefixes.iter().any(|p| m.starts_with(p))
         || m.contains("publish")
-        || ["drive.fsck", "drive.repair", "disks.list", "shutdown", "analysis.bench"].contains(&m)
+        || ["drive.fsck", "drive.repair", "disks.list", "shutdown", "analysis.bench", "store.serve", "store.fetch"]
+            .contains(&m)
         || m == "plugins.provide"
 }
 
@@ -669,7 +671,8 @@ fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
     let lines: Vec<Vec<u8>> = (0..n)
         .map(|id| {
-            json!({ "jsonrpc": "2.0", "id": id, "method": "store.gc.plan", "params": {} }).to_string().into_bytes()
+            // A change that makes the store and takes no lock (saving the profile choices as they are).
+            json!({ "jsonrpc": "2.0", "id": id, "method": "profile.prefs.set", "params": {} }).to_string().into_bytes()
         })
         .collect();
     let (out, clean) = run_batch(&fx, &lines);

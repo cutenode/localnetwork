@@ -1,15 +1,28 @@
 name: Dependency review
 
-# The dependencies a pull request adds or updates, in pnpm-lock.yaml, Cargo.lock and the workflows,
-# from GitHub's dependency graph. cargo-deny (deny.toml) already checks the Rust crates' licences
+# The dependencies a pull request adds or updates, in the lockfiles, manifests and workflows, from
+# GitHub's dependency graph. cargo-deny (deny.toml) already checks the Rust crates' licences
 # and advisories, and npm-advisories.yml the npm packages' advisories. What's left is mostly the
 # licences of npm packages and of the actions the workflows use, and advisories for those actions.
 #
 # Its own workflow, since it covers all three ecosystems and only means anything on a pull request.
-# The job runs on every pull request: the API says whether any dependency changed, and it's done in
-# seconds when none did, so it reports without a changes filter or a passed job.
+# It isn't a required check, so it can filter on paths in its trigger: a pull request that changes
+# none of the files the dependency graph reads starts no runner. Those are the lockfiles and
+# manifests (pnpm-lock.yaml, package-lock.json and package.json, Cargo.lock and Cargo.toml) and the
+# workflows, which only count as manifests in .github/workflows/, so the composite actions in
+# .github/actions/ aren't among them. pnpm-workspace.yaml isn't one either: what its overrides
+# change shows up in pnpm-lock.yaml.
 on:
+  # Not `reopened`: a reopened pull request has the same changes it was reviewed on.
   pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "pnpm-lock.yaml"
+      - "**/package-lock.json"
+      - "**/package.json"
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -21,6 +34,9 @@ concurrency:
 jobs:
   review:
     name: Dependency review
+    # A draft waits until it's ready for review, as ci.yml's jobs do. Nothing requires this check,
+    # so the event's draft state is enough: ready_for_review starts the run that reviews it.
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

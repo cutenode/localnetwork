@@ -20,6 +20,7 @@
 //! since that needs other DJs' data.
 
 mod document;
+mod reads;
 
 pub use document::*;
 
@@ -31,16 +32,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::anlz::{self, Mood};
+use crate::anlz::Mood;
 use crate::device::Device;
 use crate::doctor::Databases;
 use crate::harmony::{Camelot, Relation, tempo_gap};
 use crate::hash::Hash;
 use crate::model::{BpmRange, Library, Track, artist_credits, normalize};
 use crate::paths;
-use crate::plays::{self, HistoryList};
-use crate::progress::{Ctx, Event, Phase};
-use crate::sets::{Set, SetBook, SetEntry};
+use crate::plays::{self, DriveHistory, HistoryList};
+use crate::progress::{Ctx, Event, Phase, WarningLimiter};
+use crate::sets::{Session, Set, SetBook, SetEntry, session};
 use crate::settings::{self, DriveSettings, SettingValue};
 use crate::store::{Snapshot, Store};
 use crate::{Error, Result};
@@ -167,6 +168,18 @@ pub struct ProfileReport {
     /// `None` when no drive has My Settings files and the store has no settings profile.
     pub style: Option<StyleSection>,
     pub warnings: Vec<String>,
+    /// What came from the store's cache instead of being read again: said, not reported.
+    #[serde(skip)]
+    pub cached: Cached,
+}
+
+/// Of what a profile reads, how much came from the store's cache: `(cached, read)`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cached {
+    /// Snapshots' databases (each set once), for their history lists.
+    pub databases: (usize, usize),
+    /// Tracks' analysis files.
+    pub analysis: (usize, usize),
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -462,6 +475,8 @@ enum Origin {
 struct Files<'a> {
     drives: &'a [Device],
     store: Option<&'a Store>,
+    /// What the analysis files read said, kept in the store when there is one.
+    cache: Option<crate::audio_cache::Cache<reads::Reads>>,
     /// Lower-cased path key to object, per loaded snapshot.
     snapshots: Vec<FxHashMap<String, Hash>>,
     by_id: FxHashMap<Hash, usize>,
@@ -489,7 +504,7 @@ impl<'a> Files<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 struct CueCounts {
     hot: usize,
     memory: usize,
@@ -522,7 +537,6 @@ struct ListData {
     list: HistoryList,
     /// The drive it was read from, or the drive whose snapshot archived it.
     source: String,
-    first_seen: Option<DateTime<Utc>>,
     tracks: Vec<usize>,
 }
 
@@ -630,12 +644,12 @@ impl<'a> Builder<'a> {
 
     /// Adds a history list unless it's already there (the same list on two drives, or on a drive
     /// and in the store).
-    fn add_list(&mut self, list: HistoryList, source: String, first_seen: Option<DateTime<Utc>>, origin: Origin) {
+    fn add_list(&mut self, list: HistoryList, source: String, origin: Origin) {
         if self.lists.iter().any(|l| l.list.same_as(&list)) {
             return;
         }
         let tracks = list.tracks.iter().map(|t| self.rec(t, Some(origin))).collect();
-        self.lists.push(ListData { list, source, first_seen, tracks });
+        self.lists.push(ListData { list, source, tracks });
     }
 
     /// The recording a set's entry is: the library track with its file, else a track made of what
@@ -662,77 +676,79 @@ impl<'a> Builder<'a> {
     }
 
     /// Without declared sets, the sessions in range with `min_set_tracks` or more tracks become
-    /// the sets, newest first. Returns how many sessions were too short.
-    fn sessions_as_sets(&mut self) -> usize {
+    /// the sets, in the order they come ([`crate::sets::session::gather_from`]'s: newest first),
+    /// but those the DJ said weren't a set. Returns how many sessions were too short.
+    fn sessions_as_sets(&mut self, sessions: &[Session], archived: &FxHashSet<String>) -> usize {
         let o = self.options;
-        // The local day, as sets and sessions' windows are dated.
-        let day = |l: &ListData| l.first_seen.map(|t| t.with_timezone(&Local).date_naive());
-        let (long, short): (Vec<ListData>, Vec<ListData>) =
-            std::mem::take(&mut self.lists).into_iter().partition(|l| l.tracks.len() >= o.min_set_tracks);
-        let mut sessions: Vec<ListData> = long
-            .into_iter()
-            .filter(|l| match day(l) {
+        let lists: FxHashMap<String, usize> =
+            self.lists.iter().enumerate().map(|(i, l)| (l.list.fingerprint(), i)).collect();
+        let mut short = 0;
+        for s in sessions.iter().filter(|s| !s.dismissed) {
+            if s.tracks.len() < o.min_set_tracks {
+                short += 1;
+                continue;
+            }
+            // A log is dated by when it was played. A history list has no such day: it's dated by
+            // the pull that archived it (it was played then or before), and not at all while it's
+            // only on a drive (played since the last pull).
+            let local = |t: DateTime<Utc>| t.with_timezone(&Local).date_naive();
+            let date = match s.window.exact {
+                true => s.window.day(),
+                false => s.window.before.filter(|_| archived.contains(&s.id)).map(local),
+            };
+            let in_range = match date {
                 Some(d) => o.since.is_none_or(|x| d >= x) && o.until.is_none_or(|x| d <= x),
-                // Still on a drive, not archived: played since the last pull.
                 None => o.until.is_none(),
-            })
-            .collect();
-        // Newest first: undated (still on a drive) first, then by date.
-        sessions.sort_by(|a, c| match (a.first_seen, c.first_seen) {
-            (None, None) => c.list.name.cmp(&a.list.name),
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (Some(x), Some(y)) => y.cmp(&x).then(c.list.name.cmp(&a.list.name)),
-        });
-        self.sets = sessions
-            .into_iter()
-            .map(|l| SetData {
-                id: l.list.fingerprint(),
-                date: day(&l),
-                name: l.list.path,
-                place: l.source,
-                tracks: l.tracks,
-                missing_at: l.list.missing_at,
-            })
-            .collect();
-        short.len()
+            };
+            if !in_range {
+                continue;
+            }
+            let (tracks, missing_at, place) = match lists.get(&s.id).map(|&i| &self.lists[i]) {
+                Some(l) => (l.tracks.clone(), l.list.missing_at.clone(), l.source.clone()),
+                // An imported log: its entries are found like a declared set's.
+                None => (s.tracks.iter().map(|e| self.entry(e)).collect(), Vec::new(), s.source.clone()),
+            };
+            self.sets.push(SetData { id: s.id.clone(), date, name: s.path.clone(), place, tracks, missing_at });
+        }
+        short
     }
 
-    fn read_analysis(&mut self, played: &FxHashSet<usize>, ctx: &Ctx<'_>) -> Result<()> {
+    /// Reads the analysis files of the played tracks and the collection's, and says how many of
+    /// them came from the cache, of how many.
+    fn read_analysis(&mut self, played: &FxHashSet<usize>, ctx: &Ctx<'_>) -> Result<(usize, usize)> {
         let todo: Vec<usize> = (0..self.recs.len())
             .filter(|&i| self.recs[i].origin.is_some() && (played.contains(&i) || self.recs[i].in_collection))
             .collect();
+        let (mut files, mut cached) = (0, 0);
+        let mut warn = WarningLimiter::new(ctx, 3);
         ctx.phase_start(Phase::Scan, todo.len() as u64, 0);
         for i in todo {
             ctx.check()?;
             let rec = &self.recs[i];
             let origin = rec.origin.expect("filtered");
             ctx.emit(Event::Item { phase: Phase::Scan, path: rec.track.display_name(), bytes: 0 });
+            let mut read = |key: &str| {
+                let found = self.files.analysis(origin, key, &mut warn)?;
+                files += 1;
+                cached += usize::from(found.1);
+                Some(found.0)
+            };
             let dat = paths::key(&rec.track.analyze_path);
             // Every track's .EXT is read: it holds all of a track's hot cues, where the .DAT
             // holds A to C only (see `anlz::write`). Its phrases only played tracks need.
-            let ext = dat.strip_suffix(".DAT").and_then(|s| self.files.read(origin, &format!("{s}.EXT")));
-            let mut mood = None;
-            let mut cue_list = None;
-            if let Some(bytes) = &ext {
-                if played.contains(&i) {
-                    mood = anlz::song_structure(bytes).ok().flatten().map(|s| s.mood);
-                }
-                cue_list = anlz::cues(bytes).ok().filter(|c| !c.is_empty());
-            }
-            if cue_list.is_none() {
-                cue_list = self.files.read(origin, &dat).and_then(|b| anlz::cues(&b).ok());
-            }
+            let ext = dat.strip_suffix(".DAT").and_then(|s| read(&format!("{s}.EXT")));
+            let mood = ext.and_then(|e| e.mood).filter(|_| played.contains(&i));
+            let cues = match ext.and_then(|e| e.cues).filter(|c| c.hot + c.memory + c.loops > 0) {
+                Some(c) => Some(c),
+                None => read(&dat).and_then(|d| d.cues),
+            };
             let rec = &mut self.recs[i];
             rec.mood = mood;
-            rec.cues = cue_list.map(|cues| CueCounts {
-                hot: cues.iter().filter(|c| c.hot_cue.is_some()).count(),
-                memory: cues.iter().filter(|c| c.hot_cue.is_none() && c.end_ms.is_none()).count(),
-                loops: cues.iter().filter(|c| c.end_ms.is_some()).count(),
-            });
+            rec.cues = cues;
         }
         ctx.phase_end(Phase::Scan);
-        Ok(())
+        warn.finish();
+        Ok((cached, files))
     }
 }
 
@@ -743,6 +759,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         files: Files {
             drives: &sources.drives,
             store: sources.store,
+            cache: sources.store.map(crate::audio_cache::Cache::in_store),
             snapshots: Vec::new(),
             by_id: FxHashMap::default(),
         },
@@ -757,6 +774,10 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         warnings: Vec::new(),
     };
 
+    let mut cached = Cached::default();
+    // The store's history lists, and each drive's: the sessions, without declared sets.
+    let mut archive = None;
+    let mut histories = Vec::new();
     // The store first, so archived lists keep the date they were first seen.
     if let Some(store) = sources.store {
         let libraries: Vec<_> = store
@@ -779,25 +800,22 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
                 Err(e) => b.warnings.push(format!("library {}: {e}", lib.name)),
             }
         }
-        let filters: Vec<Option<Uuid>> = match &sources.libraries {
-            None => vec![None],
-            Some(_) => libraries.iter().map(|l| Some(l.id)).collect(),
-        };
+        let ids: FxHashSet<Uuid> = libraries.iter().map(|l| l.id).collect();
+        let read = plays::archive_of(store, |l| sources.libraries.is_none() || ids.contains(&l), ctx)?;
+        b.warnings.extend(read.warnings.iter().cloned());
+        cached.databases = read.cached;
         let mut snapshots: FxHashMap<Hash, Snapshot> = FxHashMap::default();
-        for filter in filters {
-            let archive = plays::archive(store, filter, ctx)?;
-            b.warnings.extend(archive.warnings);
-            for a in archive.lists {
-                lists += 1;
-                let id = a.first_seen.snapshot;
-                if let std::collections::hash_map::Entry::Vacant(e) = snapshots.entry(id) {
-                    e.insert(store.load_snapshot(&id)?);
-                }
-                let o = b.files.snapshot(&snapshots[&id]);
-                let source = a.first_seen.drive.clone().unwrap_or_else(|| a.first_seen.library.clone());
-                b.add_list(a.list, source, Some(a.first_seen.created), Origin::Snapshot(o));
+        for a in &read.lists {
+            lists += 1;
+            let id = a.first_seen.snapshot;
+            if let std::collections::hash_map::Entry::Vacant(e) = snapshots.entry(id) {
+                e.insert(store.load_snapshot(&id)?);
             }
+            let o = b.files.snapshot(&snapshots[&id]);
+            let source = a.first_seen.drive.clone().unwrap_or_else(|| a.first_seen.library.clone());
+            b.add_list(a.list.clone(), source, Origin::Snapshot(o));
         }
+        archive = Some(read);
         let n = libraries.len();
         if n > 0 || lists > 0 {
             b.sources.push(SourceInfo {
@@ -822,16 +840,17 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
             b.warnings.push(format!("{}: {e}; only export.pdb was read", d.name()));
         }
         b.add_collection(dbs.primary(), Origin::Drive(i));
-        let lists = plays::histories(&dbs);
+        let history = DriveHistory::of(d, &dbs);
         b.sources.push(SourceInfo {
             kind: "drive",
             name: d.name(),
-            history_lists: lists.len(),
+            history_lists: history.lists.len(),
             tracks: dbs.primary().tracks.len(),
         });
-        for list in lists {
-            b.add_list(list, d.name(), None, Origin::Drive(i));
+        for list in &history.lists {
+            b.add_list(list.clone(), d.name(), Origin::Drive(i));
         }
+        histories.push(history);
     }
 
     if b.sources.is_empty() {
@@ -866,18 +885,26 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
             missing_at: Vec::new(),
         });
     }
-    // None declared: the sessions long enough to stand in for sets.
-    let (counted, too_short) =
-        if book.sets.is_empty() { (Basis::Sessions, b.sessions_as_sets()) } else { (Basis::Plays, 0) };
+    // None declared: the sessions long enough to stand in for sets, found as `sets` and `plays`
+    // find them (each drive's warnings are the profile's already).
+    let (counted, too_short) = match book.sets.is_empty() {
+        true => {
+            let sessions = session::gather_from(archive.as_ref(), &histories, &book).sessions;
+            let archived = archive.iter().flat_map(|a| &a.lists).map(|a| a.list.fingerprint()).collect();
+            (Basis::Sessions, b.sessions_as_sets(&sessions, &archived))
+        }
+        false => (Basis::Plays, 0),
+    };
 
     let played: FxHashSet<usize> = b.sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
     if options.analysis {
-        b.read_analysis(&played, ctx)?;
+        cached.analysis = b.read_analysis(&played, ctx)?;
     }
 
     let style = style(sources);
     let generated = Utc::now();
     let mut report = compute(&b, counted, too_short, generated);
+    report.cached = cached;
     report.style = style;
     report.summary = summarise(&report);
     Ok(report)
@@ -1224,6 +1251,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
         collection,
         style: None,
         warnings: b.warnings.clone(),
+        cached: Cached::default(),
     }
 }
 

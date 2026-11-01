@@ -165,7 +165,7 @@ impl App {
             Some(Err(why)) => return self.toast(why, Level::Info),
             None => self.action_drive(),
         };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let label = self.drive_label(&root);
         if let (_, Some(tracks)) = action.scope_mut()
             && !tracks.is_empty()

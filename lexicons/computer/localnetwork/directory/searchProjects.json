@@ -50,6 +50,7 @@
 					"manager": { "type": "string", "format": "did", "description": "Only projects this account manages." },
 					"status": {
 						"type": "string",
+						"maxLength": 32,
 						"knownValues": ["active", "hidden", "archived"],
 						"description": "Only projects with this status."
 					},
@@ -59,9 +60,9 @@
 						"description": "Include hidden and archived projects."
 					},
 					"unclaimed": { "type": "boolean", "default": false, "description": "Only projects nobody manages yet." },
-					"sort": { "type": "string", "knownValues": ["relevance", "distance", "recent", "name"] },
+					"sort": { "type": "string", "maxLength": 32, "knownValues": ["relevance", "distance", "recent", "name"] },
 					"limit": { "type": "integer", "minimum": 1, "maximum": 60, "default": 24 },
-					"cursor": { "type": "string" }
+					"cursor": { "type": "string", "maxLength": 512 }
 				}
 			},
 			"output": {
@@ -75,7 +76,7 @@
 							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#projectView" }
 						},
 						"total": { "type": "integer", "minimum": 0, "description": "Matching projects across every page." },
-						"cursor": { "type": "string" }
+						"cursor": { "type": "string", "maxLength": 512 }
 					}
 				}
 			}

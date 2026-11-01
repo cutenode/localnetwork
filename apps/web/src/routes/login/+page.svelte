@@ -7,10 +7,16 @@
 	let { data, form }: PageProps = $props();
 
 	// The OAuth callback sends `?error=denied` when the user declines and `?error=login` for any other failure.
+	// Bound, so a handle typed before the page hydrated stays (see formFields).
+	let handle = $derived(form?.handle ?? '');
+
 	const callbackError = $derived(data.error === 'denied' ? 'You declined the request, so we could not sign you in.' : 'Sign-in was cancelled or failed. Try again.');
 </script>
 
-<svelte:head><title>Sign in · Local Network</title></svelte:head>
+<svelte:head>
+	<title>Sign in · Local Network</title>
+	<meta name="description" content="Sign in to Local Network with your Atmosphere account, the one you use for Bluesky." />
+</svelte:head>
 
 <div class="container-page py-12 sm:py-24">
 	<div class="flex flex-col items-center gap-8">
@@ -29,7 +35,7 @@
 				<label class="label" for="handle">Handle</label>
 				<div class="relative">
 					<AtSign class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle" />
-					<input id="handle" name="handle" class="input pl-9" placeholder="alice.bsky.social" autocomplete="username" autocapitalize="none" spellcheck="false" required value={form?.handle ?? ''} />
+					<input id="handle" name="handle" class="input pl-9" placeholder="alice.bsky.social" autocomplete="username" autocapitalize="none" spellcheck="false" required bind:value={handle} />
 				</div>
 			</div>
 			<button class="btn-primary w-full">Continue</button>

@@ -1,16 +1,17 @@
-<script lang="ts">
+<script module lang="ts">
 	import { feeLabel, feeLevels } from '#lib/format.ts';
 	import { FORMATS, labelFor, SET_TYPES } from '#lib/taxonomy/options.ts';
-	import type { ProjectProfile } from '#lib/types.ts';
+	import type { PerformerSection, ProjectProfile } from '#lib/types.ts';
 
-	/** What a promoter checks first: fee, slots, formats, set length, room sizes and travel. */
-	let { profile }: { profile: ProjectProfile } = $props();
+	/** A DJ's performer section, or a project's profile, which has the same fields. */
+	type Performer = PerformerSection & Pick<ProjectProfile, 'fee'>;
 
-	// One line per fee level, led by what it covers.
-	const fees = $derived(feeLevels(profile).map((fee) => (fee.label ? `${fee.label}: ${feeLabel(fee)}` : feeLabel(fee))));
+	/** What a promoter checks first: fee, slots, formats, set length, room sizes and travel, those on file. */
+	export function performerFacts(profile: Performer) {
+		// One line per fee level, led by what it covers.
+		const fees = feeLevels(profile).map((fee) => (fee.label ? `${fee.label}: ${feeLabel(fee)}` : feeLabel(fee)));
 
-	const facts = $derived(
-		[
+		return [
 			{ term: fees.length > 1 ? 'Fees' : 'Fee', value: fees.length ? fees : null },
 			{ term: 'Slots', value: profile.setTypes?.length ? profile.setTypes.map((value) => labelFor(SET_TYPES, value)).join(', ') : null },
 			{ term: 'Plays on', value: profile.formats?.length ? profile.formats.map((value) => labelFor(FORMATS, value)).join(', ') : null },
@@ -22,8 +23,14 @@
 				note: profile.travel?.notes
 			},
 			{ term: 'Playing since', value: profile.activeSince ? String(profile.activeSince) : null }
-		].filter((fact) => fact.value)
-	);
+		].filter((fact) => fact.value);
+	}
+</script>
+
+<script lang="ts">
+	let { performer }: { performer: Performer } = $props();
+
+	const facts = $derived(performerFacts(performer));
 </script>
 
 {#if facts.length}

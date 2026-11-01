@@ -184,6 +184,24 @@ pub struct EmbeddedFile {
     /// The file once the art went in: it's only put back while it's still that.
     pub size: u64,
     pub mtime: i64,
+    /// What it held once the art went in, by content: its size and mtime, taken moments after it
+    /// was written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).
+    /// Missing from embeds an earlier version made, which go by size and mtime alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<Hash>,
+}
+
+impl EmbeddedFile {
+    /// Whether the file is still as the embed left it (`meta`: its metadata now).
+    pub(crate) fn unchanged(&self, meta: &std::fs::Metadata) -> bool {
+        if meta.len() != self.size {
+            return false;
+        }
+        match self.hash {
+            Some(h) => crate::hash::hash_file(&self.path, &Ctx::silent(), Phase::Verify).is_ok_and(|now| now == h),
+            None => fsutil::mtime_eq(fsutil::mtime_secs(meta), self.mtime),
+        }
+    }
 }
 
 /// Embeds kept, newest first.
@@ -260,12 +278,14 @@ pub fn embed_with_backup(
                 return Err(e);
             }
             let after = std::fs::metadata(f).at(f)?;
+            let hash = crate::hash::hash_file(f, &Ctx::silent(), Phase::Verify)?;
             Ok(EmbeddedFile {
                 path: f.clone(),
                 saved: saved.clone(),
                 mtime_before: fsutil::mtime_secs(&before),
                 size: after.len(),
                 mtime: fsutil::mtime_secs(&after),
+                hash: Some(hash),
             })
         })();
         match result {
@@ -315,7 +335,7 @@ pub fn restore_embedded(store: &Store, id: Option<&str>) -> Result<UnembedReport
     let mut report = UnembedReport { backup: b.id.clone(), restored: Vec::new(), skipped: Vec::new() };
     for f in &b.files {
         match std::fs::metadata(&f.path) {
-            Ok(m) if m.len() == f.size && fsutil::mtime_eq(fsutil::mtime_secs(&m), f.mtime) => {
+            Ok(m) if f.unchanged(&m) => {
                 fsutil::copy_file(&dir.join(&f.saved), &f.path, Some(f.mtime_before), None, true, &Ctx::silent())?;
                 report.restored.push(f.path.clone());
             }

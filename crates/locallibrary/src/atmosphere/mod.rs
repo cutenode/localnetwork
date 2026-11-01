@@ -19,10 +19,11 @@
 //! * A lock, so the CLI and a running sidecar never spend the same single-use refresh token.
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
-//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and uploading a
-//!   set's recording, which needs [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes
-//!   through Local Network's directory ([`directory`]).
+//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]), and
+//!   deleting a set's and its recording's, with the session, which needs the [`PUBLISH_SCOPES`]
+//!   ([`PUBLISH_SET`] grants them), and uploading a set's recording, which needs
+//!   [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes through Local Network's
+//!   directory ([`directory`]).
 //! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
 //!   [`REPORT_SCOPE`].
 //!
@@ -88,19 +89,20 @@ pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
 pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
 
 /// What publishing needs besides `atproto`, and what [`PUBLISH_SET`] grants: to create and replace
-/// the record types locallibrary writes (see [`lexicon`]), and nothing else in the account (not
-/// even deleting them, which locallibrary doesn't do), and to have Local Network's directory read
+/// the record types locallibrary writes (see [`lexicon`]), to delete a set's and its recording's
+/// (`sets delete` unpublishes them; a server writes all three actions as the bare
+/// `repo:<nsid>`), and nothing else in the account, and to have Local Network's directory read
 /// them again ([`directory::request_index`], a service token for that one method). The set lists
 /// each record type on its own because servers write a permission for several as
-/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc`
-/// permission's audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
+/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc` permission's
+/// audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
 /// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
 /// (`account login --publish`, or a publish command that signs in again).
 pub const PUBLISH_SCOPES: [&str; 5] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
-    "repo:computer.localnetwork.dj.set?action=create&action=update",
-    "repo:computer.localnetwork.dj.recording?action=create&action=update",
+    "repo:computer.localnetwork.dj.set",
+    "repo:computer.localnetwork.dj.recording",
     "rpc:computer.localnetwork.directory.requestIndex",
 ];
 
@@ -146,6 +148,11 @@ pub fn may_create(info: &AccountInfo, collection: &str) -> bool {
 /// Whether the session may upload a file of the type `mime` (`audio/mp4`).
 pub fn may_upload(info: &AccountInfo, mime: &str) -> bool {
     grants(info, [Scope::parse(&format!("blob:{mime}"))])
+}
+
+/// Whether the session may delete records of `collection`.
+pub fn may_delete(info: &AccountInfo, collection: &str) -> bool {
+    grants(info, [Scope::repo_delete(collection)])
 }
 
 /// What signing `info`'s account in again asks for, so the session keeps what it may do now:

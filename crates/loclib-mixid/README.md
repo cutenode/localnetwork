@@ -11,7 +11,7 @@ symphonia (MP3, AAC and ALAC in `.m4a`, FLAC, WAV, AIFF), averaged to mono and r
 peaks are paired into landmark hashes, and every hash in the mix is looked up through a range of
 playback speeds, both time-stretched (key lock) and pitched with the tempo (no key lock). Votes
 that agree on where a track sits in the mix become a play, refined with a line fitted through
-them.
+them, or a line per speed where the pitch fader was ridden.
 
 ```rust,no_run
 use loclib_mixid::{LibraryIndex, fingerprint_file, listen, matcher};
@@ -120,8 +120,8 @@ if r.correlation >= REFINE_MIN_CORRELATION {
 
 - Know anything about a DJ library: track names, keys, BPMs, where files live. You give each
   track an id and look your metadata up from it.
-- Store prints or indexes on disk. `TrackPrint::encode` and `decode` give bytes to keep;
-  where and under which key is up to you.
+- Store prints or indexes on disk. `TrackPrint::encode`, `LibraryIndex::encode` and their
+  `decode`s give bytes to keep; where and under which key is up to you.
 - Read DJ software's project files or audio editors' projects. Push their audio into a
   `fingerprint::Analyzer` yourself.
 - Identify tracks it hasn't been given: there's no online lookup.

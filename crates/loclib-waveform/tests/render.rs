@@ -26,7 +26,16 @@ fn wave(n: usize) -> Waveform {
 
 /// A hot cue (`hot` is its slot) or memory cue, a loop if it has an end, named `comment`.
 fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>, comment: &str) -> Cue {
-    Cue { hot_cue: hot, start_ms, end_ms, comment: comment.into(), color: None, color_id: 0, loop_beats: None }
+    Cue {
+        hot_cue: hot,
+        start_ms,
+        end_ms,
+        comment: comment.into(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    }
 }
 
 #[test]
