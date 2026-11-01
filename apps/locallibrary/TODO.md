@@ -174,50 +174,24 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: `drive tidy` exits 0 when it couldn't remove
-      some files (`recordings` says Partial); `setup --role` is ignored for the drive that becomes
-      the primary, even a bad value; a lenient replay that skips `DeleteHistoryLists` only says
-      "not found", dropping which list; merging the same drive twice in folder mode makes "(2)"
-      copies of every playlist; under `LOCALLIBRARY_VOLUMES`, `format::disk_at` still runs
-      read-only `diskutil info`/`lsblk` on the disk holding the test folder.
+- [ ] Found while raising coverage, each a decision: a lenient replay that skips
+      `DeleteHistoryLists` only says "not found", dropping which list; merging the same drive
+      twice in folder mode makes "(2)" copies of every playlist; under `LOCALLIBRARY_VOLUMES`,
+      `format::disk_at` still runs read-only `diskutil info`/`lsblk` on the disk holding the test
+      folder.
 - [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
       undo then redo leaves edits that replay won't redo, and restoring an older backup then a
       newer one puts back edits the journal has forgotten.
 - [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
       finishes it, but taking it back needs `undo --force`.
-- [ ] `prep` syncs one pair at a time; it could use the parallel multi-drive sync when no drive came
-      back from a set.
-- [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
-      copy` refuses instead (without `--force`).
-- [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
-      take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
-      nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
-- [ ] Changes that look something up in the store make an empty one and then fail or find nothing
-      to do: `drive forget`/`role`/`retire`, `sets delete`, `smart rm`, `profile unpin`/`unhide`,
-      `store label`/`unlabel`, and the dry runs of `sets playlist`, `smart apply`, `adopt --as`,
-      `store gc`/`prune`/`copy`, `library prune` and `art unembed`. Look up with
-      `diff_cmd::store_to_read` or `read_or_empty` and make the store only when applying.
-- [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
-      `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
-      Register it as what it is, or record only into a store that's there.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
-      let the TUI offer one-key fixes.
 - [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader shows as one averaged speed. Chains only split after 4 slices
-      (about 16 s) without the track, so a ride stays one chain and its fitted slope averages the
-      speeds; showing them needs the matcher to split a chain's fit where its speed changes.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
-- [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
-      without overcommit and on Windows: symphonia-format-isomp4's `stsz.rs` sizes a `Vec` from
-      them (`TODO: Apply a limit`). File it upstream.
-- [ ] `provision` shows the format plan's warnings twice: in the format plan and again in its own
-      `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
 - [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
@@ -231,13 +205,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (online-only Dropbox files that download onto the boot disk): both the fit warning
       (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
       to `~/rekordbox-export` stopped at 1.8 of 25 GB.
-- [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
-      CLI's `sets export` reads with `store_to_read`.
-- [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
-      that `main.rs` and `drive_cmd.rs` add.
-- [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
-      size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
-      steers around the case.
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
@@ -277,14 +244,12 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.
-- [ ] Unpublishing (`deleteRecord`) needs `delete` added to the publishing permission set
-      (`lexicons/computer/localnetwork/locallibraryPublishing.json`) and `PUBLISH_SCOPES`; until
-      then `sets delete` leaves a published set's record on the account.
+- [ ] First real `sets delete` of a published set: check a real PDS grants
+      `repo:computer.localnetwork.dj.set` and `repo:computer.localnetwork.dj.recording` (all three
+      actions) from the permission set, and
+      answers `deleteRecord` of a record that's already gone as done.
 - [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
       only `atproto`, publishing reports a missing scope, and sign-in loops.
-- [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
-      declared sets the profile finds sessions its own way (history lists, dated by the pull that
-      archived them) rather than with `sets::session::gather` and its windows.
 - [ ] File the jacquard-oauth issue on tangled (nonbinary.computer/jacquard): 0.12.2 and `main`
       panic when a token response grants a scope `Scopes` can't parse, in `callback_core`
       (`client.rs`) and on every refresh (`session.rs`'s `update_with_tokens`). Once a release
@@ -294,19 +259,12 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `collection export` skips intelligent playlists: `SmartList` rules aren't read
-      (`masterdb.rs:38`).
-- [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
-      Tags.
 - [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
 
 ## Lexicons
 
-- [ ] MusicBrainz IDs come from file tags on a mounted drive when a set is made or edited, so a set
-      built with the drive unplugged has none until it's edited with the drive in. The store keeps
-      the files and could be read instead.
 - [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
       `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
       and the `uri` format first.

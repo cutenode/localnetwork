@@ -5,7 +5,8 @@ description: >-
   failed run never checked whenever the next push doesn't touch the same files; diffed against the
   last commit that passed, those files count until a run passes. Empty, with a warning, when none
   of the workflow's last 100 runs is one, which leaves paths-filter on the commit before the push.
-  Needs `actions: read`.
+  For a merge queue group, the commit it goes on top of, so the group checks what its pull requests
+  change. Needs `actions: read`.
 
 outputs:
   sha:
@@ -22,7 +23,13 @@ runs:
         GH_REPO: ${{ github.repository }}
         WORKFLOW_REF: ${{ github.workflow_ref }}
         BRANCH: ${{ github.ref_name }}
+        GROUP_BASE: ${{ github.event.merge_group.base_sha }}
       run: |
+        if [ -n "$GROUP_BASE" ]; then
+          echo "sha=$GROUP_BASE" >> "$GITHUB_OUTPUT"
+          echo "Changes since $GROUP_BASE, the commit the group goes on top of"
+          exit 0
+        fi
         # owner/repo/.github/workflows/<file>@<ref> to <file>.
         workflow=${WORKFLOW_REF%@*}
         workflow=${workflow##*/}

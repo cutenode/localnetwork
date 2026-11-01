@@ -8,6 +8,7 @@ use clap::Args;
 use console::style;
 use locallibrary::api;
 use locallibrary::check::{CheckItem, CheckOptions, CheckReport, Level, PlayersFrom};
+use locallibrary::plugin::Fix;
 use locallibrary::progress::Ctx;
 
 use crate::output::{Outcome, Output, dim, heading};
@@ -55,7 +56,7 @@ pub(crate) fn item(i: &CheckItem) {
         Level::Problem => style("✗").red().bold(),
     };
     say!("  {mark} {:<13} {}", dim(&i.check), i.message);
-    if let (Some(fix), Ok(plugins)) = (&i.fix, crate::plugins::host()) {
+    if let (Some(Fix::Plugin(fix)), Ok(plugins)) = (&i.fix, crate::plugins::host()) {
         crate::output::hint_at(
             "                  ",
             format!("fix with `{}`", crate::plugin_cmd::fix_line(plugins, fix, &i.drive)),

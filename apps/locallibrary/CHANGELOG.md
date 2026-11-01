@@ -46,7 +46,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Exporting without rekordbox.** `collection export` writes rekordbox's collection to a drive or
   a folder as rekordbox's Export does (tracks, playlists, analysis, cues, artwork and My Tags), so
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
-  Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
+  Dropbox or Google Drive come along, online-only ones downloaded as they're copied. My Tags go
+  in `exportExt.pdb` too, for the CDJ-3000 and older players. Intelligent playlists hold the
+  tracks their rules match, and one a filter can say gets a rule-based playlist for the drive,
+  so `smart apply` keeps it up to date; the plan names the ones that are only their tracks as
+  they are now.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details (BPM, album artist, ISRC and release date too),
   ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
@@ -156,8 +160,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
-  `settings publish` write their records there, asking only to create and update them. Signing
-  in and publishing are alpha.
+  `settings publish` write their records there, asking only to create and update them (and to
+  delete sets and their recordings: `sets delete` takes a published set's record and its
+  recording's off the account first). Signing in and publishing are alpha.
 - **Sets and sessions.** A history list a player recorded (or a Beat Link Trigger log, `plays
   import`) is a *session*: raw, private, never counted or published as a set. `plays` lists sessions
   with an id that's the same on every drive and in the store (any list name argument takes one), the
@@ -180,7 +185,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
   `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
   teal.fm's and skaists' records so readers can map them. MusicBrainz IDs are bare UUIDs, as
-  teal.fm writes them. locallibrary fills them from files Picard tagged, else from a plugin
+  teal.fm writes them. Every string in the three Lexicons has a length limit (a setting or other
+  known value at most 32 bytes, a MusicBrainz ID 64), so a record of any size no longer passes. locallibrary fills them from files Picard tagged, else from a plugin
   analyzer's `recording`, `release` and `artists` roles when its `isrc` and `credits` say they're
   for the track as the set has it, which `sets publish` runs first on the tracks it names, once
   it's signed in and confirmed, and keeps in the set (`--no-lookup` doesn't; over RPC
@@ -472,8 +478,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   same plan, before the drive is saved (`operations` over RPC). `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
 - **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
-  first), copies the newest library onto the others, checks them against your player models and
-  ejects them when everything passed; a check with problems, or history lists it couldn't save,
+  first), copies the newest library onto the others (all at once, as `sync` does), checks them
+  against your player models and ejects them when everything passed; a check with problems, or history lists it couldn't save,
   leaves them mounted (exit status 4). `check`, `eject` and `pull` with no drives take the mounted
   drives of one library. Over RPC, `prep.plan` and `prep.apply`.
 - **First run.** `setup [DRIVES...]` asks which drives are copies of your library and what to call
@@ -698,7 +704,8 @@ their old names.
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library, files
   nothing uses and caches no version reads any more, and refuses when it can't read a snapshot. `store copy` refuses, without
-  `--force`, a copy that was written to with `--store` since the last copy.
+  `--force`, a copy that was written to with `--store` since the last copy, and a change planned
+  with `--store` naming such a copy says so first.
 - `format <name>` takes only an adopted drive's name (or a path or disk identifier), never a
   volume label or a folder in the working directory (give `./NAME`), and the typed confirmation is
   that name or the disk identifier. `format` and
@@ -726,8 +733,9 @@ their old names.
 - Each store folder has its own keychain item, so a session kept in the keychain needs one sign-in
   again, and a `--session-file` keeps each account's secrets apart. Publishing asks only to create
   and update locallibrary's records (`repo:<nsid>?action=create&action=update`, where it asked
-  for delete too), through the permission set `computer.localnetwork.locallibraryPublishing`
-  (`include:`), so servers show its description when you approve. The set has to be published
+  for delete too), and to delete sets and their recordings (`repo:computer.localnetwork.dj.set`,
+  `repo:computer.localnetwork.dj.recording`), through the permission set
+  `computer.localnetwork.locallibraryPublishing` (`include:`), so servers show its description when you approve. The set has to be published
   (`pnpm -C apps/web lexicons:publish`) before a sign-in that allows publishing works. Sign-in
   stops when that document is online but doesn't fit, instead of quietly using the development
   client, and `account` and the player say when a session is the development client's. `settings
@@ -769,6 +777,11 @@ their old names.
   `collection` read memory loops as hot cue D and shifted D-H by one. OneLibrary's `cue.kind` is
   written the same way.
 - `mix` no longer reports riding the pitch fader as a loop or skip.
+- `mix` gives the slowest and fastest speeds of a track the pitch fader was ridden through, in the
+  HTML report, the tracklist, the player's Mixes view and `--export` (`speedRange`, which the
+  website's mix report shows too). A ride of a few percent read as one speed (their average, or the
+  speed searched when that was 2% or more off), and how clearly the track was heard was measured
+  at that speed, which it was never played at.
 - `status` and the player's replay offer no longer take a player's writes for a rekordbox export
   on drives with both databases, and replaying field edits already in place changes nothing.
 - `library log` shows snapshots saved beside the latest (drives back from a set) as `beside`;

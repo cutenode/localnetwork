@@ -1,6 +1,6 @@
 # Railway
 
-`railway.ts` is the website's Railway project (`localnetwork.computer`): the `localnetwork` service, which builds `apps/web/Dockerfile` from `main` once its checks pass, and the `/data` volume it keeps SQLite on. Railway's [Infrastructure as Code](https://docs.railway.com/infrastructure-as-code) reads it through the Railway CLI (5.42.1 or newer) and the `railway` dev dependency at the repository root.
+`railway.ts` is the website's Railway project (`localnetwork.computer`): the `localnetwork` service, which builds `apps/web/Dockerfile` from `main` once its checks pass, the `/data` volume it keeps SQLite on, and the `localnetwork-backups` bucket it backs that database up to ([apps/web/README.md](../apps/web/README.md#backups)). Railway's [Infrastructure as Code](https://docs.railway.com/infrastructure-as-code) reads it through the Railway CLI (5.42.1 or newer) and the `railway` dev dependency at the repository root.
 
 ```bash
 railway link                  # once: the localnetwork.computer project, production

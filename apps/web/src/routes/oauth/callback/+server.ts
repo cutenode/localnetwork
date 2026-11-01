@@ -47,7 +47,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 
 		// Only a grant of every space write the app asks for lets it write there as the user. Anything less (no
 		// spaces support, or scopes the user declined) falls back to the root account writing on their behalf.
-		const spacesCapable = grantsSpaces(scope, did);
+		const spacesCapable = grantsSpaces(scope, did, app.rootDid);
 		const identity = await app.identity.resolve(did).catch(() => null);
 		await app.accounts.recordLogin({
 			did,
@@ -55,7 +55,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			pdsUrl: identity?.pds ?? null,
 			grantedScope: scope,
 			spacesCapable,
-			publicWrites: grantsPublicRecords(scope, did)
+			publicWrites: grantsPublicRecords(scope, did, app.rootDid)
 		});
 
 		const email = await app.notificationChannels.onSignIn({

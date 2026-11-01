@@ -51,23 +51,24 @@ file, and its clippy may disagree with CI's. The oldest Rust locallibrary suppor
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
-pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
-Windows each run the same jobs, the tests in a call of `locallibrary-ci-os.yml` per OS, so an OS
-that can't get a runner holds up only its own:
+**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
+Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
+merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 
 | Job | What it runs |
 | --- | --- |
 | `lint` | `cargo fmt --check`, clippy, and the doctests (`cargo test --doc`; nextest doesn't run them) |
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
-| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
-| `hegel` | on Linux, the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
+| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
 nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
-past ten minutes fails, and each test shard and the `hegel` job upload a JUnit file with every
-test's time (the `junit-*` artifacts). The test jobs set up what some tests need, the same way on
+past ten minutes fails, and each test shard and the `hegel` and `other-os` jobs upload a JUnit file
+with every test's time (the `junit-*` artifacts). The test jobs set up what some tests need on
 each OS:
 
 - the `sqlcipher` CLI, which the tests must find (`LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, see the
@@ -180,8 +181,8 @@ tools/hegel-coverage.sh     # the property tests alone, against the same thresho
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
-function or region coverage drops below the thresholds there, one set for every OS, just under the
-lowest of what CI measures on macOS, Linux and Windows; raise them when coverage goes up. It
+function or region coverage drops below the thresholds there, just under what CI measures on
+Linux; raise them when coverage goes up. It
 measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
 `#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
 TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new

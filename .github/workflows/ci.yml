@@ -1,0 +1,344 @@
+name: CI
+
+# Every pull request, merge queue group and push to main runs this one workflow: a changes job works
+# out which tools' files changed, each tool's workflow runs as a call when its did, and "CI passed",
+# the one check the "Protect Main" ruleset requires, reports either way. One changes job and one
+# passed job per run, where each tool's workflow used to start both of its own, leaves the runners
+# to the work.
+#
+# Pull requests and pushes to main run on Linux. locallibrary's macOS and Windows jobs, which the
+# plan's 5 macOS runners can't keep up with on every push, run once for each merge queue group
+# instead, or on a pull request with the `all-os` label. A group runs nothing else: its pull
+# requests passed on Linux, and the push to main once it merges runs Linux again.
+on:
+  push:
+    branches: [main]
+  # The default types, and ready_for_review for a draft's first run (see the changes job).
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+
+# A new push cancels the run for the push before it. On main, the next run's changes job still
+# picks up what the cancelled run didn't finish. The tools' workflows have no concurrency of their
+# own: a call evaluates the group with this workflow's name, so it would cancel this run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
+jobs:
+  # Each output says whether a tool's workflow has something to check. A draft checks nothing
+  # until it's marked ready for review, which leaves the runners to the pull requests about to
+  # merge, and `draft` tells passed it skipped the work. `linux` and `other_os` say which OSes this
+  # event runs (see the top of the file).
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      locallibrary: ${{ (steps.scope.outputs.linux == 'true' || steps.scope.outputs.other_os == 'true') && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_linux: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_other_os: ${{ steps.scope.outputs.other_os == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.locallibrary_readmes == 'true') }}
+      locallibrary_semver: ${{ github.event_name == 'pull_request' && steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.locallibrary_semver == 'true') }}
+      web: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web == 'true') }}
+      web_integration: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_integration == 'true') }}
+      web_lighthouse: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.web_lighthouse == 'true') }}
+      localtoolbox: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.localtoolbox == 'true') }}
+      atstore: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.atstore == 'true') }}
+      mix_report: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.mix_report == 'true') }}
+      npm_advisories: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.npm_advisories == 'true') }}
+      workflow_lint: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.workflow_lint == 'true') }}
+      # The policies are quick and read files from all over, so they always run.
+      repo_checks: ${{ steps.scope.outputs.linux == 'true' }}
+      repo_checks_lexicons: ${{ steps.scope.outputs.linux == 'true' && (steps.scope.outputs.all == 'true' || steps.filter.outputs.repo_checks_lexicons == 'true') }}
+      draft: ${{ steps.scope.outputs.skip == 'true' }}
+    steps:
+      # A pull request's files come from the API. A push is diffed against the last commit this
+      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push,
+      # and a merge queue group against the commit it goes on top of.
+      - if: github.event_name != 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name != 'pull_request'
+        id: base
+        uses: ./.github/actions/last-passed
+      # Each tool's paths: its own files and the shared ones it depends on (the lockfile,
+      # `.node-version`, the lint and format configs, its workflow).
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            # This workflow wires up every tool's, so a change to it runs them all.
+            ci:
+              - '.github/workflows/ci.yml'
+            # The Rust workspace. Changes to Markdown alone skip it, except the crates' READMEs,
+            # which are their crate docs and doctests.
+            locallibrary:
+              - 'apps/locallibrary/**'
+              - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - 'packages/tokens/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'lexicons/**'
+              - '.github/workflows/locallibrary-*.yml'
+              - '!**/*.md'
+            locallibrary_readmes:
+              - 'crates/*/README.md'
+            locallibrary_semver:
+              - 'crates/loclib-*/**'
+              - 'Cargo.toml'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '!crates/*/tests/**'
+              - '!crates/*/examples/**'
+              - '!**/*.md'
+            # The web app, and what its Docker image copies in from outside apps/web: the shared
+            # tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
+            web: &web
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'apps/*/docs/*.md'
+              - 'README.md'
+              - '.github/CONTRIBUTING.md'
+              - '.github/SECURITY.md'
+              - '.github/labels.yml'
+              - 'packages/tokens/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.dockerignore'
+              - 'lexicons/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - '.github/workflows/web-ci.yml'
+            # The integration tests: all of the above but the Markdown and labels that the tool pages
+            # and src/lib/tools/docs.test.ts read, which verify, e2e and the Docker smoke test cover.
+            web_integration:
+              - *web
+              - '!apps/*/README.md'
+              - '!apps/*/docs/*.md'
+              - '!README.md'
+              - '!.github/CONTRIBUTING.md'
+              - '!.github/SECURITY.md'
+              - '!.github/labels.yml'
+            # What the pages Lighthouse measures are built and served from: the app's code, static
+            # files and Lua (HappyView answers the directory's queries), the dev network and seed
+            # data it measures them on, its build and Lighthouse config, the dependencies, and the
+            # README and guides of the one tool page lighthouserc.cjs visits (add a tool here when
+            # its page goes in there). Left out: the app's tests and the helpers and fixture only
+            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
+            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
+            # website's README, the Dockerfile).
+            web_lighthouse:
+              - 'apps/web/src/**'
+              - 'apps/web/static/**'
+              - 'apps/web/lua/**'
+              - 'apps/web/scripts/**'
+              - 'apps/web/package.json'
+              - 'apps/web/vite.config.ts'
+              - 'apps/web/tsconfig.json'
+              - 'apps/web/lighthouserc.cjs'
+              - 'apps/locallibrary/README.md'
+              - 'apps/locallibrary/docs/*.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.github/workflows/web-ci.yml'
+              - '!apps/web/**/*.test.ts'
+              - '!apps/web/**/*.spec.ts'
+              - '!apps/web/**/*.stories.svelte'
+              - '!apps/web/**/*.mdx'
+              - '!apps/web/src/lib/server/testing/**'
+              - '!apps/web/src/lib/mix/fixtures/**'
+            localtoolbox:
+              - 'apps/localtoolbox/**'
+              - 'packages/tokens/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.github/workflows/localtoolbox-ci.yml'
+            atstore:
+              - 'packages/atstore/**'
+              - 'apps/locallibrary/assets/icon.svg'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.github/workflows/atstore-ci.yml'
+            # The mix report's writer in locallibrary and its reader in the web app.
+            mix_report:
+              - 'crates/locallibrary/src/mix/**'
+              - 'crates/loclib-mixid/**'
+              - 'apps/locallibrary/src/mix_cmd.rs'
+              - 'apps/web/src/lib/mix/**'
+              - 'apps/web/scripts/mix-fixture.ts'
+              - 'packages/tokens/**'
+              - '.github/workflows/mix-report.yml'
+            # The lockfile and the advisories' ignore list (auditConfig in pnpm-workspace.yaml).
+            npm_advisories:
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/npm-advisories.yml'
+            workflow_lint:
+              - '.github/**'
+            repo_checks_lexicons:
+              - 'lexicons/**'
+              - 'tools/lexicons.sh'
+              - '.github/workflows/repo-checks.yml'
+      # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
+      # has the pull request as it was when the event was made: #211 was marked ready a second after
+      # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
+      # still said draft. A re-run gets the same event, so only this lets one see that the pull
+      # request is ready, or that the label was added since.
+      - if: github.event_name == 'pull_request'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$GH_REPO/pulls/$NUMBER" \
+            --jq '"draft=\(.draft)", "all_os=\(any(.labels[]; .name == "all-os"))"' >> "$GITHUB_OUTPUT"
+      # Everything runs for a pull request too big for the API's file list (it lists at most 3000),
+      # and for a change to this workflow. A draft runs nothing. Which OSes run is at the top of the
+      # file.
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files || 0 }}
+          CI_CHANGED: ${{ steps.filter.outputs.ci }}
+          DRAFT: ${{ steps.pr.outputs.draft }}
+          ALL_OS: ${{ steps.pr.outputs.all_os }}
+        run: |
+          all=false
+          if [ "$CHANGED_FILES" -ge 3000 ] || [ "$CI_CHANGED" = true ]; then all=true; fi
+          linux=true
+          other_os=${ALL_OS:-false}
+          if [ "$EVENT" = merge_group ]; then linux=false; other_os=true; fi
+          if [ "$DRAFT" = true ]; then linux=false; other_os=false; fi
+          {
+            echo "all=$all"
+            echo "linux=$linux"
+            echo "other_os=$other_os"
+            echo "skip=${DRAFT:-false}"
+          } >> "$GITHUB_OUTPUT"
+
+  locallibrary:
+    needs: changes
+    if: needs.changes.outputs.locallibrary == 'true'
+    permissions:
+      contents: read
+      # The coverage comment.
+      pull-requests: write
+    uses: ./.github/workflows/locallibrary-ci.yml
+    with:
+      linux: ${{ needs.changes.outputs.locallibrary_linux == 'true' }}
+      other-os: ${{ needs.changes.outputs.locallibrary_other_os == 'true' }}
+      semver: ${{ needs.changes.outputs.locallibrary_semver == 'true' }}
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    permissions:
+      contents: read
+      # main's coverage and sizes, from its runs' artifacts, and the comment.
+      actions: read
+      pull-requests: write
+    uses: ./.github/workflows/web-ci.yml
+    with:
+      integration: ${{ needs.changes.outputs.web_integration == 'true' }}
+      lighthouse: ${{ needs.changes.outputs.web_lighthouse == 'true' }}
+
+  localtoolbox:
+    needs: changes
+    if: needs.changes.outputs.localtoolbox == 'true'
+    permissions:
+      contents: read
+      # As web's.
+      actions: read
+      pull-requests: write
+    uses: ./.github/workflows/localtoolbox-ci.yml
+
+  atstore:
+    needs: changes
+    if: needs.changes.outputs.atstore == 'true'
+    uses: ./.github/workflows/atstore-ci.yml
+
+  mix-report:
+    needs: changes
+    if: needs.changes.outputs.mix_report == 'true'
+    uses: ./.github/workflows/mix-report.yml
+
+  npm-advisories:
+    needs: changes
+    if: needs.changes.outputs.npm_advisories == 'true'
+    uses: ./.github/workflows/npm-advisories.yml
+
+  workflow-lint:
+    needs: changes
+    if: needs.changes.outputs.workflow_lint == 'true'
+    uses: ./.github/workflows/workflow-lint.yml
+
+  repo-checks:
+    needs: changes
+    if: needs.changes.outputs.repo_checks == 'true'
+    uses: ./.github/workflows/repo-checks.yml
+    with:
+      lexicons: ${{ needs.changes.outputs.repo_checks_lexicons == 'true' }}
+
+  # The check the "Protect Main" ruleset requires: it fails if any tool's workflow failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  # A call's result covers every job in it, so a job skipped because one it needs didn't finish
+  # (#88's tests, after its macOS build was cancelled) fails its tool's. A call skipped while its
+  # changes output was true didn't run.
+  passed:
+    name: CI passed
+    if: always()
+    needs: [changes, locallibrary, web, localtoolbox, atstore, mix-report, npm-advisories, workflow-lint, repo-checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: >-
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || (needs.changes.outputs.locallibrary == 'true' && needs.locallibrary.result == 'skipped')
+          || (needs.changes.outputs.web == 'true' && needs.web.result == 'skipped')
+          || (needs.changes.outputs.localtoolbox == 'true' && needs.localtoolbox.result == 'skipped')
+          || (needs.changes.outputs.atstore == 'true' && needs.atstore.result == 'skipped')
+          || (needs.changes.outputs.mix_report == 'true' && needs.mix-report.result == 'skipped')
+          || (needs.changes.outputs.npm_advisories == 'true' && needs.npm-advisories.result == 'skipped')
+          || (needs.changes.outputs.workflow_lint == 'true' && needs.workflow-lint.result == 'skipped')
+          || (needs.changes.outputs.repo_checks == 'true' && needs.repo-checks.result == 'skipped')
+        run: exit 1
+      # A draft's skipped jobs would pass too, and this check would stay green if marking it ready
+      # started no run, as with #211, which merged without its tests running.
+      - if: needs.changes.outputs.draft == 'true'
+        run: |
+          echo "::error title=Draft::Nothing ran because the pull request was a draft. Marking it ready for review starts a new run; if none started, re-run this one."
+          exit 1

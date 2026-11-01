@@ -1,0 +1,26 @@
+name: locallibrary cache
+
+# locallibrary-ci.yml's other-os job, nightly on main, so the macOS and Windows caches it restores
+# stay warm: only main saves caches, and ci.yml runs other-os for merge queue groups and labelled
+# pull requests, never for a push to main. It's the same job, so what fails here would fail a
+# merge queue group too.
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  other-os:
+    # What locallibrary-ci.yml's jobs ask for, which a call has to grant even to the ones it skips
+    # (its report job's comment), or GitHub won't start the run.
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/locallibrary-ci.yml
+    with:
+      linux: false
+      other-os: true
+      semver: false

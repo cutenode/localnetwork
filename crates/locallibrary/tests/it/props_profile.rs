@@ -122,6 +122,7 @@ fn report(tracks: &[(String, String)], top_artists: &[String]) -> ProfileReport 
         collection: CollectionSection::default(),
         style: None,
         warnings: Vec::new(),
+        cached: Default::default(),
     }
 }
 

@@ -19,7 +19,8 @@
 //! as JSON (beat grids, phrases and waveforms too, writing the files its `blobs` give first), and
 //! one named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming
 //! an empty audio file; its exporter names the playlists it's given in a note, and would write to
-//! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its
+//! `outside`, or files of the `sizes` given, or writes `extra` too without saying so first, and
+//! given a set or a mix writes its
 //! tracklist; its importer answers a JSON file as it is (in a blob with the `blob` option); its
 //! destinations are echo's (a store kept in `destination/` where it runs, and a set published
 //! nowhere, or as its `answer` setting says, or sending its recording as its `upload` setting says,

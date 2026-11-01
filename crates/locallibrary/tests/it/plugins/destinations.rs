@@ -125,6 +125,38 @@ fn a_copy_at_a_destination_goes_in_a_folder_copys_order_and_comes_back_whole() {
     assert_eq!((again.snapshots, again.files, again.libraries[0].outcome), (0, 0, LibraryOutcome::UpToDate));
 }
 
+/// Every string in `v` with a window title set after it: what a terminal shows of it is the same.
+fn retitled(v: &mut Value) {
+    match v {
+        Value::String(s) => s.push_str("\u{1b}]0;retitled\u{7}"),
+        Value::Array(list) => list.iter_mut().for_each(retitled),
+        Value::Object(map) => map.values_mut().for_each(retitled),
+        _ => {}
+    }
+}
+
+/// The store's records a destination gives back are taken in as all a plugin answers is: their
+/// text without control characters or escape sequences. Regression: they were written to the
+/// store as the plugin gave them.
+#[test]
+fn a_destinations_records_come_back_printable() {
+    let f = Fixture::echo();
+    f.pulled();
+    let dest = f.plugins.store_destination("echo:folder", Some(&f.store)).unwrap();
+    offsite::copy_to(&f.store, &dest, &CopyOptions::default(), &Ctx::silent()).unwrap();
+    f.plugins.shutdown();
+    let other = Store::open_or_init(f.store.root().with_file_name("other")).unwrap();
+    copy_dir(&Fixture::kept(&f.store), &Fixture::kept(&other));
+    let record = Fixture::kept(&other).join("manifests/drives.json");
+    let mut drives: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    retitled(&mut drives);
+    std::fs::write(&record, drives.to_string()).unwrap();
+    let dest = f.plugins.store_destination("echo:folder", Some(&other)).unwrap();
+    offsite::restore(&other, &dest, &RestoreOptions::default(), &Ctx::silent()).unwrap();
+    let drives = |s: &Store| serde_json::from_slice::<Value>(&std::fs::read(s.root().join("drives.json")).unwrap());
+    assert_eq!(drives(&other).unwrap(), drives(&f.store).unwrap(), "as the store wrote them");
+}
+
 #[test]
 fn what_a_destination_answers_damaged_never_goes_in() {
     let f = Fixture::echo();

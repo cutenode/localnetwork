@@ -616,7 +616,8 @@ fn rates_and_lists_read_as_written(tc: hegel::TestCase) {
 }
 
 /// A drive compared with the first one: the same library is fine; anything else is a problem
-/// naming the first drive, saying which way it differs.
+/// naming the first drive, saying which way it differs, and fixed by syncing the drive when one of
+/// the two is newer.
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(same_fp = true, overlap = 4usize, extra = 0usize)]
 #[hegel::explicit_test_case(same_fp = false, overlap = 4usize, extra = 0usize)]
@@ -655,11 +656,17 @@ fn a_drive_compared_with_the_first_says_how_they_differ(tc: hegel::TestCase) {
     let mut second = tracks(0..overlap);
     second.extend(tracks(10..10 + extra));
     let other = side("Backup", second, if same_fp { 1 } else { 2 });
-    let items = said(|mut item| same_library_item("Main", &first, "Backup", &other, &mut item));
-    let [(check, level, message)] = items.as_slice() else { panic!("{items:?}") };
-    assert_eq!(*check, "same_library");
+    let mut found = DriveItems { drive: "Backup".into(), items: Vec::new() };
+    same_library_item("Main", &first, &other, &mut found);
+    let [CheckItem { drive, finding, fix }] = found.items.as_slice() else { panic!("{:?}", found.items) };
+    let (check, level, message) = (&finding.check, &finding.level, &finding.message);
+    assert_eq!((check.as_str(), drive.as_str()), ("same_library", "Backup"));
     let relation = compare::compare(&first, &other).relation;
     assert_eq!(*level == Level::Info, relation == Relation::Identical, "{message}");
+    // One of the two newer, a sync of the drive brings them level; else nothing does.
+    let sync = Fix::Host(HostAction::Sync(DriveAction { drive: "Backup".into() }));
+    let newer = matches!(relation, Relation::LeftNewer | Relation::RightNewer);
+    assert_eq!(fix.as_ref(), newer.then_some(&sync), "{relation:?}");
     assert!(message.contains("Main"), "{message}");
     let phrase = match relation {
         Relation::Identical => "same library as Main",

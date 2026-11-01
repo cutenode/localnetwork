@@ -21,7 +21,7 @@ import type { Config } from '../config';
 import { type Db, nowIso } from '../db';
 import type { AccountRow } from '../db/schema';
 import type { Logger } from '../logger';
-import { PERMISSION_SET } from './lexicons';
+import { permissionSetFor, ROOT_AUTHORITY } from './lexicons';
 import { AgentRepoClient, type RepoClient } from './repo-client';
 
 const permissions = new IncludeScope(PERMISSIONS);
@@ -57,11 +57,11 @@ const PUBLIC_RECORDS = [
  * Writes added to `full` after accounts had already signed in with it: editing the sets locallibrary published, press
  * kit drafts in a performer's space, and RSVPs. Like PUBLIC_RECORDS, a grant without them still counts as one with
  * spaces; the first write that needs one asks for a fresh sign-in, and that grant holds them all. The permission set's
- * are read from it, so they're the scopes the PDS expands it to.
+ * are read from it as `rootDid` publishes it, so they're the scopes the PDS expands it to.
  */
-const STEP_UP = [
+const stepUp = (rootDid: string) => [
 	...permissions
-		.toPermissions(PERMISSION_SET)
+		.toPermissions(permissionSetFor(rootDid))
 		.filter((permission) =>
 			permission instanceof RepoPermission
 				? permission.collection.includes(COLLECTION.djSet)
@@ -75,15 +75,16 @@ const STEP_UP = [
  * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
  * grants write access to the user's own repos in the audit, moderation, booking, backstage and performer
  * spaces, a personal planner space under the user's own DID, and the records it writes to the user's
- * public repo (their profile, press kits, shows, follows, and edits to their sets). The set leaves the
- * shared spaces' authority open, since one published document serves every network and each has its own
- * root DID. Blob uploads, calendar events and RSVPs stay explicit: a permission set can only hold repo,
- * rpc, and space permissions, and only for its own namespace. Nothing grants reading other users' data;
- * the app reads shared spaces with credentials issued to the root authority. The base fallback, for a PDS
- * without spaces, asks for the public records anyone can write (profiles, follows, and shows with their
- * events) and the uploads a profile needs; the root account writes and uploads everything else on the
- * user's behalf. The rest are OPTIONAL_SCOPES, asked for only when someone opts in to what needs them, so
- * they stay out of `full` and never send anyone back through sign-in.
+ * public repo (their profile, press kits, shows, follows, and edits to their sets). The shared spaces are
+ * the root's: each network's root publishes the set with its own DID as their authority, so the PDS
+ * expands it to that network's spaces only. Blob uploads, calendar events and RSVPs stay explicit: a
+ * permission set can only hold repo, rpc, and space permissions, and only for its own namespace. Nothing
+ * grants reading other users' data; the app reads shared spaces with credentials issued to the root
+ * authority. The base fallback, for a PDS without spaces, asks for the public records anyone can write
+ * (profiles, follows, and shows with their events) and the uploads a profile needs; the root account
+ * writes and uploads everything else on the user's behalf. The rest are OPTIONAL_SCOPES, asked for only
+ * when someone opts in to what needs them, so they stay out of `full` and never send anyone back
+ * through sign-in.
  */
 export const SCOPES = {
 	full: ['atproto', BLOBS, CALENDAR_EVENTS, RSVPS, permissions.toString()].join(' '),
@@ -130,11 +131,14 @@ function tierOf(account: SignedInAccount): string {
 	return account.publicWrites === 1 ? SCOPES.base : SCOPES.minimal;
 }
 
-/** The forms of OPTIONAL_SCOPES a grant holds. */
+/**
+ * The forms of OPTIONAL_SCOPES a grant holds. None of them is in the permission set, so whose copy of it expands the
+ * grant doesn't matter, and the unpinned one stands in for the root's.
+ */
 export function heldOptionalScopes(granted: string | undefined | null, did: string): string[] {
 	return Object.values(OPTIONAL_SCOPES)
 		.flat()
-		.filter((scope) => grantsAll(granted, scope, did));
+		.filter((scope) => grantsAll(granted, scope, did, ROOT_AUTHORITY));
 }
 
 /** Every scope the app may ask for. A PDS refuses an authorization for any scope its client metadata doesn't list. */
@@ -142,18 +146,21 @@ export const DECLARED_SCOPES = [...new Set(Object.values(SCOPES).flatMap((scope)
 
 /**
  * Whether `did`'s granted scope includes every scope in `requested`. The PDS grants scopes in
- * normal form, with the permission set expanded into the scopes it lists and a `self` space
- * authority resolved to the user's DID, minus any it doesn't support or the user declined, so
- * both sides are expanded and normalized that way before comparing.
+ * normal form, with the permission set (as `rootDid` publishes it) expanded into the scopes it lists
+ * and a `self` space authority resolved to the user's DID, minus any it doesn't support or the user
+ * declined, so both sides are expanded and normalized that way before comparing.
  */
 export function grantsAll(
 	granted: string | undefined | null,
 	requested: string,
 	did: string,
+	rootDid: string,
 	except: string[] = []
 ): boolean {
+	const permissionSet = permissionSetFor(rootDid);
+
 	const normalize = (scope: string): string[] => {
-		if (scope === permissions.toString()) return permissions.toScopes(PERMISSION_SET).flatMap(normalize);
+		if (scope === permissions.toString()) return permissions.toScopes(permissionSet).flatMap(normalize);
 
 		const space = SpacePermission.fromString(scope);
 
@@ -175,26 +182,26 @@ export function grantsAll(
  * Whether a grant lets the app make the space writes it makes with a user's session, which is what makes an account
  * spaces-capable. The public records and the step-up writes aren't needed for that (see PUBLIC_RECORDS and STEP_UP).
  */
-export function grantsSpaces(granted: string | undefined | null, did: string): boolean {
-	return grantsAll(granted, SCOPES.full, did, [...PUBLIC_RECORDS.split(' '), ...STEP_UP]);
+export function grantsSpaces(granted: string | undefined | null, did: string, rootDid: string): boolean {
+	return grantsAll(granted, SCOPES.full, did, rootDid, [...PUBLIC_RECORDS.split(' '), ...stepUp(rootDid)]);
 }
 
-/** Whether a grant lets the app read the account's email address, in either form. */
+/** Whether a grant lets the app read the account's email address, in either form (see heldOptionalScopes). */
 export function grantsEmail(granted: string | undefined | null, did: string): boolean {
-	return OPTIONAL_SCOPES.email.some((scope) => grantsAll(granted, scope, did));
+	return OPTIONAL_SCOPES.email.some((scope) => grantsAll(granted, scope, did, ROOT_AUTHORITY));
 }
 
 /**
  * Whether a grant lets the app save the account's profile: the profile record, and the avatar it uploads. Grants from
  * before profiles don't, so the editor offers to sign in again before anyone fills it in.
  */
-export function grantsProfile(granted: string | undefined | null, did: string): boolean {
-	return grantsAll(granted, `${PROFILE_WRITES} ${BLOBS}`, did);
+export function grantsProfile(granted: string | undefined | null, did: string, rootDid: string): boolean {
+	return grantsAll(granted, `${PROFILE_WRITES} ${BLOBS}`, did, rootDid);
 }
 
 /** Whether a grant lets the app write profiles, shows, calendar events, and follows to the account's public repo. */
-export function grantsPublicRecords(granted: string | undefined | null, did: string): boolean {
-	return grantsAll(granted, PUBLIC_RECORDS, did);
+export function grantsPublicRecords(granted: string | undefined | null, did: string, rootDid: string): boolean {
+	return grantsAll(granted, PUBLIC_RECORDS, did, rootDid);
 }
 
 export function isLoopback(publicUrl: string): boolean {

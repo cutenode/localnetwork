@@ -5333,8 +5333,9 @@ export type CheckItem = {
   /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
   paths?: string[];
   /**
-   * What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
-   * confirmed as any is.
+   * What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its
+   * check says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching
+   * artwork for its tracks without any).
    */
   fix?: Fix | null;
 };
@@ -5349,13 +5350,101 @@ export type Level =
   | "problem";
 
 /**
- * The plugin operation that fixes a finding, with its params: planned and confirmed as any is
- * (`plugins.op.plan`, with the drive it was found on).
+ * What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a
+ * plugin's operation (what a plugin's check says), or one of the host's own flows (what its own
+ * checks say), each as the sidecar's `check` answers it.
  */
-export type Fix = {
+export type Fix = PluginFix | HostAction;
+
+/** The plugin operation that fixes a finding, with its params (`plugins.op.plan`). */
+export type PluginFix = {
   plugin: string;
   operation: string;
   params: unknown;
+};
+
+/**
+ * One of the host's own flows, started with these params filled in, and planned and confirmed as
+ * when the user starts it: what a plugin may suggest (`host/notify`'s `action`), each on its own
+ * contributions alone so it never starts another plugin's work, and what fixes one of the host's
+ * own check findings. `pull` and `sync` are only ever the host's: no plugin suggests them.
+ */
+export type HostAction =
+  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
+  | {
+    name: "art.fetch";
+    params: FetchAction;
+  }
+  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
+  | {
+    name: "track.fetch";
+    params: FetchAction;
+  }
+  /** Export in one of its formats, to where the user picks. */
+  | {
+    name: "export";
+    params: ExportAction;
+  }
+  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
+  | {
+    name: "analyze";
+    params: AnalyzeAction;
+  }
+  /** Save a drive in the store as a snapshot (`locallibrary pull`). */
+  | {
+    name: "pull";
+    params: DriveAction;
+  }
+  /** Sync a drive's library's drives plugged in from the newest of them (`locallibrary sync`). */
+  | {
+    name: "sync";
+    params: DriveAction;
+  };
+
+/** `art.fetch`'s and `track.fetch`'s params. */
+export type FetchAction = {
+  /** The drive, by id or name (as events name it). */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+  /**
+   * Only this provider of the plugin's [default: each of its providers of the kind; for the
+   * host's fix, every plugin's].
+   */
+  provider?: string | null;
+};
+
+/**
+ * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
+ * `export/write`'s source names them) and its options. Where to is the user's to pick.
+ */
+export type ExportAction = {
+  /** One of the plugin's exporters, by format. */
+  format: string;
+  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
+  drive?: string | null;
+  /** A set exporter's set. */
+  set?: string | null;
+  /** A mix exporter's mix. */
+  mix?: string | null;
+  /** As the exporter's `options` schema says. */
+  options?: { [key: string]: unknown };
+};
+
+/** `analyze`'s params. */
+export type AnalyzeAction = {
+  /** One of the plugin's analyzers. */
+  analyzer: string;
+  /** The drive, by id or name. */
+  drive: string;
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[];
+};
+
+/** `pull`'s and `sync`'s params. */
+export type DriveAction = {
+  /** The drive, by id or name. */
+  drive: string;
 };
 
 export type OrphanPlan = {
@@ -6820,6 +6909,11 @@ export type Play = {
   track_end: number;
   /** Playback speed: 1.0 as recorded, 1.03 is +3%. */
   tempo: number;
+  /**
+   * The slowest and fastest speeds it was played at, when the pitch fader was ridden during it
+   * (see [`matcher::Found::speed_range`]); `tempo` is then their average.
+   */
+  speed_range?: [number, number] | null;
   /** The track's BPM at that speed. */
   played_bpm: number | null;
   /** Whether key lock (master tempo) was on: `None` when the speed is too close to 1.0 to tell. */
@@ -6991,6 +7085,8 @@ export type ExportPlay = {
   trackEnd: number;
   /** Playback speed: 1.03 is +3%. */
   tempo: number;
+  /** The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average. */
+  speedRange?: [number, number] | null;
   playedBpm?: number | null;
   /** `None` when the speed is too close to 1.0 to tell. */
   keyLock: boolean | null;
@@ -7668,6 +7764,7 @@ export type ProvisionPlan = {
   steps: string[];
   /** The format's plan, when formatting (its `identity` confirms the disk on apply). */
   format: FormatPlan | null;
+  /** Its own warnings; the format's are in `format.warnings` (the plan's `warnings` has both). */
   warnings: string[];
 };
 
@@ -7866,6 +7963,11 @@ export type CollectionExportPlan = {
   free_space: number | null;
   fits: boolean;
   warnings: string[];
+  /**
+   * Intelligent playlists exported with a smart rule for the target (see [`crate::smart`]),
+   * which `smart apply` keeps up to date: kept in the store once the export is applied.
+   */
+  smart: SmartPlaylist[];
 };
 
 export type CollectionExportReport = {
@@ -9210,70 +9312,6 @@ export type PluginEvent = PluginNotice & {
 export type Suggested = {
   name: string;
   params: unknown;
-};
-
-/**
- * One of the host's own flows a plugin may suggest (`host/notify`'s `action`): the host starts it
- * with these params filled in, and it's planned and confirmed as when the user starts it. Each is
- * on the plugin's own contributions alone, so it never starts another plugin's work.
- */
-export type HostAction =
-  /** Fetch cover art from its artwork providers (`locallibrary art fetch`). */
-  | {
-    name: "art.fetch";
-    params: FetchAction;
-  }
-  /** Fetch tags from its metadata providers (`locallibrary track fetch`). */
-  | {
-    name: "track.fetch";
-    params: FetchAction;
-  }
-  /** Export in one of its formats, to where the user picks. */
-  | {
-    name: "export";
-    params: ExportAction;
-  }
-  /** Run one of its analyzers on a drive's tracks (`locallibrary analyze`). */
-  | {
-    name: "analyze";
-    params: AnalyzeAction;
-  };
-
-/** `art.fetch`'s and `track.fetch`'s params. */
-export type FetchAction = {
-  /** The drive, by id or name (as events name it). */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
-  /** Only this provider of the plugin's [default: each of its providers of the kind]. */
-  provider?: string | null;
-};
-
-/**
- * `export`'s params: what its exporter writes out (a drive's library, a set or a mix, as
- * `export/write`'s source names them) and its options. Where to is the user's to pick.
- */
-export type ExportAction = {
-  /** One of the plugin's exporters, by format. */
-  format: string;
-  /** The drive, by id or name: a drive exporter's library, else whose tracks to give it. */
-  drive?: string | null;
-  /** A set exporter's set. */
-  set?: string | null;
-  /** A mix exporter's mix. */
-  mix?: string | null;
-  /** As the exporter's `options` schema says. */
-  options?: { [key: string]: unknown };
-};
-
-/** `analyze`'s params. */
-export type AnalyzeAction = {
-  /** One of the plugin's analyzers. */
-  analyzer: string;
-  /** The drive, by id or name. */
-  drive: string;
-  /** Only these tracks, by id [default: every one]. */
-  tracks?: number[];
 };
 
 /**

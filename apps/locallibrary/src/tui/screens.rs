@@ -188,11 +188,11 @@ fn drives() {
         &Ctx::silent(),
     )
     .unwrap();
-    let fix = locallibrary::plugin::Fix {
+    let fix = locallibrary::plugin::Fix::Plugin(locallibrary::plugin::PluginFix {
         plugin: "echo".into(),
         operation: "playlist".into(),
         params: serde_json::Value::Null,
-    };
+    });
     let finding = locallibrary::check::Finding::new(locallibrary::check::Level::Warning, "echo.untitled", "1 untitled");
     report.items.push(locallibrary::check::CheckItem { drive: report.drives[0].clone(), finding, fix: Some(fix) });
     app.modal = Some(Modal::Report(super::drives::Report {
