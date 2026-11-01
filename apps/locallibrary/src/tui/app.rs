@@ -1170,6 +1170,9 @@ impl App {
     /// An app with nothing open, no background work started and no output devices (see
     /// `Outputs`): what the tests use.
     pub(super) fn blank(store_root: PathBuf, audio: Option<Audio>) -> App {
+        // A test's app never sends the browser of whoever runs it anywhere.
+        #[cfg(test)]
+        locallibrary::opener::never_open();
         let (tx, rx) = channel();
         let seed =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
@@ -3483,8 +3486,9 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
-            Act::PluginSignIn(plugin, account) => self.plugin_sign_in(plugin, account),
-            Act::PluginSignOut(plugin, account) => self.plugin_sign_out(plugin, account),
+            Act::AccountSignIn(kind, with) => self.account_sign_in(kind, with),
+            Act::AccountSignOut(mark) => self.account_sign_out(mark),
+            Act::PluginAccess(plugin) => self.plugin_access(plugin),
             Act::Review(mark) => self.review(mark),
             Act::Dismiss(mark) => self.dismiss(mark),
             Act::ProviderSettings => self.provider_settings(),

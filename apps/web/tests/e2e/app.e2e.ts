@@ -272,10 +272,17 @@ test.describe('public pages', () => {
 			expect(page.robots, path).toBeUndefined();
 		}
 
+		// A performer's picture is their card, drawn on the server, which crawlers fetch as a PNG.
+		const performer = await head('/projects/neon-tide');
+		const card = await request.get(new URL(performer.property('og:image') ?? '').pathname);
+		expect(card.status()).toBe(200);
+		expect(card.headers()['content-type']).toBe('image/png');
+		expect(performer.property('og:image:width')).toBe('1200');
+		expect(performer.property('twitter:card')).toBe('summary_large_image');
+
 		// Search engines read who a performer's page is about from its structured data, in the HTML as served.
-		const { jsonLd } = await head('/projects/neon-tide');
-		expect(jsonLd).toHaveLength(1);
-		expect(JSON.parse(jsonLd[0] ?? '')).toMatchObject({
+		expect(performer.jsonLd).toHaveLength(1);
+		expect(JSON.parse(performer.jsonLd[0] ?? '')).toMatchObject({
 			'@context': 'https://schema.org',
 			'@type': 'ProfilePage',
 			mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }

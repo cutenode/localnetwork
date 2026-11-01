@@ -9,6 +9,8 @@ use assert_cmd::cargo::CommandCargoExt;
 
 #[path = "../../../../crates/locallibrary/tests/support/files.rs"]
 mod files;
+#[path = "../../../../crates/locallibrary/tests/support/mock_oauth.rs"]
+mod mock_oauth;
 #[cfg(feature = "account")]
 #[path = "../../../../crates/locallibrary/tests/support/mock_pds.rs"]
 mod mock_pds;
@@ -79,7 +81,8 @@ const NOWHERE: &str = "http://127.0.0.1:9";
 /// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`), and has only the plugins
 /// it ships. The account settings of whoever runs the tests don't reach it, nor do their
 /// terminal's: it prints as it does piped (no colour) in a UTF-8 locale. No plugin reaches a server
-/// but this computer's (`LOCALLIBRARY_TEST_OFFLINE`), so none reaches MusicBrainz, and Local
+/// but this computer's (`LOCALLIBRARY_TEST_OFFLINE`), so none reaches MusicBrainz, nothing opens
+/// a browser or an app (`LOCALLIBRARY_NO_OPEN`: a sign-in prints its link), and Local
 /// Network's directory and website are at [`NOWHERE`] unless a test names its own. Traktor
 /// collections are stamped at one time ([`STAMPED`]), so a dry run's sizes are what's written
 /// however the clock moves between.
@@ -89,9 +92,11 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env("LOCALLIBRARY_VOLUMES", std::env::join_paths(volumes).unwrap())
         .env("SOURCE_DATE_EPOCH", STAMPED.to_string())
         .env("LOCALLIBRARY_TEST_OFFLINE", "1")
+        .env("LOCALLIBRARY_NO_OPEN", "1")
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")
+        .env_remove("LOCALLIBRARY_TEST_LOOPBACK")
         .env_remove("LOCALLIBRARY_USERINPUT_SPACE")
         // Local Network's directory and website: nowhere, unless a test names its own.
         .env("LOCALLIBRARY_HAPPYVIEW_URL", NOWHERE)

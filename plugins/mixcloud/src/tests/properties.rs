@@ -186,7 +186,7 @@ fn a_refusal_is_said_in_mixclouds_words(tc: TestCase) {
     let limit = format!("{kind} {message}").to_lowercase().contains("limit");
     let (expected, then) = match status {
         _ if rate_limited => ("external", "publish again in 16 minutes"),
-        401 => ("permission", "sign in again: locallibrary plugin account mixcloud mixcloud sign-in"),
+        401 => ("permission", "sign in again: locallibrary account mixcloud sign-in --for mixcloud"),
         _ if limit => ("invalid", "move one to your drafts, or go Pro"),
         403 => ("permission", ")"),
         _ => ("invalid", ")"),

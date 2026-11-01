@@ -9,6 +9,9 @@ export type PageImage = {
 	url: string;
 	/** What's in the picture, for people who can't see it. */
 	alt: string;
+	/** Known for the cards the site draws (1200×630); a stored picture's size isn't. */
+	width?: number;
+	height?: number;
 };
 
 /**
