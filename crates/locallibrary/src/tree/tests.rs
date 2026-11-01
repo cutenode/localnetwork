@@ -222,3 +222,51 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
     }
     assert!(!file.exists(), "rewrote an unchanged cache");
 }
+
+/// The walk lists the managed files walkdir finds, in walkdir's order (depth first, each folder's
+/// entries as it lists them), clutter and what's below a clutter folder left out.
+#[hegel::test(test_cases = 50)]
+fn the_walk_lists_what_walkdir_does(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let top = root.join("Contents");
+    fs::create_dir_all(&top).unwrap();
+    let folder = gs::sampled_from(vec!["a", "b", "c d", "Caf\u{e9}", ".Trashes"]);
+    let file = gs::sampled_from(vec!["x.mp3", "y.flac", "notes.txt", "._x.mp3", ".DS_Store"]);
+    let files: Vec<(Vec<&str>, &str)> = tc.draw(gs::vecs(gs::tuples!(gs::vecs(folder).max_size(5), file)).max_size(12));
+    for (folders, name) in &files {
+        let at = folders.iter().fold(top.clone(), |p, f| p.join(f));
+        fs::create_dir_all(&at).unwrap();
+        fs::write(at.join(name), name).unwrap();
+    }
+    let walked: Vec<PathBuf> = walk(root, &top, &Ctx::silent()).unwrap().into_iter().map(|(rel, ..)| rel).collect();
+    let want: Vec<PathBuf> = walkdir::WalkDir::new(&top)
+        .into_iter()
+        .filter_entry(|e| e.file_name().to_str().is_none_or(|n| !paths::is_ignored_name(n)))
+        .map(Result::unwrap)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().strip_prefix(root).unwrap().to_path_buf())
+        .filter(|rel| paths::classify(&paths::key(&rel.to_string_lossy())).is_some())
+        .collect();
+    assert_eq!(walked, want);
+}
+
+/// A drive whose folders nest as deep as its paths can go scans on threads with small stacks: the
+/// walk doesn't recurse into each folder.
+#[test]
+fn deep_folders_scan_in_a_small_stack() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let deep = (0..300).fold(root.join("Contents"), |p, _| p.join("d"));
+    fs::create_dir_all(&deep).unwrap();
+    fs::write(deep.join("x.mp3"), "x").unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(2).stack_size(64 * 1024).build().unwrap();
+    let tree = std::thread::scope(|s| {
+        let scan = || pool.install(|| scan(root, &ScanOptions::default(), &Ctx::silent()));
+        std::thread::Builder::new().stack_size(64 * 1024).spawn_scoped(s, scan).unwrap().join().unwrap()
+    })
+    .unwrap();
+    let key = format!("Contents/{}x.mp3", "d/".repeat(300));
+    assert_eq!(tree.entries.keys().collect::<Vec<_>>(), [&key]);
+}

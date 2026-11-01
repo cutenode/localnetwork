@@ -147,8 +147,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, ctx: &Ctx<'_>) -> Result<FileTree> 
         if !dir.is_dir() {
             continue;
         }
-        for found in walk(root, &dir, &dir, ctx) {
-            let (rel, class, meta) = found?;
+        for (rel, class, meta) in walk(root, &dir, ctx)? {
             insert(&mut tree, &rel, class, &meta);
         }
     }
@@ -160,21 +159,57 @@ pub fn scan(root: &Path, opts: &ScanOptions, ctx: &Ctx<'_>) -> Result<FileTree> 
 /// A managed file a walk found: its path below the root, its class and its metadata.
 type Found = (PathBuf, FileClass, std::fs::Metadata);
 
-/// The managed files below `dir` (in `top`, below `root`), depth first in the order each
-/// directory lists its entries, OS clutter and symlinks left out, ending at the first error: what
-/// a [`walkdir::WalkDir`] of `top` gives in that order. Subdirectories are walked in parallel:
-/// opening directories is most of a scan's time, and a drive has one per analysed track.
-fn walk(root: &Path, top: &Path, dir: &Path, ctx: &Ctx<'_>) -> Vec<Result<Found>> {
-    enum Item {
-        File(Result<Found>),
-        Dir(PathBuf),
+/// What a directory holds, in the order it lists them: a managed file (or the error that ends
+/// the walk there), or its `n`th subdirectory.
+enum Item {
+    File(Result<Found>),
+    Dir(usize),
+}
+
+/// The managed files below `top` (below `root`), depth first in the order each directory lists
+/// its entries, OS clutter and symlinks left out, or the first error on the way: what a
+/// [`walkdir::WalkDir`] of `top` gives in that order. Opening directories is most of a scan's
+/// time, and a drive has one per analysed track, so each depth's directories are listed in
+/// parallel. Neither step recurses, so however deep a drive's folders go, the walk's stack stays
+/// the same.
+fn walk(root: &Path, top: &Path, ctx: &Ctx<'_>) -> Result<Vec<Found>> {
+    // Each directory's items, and where its subdirectories' own listings start.
+    let mut listings: Vec<(std::vec::IntoIter<Item>, usize)> = Vec::new();
+    let mut depth = vec![top.to_path_buf()];
+    while !depth.is_empty() {
+        let mut next = listings.len() + depth.len();
+        let listed: Vec<(Vec<Item>, Vec<PathBuf>)> = depth.par_iter().map(|dir| list(root, top, dir, ctx)).collect();
+        depth = Vec::new();
+        for (items, subdirs) in listed {
+            listings.push((items.into_iter(), next));
+            next += subdirs.len();
+            depth.extend(subdirs);
+        }
     }
+    let mut found = Vec::new();
+    let mut open = vec![0];
+    while let Some(&at) = open.last() {
+        let (items, first) = &mut listings[at];
+        match items.next() {
+            Some(Item::File(file)) => found.push(file?),
+            Some(Item::Dir(n)) => open.push(*first + n),
+            None => {
+                open.pop();
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The items `dir` (in `top`, below `root`) holds, and its subdirectories. Listing stops at an
+/// error, which is the last item.
+fn list(root: &Path, top: &Path, dir: &Path, ctx: &Ctx<'_>) -> (Vec<Item>, Vec<PathBuf>) {
     let io = |path: &Path, source| Error::Io { path: path.to_path_buf(), source };
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(e) => return vec![Err(io(dir, e))],
+        Err(e) => return (vec![Item::File(Err(io(dir, e)))], Vec::new()),
     };
-    let mut items = Vec::new();
+    let (mut items, mut subdirs) = (Vec::new(), Vec::new());
     for entry in entries {
         if let Err(e) = ctx.check() {
             items.push(Item::File(Err(e.into())));
@@ -193,7 +228,10 @@ fn walk(root: &Path, top: &Path, dir: &Path, ctx: &Ctx<'_>) -> Vec<Result<Found>
         }
         let path = entry.path();
         match entry.file_type() {
-            Ok(t) if t.is_dir() => items.push(Item::Dir(path)),
+            Ok(t) if t.is_dir() => {
+                items.push(Item::Dir(subdirs.len()));
+                subdirs.push(path);
+            }
             Ok(t) if t.is_file() => {
                 let rel = path.strip_prefix(root).expect("walk stays below root");
                 if let Some(class) = paths::classify(&paths::key(&rel.to_string_lossy())) {
@@ -208,16 +246,7 @@ fn walk(root: &Path, top: &Path, dir: &Path, ctx: &Ctx<'_>) -> Vec<Result<Found>
             }
         }
     }
-    items
-        .into_par_iter()
-        .map(|item| match item {
-            Item::File(found) => vec![found],
-            Item::Dir(sub) => walk(root, top, &sub, ctx),
-        })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .flatten()
-        .collect()
+    (items, subdirs)
 }
 
 /// Add the files at `extra_keys` (see [`ScanOptions::extra_keys`]) that `tree` lacks, as audio.
