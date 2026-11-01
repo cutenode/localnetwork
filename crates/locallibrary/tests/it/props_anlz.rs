@@ -176,6 +176,27 @@ fn cues_written_to_dat_and_ext_read_back(tc: TestCase) {
     }
 }
 
+/// The cues the player reads from a written `.DAT` and `.EXT` (or a `.DAT` alone) have the
+/// loops written as active marked active, and nothing else.
+#[hegel::test(test_cases = 300)]
+fn the_player_reads_which_loops_are_active(tc: TestCase) {
+    let (dat, ext) = base_pair(&tc);
+    let cues = cue_list(&tc, false);
+    let active = |cues: &mut dyn Iterator<Item = (Option<u8>, u32, Option<u32>)>| {
+        let mut v: Vec<_> = cues.collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let want = active(&mut cues.iter().filter(|c| c.active_loop).map(|c| (c.hot_cue, c.start_ms, c.end_ms)));
+    let read = match tc.draw(gs::booleans()) {
+        true => anlz::track_cues(Some(&write(&dat, CueFile::Dat, &cues)), Some(&write(&ext, CueFile::Ext, &cues))),
+        false => anlz::track_cues(Some(&write(&dat, CueFile::DatAlone, &cues)), None),
+    };
+    let got = active(&mut read.iter().filter(|c| c.active_loop).map(|c| (c.hot_cue, c.start_ms, c.end_ms)));
+    assert_eq!(got, want, "wrote {}", show(&cues));
+}
+
 /// A `.DAT` without an `.EXT` keeps every cue's position, loop and active flag (it has nowhere
 /// to put names or colours).
 #[hegel::test]

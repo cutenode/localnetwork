@@ -3,7 +3,8 @@ name: localtoolbox scheduled
 # Mutation testing for the Chrome extension (Stryker, see apps/localtoolbox/stryker.config.mjs),
 # weekly and on demand (Actions > localtoolbox scheduled > Run workflow, on any branch). It reruns
 # the tests once per mutant, which is too slow for every pull request. It fails when the score drops
-# below the config's `thresholds.break`; the HTML report lists every surviving mutant.
+# below the config's `thresholds.break`; the HTML report lists every surviving mutant. A week that
+# changed none of what it tests skips it (see the changes job).
 on:
   schedule:
     - cron: "43 4 * * 1"
@@ -18,8 +19,50 @@ defaults:
 
 # Pinned the same way as localtoolbox-ci.yml.
 jobs:
+  # Whether anything the mutation tests read changed since the last weekly or hand-started run on
+  # main that passed. A run that failed doesn't count, so they run again each week until one
+  # passes. Started by hand, everything runs, as it does when none of the workflow's last 100 runs
+  # passed and there's nothing to compare with. The paths are ci.yml's localtoolbox ones but the
+  # lint and format configs, which the tests don't read.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.localtoolbox == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          filters: |
+            localtoolbox:
+              - 'apps/localtoolbox/**'
+              - 'packages/tokens/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/localtoolbox-scheduled.yml'
+
   mutation:
     name: Mutation testing
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     # A full run took 52 minutes on 14 workers locally; a runner has four.
     timeout-minutes: 240
@@ -42,10 +85,11 @@ jobs:
           path: apps/localtoolbox/reports/mutation/
 
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml).
+  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
   report:
-    needs: [mutation]
-    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    needs: [changes, mutation]
+    # A week the suites skip follows one that passed, so there's no issue to close.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.changes.outputs.run == 'true' }}
     permissions:
       actions: read
       issues: write
