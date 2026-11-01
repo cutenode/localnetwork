@@ -69,11 +69,13 @@ fn mounts(node: &Value, out: &mut Vec<(String, String)>) {
 const SYSTEM_MOUNTS: [&str; 7] = ["/", "/boot", "/boot/efi", "/efi", "/usr", "/var", "[SWAP]"];
 
 pub(super) fn parse_disk(d: &Value) -> Option<Disk> {
-    if json::str(d, "type").as_deref() != Some("disk") {
-        return None;
-    }
     let name = json::str(d, "name").unwrap_or_default();
     let path = json::str(d, "path").unwrap_or_else(|| format!("/dev/{name}"));
+    // A loop device only when it's the disk image a test attached.
+    let test_image = || json::str(d, "type").as_deref() == Some("loop") && super::is_test_image(&path);
+    if json::str(d, "type").as_deref() != Some("disk") && !test_image() {
+        return None;
+    }
     let mut all = Vec::new();
     mounts(d, &mut all);
     let system = all.iter().any(|(_, m)| SYSTEM_MOUNTS.contains(&m.as_str()));

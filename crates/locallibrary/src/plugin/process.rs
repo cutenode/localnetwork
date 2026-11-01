@@ -63,6 +63,26 @@ pub(crate) struct Plugin {
     pub(crate) host: Arc<Host>,
     /// Its `net/fetch` requests' client and secrets, whichever process makes them.
     pub(crate) net: Arc<net::State>,
+    /// The drives given to its hooks under way (see [`Slot::context`]), each by the name its
+    /// context gives it and with its root, once for each hook.
+    given: Mutex<Vec<(String, PathBuf)>>,
+}
+
+/// A drive given to a hook under way: its plugin's callbacks may name it (as the context does)
+/// until it's dropped, whether or not it's a drive known here (a folder opened by path, say).
+pub(crate) struct Given {
+    plugin: Arc<Plugin>,
+    drive: Option<(String, PathBuf)>,
+}
+
+impl Drop for Given {
+    fn drop(&mut self) {
+        let Some(drive) = self.drive.take() else { return };
+        let mut given = lock(&self.plugin.given);
+        if let Some(i) = given.iter().position(|d| *d == drive) {
+            given.swap_remove(i);
+        }
+    }
 }
 
 /// One plugin, and its process while it runs. Only the host and the hooks under way (an event
@@ -235,9 +255,20 @@ fn process_elevated() -> bool {
     }
 }
 
-/// `line` without terminal escape sequences or other control characters (but tabs), which would
-/// draw on a terminal UI's screen.
+/// `line` without terminal escape sequences or other control characters, which would draw on a
+/// terminal UI's screen: a newline, a carriage return or a tab is a space.
 pub(crate) fn printable(line: &str) -> String {
+    shown(line, false)
+}
+
+/// [`printable`] for text drawn as the lines it has (a text view's): its newlines are kept, and
+/// carriage returns left out.
+fn printable_lines(text: &str) -> String {
+    shown(text, true)
+}
+
+/// [`printable`], or with `lines` [`printable_lines`].
+fn shown(line: &str, lines: bool) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -258,12 +289,77 @@ pub(crate) fn printable(line: &str) -> String {
                 // Two characters.
                 _ => {}
             },
-            '\t' => out.push(c),
+            '\n' if lines => out.push('\n'),
+            '\r' if lines => {}
+            '\n' | '\r' | '\t' => out.push(' '),
             c if c.is_control() => {}
             c => out.push(c),
         }
     }
     out
+}
+
+/// [`printable`] for every string in `v`, and every key: the host takes what a plugin tells it
+/// in this way (see [`Peer::with_intake`]), as each string is shown sooner or later (a title, a
+/// view's rows, a plan's summary, an error, the tags it gives). Two are drawn as the lines they
+/// have, and keep them ([`printable_lines`]): a text view's text, and an answer that's only text
+/// (a headless command's). What leaves out the secrets the host filled in for the plugin matches
+/// them as they print too ([`net::State::saw`]).
+pub(crate) fn printable_value(v: &mut Value) {
+    match v {
+        Value::String(s) if s.contains(char::is_control) => *s = printable_lines(s),
+        v => printable_in(v),
+    }
+}
+
+/// [`printable_value`] for what's in an answer.
+fn printable_in(v: &mut Value) {
+    let unprintable = |s: &str| s.contains(char::is_control);
+    match v {
+        Value::String(s) if unprintable(s) => *s = printable(s),
+        Value::Array(list) => list.iter_mut().for_each(printable_in),
+        Value::Object(map) => {
+            let text_view = map.get("kind").and_then(Value::as_str) == Some("text");
+            let take = |k: &str, v: &mut Value| match v {
+                Value::String(text) if text_view && k == "text" => *text = printable_lines(text),
+                v => printable_in(v),
+            };
+            match map.keys().any(|k| unprintable(k)) {
+                true => {
+                    let printed = std::mem::take(map).into_iter().map(|(k, mut v)| {
+                        take(&k, &mut v);
+                        (printable(&k), v)
+                    });
+                    *map = printed.collect();
+                }
+                false => map.iter_mut().for_each(|(k, v)| take(k, v)),
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `v` as [`printable_value`] takes it in, or `None` when that leaves it as it was.
+pub(crate) fn printed(mut v: Value) -> Option<Value> {
+    let before = v.clone();
+    printable_value(&mut v);
+    (v != before).then_some(v)
+}
+
+/// What a plugin answered in a file (a blob), taken in as its messages are ([`printable_value`]).
+pub(crate) fn printable_json<R: DeserializeOwned>(file: impl std::io::Read) -> serde_json::Result<R> {
+    let mut answer: Value = serde_json::from_reader(BufReader::new(file))?;
+    printable_value(&mut answer);
+    serde_json::from_value(answer)
+}
+
+/// `manifest` with its text [`printable`], as what the plugin answers `describe` is: as it was
+/// when all of it is.
+pub(crate) fn printable_manifest(manifest: Manifest) -> serde_json::Result<Manifest> {
+    match printed(serde_json::to_value(&manifest)?) {
+        None => Ok(manifest),
+        Some(v) => serde_json::from_value(v),
+    }
 }
 
 impl Plugin {
@@ -276,11 +372,24 @@ impl Plugin {
     pub(crate) fn misbehaved(&self, message: impl Into<String>) -> Error {
         Error::External { command: self.label(), message: message.into() }
     }
+
+    /// The root of the drive a callback names: one given to a hook under way, by the name its
+    /// context gave it, else one the host finds ([`Reads::drive`]). Never a path or a folder it
+    /// wasn't given.
+    pub(crate) fn drive(&self, spec: &str) -> Result<PathBuf> {
+        let given = lock(&self.given).iter().find(|(name, _)| name == spec).map(|(_, root)| root.clone());
+        given.map_or_else(|| self.host.reads.drive(spec), Ok)
+    }
+
+    /// The drives given to its hooks under way, by name, with their roots.
+    pub(crate) fn given(&self) -> Vec<(String, PathBuf)> {
+        lock(&self.given).clone()
+    }
 }
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default() });
+        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default(), given: Mutex::default() });
         Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 
@@ -408,12 +517,13 @@ impl Slot {
         std::thread::spawn(move || {
             let (mut stderr, mut buf) = (BufReader::new(stderr), Vec::new());
             while let Ok(Line::Read | Line::TooLong) = read_line(&mut stderr, &mut buf) {
-                host.log(&id, net.scrub(&printable(&String::from_utf8_lossy(&buf))).trim_end());
+                host.log(&id, printable(&net.scrub(&String::from_utf8_lossy(&buf))).trim_end());
             }
         });
         let (host, id, net) = (self.host.clone(), self.manifest.id.clone(), self.net.clone());
         // What it sent that couldn't be read can quote it.
-        let (peer, incoming) = Peer::with_log(output, input, move |line| host.log(&id, &net.scrub(line)));
+        let log = move |line: &str| host.log(&id, &net.scrub(line));
+        let (peer, incoming) = Peer::with_intake(output, input, log, printable_value);
         let dead = Arc::new(AtomicBool::new(false));
         let live = Arc::new(Live::new(store.cloned()));
         let (answering, ended, slot, answered) = (peer.clone(), dead.clone(), Arc::downgrade(self), live.clone());
@@ -613,12 +723,26 @@ impl Slot {
     }
 
     /// `context` as the plugin gets it: its drive (by id, path or name) named by id, else name,
-    /// never a path, and the plugin's settings. With the drive.
-    pub(crate) fn context(&self, mut context: Context, store: Option<&Store>) -> Result<(Context, Option<Device>)> {
+    /// never a path, and the plugin's settings. With the drive, and that drive given to the plugin
+    /// until the hook is done with it: its callbacks find it by that name, a folder opened by
+    /// path too, which the drives known here don't have.
+    pub(crate) fn context(
+        &self,
+        mut context: Context,
+        store: Option<&Store>,
+    ) -> Result<(Context, Option<Device>, Given)> {
         let device = context.drive.as_deref().map(api::resolve_drive).transpose()?;
         context.drive = device.as_ref().map(|d| d.id().map_or_else(|| d.name(), |id| id.to_string()));
         context.settings = self.settings(store);
-        Ok((context, device))
+        let given = self.give(context.drive.clone().zip(device.as_ref().map(|d| d.root().to_path_buf())));
+        Ok((context, device, given))
+    }
+
+    /// Gives the plugin `drive` (its name, as a context names it, and its root) until what this
+    /// answers is dropped: see [`Given`].
+    pub(crate) fn give(&self, drive: Option<(String, PathBuf)>) -> Given {
+        lock(&self.given).extend(drive.clone());
+        Given { plugin: self.plugin.clone(), drive }
     }
 }
 

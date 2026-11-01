@@ -14,12 +14,12 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{Check, Context, Finding, Findings, Level, PlanCheck, RunCheck, When, method};
+use loclib_plugin::{Check, Context, Finding, Findings, HostAction, Level, PlanCheck, RunCheck, When, method};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::process::{Slot, printable};
+use super::process::Slot;
 use super::{Plugins, host_settings, set_host_setting};
 use crate::check::CheckItem;
 use crate::device::Device;
@@ -56,10 +56,19 @@ const TICK: Duration = Duration::from_millis(50);
 /// What a check found: each finding with what fixes it.
 type Found = Vec<(Finding, Option<Fix>)>;
 
-/// The plugin operation that fixes a finding, with its params: planned and confirmed as any is
-/// (`plugins.op.plan`, with the drive it was found on).
+/// What fixes a finding, planned on the drive it was found on and confirmed as any plan is: a
+/// plugin's operation (what a plugin's check says), or one of the host's own flows (what its own
+/// checks say), each as the sidecar's `check` answers it.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Fix {
+#[serde(untagged)]
+pub enum Fix {
+    Plugin(PluginFix),
+    Host(HostAction),
+}
+
+/// The plugin operation that fixes a finding, with its params (`plugins.op.plan`).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct PluginFix {
     pub plugin: String,
     pub operation: String,
     pub params: Value,
@@ -241,7 +250,7 @@ impl Plugins {
         for (slot, check, _) in self.running(When::Check, store) {
             let ran = within(timeout, ctx, |ctx| {
                 let context = Context { drive: Some(device.root().display().to_string()), ..Context::default() };
-                let (context, _) = slot.context(context, store)?;
+                let (context, _, _given) = slot.context(context, store)?;
                 let req = RunCheck { check: check.name.clone(), context };
                 slot.call_with(method::RUN_CHECK, &req, store, ctx, &|_| {}, |answer, _, _| slot.found(check, answer))
             });
@@ -281,7 +290,8 @@ impl Plugins {
         let timeout = check_timeout(store);
         for (slot, check, settings) in guards {
             let ran = within(timeout, ctx, |ctx| {
-                let (context, _) = slot.context(Context { drive: drive.clone(), ..Context::default() }, store)?;
+                let (context, _, _given) =
+                    slot.context(Context { drive: drive.clone(), ..Context::default() }, store)?;
                 let operation = planned.operation.to_string();
                 let req = PlanCheck { check: check.name.clone(), operation, edits: edits.clone(), context };
                 slot.call_with(method::PLAN_CHECK, &req, store, ctx, &|_| {}, |answer, _, _| slot.found(check, answer))
@@ -328,8 +338,7 @@ impl Slot {
             if message.trim().is_empty() {
                 return Err(self.misbehaved(format!("its finding {i} says nothing")));
             }
-            let on_the_drive = |p: &String| paths::is_safe_key(p) && !p.chars().any(char::is_control);
-            if let Some(path) = f.finding.paths.iter().find(|p| !on_the_drive(p)) {
+            if let Some(path) = f.finding.paths.iter().find(|p| !paths::is_safe_key(p)) {
                 return Err(self.misbehaved(format!("its finding {i} names {path:?}, which isn't a file on the drive")));
             }
             let fix = match f.fix {
@@ -339,7 +348,9 @@ impl Slot {
                         self.misbehaved(format!("its finding {i} is fixed by {what:?}, which isn't its operation"))
                     );
                 }
-                fix => fix.map(|f| Fix { plugin: id.clone(), operation: f.operation, params: f.params }),
+                fix => {
+                    fix.map(|f| Fix::Plugin(PluginFix { plugin: id.clone(), operation: f.operation, params: f.params }))
+                }
             };
             let playlist = f.finding.playlist.as_deref().map(|p| self.said(p));
             found.push((Finding { check: name.clone(), message, playlist, ..f.finding }, fix));
@@ -351,10 +362,10 @@ impl Slot {
         Ok(found)
     }
 
-    /// `text` as a finding says it: without control characters (see [`printable`]) or the
-    /// secrets the host filled in for the plugin, and at most [`MAX_SAID`] characters.
+    /// `text` as a finding says it: without the secrets the host filled in for the plugin, and at
+    /// most [`MAX_SAID`] characters (it's printable already, as all a plugin answers is).
     fn said(&self, text: &str) -> String {
-        let text = self.net.scrub(&printable(text));
+        let text = self.net.scrub(text);
         match text.char_indices().nth(MAX_SAID) {
             Some((at, _)) => format!("{}...", &text[..at]),
             None => text,

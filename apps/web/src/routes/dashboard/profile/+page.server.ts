@@ -27,7 +27,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		listing: listing ? { listedAt: listing.createdAt } : null,
 		listRequest: listRequest ? { rkey: listRequest.rkey, status: listRequest.status } : null,
 		// A session from before profiles can't save one, so it signs in again before filling the form in, not after.
-		needsSignIn: !grantsProfile(account?.grantedScope, viewer.did),
+		needsSignIn: !grantsProfile(account?.grantedScope, viewer.did, app.rootDid),
 		geocoder: app.geocoder.enabled,
 		// Streamed, so the form shows while HappyView reads their sets.
 		sets: app.sets.published([viewer.did])

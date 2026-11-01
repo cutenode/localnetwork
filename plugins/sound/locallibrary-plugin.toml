@@ -2,6 +2,13 @@ id = "sound"
 name = "Sound analysis"
 version = "0.1.0"
 protocol = "^0.2"
+# It measures only the audio files it's handed. To suggest analysing a drive's new tracks once it's
+# plugged in or its databases change (events:drives), it reads the drive's tracks (library:read) and which of them
+# the host keeps its fields for (analysis:read).
+capabilities = ["library:read", "analysis:read", "events:drives"]
+
+[[contributes.events]]
+on = ["drive.mounted", "drive.changed"]
 
 [[contributes.analyzers]]
 name = "tempo-key-loudness"

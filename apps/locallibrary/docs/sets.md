@@ -194,8 +194,8 @@ locallibrary mix "Live at the Warehouse.wav" --drive Home --open
 
 Give it a recording of a set (WAV, AIFF, MP3, M4A or FLAC, or the Audacity `.aup3`/`.aup4`
 project it was edited in) and it finds which of the drive's tracks it plays, when each comes in
-and goes out, which part of the track was used, the speed it was played at, whether key lock was
-on, and the key it was heard in. It prints the tracklist and, with `--html` or `--open`, writes a
+and goes out, which part of the track was used, the speed it was played at (the slowest and
+fastest, when the pitch fader was ridden), whether key lock was on, and the key it was heard in. It prints the tracklist and, with `--html` or `--open`, writes a
 self-contained report: the mix's 3-band waveform with each track's lane underneath (the curve in
 each block is how clearly the track is heard, so fades and EQ swaps show), the tempo across the
 set, the keys as played on the Camelot wheel, and every track with its rekordbox waveform, hot

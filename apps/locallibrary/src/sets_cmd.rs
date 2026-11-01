@@ -50,7 +50,8 @@ enum SetsCommand {
     /// Change a set's details and tracklist
     #[command(after_long_help = EDIT_HELP)]
     Edit(EditArgs),
-    /// Delete a set (the sessions and recording it came from stay)
+    /// Delete a set (the sessions and recording it came from stay), and its record and its
+    /// recording's from your Atmosphere account when they're published there
     Delete {
         #[arg(value_name = "SET")]
         set: String,
@@ -442,9 +443,15 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             return Ok(out.done(&change, |c| changed("changed", c)));
         }
         SetsCommand::Delete { set } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let s = api::set_get(&store, &api::SetRef { set: Some(set), venue: None })?;
             let what = format!("delete the set {} (its sessions and recording stay)", describe(&s));
+            #[cfg(feature = "account")]
+            let what = match api::set_published_uris(store.root(), &s.id)?.as_slice() {
+                [] => what,
+                [uri] => format!("{what}, and its record on your Atmosphere account ({uri})"),
+                uris => format!("{what}, and its records on your Atmosphere account ({})", uris.join(", ")),
+            };
             let id = api::SetRef { set: Some(s.id.clone()), venue: None };
             return out.one_step(
                 &what,
@@ -509,7 +516,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
         }
         SetsCommand::Playlist { set, drive, name, dry_run } => {
             let req = api::SetPlaylist { set, drive: drive.clone(), name };
-            let plan = api::set_playlist_plan(&store()?, &req, ctx)?;
+            let plan = api::set_playlist_plan(&crate::diff_cmd::store_to_read(store_path)?, &req, ctx)?;
             return crate::edit_cmd::confirm_and_apply(&drive, plan, dry_run, out, ctx);
         }
         SetsCommand::Publish {
