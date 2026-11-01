@@ -5,7 +5,7 @@ fn only_public_https_addresses_are_public() {
     for ok in
         ["https://bsky.social/xrpc", "https://pds.example.com:8443/", "https://8.8.8.8/", "https://[2606:4700::1]/"]
     {
-        assert_eq!(public(ok), Ok(()), "{ok}");
+        assert_eq!(public(ok).map(String::from).as_deref(), Ok(ok), "{ok}");
     }
     for refused in [
         "http://bsky.social/",

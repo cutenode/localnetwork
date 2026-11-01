@@ -71,8 +71,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
-- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
-      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
@@ -248,7 +246,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
 

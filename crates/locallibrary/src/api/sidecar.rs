@@ -11,7 +11,6 @@ use serde_json::{Map, Value};
 use super::WatchAction;
 use crate::Error;
 use crate::error::{Action, Detail, Reason};
-use crate::progress::{Event, Scope};
 use crate::watch::{MountedDrive, WatchEvent};
 
 /// A JSON-RPC request's id: a string or a number. Only describes ids in the schema: they're
@@ -259,50 +258,18 @@ pub struct ProgressParams {
     pub event: ProgressEvent,
 }
 
-/// What happened, which drive and step it's about, and (for a coalesced `item`) how many files
-/// it stands for.
+/// A `serve` notification's parameters: what `store.serve` is doing.
+#[cfg(feature = "peers")]
 #[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct ProgressEvent {
-    #[serde(flatten)]
-    pub event: Progressed,
-    #[serde(flatten)]
-    pub scope: Scope,
-    /// How many files an `item` stands for, when more than one (count `items ?? 1`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<u64>,
+pub struct ServeParams {
+    /// The `store.serve` request it's about.
+    #[schemars(with = "Option<RequestId>")]
+    pub id: Value,
+    pub event: crate::peers::ServeEvent,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-#[serde(untagged)]
-pub enum Progressed {
-    Event(Event),
-    /// A step begins (`step` says which).
-    Step(StepStarted),
-}
-
-/// `{"event": "step"}`.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct StepStarted {
-    pub event: StepTag,
-}
-
-impl StepStarted {
-    pub fn new() -> StepStarted {
-        StepStarted { event: StepTag::Step }
-    }
-}
-
-impl Default for StepStarted {
-    fn default() -> Self {
-        StepStarted::new()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
-pub enum StepTag {
-    #[serde(rename = "step")]
-    Step,
-}
+// The plugin protocol's: a plugin sends the same events.
+pub use loclib_plugin::{ProgressEvent, Progressed, StepInfo, StepStarted, StepTag};
 
 /// An `event` notification's parameters: drives and the store (after `events.subscribe`),
 /// requests starting and finishing, what `watch.start` does, and what plugins tell the user.
