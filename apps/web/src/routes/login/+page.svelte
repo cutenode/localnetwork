@@ -10,7 +10,10 @@
 	const callbackError = $derived(data.error === 'denied' ? 'You declined the request, so we could not sign you in.' : 'Sign-in was cancelled or failed. Try again.');
 </script>
 
-<svelte:head><title>Sign in · Local Network</title></svelte:head>
+<svelte:head>
+	<title>Sign in · Local Network</title>
+	<meta name="description" content="Sign in to Local Network with your Atmosphere account, the one you use for Bluesky." />
+</svelte:head>
 
 <div class="container-page py-12 sm:py-24">
 	<div class="flex flex-col items-center gap-8">

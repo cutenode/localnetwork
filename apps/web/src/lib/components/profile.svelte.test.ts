@@ -116,16 +116,18 @@ describe('PerformerFacts', () => {
 });
 
 describe('BookingDetails', () => {
-	const props = { details: null, signedIn: true, claimed: true, loginHref: '/login' };
+	const props = { details: {}, claimed: true };
 
-	it('asks a visitor to sign in', async () => {
-		await render(BookingDetails, { ...props, signedIn: false, details: { bookingEmail: 'neon@example.com' } });
+	it('points everyone else to the press kits, where the details come with access', async () => {
+		await render(BookingDetails, { ...props, details: null, kitsHref: '/projects/neon/press-kits' });
 
-		await expect.element(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
-		await expect.element(page.getByText('neon@example.com')).not.toBeInTheDocument();
+		await expect.element(page.getByText(/come with a press kit/)).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: 'See the press kits' }))
+			.toHaveAttribute('href', '/projects/neon/press-kits');
 	});
 
-	it('shows a member what is on file', async () => {
+	it('shows what is on file to someone who may see it', async () => {
 		await render(BookingDetails, { ...props, details: { bookingEmail: 'neon@example.com', techRider: '2x CDJ-3000' } });
 
 		await expect

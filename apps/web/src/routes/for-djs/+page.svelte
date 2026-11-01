@@ -10,12 +10,15 @@
 		{ icon: Radio, title: 'Matched by sound', body: 'Genres are matched by family, so a promoter looking for house finds your deep house and afro house sets too.' },
 		{ icon: CalendarHeart, title: 'Inquiries with details', body: 'Every inquiry arrives with the date, venue, capacity, budget and slot. Reply and confirm in a private thread.' },
 		{ icon: Users, title: 'Crews and agents', body: 'Up to ten managers per project. Duos, collectives and booking agents can all answer inquiries.' },
-		{ icon: Lock, title: 'Private details stay private', body: 'Your booking email, rates and tech rider are visible only to signed-in members, stored in an atproto space.' },
+		{ icon: Lock, title: 'Private details stay private', body: 'Your booking email, rates and tech rider show only to people you let into a press kit, and you see when they look.' },
 		{ icon: ClipboardCheck, title: 'Reviewed changes', body: 'Moderators review every claim and edit, so nobody else can take over or deface your profile.' }
 	];
 </script>
 
-<svelte:head><title>For DJs · Local Network</title></svelte:head>
+<svelte:head>
+	<title>For DJs · Local Network</title>
+	<meta name="description" content="List or claim your DJ project so promoters near you can find and book you." />
+</svelte:head>
 
 {#snippet calls()}
 	<Button size="lg" href="/dashboard/projects/new">List your project</Button>

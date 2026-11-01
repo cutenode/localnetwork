@@ -1,6 +1,7 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
+import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -28,20 +29,6 @@ function keepPdsCookies(page: Page) {
 }
 
 test.beforeEach(({ page }) => keepPdsCookies(page));
-
-/** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
-	await page.goto(`/login?next=${encodeURIComponent(next)}`);
-	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await page.locator('input[type="password"]').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('button', { name: 'Authorize' }).click();
-	const target = new URL(next, 'http://127.0.0.1:5199');
-	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
-	await page.waitForLoadState('networkidle');
-}
 
 /**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
@@ -83,7 +70,11 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
-		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expect(page.getByText('Contacts, rates and the tech rider come with a press kit.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'See the press kits' })).toHaveAttribute(
+			'href',
+			'/projects/halflight/press-kits'
+		);
 		await expectAccessible(page);
 	});
 
@@ -93,7 +84,7 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kits' }).click();
+		await page.getByRole('link', { name: 'Press kits', exact: true }).click();
 		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
