@@ -325,6 +325,41 @@ export interface PageAnswers {
 	GET_ARTIST_PROFILES: ProfilesAnswer | PageFailure;
 }
 
+// ---- What a replaced download button asks the extension ---------------------
+//
+// Sent with chrome.runtime.sendMessage. The page asks the background worker (background.ts),
+// which has the gate walked in the offscreen page (offscreen.ts) and asks nothing of a panel.
+
+/** A gate link the page's Download button wants saved. */
+export interface SaveGateRequest {
+	type: 'SAVE_GATE';
+	url: string;
+}
+
+/** What became of it: saved (and whether that marks the track), or opened in a tab instead. */
+export interface SaveGateAnswer {
+	saved: boolean;
+	mark: boolean;
+}
+
+/** The worker's errand for the offscreen page: one gate walked to its file. */
+export interface WalkGateRequest {
+	type: 'WALK_GATE';
+	url: string;
+}
+
+/** The end of a walk: the file and where it goes, or the page to send the person to instead. */
+export type WalkGateAnswer =
+	| { ok: true; url: string; filename: string; subfolder: string; mark: boolean }
+	| { ok: false; openUrl: string };
+
+/** The offscreen page's errand for the worker: a sign-in walked in a tab (chrome.ts roundTrip). */
+export interface RoundTripRequest {
+	type: 'ROUND_TRIP';
+	url: string;
+	landing: string;
+}
+
 /** A read of the page (readPage, lookupProfiles): its answer, or the sentence for why not. */
 export type PageRead<T> = { data: T; status?: undefined } | { status: string; data?: undefined };
 
@@ -368,8 +403,8 @@ export interface Tool {
 	short: string;
 	description: string;
 	icon: LucideIcon;
-	/** Its colour, written onto <html> while its panel is open; the rest is derived from it. */
-	brand: string;
+	/** Its icon tile's background: a `bg-*` class for one of the DJ-data colours. */
+	tone: string;
 	/** Fetches its panel's chunk. */
 	load: () => Promise<{ default: Component<PanelProps> }>;
 	/** Starts the slow thing its panel does first, before the chunk has even landed. */

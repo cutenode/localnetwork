@@ -1,7 +1,7 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.directory.defs",
-	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects.",
+	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects, their managers' DJ records, press kits and shows, and follows.",
 	"defs": {
 		"projectView": {
 			"type": "object",
@@ -15,6 +15,85 @@
 					"type": "integer",
 					"minimum": 0,
 					"description": "Meters from the searched location, when the search had one and the project has coordinates."
+				}
+			}
+		},
+		"profileView": {
+			"type": "object",
+			"description": "A DJ's profile that staff list in the directory, as the directory indexed it.",
+			"required": ["uri", "cid", "record", "listing", "genres"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"record": { "type": "unknown", "description": "The computer.localnetwork.profile record." },
+				"listing": {
+					"type": "string",
+					"format": "at-uri",
+					"description": "The root's computer.localnetwork.listing.profile that lists it."
+				},
+				"genres": {
+					"type": "array",
+					"items": { "type": "string", "maxLength": 48 },
+					"description": "The genres it was searched by: its performer section's, or when that names none, the ones the DJ plays most by their computer.localnetwork.dj.profile."
+				},
+				"distanceM": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Meters from the searched location, when the search had one and the profile has coordinates."
+				}
+			}
+		},
+		"performerView": {
+			"type": "object",
+			"description": "A performer the directory found: a published project, or a listed DJ's profile. Exactly one of the two is set.",
+			"properties": {
+				"project": { "type": "ref", "ref": "#projectView" },
+				"profile": { "type": "ref", "ref": "#profileView" }
+			}
+		},
+		"recordView": {
+			"type": "object",
+			"description": "A record as the directory indexed it. Its collection's record script can leave fields out and add its own.",
+			"required": ["uri", "cid", "value"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"value": { "type": "unknown" }
+			}
+		},
+		"setView": {
+			"type": "object",
+			"description": "A computer.localnetwork.dj.set by one of a project's managers, as the directory keeps it: what it was and where, without its tracks.",
+			"required": ["uri", "cid", "date", "trackCount"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid", "description": "The set's current version." },
+				"title": { "type": "string", "maxLength": 1000 },
+				"date": {
+					"type": "string",
+					"minLength": 10,
+					"maxLength": 10,
+					"description": "The day it was played, as YYYY-MM-DD."
+				},
+				"kind": { "type": "string", "maxLength": 640 },
+				"venue": { "type": "string", "maxLength": 1000 },
+				"location": { "type": "ref", "ref": "community.lexicon.location.address" },
+				"trackCount": { "type": "integer", "minimum": 0 }
+			}
+		},
+		"showView": {
+			"type": "object",
+			"description": "A show as the directory keeps it, with the project it's for.",
+			"required": ["uri", "cid", "record", "project"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"record": { "type": "unknown", "description": "The computer.localnetwork.show record." },
+				"project": { "type": "ref", "ref": "#projectView" },
+				"distanceM": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Meters from the searched location, when the search had one and the show has coordinates."
 				}
 			}
 		},
@@ -59,6 +138,7 @@
 			"properties": {
 				"code": {
 					"type": "string",
+					"maxLength": 32,
 					"knownValues": [
 						"plays",
 						"adjacentSound",
@@ -81,14 +161,14 @@
 				},
 				"genres": {
 					"type": "array",
-					"items": { "type": "string" },
+					"items": { "type": "string", "maxLength": 48 },
 					"description": "For plays: the project's closely matching genres."
 				},
 				"distanceM": { "type": "integer", "minimum": 0, "description": "For nearby, travels, and outOfRange." },
-				"setType": { "type": "string", "description": "For setType." },
+				"setType": { "type": "string", "maxLength": 32, "description": "For setType." },
 				"formats": {
 					"type": "array",
-					"items": { "type": "string" },
+					"items": { "type": "string", "maxLength": 32 },
 					"description": "For formats: the formats both sides share."
 				}
 			}
@@ -96,16 +176,110 @@
 		"facet": {
 			"type": "object",
 			"required": ["value", "count"],
-			"properties": { "value": { "type": "string" }, "count": { "type": "integer", "minimum": 0 } }
+			"properties": { "value": { "type": "string", "maxLength": 48 }, "count": { "type": "integer", "minimum": 0 } }
 		},
 		"place": {
 			"type": "object",
 			"required": ["city", "country", "count"],
 			"properties": {
-				"city": { "type": "string" },
-				"country": { "type": "string" },
+				"city": { "type": "string", "maxLength": 1000 },
+				"country": { "type": "string", "maxLength": 10 },
 				"count": { "type": "integer", "minimum": 0 }
 			}
+		},
+		"supportedArtist": {
+			"type": "object",
+			"description": "An artist whose tracks DJs played. An artist is their MusicBrainz ID, else their name in any case; a name some sets give one MBID counts as that MBID's. A DJ is an act: a project whose managers are all counted as one, and only while it's active.",
+			"required": ["name", "supports", "djCount"],
+			"properties": {
+				"name": { "type": "string", "maxLength": 3000, "description": "The name sets credit them as most." },
+				"mbid": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Their MusicBrainz artist ID, as a bare lowercase UUID."
+				},
+				"supports": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Each DJ's distinct tracks of theirs, at most 5 per DJ, summed."
+				},
+				"djCount": { "type": "integer", "minimum": 0, "description": "How many DJs that is." }
+			}
+		},
+		"supportedTrack": {
+			"type": "object",
+			"description": "A track DJs played, as its latest play names it. A track is its recording's MusicBrainz ID, else its ISRC, else its credit and title in any case; a track without an ID counts as the one other plays give it, when only one fits.",
+			"required": ["id", "title", "artists", "supports"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"maxLength": 6006,
+					"description": "Opaque: tells tracks apart within one answer and between answers. Clients shouldn't read meaning into it."
+				},
+				"title": { "type": "string", "maxLength": 3000 },
+				"artist": { "type": "string", "maxLength": 3000, "description": "The artist credit, as one line." },
+				"artists": {
+					"type": "array",
+					"description": "The artists it credits, one by one, or its whole credit as one.",
+					"items": { "type": "ref", "ref": "#artistCredit" }
+				},
+				"recordingMbId": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Its MusicBrainz recording ID, as a bare lowercase UUID."
+				},
+				"isrc": { "type": "string", "maxLength": 12 },
+				"supports": { "type": "integer", "minimum": 0, "description": "How many DJs played it." }
+			}
+		},
+		"artistCredit": {
+			"type": "object",
+			"required": ["name"],
+			"properties": {
+				"name": { "type": "string", "maxLength": 3000 },
+				"mbid": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Their MusicBrainz artist ID, as a bare lowercase UUID."
+				}
+			}
+		},
+		"trackPlays": {
+			"type": "object",
+			"description": "A track and every time it was played.",
+			"required": ["track", "plays"],
+			"properties": {
+				"track": { "type": "ref", "ref": "#supportedTrack" },
+				"plays": { "type": "array", "items": { "type": "ref", "ref": "#play" } }
+			}
+		},
+		"play": {
+			"type": "object",
+			"description": "One time a DJ played a track.",
+			"required": ["did", "set"],
+			"properties": {
+				"did": { "type": "string", "format": "did", "description": "The DJ: the set's author." },
+				"set": { "type": "ref", "ref": "#setView" },
+				"startSeconds": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "When it starts in the set, when the set knows."
+				}
+			}
+		},
+		"djView": {
+			"type": "object",
+			"description": "A DJ and the active projects they manage.",
+			"required": ["did", "projects"],
+			"properties": {
+				"did": { "type": "string", "format": "did" },
+				"projects": { "type": "array", "items": { "type": "ref", "ref": "#projectLink" } }
+			}
+		},
+		"projectLink": {
+			"type": "object",
+			"required": ["slug", "name"],
+			"properties": { "slug": { "type": "string", "maxLength": 64 }, "name": { "type": "string", "maxLength": 640 } }
 		}
 	}
 }

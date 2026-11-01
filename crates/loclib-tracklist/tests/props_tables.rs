@@ -98,7 +98,7 @@ fn tables_read_back_record_for_record(tc: TestCase) {
 }
 
 /// What a column holds.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Role {
     Title,
     Artist,

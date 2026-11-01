@@ -1,5 +1,6 @@
 //! What locallibrary publishes to a DJ's Atmosphere account, as AT Protocol records: My Settings
-//! ([`settings_record`]), the public profile ([`profile_record`]) and sets ([`set_record`]).
+//! ([`settings_record`]), the public profile ([`profile_record`]), sets ([`set_record`]) and their
+//! recordings ([`recording`]).
 //!
 //! Each record fits its Lexicon ([`crate::atmosphere::lexicon`]). Everything in an account's
 //! repository is public and copied around the network, so records only carry what the DJ chose
@@ -8,27 +9,33 @@
 //! unnamed. The AT Protocol has no fractional numbers: shares become whole percents and tempos
 //! whole BPM (a set's tracks keep hundredths of a BPM).
 //!
-//! Publishing is a [`plan`] (the exact record, what's published in its place now, and whether
-//! the session may write it) and then [`apply`], which writes it only to the account the plan was
-//! for, and only if what's published hasn't changed since the plan read it (a first publish only
-//! if there's still nothing there). [`import_plan`] reads someone's published My Settings.
+//! Publishing is a [`plan`] (the exact record, what's published in its place now as Local
+//! Network's directory has it, and whether the session may write it) and then [`apply`], which
+//! writes it only to the account the plan was for, and only over the version the plan read (a
+//! first publish only if there's still nothing there). [`import_plan`] reads someone's published
+//! My Settings from the directory.
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use uuid::Uuid;
 
-use crate::atmosphere::repo::{self, Fetched, Resolved};
+use crate::atmosphere::directory::{self, Fetched};
+use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::harmony::Camelot;
+use crate::mix::{MixReport, Play, Transition};
 use crate::profile::{Count, DocShare, ProfileDocument};
 use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
+
+pub mod recording;
 
 pub use crate::profile::camel;
 
@@ -46,10 +53,7 @@ pub fn snake(field: &str) -> String {
     out
 }
 
-/// A time as records carry it: UTC, to the millisecond.
-pub fn timestamp(t: DateTime<Utc>) -> String {
-    t.to_rfc3339_opts(SecondsFormat::Millis, true)
-}
+pub use crate::profile::timestamp;
 
 fn group(category: Category) -> &'static str {
     match category {
@@ -250,31 +254,127 @@ pub fn profile_record(doc: &ProfileDocument) -> Value {
 // Sets
 // ---------------------------------------------------------------------------------------------
 
-/// One track of a set record: named as the set has it, or, unidentified, only its place (and
-/// when it starts).
-fn set_track(e: &SetEntry, unidentified: bool) -> Value {
+/// The most tracks a set record holds (its Lexicon's limit). Tracks with every field filled and
+/// text at the Lexicon's grapheme limits (ASCII) are about 1.5 KB of JSON each: 500 of them fit the
+/// 1 MiB a record may be as DAG-CBOR, and the 1,000,000-byte request a PDS takes to write one.
+pub const SET_TRACK_LIMIT: usize = 500;
+
+/// The longest request writing a record a PDS from before May 2026 takes: the reference PDS's
+/// JSON limit was 150 KiB for every request until bluesky-social/atproto#4989.
+pub const OLDER_PDS_REQUEST_BYTES: usize = 150 * 1024;
+
+/// The most graphemes the set Lexicon takes in an artist's or a release's name, at ten bytes each.
+const NAME_LIMIT: usize = 256;
+
+/// The most artists a set's track lists (its Lexicon's limit).
+const ARTIST_LIMIT: usize = 32;
+
+/// The longest transition the Lexicon takes, in milliseconds.
+const TRANSITION_LIMIT_MS: f64 = 600_000.0;
+
+/// A MusicBrainz ID as teal.fm writes one: the bare UUID, lowercase and hyphenated.
+fn mbid(id: Uuid) -> String {
+    id.to_string()
+}
+
+/// Whether the Lexicon takes `s` as an artist's or a release's name: a longer one is left out
+/// rather than cut short.
+fn fits_name(s: &str) -> bool {
+    s.chars().count() <= NAME_LIMIT && s.len() <= NAME_LIMIT * 10
+}
+
+/// The artists `e` credits, one by one, as the profile counts them, with their MusicBrainz IDs
+/// when the set has as many as the credit names (Picard tags them in the credit's order, and an
+/// analyzer's `artists` role answers them in the names').
+/// `None` when that says no more than the credit line: one artist, and no ID.
+fn artists(e: &SetEntry) -> Option<Vec<Value>> {
+    let names = crate::model::artist_credits(&e.artist);
+    let ids = &e.musicbrainz.artists;
+    let paired = ids.len() == names.len();
+    let known = names.len() > 1 || (paired && !ids.is_empty());
+    if !known || names.len() > ARTIST_LIMIT || !fits_name(e.artist.trim()) {
+        return None;
+    }
+    let artist = |(i, name): (usize, String)| {
+        let mut m = Map::new();
+        m.insert("artistName".into(), name.into());
+        put(&mut m, "artistMbId", ids.get(i).filter(|_| paired).map(|id| mbid(*id)));
+        Value::Object(m)
+    };
+    Some(names.into_iter().enumerate().map(artist).collect())
+}
+
+/// The Lexicon's name for a harmony a mix report describes.
+fn harmony(described: &str) -> Option<&'static str> {
+    use crate::harmony::Relation::*;
+    [(Same, "sameKey"), (Adjacent, "adjacent"), (Relative, "relative"), (EnergyBoost, "energyBoost")]
+        .into_iter()
+        .find(|(r, _)| r.describe() == described)
+        .map(|(_, name)| name)
+        .or((described == "clash").then_some("clash"))
+}
+
+/// How a track came in, as a recording heard it. With `unidentified` (either track isn't named)
+/// only when is said, not how the keys and tempo moved.
+fn transition(t: &Transition, unidentified: bool) -> Value {
+    let mut m = Map::new();
+    m.insert("technique".into(), if t.is_blend() { "blend" } else { "unknown" }.into());
+    let ms = (t.overlap * 1000.0).round();
+    put(&mut m, "durationMs", (ms > 0.0 && ms <= TRANSITION_LIMIT_MS).then_some(ms as i64));
+    if !unidentified {
+        put(&mut m, "harmony", t.harmony.as_deref().and_then(harmony));
+        put(&mut m, "tempoChangePermille", t.tempo_change.map(|c| (c * 10.0).round() as i64));
+    }
+    Value::Object(m)
+}
+
+/// Whether `e` is the play `p` of the recording its set was built from.
+fn is_play(e: &SetEntry, p: &Play) -> bool {
+    e.origin == EntryOrigin::Recording
+        && e.start_seconds == Some(p.start_second())
+        && e.file_key() == Some(crate::paths::file_key(&p.track.file_path))
+}
+
+/// The transition `report` heard from `before` into `e`, when they're plays it heard one after
+/// the other.
+fn heard<'a>(report: &'a MixReport, before: &SetEntry, e: &SetEntry) -> Option<&'a Transition> {
+    let is = |i: usize, e: &SetEntry| report.plays.get(i).is_some_and(|p| is_play(e, p));
+    report.transitions.iter().find(|t| is(t.from, before) && is(t.to, e))
+}
+
+/// One track of a set record: named as the set has it, or, unidentified, only its place (when it
+/// starts, and came in).
+fn set_track(e: &SetEntry, unidentified: bool, transition_in: Option<Value>) -> Value {
     let mut m = Map::new();
     if unidentified {
         m.insert("unidentified".into(), true.into());
         put(&mut m, "startSeconds", e.start_seconds);
+        put(&mut m, "transitionIn", transition_in);
         return Value::Object(m);
     }
     let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
-    let isrc = e.isrc.trim().replace('-', "").to_ascii_uppercase();
     put(&mut m, "title", text(&e.title));
     put(&mut m, "artist", text(&e.artist));
-    put(&mut m, "isrc", (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc));
+    put(&mut m, "artists", artists(e));
+    put(&mut m, "releaseName", text(&e.album).filter(|a| fits_name(a)));
+    put(&mut m, "isrc", crate::model::isrc(&e.isrc));
+    put(&mut m, "recordingMbId", e.musicbrainz.recording.map(mbid));
+    put(&mut m, "releaseMbId", e.musicbrainz.release.map(mbid));
     // An infinite tempo is unknown, as `sets.json` keeps it.
     put(&mut m, "bpmCentis", (e.bpm > 0.0 && e.bpm.is_finite()).then(|| (e.bpm * 100.0).round() as u32));
     put(&mut m, "key", Camelot::parse(&e.key).map(Camelot::code));
     put(&mut m, "startSeconds", e.start_seconds);
+    put(&mut m, "transitionIn", transition_in);
     Value::Object(m)
 }
 
 /// The set record for `set`. Its tracks marked `unnamed`, and those at the positions (from 1) in
-/// `hidden`, are published unidentified. The DJ's notes, the recording, the sessions and the
-/// files' paths stay here.
-pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Value {
+/// `hidden`, are published unidentified. `report`, the mix report of the recording the set was
+/// built from, says how each track came in, where the set still has two plays it heard one after
+/// the other. Its link goes with the name the plugin that published it there gave it, and the
+/// record its recording can be played from (a plyr.fm track) with it. The DJ's notes, the
+/// recording on this computer, the sessions and the files' paths stay here.
+pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, report: Option<&MixReport>, now: DateTime<Utc>) -> Value {
     let text = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut r = Map::new();
     r.insert("$type".into(), lexicon::SET.into());
@@ -305,7 +405,14 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
             .collect();
         r.insert("playedWith".into(), played_with.into());
     }
-    put(&mut r, "links", text(&set.link).map(|uri| json!([{ "uri": uri }])));
+    let links = text(&set.link).map(|uri| {
+        let mut link = Map::new();
+        link.insert("uri".into(), uri.into());
+        put(&mut link, "name", text(&set.link_name));
+        json!([link])
+    });
+    put(&mut r, "links", links);
+    put(&mut r, "recording", set.recording_record.as_ref().map(|rec| json!(rec)));
     let sources: Vec<Value> =
         [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
             .into_iter()
@@ -315,8 +422,20 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
     if !sources.is_empty() {
         r.insert("sources".into(), sources.into());
     }
-    let tracks: Vec<Value> =
-        set.tracks.iter().enumerate().map(|(i, e)| set_track(e, e.unnamed || hidden.contains(&(i + 1)))).collect();
+    let unidentified: Vec<bool> =
+        set.tracks.iter().enumerate().map(|(i, e)| e.unnamed || hidden.contains(&(i + 1))).collect();
+    let tracks: Vec<Value> = set
+        .tracks
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let transition_in = report
+                .zip(i.checked_sub(1))
+                .and_then(|(r, b)| heard(r, &set.tracks[b], e))
+                .map(|t| transition(t, unidentified[i] || unidentified[i - 1]));
+            set_track(e, unidentified[i], transition_in)
+        })
+        .collect();
     r.insert("tracks".into(), tracks.into());
     r.insert("createdAt".into(), timestamp(now).into());
     Value::Object(r)
@@ -326,10 +445,6 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
 /// list it published, by account and the list's fingerprint. Nothing writes it now: a set built
 /// from one of those lists alone takes over its key (see [`crate::api::set_publish_plan`]).
 pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
-
-/// The collection `plays publish` wrote those sets to, before sets moved to [`lexicon::SET`].
-/// Only read, for when a set first went out; nothing writes it now.
-pub const PLAYS_PUBLISH_COLLECTION: &str = "computer.localnetwork.locallibrary.set";
 
 /// The key `did` published the history list (session) `fingerprint` under with `plays publish`,
 /// if it did.
@@ -354,7 +469,8 @@ pub struct PublishPlan {
     pub uri: Option<String>,
     /// The record exactly as it will be written.
     pub record: Value,
-    /// What's published there now (`None`: nothing yet).
+    /// What's published there now, as Local Network's directory has it (`None`: nothing yet, as
+    /// far as it knows).
     pub current: Option<Fetched>,
     /// Whether publishing changes anything (time stamps aside).
     pub changed: bool,
@@ -370,7 +486,7 @@ pub struct PublishPlan {
 pub struct Published {
     pub uri: String,
     /// Its content hash.
-    pub cid: Option<String>,
+    pub cid: String,
     /// False when what's published was already the same, so nothing was written.
     pub written: bool,
     pub record: Value,
@@ -379,28 +495,36 @@ pub struct Published {
 /// Fields that only say when: two records that differ in nothing else are the same.
 const TIME_FIELDS: [&str; 3] = ["updatedAt", "generatedAt", "createdAt"];
 
-fn same_content(a: &Value, b: &Value) -> bool {
-    let strip = |v: &Value| {
-        let mut v = v.clone();
-        if let Some(m) = v.as_object_mut() {
-            for f in TIME_FIELDS {
-                m.remove(f);
-            }
-        }
-        v
+/// Whether `published`, as the directory keeps it, says what `record` (of `collection`) does, time
+/// stamps aside. The directory's record scripts may add fields of their own and leave `$type`
+/// out, so only the fields `collection`'s Lexicon defines count.
+fn same_content(collection: &str, published: &Value, record: &Value) -> bool {
+    let defined = lexicon::document(collection).map(|d| &d["defs"]["main"]["record"]["properties"]);
+    let strip = |v: &Value| -> Map<String, Value> {
+        let fields = v.as_object().into_iter().flatten();
+        fields
+            .filter(|(k, _)| defined.is_some_and(|d| d.get(k.as_str()).is_some()) && !TIME_FIELDS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     };
-    strip(a) == strip(b)
+    strip(published) == strip(record)
 }
 
 /// Plan publishing `record` as `collection/rkey` in the signed-in account's repository (reading
-/// what's there now from its server). A record replacing one keeps its `createdAt`.
+/// what's there now from Local Network's directory). A record replacing one keeps its `createdAt`.
 pub fn plan(root: &Path, collection: &str, rkey: &str, record: Value) -> Result<PublishPlan> {
     let account = atmosphere::status(root)?;
+    let mut notes = Vec::new();
     let current = match &account {
-        Some(info) => repo::get_record(&info.pds, &info.did, collection, rkey)?,
+        Some(info) => {
+            notes.extend(directory::request_index(root, info)?);
+            directory::get_record(&info.did, collection, rkey)?
+        }
         None => None,
     };
-    plan_over(account, collection, rkey, record, current)
+    let mut plan = plan_over(account, collection, rkey, record, current)?;
+    plan.notes = notes;
+    Ok(plan)
 }
 
 /// [`plan`], for `account` (the signed-in one), with what's published as `collection/rkey` in its
@@ -434,14 +558,14 @@ pub fn plan_over(
         {
             record["createdAt"] = created.clone();
         }
-        plan.changed = plan.current.as_ref().is_none_or(|c| !same_content(&c.value, &record));
+        plan.changed = plan.current.as_ref().is_none_or(|c| !same_content(collection, &c.value, &record));
     }
     plan.record = record;
     Ok(plan)
 }
 
 /// Publish a plan's record: written only when it changes something, only to the account the plan
-/// is for, and only if what's published is still what the plan read (otherwise a conflict).
+/// is for, and only over the version the plan read (otherwise a conflict).
 pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
     let info = plan.account.as_ref().ok_or_else(atmosphere::not_signed_in)?;
     if let Some(current) = plan.current.as_ref().filter(|_| !plan.changed) {
@@ -455,9 +579,9 @@ pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
     if plan.missing_scope.is_some() {
         return Err(repo::scope_error(info, &plan.collection));
     }
-    let swap = plan.current.as_ref().and_then(|c| c.cid.as_deref());
+    let swap = plan.current.as_ref().map(|c| c.cid.as_str());
     let written = repo::put_record(root, &info.did, &plan.collection, &plan.rkey, &plan.record, swap)?;
-    Ok(Published { uri: written.uri, cid: Some(written.cid), written: true, record: plan.record.clone() })
+    Ok(Published { uri: written.uri, cid: written.cid, written: true, record: plan.record.clone() })
 }
 
 /// Someone's published My Settings, and how importing them changes the settings profile.
@@ -465,7 +589,7 @@ pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
 pub struct SettingsImportPlan {
     pub from: Resolved,
     pub uri: String,
-    pub cid: Option<String>,
+    pub cid: String,
     pub published: PublishedSettings,
     /// Whether importing replaces the whole base, so settings they didn't publish become unset.
     /// Otherwise their settings are added to the base, over the values it has for them.
@@ -484,11 +608,15 @@ impl SettingsImportPlan {
     }
 }
 
-/// Read the My Settings `from` published, and work out how importing them (adding them to `base`,
-/// or with `replace` replacing it) changes `base`.
+/// Read the My Settings `from` published, from Local Network's directory, and work out how
+/// importing them (adding them to `base`, or with `replace` replacing it) changes `base`.
 pub fn import_plan(from: Resolved, base: &IndexMap<String, String>, replace: bool) -> Result<SettingsImportPlan> {
-    let fetched = repo::get_record(&from.pds, &from.did, lexicon::SETTINGS, "self")?
-        .ok_or_else(|| Error::NotFound(format!("My Settings published by {}", from.name())))?;
+    let fetched = directory::get_record(&from.did, lexicon::SETTINGS, "self")?.ok_or_else(|| {
+        Error::NotFound(format!(
+            "My Settings published by {} (Local Network's directory doesn't have them yet)",
+            from.name()
+        ))
+    })?;
     let published = settings_from_record(&fetched.value)?;
     let mut plan =
         SettingsImportPlan { from, uri: fetched.uri, cid: fetched.cid, published, replace, changes: Vec::new() };

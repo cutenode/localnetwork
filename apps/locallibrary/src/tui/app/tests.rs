@@ -1,5 +1,6 @@
 use locallibrary::anlz::{Beat, Mood, Phrase, SongStructure};
-use locallibrary::sets::{EntryOrigin, SetEntry};
+use locallibrary::query::QueryContext;
+use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 
 use super::testing::*;
 use super::*;
@@ -131,18 +132,6 @@ fn browses_by_category() {
     select_tree(&mut app, NodeId::Category(Category::History));
     select_tree(&mut app, NodeId::Group(Category::History, "9".into()));
     assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"], "in the order they were played");
-}
-
-/// Handle the app's background messages until the store's sets are read.
-fn read_sets(app: &mut App) {
-    loop {
-        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
-        let sets = matches!(msg, Msg::Sets(..));
-        app.handle_msg(msg);
-        if sets {
-            return;
-        }
-    }
 }
 
 /// Sets in the store at `store_root`: Friday (track 3, one typed in by hand, track 2), an
@@ -453,8 +442,9 @@ fn a_filter_naming_no_playlist_says_so() {
     assert!(e.contains("playlist \"fridayx\""), "{e}");
 }
 
-/// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again.
-fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) {
+/// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again:
+/// what the write said.
+fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) -> String {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &app.modal else { panic!("no confirmation: {:?}", app.toast.as_ref().map(|t| &t.0)) };
     check(c.edit().expect("an edit plan"));
@@ -462,18 +452,18 @@ fn confirm(app: &mut App, check: impl Fn(&locallibrary::edit::EditPlan)) {
         println!("{}", super::super::ui::screen(app, 100, 30));
     }
     let generation = app.loaded.as_ref().unwrap().generation;
+    just_shown(app);
     press(app, "y");
     assert!(matches!(app.modal, Some(Modal::Confirm(_))), "keys right as it appears are ignored");
-    if let Some(Modal::Confirm(c)) = &mut app.modal {
-        c.shown -= Duration::from_secs(1);
-    }
+    settle(app);
     press(app, "\n");
     assert!(app.job.is_none(), "enter doesn't write");
     press(app, "y");
     assert!(app.job.as_ref().is_some_and(|j| j.writing));
-    wait(app, |a| a.job.is_none() && a.loaded.as_ref().is_some_and(|l| l.generation != generation));
-    let msg = app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
-    assert!(msg.contains("written to export.pdb"), "{msg}");
+    let said = written(app);
+    assert_ne!(app.loaded.as_ref().unwrap().generation, generation, "read again");
+    assert!(said.contains("written to export.pdb"), "{said}");
+    said
 }
 
 #[test]
@@ -537,7 +527,9 @@ fn edits_a_real_drive_and_keeps_the_view() {
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     match &app.modal {
-        Some(Modal::Confirm(_)) => confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].path, "Sets/Warmup")),
+        Some(Modal::Confirm(_)) => {
+            confirm(&mut app, |p| assert_eq!(p.playlists_changed[0].path, "Sets/Warmup"));
+        }
         _ => assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("nothing to change"))),
     }
 
@@ -568,9 +560,9 @@ fn u_undoes_the_last_change() {
     let rating = |app: &App| app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].rating);
     let before = rating(&app);
     press(&mut app, "e4");
-    confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
+    let said = confirm(&mut app, |p| assert_eq!(p.tracks_changed, 1));
     assert_eq!(rating(&app), Some(4));
-    assert!(app.toast.as_ref().is_some_and(|t| t.0.ends_with("u to undo")), "{:?}", app.toast);
+    assert!(said.ends_with("u to undo"), "{said}");
 
     press(&mut app, "u");
     wait(&mut app, |a| a.job.is_none());
@@ -583,9 +575,10 @@ fn u_undoes_the_last_change() {
     assert!(screen.contains("put back the backup (before") && screen.contains("1 track as they were"), "{screen}");
     let generation = app.loaded.as_ref().unwrap().generation;
     press(&mut app, "y");
-    wait(&mut app, |a| a.job.is_none() && a.loaded.as_ref().is_some_and(|l| l.generation != generation));
+    let said = written(&mut app);
+    assert_ne!(app.loaded.as_ref().unwrap().generation, generation, "read again");
     assert_eq!(rating(&app), before);
-    assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("undone on")), "{:?}", app.toast);
+    assert!(said.starts_with("undone on"), "{said}");
 
     // In the Drives view, u is for the selected drive; nothing left to undo says so.
     app.drives = vec![Device::open(&root).unwrap().info()];
@@ -622,8 +615,8 @@ fn the_drives_view_pulls_checks_and_ejects() {
     assert_eq!(op, "pull");
     assert!(summary.contains("starting the library"), "{summary}");
     assert!(!dir.path().join("store").exists(), "planning made no store");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("saved DEMO in the store"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("saved DEMO in the store"), "{said}");
     let store = Store::open(dir.path().join("store")).unwrap();
     assert_eq!(store.libraries().unwrap().len(), 1);
     // The status the Drives view reads (made here: tests read no other drives).
@@ -689,8 +682,8 @@ fn packs_the_crate_onto_another_drive() {
     let (op, summary) = confirming(&mut app);
     assert_eq!(op, "pack");
     assert!(summary.contains("Sets/Friday") && summary.contains("SET"), "{summary}");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("packed onto SET"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("packed onto SET"), "{said}");
     let packed = Device::open_export(&target).unwrap().library().unwrap();
     assert!(packed.find_playlist("Sets/Friday").is_some_and(|p| p.track_ids.len() == 2));
     assert_eq!(packed.tracks.len(), 2);
@@ -829,8 +822,8 @@ fn gives_tracks_a_my_tag_and_shows_them() {
     press(&mut app, "Deep\n");
     let (op, _) = confirming(&mut app);
     assert_eq!(op, "tags");
-    say_yes(&mut app);
-    assert!(last_message(&app).starts_with("My Tags changed on 1 track"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.starts_with("My Tags changed on 1 track"), "{said}");
     wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().my_tags, MyTags::Read(_)));
     let s = super::super::ui::screen(&mut app, 140, 30);
     assert!(s.contains("My Tags") && s.contains("Deep"), "{s}");
@@ -878,9 +871,10 @@ fn makes_a_smart_playlist_from_the_search() {
     assert!(app.modal.is_none() && last_message(&app).starts_with("nothing to change"), "{}", last_message(&app));
 }
 
-/// The list shown and rekordbox XML, written where asked (never onto the drive).
+/// The list shown, written where asked (never onto the drive), replacing a file there only once
+/// that's asked about.
 #[test]
-fn exports_the_list_shown_and_rekordbox_xml() {
+fn exports_the_list_shown() {
     let (dir, root) = demo_drive();
     let device = Device::open_export(&root).unwrap();
     let lib = device.library().unwrap();
@@ -899,29 +893,24 @@ fn exports_the_list_shown_and_rekordbox_xml() {
     let csv = std::fs::read_to_string(out.join("all.csv")).unwrap();
     assert!(csv.contains("Demo Track 1"), "{csv}");
 
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
-    assert!(last_message(&app).contains("2 tracks"), "{}", last_message(&app));
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
-
     // A file that's there is replaced only once that's asked about.
-    std::fs::write(out.join("demo.xml"), "mine").unwrap();
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    std::fs::write(out.join("all.csv"), "mine").unwrap();
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     assert!(matches!(&app.modal, Some(Modal::Ask(q, _)) if q.contains("Replace it?")));
     press(&mut app, "n");
-    assert_eq!(std::fs::read_to_string(out.join("demo.xml")).unwrap(), "mine");
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &out.join("demo.xml"));
+    assert_eq!(std::fs::read_to_string(out.join("all.csv")).unwrap(), "mine");
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &out.join("all.csv"));
     press(&mut app, "y");
     wait(&mut app, |a| a.job.is_none());
-    assert!(std::fs::read_to_string(out.join("demo.xml")).unwrap().contains("DJ_PLAYLISTS"));
+    assert!(std::fs::read_to_string(out.join("all.csv")).unwrap().contains("Demo Track 1"));
 
     // Not onto the drive itself.
-    app.perform(Act::ExportXml, None);
-    type_path(&mut app, &root.join("x.xml"));
+    app.perform(Act::ExportList, None);
+    type_path(&mut app, &root.join("x.m3u8"));
     assert!(last_message(&app).starts_with("not onto the drive"));
-    assert!(!root.join("x.xml").exists());
+    assert!(!root.join("x.m3u8").exists());
 }
 
 /// The set shown last run, on starting: said to be reading until the sets are in. Read again
@@ -997,7 +986,9 @@ fn errors_stay_until_esc_and_every_message_is_kept() {
     app.tick();
     assert!(app.toast.is_none() && app.held.is_some());
     app.toast("worse", Level::Error);
-    app.toast.as_mut().unwrap().2 -= Duration::from_secs(600);
+    // As old as the info message that went, no older: an `Instant` can't go back past the
+    // machine's boot, which a CI runner may have done minutes ago.
+    app.toast.as_mut().unwrap().2 -= Duration::from_secs(10);
     app.tick();
     assert!(app.toast.is_some());
     // The first esc puts errors away (and does nothing else).
@@ -1110,7 +1101,15 @@ fn mixes_lists_a_folder_of_sets_and_remembers_it() {
     app.view = View::Mixes;
     press(&mut app, &format!("O{}\n", sets.display()));
     listed(&mut app);
-    assert_eq!(shown(&app), ["loose.WAV · mixes", "Untitled.mp3 · one shot/techno", "Tierney Cyren.mp3 · tachycardia"]);
+    let techno = Path::new("one shot").join("techno");
+    assert_eq!(
+        shown(&app),
+        [
+            "loose.WAV · mixes".into(),
+            format!("Untitled.mp3 · {}", techno.display()),
+            "Tierney Cyren.mp3 · tachycardia".into()
+        ]
+    );
     assert!(app.toast.as_ref().is_some_and(|(m, ..)| m.starts_with("3 recordings in")), "{:?}", app.toast);
     app.save_state();
 
@@ -1269,6 +1268,7 @@ fn tracks_open_in_the_background() {
         drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
+        from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
         phrases: Vec::new(),
@@ -1305,7 +1305,7 @@ fn plays_a_file_opened_in_the_background() {
     let mut app = App::blank(dir.path().join("store"), Some(audio));
     let mut track = track(1, "DJ", "Set");
     track.duration_secs = 2;
-    assert!(app.play_file(&path, track, Duration::from_millis(500)));
+    app.play_file(&path, track, Duration::from_millis(500));
     assert!(app.now.as_ref().is_some_and(|n| n.opening));
     wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     assert!(app.audio.as_ref().unwrap().is_loaded());
@@ -1455,6 +1455,7 @@ fn losing_the_output_lets_go_and_plays_on_through_another() {
     app.seek_to(ms(200));
     assert_eq!(app.position(), ms(200));
     press(&mut app, " ");
+    output_opened(&mut app);
     assert!(app.audio.is_some(), "opened again");
     opened(&mut app);
     assert_eq!((title(&app), app.position(), app.is_playing()), (Some("Track 1".into()), ms(200), true));
@@ -1462,6 +1463,46 @@ fn losing_the_output_lets_go_and_plays_on_through_another() {
     app.audio.as_ref().unwrap().stream_failed("underrun", false);
     app.tick();
     assert!(app.audio.is_some() && app.is_playing());
+}
+
+/// With no output open, playing a track opens one in the background, which can take a while (a
+/// Bluetooth or AirPlay device): the player goes on meanwhile, the track shows as opening, space
+/// still says whether it starts paused, and once the output is open it plays, from where it was to
+/// start. When no output opens, it says it can't play, and space carries on from there.
+#[test]
+fn the_first_play_opens_the_output_without_holding_up_the_player() {
+    use super::super::audio::Outputs;
+    use std::sync::{Condvar, Mutex};
+    static GATE: Gate = (Mutex::new(false), Condvar::new());
+    let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+    opened(&mut app);
+    app.stop();
+    app.audio = None;
+    app.outputs = Outputs { open: |name| open_when_let(&GATE, name), ..super::super::audio::tests::OUTPUTS };
+    let (library, root) = (app.queue.library.clone(), app.queue.root.clone());
+    app.play_tracks(library.clone(), vec![0, 1], root.clone(), 1);
+    app.seek_to(ms(100));
+    assert!(app.deck.opening.is_some() && app.animating(), "the output opening");
+    // The track's file opens meanwhile, and waits for the output.
+    wait(&mut app, |a| a.waiting_file.is_some());
+    assert!(app.now.as_ref().is_some_and(|n| n.opening) && app.audio.is_none());
+    press(&mut app, "  ");
+    press(&mut app, "Q");
+    assert!(!app.deck.quantize, "keys go on");
+    let_open(&GATE);
+    output_opened(&mut app);
+    assert_eq!((title(&app), app.position(), app.is_playing()), (Some("Track 2".into()), ms(100), true));
+
+    // No output at all: it can't play, and space carries on from where it was to start.
+    app.stop();
+    app.audio = None;
+    app.outputs = Outputs::NONE;
+    app.play_tracks(library, vec![0, 1], root, 0);
+    app.seek_to(ms(200));
+    output_opened(&mut app);
+    assert_eq!(last_message(&app), "can't play: no audio output device");
+    assert!(app.now.is_none() && app.waiting_file.is_none());
+    assert_eq!(app.resumable().map(|(t, at)| (t.title.clone(), at)), Some(("Track 1".into(), ms(200))));
 }
 
 /// A key pressed as the player goes on to the next track, before a tick has caught up with
@@ -1477,6 +1518,18 @@ fn a_seek_as_the_next_track_starts_moves_that_one() {
     assert_eq!((title(&app), app.position()), (Some("Track 2".into()), ms(250)));
 }
 
+/// The queued track can play out too before a tick catches up (a short one, or a slow tick):
+/// the tick goes on past both, so n from there doesn't skip the track after them.
+#[test]
+fn a_tick_after_the_queued_track_played_out_goes_on_past_it() {
+    let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000, 8000, 8000]);
+    wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.queued));
+    // Tracks 1 and 2 play out (half a second each at 8 kHz), with no tick since.
+    (&mut out).take(8100).for_each(drop);
+    app.tick();
+    assert_eq!((app.queue.pos, title(&app)), (2, Some("Track 3".into())));
+}
+
 /// Picking another output, the track carries on as it was: paused or playing, where it was
 /// (or was going, while it opens), with its loop; a recorded set too, and the queue stays.
 #[test]
@@ -1486,10 +1539,12 @@ fn switching_outputs_keeps_the_track_as_it_was() {
     app.outputs = super::super::audio::tests::OUTPUTS;
     let switch = |app: &mut App, down: usize| {
         press(app, "d");
+        outputs_listed(app);
         for _ in 0..down {
             key(app, KeyCode::Down);
         }
         press(app, "\n");
+        output_opened(app);
     };
     opened(&mut app);
     let looped = Loop { start: 100.0, end: 300.0, on: true };
@@ -1513,7 +1568,7 @@ fn switching_outputs_keeps_the_track_as_it_was() {
     let path = dir.path().join("Contents/1.wav");
     let mut set = track(9, "DJ", "Set");
     set.file_path = path.display().to_string();
-    assert!(app.play_file(&path, set, ms(50)));
+    app.play_file(&path, set, ms(50));
     opened(&mut app);
     press(&mut app, " ");
     switch(&mut app, 1);
@@ -1730,6 +1785,7 @@ fn a_plan_waits_for_the_dialog_open() {
     press(&mut app, "\u{1b}");
     app.tick();
     assert!(matches!(app.modal, Some(Modal::Confirm(_))), "then the plan");
+    just_shown(&mut app);
     press(&mut app, "y");
     assert!(matches!(app.modal, Some(Modal::Confirm(_))) && app.job.is_none(), "keys right as it appears are ignored");
 
@@ -1762,7 +1818,7 @@ fn the_drive_menu_acts_on_its_own_drive() {
     press(&mut app, "\n");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("pull", root.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("pull", root.as_path()));
     let s = super::super::ui::screen(&mut app, 100, 30);
     assert!(s.contains("Save DEMO in the store?") && s.contains("y save") && s.contains("DEMO: save it"), "{s}");
     press(&mut app, "\u{1b}");
@@ -1803,7 +1859,7 @@ fn the_drive_menu_and_u_know_their_drive_by_identity() {
     press(&mut app, "\n");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("pull", moved.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("pull", moved.as_path()));
     press(&mut app, "\u{1b}");
 
     app.last_backup = Some(app.drive_at(moved.clone()));
@@ -1865,19 +1921,19 @@ fn u_after_packing_undoes_on_the_drive_packed_onto() {
     say_yes(&mut app);
     let (op, _) = confirming(&mut app);
     assert_eq!(op, "pack");
-    say_yes(&mut app);
-    assert!(last_message(&app).ends_with("u to undo"), "{}", last_message(&app));
+    let said = say_yes(&mut app);
+    assert!(said.ends_with("u to undo"), "{said}");
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("undo", target.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("undo", target.as_path()));
 
     press(&mut app, "\u{1b}");
     app.handle_msg(Msg::Drives(vec![Device::open(&root).unwrap().info()]));
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("undo", root.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("undo", root.as_path()));
 }
 
 #[test]
@@ -1968,8 +2024,10 @@ fn clicks_select_play_sort_and_switch_views() {
     assert_eq!(selected_title(&app).as_deref(), Some("Tell You No Lie"));
     // Clicked again: played, with the list queued from there (there's no output here to
     // play it through, which it says).
+    quick_again(&mut app);
     mouse(&mut app, LEFT, row);
     assert_eq!((&app.queue.items, app.queue.pos), (&app.visible, 2));
+    output_opened(&mut app);
     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
 
     point(&mut app, LEFT, "BPM");
@@ -2005,11 +2063,13 @@ fn a_second_click_is_on_the_same_row() {
     super::super::ui::screen(&mut app, 120, 30);
     let tree = |app: &App| app.loaded.as_ref().unwrap().tree.len();
     let rows = tree(&app);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     let l = app.loaded.as_ref().unwrap();
     let selected = app.playlist_state.selected().map(|i| l.tree[i].name.as_str());
     assert_eq!((app.focus, selected), (Focus::Playlists, Some("Sets")));
     assert_eq!(tree(&app), rows, "the folder left as it was");
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     assert_ne!(tree(&app), rows, "the folder opened or closed");
     mouse(&mut app, LEFT, sets);
@@ -2131,9 +2191,11 @@ fn picking_a_playlist_with_the_mouse_stays_in_the_tree() {
     assert_eq!(last_message(&app), "pick a playlist (esc to cancel)");
     let sets = spot(&mut app, "Sets");
     mouse(&mut app, LEFT, sets);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     let friday = spot(&mut app, "Friday");
     mouse(&mut app, LEFT, friday);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, friday);
     assert!(app.picking.is_none() && app.focus == Focus::Tracks);
     assert!(app.job.is_some(), "adding to Friday is planned");
@@ -2180,6 +2242,7 @@ fn drives_are_picked_with_the_mouse_and_opened() {
     mouse(&mut app, LEFT, (4, main + 1));
     assert_eq!(app.drive_state.selected(), Some(0), "the line under its name");
     mouse(&mut app, LEFT, blank);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, blank);
     assert_eq!((last_message(&app), app.view), ("no rekordbox export on this drive", View::Drives));
 
@@ -2630,9 +2693,12 @@ fn moving_back_and_past_the_end_of_the_queue() {
 
     let (mut silent, _dir) = app_with(library());
     press(&mut silent, " ");
+    output_opened(&mut silent);
     assert!(last_message(&silent).starts_with("can't play"), "{}", last_message(&silent));
     let track = silent.loaded.as_ref().unwrap().library.tracks[0].clone();
-    assert!(!silent.play_file(Path::new("/nowhere/set.wav"), track, Duration::ZERO));
+    silent.play_file(Path::new("/nowhere/set.wav"), track, Duration::ZERO);
+    output_opened(&mut silent);
+    assert!(silent.now.is_none() && last_message(&silent).starts_with("can't play"));
 }
 
 /// Space carries on where the last run left off: the track it was on, from where it was.
@@ -2700,9 +2766,10 @@ fn remembers_the_players_settings_and_saves_them_as_they_change() {
     app.deck.output = Some("Phones".into());
     app.search_all = true;
     // Not saved until it's been a couple of seconds since the last look.
+    app.last_save_check = just_now();
     app.tick();
     assert_eq!(state::load(&store), Saved::default());
-    app.last_save_check -= Duration::from_secs(3);
+    app.last_save_check = Instant::now() - Duration::from_secs(3);
     app.tick();
     let saved = state::load(&store);
     assert_eq!(saved.vis.as_deref(), Some("scope"));
@@ -2875,6 +2942,7 @@ fn an_output_thats_gone_plays_through_the_default() {
     app.outputs = super::super::audio::tests::OUTPUTS;
     app.deck.output = Some("Speakers".into());
     press(&mut app, "\n");
+    output_opened(&mut app);
     assert!(app.audio.is_some());
     assert_eq!(last_message(&app), "no output called Speakers: playing through the default output");
 }
@@ -2887,7 +2955,7 @@ fn a_recorded_set_stops_at_its_end() {
     let mut set = track(9, "DJ", "Set");
     set.duration_secs = 0;
     let path = dir.path().join("Contents/2.wav");
-    assert!(app.play_file(&path, set, Duration::ZERO));
+    app.play_file(&path, set, Duration::ZERO);
     opened(&mut app);
     (&mut out).take(4100).for_each(drop);
     wait(&mut app, |a| a.now.is_none());
@@ -2906,9 +2974,12 @@ fn crossing_a_cue_flashes_its_colour() {
     assert!(app.flash.is_none());
     (&mut out).take(1600).for_each(drop);
     app.tick();
+    // (Just crossed, however long the test took since.)
+    let Some(flash) = &mut app.flash else { panic!("no flash") };
+    flash.1 = just_now();
     assert_eq!(app.flash().map(|(c, _)| c), Some([1, 2, 3]));
     // It fades: gone a second later.
-    app.flash.as_mut().unwrap().1 -= Duration::from_secs(1);
+    app.flash.as_mut().unwrap().1 = Instant::now() - Duration::from_secs(1);
     assert!(app.flash().is_none());
 }
 
@@ -2982,9 +3053,15 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     const KEYS: &[&str] =
         &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Q", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
     let (mut app, _dir) = app_with(library());
+    // A store off the drive: nothing is saved inside the drive that was open.
+    let home = tempfile::tempdir().unwrap();
+    app.store_root = home.path().join("store");
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
         press(&mut app, tc.draw(gs::sampled_from(KEYS)));
     }
+    // Plugins' columns, shown from the palette.
+    let shown = ["sound.bpm", "sound.key"].map(locallibrary::query::FieldName::new);
+    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(shown.len()))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
     let read = state::load(&app.store_root);
@@ -3015,9 +3092,8 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
     let cues: Vec<locallibrary::anlz::Cue> = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|_| {
             let start = tc.draw(gs::integers::<u32>().max_value(310_000));
-            let end =
-                tc.draw(gs::booleans()).then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(20_000)));
-            cue(tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(7))), start, end)
+            let end = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(20_000))).map(|d| start + d);
+            cue(tc.draw(gs::optional(gs::integers::<u8>().max_value(7))), start, end)
         })
         .collect();
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Down, PhraseKind::Chorus, PhraseKind::Outro];
@@ -3030,7 +3106,7 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
                 true => start_beat + tc.draw(gs::integers::<u16>().min_value(1).max_value(40)),
                 false => tc.draw(gs::integers::<u16>().max_value(start_beat)),
             };
-            Phrase { kind: kinds[tc.draw(gs::integers::<usize>().max_value(4))], start_beat, end_beat, fill_beat: None }
+            Phrase { kind: tc.draw(gs::sampled_from(&kinds[..])), start_beat, end_beat, fill_beat: None }
         })
         .collect();
     let analysis = TrackAnalysis {
@@ -3087,4 +3163,108 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
             assert!(s.contains("Around the World") && s.contains("BPM"), "the deck at {w}x{h}:\n{s}");
         }
     }
+}
+
+/// What a track's drive lacks of its analysis comes from what a plugin's analyzer kept, read with
+/// the rest in the background, and the deck says so under the track.
+#[test]
+fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                 fields = { grid = \"beats\", wave = \"waveform\" }\n";
+    let manifest = std::fs::read_to_string(dir.path().join("echo.toml")).unwrap();
+    std::fs::write(dir.path().join("echo.toml"), manifest + heard).unwrap();
+    let device = Device::open_export(&root).unwrap();
+    let t = device.library().unwrap().tracks[0].clone();
+    // The drive has no analysis for it: rekordbox's files are gone.
+    let dat = device.path(&paths::key(&t.analyze_path));
+    for ext in ["DAT", "EXT", "2EX"] {
+        std::fs::remove_file(dat.with_extension(ext)).unwrap();
+    }
+    let grid: Vec<Beat> =
+        (0..8).map(|i| Beat { beat_number: i % 4 + 1, bpm: 120.0, time_ms: 500 * u32::from(i) }).collect();
+    let heard = serde_json::json!({
+        "grid": grid,
+        "wave": { "blob": "w.bands", "columns_per_sec": 150.0 },
+        "blobs": { "w.bands": [10, 20, 30, 40, 50, 60] },
+    });
+    std::fs::write(device.path(&paths::key(&t.file_path)), heard.to_string()).unwrap();
+    let store_root = dir.path().join("store");
+    let store = Store::open_or_init(&store_root).unwrap();
+    let plugins = crate::plugins::host().unwrap();
+    plugins.analyze("echo", "heard", &root.display().to_string(), None, &store, &Ctx::silent()).unwrap();
+
+    let info = track_info(&root, &t, None, &store_root);
+    let said = "grid and waveform from echo.heard, not on the drive";
+    assert_eq!(info.from_plugins.as_deref(), Some(said));
+    assert_eq!(info.analysis.beats, grid);
+    let detail = info.analysis.detail.as_ref().unwrap();
+    assert_eq!((detail.style, detail.columns.len()), (anlz::WaveformStyle::ThreeBand, 2));
+    // Another track, which rekordbox analysed, is all the drive's.
+    let other = device.library().unwrap().tracks[1].clone();
+    assert_eq!(track_info(&root, &other, None, &store_root).from_plugins, None);
+
+    let (mut app, _played) = playing(info.analysis);
+    app.now.as_mut().unwrap().from_plugins = info.from_plugins;
+    let s = crate::tui::ui::screen(&mut app, 160, 45);
+    assert!(s.contains(said), "{s}");
+}
+
+/// Full screen, the "mixes into" panel shows each match in its own track's key, as the drive's
+/// library has it (LOC-13: every match was said to show 4A). On rekordcrate's 3,886-track
+/// export, playing tracks in each of the keys it has.
+#[test]
+fn the_mixes_into_panel_shows_each_matchs_own_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let pdb = dir.path().join(paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures/rekordcrate/large");
+    std::fs::copy(fixture.join("export.pdb"), &pdb).unwrap();
+    let mut app = app_on(dir.path());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    // A track in each key there is.
+    let mut keys = FxHashSet::default();
+    let playing: Vec<Track> = (lib.tracks.iter())
+        .filter(|t| t.bpm > 0.0 && Camelot::parse(&t.key).is_some_and(|k| keys.insert(k.code())))
+        .cloned()
+        .collect();
+    assert!(playing.len() > 12, "the export's keys: {keys:?}");
+    let mut shown = FxHashSet::default();
+    for (id, track) in (100..).zip(playing) {
+        let info = track_info(dir.path(), &track, Some(lib.clone()), &dir.path().join("store"));
+        app.now = Some(NowPlaying {
+            id,
+            key: Camelot::parse(&track.key),
+            drive: "LARGE".into(),
+            root: dir.path().to_path_buf(),
+            analysis: TrackAnalysis::default(),
+            from_plugins: None,
+            art: None,
+            duration: Duration::from_secs(300),
+            phrases: Vec::new(),
+            matches: None,
+            playlists: Vec::new(),
+            loading: true,
+            opening: false,
+            advancing: false,
+            track: track.clone(),
+        });
+        app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
+        app.fullscreen = true;
+        let s = super::super::ui::screen(&mut app, 200, 60);
+        let m = app.now.as_ref().unwrap().matches.as_ref().expect("the drive's library is open");
+        for x in m.items.iter().take(8) {
+            let t = m.track(x);
+            let key = Camelot::parse(&t.key).expect("matched on its key");
+            assert_eq!(x.key, key, "{} - {}", t.artist, t.title);
+            // Titles are cut to fit; the start of the row is enough.
+            let row = format!("{:<4}{:>5.1} ", key.code(), t.bpm);
+            let title: String = t.title.chars().take(12).collect();
+            assert!(s.lines().any(|l| l.contains(&format!("{row}{title}"))), "{row}{title} playing {}: {s}", track.key);
+            shown.insert(key.code());
+        }
+    }
+    assert!(shown.len() > 12, "keys shown: {shown:?}");
 }

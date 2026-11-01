@@ -1,5 +1,4 @@
 use super::*;
-use hegel::Generator;
 use hegel::generators as gs;
 use loclib_equipment::{Audio, Exfat, Kind, MODELS, Spec, find};
 
@@ -110,14 +109,13 @@ fn any_source() -> impl hegel::PrintableGenerator<Source> {
     let rates = vec![0, 8_000, 16_000, 22_050, 32_000, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 384_000];
     hegel::compose!(|tc| {
         Source {
-            codec: tc.draw(gs::sampled_from(Codec::ALL.to_vec()).print_as_debug()),
+            codec: tc.draw(gs::sampled_from(Codec::ALL.to_vec())),
             sample_rate: tc
                 .draw(hegel::one_of!(gs::sampled_from(rates.clone()), gs::integers::<u32>().max_value(800_000))),
             bit_depth: tc.draw(gs::sampled_from(vec![0, 8, 16, 20, 24, 32])),
             channels: tc.draw(gs::integers::<u16>().min_value(1).max_value(8)),
         }
     })
-    .print_as_debug()
 }
 
 /// Whatever the file, players and options: a file is copied only when every player plays it;
@@ -130,7 +128,7 @@ fn decisions_hold_for_any_file_and_players(tc: hegel::TestCase) {
     let picks = tc.draw(gs::vecs(gs::integers::<usize>().max_value(MODELS.len() - 1)).max_size(5));
     let targets: Vec<&Model> = picks.iter().map(|&i| &MODELS[i]).collect();
     let options = Options {
-        container: tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()),
+        container: tc.draw(gs::sampled_from(Container::ALL.to_vec())),
         decode_lossy: tc.draw(gs::booleans()),
     };
     let players = targets.iter().filter(|m| !m.is_mixer());
@@ -167,7 +165,7 @@ fn decisions_hold_for_any_file_and_players(tc: hegel::TestCase) {
 fn size_estimates_grow_with_length(tc: hegel::TestCase) {
     let source = tc.draw(any_source());
     let recipe = Recipe {
-        container: tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()),
+        container: tc.draw(gs::sampled_from(Container::ALL.to_vec())),
         sample_rate: tc.draw(gs::sampled_from(vec![44_100, 48_000, 96_000])),
         bit_depth: tc.draw(gs::sampled_from(vec![16, 24])),
         dither: Dither::Tpdf,
@@ -204,7 +202,7 @@ fn made_up_players_share_a_format_or_have_none(tc: hegel::TestCase) {
     let players: Vec<&'static Model> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
         .map(|_| {
             let audio: Vec<Audio> = tc
-                .draw(gs::samples(codecs.clone()).without_replacement().max_size(4).print_as_debug())
+                .draw(gs::samples(codecs.clone()).without_replacement().max_size(4))
                 .into_iter()
                 .map(|codec| Audio {
                     codec,
@@ -227,13 +225,12 @@ fn made_up_players_share_a_format_or_have_none(tc: hegel::TestCase) {
         })
         .collect();
     let source = Source {
-        codec: tc.draw(gs::sampled_from(vec![Codec::Flac, Codec::Wav, Codec::Aiff]).print_as_debug()),
+        codec: tc.draw(gs::sampled_from(vec![Codec::Flac, Codec::Wav, Codec::Aiff])),
         sample_rate: tc.draw(gs::sampled_from(vec![44_100, 48_000, 96_000])),
         bit_depth: tc.draw(gs::sampled_from(vec![16, 24])),
         channels: 2,
     };
-    let options =
-        Options { container: tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()), decode_lossy: false };
+    let options = Options { container: tc.draw(gs::sampled_from(Container::ALL.to_vec())), decode_lossy: false };
     let shared = |c: Container| {
         let lists: Vec<&Audio> = players.iter().filter_map(|m| m.audio(c.codec())).collect();
         lists.len() == players.len()

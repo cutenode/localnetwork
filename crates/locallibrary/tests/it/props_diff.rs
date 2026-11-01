@@ -2,53 +2,17 @@
 
 use std::collections::BTreeSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use locallibrary::diff::{self, PlaylistDiff};
 use locallibrary::model::LibraryDiff;
 use locallibrary::{Library, Playlist, Track, paths};
+use loclib_model::test_util;
 
 /// Files both sides draw from, so libraries overlap.
 const FILES: &[&str] = &["a", "b", "c", "d", "e", "F", "g", "h"];
 /// Playlists with distinct folder paths (folders end in `/`).
 const NODES: &[&str] = &["Shows/", "Shows/2026/", "Set", "Warmup", "Shows/Friday", "Shows/Set", "Shows/2026/Opening"];
-
-fn blank(id: u32, path: &str) -> Track {
-    Track {
-        id,
-        title: String::new(),
-        artist: String::new(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 120.0,
-        duration_secs: 300,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: path.into(),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
-}
 
 /// Some of [`FILES`] (under ids of this export's own), with a few fields that may differ between
 /// exports, and some of [`NODES`] (with the folders they need) holding any of those tracks.
@@ -69,7 +33,7 @@ fn library(tc: &TestCase) -> Library {
             artist: tc.draw(gs::sampled_from(vec!["A", "B"])).into(),
             rating: tc.draw(gs::integers::<u8>().max_value(1)),
             bpm: tc.draw(gs::sampled_from(vec![120.0, 128.0])),
-            ..blank(*id, &format!("/Contents/{f}.mp3"))
+            ..test_util::track(*id, "", "", &format!("/Contents/{f}.mp3"))
         })
         .collect();
     let mut playlists: Vec<Playlist> = Vec::new();
@@ -113,7 +77,7 @@ fn playlist_count(lib: &Library) -> usize {
 /// File keys of a playlist's entries, by its path.
 fn entries(lib: &Library, path: &str) -> Vec<String> {
     let p = lib.playlists.iter().find(|p| !p.is_folder && lib.playlist_path(p.id) == path).unwrap();
-    p.track_ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::key(&t.file_path).to_lowercase()).collect()
+    p.track_ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
 }
 
 fn names(v: &[locallibrary::model::TrackRef]) -> BTreeSet<String> {
@@ -135,7 +99,7 @@ fn summary(d: &PlaylistDiff) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<St
 /// differences, and every playlist counts as unchanged.
 #[hegel::test(test_cases = 300)]
 fn a_library_equals_itself(tc: TestCase) {
-    let a = tc.draw(library().print_as_debug());
+    let a = tc.draw(library());
     let mut renumbered = a.clone();
     for t in &mut renumbered.tracks {
         t.id += 1000;
@@ -154,7 +118,7 @@ fn a_library_equals_itself(tc: TestCase) {
 /// Comparing the other way round swaps what was added and removed and finds the same changes.
 #[hegel::test(test_cases = 300)]
 fn swapping_sides_swaps_the_diff(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let (ab, ba) = (diff::between(&a, &b, ("a", "b"), None), diff::between(&b, &a, ("b", "a"), None));
     let (ab_added, ab_removed, ab_new, ab_changed, ab_same) = summary(&ab);
     let (ba_added, ba_removed, ba_new, ba_changed, ba_same) = summary(&ba);
@@ -219,12 +183,12 @@ fn lis(v: &[usize]) -> usize {
 /// count as moved.
 #[hegel::test(test_cases = 300)]
 fn entry_changes_account_for_every_entry(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let d = diff::between(&a, &b, ("a", "b"), None);
     for c in &d.changed_playlists {
         let (left, right) = (entries(&a, &c.path), entries(&b, &c.path));
         assert_ne!(left, right);
-        let key = |e: &locallibrary::model::TrackRef| paths::key(&e.file_path).to_lowercase();
+        let key = |e: &locallibrary::model::TrackRef| paths::file_key(&e.file_path);
         for e in &c.removed {
             assert_eq!(left[e.position - 1], key(&e.track));
         }
@@ -265,7 +229,7 @@ fn entry_changes_account_for_every_entry(tc: TestCase) {
 /// no collection-level changes.
 #[hegel::test(test_cases = 300)]
 fn playlist_filter_narrows_the_diff(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let filter = tc.draw(gs::sampled_from(vec!["Shows", "shows/", "Shows/2026", "Set", "nope"]));
     let all = diff::between(&a, &b, ("a", "b"), None);
     let some = diff::between(&a, &b, ("a", "b"), Some(filter));
@@ -292,7 +256,7 @@ fn playlist_filter_narrows_the_diff(tc: TestCase) {
 fn every_playlist_is_accounted_for(tc: TestCase) {
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let names = tc.draw(gs::vecs(gs::sampled_from(vec!["Set", "Shows", "Shows/Set"])).min_size(n).max_size(n));
-    let mut lib = Library { tracks: vec![blank(1, "/Contents/a.mp3")], ..Default::default() };
+    let mut lib = Library { tracks: vec![test_util::track(1, "", "", "/Contents/a.mp3")], ..Default::default() };
     lib.playlists.push(Playlist {
         id: 1,
         parent_id: None,
@@ -335,7 +299,7 @@ fn same_named_siblings_are_two_playlists() {
         track_ids,
     };
     let lib = Library {
-        tracks: vec![blank(1, "/Contents/a.mp3")],
+        tracks: vec![test_util::track(1, "", "", "/Contents/a.mp3")],
         playlists: vec![list(1, vec![1]), list(2, vec![1])],
         ..Default::default()
     };
@@ -358,7 +322,7 @@ fn same_named_folders_keep_their_playlists_apart() {
         track_ids,
     };
     let lib = Library {
-        tracks: vec![blank(1, "/Contents/a.mp3")],
+        tracks: vec![test_util::track(1, "", "", "/Contents/a.mp3")],
         playlists: vec![
             node(1, None, true, vec![]),
             node(2, None, true, vec![]),

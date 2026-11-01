@@ -1,0 +1,29 @@
+name: PR labels
+
+# Labels a fork's pull request with the tools, areas and kinds of file it changes
+# (.github/labeler.yml). ci.yml's changes job labels the others in the runner it already has; a
+# fork's pull request gets a read-only token there. pull_request_target is what lets this one
+# label it. It runs this workflow and the config as they are on main, and never checks out or runs
+# the pull request's code.
+# Not `reopened`: the files, and so the labels, are the same as before it was closed.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0

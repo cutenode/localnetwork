@@ -99,11 +99,6 @@ impl Report {
     pub fn new(format: Format, entries: Vec<Matched>) -> Report {
         Report { format, summary: Summary::of(&entries), entries }
     }
-
-    /// Track ids of the found entries, in list order (repeats kept).
-    pub fn track_ids(&self) -> Vec<u32> {
-        self.entries.iter().filter_map(|m| m.status.track_id()).collect()
-    }
 }
 
 /// Find every entry in `lib`.
@@ -113,7 +108,7 @@ pub fn match_entries(lib: &Library, entries: &[Entry]) -> Vec<Matched> {
 }
 
 /// Durations this close (seconds) count as the same.
-pub(crate) const DURATION_SLACK: u32 = 2;
+pub const DURATION_SLACK: u32 = 2;
 /// Fuzzy scores (0-1): at least `FOUND` with no runner-up within `CLOSE` is a match; down to
 /// `WEAK` the candidates are offered as ambiguous.
 const FOUND: f32 = 0.8;
@@ -324,12 +319,7 @@ impl<'a> Matcher<'a> {
 }
 
 fn path_parts(p: &str) -> Vec<String> {
-    paths::key(p)
-        .to_lowercase()
-        .split('/')
-        .filter(|c| !c.is_empty() && *c != "." && *c != "..")
-        .map(String::from)
-        .collect()
+    paths::file_key(p).split('/').filter(|c| !c.is_empty() && *c != "." && *c != "..").map(String::from).collect()
 }
 
 fn isrc_key(s: &str) -> Option<String> {

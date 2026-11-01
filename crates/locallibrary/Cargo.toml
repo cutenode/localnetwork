@@ -1,32 +1,41 @@
 [package]
 name = "locallibrary"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
+# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, it's to
+# be renamed `locallibrary-core` first (TODO.md), and it carries the test plugin below. The
+# loclib-* crates are its parts that can be.
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# The plugin the plugin host's tests start (`tests/it/plugins.rs`). As a binary, cargo builds it
+# with them and hands them its path (`CARGO_BIN_EXE_test-plugin`), and nextest's archives carry it.
+[[bin]]
+name = "test-plugin"
+path = "src/bin/test-plugin/main.rs"
+test = false
+doc = false
+
 [features]
 default = ["account", "peers"]
-# The Atmosphere account (AT Protocol OAuth sign-in, the keychain) and publishing to it: the
-# `atmosphere` and `publish` modules and the `account_*` and `*_publish_*` API. Most of the
-# library's dependencies (an HTTP client, an async runtime, TLS, DNS) are for this alone.
+# The Atmosphere account (AT Protocol OAuth sign-in) and publishing to it: the `atmosphere` and
+# `publish` modules and the `account_*` and `*_publish_*` API. Its AT Protocol clients and DNS are
+# for this alone (the HTTP client and its async runtime, the keychain and the AT Protocol's types,
+# which check the records a set destination answers, are plugins' too).
 account = [
     "dep:http",
     "dep:jacquard-api",
-    "dep:jacquard-common",
     "dep:jacquard-identity",
     "dep:jacquard-oauth",
-    "dep:keyring",
-    "dep:keyring-core",
-    "dep:reqwest",
-    "dep:tokio",
+    "dep:unicode-segmentation",
 ]
 # Fetching snapshots from another computer's store (`store serve`, `store fetch`): iroh's
 # encrypted QUIC connections, which reach the other computer through n0's relays when they can't
 # connect directly, or stay on the local network.
-peers = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
+peers = ["dep:iroh", "dep:iroh-tickets"]
 
 [dependencies]
 rekordbox-pdb.workspace = true
@@ -42,14 +51,17 @@ hmac.workspace = true
 image.workspace = true
 http = { workspace = true, optional = true }
 jacquard-api = { workspace = true, optional = true }
-jacquard-common = { workspace = true, optional = true }
+jacquard-common.workspace = true
 jacquard-identity = { workspace = true, optional = true }
 jacquard-oauth = { workspace = true, optional = true }
-keyring = { workspace = true, optional = true }
+# The keychain, for the account's session and plugins' secrets.
+keyring.workspace = true
 # The keychain entries themselves, from whichever store is the default: the system's, which
 # `keyring` sets, or the tests' in-memory one.
-keyring-core = { version = "1", optional = true }
-reqwest = { workspace = true, optional = true }
+keyring-core = { version = "1" }
+# `stream`: files plugins' `net/fetch` and set uploads send, read as they're sent; `multipart`: the
+# forms `net/fetch` sends, streamed; `blocking`: tests'.
+reqwest = { workspace = true, features = ["blocking", "multipart", "stream"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
@@ -63,7 +75,8 @@ strsim.workspace = true
 symphonia.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, optional = true, features = ["macros", "sync"] }
+# The network's async runtimes: a request stops as soon as it's cancelled (`net::Requests`).
+tokio = { workspace = true, features = ["macros", "sync"] }
 uuid.workspace = true
 walkdir.workspace = true
 rustc-hash.workspace = true
@@ -74,32 +87,55 @@ loclib-progress = { workspace = true, features = ["schemars"] }
 loclib-model = { workspace = true, features = ["schemars"] }
 loclib-tracklist = { workspace = true, features = ["schemars"] }
 loclib-mixid.workspace = true
-loclib-interop = { workspace = true, features = ["schemars"] }
 base64.workspace = true
 loclib-analysis = { workspace = true, features = ["schemars"] }
 loclib-transcode = { workspace = true, features = ["schemars"] }
 iroh = { version = "1.3", optional = true }
 iroh-tickets = { version = "1", optional = true }
-quick-xml = "0.37"
+quick-xml = "0.42"
 ring = "0.17.14"
+unicode-segmentation = { version = "1.13.3", optional = true }
+# The plugin protocol the plugin host speaks (`plugin`).
+loclib-plugin.workspace = true
+# How a URL's query spells a plugin's secret, to leave that out of what the plugin is told too.
+form_urlencoded = "1.2.2"
+oauth2 = { version = "5.0.0", default-features = false }
+# A file sent as a request's body, as the stream of its chunks.
+futures-util = { version = "0.3.34", default-features = false }
 rayon = "1.12.0"
 
 [dev-dependencies]
-hegeltest.workspace = true
+hegeltest = { workspace = true, features = ["chrono"] }
 # Independent parser used to cross-check what locallibrary writes.
 rekordcrate.workspace = true
 binrw = "0.14"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
 # Independent FAT reader used to check the FAT32 formatter.
 fatfs = "0.3"
 loclib-model = { workspace = true, features = ["test-util"] }
 loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
+# The interop plugin's rekordbox XML writer, which tests read fixture drives' libraries through.
+loclib-interop.workspace = true
+# The demos plugin, served in the tests that apply its plans to drives (`props_demos`).
+locallibrary-plugin-demos = { path = "../../plugins/demos" }
+# Waiting until a connection reaches the sign-in listener's queue (`callback` tests).
+mio = { version = "1.2.4", features = ["os-poll", "net"] }
 criterion.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
 winapi-util = "0.1.11"
+# Whether this process is elevated: plugins are never started from one. And sparse files for
+# tests (`testing::sparse`).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading"] }
+
+[target."cfg(unix)".dependencies]
+# Whether this process runs as root: plugins are never started from one.
+libc = "0.2"
+
+[lints]
+workspace = true
 
 [[bench]]
 name = "library"

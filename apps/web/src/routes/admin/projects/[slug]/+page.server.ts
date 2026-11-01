@@ -1,17 +1,12 @@
 import { error } from '@sveltejs/kit';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	withTracklists
-} from '#lib/server/forms/project.ts';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, withTracklists } from '#lib/server/forms/project.ts';
+import { formValues } from '#lib/project-form.ts';
 import { act, requireAdmin, requireStaff, text } from '#lib/server/http.ts';
 import { isProjectStatus } from '#lib/server/services/projects.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
+	requireStaff(locals, url);
 	const project = await locals.app.projects.bySlug(params.slug);
 
 	if (!project) error(404, 'Project not found');
@@ -30,7 +25,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		trail,
 		requests,
 		created: url.searchParams.has('created'),
-		geocoder: locals.app.geocoder.enabled
+		geocoder: locals.app.geocoder.enabled,
+		// Streamed, so the form shows while HappyView reads the managers' sets.
+		sets: locals.app.sets.published(project.managers),
+		// Admins see where each manager stands with the root's Bluesky verifications, streamed for the same reason.
+		verifications: locals.viewer?.isAdmin ? locals.app.verifications.statuses(project.managers) : null
 	};
 };
 

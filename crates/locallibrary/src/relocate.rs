@@ -27,11 +27,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::Result;
 use crate::device::Device;
-use crate::doctor::{self, Databases, fold};
+use crate::doctor::{self, Databases};
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::incoming::{Incoming, Space};
 use crate::model::{Track, TrackRef};
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::progress::Ctx;
 use crate::query::TrackSelector;
 
@@ -145,7 +145,7 @@ pub fn plan(device: &Device, opts: &RelocateOptions, ctx: &Ctx<'_>) -> Result<Re
                     size: f.size,
                     duration_secs: None,
                 };
-                found.entry(fold(&paths::key(&f.name))).or_default().push(c);
+                found.entry(paths::file_key(&f.name)).or_default().push(c);
             }
         }
     }

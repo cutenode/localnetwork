@@ -1,0 +1,146 @@
+{
+  "defs": {
+    "cancelled": {
+      "description": "The event has been cancelled.",
+      "type": "token"
+    },
+    "hybrid": {
+      "description": "A hybrid event that takes place both online and offline.",
+      "type": "token"
+    },
+    "inperson": {
+      "description": "An in-person event that takes place offline.",
+      "type": "token"
+    },
+    "main": {
+      "description": "A calendar event.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "createdAt": {
+            "description": "Client-declared timestamp when the event was created.",
+            "format": "datetime",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the event.",
+            "type": "string"
+          },
+          "endsAt": {
+            "description": "Client-declared timestamp when the event ends.",
+            "format": "datetime",
+            "type": "string"
+          },
+          "locations": {
+            "description": "The locations where the event takes place.",
+            "items": {
+              "refs": [
+                "community.lexicon.calendar.event#uri",
+                "community.lexicon.location.address",
+                "community.lexicon.location.fsq",
+                "community.lexicon.location.geo",
+                "community.lexicon.location.hthree"
+              ],
+              "type": "union"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "description": "The attendance mode of the event.",
+            "ref": "community.lexicon.calendar.event#mode",
+            "type": "ref"
+          },
+          "name": {
+            "description": "The name of the event.",
+            "type": "string"
+          },
+          "startsAt": {
+            "description": "Client-declared timestamp when the event starts.",
+            "format": "datetime",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the event.",
+            "ref": "community.lexicon.calendar.event#status",
+            "type": "ref"
+          },
+          "uris": {
+            "description": "URIs associated with the event.",
+            "items": {
+              "ref": "community.lexicon.calendar.event#uri",
+              "type": "ref"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "createdAt",
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    },
+    "mode": {
+      "default": "community.lexicon.calendar.event#inperson",
+      "description": "The mode of the event.",
+      "knownValues": [
+        "community.lexicon.calendar.event#hybrid",
+        "community.lexicon.calendar.event#inperson",
+        "community.lexicon.calendar.event#virtual"
+      ],
+      "type": "string"
+    },
+    "planned": {
+      "description": "The event has been created, but not finalized.",
+      "type": "token"
+    },
+    "postponed": {
+      "description": "The event has been postponed and a new start date has not been set.",
+      "type": "token"
+    },
+    "rescheduled": {
+      "description": "The event has been rescheduled.",
+      "type": "token"
+    },
+    "scheduled": {
+      "description": "The event has been created and scheduled.",
+      "type": "token"
+    },
+    "status": {
+      "default": "community.lexicon.calendar.event#scheduled",
+      "description": "The status of the event.",
+      "knownValues": [
+        "community.lexicon.calendar.event#cancelled",
+        "community.lexicon.calendar.event#planned",
+        "community.lexicon.calendar.event#postponed",
+        "community.lexicon.calendar.event#rescheduled",
+        "community.lexicon.calendar.event#scheduled"
+      ],
+      "type": "string"
+    },
+    "uri": {
+      "description": "A URI associated with the event.",
+      "properties": {
+        "name": {
+          "description": "The display name of the URI.",
+          "type": "string"
+        },
+        "uri": {
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "type": "object"
+    },
+    "virtual": {
+      "description": "A virtual event that takes place online.",
+      "type": "token"
+    }
+  },
+  "id": "community.lexicon.calendar.event",
+  "lexicon": 1
+}

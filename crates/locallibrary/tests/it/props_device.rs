@@ -5,8 +5,8 @@
 use crate::common;
 
 use chrono::Utc;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use locallibrary::Hash;
 use locallibrary::device::{Device, DeviceState, LineageEntry, LineageOp, RekordboxSync};
 
@@ -31,7 +31,7 @@ const OPS: &[LineageOp] = &[
 fn a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
-    let op = tc.draw(gs::sampled_from(OPS.to_vec()).print_as_debug());
+    let op = tc.draw(gs::sampled_from(OPS.to_vec()));
     let description = tc.draw(gs::sampled_from(vec!["", "sync from Main", "Ünï"]));
     let backup = tc.draw(gs::optional(gs::sampled_from(vec!["20261011T120000Z"]))).map(String::from);
     let mut d = Device::open(&root).unwrap();
@@ -102,4 +102,24 @@ fn rekordbox_sync_files_read_back(tc: TestCase) {
     let s = RekordboxSync::parse("onelibrary", &xml).unwrap();
     assert_eq!((s.automatic, s.collection, s.playlists, s.library), (automatic, Some(id as u32), nodes, "onelibrary"));
     assert!(RekordboxSync::parse("onelibrary", &xml.replace("<Sync ", "<Other ")).is_none());
+}
+
+/// A drive's volume name is its folder's own name, wherever the folder is; at the top of the file
+/// system, where the folder has no name of its own, it's the whole path.
+#[hegel::test(test_cases = 50)]
+fn a_volumes_name_is_its_folders(tc: TestCase) {
+    let name = tc.draw(gs::text().alphabet("abcXYZ 09-_.é♪").min_size(1).max_size(12));
+    // Windows drops a folder name's trailing dots, so `0.` makes the folder `0`.
+    tc.assume(!name.trim_matches('.').is_empty() && name.trim() == name && !name.ends_with('.'));
+    let dir = tempfile::tempdir().unwrap();
+    let mut at = dir.path().to_path_buf();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+        at.push("deeper");
+    }
+    at.push(&name);
+    std::fs::create_dir_all(&at).unwrap();
+    let d = Device::open(&at).unwrap();
+    assert_eq!(d.volume_name(), name);
+    let top = Device::open(std::path::Path::new("/")).unwrap();
+    assert_eq!(top.volume_name(), top.root().display().to_string());
 }

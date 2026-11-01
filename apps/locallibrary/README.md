@@ -99,6 +99,7 @@ Every change shows what it will do and asks first. It ends with the commands you
 | You changed your mind about the last change | `locallibrary undo` |
 | You want to browse and listen | `locallibrary` |
 | You want to know what a command does | `locallibrary help sync` |
+| Something went wrong | `locallibrary bug` (reports it, with your version and system filled in) |
 
 With one library plugged in, the commands above need nothing more. Edits name the library:
 `locallibrary playlist new Home Friday` makes the playlist on its newest drive, then copies that
@@ -146,14 +147,17 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
   copies
 - [Editing your library](docs/editing.md): after rekordbox exports, playlists, tracks, filters, My
   Tags, cues, cover art
-- [My Settings](docs/settings.md): one settings profile for every drive
+- [My Settings](docs/settings.md): one settings profile for every drive, and taking everything you
+  set to another computer
 - [Sets, history and mixes](docs/sets.md): checking drives before a set, sessions, sets, recorded
   mixes, your DJ profile
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's
   report
-- [Atmosphere account](docs/account.md) (alpha): signing in and publishing sets, settings and your profile
+- [Atmosphere account](docs/account.md) (alpha): signing in, publishing sets, settings and your
+  profile, and reporting bugs
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
+- [Plugins](docs/plugins.md): what plugins add, and where it shows up
 - [How it works](docs/how-it-works.md): the design, safety and known limitations
 
 Building on locallibrary: [the JSON-RPC sidecar](docs/sidecar.md) for desktop apps, and
@@ -176,11 +180,14 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
   speed
 - [loclib-transcode](../../crates/loclib-transcode): which copy of a file a set of players needs,
   and lossless copies (AIFF, WAV, FLAC) that keep cue points in time
-- [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo, key and beats, loudness
-  and clipping, and scoring analyzers against annotated datasets
-- [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
+- [loclib-analysis](../../crates/loclib-analysis): a second opinion on tempo and key, loudness and
+  clipping, three-band waveforms, and scoring analyzers against annotated datasets
+- [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ,
+  and reading Traktor's back
 - [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
   spectrum and cover art
+- [loclib-plugin](../../crates/loclib-plugin): the plugin protocol (JSON-RPC over stdio), the
+  plugin manifest, and an SDK for writing plugins in Rust
 
 They aren't on crates.io yet.
 

@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{known_drives, resolve_drive};
+use super::{mounted_exports, resolve_drive};
 use crate::Result;
 use crate::device::Device;
-use crate::plays;
+use crate::plays::{self, DriveHistory};
 use crate::progress::Ctx;
 use crate::sets::session::{self, Gathered};
 use crate::sets::suggest::{self, Candidate};
@@ -47,13 +47,14 @@ pub(super) fn gather(
     ctx: &Ctx<'_>,
 ) -> Result<(Gathered, Vec<Device>)> {
     let Some(spec) = drive else {
-        let drives: Vec<Device> = known_drives(false).into_iter().filter(Device::has_export).collect();
+        let drives = mounted_exports();
         return Ok((session::gather(store, &drives, book, ctx)?, drives));
     };
     let drives = vec![resolve_drive(spec)?];
     let library = drives[0].state().and_then(|s| s.library_id);
     let archive = store.map(|s| plays::archive(s, library, ctx)).transpose()?;
-    Ok((session::gather_from(archive.as_ref(), &drives, book), drives))
+    let histories: Vec<DriveHistory> = drives.iter().map(DriveHistory::read).collect();
+    Ok((session::gather_from(archive.as_ref(), &histories, book), drives))
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -103,8 +104,7 @@ pub fn sessions_import(store: &Store, req: &ImportSessionLog) -> Result<Imported
     let library = super::sets::drive_library(req.drive.as_deref())?;
     let log = import::beat_link_trigger(&req.file, req.name.as_deref(), library.as_ref())?;
     let mut book = SetBook::load(store)?;
-    book.imported.retain(|s| s.id != log.id);
-    book.imported.push(log.clone());
+    book.keep(log.clone());
     book.save(store)?;
     Ok(log)
 }

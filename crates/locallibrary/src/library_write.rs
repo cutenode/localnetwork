@@ -20,7 +20,8 @@ use crate::anlz;
 use crate::commit::Swap;
 use crate::device::Device;
 use crate::error::IoContext;
-use crate::paths::{self, FileClass};
+use crate::hash::Hash;
+use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase};
 use crate::tree::FileTree;
 use crate::{Error, Result, backup, fsutil};
@@ -47,19 +48,22 @@ pub(crate) struct Source {
     /// Copied even when the drive's file looks current (same size and time): what's written into
     /// it changed in a way neither shows.
     pub(crate) force: bool,
+    /// What it holds, for a file copied as it is: the copy is refused when it doesn't (the file
+    /// changed since it was checked).
+    pub(crate) hash: Option<Hash>,
 }
 
 impl Source {
     /// A file copied as it is.
     pub(crate) fn file(path: PathBuf, size: u64, mtime: i64) -> Source {
-        Source { path, size, mtime, audio_path: None, shift_ms: 0, force: false }
+        Source { path, size, mtime, audio_path: None, shift_ms: 0, force: false, hash: None }
     }
 
     /// An analysis file copied with `audio_path` written into it and its times `shift_ms` later:
     /// its size on the drive is worked out from its contents.
     pub(crate) fn analysis(path: PathBuf, mtime: i64, audio_path: &str, shift_ms: i32) -> Result<Source> {
         let size = analysis_bytes(&path, audio_path, shift_ms)?.len() as u64;
-        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false })
+        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()), shift_ms, force: false, hash: None })
     }
 }
 
@@ -83,8 +87,7 @@ fn write_unsynced(dst: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::create_dir_all(dir).at(dir)?;
     let mut tmp = fsutil::temp_for(dir, dst, "")?;
     tmp.write_all(bytes).at(tmp.path())?;
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
-    Ok(())
+    fsutil::replace(tmp.into_temp_path(), dst)
 }
 
 /// The new databases. Without `pdb` or `plus`, the drive's is removed; without `ext`, the drive's
@@ -176,6 +179,17 @@ pub(crate) fn plan(
     let backs_up = |class: FileClass| matches!(class, FileClass::Analysis | FileClass::Artwork);
     // After a write cut off on the target, a file modified since it started may be torn.
     let cut_off = crate::sync::cut_off_since(target);
+    // A file copied moments after its source was written may have missed a rewrite of it that
+    // kept the size and mtime (see `fsutil::settled`): it's compared by content.
+    let index = target.load_index();
+    let holds = |e: &crate::tree::FileEntry, src: &Source| {
+        let hash = |p: &Path| crate::hash::hash_file(p, &Ctx::silent(), Phase::Hash);
+        let wanted = match &src.audio_path {
+            Some(audio) => analysis_bytes(&src.path, audio, src.shift_ms).map(|b| Hash::of(&b)),
+            None => src.hash.map_or_else(|| hash(&src.path), Ok),
+        };
+        matches!((wanted, hash(&tree.fs_path(&e.path))), (Ok(a), Ok(b)) if a == b)
+    };
     let mut out = Planned::default();
     for (key, src) in wanted {
         match by_fold.get(&fold(key)) {
@@ -183,6 +197,7 @@ pub(crate) fn plan(
                 if e.size == src.size
                     && fsutil::mtime_eq(e.mtime, src.mtime)
                     && cut_off.is_none_or(|since| e.mtime < since)
+                    && (!index.racy(e) || holds(e, src))
                     && !src.force =>
             {
                 out.unchanged += 1
@@ -236,26 +251,41 @@ pub(crate) fn plan(
     out
 }
 
+/// How long reading an online-only file may take before [`copy`] says it's waiting for it.
+const DOWNLOAD_NOTICE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Copy what `planned` copies to `target`, flushed and then given their sources' modification
-/// times; returns how many files and bytes were copied (what was copied before an error too).
-/// The caller starts and ends the copy phase, so a writer can make files of its own in it.
+/// times, and recorded in its hash cache (which tells a copy made moments after its source was
+/// written, see [`crate::tree::HashIndex::racy`]); returns how many files and bytes were copied
+/// (what was copied before an error too). The caller starts and ends the copy phase, so a writer
+/// can make files of its own in it.
 pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<(usize, u64)> {
-    let mut written: Vec<(PathBuf, i64)> = Vec::new();
+    let mut written: Vec<(PathBuf, i64, &FileCopy, Hash)> = Vec::new();
     let mut bytes = 0;
     let mut stopped = None;
     for c in &planned.copies {
-        let copied = (|| -> Result<(PathBuf, i64)> {
+        let copied = (|| -> Result<(PathBuf, i64, &FileCopy, Hash)> {
             ctx.check()?;
             let src = planned.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
             let dst = target.checked_path(&c.path)?;
             ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-            match &src.audio_path {
-                Some(audio) => write_unsynced(&dst, &analysis_bytes(&src.path, audio, src.shift_ms)?)?,
-                None => {
-                    fsutil::copy_file(&src.path, &dst, None, None, false, ctx)?;
+            let hash = match &src.audio_path {
+                Some(audio) => {
+                    let bytes = analysis_bytes(&src.path, audio, src.shift_ms)?;
+                    write_unsynced(&dst, &bytes)?;
+                    Hash::of(&bytes)
                 }
-            }
-            Ok((dst, src.mtime))
+                // An online-only file (Dropbox, Google Drive) downloads as it's read, which can
+                // take minutes: past a few seconds, say which file it's waiting on.
+                None if std::fs::metadata(&src.path).is_ok_and(|m| fsutil::is_online_only(&m)) => {
+                    let waiting = format!("waiting for {} to download from the cloud", src.path.display());
+                    fsutil::warn_if_slow(ctx, DOWNLOAD_NOTICE, waiting, || {
+                        fsutil::copy_file(&src.path, &dst, None, src.hash, false, ctx)
+                    })?
+                }
+                None => fsutil::copy_file(&src.path, &dst, None, src.hash, false, ctx)?,
+            };
+            Ok((dst, src.mtime, c, hash))
         })();
         match copied {
             Ok(w) => {
@@ -268,10 +298,14 @@ pub(crate) fn copy(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Result<
             }
         }
     }
-    fsutil::flush(&written.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>())?;
-    for (path, mtime) in &written {
+    fsutil::flush(&written.iter().map(|(p, ..)| p.clone()).collect::<Vec<_>>())?;
+    let mut index = target.load_index();
+    for (path, mtime, c, hash) in &written {
         fsutil::set_mtime(path, *mtime)?;
+        let class = paths::classify(&c.path).unwrap_or(FileClass::Audio);
+        crate::sync::record(&mut index, path, &c.path, class, *hash)?;
     }
+    target.save_index(&index)?;
     if let Some(e) = stopped {
         return Err(e);
     }
@@ -327,10 +361,6 @@ pub(crate) fn delete(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Resul
     }
     ctx.phase_end(Phase::Delete);
     Ok((n, bytes))
-}
-
-fn fold(s: &str) -> String {
-    s.to_lowercase()
 }
 
 #[cfg(test)]

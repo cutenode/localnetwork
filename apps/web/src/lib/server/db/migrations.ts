@@ -172,10 +172,229 @@ const init = statements(
 	`CREATE TABLE geocode_cache (query TEXT PRIMARY KEY, results TEXT NOT NULL, created_at TEXT NOT NULL)`
 );
 
+/** Press kit access: requests people make and grants owners write, as both sides' PDSes hold them. */
+const epk = statements(
+	`CREATE TABLE epk_request (
+		uri TEXT PRIMARY KEY,
+		space_uri TEXT NOT NULL,
+		epk_uri TEXT NOT NULL,
+		requester_did TEXT NOT NULL,
+		role TEXT,
+		message TEXT,
+		rule TEXT NOT NULL,
+		status TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		decided_at TEXT
+	)`,
+	`CREATE INDEX epk_request_space ON epk_request (space_uri, status)`,
+	`CREATE INDEX epk_request_requester ON epk_request (requester_did, space_uri)`,
+	`CREATE TABLE epk_grant (
+		space_uri TEXT NOT NULL,
+		subject_did TEXT NOT NULL,
+		uri TEXT NOT NULL,
+		via TEXT NOT NULL,
+		request_uri TEXT,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, subject_did)
+	)`
+);
+
+/** Press kit drafts in projects' backstages, from the managers' repos (or the root's, on their behalf). */
+const epkDrafts = statements(
+	`CREATE TABLE epk_draft (
+		uri TEXT PRIMARY KEY,
+		space_uri TEXT NOT NULL,
+		repo_did TEXT NOT NULL,
+		rkey TEXT NOT NULL,
+		author_did TEXT NOT NULL,
+		epk_rkey TEXT NOT NULL,
+		cid TEXT NOT NULL,
+		record TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		published_rkey TEXT
+	)`,
+	`CREATE INDEX epk_draft_space ON epk_draft (space_uri, epk_rkey)`
+);
+
+/**
+ * Performers', parties' and venues' spaces and their people, invites, invite links and requests to join, all from the
+ * records the root writes into each space.
+ */
+const sharedSpaces = statements(
+	`CREATE TABLE shared_space (
+		space_uri TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		listed INTEGER NOT NULL,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE space_person (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		hidden INTEGER NOT NULL,
+		via TEXT NOT NULL,
+		added_by TEXT,
+		source TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, did)
+	)`,
+	`CREATE INDEX space_person_did ON space_person (did)`,
+	`CREATE TABLE space_invite (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		invited_by TEXT NOT NULL,
+		message TEXT,
+		created_at TEXT NOT NULL,
+		expires_at TEXT,
+		PRIMARY KEY (space_uri, did)
+	)`,
+	`CREATE INDEX space_invite_did ON space_invite (did)`,
+	`CREATE TABLE space_invite_link (
+		space_uri TEXT NOT NULL,
+		rkey TEXT NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		expires_at TEXT,
+		PRIMARY KEY (space_uri, rkey)
+	)`,
+	`CREATE TABLE space_join_request (
+		space_uri TEXT NOT NULL,
+		did TEXT NOT NULL,
+		message TEXT,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, did)
+	)`
+);
+
+/**
+ * People's inboxes (notifications/notifier.ts), which nothing on the network holds a copy of; how each person wants
+ * them sent on by email or DM (notifications/channels.ts); and the outbox of what's waiting to go
+ * (notifications/outbox.ts).
+ */
+const inbox = statements(
+	`CREATE TABLE notification (
+		id TEXT PRIMARY KEY,
+		recipient_did TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		dedupe_key TEXT NOT NULL,
+		subject_uri TEXT NOT NULL,
+		href TEXT NOT NULL,
+		data TEXT NOT NULL,
+		occurred_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		read_at TEXT,
+		UNIQUE (recipient_did, dedupe_key)
+	)`,
+	`CREATE INDEX notification_recipient ON notification (recipient_did, occurred_at DESC, id DESC)`,
+	// The unread badge counts these on every dashboard page.
+	`CREATE INDEX notification_unread ON notification (recipient_did) WHERE read_at IS NULL`,
+	`CREATE TABLE notification_channel (
+		did TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		status TEXT NOT NULL,
+		paused_reason TEXT,
+		address TEXT,
+		address_read_at TEXT,
+		unsubscribe_token TEXT UNIQUE,
+		topics TEXT NOT NULL,
+		last_sent_at TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		confirm_token_hash TEXT,
+		confirm_address_hash TEXT,
+		confirm_expires_at TEXT,
+		PRIMARY KEY (did, channel)
+	)`,
+	`CREATE TABLE notification_delivery (
+		id TEXT PRIMARY KEY,
+		notification_id TEXT NOT NULL REFERENCES notification (id) ON DELETE CASCADE,
+		did TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		status TEXT NOT NULL,
+		batch_id TEXT,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		next_attempt_at TEXT NOT NULL,
+		last_error TEXT,
+		provider_id TEXT,
+		sent_at TEXT,
+		updated_at TEXT NOT NULL,
+		UNIQUE (notification_id, channel)
+	)`,
+	`CREATE INDEX notification_delivery_due ON notification_delivery (status, next_attempt_at)`
+);
+
+/** Receipts of press kit views, which their project's managers can delete and which expire. */
+const epkViews = statements(
+	`CREATE TABLE epk_view (
+		id TEXT PRIMARY KEY,
+		epk_uri TEXT NOT NULL,
+		epk_title TEXT NOT NULL,
+		project_uri TEXT NOT NULL,
+		viewer_did TEXT NOT NULL,
+		salt TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX epk_view_project ON epk_view (project_uri, created_at)`,
+	`CREATE INDEX epk_view_viewer ON epk_view (epk_uri, viewer_did, created_at)`,
+	`CREATE INDEX epk_view_created ON epk_view (created_at)`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
 			for (const statement of init) await sql.raw(statement).execute(db);
+		}
+	},
+	'002_epk': {
+		async up(db) {
+			for (const statement of epk) await sql.raw(statement).execute(db);
+		}
+	},
+	// Whether the last sign-in's grant covers shows and follows; null for sign-ins from before the app asked.
+	'003_public_writes': {
+		async up(db) {
+			await sql.raw('ALTER TABLE account ADD COLUMN public_writes INTEGER').execute(db);
+		}
+	},
+	'004_epk_drafts': {
+		async up(db) {
+			for (const statement of epkDrafts) await sql.raw(statement).execute(db);
+		}
+	},
+	// The set script's re-read version now sits under a key per collection (happyview/refresh.ts).
+	'005_refresh_keys': {
+		async up(db) {
+			await sql.raw("DELETE FROM kv WHERE key = 'happyview_set_script_refreshed'").execute(db);
+		}
+	},
+	'006_shared_spaces': {
+		async up(db) {
+			for (const statement of sharedSpaces) await sql.raw(statement).execute(db);
+		}
+	},
+	'007_inbox': {
+		async up(db) {
+			for (const statement of inbox) await sql.raw(statement).execute(db);
+		}
+	},
+	'008_epk_views': {
+		async up(db) {
+			for (const statement of epkViews) await sql.raw(statement).execute(db);
+		}
+	},
+	// What a list request asks staff to list, so a profile's requests are found without reading every record.
+	'009_listing_requests': {
+		async up(db) {
+			await sql.raw('ALTER TABLE request ADD COLUMN subject_uri TEXT').execute(db);
+			await sql.raw('CREATE INDEX request_subject ON request (subject_uri)').execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;

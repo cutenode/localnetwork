@@ -114,6 +114,7 @@ locallibrary sets new --recording friday.wav --title Friday   # the tracks a rec
 locallibrary sets edit Friday --drop 1-2 --move 5:2 --insert 4:"Floorplan - Never Grow Old"
 locallibrary sets edit Friday --unnamed 7      # an unreleased dubplate: published as ID - ID
 locallibrary sets export Friday --format mixcloud   # paste into Mixcloud's tracklist
+locallibrary sets export Friday -o friday.json      # chapters for podcast apps
 locallibrary sets playlist Friday Home        # a playlist of it in the library, to start the next one
 locallibrary sets played "never grow old"     # when and where you played a track
 locallibrary sets publish Friday --dry-run    # see Publishing
@@ -129,7 +130,9 @@ on its own. It prints the `sets new` command for each; `--dismiss ID` says a ses
 neither (then `sets edit --insert` adds tracks). A recording's tracklist wins: it has start times,
 catches tracks played for less than a minute and leaves out what was only previewed in headphones,
 and the logged tracks it doesn't hear are pointed out. Sets are kept in the store's `sets.json` with
-a copy of each track's details, so they read without the drive.
+a copy of each track's details, so they read without the drive: with the MusicBrainz IDs its file
+is tagged with (as MusicBrainz Picard tags them), read from a mounted drive when the set is made or
+edited.
 
 Players have no clock, so a session's date is a window: after locallibrary last saw the drive
 without it, before it first saw it with it (`on 3 Oct 2026` when both fall on one day, `between 29
@@ -143,9 +146,45 @@ times, so a set made from it is timed too.
 the track that was fifth just before the one that was second. `--insert` looks the track up on
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
-1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
-`.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
-a `computer.localnetwork.dj.set` record, a type Local Network's tools share.
+1001Tracklists, [Podcasting 2.0
+chapters](https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/chapters/jsonChapters.md)
+for podcast apps (`chapters`: a chapter for each track with a start time, in the order they play),
+CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.json`, `.csv`,
+`.m3u8` or `.txt`), and a plugin's formats more: `--format traktor --drive Home -o DIR` makes
+it a Traktor playlist of its tracks on the drive (Serato and Engine DJ too, see [Other DJ
+software](other-software.md#sets-and-mixes)). Every format but CSV, M3U8 and a plugin's is for
+publishing: a track marked unnamed or one your profile hides (`profile hide`) is `ID - ID` there.
+`sets publish` puts a set on your [Atmosphere account](account.md#publishing) as a
+`computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks,
+looking up its tracks' MusicBrainz IDs first when a plugin works them out (`--no-lookup` doesn't).
+
+`sets publish SET --to PLUGIN:DESTINATION` has a plugin publish the set's recording (see
+[Plugins](plugins.md)), and the set keeps where the plugin says it can be heard as its link, with
+the name the plugin gives it. When the plugin keeps the recording as an Atmosphere record (a
+plyr.fm track, `fm.plyr.track`), the set keeps that too, and its record points to it as
+`recording`. Signed in, the same run then offers to publish the set's record with them: it shows
+the record and asks once, as `sets publish SET` does, with the same `--hide` and `--no-lookup`.
+`--dry-run` publishes neither and says the record will be offered, `--yes` publishes both, and
+`--json` puts the record's plan and outcome in the same document as `record`. Saying no leaves the
+record for `sets publish SET` later, and a record that fails to publish says why and exits 5, the
+set still published at the destination.
+
+`sets publish SET --upload` puts the set's recording on your Atmosphere account instead, as a
+`computer.localnetwork.dj.recording` record under the set's id, and then publishes the set's
+record pointing to it, one question for both. An MP3 or an AAC M4A goes up as it is; anything
+else (WAV, AIFF, FLAC, ALAC), or a file too big for the account's data server, is encoded first by
+[ffmpeg](https://ffmpeg.org/download.html), which has to be installed, as AAC in an M4A file at
+128 kbit/s, or less to fit, down to 64. No data server says how big a file it takes: the reference
+one takes 5 MiB unless whoever runs it raises `PDS_BLOB_UPLOAD_LIMIT` (its installer allows 300
+MiB), so locallibrary aims for 300 MiB, and `--max-mib` for less when your server refuses that
+(the refusal names the size it was sent). The set's tracks with a start time go in as chapters,
+named as its record names them (`--hide` too), each ending where the next starts, so podcast apps
+and players show what's playing and skip between tracks: MP4 chapters in what ffmpeg encodes, and
+ID3 chapters in a copy of an MP3 (made beside the encodings, and gone once it's sent; the MP3
+itself isn't touched). An AAC or M4A file that goes up as it is gets none. `--dry-run` shows how it would go up and sends nothing,
+and `--json` puts the set record's plan and outcome in the same document as `record`. Uploading
+again replaces the recording. The set's record keeps pointing to it once it's published, so the
+next `sets publish SET` keeps it too.
 
 ## Mixes
 
@@ -155,8 +194,8 @@ locallibrary mix "Live at the Warehouse.wav" --drive Home --open
 
 Give it a recording of a set (WAV, AIFF, MP3, M4A or FLAC, or the Audacity `.aup3`/`.aup4`
 project it was edited in) and it finds which of the drive's tracks it plays, when each comes in
-and goes out, which part of the track was used, the speed it was played at, whether key lock was
-on, and the key it was heard in. It prints the tracklist and, with `--html` or `--open`, writes a
+and goes out, which part of the track was used, the speed it was played at (the slowest and
+fastest, when the pitch fader was ridden), whether key lock was on, and the key it was heard in. It prints the tracklist and, with `--html` or `--open`, writes a
 self-contained report: the mix's 3-band waveform with each track's lane underneath (the curve in
 each block is how clearly the track is heard, so fades and EQ swaps show), the tempo across the
 set, the keys as played on the Camelot wheel, and every track with its rekordbox waveform, hot
@@ -180,8 +219,9 @@ rather than as tracks of their own. Matches under 50% confidence are marked tent
 stretches nothing matches (a track that isn't on the drive) are marked as such. Things that hide
 a track from fingerprints: heavy effects, very long filtered intros, and speeds outside the range
 searched. A transition shorter than about 20 s often shows a small gap, since a track under heavy
-filtering isn't heard until it's nearly at full volume. Matching only looks at one drive's library
-at a time.
+filtering isn't heard until it's nearly at full volume, so a transition is called a blend only once
+both tracks are heard together for 8 seconds (the report, the TUI, the website and a published
+set's `technique` all agree on that). Matching only looks at one drive's library at a time.
 
 `--export PATH` writes the same report as data instead (`<title>_<hash>.mix.json` inside `PATH`
 when it's a folder or there are several recordings; the hash is of the recording's path, so two
@@ -189,11 +229,14 @@ sets with one title don't overwrite each other), for showing elsewhere, such as 
 profile, where it's attached to the mix. It's versioned JSON (`"format": "locallibrary.mix-report"`,
 `"version": 2`, camelCase) with the mix, every play and the track it matched (tempo, key, cues,
 phrases, a downsampled waveform overview and small cover art), the transitions and the gaps.
+With a plugin's `--format` it writes what that says instead: `--format traktor` (or `serato`,
+`engine`) is a playlist of the tracks it played, in order (see [Other DJ
+software](other-software.md#sets-and-mixes)).
 
 The `--html` report and the export are made to be shared, so they hold what they show and no
 more: no file paths, no drive name or size, no My Tags, comments or ratings, and a cover only when
-it's embedded in the recording (an image found next to it shows in the TUI only). Tracks your
-profile hides (`profile hide`) are `ID - ID`.
+it's embedded in the recording or given with `--cover FILE` (an image found next to it shows in
+the TUI only). Tracks your profile hides (`profile hide`) are `ID - ID`.
 
 ## DJ profile
 

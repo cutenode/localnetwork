@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import publishing from '../../../../../../lexicons/computer/localnetwork/locallibraryPublishing.json' with { type: 'json' };
 import { toolSite } from './site';
 
 const request = (host: string, method = 'GET', headers: Record<string, string> = {}) =>
@@ -26,15 +27,8 @@ describe('toolSite', () => {
 		expect(doc.token_endpoint_auth_method).toBe('none');
 		expect(doc.dpop_bound_access_tokens).toBe(true);
 		expect(doc.redirect_uris).toContain('http://127.0.0.1/callback');
-		// Servers refuse a sign-in that asks for more than this allows, so publishing needs its scopes here.
-		expect(doc.scope.split(' ')).toEqual(
-			expect.arrayContaining([
-				'atproto',
-				...['locallibrary.settings', 'dj.profile', 'dj.set'].map(
-					(record) => `repo:computer.localnetwork.${record}?action=create&action=update`
-				)
-			])
-		);
+		// Servers refuse a sign-in that asks for more than this allows, so publishing needs its permission set here.
+		expect(doc.scope.split(' ')).toEqual(expect.arrayContaining(['atproto', `include:${publishing.id}`]));
 		const head = toolSite(request(HOST, 'HEAD'), '/oauth-client-metadata.json');
 		expect(head?.status).toBe(200);
 		expect(await head!.text()).toBe('');

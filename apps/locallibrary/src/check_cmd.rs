@@ -7,7 +7,8 @@ use anyhow::Result;
 use clap::Args;
 use console::style;
 use locallibrary::api;
-use locallibrary::check::{CheckOptions, CheckReport, Level, PlayersFrom};
+use locallibrary::check::{CheckItem, CheckOptions, CheckReport, Level, PlayersFrom};
+use locallibrary::plugin::Fix;
 use locallibrary::progress::Ctx;
 
 use crate::output::{Outcome, Output, dim, heading};
@@ -46,6 +47,23 @@ pub fn run(args: CheckArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
     Ok(out.report(&report, outcome, |r| render(r, args.verbose)))
 }
 
+/// A finding on a line of its own, and the command line that fixes it, when a plugin's check
+/// says.
+pub(crate) fn item(i: &CheckItem) {
+    let mark = match i.level {
+        Level::Info => style("✓").green().bold(),
+        Level::Warning => style("!").yellow().bold(),
+        Level::Problem => style("✗").red().bold(),
+    };
+    say!("  {mark} {:<13} {}", dim(&i.check), i.message);
+    if let (Some(Fix::Plugin(fix)), Ok(plugins)) = (&i.fix, crate::plugins::host()) {
+        crate::output::hint_at(
+            "                  ",
+            format!("fix with `{}`", crate::plugin_cmd::fix_line(plugins, fix, &i.drive)),
+        );
+    }
+}
+
 pub(crate) fn render(r: &CheckReport, verbose: bool) {
     let mut drive = None;
     let mut unlisted = 0;
@@ -64,12 +82,7 @@ pub(crate) fn render(r: &CheckReport, verbose: bool) {
                 }
             }
         }
-        let mark = match i.level {
-            Level::Ok => style("✓").green().bold(),
-            Level::Warning => style("!").yellow().bold(),
-            Level::Problem => style("✗").red().bold(),
-        };
-        say!("  {mark} {:<13} {}", dim(i.check), i.message);
+        item(i);
         let same = |drive: &str, message: &str| drive == i.drive && message == i.message;
         let loudness = r.loudness.iter().find(|l| i.check == "loudness" && l.drive == i.drive);
         let lines: Vec<(String, String)> = match (

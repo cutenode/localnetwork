@@ -1,8 +1,9 @@
 # Contributing
 
 locallibrary is the CLI in this folder plus the library crates in the repository's `crates/` and
-`vendor/`, one Cargo workspace whose root is the repository root. Paths below that start with
-`crates/`, `vendor/` or `.github/` are from there; the rest are from this folder.
+`vendor/` and the plugins it ships in `plugins/`, one Cargo workspace whose root is the
+repository root. Paths below that start with `crates/`, `vendor/`, `plugins/` or `.github/` are
+from there; the rest are from this folder.
 
 ```bash
 cargo test --workspace --locked     # unit + integration tests against real rekordbox export fixtures
@@ -34,26 +35,62 @@ need locallibrary's fixtures stay in locallibrary. Each one's README is its crat
 README's examples are doctests: run `cargo test --doc -p <crate>` after changing one, since CI
 skips changes to Markdown alone.
 
-**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and
-release builds use (1.96.1, with clippy and rustfmt), and rustup installs it the first time
-cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
+The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrary-plugin-<id>`),
+written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
+depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
+every one into its binary (`apps/locallibrary/src/plugins.rs`, from the table `build.rs` writes).
+Their tests sit beside their code, driving the plugin over in-memory pipes with a fake host; the
+CLI's tests run them through the real one. Account plugins are the exception: each is a
+`locallibrary-plugin.toml` alone in `plugins/accounts/<id>/`, outside the workspace, which
+`build.rs` includes and nothing runs, so adding one is adding its folder.
+
+**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
+clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
 file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
 `rust-version` in Cargo.toml, 1.91; check it with `cargo +1.91 check --workspace --locked`.
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
-pushes to `main` that change the workspace (not when only Markdown changed):
+**CI** (`.github/workflows/locallibrary-ci.yml`, which `ci.yml` calls) runs the quick checks on
+pull requests and pushes to `main` that change the workspace (not when only Markdown changed), on
+Linux. macOS and Windows run in the merge queue, once for each group of pull requests about to
+merge, or on a pull request with the `all-os` label (add it, then re-run CI):
 
-- format, clippy and the tests on macOS, Linux and Windows. Tests run under
-  [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
-  `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
-  have the `sqlcipher` CLI, and must find it (see the fixtures below);
-- clippy on the CLI without its default features, on Linux without the ALSA headers;
+| Job | What it runs |
+| --- | --- |
+| `lint` | `cargo fmt --check`, clippy, and the doctests (`cargo test --doc`; nextest doesn't run them) |
+| `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
+| `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
+| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); the totals go to the run summary and a comment on the pull request |
+| `hegel` | the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
+| `other-os` | on macOS and Windows, one job each: clippy, the doctests and `cargo nextest run`, without coverage |
+
+Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. CI runs
+nextest with the `ci` profile in `.config/nextest.toml` (`NEXTEST_PROFILE=ci`): a test that runs
+past ten minutes fails, and each test shard and the `hegel` and `other-os` jobs upload a JUnit file
+with every test's time (the `junit-*` artifacts). The test jobs set up what some tests need on
+each OS:
+
+- the `sqlcipher` CLI, which the tests must find (`LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, see the
+  fixtures below): apt on Linux, Homebrew on macOS, the runner's MSYS2 on Windows;
+- temporary files on a Dev Drive on Windows, where Defender slows every file the tests write on C:;
+- `LOCALLIBRARY_TEST_NOT_ELEVATED` on Windows: the runners run as an administrator, and
+  locallibrary starts no plugin from an elevated process, so debug builds take this to mean it
+  isn't, and the tests' plugins start;
+- ALSA's headers on Linux, which the TUI's audio output builds against.
+
+The rest don't depend on the OS, so they run once, on Linux:
+
+- clippy on the CLI without its default features, without the ALSA headers;
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
   (each ignored one says why), banned crates (OpenSSL: TLS goes through rustls) and crate
-  sources, and that every shipped dependency's licence is one `deny.toml` allows.
+  sources, and that every shipped dependency's licence is one `deny.toml` allows;
+- on pull requests that change a `loclib-*` crate,
+  [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks) against the branch the
+  pull request merges into. Breaking changes to a crate's public API don't fail it: the run's
+  summary lists them, for deciding the crate's next version.
+  `cargo semver-checks -p loclib-progress --baseline-rev origin/main` runs it locally.
 
 `.github/workflows/locallibrary-scheduled.yml` runs the slow suites every Monday, and on any
 branch from the Actions tab (locallibrary scheduled, Run workflow):
@@ -61,21 +98,34 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the builds without the default features (on Linux, without the ALSA headers): the tests of the
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
+- `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
+  device on Linux, a VHD on Windows; `crates/locallibrary/src/format/tests/disk_image.rs`). They skip
+  themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  runs them;
 - the Bombadil explorations below;
-- mutation testing of the past week's changes to the `loclib-*` crates and `rekordbox-pdb` with
-  [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in shards. Missed
-  mutants don't fail it: the run's summary lists them, and each shard's `mutants.out` artifact has
-  their diffs. `cargo mutants -p loclib-progress` runs it locally;
+- mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
+  `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
+  shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
+  `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
   same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
-  command's fastest run is more than 25% (and 3 ms) slower;
+  command's fastest run is more than 25% (and 3 ms) slower. On `main`, each run's timings also go
+  to [Bencher](https://bencher.dev/perf/localnetwork), which charts them over time and raises an
+  alert when one is slower than its last 64 runs suggest (it needs the `BENCHER_API_KEY` secret,
+  a project key for the `localnetwork` project);
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
+- the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
 
-`.github/workflows/locallibrary-bench.yml` runs the benchmarks under
-[CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
-some, and reports each one's change against `main`.
+A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
+the next weekly run that passes closes it.
+
+The workspace has no benchmarks on `main` yet, so no workflow runs them: the `bnb/perf` branch
+adds them, and with them a workflow that runs them under [CodSpeed](https://codspeed.io)
+(`locallibrary-bench.yml`, which `git log --diff-filter=D -- .github/workflows/locallibrary-bench.yml`
+finds in the history).
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -97,7 +147,10 @@ commands in them.
 never among the machine's mount points or where the store last saw them outside those folders,
 and `drive disks`, `drive format`, `drive fsck` and `drive rename --label` refuse to run. Every
 command warns when it's set. Tests sharing a process name their folders for their own thread
-(`locallibrary::testing::volumes_on_this_thread`).
+(`locallibrary::testing::volumes_on_this_thread`). `LOCALLIBRARY_AUDIO=silent` is another: the
+player plays through no device, reading what plays as fast as one would and dropping it, so the
+playhead and visualisers move with nothing heard (the AT Store screenshots, `pnpm atstore` at the
+repository root, play tracks this way).
 
 ```bash
 cargo test -p locallibrary --test it                        # the library's integration tests
@@ -117,7 +170,10 @@ have it check the result (`tests/support/sqlcipher.rs`); without it they skip th
 
 Publishing is tested against a pretend data server on 127.0.0.1
 (`crates/locallibrary/tests/support/mock_pds.rs`, shared with the CLI's tests): it keeps records,
-checks each write's DPoP proof and hands out a DPoP nonce, and refuses on cue. The tests write the
+checks each write's DPoP proof and hands out a DPoP nonce, and refuses on cue. It stands in for
+Local Network's directory (HappyView's `getRecords`) and website (`requestIndex`) too, so the
+library's tests point both at it (`locallibrary::testing::directory_on_this_thread`) and the CLI's
+(`Env::with_directory`); otherwise the CLI's tests find them at an address nothing answers at. The tests write the
 session as files, or to an in-memory keychain, so none of them signs in to a real account,
 touches the computer's keychain or goes on the network.
 
@@ -131,20 +187,24 @@ tools/hegel-coverage.sh     # the property tests alone, against the same thresho
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
-function or region coverage drops below the thresholds there, set just under what CI measures on
-Linux; raise them when coverage goes up. It measures only the code that ships: unit tests live in
-a module's own `tests.rs` (`foo.rs` declares `#[cfg(test)] mod tests;`, and the tests are in
-`foo/tests.rs`), which the alias leaves out with the TUI's other test-only files (`props.rs`,
-`screens.rs`, `testing.rs`) and `test_util.rs`. Keep new unit tests in those files, not inline. It
-needs `cargo-llvm-cov`, `cargo-nextest` and rustup's `llvm-tools-preview` component, found
-through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
+function or region coverage drops below the thresholds there, just under what CI measures on
+Linux; raise them when coverage goes up. It
+measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
+`#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
+TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new
+unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-nextest`, and the
+`llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
 `tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
 function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
-the same thresholds: the properties alone have to reach what the whole suite does. It also needs
-`rg`. Code it reports as missed is code no property reaches: a place where a new or wider
-generator would test more.
+the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job
+runs it on Linux, from the test archive. It also needs `rg`. Code it reports as missed is code no
+property reaches: a place where a new or wider generator would test more. It names every test in
+its nextest filter, so it packs them into filtersets of at most 96 KiB, each its own `-E`, under
+Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
+`tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
+same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
 
 ## Benchmarks
 
@@ -166,7 +226,7 @@ machine and rerun anything close: a few percent is noise.
 
 ## Property-based tests
 
-The `props_*` modules in `crates/locallibrary/tests/it/` (and a few unit tests in the CLI) use
+The `props_*` modules in every crate's tests, and many of the unit tests beside the code, use
 [Hegel](https://github.com/hegeldev/hegel-rust): each test states something that must hold for
 every input, Hegel generates hundreds of inputs and, when one fails, shrinks it to the smallest
 example. They run with `cargo test` like any other test. The bigger ones are model tests: random
@@ -183,17 +243,27 @@ and stores; `props_cli_asked.rs` answers `setup`'s questions in a terminal and s
 `store serve` with Ctrl-C.
 
 ```bash
-cargo test -p locallibrary --test it props_pdb::            # one module
-HEGEL_SEED=7 cargo test ...                                 # repeat a run
+cargo test -p locallibrary --test it props_pdb::               # one module
+HEGEL_SEED=7 cargo test ...                                    # repeat a run
+cargo nextest run --stress-duration 10m -E 'test(props_pdb::)' # fresh inputs for ten minutes
 ```
 
-To search harder, raise `test_cases` in the test's `#[hegel::test(...)]` for the run. Most tests
-set one, and it wins over `HEGEL_TEST_CASES`, which only reaches the tests that don't.
+To search harder, run the tests over and over as above, or raise `test_cases` in the test's
+`#[hegel::test(...)]` for the run. Most tests set one, and it wins over `HEGEL_TEST_CASES`, which
+only reaches the tests that don't.
 
 A failure prints the shrunk example and a `#[hegel::reproduce_failure("…")]` line to replay it;
 locally, failing examples are also kept in `.hegel/` in the crate's folder (ignored by git), under
 the test's path (`it::props_pdb::...`), and tried first next time.
-On CI runs are derandomised.
+
+Pick from a list with Hegel's own `gs::sampled_from`, `subsequences`, `permutations` and `optional`
+rather than by drawn index: they shrink better, and an index drawn up to a hard-coded number never
+reaches what's added past it. `pnpm exec ast-grep scan` refuses one (CI runs it in
+`repo-checks.yml`).
+
+CI derandomises the runs, so every pull request tries the same inputs. The scheduled workflow's
+`hegel` job runs the Hegel tests over and over for 40 minutes a shard on fresh ones, and caches the
+failing examples it finds for the next week's run.
 
 ## Fuzzing
 
@@ -238,15 +308,17 @@ working folder of its own, so files it writes stay in the run's folder; it lets 
 edits to that copy and checks afterwards that the drive still reads. `report.sh` writes
 synthetic audio for a fixture drive's tracks, records a "set" from four of them
 (`make-mix.mjs`), has `locallibrary mix` identify it and explores the report it writes. Both
-print where the trace went; add Bombadil options after the script name (`./tui.sh --seed 7`).
+print where the trace went; add Bombadil options after the script name (`./tui.sh --columns 80`).
 
 ## Releasing
 
 [dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml` at the
 repository root, `.github/workflows/locallibrary-release.yml`) when a version tag is pushed:
 
-1. In `CHANGELOG.md`, rename "Unreleased" to the version and date (`## [0.2.0] - 2026-11-02`)
-   and start a new "Unreleased" above it. The GitHub Release takes its notes from that section.
+1. Move the lines in each file in `changes/` but its README under the same heading in
+   Unreleased in `CHANGELOG.md`, and delete those files. Then rename "Unreleased" to the version
+   and date (`## [0.2.0] - 2026-11-02`) and start a new "Unreleased" above it. The GitHub Release
+   takes its notes from that section.
 2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
    `Cargo.lock` follows, and commit.
 3. Tag the commit with the CLI package's name and push the tag:
@@ -258,12 +330,14 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
-On pull requests that change a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-`rust-toolchain.toml` or the workflow itself, it only runs `dist plan`, which checks the
-configuration. `locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written
-additions listed at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing
-the dist configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
-`allow-dirty` removed for the run) and carry the additions over.
+On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
+`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
+`dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
+generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
+`allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the
+file (`dist generate --mode=ci`, with `allow-dirty` removed for the run) and carry the additions
+over. Upgrading dist also takes the new version and its archives' checksums in
+`.github/actions/install-dist/action.yml`.
 
 Still to set up before the first release (the workflow runs without them, and says what it
 skipped):

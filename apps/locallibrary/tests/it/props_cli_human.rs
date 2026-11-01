@@ -48,9 +48,9 @@ pub struct State {
     pub profile: bool,
     /// A drive whose export.pdb doesn't read.
     pub broken: bool,
-    /// Copies of the store, one of them gone since.
+    /// Copies of the store, one of them gone since and one never finished.
     pub store_copy: bool,
-    /// Track 1 on A rated, tagged, with cues and artwork.
+    /// Track 1 on A rated, tagged, with an ISRC, cues and artwork.
     pub track_edits: bool,
     /// A player recorded a new history list on A since its pull: back from a set.
     pub played: bool,
@@ -162,7 +162,7 @@ pub fn build(s: State) -> Env {
     }
     if s.track_edits {
         image::RgbImage::from_pixel(300, 300, image::Rgb([200, 40, 90])).save(fx.home("art.png")).unwrap();
-        yes(&["track", "set", "A", "--track", "1", "--rating", "4"]);
+        yes(&["track", "set", "A", "--track", "1", "--rating", "4", "--isrc", "GBDUW0000059"]);
         yes(&["tags", "add", "A", "Genre/Deep", "--track", "1"]);
         yes(&["cues", "set", "A", "--track", "1", "--hot", "B", "--at", "1.5"]);
         yes(&["cues", "set", "A", "--track", "1", "--memory", "--beat", "2", "--loop", "4"]);
@@ -325,6 +325,12 @@ pub fn build(s: State) -> Env {
         yes(&["store", "copy", path(&fx.home("store-copy"))]);
         yes(&["store", "copy", path(&fx.home("gone"))]);
         std::fs::remove_dir_all(fx.home("gone")).unwrap();
+        // One cut off before it was ever whole: its record of itself has no complete copy.
+        yes(&["store", "copy", path(&fx.home("half-copy"))]);
+        let marker = fx.home("half-copy/copy.json");
+        let mut record: Value = serde_json::from_str(&std::fs::read_to_string(&marker).unwrap()).unwrap();
+        record["last_complete"] = Value::Null;
+        std::fs::write(&marker, record.to_string()).unwrap();
     }
     fx
 }
@@ -333,6 +339,19 @@ pub fn build(s: State) -> Env {
 /// (by id too), recorded where `fx`'s were.
 pub fn twin(fx: &Env) -> Env {
     let root = fx.volumes.parent().unwrap();
+    // First every file settled: the hash cache distrusts a hash taken too soon after a file's mtime
+    // (`fsutil::settled`), so until then the two copies, run side by side but not in step, could
+    // count different files verified.
+    let secs = || filetime::FileTime::now().unix_seconds();
+    let mtimes = walkdir::WalkDir::new(root).into_iter().flatten().filter_map(|e| e.metadata().ok());
+    let now = secs();
+    let newest =
+        mtimes.map(|m| filetime::FileTime::from_last_modification_time(&m).unix_seconds()).filter(|t| *t <= now);
+    if let Some(newest) = newest.max() {
+        while !locallibrary::fsutil::settled(newest, secs()) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
     let template = crate::files::Template::of(root);
     let other = Env::from_template();
     let to = other.volumes.parent().unwrap();
@@ -545,6 +564,8 @@ pub fn agree_runs(args: &[&str], human: &Run, json: &Run, spec: &[&str], univers
 /// failure's message said the same way; a success's text holding what `spec` picks out of its
 /// JSON (see [`expected`]), and naming nothing of `universe` the JSON or `args` don't. The JSON, when it
 /// succeeded.
+// Only props_cli_asked's fetch, which is Unix-only and needs `peers`, uses it so far.
+#[cfg_attr(not(all(unix, feature = "peers")), allow(dead_code))]
 pub fn agree(fx: &Env, args: &[&str], spec: &[&str], universe: &[String]) -> Option<Value> {
     let words: Vec<String> = args.iter().map(|w| fill(fx, w)).collect();
     let args: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -569,7 +590,14 @@ pub fn side_by_side<A, B: Send>(a: impl FnOnce() -> A, b: impl FnOnce() -> B + S
 pub fn as_in(json: Run, from: &Env, to: &Env) -> Run {
     let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
     let (from, to) = (root(from), root(to));
-    Run { out: json.out.replace(&from, &to), err: json.err.replace(&from, &to), code: json.code }
+    // A message can quote a path as Debug does (`{spec:?}`), doubling Windows' backslashes, and the
+    // JSON escapes them again, so the folders are found in every spelling they're written in.
+    let debug = |s: &str| format!("{s:?}").trim_matches('"').to_string();
+    let escaped = |s: &str| serde_json::to_string(s).unwrap().trim_matches('"').to_string();
+    let (debug_from, debug_to) = (debug(&from), debug(&to));
+    let out = json.out.replace(&escaped(&debug_from), &escaped(&debug_to)).replace(&escaped(&from), &escaped(&to));
+    let err = json.err.replace(&debug_from, &debug_to).replace(&from, &to);
+    Run { out, err, code: json.code }
 }
 
 /// [`agree`] of each of `reads` in turn, run as it is in `h` and with `--json` in `j` (a
@@ -616,12 +644,16 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
             let store = fx.home(&format!("no-store {}", words.join(" ").replace('/', "|")));
             command.env("LOCALLIBRARY_VOLUMES", fx.home("no-drives")).env("LOCALLIBRARY_STORE", store);
         }
-        // Only drive A plugged in (the folder of drives holds a link to it).
+        // Only drive A plugged in (the folder of drives holds a link to it, or on Windows, where
+        // a symlink takes a privilege, a copy of it made the first time).
         Some("@one") => {
             let one = fx.home("one-drive");
             if !one.exists() {
                 std::fs::create_dir_all(&one).unwrap();
+                #[cfg(unix)]
                 std::os::unix::fs::symlink(fx.volumes.join("A"), one.join("A")).unwrap();
+                #[cfg(not(unix))]
+                crate::support::copy_dir(&fx.volumes.join("A"), &one.join("A"));
             }
             command.env("LOCALLIBRARY_VOLUMES", one);
         }
@@ -636,7 +668,12 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
         }
         Some("@sudo-me") => {
             // SAFETY: getuid only reads this process's user id.
-            command.env_remove("LOCALLIBRARY_STORE").env("SUDO_UID", unsafe { libc::getuid() }.to_string());
+            #[cfg(unix)]
+            let me = unsafe { libc::getuid() }.to_string();
+            // Windows has no uids: only Unix reads the value, to see whose the store is.
+            #[cfg(not(unix))]
+            let me = String::new();
+            command.env_remove("LOCALLIBRARY_STORE").env("SUDO_UID", me);
         }
         _ => return fx.run(&args),
     }
@@ -785,6 +822,7 @@ const STORE_READS: &[(&[&str], &[&str])] = &[
     (&["settings", "show"], &["drive", "drift.[].key"]),
     (&["settings", "Club"], &["drive", "drift.[].key"]),
     (&["--store", "@h/store-copy", "store", "info"], &["root", "copy_of.from", "libraries.[].name"]),
+    (&["--store", "@h/half-copy", "store", "info"], &["root", "copy_of.from"]),
     (&["@empty", "library", "ls"], &[]),
     (&["@empty", "library", "log"], &[]),
     (&["@empty", "players"], &[]),
@@ -839,6 +877,7 @@ const TRACK_READS: &[(&[&str], &[&str])] = &[
             "{[].analysis.beats} beats",
             "{[].analysis.hot_cues} hot",
             "{[].analysis.memory_cues} memory",
+            "ISRC {[].track.isrc}",
         ],
     ),
     (&["track", "show", "A", "--track", "2"], &["[].track.title", "[].track.file_path"]),
@@ -924,7 +963,7 @@ fn track_reads_say_what_their_json_says(tc: TestCase) {
     // A file FAT32 can't hold (sparse: it takes no room), made in each copy as `twin` would read
     // it whole.
     for fx in [&fx, &other] {
-        std::fs::File::create(fx.volumes.join("A/Contents/big.mov")).unwrap().set_len(4 << 30).unwrap();
+        locallibrary::testing::sparse(&fx.volumes.join("A/Contents/big.mov"), 4 << 30).unwrap();
     }
     // Both copies run these reads too, so each is as the other when the reads start.
     let (universe, _) = side_by_side(|| universe(&fx), || universe(&other));
@@ -947,7 +986,6 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
     (&["set", "A"], &[]),
     (&["sets", "--no-eject"], &[]),
     (&["store", "fetch", "not-a-code"], &[]),
-    (&["settings", "import", "A", "--pds", "https://pds.example.com"], &[]),
     (&["settings", "import", "A", "--replace"], &[]),
     (&["format", "A", "--dry-run"], &[]),
     (&["drive", "format", "A", "--filesystem", "fat32", "--cluster-size", "64KiB", "--dry-run"], &[]),
@@ -992,6 +1030,11 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
     (&["analysis", "bench", "A", "--keys", "@h/none"], &[]),
     (&["sync", "Clubland", "--library", "A"], &[]),
     (&["pull", "Clubland", "--library", "A"], &[]),
+    (&["refresh", "--skip", "everything"], &[]),
+    (&["--yes", "setup", "A", "--library", "A", "--player-name", "Club=B"], &[]),
+    (&["--yes", "--store", "@h/cover.png", "settings", "set", "quantize=off"], &[]),
+    (&["rpc", "--emit-schema", "@h/cover.png/schema"], &[]),
+    (&["cues"], &[]),
 ];
 
 /// Every way through the command dispatch says the same with and without `--json`: the same exit

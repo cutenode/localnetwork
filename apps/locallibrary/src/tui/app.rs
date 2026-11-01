@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 use locallibrary::anlz::{self, PhraseKind, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::error::panic_text;
+use locallibrary::fields::{OverlayStore, TrackValues};
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
-use locallibrary::query::{Filter, QueryContext, SortField, SortKey};
-use locallibrary::sets::{Set, SetBook};
+use locallibrary::query::{FieldName, Filter, SortField, SortKey};
+use locallibrary::sets::Set;
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Ctx, Device, DeviceInfo, Error, Library, Store, Track, artwork, paths};
@@ -30,10 +31,11 @@ use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::{self, Category, Group, Node, NodeId, Problems, SavedNode};
 use super::crate_list::{Crate, CrateTrack};
+use super::deck::{OpenedOutput, OutputAsk};
 use super::drives::{DriveKey, DriveRow};
 use super::edits::{Action, Job, Menu, Modal, Pick};
 use super::keymap::{self, Act};
-use super::keys::{self, Camelot, Relation};
+use super::keys::{Camelot, Relation};
 use super::state::{self, Saved, SavedCrateTrack, SavedQueue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +150,18 @@ pub enum MyTags {
     Failed(String),
 }
 
+/// What the analyzers installed worked out for the drive's tracks (see
+/// [`locallibrary::fields::TrackValues`]), for their columns, filters and sorts: read in the
+/// background the first time one asks.
+#[derive(Default)]
+pub enum Fields {
+    #[default]
+    Unread,
+    Reading,
+    Read(Arc<TrackValues>),
+    Failed(String),
+}
+
 /// A drive's library, loaded for browsing.
 pub struct Loaded {
     pub device: Device,
@@ -165,9 +179,10 @@ pub struct Loaded {
     /// Each category's values, worked out when Browse is first opened.
     groups: FxHashMap<Category, Vec<Group>>,
     /// Each track's place under a sort field, worked out when first sorted by it.
-    ranks: Vec<(SortField, Vec<u32>)>,
+    pub(super) ranks: Vec<(SortField, Vec<u32>)>,
     pub problems: Problems,
     pub my_tags: MyTags,
+    pub fields: Fields,
     /// The store's sets, for Browse › Sets: `None` until first read (see `App::read_sets`).
     sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
@@ -197,6 +212,7 @@ impl Loaded {
             ranks: Vec::new(),
             problems: Problems { missing: None, copy_of, copies },
             my_tags: MyTags::Unread,
+            fields: Fields::Unread,
             sets: None,
             stale: false,
         };
@@ -260,11 +276,23 @@ impl Loaded {
         let i = match self.ranks.iter().position(|(f, _)| *f == field) {
             Some(i) => i,
             None => {
-                self.ranks.push((field, browse::ranks(&self.library, field)));
+                let ranks = match (field, &self.fields) {
+                    (SortField::Field(name), Fields::Read(v)) => browse::field_ranks(&self.library, v, name),
+                    _ => browse::ranks(&self.library, field),
+                };
+                self.ranks.push((field, ranks));
                 self.ranks.len() - 1
             }
         };
         &self.ranks[i].1
+    }
+
+    /// What the analyzers worked out, once read.
+    pub fn values(&self) -> Option<&Arc<TrackValues>> {
+        match &self.fields {
+            Fields::Read(v) => Some(v),
+            _ => None,
+        }
     }
 
     /// The tracks of the list shown (library indexes, in the list's order).
@@ -384,7 +412,7 @@ pub struct Mix {
 
 impl Matches {
     pub(super) fn find(library: Arc<Library>, root: PathBuf, track: &Track, limit: usize) -> Matches {
-        let items = keys::suggestions(&library, track, limit)
+        let items = api::matches_in(&library, track, limit)
             .into_iter()
             .filter_map(|s| {
                 let index = library.tracks.iter().position(|t| t.id == s.track.id)?;
@@ -421,22 +449,33 @@ pub struct Details {
 }
 
 /// What starting a track reads in the background: its analysis files and artwork from the
-/// drive, and its matches and playlists from the library.
+/// drive (what they lack from what plugins' analyzers kept in the store, if they have it), and its
+/// matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
     analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    from_plugins: Option<String>,
     art: Option<Art>,
     matches: Option<Matches>,
     playlists: Vec<String>,
 }
 
-fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>) -> TrackInfo {
+fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
     let device = Device::open(root).ok();
-    let analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
-    let art = device.as_ref().and_then(|d| read_art(d, track)).and_then(|b| Art::decode(&b));
+    let mut analysis = device.as_ref().map(|d| api::analysis_of(d, track)).unwrap_or_default();
+    let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+    let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
+    let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
+        let overlays = OverlayStore::in_store(&Store::open(store_root).ok()?);
+        overlays.first(&audio, &analyzers).fill(&mut analysis)
+    });
+    let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
+        .and_then(|f| std::fs::read(f).ok())
+        .and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
-    TrackInfo { analysis, art, matches, playlists }
+    TrackInfo { analysis, from_plugins, art, matches, playlists }
 }
 
 pub struct NowPlaying {
@@ -446,6 +485,8 @@ pub struct NowPlaying {
     pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    pub from_plugins: Option<String>,
     pub art: Option<Art>,
     pub duration: Duration,
     pub key: Option<Camelot>,
@@ -700,17 +741,37 @@ pub enum Msg {
     Missing(u64, Vec<bool>),
     /// The drive's My Tags, for the library load with this generation.
     MyTags(u64, Result<FxHashMap<String, Vec<String>>, String>),
+    /// What the analyzers worked out for the drive's tracks, for the library load with this
+    /// generation.
+    Fields(u64, Result<Box<TrackValues>, String>),
     /// Sort ranks and Browse's groups, for the library load with this generation.
     Indexed(u64, Box<Index>),
     /// The store's sets, for the library load with this generation.
     Sets(u64, Result<Vec<Set>, String>),
     /// A track's audio file opened (or not), for the play with this id.
     Opened(u64, Result<audio::OpenedFile, String>),
+    /// The output devices and the system's default, for the listing with this id (`d`).
+    Outputs(u64, Result<audio::Listed, String>),
+    /// An output opened in the background (or not), for the ask with this id, as it was asked
+    /// for.
+    Output(u64, OutputAsk, Result<OpenedOutput, String>),
     /// Something background work has to say (a report written, say).
     Note(String, Level),
+    /// A line of a plugin's log, for the messages (`!`) alone.
+    Log(String),
+    /// What a plugin tells the user.
+    Notice(locallibrary::plugin::PluginNotice),
+    /// What plugins suggested, as it's kept now: to review from the palette.
+    Suggested(Vec<locallibrary::plugin::PluginNotice>),
+    /// The suggestion marked so (reviewed or dismissed) is no longer kept, or couldn't be
+    /// forgotten: what's kept from now on says whether it's still offered.
+    Forgotten(u64),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
+    /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
+    /// place among its panels.
+    Panel((u64, usize), usize, Result<Box<super::plugins::panels::Ready>, String>),
     Status(Result<api::FleetStatus, String>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
@@ -732,7 +793,7 @@ pub enum Msg {
     Applied {
         job: u64,
         root: PathBuf,
-        result: Result<super::edits::Applied, Error>,
+        result: Result<Box<super::edits::Applied>, Error>,
     },
     /// Whether replaying the open drive's recorded edits would change it, for the library load
     /// with this generation: how many edits are recorded, 0 when replaying changes nothing.
@@ -741,6 +802,11 @@ pub enum Msg {
     Done {
         job: u64,
         result: Result<super::edits::Done, Error>,
+    },
+    /// What a background task still running has to show (a view's rows as they come).
+    Shown {
+        job: u64,
+        update: super::edits::Done,
     },
     Progress {
         job: u64,
@@ -834,6 +900,20 @@ struct ViewKeep {
     offset: usize,
 }
 
+/// A letter typed with shift, as a terminal reporting keys by their codes sends it (CSI u, or
+/// xterm's modifyOtherKeys): the lowercase letter, and shift. Taken as the capital, as other
+/// terminals send it, so `Q` isn't `q` (quit).
+fn capital(mut key: KeyEvent) -> KeyEvent {
+    let typed = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+    if let KeyCode::Char(c) = key.code
+        && typed
+        && key.modifiers.contains(KeyModifiers::SHIFT)
+    {
+        key.code = KeyCode::Char(c.to_ascii_uppercase());
+    }
+    key
+}
+
 /// Edit a line of text with a key: typing, backspace, ctrl-u to clear, ctrl-w to delete a word.
 /// Returns whether the text changed.
 pub fn edit_line(text: &mut String, key: KeyEvent) -> bool {
@@ -916,8 +996,12 @@ pub struct App {
     pub show_ratings: bool,
     /// The track list's My Tags column.
     pub show_tags_column: bool,
+    /// The track list's columns of plugins' fields (`sound.bpm`), in the order shown.
+    pub field_columns: Vec<FieldName>,
     pub details: Option<Details>,
     pub details_state: ListState,
+    /// The selected track's panels, plugins' (see `plugins::panels`).
+    pub panels: super::plugins::panels::Panels,
     /// The selected track and since when, to look up its details once the selection settles.
     details_seen: Option<(u64, usize, Instant)>,
     details_asked: Option<(u64, usize)>,
@@ -928,6 +1012,10 @@ pub struct App {
     /// Dialogs from the background (a plan, a task's results) waiting for the one open to close.
     pub(super) waiting: VecDeque<Modal>,
     pub picking: Option<Pick>,
+    /// The fixes the last check gave (plugins' and locallibrary's own), offered in the palette.
+    pub fixes: Vec<super::plugins::checks::Fixing>,
+    /// The keys the user bound to plugins' commands and operations (see `keymap::bound`).
+    pub plugin_keys: Vec<keymap::bound::Bound>,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -960,6 +1048,9 @@ pub struct App {
     opener: Opener,
     /// The next track, opened ahead of the playing one's end.
     upcoming: Option<Upcoming>,
+    /// The playing track's file (for the play with this id), opened before the output it plays
+    /// through: it waits for the output (see `output_ready`).
+    waiting_file: Option<(u64, audio::OpenedFile)>,
     pub queue: Queue,
     pub shuffle: bool,
     pub repeat: Repeat,
@@ -1008,7 +1099,7 @@ pub struct App {
     /// Said on the terminal after the screen is put back (how a write that ended the run went).
     pub exit_message: Option<String>,
     /// Drives opened by path that aren't mounted volumes (a folder holding an export).
-    extra_roots: Vec<PathBuf>,
+    pub(super) extra_roots: Vec<PathBuf>,
     /// Look at no drives but those it's given: the mounted ones aren't listed, nor their status
     /// read (tests, which mustn't touch the machine's drives).
     offline: bool,
@@ -1016,6 +1107,13 @@ pub struct App {
     listed: bool,
     /// Notices drives coming and going: a poll that finds any reads the list again.
     watcher: Watcher,
+    /// What plugins suggested, to review from the palette, oldest first, as the store keeps it
+    /// (see [`locallibrary::plugin::keep_suggested`]).
+    pub(super) suggested: Vec<locallibrary::plugin::PluginNotice>,
+    /// The marks of suggestions reviewed or dismissed that the store may still keep: what's kept
+    /// is told the player after each change, and one told before the store forgot them leaves
+    /// them out.
+    pub(super) forgetting: Vec<u64>,
     drives_in_flight: bool,
     /// Read the drives again when the read in flight finishes (asked for while it ran).
     drives_again: bool,
@@ -1044,7 +1142,7 @@ impl App {
         let saved = state::load(&store_root);
         let mut app = App::blank(store_root, None);
         app.offline = false;
-        app.outputs = Outputs::DEVICES;
+        app.outputs = Outputs::from_env();
         app.apply_saved(&saved, drive.is_none());
         // The output picked last time, else (unplugged, say) the default.
         app.open_output();
@@ -1105,14 +1203,18 @@ impl App {
             show_crate: false,
             show_ratings: false,
             show_tags_column: false,
+            field_columns: Vec::new(),
             details: None,
             details_state: ListState::default(),
+            panels: Default::default(),
             details_seen: None,
             details_asked: None,
             details_failed: None,
             modal: None,
             waiting: VecDeque::new(),
             picking: None,
+            fixes: Vec::new(),
+            plugin_keys: Vec::new(),
             job: None,
             last_backup: None,
             status: None,
@@ -1132,6 +1234,7 @@ impl App {
             now: None,
             opener: Opener::default(),
             upcoming: None,
+            waiting_file: None,
             queue: Queue::default(),
             shuffle: false,
             repeat: Repeat::Off,
@@ -1167,6 +1270,8 @@ impl App {
             offline: true,
             listed: false,
             watcher: Watcher::default(),
+            suggested: Vec::new(),
+            forgetting: Vec::new(),
             drives_in_flight: false,
             drives_again: false,
             volumes_in_flight: false,
@@ -1189,6 +1294,10 @@ impl App {
     #[cfg(test)]
     pub(super) fn with_library(root: &Path, lib: Library) -> App {
         let mut app = App::blank(root.join("store"), None);
+        // The volumes are polled only when a test asks: a poll (once a second of the clock, as
+        // the background is waited for) takes a folder with no export for an unplugged drive, so
+        // a test slowed past a second by a loaded machine would find its drive gone.
+        app.last_volume_poll = testing::just_now();
         let device = Device::open(root).unwrap();
         let root = device.root().to_path_buf();
         app.install(root, Loaded::prepare(device, lib));
@@ -1202,6 +1311,9 @@ impl App {
         self.show_crate = s.crate_panel;
         self.show_ratings = s.ratings;
         self.show_tags_column = s.tags_column;
+        self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
+        // Before the first frame: drawn in it from the start.
+        super::theme::select(s.theme.as_deref());
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -1235,7 +1347,7 @@ impl App {
 
     /// What to remember for next time: the drive, list, view, sort, volume, visualiser, panels,
     /// crate and queue.
-    fn saved_state(&self) -> Saved {
+    pub(super) fn saved_state(&self) -> Saved {
         let l = self.loaded.as_ref();
         Saved {
             root: l.map(|l| l.root().to_path_buf()),
@@ -1249,6 +1361,8 @@ impl App {
             crate_panel: self.show_crate,
             ratings: self.show_ratings,
             tags_column: self.show_tags_column,
+            field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
+            theme: super::theme::chosen().map(String::from),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -1367,10 +1481,7 @@ impl App {
     /// Say something in the footer (and the log).
     pub fn toast(&mut self, msg: impl Into<String>, level: Level) {
         let msg = msg.into();
-        if self.log.len() >= LOG {
-            self.log.pop_front();
-        }
-        self.log.push_back((msg.clone(), level, Instant::now()));
+        self.remember(msg.clone(), level);
         // An error that wasn't dismissed stays on screen, above what came after it.
         if let Some((m, Level::Error, _)) = self.toast.take()
             && m != msg
@@ -1378,6 +1489,22 @@ impl App {
             self.held = Some(m);
         }
         self.toast = Some((msg, level, Instant::now()));
+    }
+
+    /// Keep a message in the log (`!`).
+    pub(super) fn remember(&mut self, msg: String, level: Level) {
+        if self.log.len() >= LOG {
+            self.log.pop_front();
+        }
+        self.log.push_back((msg, level, Instant::now()));
+    }
+
+    /// Where plugins' logs go while the player runs: each line, with the plugin's id, to the log.
+    pub(super) fn plugin_log(&self) -> locallibrary::plugin::Log {
+        let tx = self.sender();
+        Arc::new(move |id, line| {
+            let _ = tx.send(Msg::Log(format!("{id}: {line}")));
+        })
     }
 
     /// Esc with an error on screen: put it away. Returns whether there was one.
@@ -1522,7 +1649,11 @@ impl App {
                     (r, ok)
                 });
                 let mut watcher = watcher.lock().unwrap_or_else(PoisonError::into_inner);
-                Msg::Volumes(watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default(), present)
+                let events = watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default();
+                for e in &events {
+                    crate::plugins::events::deliver(&api::Notice::Watch(e.clone()));
+                }
+                Msg::Volumes(events, present)
             };
             self.spawn_or(job, |e| Msg::Failed(Work::Volumes, e));
         }
@@ -1538,6 +1669,7 @@ impl App {
         self.watch_output();
         self.follow_queue();
         self.want_details();
+        self.want_panels();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -1562,6 +1694,7 @@ impl App {
         if let Some(color) = crossed {
             self.flash = Some((color, Instant::now()));
         }
+        super::deck::reach_active_loop(self, prev, pos_ms);
         self.last_pos_ms = pos_ms;
     }
 
@@ -1587,6 +1720,7 @@ impl App {
             || self.mix.is_loading()
             || self.job.is_some()
             || self.details_asked.is_some()
+            || (self.show_details && self.view == View::Library && self.panels.waiting(self.selected_key()))
             || (self.show_details
                 && self.view == View::Library
                 && self.selected_track().is_some()
@@ -1594,6 +1728,8 @@ impl App {
                 && !self.details_lookup_failed())
             || self.now.as_ref().is_some_and(|n| n.loading)
             || self.loaded.as_ref().is_some_and(Loaded::reading_set)
+            || self.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some())
+            || self.deck.opening.is_some()
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
@@ -1711,6 +1847,17 @@ impl App {
                     self.refresh_visible();
                 }
             }
+            Msg::Fields(generation, r) => {
+                if let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) {
+                    l.fields = match r {
+                        Ok(values) => Fields::Read(Arc::from(values)),
+                        Err(e) => Fields::Failed(e),
+                    };
+                    // Sorted by a field before its values were in: sorted again by them.
+                    l.ranks.retain(|(f, _)| !matches!(f, SortField::Field(_)));
+                    self.refresh_visible();
+                }
+            }
             Msg::Sets(generation, r) => {
                 let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) else { return };
                 let sets = match r {
@@ -1748,13 +1895,20 @@ impl App {
                 }
             }
             Msg::Opened(id, r) => self.opened(id, r),
+            Msg::Outputs(id, r) => super::deck::listed_outputs(self, id, r),
+            Msg::Output(id, ask, r) => self.output_opened(id, ask, r),
             Msg::Note(msg, level) => self.toast(msg, level),
+            Msg::Log(line) => self.remember(line, Level::Info),
+            Msg::Notice(notice) => self.told(notice),
+            Msg::Suggested(kept) => self.kept(kept),
+            Msg::Forgotten(marked) => self.forgotten(marked),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
                     let info = *info;
                     now.phrases = phrase_spans(&info.analysis, now.duration);
                     now.analysis = info.analysis;
+                    now.from_plugins = info.from_plugins;
                     now.art = info.art;
                     now.matches = info.matches;
                     now.playlists = info.playlists;
@@ -1774,6 +1928,7 @@ impl App {
                     self.details = Some(*d);
                 }
             }
+            Msg::Panel(track, at, answer) => self.panel_answered(track, at, answer),
             Msg::Status(r) => {
                 self.status_loading = false;
                 let r = r.map(|s| {
@@ -1802,6 +1957,11 @@ impl App {
             Msg::Planned { job, root, result } => self.on_planned(job, root, result),
             Msg::Applied { job, root, result } => self.on_applied(job, root, result),
             Msg::Done { job, result } => self.on_done(job, result),
+            Msg::Shown { job, update } => {
+                if self.job.as_ref().is_some_and(|j| j.id == job) {
+                    update(self);
+                }
+            }
             Msg::Replay(generation, edits) => {
                 let Some(l) = self.loaded.as_ref().filter(|l| l.generation == generation) else { return };
                 let root = l.root().to_path_buf();
@@ -1886,6 +2046,9 @@ impl App {
         self.check_replay();
         if self.show_tags_column {
             self.read_my_tags();
+        }
+        if !self.field_columns.is_empty() {
+            self.read_fields();
         }
     }
 
@@ -1989,6 +2152,10 @@ impl App {
         if tags {
             self.read_my_tags();
         }
+        let fields = filter.as_ref().is_some_and(|f| f.as_ref().is_ok_and(Filter::uses_fields));
+        if fields || self.sort.is_some_and(|k| matches!(k.field, SortField::Field(_))) {
+            self.read_fields();
+        }
         self.filter_note = None;
         let Some(l) = &mut self.loaded else {
             self.visible.clear();
@@ -2033,24 +2200,54 @@ impl App {
                         None
                     }
                 };
-                let mut ctx = QueryContext::new(&lib);
-                if tags {
-                    ctx = ctx.with_tags(my_tags.as_deref().unwrap_or(&none));
-                }
+                // What analyzers worked out, as `tracks --filter` reads it; until it's in, a
+                // plugin's field matches nothing.
+                let values = match &l.fields {
+                    Fields::Read(v) => Some(v.clone()),
+                    _ if !fields => None,
+                    Fields::Reading | Fields::Unread => {
+                        self.filter_note = Some("reading what analyzers worked out…".into());
+                        None
+                    }
+                    Fields::Failed(e) => {
+                        self.filter_note = Some(format!("can't read what analyzers worked out: {e}"));
+                        None
+                    }
+                };
+                let empty;
+                let values = match (fields, values.as_deref()) {
+                    (false, _) => None,
+                    (true, Some(v)) => Some(v),
+                    // Read with no values yet: what the fields are, to check the filter against.
+                    (true, None) => {
+                        let declared = crate::plugins::host().map(|p| p.fields()).unwrap_or_default();
+                        empty = TrackValues { declared, ..TrackValues::default() };
+                        Some(&empty)
+                    }
+                };
                 // Refused as `tracks --filter` refuses it: a `playlist:` naming nothing would match
                 // no track, and negated, every one.
-                if let Err(e) = f.check(&ctx) {
-                    self.filter_error = Some(e.to_string());
-                    if self.searching && !self.visible.is_empty() {
-                        return; // keep the last good result while the filter is being typed
+                match api::filter_context(&lib, &f, tags.then(|| my_tags.as_deref().unwrap_or(&none)), values) {
+                    Ok(ctx) => list.retain(|&i| f.matches(&lib.tracks[i], &ctx)),
+                    Err(e) => {
+                        self.filter_error = Some(e.to_string());
+                        if self.searching && !self.visible.is_empty() {
+                            return; // keep the last good result while the filter is being typed
+                        }
+                        list.clear();
                     }
-                    list.clear();
                 }
-                list.retain(|&i| f.matches(&lib.tracks[i], &ctx));
             }
         }
         if let Some(s) = self.sort {
             browse::sort_list(&mut list, l.rank(s.field), s.descending);
+            // Tracks without a value to show for a plugin's field (none, or null) go last, either
+            // way.
+            if let SortField::Field(name) = s.field {
+                let values = l.values();
+                let id = |i: usize| l.library.tracks[i].id;
+                list.sort_by_key(|&i| values.is_none_or(|v| v.shown(id(i), name.as_str()).is_none()));
+            }
         }
         self.visible = list;
         let len = self.visible.len();
@@ -2096,7 +2293,7 @@ impl App {
         let (store_root, generation) = (self.store_root.clone(), l.generation);
         let job = move || {
             let sets = match Store::open(&store_root) {
-                Ok(store) => SetBook::load(&store).map(|b| b.sets).map_err(|e| e.to_string()),
+                Ok(store) => api::sets_list(&store, &api::SetsQuery::default()).map_err(|e| e.to_string()),
                 Err(_) => Ok(Vec::new()),
             };
             Msg::Sets(generation, sets)
@@ -2116,6 +2313,23 @@ impl App {
         self.spawn_or(job, move |e| Msg::MyTags(generation, Err(e)));
     }
 
+    /// Read what the analyzers installed worked out for the open drive's tracks in the
+    /// background, the first time a column, a filter or a sort needs it (again after analysing).
+    pub(super) fn read_fields(&mut self) {
+        let Some(l) = self.loaded.as_mut().filter(|l| matches!(l.fields, Fields::Unread)) else { return };
+        l.fields = Fields::Reading;
+        let (root, library, generation) = (l.root().to_path_buf(), l.library.clone(), l.generation);
+        let store_root = self.store_root.clone();
+        let job = move || {
+            let read = Device::open(&root).map(|device| {
+                let installed = crate::plugins::installed(Store::open(&store_root).ok());
+                Box::new(TrackValues::read(installed.source(), &device, &library))
+            });
+            Msg::Fields(generation, read.map_err(|e| e.to_string()))
+        };
+        self.spawn_or(job, move |e| Msg::Fields(generation, Err(e)));
+    }
+
     /// The selected track, as an index into the library.
     pub fn selected_track(&self) -> Option<usize> {
         self.track_state.selected().and_then(|s| self.visible.get(s)).copied()
@@ -2133,6 +2347,12 @@ impl App {
         let mut out: Vec<usize> = self.visible.iter().copied().filter(marked).filter(|i| seen.insert(*i)).collect();
         out.extend((0..l.library.tracks.len()).filter(marked).filter(|i| seen.insert(*i)));
         out
+    }
+
+    /// The selected track as background work keeps it: the library load's generation, and its
+    /// index there.
+    pub fn selected_key(&self) -> Option<(u64, usize)> {
+        Some((self.loaded.as_ref()?.generation, self.selected_track()?))
     }
 
     /// Whether the details shown are for the selected track.
@@ -2301,41 +2521,94 @@ impl App {
         self.play_tracks(Arc::new(Library { tracks, ..Default::default() }), items, root, start);
     }
 
-    /// The output to play through: the one open, else (there was none, or it went away) the one
-    /// picked, or the default, opened now. False, with `audio_error` saying why, when none opens.
-    pub(super) fn open_output(&mut self) -> bool {
-        if self.audio.is_none() {
-            let (audio, missing) = self.outputs.open_preferring(self.deck.output.as_deref());
-            match audio {
-                Ok(mut a) => {
-                    a.set_volume(self.volume);
-                    self.audio = Some(a);
-                    self.audio_error = None;
-                    if let Some(why) = missing {
-                        self.toast(format!("{why}: playing through the default output"), Level::Info);
-                    }
-                }
-                Err(e) => self.audio_error = Some(format!("{e:#}")),
-            }
+    /// With no output open or opening (there was none, or it went away), open the one to play
+    /// through: the one picked, else the default. In the background, as a slow device (Bluetooth,
+    /// AirPlay) can take seconds (see `output_ready` and `no_output`).
+    pub(super) fn open_output(&mut self) {
+        if self.audio.is_none() && self.deck.opening.is_none() {
+            self.open_in_background(OutputAsk::Play);
         }
-        self.audio.is_some()
     }
 
-    /// Stop what's playing, to play something else. False, saying why, when there's no output.
-    fn ready_to_play(&mut self) -> bool {
-        if !self.open_output() {
-            let e = self.audio_error.clone().unwrap_or_default();
-            self.toast(format!("can't play: {e}"), Level::Error);
-            return false;
+    /// Open an output in the background, as `ask` says. The last asked for wins: what comes
+    /// back for one asked for before it is dropped.
+    pub(super) fn open_in_background(&mut self, ask: OutputAsk) {
+        let (id, outputs, preferred) = (self.next_id(), self.outputs, self.deck.output.clone());
+        self.deck.opening = Some(id);
+        let failed = ask.clone();
+        self.spawn_or(
+            move || {
+                let opened = match &ask {
+                    OutputAsk::Pick(name) => (outputs.open)(name.as_deref()).map(|a| (a, None)),
+                    OutputAsk::Play => {
+                        let (audio, missing) = outputs.open_preferring(preferred.as_deref());
+                        audio.map(|a| (a, missing))
+                    }
+                };
+                Msg::Output(id, ask, opened.map(|(a, missing)| (Box::new(a), missing)).map_err(|e| format!("{e:#}")))
+            },
+            move |e| Msg::Output(id, failed, Err(e)),
+        );
+    }
+
+    /// An output opened in the background (or didn't), for the ask with this id.
+    fn output_opened(&mut self, id: u64, ask: OutputAsk, opened: Result<OpenedOutput, String>) {
+        if self.deck.opening != Some(id) {
+            return;
         }
+        self.deck.opening = None;
+        match (ask, opened) {
+            (OutputAsk::Pick(name), Ok((a, _))) => super::deck::picked_output(self, name, *a),
+            // (One is open already, given it meanwhile: it stays.)
+            (OutputAsk::Play, Ok(_)) if self.audio.is_some() => {}
+            (OutputAsk::Play, Ok((a, missing))) => self.output_ready(*a, missing),
+            // (Playing on through the output it was, if any.)
+            (OutputAsk::Pick(_), Err(e)) => self.toast(e, Level::Error),
+            (OutputAsk::Play, Err(e)) => self.no_output(e),
+        }
+    }
+
+    /// The output to play through is open: the track waiting for it plays.
+    fn output_ready(&mut self, mut a: Audio, missing: Option<String>) {
+        a.set_volume(self.volume);
+        self.audio = Some(a);
+        self.audio_error = None;
+        if let Some(why) = missing {
+            self.toast(format!("{why}: playing through the default output"), Level::Info);
+        }
+        if let Some((id, file)) = self.waiting_file.take() {
+            self.opened(id, Ok(file));
+        }
+    }
+
+    /// No output opens, `why`. A track waiting for one can't play: it stops, and space carries on
+    /// with it from where it was to start.
+    fn no_output(&mut self, why: String) {
+        if self.audio.is_some() {
+            return;
+        }
+        self.audio_error = Some(why.clone());
+        if self.now.as_ref().is_some_and(|n| n.opening) {
+            let at = self.pending_seek.unwrap_or_default();
+            let queued = self.playing_queue();
+            self.stop();
+            self.resume = queued.then_some(at);
+            self.toast(format!("can't play: {why}"), Level::Error);
+        }
+    }
+
+    /// Stop what's playing, to play something else. With no output open, one opens in the
+    /// background meanwhile (see `open_output`).
+    fn ready_to_play(&mut self) {
+        self.open_output();
         if let Some(a) = &mut self.audio {
             a.stop();
         }
+        self.waiting_file = None;
         self.upcoming = None;
         self.pending_seek = None;
         self.start_paused = false;
         self.deck.looped = None;
-        true
     }
 
     /// The output's news: a seek it couldn't make, or its stream failing. When the output is
@@ -2371,15 +2644,14 @@ impl App {
 
     /// Start the queue's current track. It shows at once; its audio file is opened in the
     /// background (see `opened`), and its analysis, artwork and matches are read in the
-    /// background too, filling in when they arrive. False when there's no track or no audio.
+    /// background too, filling in when they arrive (and the output, when none is open). False
+    /// when there's no track.
     fn start_current(&mut self) -> bool {
         let Some(&i) = self.queue.order.get(self.queue.pos) else { return false };
         let track = self.queue.track(i).clone();
         // Where the last run left off was for the track it was on: once another starts, it's gone.
         self.resume = None;
-        if !self.ready_to_play() {
-            return false;
-        }
+        self.ready_to_play();
         self.now = Some(self.open(track, true));
         true
     }
@@ -2390,7 +2662,7 @@ impl App {
     fn open(&mut self, track: Track, starts: bool) -> NowPlaying {
         let id = self.next_id();
         let root = self.queue.root.clone();
-        let (t, r, auto_cue) = (track.clone(), root.clone(), self.deck.auto_cue);
+        let (t, r, auto_cue, store_root) = (track.clone(), root.clone(), self.deck.auto_cue, self.store_root.clone());
         // Matches and playlists need the drive's library, which is open unless the player
         // moved to another drive since the queue was made.
         let library = self.loaded.as_ref().filter(|l| l.root() == self.queue.root).map(|l| l.library.clone());
@@ -2403,7 +2675,7 @@ impl App {
                 Ok(file)
             });
             if o.send(Msg::Opened(id, file.map_err(|e| format!("{e:#}")))) {
-                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library))));
+                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library, &store_root))));
             }
         };
         self.opener.open(&self.tx, id, starts, Box::new(job));
@@ -2415,6 +2687,7 @@ impl App {
             drive: self.queue.drive.clone(),
             root,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,
@@ -2436,8 +2709,11 @@ impl App {
                 (Some(up), None) => self.went_on(up),
                 (None, _) => {}
             }
-        } else if self.now.is_some() && self.audio.as_ref().is_some_and(Audio::finished) {
-            match (self.upcoming.take(), broken) {
+        }
+        // Not `else`: the queued track can have played through as well since the last look (a
+        // short one, or a slow tick), and keys and the screen must not act on it as playing.
+        if self.now.is_some() && self.audio.as_ref().is_some_and(Audio::finished) {
+            match (self.upcoming.take(), self.audio.as_ref().and_then(Audio::broken)) {
                 (_, Some(why)) => self.cut_short(why),
                 // Opened already: straight on with it.
                 (Some(mut up), None) if up.file.is_some() => {
@@ -2496,7 +2772,8 @@ impl App {
         } else {
             // A recorded set, played on its own.
             let (path, track) = (PathBuf::from(&now.track.file_path), now.track.clone());
-            self.play_file(&path, track, Duration::ZERO)
+            self.play_file(&path, track, Duration::ZERO);
+            true
         };
         if !started {
             self.resume = at.or(Some(Duration::ZERO));
@@ -2559,9 +2836,12 @@ impl App {
         let Some(now) = self.now.as_mut().filter(|n| n.id == id && n.opening) else {
             return; // another track was started since: this one's dropped
         };
-        now.opening = false;
+        let output_opening = self.audio.is_none() && self.deck.opening.is_some();
         match file {
+            // Opened before the output it plays through: it waits for it.
+            Ok(file) if output_opening => self.waiting_file = Some((id, file)),
             Ok(file) => {
+                now.opening = false;
                 now.duration = file_duration(&now.track, &file);
                 let paused = std::mem::take(&mut self.start_paused);
                 // (The output went away while it opened: it waits for the next play.)
@@ -2572,7 +2852,10 @@ impl App {
                     self.seek_to(at);
                 }
             }
-            Err(e) => self.wont_play(e),
+            Err(e) => {
+                now.opening = false;
+                self.wont_play(e);
+            }
         }
     }
 
@@ -2641,6 +2924,7 @@ impl App {
         }
         self.now = None;
         self.upcoming = None;
+        self.waiting_file = None;
         self.opener.drop_all();
     }
 
@@ -2665,9 +2949,12 @@ impl App {
     }
 
     fn toggle_pause(&mut self) {
+        let output_opening = self.audio.is_none() && self.deck.opening.is_some();
         match (&self.audio, &self.now) {
-            // Still opening (a slow drive): it starts paused or playing as last asked.
+            // Still opening (a slow drive, or a slow output): it starts paused or playing as last
+            // asked.
             (Some(_), Some(n)) if n.opening => self.start_paused = !self.start_paused,
+            (None, Some(n)) if n.opening && output_opening => self.start_paused = !self.start_paused,
             (Some(a), Some(_)) => a.toggle_pause(),
             // The output went away: play on from where it was, through what there is now.
             (None, Some(_)) => {
@@ -2717,10 +3004,8 @@ impl App {
     /// Play a file that isn't one of a drive's tracks (a recorded set) on its own, from `start`
     /// (the queue stays, for afterwards). `track` is what the player shows for it. The file is
     /// opened in the background.
-    pub(super) fn play_file(&mut self, path: &Path, track: Track, start: Duration) -> bool {
-        if !self.ready_to_play() {
-            return false;
-        }
+    pub(super) fn play_file(&mut self, path: &Path, track: Track, start: Duration) {
+        self.ready_to_play();
         self.resume = None;
         self.pending_seek = (start > Duration::ZERO).then_some(start);
         let id = self.next_id();
@@ -2737,6 +3022,7 @@ impl App {
             duration: Duration::from_secs(track.duration_secs as u64),
             track,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,
@@ -2745,7 +3031,6 @@ impl App {
             opening: true,
             advancing: false,
         });
-        true
     }
 
     fn jump_cue(&mut self, forward: bool) {
@@ -2960,6 +3245,7 @@ impl App {
     // -----------------------------------------------------------------------------------------
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        let key = capital(key);
         // The player may have gone on to the next track since the last tick: keys act on the one
         // playing (a seek asked of the one that ended would be lost).
         self.follow_queue();
@@ -3039,8 +3325,11 @@ impl App {
             return;
         }
         let scopes = keymap::scopes(self);
+        // The player's own keys first, then those bound to plugins' commands.
         if let Some(b) = keymap::lookup(&scopes, &key) {
             self.perform(b.act, Some(key));
+        } else if let Some(act) = keymap::bound::lookup(&self.plugin_keys, &key) {
+            self.perform(act, Some(key));
         }
     }
 
@@ -3189,7 +3478,26 @@ impl App {
             Act::SmartApply => self.smart_apply(),
             Act::SmartNew => self.smart_from_search(),
             Act::ExportList => self.export_list(),
-            Act::ExportXml => self.export_xml(),
+            Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive(), None),
+            Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
+            Act::FieldColumn(name) => self.toggle_field_column(name),
+            Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::PluginSignIn(plugin, account) => self.plugin_sign_in(plugin, account),
+            Act::PluginSignOut(plugin, account) => self.plugin_sign_out(plugin, account),
+            Act::Review(mark) => self.review(mark),
+            Act::Dismiss(mark) => self.dismiss(mark),
+            Act::ProviderSettings => self.provider_settings(),
+            Act::CheckSettings => self.check_settings(),
+            Act::Fix(i) => self.fix(i),
+            Act::Theme(key) => self.use_theme(key),
+            Act::Export(plugin, format, from) => self.plugin_export(plugin, format, from, self.action_drive()),
+            Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
+            Act::Fetch(kind) => {
+                let target = (self.view == View::Library).then(|| self.target()).flatten();
+                self.fetch_form(kind, self.action_drive(), target.as_ref());
+            }
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {
@@ -3552,11 +3860,10 @@ impl App {
 
     /// Clicks while a dialog is open: menu items can be clicked; a click elsewhere closes it.
     fn on_modal_mouse(&mut self, m: MouseEvent) {
-        if let Some(Modal::Pick(_)) = &self.modal {
-            if let Some(Modal::Pick(p)) = self.modal.take() {
-                self.on_picker_mouse(p, m);
-            }
-            return;
+        match self.modal.take() {
+            Some(Modal::Pick(p)) => return self.on_picker_mouse(p, m),
+            Some(Modal::Form(f)) => return self.on_form_mouse(f, m),
+            other => self.modal = other,
         }
         if m.kind != MouseEventKind::Down(MouseButton::Left) {
             return;
@@ -3652,16 +3959,6 @@ impl App {
 
 fn plural_marks(n: usize) -> String {
     if n == 1 { "mark".into() } else { format!("{n} marks") }
-}
-
-/// A track's artwork from the drive: the larger thumbnail when there is one.
-fn read_art(device: &Device, t: &Track) -> Option<Vec<u8>> {
-    let key = paths::key(t.artwork_path.as_ref()?);
-    [artwork::medium_variant(&key), key]
-        .iter()
-        .filter_map(|k| device.checked_path(k).ok())
-        .find(|p| p.is_file())
-        .and_then(|p| std::fs::read(p).ok())
 }
 
 #[cfg(test)]

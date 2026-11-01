@@ -1,35 +1,34 @@
 name: Web CI
 
-# Runs for changes to the web app (apps/web), the lint and format config it shares, the pnpm
-# workspace around it, and what its Docker image copies in from outside apps/web: the shared
-# tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
+# The web app (apps/web), which ci.yml calls when it, the lint and format config it shares, the
+# pnpm workspace around it, or what its Docker image copies in from outside apps/web changes: the
+# shared tokens, and the tools' READMEs and docs for their pages (see .dockerignore).
 on:
-  push:
-    branches: [main]
-    paths: &paths
-      - apps/web/**
-      - apps/*/README.md
-      - apps/*/docs/*.md
-      - packages/tokens/**
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - .node-version
-      - .dockerignore
-      - lexicons/**
-      - .oxlintrc.json
-      - .oxfmtrc.json
-      - tools/oxlint/**
-      - .github/workflows/web-ci.yml
-  pull_request:
-    paths: *paths
+  workflow_call:
+    inputs:
+      verify:
+        description: Whether to run the verify job (ci.yml's web paths, or on main web_integration's, for the sizes).
+        type: boolean
+        required: true
+      integration:
+        description: Whether what the integration tests cover changed (ci.yml's web_integration paths).
+        type: boolean
+        required: true
+      e2e:
+        description: Whether what the e2e tests run changed (web_e2e).
+        type: boolean
+        required: true
+      lighthouse:
+        description: Whether what the pages Lighthouse measures are built from changed (web_lighthouse).
+        type: boolean
+        required: true
+      docker:
+        description: Whether what the Docker image is built from changed (web_docker).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 defaults:
   run:
@@ -39,9 +38,10 @@ defaults:
 # run weekly in web-scheduled.yml; pull requests run the e2e tests in Chromium only.
 jobs:
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
-  # client bundle within its budget.
+  # JavaScript every page loads and each page's own within their budgets.
   verify:
-    name: Format, lint, types, unit tests, build
+    name: Format, lint, types, unit tests, stories, build
+    if: inputs.verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -49,7 +49,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -63,10 +63,26 @@ jobs:
       - run: pnpm knip
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test
+      - run: pnpm test:storybook
       - run: pnpm test:build
+      # What the browser downloads, for the report job; main's runs keep theirs for pull requests
+      # to compare with. adapter-node writes a brotli copy beside each file (precompress), which is
+      # what the server sends a browser that takes it.
+      - name: Measure the client bundle
+        run: |
+          bytes() { find build/client -type f -name "$1" -exec cat {} + | wc -c; }
+          jq -n --argjson js "$(bytes '*.js')" --argjson js_br "$(bytes '*.js.br')" \
+            --argjson css "$(bytes '*.css')" --argjson css_br "$(bytes '*.css.br')" \
+            '{"Client JavaScript": $js, "Client JavaScript, brotli": $js_br,
+              "Client CSS": $css, "Client CSS, brotli": $css_br}' > sizes.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-sizes
+          path: apps/web/sizes.json
 
   integration:
     name: Integration (real spaces PDS) + coverage
+    if: inputs.integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -74,7 +90,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -83,15 +99,16 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:coverage
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: coverage
+          name: web-coverage
           path: apps/web/coverage/
 
   # Every page the tests visit also goes through axe (tests/e2e/axe.ts).
   e2e:
     name: End-to-end (Playwright, Chromium)
+    if: inputs.e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -99,7 +116,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -108,17 +125,19 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:e2e --project chromium
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: playwright-report
           path: apps/web/playwright-report/
 
   # Lighthouse on the production build, with the e2e tests' network and seeded projects behind it,
-  # against the floors and budgets in lighthouserc.cjs. The reports go to this run's artifacts,
-  # not to a Lighthouse server.
+  # against the floors and budgets in lighthouserc.cjs, when something the pages are built from
+  # changed (ci.yml's web_lighthouse paths). The scores and any failed assertion go to the
+  # run's summary and the reports to its artifacts, not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
+    if: inputs.lighthouse
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -126,7 +145,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -139,7 +158,29 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:lighthouse
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # Each page's scores from the run lhci reports as representative (its median), then each
+      # assertion that failed: lhci writes both even when one does.
+      - name: Scores to the run's summary
+        if: ${{ !cancelled() && hashFiles('apps/web/lighthouse-report/manifest.json') != '' }}
+        run: |
+          {
+            echo "## Lighthouse"
+            echo
+            echo "| Page | Performance | Accessibility | Best practices | SEO |"
+            echo "| --- | ---: | ---: | ---: | ---: |"
+            jq -r '.[] | select(.isRepresentativeRun) | .summary as $s
+              | "| \(.url | sub("^https?://[^/]+"; "")) | \([$s.performance, $s.accessibility, $s["best-practices"], $s.seo]
+                | map(. * 100 | round) | join(" | ")) |"' lighthouse-report/manifest.json
+            # An empty list when every assertion passed.
+            if jq -e 'length > 0' .lighthouseci/assertion-results.json > /dev/null 2>&1; then
+              echo
+              echo "Failed:"
+              echo
+              jq -r '.[] | "- \(.url | sub("^https?://[^/]+"; "")): \(.auditId)\(.auditProperty // "" | if . != "" then ".\(.)" else "" end)"
+                + " was \(.actual * 100 | round / 100), expected \(.operator) \(.expected)"' .lighthouseci/assertion-results.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: lighthouse-report
@@ -150,6 +191,7 @@ jobs:
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
+    if: inputs.docker
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -159,7 +201,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       # The image is built to be run here, never pushed, so there's nothing a poisoned cache could
       # reach beyond this job.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm # zizmor: ignore[cache-poisoning]
@@ -176,3 +218,66 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke.sh localnetwork:ci
+
+  # Coverage and size on the pull request, in one comment each push updates: the integration job's
+  # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed
+  # file's), then the client bundle's size against main's (.github/actions/size-report). Both go
+  # to the run's summary too, which is all a fork's pull request gets: its token can't comment.
+  # It can't fail the call, so a comment that can't post never holds up a merge. It needs one of
+  # the two: the coverage, which integration uploads whether or not its tests pass, or the sizes,
+  # which verify uploads when it gets that far.
+  report:
+    name: Coverage and size report
+    needs: [verify, integration]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.integration.result != 'skipped' || needs.verify.result == 'success') }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # main's coverage and sizes, from its runs' artifacts.
+      actions: read
+      pull-requests: write
+    steps:
+      # For the local actions and vite.config.ts, whose coverage thresholds the report shows.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Into apps/web/coverage and apps/web/sizes, each by name: a pattern that matches only one
+      # (the other's job failed before uploading it) unpacks it into apps/web itself. A missing one
+      # leaves only the steps that need it skipped.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: web-coverage
+          path: apps/web/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: web-sizes
+          path: apps/web/sizes
+      - id: main-coverage
+        uses: ./.github/actions/main-artifact
+        with:
+          name: web-coverage
+          path: ${{ runner.temp }}/main-coverage
+      - if: hashFiles('apps/web/coverage/coverage-summary.json') != ''
+        uses: davelosert/vitest-coverage-report-action@8f86cfb56ed6d5613ea8cdc5259f207fbfd51ece # v2.13.1
+        with:
+          working-directory: apps/web
+          json-summary-compare-path: ${{ steps.main-coverage.outputs.found == 'true' && format('{0}/main-coverage/coverage-summary.json', runner.temp) || '' }}
+      - id: size
+        if: hashFiles('apps/web/sizes/sizes.json') != ''
+        uses: ./.github/actions/size-report
+        with:
+          sizes: apps/web/sizes/sizes.json
+          artifact: web-sizes
+          output: ${{ runner.temp }}/size.md
+      # Added to the coverage action's comment, found by the marker its README documents (its
+      # postfix is the working directory), so the pull request keeps one comment.
+      - if: steps.size.outcome == 'success'
+        uses: ./.github/actions/pr-comment
+        with:
+          marker: <!-- vitest-coverage-report-marker-apps/web -->
+          section: size
+          body-path: ${{ runner.temp }}/size.md

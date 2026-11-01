@@ -138,6 +138,10 @@ fn write(one: &mut OneLibrary, op: usize) -> locallibrary::Result<String> {
                 play_count: Some(7),
                 track_number: Some(2),
                 disc_number: Some(1),
+                album_artist: Some("New".into()),
+                bpm: Some(128.5),
+                isrc: Some("GBDUW0000059".into()),
+                release_date: Some("1999-03-12".into()),
             };
             format!("{:?}", one.set_track_fields(&[1, 2], &f)?)
         }
@@ -425,7 +429,7 @@ fn ids_players_cant_number_are_refused(tc: TestCase) {
             banks,
         ),
     ];
-    let (sql, negative_is_none, read) = cases[tc.draw(gs::integers::<usize>().max_value(cases.len() - 1))];
+    let (sql, negative_is_none, read) = tc.draw(gs::sampled_from(&cases));
     let one = OneLibrary::from_encrypted(rich_library(), None).unwrap();
     one.connection().execute_batch(&sql.replace("{id}", &id.to_string())).unwrap();
     let refused = id > 0 || !negative_is_none;

@@ -7,10 +7,12 @@ the BPMs and keys rekordbox stored on a USB drive, but all it needs is audio fil
 
 - `analyze` decodes a track once (through symphonia, like loclib-mixid: MP3, AAC and ALAC in
   `.m4a`, FLAC, WAV, AIFF) and measures what you ask for: tempo and key from
-  [stratum-dsp](https://github.com/HLLMR/stratum-dsp), and loudness from
+  [stratum-dsp](https://github.com/HLLMR/stratum-dsp); loudness from
   [ebur128](https://github.com/sdroege/ebur128): integrated loudness, loudness range, sample and
-  true peak, and runs of clipped samples. The `Analysis` serialises, carrying the crate's
-  `VERSION`, so you can cache it by the audio's hash and drop it when the version changes.
+  true peak, and runs of clipped samples; and a waveform in three bands (lows under 200 Hz, mids,
+  highs over 2 kHz, a column every 1024 samples of the mono mix at 44.1 kHz). The `Analysis`
+  serialises, carrying the crate's `VERSION`, so you can cache it by the audio's hash and drop it
+  when the version changes.
 - `tempo` tells whether a stored tempo and an estimate agree or are off by half, double, 2/3 or
   3/2, and which of the two a library's other tempos make more likely.
 - `benchmark` reads the GiantSteps key and tempo annotations and scores analyzers the way
@@ -26,7 +28,8 @@ use loclib_progress::Ctx;
 # fn main() -> loclib_analysis::Result<()> {
 let analysis = analyze("track.flac".as_ref(), Want::ALL, &Ctx::silent())?;
 if let Some(e) = &analysis.estimate {
-    println!("{:.1} BPM ({:.2}), {} ({:.2})", e.bpm, e.bpm_confidence, e.key.code(), e.key_confidence);
+    let key = e.key.map_or("no key".into(), |k| k.code());
+    println!("{:.1} BPM ({:.2}), {key} ({:.2})", e.bpm, e.bpm_confidence, e.key_confidence);
 }
 if let Some(l) = &analysis.loudness {
     println!("{:?} LUFS, {:.1} dBTP, {} clipped runs", l.integrated_lufs, l.true_peak_dbtp(), l.clipped_runs);
@@ -60,8 +63,12 @@ assert_eq!(library.more_plausible(87.0, 174.0), Some(Plausible::Estimate));
 - Clipping is counted as runs of three or more samples in a row at full scale (32767/32768 or
   above) in one channel. A loud master that peaks at 0 dBFS without flattening doesn't count.
 - The analyzer can't be cancelled once it starts on a decoded track.
-- Silent audio has no estimate. A blip too short for a tempo gets one with a tempo of 0 (and a key
-  it isn't sure of: confidence 0).
+- Silent audio has no estimate. A blip too short for a tempo gets one with a tempo of 0.
+- The waveform's bands are scaled together, against the track's loudest columns or -40 dBFS
+  (RMS), whichever is louder: they keep their ratios, and a near-silent track draws near 0.
+- Where the best keys tie (confidence 0) there's no key. stratum-dsp scales major and minor keys'
+  scores apart, so its best of each tie whenever it scores a track whole (one under about 12
+  seconds, or with no stretch of a clear key), and it would pick one of them in no fixed order.
 
 ## What it doesn't do
 

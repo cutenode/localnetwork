@@ -34,10 +34,12 @@ const PCO2: [u8; 4] = *b"PCO2";
 const HOT: u32 = 1;
 const MEMORY: u32 = 0;
 const NO_LOOP: u32 = u32::MAX;
-const ACTIVE_LOOP: u32 = 4;
+pub(super) const ACTIVE_LOOP: u32 = 4;
 const PCPT_LEN: usize = 0x38;
 /// `PCP2` up to the comment length field.
 const PCP2_HEAD: usize = 0x2c;
+/// The longest cue name (in UTF-8 bytes) written.
+pub(crate) const MAX_COMMENT: usize = 0x10000;
 /// Bytes rekordbox 7 writes after a `PCP2` entry's colour.
 const PCP2_PADDING: usize = 40;
 
@@ -145,11 +147,11 @@ impl CueFile {
     }
 }
 
-fn put_u16(b: &mut [u8], o: usize, v: u16) {
+pub(super) fn put_u16(b: &mut [u8], o: usize, v: u16) {
     b[o..o + 2].copy_from_slice(&v.to_be_bytes());
 }
 
-fn put_u32(b: &mut [u8], o: usize, v: u32) {
+pub(super) fn put_u32(b: &mut [u8], o: usize, v: u32) {
     b[o..o + 4].copy_from_slice(&v.to_be_bytes());
 }
 
@@ -459,7 +461,7 @@ pub fn write_cue_points(bytes: &[u8], file: CueFile, cues: &[CuePoint]) -> Resul
     if cues.len() > usize::from(u16::MAX) {
         return Err(Error::invalid("too many cues"));
     }
-    if let Some(c) = cues.iter().find(|c| c.comment.len() > 0x10000) {
+    if let Some(c) = cues.iter().find(|c| c.comment.len() > MAX_COMMENT) {
         return Err(Error::invalid(format!(
             "cue name is too long: {:?}...",
             c.comment.chars().take(20).collect::<String>()

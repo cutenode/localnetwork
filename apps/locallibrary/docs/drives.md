@@ -32,7 +32,10 @@ the library's: most commands take the library's name and mean its lead clone (se
   its own notes in their `.locallibrary/` (the file index, what it last saw). `locallibrary sync`
   with no drives syncs each library's drives plugged in (`drive groups`); it, a change copied onto
   a library's other drives, `smart apply` and `settings apply` leave archive and retired drives
-  out.
+  out. With no store, `drive groups` still groups the mounted drives by the library id each
+  holds, unnamed and without roles (the store keeps names and roles). A sync copies a drive byte
+  for byte, so it never transcodes: for a drive in a form the players play, use `pack
+  --transcode` (see [Drives for a set](editing.md#drives-for-a-set)).
 - **Logbook:** `drive log <drive>`: data written by sync, push and repair, clean ejects, the last
   check of its files and of its file system, and problems found.
 - **A drive that lost its identity** (erased elsewhere, or cleaned of `.locallibrary/`) is matched
@@ -259,13 +262,14 @@ each. A FLAC, an MP3 made from it and a 48 kHz copy all do; an extended mix and 
 most of their audio but not their length, so they never count as copies, and nor does an edit with
 a stretch cut out, which lines up only in part.
 
-`--analyze` (or `--only analysis`) decodes every track the first time (the store keeps the
-results, so later runs decode only new files) and estimates its tempo and key with
+`--analyze` (or `--only analysis`) runs the sound plugin (or the analyzer chosen for each role,
+see [Roles](plugins.md#roles)) on every track the first time (the store keeps the results, so
+later runs decode only new files and those that failed), which estimates its tempo and key with
 [stratum-dsp](https://github.com/HLLMR/stratum-dsp) and its loudness (EBU R 128), then lists:
 
 - stored tempos the estimate doesn't agree with (within 4%): half, double, 2/3 or 3/2 of it, or
-  different, and which of the two the library's other tempos make likelier. rekordbox's x2 and /2
-  buttons fix a tempo that's half or double;
+  different, and which of the two the library's other tempos make likelier. `--fix-tempo` fixes
+  those that are half or double (see below);
 - stored keys the estimate doesn't agree with: a fifth away, the relative or parallel key, or
   unrelated;
 - tracks whose true peak is over 0 dBTP, that have runs of three or more samples at full scale, or
@@ -273,10 +277,19 @@ results, so later runs decode only new files) and estimates its tempo and key wi
 
 The estimates are a second opinion, not a correction: on the GiantSteps datasets rekordbox gets
 about 72% of keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are
-similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what's cached: a key
-the analysis heard a fifth away, or as its relative or parallel, counts as less sure (and one it
-heard as unrelated, least sure), so a clash it causes weighs less.
+similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what was analysed
+already: a key the analysis heard a fifth away, or as its relative or parallel, counts as less
+sure (and one it heard as unrelated, least sure), so a clash it causes weighs less.
 None of this counts as a problem for doctor's exit status.
+
+`--fix-tempo` runs the same analysis, then doubles the beat grid of each track whose stored tempo
+is half what it heard (a beat halfway between each two) and halves it where it's double (every
+other beat, from a downbeat), setting the BPM from the new grid. It's an edit like any other: the
+plan lists it (`--dry-run` stops there), the drive is backed up first and `locallibrary undo`
+takes it back. It leaves out tracks the library's other tempos favour the stored tempo for, tracks
+with no grid, and grids at another tempo than the stored one. Only the `.DAT`'s grid (`PQTZ`) is
+rescaled: the `.EXT`'s extended grid (`PQT2`) isn't decoded, so the edit takes it out, as any new
+grid does, and the plan says so.
 
 ### Checking the analysis
 
@@ -287,8 +300,8 @@ locallibrary analysis bench --keys giantsteps-mtg-key-dataset/annotations/annota
 ```
 
 `analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analysis doctor runs
-on the same audio (or the files in `--audio`), against the annotations of the
-[GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
+on the same audio (or the files in `--audio`), analysed afresh every run, against the annotations
+of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
 [GiantSteps MTG Key](https://github.com/GiantSteps/giantsteps-mtg-key-dataset) (its tracks with one
 key at confidence 2) and [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset)
 datasets (`annotations_v2` holds the revised tempos). Clone them and run their download scripts

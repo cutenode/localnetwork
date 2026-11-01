@@ -17,7 +17,8 @@
 //!   settings.json         the settings profile (see crate::settings)
 //!   players.json          the player models `check` uses when none are given (see
 //!                         crate::equipment::Remembered)
-//!   lock                  advisory lock so a CLI and a GUI can't write concurrently
+//!   lock                  advisory lock so a CLI and a GUI can't write concurrently, and
+//!                         two can't make the store at once (see Store::open_or_init)
 //! ```
 //!
 //! Snapshots form a DAG through `parents`, so "is X newer than Y" can be answered from
@@ -48,6 +49,17 @@ use crate::tree::FileEntry;
 use crate::{Error, Result};
 
 pub const STORE_FORMAT: u32 = 1;
+
+/// What the player remembers between runs, in the store once there is one.
+pub const PLAYER_FILE: &str = "tui.json";
+
+/// Where the player keeps [`PLAYER_FILE`] while there's no store at `store_root`: a folder beside
+/// it (`locallibrary-player` next to `locallibrary`), since the store refuses to be set up in a
+/// folder that holds anything else.
+pub fn player_fallback(store_root: &Path) -> Option<PathBuf> {
+    let name = store_root.file_name()?.to_string_lossy();
+    Some(store_root.with_file_name(format!("{name}-player")))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct StoreMeta {
@@ -315,21 +327,22 @@ impl Store {
 
     /// Open a store, creating it if the directory is empty or missing, or holds only what
     /// locallibrary itself keeps beside a store (an older version wrote some of it before the
-    /// store was made: fingerprints, mix reports, the profile document).
+    /// store was made: fingerprints, mix reports, the profile document). Two making it at once
+    /// (the sidecar's workers, a CLI beside them) make one store: one makes it under its lock
+    /// while the others wait, then open it.
     pub fn open_or_init(root: impl AsRef<Path>) -> Result<Store> {
-        const OURS: [&str; 4] =
-            [crate::audio_cache::CACHE_DIR, crate::mix::report::REPORTS_DIR, "profile-document.json", "tui.json"];
         let root = root.as_ref().to_path_buf();
         let meta_path = root.join("store.json");
+        if meta_path.exists() {
+            return Store::open(root);
+        }
+        // Before the lock file is written into it, so a folder that's someone else's is left
+        // as it was; what another process making the store has made so far doesn't count.
+        Store::holds_only_ours(&root, true)?;
+        fs::create_dir_all(&root).at(&root)?;
+        let _lock = fsutil::FileLock::wait(&root.join("lock"))?;
         if !meta_path.exists() {
-            for e in fs::read_dir(&root).into_iter().flatten() {
-                if !OURS.iter().any(|o| e.as_ref().is_ok_and(|e| e.file_name() == *o)) {
-                    return Err(Error::invalid(format!(
-                        "{} is not empty and is not an locallibrary store",
-                        root.display()
-                    )));
-                }
-            }
+            Store::holds_only_ours(&root, false)?;
             for d in ["objects", "snapshots"] {
                 fs::create_dir_all(root.join(d)).at(root.join(d))?;
             }
@@ -339,6 +352,34 @@ impl Store {
             )?;
         }
         Store::open(root)
+    }
+
+    /// Refuses `root` unless it holds only what locallibrary keeps beside a store and the lock
+    /// for making one, and with `making`, what making the store writes before `store.json`.
+    fn holds_only_ours(root: &Path, making: bool) -> Result<()> {
+        const OURS: [&str; 5] = [
+            crate::audio_cache::CACHE_DIR,
+            crate::mix::report::REPORTS_DIR,
+            "profile-document.json",
+            PLAYER_FILE,
+            "lock",
+        ];
+        const MAKING: [&str; 3] = ["objects", "snapshots", "store.json"];
+        for e in fs::read_dir(root).into_iter().flatten() {
+            let ours = e.as_ref().is_ok_and(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                OURS.contains(&&*name)
+                    || (making && (MAKING.contains(&&*name) || name.starts_with(crate::paths::TEMP_PREFIX)))
+            });
+            if !ours {
+                return Err(Error::invalid(format!(
+                    "{} is not empty and is not an locallibrary store",
+                    root.display()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// The store at `root` if there is one (never made here); one that's there but can't be read
@@ -409,19 +450,21 @@ impl Store {
         {
             return Ok((h, false));
         }
-        let tmp_dir = self.root.join("objects").join("tmp");
-        fs::create_dir_all(&tmp_dir).at(&tmp_dir)?;
-        let mut tmp = tempfile::Builder::new().prefix("import-").tempfile_in(&tmp_dir).at(&tmp_dir)?;
-        let tmp_path = tmp.path().to_path_buf();
-        let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
-        let dst = self.object_path(&h);
-        if self.holds(&h, size) {
-            return Ok((h, false));
-        }
-        let parent = dst.parent().expect("object path has parent");
-        fs::create_dir_all(parent).at(parent)?;
-        tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
-        Ok((h, true))
+        self.writing(|| {
+            let tmp_dir = self.root.join("objects").join("tmp");
+            fs::create_dir_all(&tmp_dir).at(&tmp_dir)?;
+            let mut tmp = fsutil::temp_in(tempfile::Builder::new().prefix("import-"), &tmp_dir)?;
+            let tmp_path = tmp.path().to_path_buf();
+            let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
+            let dst = self.object_path(&h);
+            if self.holds(&h, size) {
+                return Ok((h, false));
+            }
+            let parent = dst.parent().expect("object path has parent");
+            fs::create_dir_all(parent).at(parent)?;
+            fsutil::replace(tmp.into_temp_path(), &dst)?;
+            Ok((h, true))
+        })
     }
 
     /// Make imported objects durable.
@@ -432,9 +475,30 @@ impl Store {
     pub fn import_bytes(&self, bytes: &[u8]) -> Result<Hash> {
         let h = Hash::of(bytes);
         if !self.holds(&h, bytes.len() as u64) {
-            fsutil::write_atomic(&self.object_path(&h), bytes)?;
+            self.writing(|| fsutil::write_atomic(&self.object_path(&h), bytes))?;
         }
         Ok(h)
+    }
+
+    /// `write`, with a write the store refuses (a read-only folder, or one this user can't write)
+    /// said of the store, not of the file or folder in it: which one fails first follows the new
+    /// objects' hashes (a fan-out folder in `objects`, or `snapshots` when that one's there), and
+    /// a drive's encrypted `exportLibrary.db` hashes differently each time it's written.
+    fn writing<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
+        write().map_err(|e| self.refusing(e))
+    }
+
+    /// `e`, said of the store if it's a write the store refused (see [`Store::writing`]).
+    pub(crate) fn refusing(&self, e: Error) -> Error {
+        use std::io::ErrorKind::{PermissionDenied, ReadOnlyFilesystem};
+        match e {
+            Error::Io { path, source }
+                if path.starts_with(&self.root) && matches!(source.kind(), PermissionDenied | ReadOnlyFilesystem) =>
+            {
+                Error::Io { path: self.root.clone(), source }
+            }
+            e => e,
+        }
     }
 
     // -- libraries --------------------------------------------------------------------------
@@ -490,9 +554,8 @@ impl Store {
         Ok(rec)
     }
 
-    /// Add a library another store has, keeping its id (see `crate::peers`). Refused when this
+    /// Add a library another store has, keeping its id (see `crate::catalog`). Refused when this
     /// store has a library of that id or name.
-    #[cfg(feature = "peers")]
     pub(crate) fn add_library(&self, id: Uuid, name: &str, head: Option<Hash>) -> Result<()> {
         let mut libs = self.libraries()?;
         if libs.iter().any(|l| l.id == id || l.name.eq_ignore_ascii_case(name)) {
@@ -545,7 +608,7 @@ impl Store {
             }
         }
         snap.id = snap.compute_id();
-        fsutil::write_json_atomic(&self.snapshot_path(&snap.id), &snap)?;
+        self.writing(|| fsutil::write_json_atomic(&self.snapshot_path(&snap.id), &snap))?;
         Ok(snap)
     }
 
@@ -891,7 +954,9 @@ impl Store {
 
     /// Delete what nothing uses: snapshots of no library the store has (unless labelled, a
     /// library's latest, or a parent of a snapshot that stays), then the stored files no
-    /// remaining snapshot lists, and what writes cut off by a crash left among them. Every
+    /// remaining snapshot lists, what writes cut off by a crash left among them, caches no
+    /// version of locallibrary reads any more (see `audio_cache::unread`), and plugins' scratch
+    /// folders a stopped host left (see `plugin::abandoned_scratch`). Every
     /// snapshot of a library stays, whether its latest reaches it or not (a drive back from a set
     /// is saved beside it, see [`crate::sync::pull_beside`]): which of them go is `store prune`'s
     /// choice ([`crate::retention`]). A manifest that can't be read hides which library it
@@ -900,10 +965,17 @@ impl Store {
     pub fn gc(&self, dry_run: bool) -> Result<GcReport> {
         let g = self.garbage(&FxHashSet::default())?;
         let leftovers = self.leftovers()?;
+        let scratch = crate::plugin::abandoned_scratch(self);
+        // Their files count as files nothing uses, as do those of plugins' scratch folders.
+        let unread: Vec<(PathBuf, (usize, u64, usize))> = (crate::audio_cache::unread(self).iter().chain(&scratch))
+            .map(|d| (d.clone(), crate::space::dir_size(d)))
+            .collect();
         let report = GcReport {
             removed_snapshots: g.snapshots.len(),
-            removed_objects: g.objects.len() + leftovers.len(),
-            freed_bytes: g.objects.iter().map(|(_, size)| size).chain(leftovers.iter().map(|(_, size)| size)).sum(),
+            removed_objects: g.objects.len() + leftovers.len() + unread.iter().map(|(_, (n, ..))| n).sum::<usize>(),
+            freed_bytes: (g.objects.iter().map(|(_, size)| size).chain(leftovers.iter().map(|(_, size)| size)))
+                .chain(unread.iter().map(|(_, (_, size, _))| size))
+                .sum(),
             dry_run,
         };
         if dry_run {
@@ -919,6 +991,15 @@ impl Store {
         }
         for (p, _) in &leftovers {
             fsutil::remove_if_exists(p)?;
+        }
+        for (d, _) in &unread {
+            match d.is_dir() {
+                true => fs::remove_dir_all(d).at(d)?,
+                false => _ = fsutil::remove_if_exists(d)?,
+            }
+        }
+        for d in &scratch {
+            fsutil::remove_if_exists(&d.with_extension("lock"))?;
         }
         if let Some(pruned) = g.pruned {
             fsutil::write_json_atomic(&self.root.join("pruned.json"), &pruned)?;

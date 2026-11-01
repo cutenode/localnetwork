@@ -6,7 +6,6 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, AccountInfo, Client};
-use locallibrary::atmosphere;
 use locallibrary::error::Reason;
 use locallibrary::local_time;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
@@ -56,8 +55,8 @@ pub struct Account {
 impl Account {
     /// Read who's signed in from the store folder (no network).
     pub fn load(&mut self, store_root: &Path) {
-        self.info = atmosphere::status(store_root).ok().flatten();
-        self.last_handle = atmosphere::last_handle(store_root);
+        let status = api::account_status(store_root).ok();
+        (self.info, self.last_handle) = status.map(|s| (s.account, s.last_handle)).unwrap_or_default();
     }
 
     /// Whether signing in or out is under way (the header spins).
@@ -82,21 +81,25 @@ impl Account {
         let key = |k: &str| Span::styled(format!("  {k} "), theme::key());
         match (&self.sign_in, &self.info) {
             (Some(SignIn::Typing(text)), _) => Line::from(vec![
-                Span::styled(" Atmosphere handle or server: ", bold(theme::CYAN)),
-                Span::styled(typed_tail(text, (width as usize).saturating_sub(31)).to_string(), bold(theme::FG)),
-                Span::styled("▏", fg(theme::PINK)),
+                Span::styled(" Atmosphere handle or server: ", bold(theme::current().info)),
+                Span::styled(
+                    typed_tail(text, (width as usize).saturating_sub(31)).to_string(),
+                    bold(theme::current().text),
+                ),
+                Span::styled("▏", fg(theme::current().accent)),
                 key("enter"),
                 Span::styled("sign in", dim()),
                 key("esc"),
                 Span::styled("cancel", dim()),
             ]),
             (Some(SignIn::Starting(_)), _) => Line::from(vec![
-                Span::styled(" ⟳ Finding your account's server…", fg(theme::CYAN)),
+                Span::styled(" ⟳ Finding your account's server…", fg(theme::current().info)),
                 key("esc"),
                 Span::styled("stop", dim()),
             ]),
             (Some(SignIn::Waiting { server, url, opened, local_app, .. }), _) => {
-                let mut spans = vec![Span::styled(format!(" ⟳ Approve in your browser at {server}"), fg(theme::CYAN))];
+                let mut spans =
+                    vec![Span::styled(format!(" ⟳ Approve in your browser at {server}"), fg(theme::current().info))];
                 if *local_app {
                     spans.push(Span::styled(
                         " as a local development app (locallibrary's page isn't online yet)",
@@ -109,10 +112,10 @@ impl Account {
                 spans.extend([key("esc"), Span::styled("stop", dim())]);
                 Line::from(spans)
             }
-            (Some(SignIn::SigningOut), _) => Line::styled(" ⟳ Signing out…", fg(theme::CYAN)),
+            (Some(SignIn::SigningOut), _) => Line::styled(" ⟳ Signing out…", fg(theme::current().info)),
             (None, Some(a)) => {
                 let again = if a.expired() {
-                    Span::styled(" · the session has likely ended; L signs in again", fg(theme::AMBER))
+                    Span::styled(" · the session has likely ended; L signs in again", fg(theme::current().warning))
                 } else {
                     Span::styled(
                         format!(
@@ -124,9 +127,9 @@ impl Account {
                     )
                 };
                 let mut spans = vec![
-                    Span::styled(" ● ", fg(theme::GREEN)),
+                    Span::styled(" ● ", fg(theme::current().good)),
                     Span::styled("Atmosphere account ", dim()),
-                    Span::styled(a.name(), bold(theme::FG)),
+                    Span::styled(a.name(), bold(theme::current().text)),
                 ];
                 if a.client == Client::Loopback {
                     spans.push(Span::styled(" as the development client", dim()));

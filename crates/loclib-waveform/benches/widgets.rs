@@ -57,6 +57,7 @@ fn cues() -> Vec<Cue> {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let mut cues: Vec<Cue> = (0..8).map(|i| cue(Some(i), 20_000 + u32::from(i) * 40_000, None, "Drop")).collect();
     cues.extend((0..4).map(|i| cue(None, 30_000 + i * 80_000, None, "")));

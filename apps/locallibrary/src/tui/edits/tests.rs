@@ -361,7 +361,7 @@ fn says_what_a_write_came_to() {
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let drive = app.drive_label(&root);
     let mut applied = |operation: &'static str, report: serde_json::Value| {
-        let result = Ok(Applied { operation, report });
+        let result = Ok(Box::new(Applied { operation: operation.into(), report }));
         app.handle_msg(Msg::Applied { job: 1, root: root.clone(), result });
         last_message(&app).to_string()
     };
@@ -451,7 +451,7 @@ fn packing_the_crate_needs_a_playlist_name() {
 /// before then.
 #[hegel::test(test_cases = 300)]
 fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     const PHASES: [Phase; 9] = [
         Phase::Scan,
         Phase::Hash,
@@ -471,7 +471,7 @@ fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) 
         if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
             outer.cancel();
         }
-        let p = tc.draw(gs::sampled_from(&PHASES[..]).print_as_debug());
+        let p = tc.draw(gs::sampled_from(&PHASES[..]));
         let event = match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => Event::PhaseStart { phase: p, items: 0, bytes: 0 },
             1 => Event::Item {
@@ -543,7 +543,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("saved {drive} in the store: snapshot 3lzabcde of Main ({n} new file{}, 2.0 KB)", s(n))
             };
-            (Ok(Applied { operation: "pull", report }), want, false)
+            (Ok(Applied { operation: "pull".into(), report }), want, false)
         }
         1 => {
             let offs: Vec<bool> = (0..=n).map(|_| tc.draw(gs::booleans())).collect();
@@ -553,7 +553,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("unmounted {drive}")
             };
-            (Ok(Applied { operation: "eject", report }), want, false)
+            (Ok(Applied { operation: "eject".into(), report }), want, false)
         }
         2 => {
             let failed: Vec<bool> = (0..=n).map(|_| tc.draw(gs::booleans())).collect();
@@ -567,13 +567,13 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("sync: {}", said.join("; "))
             };
-            (Ok(Applied { operation: "sync.group", report: json!(rows) }), want, false)
+            (Ok(Applied { operation: "sync.group".into(), report: json!(rows) }), want, false)
         }
         3 => {
             let mut report = json!({ "tracks_changed": n });
             b(&mut report);
             (
-                Ok(Applied { operation: "tags", report }),
+                Ok(Applied { operation: "tags".into(), report }),
                 format!("My Tags changed on {n} track{} on {drive}{undo}", s(n)),
                 backup,
             )
@@ -582,7 +582,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             let mut report = json!({ "copied": n, "copied_bytes": 1_500_000 });
             b(&mut report);
             (
-                Ok(Applied { operation: "pack", report }),
+                Ok(Applied { operation: "pack".into(), report }),
                 format!("packed onto {drive}: {n} file{} copied (1.5 MB){undo}", s(n)),
                 backup,
             )
@@ -590,7 +590,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
         5 => {
             let report = json!({ "created": "2026-10-03T21:15:09Z", "reason": "edit" });
             (
-                Ok(Applied { operation: "undo", report }),
+                Ok(Applied { operation: "undo".into(), report }),
                 format!("undone on {drive}: put back the backup (edit, 2026-10-03 21:15)"),
                 true,
             )
@@ -612,7 +612,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
                 format!("edit: done on {drive}")
             };
             let warning = if warned { " · a track was missing" } else { "" };
-            (Ok(Applied { operation: "edit", report }), format!("{head}{undo}{warning}"), backup)
+            (Ok(Applied { operation: "edit".into(), report }), format!("{head}{undo}{warning}"), backup)
         }
         7 => (Err(Error::Cancelled), "cancelled: nothing was written".to_string(), false),
         8 => (
@@ -636,7 +636,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
     if tc.draw(gs::booleans()) {
         app.job = Some(super::super::edits::Job { id: 5, ..job(true, false) });
     }
-    app.handle_msg(Msg::Applied { job: 5, root: root.clone(), result });
+    app.handle_msg(Msg::Applied { job: 5, root: root.clone(), result: result.map(Box::new) });
     assert_eq!(last_message(&app), want);
     assert!(app.job.is_none(), "the write is done");
     assert_eq!(app.last_backup.as_ref().map(|k| &k.root), backed.then_some(&root), "what u takes back");
@@ -649,7 +649,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
 /// top.
 #[hegel::test(test_cases = 200)]
 fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let planned = Plan { operation: "edit", summary: vec!["a line".into(); 40], ..Default::default() };
@@ -664,26 +664,25 @@ fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
     let mut scroll: u16 = 0;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
         let settled = tc.draw(gs::booleans());
-        if let Some(Modal::Confirm(c)) = &mut app.modal {
-            c.shown = if settled { Instant::now() - Duration::from_secs(1) } else { Instant::now() };
+        // (Unsettled, it's up for no time yet however long the draw below takes.)
+        just_shown(&mut app);
+        if settled && let Some(Modal::Confirm(c)) = &mut app.modal {
+            c.shown = Instant::now() - Duration::from_secs(1);
         }
-        let code = tc.draw(
-            gs::sampled_from(
-                &[
-                    KeyCode::Up,
-                    KeyCode::Char('k'),
-                    KeyCode::Down,
-                    KeyCode::Char('j'),
-                    KeyCode::PageUp,
-                    KeyCode::PageDown,
-                    KeyCode::Char('x'),
-                    KeyCode::Char('n'),
-                    KeyCode::Char('q'),
-                    KeyCode::Esc,
-                ][..],
-            )
-            .print_as_debug(),
-        );
+        let code = tc.draw(gs::sampled_from(
+            &[
+                KeyCode::Up,
+                KeyCode::Char('k'),
+                KeyCode::Down,
+                KeyCode::Char('j'),
+                KeyCode::PageUp,
+                KeyCode::PageDown,
+                KeyCode::Char('x'),
+                KeyCode::Char('n'),
+                KeyCode::Char('q'),
+                KeyCode::Esc,
+            ][..],
+        ));
         app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
         if !settled && code != KeyCode::Esc {
             assert!(matches!(app.modal, Some(Modal::Confirm(_))), "{code:?} taken before it could be read");
@@ -939,13 +938,10 @@ fn picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
 fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use super::super::browse::SORT_FIELDS;
     use super::super::drives::Report;
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
-    let mut turns: Vec<u8> = (0..12).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..12).collect::<Vec<_>>()));
     let planned = |app: &App| app.job.as_ref().is_some_and(|j| j.label == "Planning");
     for step in 0..tc.draw(gs::integers::<usize>().min_value(12).max_value(24)) {
         wait(&mut app, |a| a.job.is_none());
@@ -989,7 +985,7 @@ fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
                 l.node = NodeId::Playlist(2);
                 app.refresh_visible();
                 app.track_state.select(Some(0));
-                let field = tc.draw(gs::sampled_from(&SORT_FIELDS[..]).print_as_debug());
+                let field = tc.draw(gs::sampled_from(&SORT_FIELDS[..]));
                 let descending = tc.draw(gs::booleans());
                 app.sort = Some(SortKey { field, descending });
                 app.refresh_visible();

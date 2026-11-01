@@ -1,6 +1,6 @@
 //! The check before a set, on what earlier properties leave to chance: the loudness item over
-//! analyses already in the store's cache, history lists against a store the drive moved on from,
-//! a packed drive given before the drive it was packed from, and a check that's cancelled.
+//! levels analyzers kept in the store already, history lists against a store the drive moved on
+//! from, a packed drive given before the drive it was packed from, and a check that's cancelled.
 
 use crate::common;
 
@@ -10,9 +10,9 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
+use locallibrary::fields::{FieldValue, Role};
 use locallibrary::pack::{self, PackOptions};
 use locallibrary::progress::Ctx;
-use locallibrary::sound::{self, Analysis, Loudness, VERSION};
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::{CancelToken, Error, paths};
@@ -21,24 +21,16 @@ fn items<'a>(r: &'a CheckReport, drive: &str, check: &str) -> Vec<(Level, &'a st
     r.items.iter().filter(|i| i.drive == drive && i.check == check).map(|i| (i.level, i.message.as_str())).collect()
 }
 
-/// An analysis whose level is `kind`: 0 fine, 1 over 0 dBTP, 2 clipped, 3 far from the rest.
-fn analysis(kind: u8) -> Analysis {
-    Analysis {
-        version: VERSION,
-        duration_secs: 120.0,
-        estimate: None,
-        loudness: Some(Loudness {
-            integrated_lufs: Some(if kind == 3 { -30.0 } else { -9.0 }),
-            range_lu: 5.0,
-            sample_peak: 0.9,
-            true_peak: if kind == 1 { 1.2 } else { 0.9 },
-            clipped_runs: u64::from(kind == 2) * 3,
-            clipped_samples: u64::from(kind == 2) * 9,
-        }),
-    }
+/// A level of `kind`, by role: 0 fine, 1 over 0 dBTP, 2 clipped, 3 far from the rest.
+fn level(kind: u8) -> [(Role, FieldValue); 3] {
+    [
+        (Role::Loudness, FieldValue::Number(if kind == 3 { -30.0 } else { -9.0 })),
+        (Role::TruePeak, FieldValue::Number(if kind == 1 { 1.6 } else { -0.9 })),
+        (Role::ClippedRuns, FieldValue::Integer(i64::from(kind == 2) * 3)),
+    ]
 }
 
-/// With analyses cached for some of a drive's tracks, the check has one `loudness` item: a
+/// With levels kept for some of a drive's tracks, the check has one `loudness` item: a
 /// warning naming exactly the tracks over 0 dBTP, clipped, or far from the rest's level (one
 /// quiet track among at least three), else fine, counting the tracks analysed; with none
 /// analysed, or no store, there's no item. A check that's cancelled stops with nothing said.
@@ -47,7 +39,7 @@ fn analysis(kind: u8) -> Analysis {
 #[hegel::explicit_test_case(kinds = vec![0u8, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4], far = None::<usize>)]
 #[hegel::explicit_test_case(kinds = vec![4u8; 12], far = None::<usize>)]
 fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
-    // Per track: its analysis's kind (as `analysis` takes it), 4 for none cached.
+    // Per track: its level's kind (as `level` takes it), 4 for none kept.
     let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(4)).min_size(12).max_size(12));
     // One analysed track much quieter than the rest.
     let far: Option<usize> = tc.draw(gs::optional(gs::integers::<usize>().max_value(11)));
@@ -55,7 +47,6 @@ fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let lib = common::library(&root);
-    let cache = sound::Cache::in_store(&store);
     let analysed: Vec<usize> = (0..lib.tracks.len()).filter(|&i| kinds.get(i).is_some_and(|k| *k < 4)).collect();
     let far = far.filter(|f| analysed.contains(f) && analysed.len() >= 3);
     let mut flagged = FxHashSet::default();
@@ -71,8 +62,7 @@ fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
         if kind > 0 {
             flagged.insert(t.id);
         }
-        let file = paths::to_fs(&root, &paths::key(&t.file_path));
-        cache.put(&sound::Cache::key(&file).unwrap(), &analysis(kind)).unwrap();
+        common::heard(&store, &root, &t.file_path, &level(kind));
     }
 
     let devices = [Device::open_export(&root).unwrap()];
@@ -83,7 +73,7 @@ fn the_loudness_item_names_the_tracks_whose_level_is_a_problem(tc: TestCase) {
         (0, _) => assert!(loudness.is_empty() && r.loudness.is_empty(), "{loudness:?}"),
         (n, 0) => {
             assert_eq!(loudness.len(), 1);
-            assert_eq!(loudness[0].0, Level::Ok);
+            assert_eq!(loudness[0].0, Level::Info);
             assert!(loudness[0].1.starts_with(&format!("none of the {n} analysed track(s)")), "{loudness:?}");
             assert!(r.loudness.is_empty());
         }
@@ -159,14 +149,14 @@ fn a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase
     let packed = items(&r, "A", "same_library");
     let [(level, message)] = packed.as_slice() else { panic!("{packed:?}") };
     assert!(message.starts_with("B is packed from A (Packed)"), "{message}");
-    assert_eq!(*level == Level::Ok, !moved_on, "{message}");
+    assert_eq!(*level == Level::Info, !moved_on, "{message}");
     if moved_on {
         assert!(message.contains("`locallibrary pack A B`"), "{message}");
     }
 
     let history = items(&r, "A", "history");
     let [(level, message)] = history.as_slice() else { panic!("{history:?}") };
-    assert_eq!(*level, Level::Ok, "{message}");
+    assert_eq!(*level, Level::Info, "{message}");
     let snapshot = message.contains("saved in snapshot");
     assert_eq!(snapshot, !moved_on, "{message}");
     if moved_on {
@@ -174,6 +164,6 @@ fn a_drive_checked_after_its_pack_and_its_history_after_it_moved_on(tc: TestCase
     }
     if copied {
         let history = items(&r, "C", "history");
-        assert_eq!(history.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Level::Ok], "{history:?}");
+        assert_eq!(history.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [Level::Info], "{history:?}");
     }
 }

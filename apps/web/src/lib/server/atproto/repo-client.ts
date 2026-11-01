@@ -1,6 +1,7 @@
 import { type Agent, type ComAtprotoRepoGetRecord, type ComAtprotoSimplespaceGetSpace, XRPCError } from '@atproto/api';
+import { cidForLex } from '@atproto/lex-cbor';
 import { lexToJson } from '@atproto/lexicon';
-import type { JsonObject } from '@atproto/lex-json';
+import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { z } from 'zod';
 
 export type JsonRecord = JsonObject;
@@ -10,6 +11,11 @@ export type RecordRef = { uri: string; cid: string };
 export type StoredRecord = { uri: string; cid: string; value: JsonRecord };
 
 export type ListedSpaceRecord = { collection: string; rkey: string; cid: string; value: JsonRecord };
+
+/** One write in an applyWrites batch to an account's own public repo, or to its repo in a space. */
+export type RepoWrite =
+	| { action: 'create' | 'update'; collection: string; rkey: string; record: JsonRecord }
+	| { action: 'delete'; collection: string; rkey: string };
 
 export type BlobJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
@@ -43,6 +49,11 @@ export interface RepoClient {
 	}): Promise<RecordRef>;
 	putSpaceRecord(input: { space: string; collection: string; rkey: string; record: JsonRecord }): Promise<RecordRef>;
 	deleteSpaceRecord(input: { space: string; collection: string; rkey: string }): Promise<void>;
+	/**
+	 * Several writes to the account's repo in a space, made all together or not at all. A create fails on a record that
+	 * exists, and an update or delete on one that doesn't.
+	 */
+	applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void>;
 	getSpaceRecord(input: {
 		space: string;
 		repo: string;
@@ -57,28 +68,41 @@ export interface RepoClient {
 		limit?: number;
 	}): Promise<{ records: ListedSpaceRecord[]; cursor?: string }>;
 	uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson>;
-	/** Personal (self-authority) simplespace management. */
-	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
-	getSpace(space: string): Promise<SimpleSpaceView | null>;
-}
-
-/** Extra operations only the root account performs. */
-export interface RootRepoClient extends RepoClient {
+	/** Records in the account's own public repo. */
 	putRecord(input: {
 		collection: string;
 		rkey: string;
 		record: JsonRecord;
 		swapRecord?: string | null;
 	}): Promise<RecordRef>;
+	/** A new record in the account's own public repo, under a fresh key: unlike putRecord, it needs no update permission. */
+	createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef>;
 	getRecord(input: { collection: string; rkey: string }): Promise<StoredRecord | null>;
+	/** Several writes to the account's own public repo, made all together or not at all. */
+	applyWrites(writes: RepoWrite[]): Promise<void>;
 	deleteRecord(input: { collection: string; rkey: string }): Promise<void>;
-	updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void>;
+	/** Simplespace management for spaces under the account's own DID. */
+	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
+	getSpace(space: string): Promise<SimpleSpaceView | null>;
+	deleteSpace(space: string): Promise<void>;
 	putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void>;
 	removeMember(input: { space: string; did: string }): Promise<void>;
 	listMembers(space: string): Promise<{ did: string; read: boolean; write: boolean }[]>;
+}
+
+/** Extra operations only the root account performs. */
+export interface RootRepoClient extends RepoClient {
+	updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void>;
 	getDelegationToken(space: string): Promise<string>;
 	/** Spaces the root holds a repo in (used to rediscover booking spaces). */
 	listSpaces(spaceType: string): Promise<string[]>;
+	/** Every record in one collection of the root's own public repo. Unlike a public read, a PDS that's down throws. */
+	listRecords(collection: string): Promise<StoredRecord[]>;
+}
+
+/** The CID a PDS gives `record` (with its `$type`) when it writes it. */
+export async function recordCid(record: JsonRecord): Promise<string> {
+	return (await cidForLex(jsonToLex(record))).toString();
 }
 
 /** The XRPC error name of a failed {@link RepoClient} call. Implementations reject with `XRPCError`. */
@@ -119,6 +143,22 @@ const jsonRecord = z.record(z.string(), z.json());
 
 const asJson = (value: AgentRecord): JsonRecord => jsonRecord.parse(lexToJson(value));
 
+/** `writes` as the `writes` of `nsid`, the applyWrites of a public repo or of a space, which take the same shape. */
+const batch = <N extends 'com.atproto.repo.applyWrites' | 'com.atproto.space.applyWrites'>(
+	nsid: N,
+	writes: RepoWrite[]
+) =>
+	writes.map((write) =>
+		write.action === 'delete'
+			? { $type: `${nsid}#delete` as const, collection: write.collection, rkey: write.rkey }
+			: {
+					$type: `${nsid}#${write.action}` as const,
+					collection: write.collection,
+					rkey: write.rkey,
+					value: write.record
+				}
+	);
+
 export class AgentRepoClient implements RepoClient {
 	constructor(
 		readonly did: string,
@@ -151,6 +191,14 @@ export class AgentRepoClient implements RepoClient {
 
 	async deleteSpaceRecord(input: { space: string; collection: string; rkey: string }) {
 		await this.agent.com.atproto.space.deleteRecord({ ...input, repo: this.did });
+	}
+
+	async applySpaceWrites(space: string, writes: RepoWrite[]) {
+		await this.agent.com.atproto.space.applyWrites({
+			space,
+			repo: this.did,
+			writes: batch('com.atproto.space.applyWrites', writes)
+		});
 	}
 
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
@@ -205,9 +253,20 @@ export class AgentRepoClient implements RepoClient {
 			throw error;
 		}
 	}
-}
 
-export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
+	async createRecord(input: { collection: string; record: JsonRecord }) {
+		const { data } = await this.agent.com.atproto.repo.createRecord({ ...input, repo: this.did });
+
+		return { uri: data.uri, cid: data.cid };
+	}
+
+	async applyWrites(writes: RepoWrite[]) {
+		await this.agent.com.atproto.repo.applyWrites({
+			repo: this.did,
+			writes: batch('com.atproto.repo.applyWrites', writes)
+		});
+	}
+
 	async putRecord(input: { collection: string; rkey: string; record: JsonRecord; swapRecord?: string | null }) {
 		const { data } = await this.agent.com.atproto.repo.putRecord({
 			repo: this.did,
@@ -222,6 +281,8 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 
 	async getRecord(input: { collection: string; rkey: string }) {
 		try {
+			// The account's own repo; callers are checked where they read (see no-direct-pds-read).
+			// ast-grep-ignore: no-direct-pds-read
 			const { data } = await this.agent.com.atproto.repo.getRecord({ repo: this.did, ...input });
 
 			return { uri: data.uri, cid: data.cid ?? '', value: asJson(data.value) };
@@ -235,8 +296,8 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		await this.agent.com.atproto.repo.deleteRecord({ repo: this.did, ...input });
 	}
 
-	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>) {
-		await this.agent.com.atproto.simplespace.updateSpace(input);
+	async deleteSpace(space: string) {
+		await this.agent.com.atproto.simplespace.deleteSpace({ space });
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }) {
@@ -259,11 +320,40 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 
 		return members;
 	}
+}
+
+export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
+	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>) {
+		await this.agent.com.atproto.simplespace.updateSpace(input);
+	}
 
 	async getDelegationToken(space: string) {
 		const { data } = await this.agent.com.atproto.space.getDelegationToken({ space });
 
 		return data.token;
+	}
+
+	async listRecords(collection: string) {
+		const records: StoredRecord[] = [];
+		let cursor: string | undefined;
+
+		do {
+			// The root's own repo; callers are checked where they read (see no-direct-pds-read).
+			// ast-grep-ignore: no-direct-pds-read
+			const { data } = await this.agent.com.atproto.repo.listRecords({
+				repo: this.did,
+				collection,
+				limit: 100,
+				cursor
+			});
+
+			records.push(
+				...data.records.map((record) => ({ uri: record.uri, cid: record.cid, value: asJson(record.value) }))
+			);
+			cursor = data.cursor;
+		} while (cursor);
+
+		return records;
 	}
 
 	async listSpaces(spaceType: string) {

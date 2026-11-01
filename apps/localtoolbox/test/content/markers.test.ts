@@ -296,6 +296,22 @@ describe('painting marks', () => {
 		expect(marksOf('/a/recycled').map((m) => m.kind)).toEqual(['downloaded']);
 	});
 
+	// The helper's own guarantee: a script taken down mid-burst leaves no pass
+	// behind to run against whatever page, or no page, comes next.
+	it('runs no pass a disposed script had still to run', async () => {
+		globalThis.chrome = createChrome({ storage: { downloaded: { '/a/late': ISO } } });
+		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');
+		const script = await loadContentScript();
+
+		document
+			.querySelector('.trackList__list')!
+			.insertAdjacentHTML('beforeend', playlistRow({ href: '/a/late?in=c/sets/p' }));
+		await flush();
+		script.dispose();
+		await vi.advanceTimersByTimeAsync(150);
+		expect(document.querySelectorAll('.tbx-mark')).toHaveLength(0);
+	});
+
 	it('paints nothing, and does not watch the page, when storage is unavailable', async () => {
 		chrome.storage.local.get.mockRejectedValue(new Error('Extension context invalidated'));
 		render(playlistPage({ rows: [playlistRow({ href: '/a/one?in=c/sets/p' })] }), '/c/sets/p');

@@ -22,7 +22,7 @@ fn with_tracks(tc: &TestCase, n: usize) -> (OneLibrary, IndexMap<u32, Track>) {
     let defaults = one.content_defaults().unwrap();
     let mut tracks = IndexMap::new();
     for i in 0..n {
-        let mut t = any_track(tc, i, None);
+        let mut t = tc.draw(any_track(i, None));
         let rec = ContentRecord::from_track(&t, !t.analyze_path.is_empty(), &defaults);
         t.id = one.add_track(&rec, &t.file_path, &t.analyze_path, None).unwrap();
         // The album artist is the album's: without an album there is none.
@@ -84,8 +84,9 @@ fn colour(tc: &TestCase) -> (String, Option<Option<TrackColor>>) {
 #[hegel::test_helper]
 fn track_fields(tc: &TestCase) -> (TrackFields, Option<Option<Option<TrackColor>>>) {
     let some = |tc: &TestCase| tc.draw(gs::weighted_booleans(0.4));
-    let name =
-        |tc: &TestCase| some(tc).then(|| if tc.draw(gs::weighted_booleans(0.2)) { " ".into() } else { field(tc) });
+    let name = |tc: &TestCase| {
+        some(tc).then(|| if tc.draw(gs::weighted_booleans(0.2)) { " ".into() } else { tc.draw(field()) })
+    };
     let colour = some(tc).then(|| colour(tc));
     let f = TrackFields {
         title: name(tc),
@@ -105,15 +106,25 @@ fn track_fields(tc: &TestCase) -> (TrackFields, Option<Option<Option<TrackColor>
         play_count: some(tc).then(|| tc.draw(gs::integers::<u16>())),
         track_number: some(tc).then(|| tc.draw(gs::integers::<u32>())),
         disc_number: some(tc).then(|| tc.draw(gs::integers::<u16>())),
+        album_artist: name(tc),
+        bpm: some(tc).then(|| tc.draw(gs::floats::<f64>().min_value(1.0).max_value(999.99))),
+        isrc: some(tc).then(|| tc.draw(gs::sampled_from(vec!["", "GBDUW0000059", "USRC17607839"])).to_string()),
+        release_date: some(tc).then(|| tc.draw(gs::sampled_from(vec!["", "2001-03-12"])).to_string()),
     };
     (f, colour.map(|c| c.1))
 }
 
 /// What `t` reads back as once `f` (whose colour means `colour`) is applied. A blank name clears
-/// its field; a new album keeps the old one's artist.
+/// its field; a new album keeps the old one's artist, and without an album there is none.
 fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
     let name = |v: &str| if v.trim().is_empty() { String::new() } else { v.to_string() };
-    for (field, value) in [(&mut t.title, &f.title), (&mut t.comment, &f.comment), (&mut t.mix_name, &f.mix_name)] {
+    for (field, value) in [
+        (&mut t.title, &f.title),
+        (&mut t.comment, &f.comment),
+        (&mut t.mix_name, &f.mix_name),
+        (&mut t.isrc, &f.isrc),
+        (&mut t.release_date, &f.release_date),
+    ] {
         if let Some(v) = value {
             *field = v.clone();
         }
@@ -126,17 +137,17 @@ fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
         (&mut t.genre, &f.genre),
         (&mut t.label, &f.label),
         (&mut t.key, &f.key),
+        (&mut t.album, &f.album),
+        (&mut t.album_artist, &f.album_artist),
     ] {
         if let Some(v) = value {
             *field = name(v);
         }
     }
-    if let Some(v) = &f.album {
-        t.album = name(v);
-        if t.album.is_empty() {
-            t.album_artist.clear();
-        }
+    if t.album.is_empty() {
+        t.album_artist.clear();
     }
+    t.bpm = f.bpm.map_or(t.bpm, |b| (b * 100.0).round() / 100.0);
     t.rating = f.rating.unwrap_or(t.rating);
     t.color = colour.unwrap_or(t.color);
     t.year = f.year.unwrap_or(t.year);
@@ -194,7 +205,7 @@ fn probes(nodes: &Nodes, names: &[&str]) -> IndexSet<(u32, String)> {
 fn nodes_are_found_by_parent_and_name(tc: TestCase) {
     const NAMES: [&str; 4] = ["Set", "Warm up", "", "Ünï"];
     let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
-    let tree = [Tree::Playlist, Tree::History][tc.draw(gs::integers::<usize>().max_value(1))];
+    let tree = tc.draw(gs::sampled_from(&[Tree::Playlist, Tree::History]));
     let name = |tc: &TestCase| tc.draw(gs::sampled_from(NAMES.to_vec())).to_string();
     let mut nodes = Nodes::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {
@@ -399,7 +410,7 @@ fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
 fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // As the drive sees itself (temporary folders can sit behind a symlink).
-    let root = dir.path().canonicalize().unwrap().join("drive");
+    let root = locallibrary::device::dunce_canonicalize(dir.path()).join("drive");
     let db = paths::to_fs(&root, paths::LIBRARY_PLUS_DB);
     std::fs::create_dir_all(db.parent().unwrap()).unwrap();
     let device = Device::open(&root).unwrap();

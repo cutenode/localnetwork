@@ -19,13 +19,19 @@
 //! * A lock, so the CLI and a running sidecar never spend the same single-use refresh token.
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
-//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`], and reading anyone's without one.
+//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]), and
+//!   deleting a set's and its recording's, with the session, which needs the [`PUBLISH_SCOPES`]
+//!   ([`PUBLISH_SET`] grants them), and uploading a set's recording, which needs
+//!   [`UPLOAD_SCOPE`]. Reading anyone's needs no session, and goes through Local Network's
+//!   directory ([`directory`]).
+//! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
+//!   [`REPORT_SCOPE`].
 //!
 //! One account is signed in at a time. Bluesky's servers end a public client's session two weeks
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
 
-mod callback;
+pub mod bug_report;
+pub mod directory;
 pub mod lexicon;
 mod net;
 pub mod repo;
@@ -34,7 +40,7 @@ pub mod store;
 use rustc_hash::FxHashMap;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -55,13 +61,16 @@ use jacquard_oauth::types::{AuthorizeOptions, CallbackParams};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub use callback::{CALLBACK_PATH, CallbackQuery, span};
+use crate::callback;
+pub use crate::callback::{CALLBACK_PATH, CallbackQuery, LONGEST_LOGIN_WAIT, span};
 use net::Http;
-pub(crate) use net::this_computer;
 use store::{AccountFile, LocalStore};
 
 use crate::error::{Action, Reason};
 use crate::export::one_line;
+/// Where the session's secrets are kept.
+pub use crate::keychain::Storage;
+use crate::net::runtime;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
@@ -71,33 +80,92 @@ pub const CLIENT_ID: &str = "https://locallibrary.localnetwork.computer/oauth-cl
 /// What signing in asks for: to know who you are, nothing more.
 pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
 
-/// What publishing asks for besides `atproto`: to create and replace the record types locallibrary
-/// writes (see [`lexicon`]), and nothing else in the account (not even deleting them, which
-/// locallibrary doesn't do). Signing in only asks for them when the DJ publishes (`account login
-/// --publish`, or a publish command that signs in again). The hosted client document has to
-/// allow them before a release asks: sign-in checks, and refuses while it doesn't.
-pub const PUBLISH_SCOPES: [&str; 3] = [
+/// The permission set publishing asks for (as `include:<nsid>`), a Lexicon in the repo's
+/// `lexicons/`. Servers show its title and detail when the DJ approves and grant the
+/// [`PUBLISH_SCOPES`] it lists in its place, so granted scopes never name it. They look it up at
+/// sign-in and on every refresh, so it has to be published first. It sits directly under
+/// `computer.localnetwork` because a set only grants records under its own NSID's group, and
+/// locallibrary's are under both `computer.localnetwork.dj` and `computer.localnetwork.locallibrary`.
+pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
+
+/// What publishing needs besides `atproto`, and what [`PUBLISH_SET`] grants: to create and replace
+/// the record types locallibrary writes (see [`lexicon`]), to delete a set's and its recording's
+/// (`sets delete` unpublishes them; a server writes all three actions as the bare
+/// `repo:<nsid>`), and nothing else in the account, and to have Local Network's directory read
+/// them again ([`directory::request_index`], a service token for that one method). The set lists
+/// each record type on its own because servers write a permission for several as
+/// `repo?collection=…`, which jacquard can't read. A set may only name `*` as an `rpc` permission's
+/// audience: servers grant `rpc:…?aud=*`, which jacquard (and so the session's
+/// [`AccountInfo::scopes`]) writes as `rpc:…`. Signing in only asks for them when the DJ publishes
+/// (`account login --publish`, or a publish command that signs in again).
+pub const PUBLISH_SCOPES: [&str; 5] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
-    "repo:computer.localnetwork.dj.set?action=create&action=update",
+    "repo:computer.localnetwork.dj.set",
+    "repo:computer.localnetwork.dj.recording",
+    "rpc:computer.localnetwork.directory.requestIndex",
 ];
 
-/// `atproto` and the publish scopes: what a sign-in that allows publishing asks for.
+/// What uploading a set's recording needs besides [`PUBLISH_SCOPES`]: to upload audio files to the
+/// account, and no other kind of file. A permission set can't grant uploads, so publishing asks for
+/// it on its own.
+pub const UPLOAD_SCOPE: &str = "blob:audio/*";
+
+/// `atproto`, [`PUBLISH_SET`] and [`UPLOAD_SCOPE`]: what a sign-in that allows publishing asks
+/// for. The hosted client document has to allow them before a release asks: sign-in checks, and
+/// refuses while it doesn't.
 pub fn publish_scopes() -> Vec<String> {
-    DEFAULT_SCOPES.iter().chain(&PUBLISH_SCOPES).map(|s| s.to_string()).collect()
+    let publishing = [format!("include:{PUBLISH_SET}"), UPLOAD_SCOPE.to_string()];
+    DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain(publishing).collect()
+}
+
+/// What filing a bug report needs besides `atproto`: to create the records a bug report is
+/// ([`lexicon::DISCUSSION`]), not to change or delete them, and nothing else in the account. Only
+/// `locallibrary bug` asks for it, signing in again when the session doesn't have it.
+pub const REPORT_SCOPE: &str = "repo:app.userinput.discussion?action=create";
+
+/// Whether the account's granted scopes (the server's, with [`PUBLISH_SET`] already replaced by
+/// what it grants) include each of `needed`. `transition:generic`, the old all-or-nothing scope
+/// (an app password's powers), includes them all.
+fn grants<E>(info: &AccountInfo, needed: impl IntoIterator<Item = std::result::Result<Scope<SmolStr>, E>>) -> bool {
+    let Ok(granted) = Scopes::new(SmolStr::new(info.scopes.join(" "))) else { return false };
+    let mut needed = needed.into_iter();
+    granted.grants(&Scope::transition_generic()) || needed.all(|s| s.is_ok_and(|s| granted.grants(&s)))
 }
 
 /// The scope a session needs to write (create and replace) records of `collection`, when the
 /// account's granted scopes don't include it. `None`: it may write them.
 pub fn missing_scope(info: &AccountInfo, collection: &str) -> Option<String> {
-    let granted = Scopes::new(SmolStr::new(info.scopes.join(" "))).ok();
-    let grants = |s: &Scope| granted.as_ref().is_some_and(|g| g.grants(s));
-    let writes = match (Scope::repo_create(collection), Scope::repo_update(collection)) {
-        (Ok(create), Ok(update)) => grants(&create) && grants(&update),
-        _ => false,
-    };
-    // `transition:generic` is the old all-or-nothing scope: an app password's powers.
-    (!writes && !grants(&Scope::transition_generic())).then(|| format!("repo:{collection}?action=create&action=update"))
+    let writes = grants(info, [Scope::repo_create(collection), Scope::repo_update(collection)]);
+    (!writes).then(|| format!("repo:{collection}?action=create&action=update"))
+}
+
+/// Whether the session may create records of `collection` (not necessarily replace them).
+pub fn may_create(info: &AccountInfo, collection: &str) -> bool {
+    grants(info, [Scope::repo_create(collection)])
+}
+
+/// Whether the session may upload a file of the type `mime` (`audio/mp4`).
+pub fn may_upload(info: &AccountInfo, mime: &str) -> bool {
+    grants(info, [Scope::parse(&format!("blob:{mime}"))])
+}
+
+/// Whether the session may delete records of `collection`.
+pub fn may_delete(info: &AccountInfo, collection: &str) -> bool {
+    grants(info, [Scope::repo_delete(collection)])
+}
+
+/// What signing `info`'s account in again asks for, so the session keeps what it may do now:
+/// `atproto`, publishing ([`PUBLISH_SET`]) when it may publish (any of the record types: a
+/// session from before the set granted one more still publishes the rest), and [`REPORT_SCOPE`]
+/// when it may file bug reports. Add what the new sign-in is for.
+pub fn kept_scopes(info: &AccountInfo) -> Vec<String> {
+    let publishes = lexicon::COLLECTIONS.iter().any(|c| missing_scope(info, c).is_none());
+    let mut kept = if publishes { publish_scopes() } else { DEFAULT_SCOPES.map(String::from).to_vec() };
+    if may_create(info, lexicon::DISCUSSION) {
+        kept.push(REPORT_SCOPE.to_string());
+    }
+    kept
 }
 
 /// How long Bluesky's servers keep a public client's session, refreshed or not.
@@ -106,33 +174,8 @@ pub const SESSION_LIMIT_DAYS: i64 = 14;
 /// How long to wait for the browser.
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// The longest the browser is waited for, whatever's asked.
-pub const LONGEST_LOGIN_WAIT: Duration = Duration::from_secs(60 * 60);
-
 /// A sign-in nobody finishes is forgotten after this.
 const PENDING_LIMIT: Duration = Duration::from_secs(15 * 60);
-
-/// Where the session's secrets are kept.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Storage {
-    /// macOS Keychain, Windows Credential Manager, or the Secret Service on Linux.
-    #[default]
-    Keychain,
-    /// `atmosphere-session.json` in the store folder, readable only by you: for computers without
-    /// a keychain (a Linux server without a desktop session).
-    File,
-}
-
-impl Storage {
-    /// `LOCALLIBRARY_SESSION_STORE=file` chooses the file.
-    pub fn from_env() -> Storage {
-        match std::env::var("LOCALLIBRARY_SESSION_STORE").as_deref() {
-            Ok("file") => Storage::File,
-            _ => Storage::Keychain,
-        }
-    }
-}
 
 /// How locallibrary introduces itself to the account's server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -206,19 +249,7 @@ impl AccountInfo {
 type Oauth = OAuthClient<JacquardResolver<Http>, LocalStore>;
 type Session = OAuthSession<JacquardResolver<Http>, LocalStore>;
 
-/// The async runtime the OAuth client runs on; everything outside this module stays synchronous.
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("atmosphere")
-            .enable_all()
-            .build()
-            .expect("start the network runtime")
-    })
-}
-
+/// Runs `f` on the network's runtime, which the OAuth client runs on.
 fn block_on<F: Future>(f: F) -> F::Output {
     runtime().block_on(f)
 }
@@ -243,7 +274,10 @@ fn oauth_error(e: OAuthError) -> Error {
 
 fn scopes(list: &[String]) -> Result<Scopes<SmolStr>> {
     let joined = if list.is_empty() { DEFAULT_SCOPES.join(" ") } else { list.join(" ") };
-    let scopes = Scopes::new(SmolStr::new(&joined)).map_err(|e| Error::invalid(format!("scopes {joined:?}: {e:?}")))?;
+    // jacquard drops a repeated scope, but not a repeated `include:`.
+    let unique: Vec<&str> = joined.split(' ').collect::<indexmap::IndexSet<_>>().into_iter().collect();
+    let scopes =
+        Scopes::new(SmolStr::new(unique.join(" "))).map_err(|e| Error::invalid(format!("scopes {joined:?}: {e:?}")))?;
     if !scopes.iter().any(|s| s.to_string() == "atproto") {
         return Err(Error::invalid("the scopes have to include `atproto`"));
     }
@@ -273,10 +307,13 @@ fn client_config(
 }
 
 /// Finding an account's servers and talking to them; with `public_only` (signing in, where the
-/// servers are whatever the handle's DID document says), only at public https addresses.
+/// servers are whatever the handle's DID document says), only at public https addresses. A handle
+/// is resolved from its own DNS or `/.well-known/atproto-did`, never by asking Bluesky's AppView,
+/// which jacquard falls back to by default.
 fn resolver(public_only: bool) -> Result<JacquardResolver<Http>> {
     let _guard = runtime().enter();
-    Ok(JacquardResolver::new(Http::new(public_only)?, ResolverOptions::default()).with_system_dns())
+    let options = ResolverOptions { public_fallback_for_handle: false, ..ResolverOptions::default() };
+    Ok(JacquardResolver::new(Http::new(public_only)?, options).with_system_dns())
 }
 
 fn oauth(store: LocalStore, config: AtprotoClientMetadata<SmolStr>, public_only: bool) -> Result<Oauth> {
@@ -390,7 +427,7 @@ pub fn begin_login(root: &Path, input: &str, options: &LoginOptions) -> Result<L
         }
         Some(Client::Loopback) => (Client::Loopback, None),
     };
-    let (listener, redirect_uri) = callback::bind()?;
+    let (listener, redirect_uri) = callback::bind(0)?;
     let config = client_config(&client, &redirect_uri, scopes(&requested)?)?;
     let store = LocalStore::new(root, options.storage, client.clone(), redirect_uri.clone(), requested.clone());
     let oauth = oauth(store, config, true)?;
@@ -707,21 +744,16 @@ async fn revoke(session: &Session) -> bool {
 
 /// The client metadata document to host at `client_id` (an HTTPS URL, conventionally ending in
 /// `/oauth-client-metadata.json`) for [`Client::Hosted`]. Servers then show its host as the app's
-/// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`, the
-/// [`PUBLISH_SCOPES`], and `extra`.
+/// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`,
+/// [`PUBLISH_SET`], [`REPORT_SCOPE`], and `extra`.
 pub fn client_metadata(client_id: &str, extra: &[String]) -> Result<serde_json::Value> {
     let url = uri(client_id)?;
     if url.scheme().as_str() != "https" {
         return Err(Error::invalid(format!("a hosted client ID is an https:// URL, not {client_id:?}")));
     }
     let host = url.authority().map(|a| a.host().to_string()).unwrap_or_default();
-    let mut all = publish_scopes();
-    for s in extra {
-        if !all.contains(s) {
-            all.push(s.clone());
-        }
-    }
-    let scope = self::scopes(&all)?.to_normalized_string();
+    let scope =
+        self::scopes(&[publish_scopes(), vec![REPORT_SCOPE.into()], extra.to_vec()].concat())?.to_normalized_string();
     Ok(serde_json::json!({
         "client_id": client_id,
         "client_name": "locallibrary",

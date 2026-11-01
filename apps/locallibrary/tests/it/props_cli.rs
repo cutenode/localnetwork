@@ -20,7 +20,7 @@ use crate::support::{Env, Run, path};
 #[hegel::test_helper]
 fn fill(tc: &TestCase, fx: &Env, words: &[&str]) -> Vec<String> {
     let a = path(&fx.volumes.join("A")).to_string();
-    let pick = |options: &[&str]| options[tc.draw(gs::integers::<usize>().max_value(options.len() - 1))].to_string();
+    let pick = |options: &[&str]| tc.draw(gs::sampled_from(options)).to_string();
     words
         .iter()
         .map(|w| match *w {
@@ -209,6 +209,7 @@ const READS: &[&[&str]] = &[
     &["profile", "sections"],
     &["profile", "default-sections"],
     &["settings", "base"],
+    &["settings", "export"],
     &["sets", "played", "demo"],
     &["store", "gc", "--dry-run"],
     &["store", "prune", "--keep-last", "1", "--dry-run"],
@@ -264,6 +265,7 @@ const READS: &[&[&str]] = &[
     &["plays", "export", "@d", "HISTORY 001", "-o", "@o"],
     &["art", "get", "@d", "@t", "-o", "@o"],
     &["sets", "export", "last"],
+    &["settings", "export", "@o"],
 ];
 
 /// Reads, every one of them with any arguments and flags, keep the output contract and leave
@@ -704,10 +706,11 @@ fn every_command_has_help_and_usage_errors(tc: TestCase) {
     assert!([1, 2].contains(&r.code), "{args:?}\n{said}");
     let mut words: BTreeSet<String> = top_commands.iter().cloned().collect();
     words.extend(sub.iter().cloned());
-    // And the aliases the help shows: `[alias: ls]`, `[aliases: a, b]`.
+    // And the aliases the help shows: `[alias: ls]`, `[aliases: a, b]`, wrapped onto the next line
+    // after a long description.
     for part in r_help.split("[alias").skip(1) {
-        let names = part.split_once(": ").map_or("", |(_, n)| n).split(']').next().unwrap_or("");
-        words.extend(names.split(", ").map(str::to_string));
+        let names = part.split_once(':').map_or("", |(_, n)| n).split(']').next().unwrap_or("");
+        words.extend(names.split(',').map(|name| name.trim().to_string()));
     }
     // Suggestions are quoted 'like this' (clap) or `locallibrary like this`.
     let quoted: Vec<&str> = said.split(['\'', '`']).skip(1).step_by(2).collect();
@@ -774,7 +777,7 @@ fn published_records_are_what_was_planned(tc: TestCase) {
     use crate::mock_pds::MockPds;
     use crate::support::account::{DID, PUBLISHING, sign_in};
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     sign_in(&fx.store, &pds.url, &PUBLISHING, serde_json::json!({}));
     // Records written: the server turns away the first write of a session to hand out a DPoP
     // nonce, and accepts the ones that carry it.

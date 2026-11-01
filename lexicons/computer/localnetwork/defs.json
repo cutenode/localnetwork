@@ -61,7 +61,16 @@
 					"description": "Year the project started playing out."
 				},
 				"capacity": { "type": "ref", "ref": "#capacity" },
-				"fee": { "type": "ref", "ref": "#fee" },
+				"fees": {
+					"type": "array",
+					"description": "The project's fee levels, like one per kind of booking. Each tier counts for budget matching.",
+					"items": { "type": "ref", "ref": "#fee" }
+				},
+				"fee": {
+					"type": "ref",
+					"ref": "#fee",
+					"description": "Deprecated: use fees. Records written before fees existed carry their one fee level here."
+				},
 				"links": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#link" } },
 				"mixes": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#mix" } },
 				"highlights": {
@@ -145,8 +154,15 @@
 		},
 		"fee": {
 			"type": "object",
+			"description": "One fee level: a tier, and optionally what it covers and an amount range.",
 			"required": ["tier"],
 			"properties": {
+				"label": {
+					"type": "string",
+					"maxLength": 640,
+					"maxGraphemes": 64,
+					"description": "What this level covers, like club nights, festivals, or private events."
+				},
 				"tier": {
 					"type": "string",
 					"maxLength": 32,
@@ -195,6 +211,16 @@
 					"accept": ["application/json"],
 					"maxSize": 1000000,
 					"description": "A mix report exported by locallibrary (format locallibrary.mix-report, version 1 or 2): which tracks the mix plays, when, at what tempo and key, and how they were mixed. Validated before it is published or shown."
+				},
+				"set": {
+					"type": "ref",
+					"ref": "com.atproto.repo.strongRef",
+					"description": "The set this mix is a recording of: a computer.localnetwork.dj.set record in a manager's own repo (locallibrary publishes them). The CID pins the version that was linked; the set can change after."
+				},
+				"recording": {
+					"type": "ref",
+					"ref": "com.atproto.repo.strongRef",
+					"description": "The record where the mix can be played: an fm.plyr.track in a manager's own repo, for a mix whose url is that track on plyr.fm. Players play it where they can, and url stays the mix's link."
 				}
 			}
 		},

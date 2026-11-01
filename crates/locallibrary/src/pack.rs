@@ -250,7 +250,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     };
     for t in libraries.iter().flat_map(|l| l.tracks.iter()) {
         add(&paths::key(&t.file_path), &src_tree, &mut wanted);
-        for k in crate::clean::analysis_files(&t.analyze_path, &src_tree) {
+        for k in crate::track_files::analysis_files(&t.analyze_path, &src_tree) {
             add(&k, &src_tree, &mut wanted);
         }
         if let Some(a) = &t.artwork_path {
@@ -311,6 +311,9 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         ));
     }
     warnings.extend(edit::journal::forget_warning(target, None, "packing"));
+    if databases.plus.is_some() {
+        warnings.extend(crate::player::no_name_note(target));
+    }
     let transcode_bytes: u64 = made.transcodes.iter().filter(|t| !t.current).map(|t| t.size).sum();
     if !written.fits {
         warnings.push(format!(
@@ -364,7 +367,7 @@ pub(crate) fn unsaved(
     }
     // History lists by name and tracks (as files), as `plays` tells them apart.
     let files = |tracks: &mut dyn Iterator<Item = &crate::model::Track>| -> Vec<String> {
-        tracks.map(|t| paths::key(&t.file_path).to_lowercase()).collect()
+        tracks.map(|t| paths::file_key(&t.file_path)).collect()
     };
     let mut written: FxHashSet<(String, Vec<String>)> = FxHashSet::default();
     for lib in kept {

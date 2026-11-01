@@ -1,24 +1,28 @@
 //! Changing the drive from the player, always opt-in: an actions menu (`e`, or right-click) for
-//! the marked or selected tracks, the playlist in view and the crate; the prompts and playlist
-//! picking some actions need; and the job every write goes through: plan it in the background,
-//! show the plan and wait for a yes, apply exactly that plan (the library backs the drive up
-//! first, and refuses if the drive changed since), then read the drive again, keeping the view.
-//! Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and track edits show
-//! in detail.
+//! the marked or selected tracks, the playlist in view and the crate (plugins' commands and
+//! operations for tracks or a playlist last);
+//! the prompts and playlist picking some actions need; and the job every write goes through: plan
+//! it in the background, show the plan and wait for a yes, apply exactly that plan (the library
+//! backs the drive up first, and refuses if the drive changed since), then read the drive again,
+//! keeping the view. Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and
+//! track edits show in detail.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, EditRequest};
+use locallibrary::collection_export::{CollectionExportOptions, CollectionExportPlan};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
+use locallibrary::plugin::PluginExport;
 use locallibrary::progress::{Event, Phase, Progress};
 use locallibrary::query::{SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
+use loclib_plugin::Where;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
@@ -26,6 +30,7 @@ use super::app::{App, Focus, Level, Msg, View, edit_line};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
 use super::keymap::{self, Act};
+use crate::output::plural;
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -118,6 +123,10 @@ pub enum Action {
     Restore,
     /// Give the tracks a My Tag, or take one off.
     Tag,
+    /// A plugin's command or operation, by the plugin's id and its name.
+    Plugin(&'static str, &'static str),
+    /// Fetch what plugins' providers of a kind find for the tracks.
+    Fetch(loclib_plugin::ProviderKind),
 }
 
 /// What an action works on, captured when the menu opens so moving about afterwards (picking a
@@ -260,8 +269,25 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             Action::Restore,
             stale.clone(),
         ),
-        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale),
+        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
     ]
+    .into_iter()
+    .chain(super::plugins::offered(true, &[Where::Track, Where::Playlist]).into_iter().map(|o| {
+        // What it works on here: the tracks, or the playlist (not a folder).
+        let on_tracks = o.offered.contains(&Where::Track) && !t.tracks.is_empty();
+        let on_list = o.offered.contains(&Where::Playlist) && t.node.as_ref().is_some_and(|(_, folder)| !folder);
+        let nothing = match o.offered.contains(&Where::Track) {
+            true => "no track selected",
+            false => "select a playlist",
+        };
+        let unavailable = stale.clone().or(o.unavailable).or(because(!on_tracks && !on_list, nothing));
+        item("", o.label, Action::Plugin(o.plugin, o.name), unavailable)
+    }))
+    .chain(super::plugins::providers::fetches(true).into_iter().map(|(kind, label, _, why)| {
+        let unavailable = stale.clone().or(why).or(because(t.tracks.is_empty(), "no track selected"));
+        item("", label, Action::Fetch(kind), unavailable)
+    }))
+    .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -298,10 +324,6 @@ pub enum PromptFor {
     ExportList {
         list: super::drives::ExportOf,
     },
-    /// Where to write rekordbox XML (of these playlists, all when empty).
-    ExportXml {
-        only: Vec<String>,
-    },
     /// Where the playlist a rule fills goes.
     SmartRule {
         filter: String,
@@ -336,6 +358,11 @@ impl Confirm {
         self.plan.as_any().downcast_ref::<Planned<EditPlan>>().map(|p| &p.plan)
     }
 
+    /// The plan, when it's a plugin's export (shown in detail).
+    pub fn export(&self) -> Option<&Planned<PluginExport>> {
+        self.plan.as_any().downcast_ref::<Planned<PluginExport>>()
+    }
+
     /// The plan, when it's undoing (shown in detail).
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
@@ -345,7 +372,7 @@ impl Confirm {
 /// What applying a plan came to.
 pub struct Applied {
     /// The plan's operation: `edit`, `pack`...
-    pub operation: &'static str,
+    pub operation: String,
     /// Its report, as `*.apply` answers over RPC.
     pub report: serde_json::Value,
 }
@@ -361,8 +388,10 @@ pub enum Modal {
     Ask(String, Box<dyn FnOnce(&mut App)>),
     /// A list to choose from by typing: the command palette, or an answer an action needs.
     Pick(super::palette::Picker),
-    /// Results to read (a check's).
+    /// Results to read (a check's, a plugin's command's).
     Report(Report),
+    /// A plugin's params to fill in.
+    Form(super::form::Form),
 }
 
 /// Choosing the playlist to add tracks to, in the sidebar tree.
@@ -423,6 +452,8 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Delete => "deleting files",
         Phase::Verify => "verifying",
         Phase::Format => "formatting",
+        Phase::Analyze => "analyzing",
+        Phase::Upload => "uploading",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }
@@ -461,14 +492,33 @@ pub struct Wording {
     pub ask: String,
     pub yes: &'static str,
     pub who: String,
-    pub what: &'static str,
+    pub what: String,
     pub doing: String,
 }
 
 pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
+    // A plugin's export writes files on this computer: overwriting any is the question.
+    if let Some(e) = plan.as_any().downcast_ref::<Planned<PluginExport>>() {
+        let (ask, yes) = match e.plan.files.iter().filter(|f| f.exists).count() {
+            0 => (format!("Write {}?", plural(e.plan.files.len(), "file")), "write"),
+            n => (format!("Overwrite {}?", plural(n, "file")), "overwrite"),
+        };
+        let who = e.plan.output.display().to_string();
+        return Wording { ask, yes, who, what: "export".into(), doing: "Exporting".into() };
+    }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
-    let w = |ask: String, yes, what, doing: String| Wording { ask, yes, who: who.clone(), what, doing };
+    // Building a drive from a plugin's library source: the only collection export the player plans.
+    if let Some(b) = plan.as_any().downcast_ref::<Planned<CollectionExportPlan, CollectionExportOptions>>() {
+        let ask = match b.plan.replaces_library {
+            true => format!("Replace the library on {drive} with {}?", b.plan.what()),
+            false => format!("Build {drive} from {}?", b.plan.what()),
+        };
+        let what = "build it from a library source".into();
+        return Wording { ask, yes: "build", who, what, doing: format!("Building {drive}") };
+    }
+    let w =
+        |ask: String, yes, what: &str, doing: String| Wording { ask, yes, who: who.clone(), what: what.into(), doing };
     match plan.operation() {
         "pull" => w(
             format!("Save {drive} in the store?"),
@@ -654,6 +704,7 @@ impl App {
                 }
             },
             Modal::Pick(p) => self.on_picker_key(p, key),
+            Modal::Form(f) => self.on_form_key(f, key),
             Modal::Report(mut r) => {
                 r.scroll = match key.code {
                     KeyCode::Up | KeyCode::Char('k') => r.scroll.saturating_sub(1),
@@ -822,6 +873,8 @@ impl App {
             Action::Replay => self.replay(t.root.clone()),
             Action::Tag => self.tag_tracks(),
             Action::Restore => self.restore_playlist(t.root.clone()),
+            Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
+            Action::Fetch(kind) => self.fetch_form(kind, Some(t.root.clone()), Some(&t)),
             Action::RatingMenu | Action::ColourMenu => {}
         }
     }
@@ -849,13 +902,7 @@ impl App {
                 None => None,
             },
             PromptFor::ExportList { list } => {
-                let what = super::drives::Export::List(list.clone());
-                self.write_export(p.root, &p.text, what);
-                return;
-            }
-            PromptFor::ExportXml { only } => {
-                let what = super::drives::Export::Xml(only.clone());
-                self.write_export(p.root, &p.text, what);
+                self.write_export(p.root, &p.text, list.clone());
                 return;
             }
             PromptFor::NewTag { tracks } => {
@@ -1029,8 +1076,7 @@ impl App {
             self.toast(msg, Level::Info);
             return;
         }
-        if self.loaded.as_ref().is_some_and(|l| l.stale && l.root() == root) {
-            self.toast("the drive was unplugged", Level::Error);
+        if self.unplugged(&root) {
             return;
         }
         let id = self.next_id();
@@ -1059,9 +1105,29 @@ impl App {
         };
         self.spawn_or(job, move |e| Msg::Planned { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
+    /// Whether the drive at `root` was unplugged since it was opened: said, as nothing's planned
+    /// on it then.
+    pub(super) fn unplugged(&mut self, root: &Path) -> bool {
+        let gone = self.loaded.as_ref().is_some_and(|l| l.stale && l.root() == root);
+        if gone {
+            self.toast("the drive was unplugged", Level::Error);
+        }
+        gone
+    }
+
     /// Run `make` in the background (something that changes nothing, like a check), with its
     /// progress in the header and esc to stop it; what it hands back finishes on the UI thread.
     pub(super) fn task(&mut self, label: String, make: impl FnOnce(&Ctx<'_>) -> Result<Done, Error> + Send + 'static) {
+        self.task_showing(label, |ctx, _| make(ctx));
+    }
+
+    /// [`App::task`], `make` handing the UI thread what to show as it goes (rows as they come),
+    /// while the task is still the one running.
+    pub(super) fn task_showing(
+        &mut self,
+        label: String,
+        make: impl FnOnce(&Ctx<'_>, &dyn Fn(Done)) -> Result<Done, Error> + Send + 'static,
+    ) {
         if let Some(j) = &self.job {
             let msg = format!("wait for {} to finish", j.label.to_lowercase());
             self.toast(msg, Level::Info);
@@ -1082,9 +1148,13 @@ impl App {
         });
         let tx = self.sender();
         let job = move || {
+            let shown = tx.clone();
+            let show = move |update| {
+                let _ = shown.send(Msg::Shown { job: id, update });
+            };
             let reporter = Reporter::new(tx, id, cancel.clone(), cancel.clone());
             let ctx = Ctx::new(&reporter, cancel);
-            Msg::Done { job: id, result: make(&ctx) }
+            Msg::Done { job: id, result: make(&ctx, &show) }
         };
         self.spawn_or(job, move |e| Msg::Done { job: id, result: Err(Error::Invalid(e)) });
     }
@@ -1113,12 +1183,19 @@ impl App {
             return; // cancelled
         }
         let after = self.job.take().and_then(|j| j.after);
+        self.planned(root, after, result);
+    }
+
+    /// A plan made for the drive at `root` (`after`: what comes once it's applied): confirmed, or
+    /// said when there's nothing to do or it failed.
+    pub(super) fn planned(&mut self, root: PathBuf, after: Option<After>, result: Result<Box<dyn AnyPlanned>, Error>) {
         let drive = self.drive_label(&root);
         match result {
             Ok(plan) if plan.is_noop() => {
                 let msg = match (plan.operation(), plan.warnings().first()) {
                     ("undo", _) => format!("nothing to undo on {drive}: it's as its last backup left it"),
                     ("pull", _) => plan.summary().first().cloned().unwrap_or_else(|| "saved already".into()),
+                    _ if plan.as_any().is::<Planned<PluginExport>>() => "nothing to write".into(),
                     (_, Some(w)) => format!("nothing to change: {w}"),
                     (_, None) => "nothing to change".into(),
                 };
@@ -1175,15 +1252,15 @@ impl App {
                 Err(Error::Cancelled)
             } else {
                 let store = locallibrary::Store::open(&store_root).ok();
-                let operation = plan.operation();
-                plan.apply_json(store.as_ref(), &ctx).map(|report| Applied { operation, report })
+                let operation = plan.operation().to_string();
+                plan.apply_json(store.as_ref(), &ctx).map(|report| Box::new(Applied { operation, report }))
             };
             Msg::Applied { job: id, root, result }
         };
         self.spawn_or(job, move |e| Msg::Applied { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
 
-    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Applied, Error>) {
+    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Box<Applied>, Error>) {
         let (touched, after) = match self.job.take_if(|j| j.id == job) {
             Some(j) => (j.touched, j.after),
             None => (Vec::new(), None),
@@ -1195,8 +1272,8 @@ impl App {
         {
             self.last_backup = Some(self.drive_at(root.clone()));
         }
-        match result {
-            Ok(Applied { operation: "pull", report }) => {
+        match result.map(|a| *a) {
+            Ok(Applied { operation, report }) if operation == "pull" => {
                 let lib = report["library"].as_str().unwrap_or("its library");
                 let snap = report["snapshot"]["short_id"].as_str().map(|s| &s[..8.min(s.len())]).unwrap_or("");
                 let msg = if report["up_to_date"].as_bool() == Some(true) {
@@ -1214,14 +1291,14 @@ impl App {
                 self.refresh_status();
                 self.history = None;
             }
-            Ok(Applied { operation: "eject", report }) => {
+            Ok(Applied { operation, report }) if operation == "eject" => {
                 let off = report.as_array().is_some_and(|r| r.iter().all(|e| e["powered_off"].as_bool() == Some(true)));
                 let msg =
                     if off { format!("ejected {drive}: it can be unplugged") } else { format!("unmounted {drive}") };
                 self.toast(msg, Level::Info);
                 self.refresh_drives();
             }
-            Ok(Applied { operation: "sync.group", report }) => {
+            Ok(Applied { operation, report }) if operation == "sync.group" => {
                 let results = report.as_array().cloned().unwrap_or_default();
                 let failed: Vec<String> = (results.iter())
                     .filter(|r| !r["error"].is_null())
@@ -1243,7 +1320,7 @@ impl App {
                 }
                 self.refresh_status();
             }
-            Ok(Applied { operation: "tags", report }) => {
+            Ok(Applied { operation, report }) if operation == "tags" => {
                 let n = report["tracks_changed"].as_u64().unwrap_or(0);
                 let mut msg = format!("My Tags changed on {n} track{} on {drive}", if n == 1 { "" } else { "s" });
                 if report["backup"].is_string() {
@@ -1251,7 +1328,7 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
             }
-            Ok(Applied { operation: "pack", report }) => {
+            Ok(Applied { operation, report }) if operation == "pack" => {
                 let copied = report["copied"].as_u64().unwrap_or(0);
                 let bytes = report["copied_bytes"].as_u64().unwrap_or(0);
                 let mut msg = format!(
@@ -1265,7 +1342,28 @@ impl App {
                 self.toast(msg, Level::Info);
                 self.refresh_status();
             }
-            Ok(Applied { operation: "undo", report }) => {
+            Ok(Applied { operation, report }) if super::plugins::planned_by(&operation, true).is_some() => {
+                let by = super::plugins::planned_by(&operation, true).unwrap_or_default();
+                let n = report["files"].as_array().map_or(0, Vec::len);
+                let mut msg = format!("{by}: {} written", plural(n, "file"));
+                if let Some(w) = report["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str()) {
+                    msg.push_str(&format!(" · {w}"));
+                }
+                self.toast(msg, Level::Info);
+            }
+            Ok(Applied { operation, report }) if super::plugins::importers::imported_by(&operation).is_some() => {
+                let by = super::plugins::importers::imported_by(&operation).unwrap_or_default();
+                let changes = report["edits"]["changes"].as_u64().unwrap_or(0) as usize;
+                let sessions = report["sessions"].as_array().map_or(0, Vec::len);
+                let mut msg =
+                    format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "session"));
+                if report["edits"]["backup"].is_string() {
+                    self.last_backup = Some(self.drive_at(root.clone()));
+                    msg.push_str(" · u to undo");
+                }
+                self.toast(msg, Level::Info);
+            }
+            Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");
                 let why = report["reason"].as_str().unwrap_or("a change");
                 self.toast(format!("undone on {drive}: put back the backup ({why}, {when})"), Level::Info);

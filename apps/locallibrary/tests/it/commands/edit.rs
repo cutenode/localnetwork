@@ -78,10 +78,13 @@ fn playlist_command_lines_that_dont_say_enough_are_refused() {
     assert!(err.contains("no playlist \"nope\""), "{err}");
     let err = env.fails(2, &["playlist", "lss"]);
     assert!(err.contains("did you mean `locallibrary playlist ls`"), "{err}");
-    let err = env.fails(1, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0=1"]);
-    assert!(err.contains("--choose takes ENTRY=TRACK"), "{err}");
+    let err = env.fails(2, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0"]);
+    assert!(err.contains("--choose takes PARAM=VALUE, not \"0\""), "{err}");
 }
 
+/// The tracklist plugin's `import`, where locallibrary's own was: an entry that could be one of
+/// several tracks is asked about first (without a terminal, refused saying how to answer), then
+/// the plan says what it found and the entries the drive doesn't have, asked about like any edit.
 #[test]
 fn a_tracklist_is_imported_as_a_playlist() {
     let env = Env::ascii();
@@ -91,13 +94,17 @@ fn a_tracklist_is_imported_as_a_playlist() {
     // Found, two tracks called "In Charge", and one the drive doesn't have.
     std::fs::write(&list, "[a]pendics.shuffle - Deluxe Cynic\nIn Charge\nNobody - Nothing\n").unwrap();
     let import = ["playlist", "import", d, path(&list), "--into", "Imported"];
-    let out = env.ok(&[&["--yes"], &import[..]].concat());
+    let asked = env.fails(2, &[&["--yes"], &import[..]].concat());
+    assert!(asked.contains("2. In Charge: answer with --choose 2=VALUE, VALUE one of:"), "{asked}");
+    assert!(asked.contains("#2 [a]pendics.shuffle - A2 - In Charge"), "{asked}");
+    assert!(asked.contains("  null  leave it out"), "{asked}");
+    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=null"]].concat());
     assert!(out.contains("list.txt: 3 entr(ies) as Text: 1 found, 1 ambiguous, 1 missing"), "{out}");
-    assert!(out.contains("   2. In Charge could be:\n         #2  [a]pendics.shuffle - A2 - In Charge\n"), "{out}");
-    assert!(out.contains("  ?   3. Nobody - Nothing"), "{out}");
-    assert!(out.contains("Settle ambiguous entries with --choose ENTRY=TRACK"), "{out}");
+    assert!(out.contains("! 2. In Charge: left out\n"), "{out}");
+    assert!(out.contains("! 3. Nobody - Nothing isn't on the drive\n"), "{out}");
     assert!(out.contains("    + Imported\n"), "{out}");
-    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=#2", "--append"]].concat());
+    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=2", "--append"]].concat());
+    assert!(out.contains("list.txt: 3 entr(ies) as Text: 2 found, 0 ambiguous, 1 missing"), "{out}");
     assert!(out.contains("    ~ Imported +1, 1 -> 3 entries"), "{out}");
 
     // Not made without a terminal or --yes.
@@ -129,11 +136,14 @@ fn tracks_are_shown_matched_changed_replaced_and_deleted() {
     let fields = ["--rating", "5", "--colour", "red", "--genre", "Deep", "--title", "T", "--artist", "A"];
     let more = ["--album-name", "Al", "--label", "La", "--key", "8A", "--remixer", "R", "--comment", "C"];
     let rest = ["--mix", "Extended Mix", "--year", "2020", "--play-count", "3"];
-    let out = env.ok(&[&["--yes", "track", "set", d, "--track", "1"][..], &fields, &more, &rest].concat());
+    let newer = ["--album-artist", "AA", "--bpm", "126.5", "--isrc", "GBDUW0000059", "--release-date", "2020-01-02"];
+    let out = env.ok(&[&["--yes", "track", "set", d, "--track", "1"][..], &fields, &more, &rest, &newer].concat());
     assert!(out.contains(r#"  - set title "T", artist "A", album "Al", genre "Deep", label "La", key "8A""#), "{out}");
     assert!(out.contains("    ~ 1 track(s) changed"), "{out}");
     let v = &env.json(&["tracks", d, "--filter", "genre:Deep"])["tracks"][0];
     assert_eq!((&v["title"], &v["rating"], &v["year"]), (&"T".into(), &5.into(), &2020.into()), "{v}");
+    let newer = (&v["album_artist"], &v["bpm"], &v["isrc"], &v["release_date"]);
+    assert_eq!(newer, (&"AA".into(), &126.5.into(), &"GBDUW0000059".into(), &"2020-01-02".into()), "{v}");
 
     let out = env.ok(&["--yes", "track", "replace", d, "11", "9", "--keep-duplicate"]);
     assert!(out.contains("  - replace [A]pendics.Shuffle - Your Moves (Losoul's High Tide Remix) with"), "{out}");
@@ -283,7 +293,7 @@ fn relocate_points_at_moved_files_and_lists_the_ones_it_cant_tell_apart() {
     let out = env.ok(&["track", "relocate", d, "--look-in", path(&music), "--dry-run"]);
     assert!(out.contains("~ Loopmasters - Demo Track 1  now Contents/Moved/Demo Track 1.mp3"), "{out}");
     assert!(out.contains("? Loopmasters - Demo Track 2  more than one file fits"), "{out}");
-    assert!(out.contains(&format!("{}  ", music.join("a/Demo Track 2.mp3").display())), "{out}");
+    assert!(out.contains(&format!("{}  ", music.join("a").join("Demo Track 2.mp3").display())), "{out}");
     let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
     assert!(out.contains("relocated 1 track(s)"), "{out}");
     let v = env.json(&["track", "relocate", d, "--look-in", path(&music)]);
@@ -296,7 +306,8 @@ fn relocate_points_at_moved_files_and_lists_the_ones_it_cant_tell_apart() {
     // With one copy left in the folder, that one is copied back.
     std::fs::remove_dir_all(music.join("b")).unwrap();
     let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
-    let copied = format!("+ Loopmasters - Demo Track 2  copied from {}", music.join("a/Demo Track 2.mp3").display());
+    let copied =
+        format!("+ Loopmasters - Demo Track 2  copied from {}", music.join("a").join("Demo Track 2.mp3").display());
     assert!(out.contains(&copied) && out.contains("relocated 1 track(s)"), "{out}");
     std::fs::remove_file(demo.join("Contents/Moved/Demo Track 1.mp3")).unwrap();
     let out = env.ok(&["track", "relocate", d]);

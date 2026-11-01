@@ -1,10 +1,9 @@
 //! Property tests of the `locallibrary rpc` sidecar against the contract it publishes
-//! (docs/rpc/schema.json): every line it's sent, garbage included, gets the answer the protocol
-//! promises, in the shapes the contract gives; a read asked twice answers the same; and changes
-//! to the store made through it agree with a model.
+//! (`rpc.describe`, docs/rpc/schema.json): every line it's sent, garbage included, gets the
+//! answer the protocol promises, in the shapes the contract gives; a read asked twice answers
+//! the same; and changes to the store made through it agree with a model.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::process::Stdio;
 use std::sync::OnceLock;
 
@@ -16,12 +15,16 @@ use serde_json::{Map, Value, json};
 use crate::schema;
 use crate::support::{Env, Rpc, path};
 
-/// The contract the sidecar publishes.
+/// The contract the sidecar publishes, as this build's `rpc.describe` answers it: in the default
+/// build that's docs/rpc/schema.json (`the_contract_in_docs_is_current` checks), and a build
+/// without a feature leaves out its methods (`sets.lookup` without `account`).
 pub(crate) fn contract() -> &'static Value {
     static CONTRACT: OnceLock<Value> = OnceLock::new();
     CONTRACT.get_or_init(|| {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json");
-        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap()
+        let describe = json!({"jsonrpc": "2.0", "id": 0, "method": "rpc.describe"}).to_string().into_bytes();
+        let (mut out, clean) = run_batch(&Env::new(), &[describe]);
+        assert!(clean && out.len() == 1, "rpc.describe: {out:?}");
+        out[0]["result"].take()
     })
 }
 
@@ -68,13 +71,17 @@ fn the_schema_checker_tells_right_from_wrong() {
 }
 
 /// Methods left out of random calls: they reach servers on the internet (the account,
-/// publishing, firmware), touch this machine's disks (formatting, ejecting, fsck), take minutes
-/// (mix identification, the analysis benchmark), are only for tests, or end the session.
+/// publishing, firmware, the providers locallibrary ships) or another computer (`store.fetch`),
+/// touch this machine's disks (formatting, ejecting, fsck), take minutes (mix identification, the
+/// analysis benchmark) or run until cancelled (`store.serve`), are only for tests, or end the
+/// session.
 pub(crate) fn excluded(m: &str) -> bool {
     let prefixes = ["account.", "firmware.", "format.", "provision.", "prep.", "drive.eject", "mix.", "$/test."];
     prefixes.iter().any(|p| m.starts_with(p))
         || m.contains("publish")
-        || ["drive.fsck", "drive.repair", "disks.list", "shutdown", "analysis.bench"].contains(&m)
+        || ["drive.fsck", "drive.repair", "disks.list", "shutdown", "analysis.bench", "store.serve", "store.fetch"]
+            .contains(&m)
+        || m == "plugins.provide"
 }
 
 /// A string for a parameter, by its name: what such a parameter names in the fixture, or
@@ -84,7 +91,7 @@ fn string_for(tc: &TestCase, fx: &Env, key: &str, format: Option<&str>) -> Strin
     let a = path(&fx.volumes.join("A")).to_string();
     let club = path(&fx.volumes.join("Club")).to_string();
     let outside = |name: &str| path(&fx.home(name)).to_string();
-    let pick = |options: Vec<String>| options[tc.draw(gs::integers::<usize>().max_value(options.len() - 1))].clone();
+    let pick = |options: Vec<String>| tc.draw(gs::sampled_from(options));
     match format {
         Some("date") => return pick(vec!["2026-10-03".into(), "2099-01-01".into(), "not a day".into()]),
         Some("date-time") => return pick(vec!["2026-10-03T21:00:00Z".into(), "yesterday".into()]),
@@ -105,7 +112,8 @@ fn string_for(tc: &TestCase, fx: &Env, key: &str, format: Option<&str>) -> Strin
         "plan_id" => pick(s(&["", "0", "no-such-plan"])),
         "method" => pick(s(&["tracks.query", "drive.adopt", "nope"])),
         "path" | "output" | "file" | "to" | "db" | "image" | "dir" | "files" | "look_in" => {
-            pick(vec![outside("out.txt"), outside("missing.mp3"), a, "relative.txt".into(), String::new()])
+            let settings = outside("settings.json");
+            pick(vec![outside("out.txt"), outside("missing.mp3"), settings, a, "relative.txt".into(), String::new()])
         }
         "name" | "title" | "label" | "message" | "headline" | "venue" | "city" => {
             pick(s(&["Friday", "Ünïcödé 日本", "", " padded ", "Main"]))
@@ -134,7 +142,7 @@ pub(crate) fn params_for(tc: &TestCase, fx: &Env, m: &Value) -> (Value, bool) {
         return (value_for(tc, fx, &m["params"]), true);
     }
     let wrong = [json!(7), json!("drive"), json!(true)];
-    (wrong[tc.draw(gs::integers::<usize>().max_value(2))].clone(), false)
+    (tc.draw(gs::sampled_from(&wrong[..])), false)
 }
 
 /// The sidecar's output for `lines`, sent at once before its input closes, and whether it
@@ -198,16 +206,14 @@ fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
                 (junk.to_vec(), Sent::Unanswerable)
             }
             1 => {
-                let bad_id =
-                    [json!({}), json!([1]), json!(true)][tc.draw(gs::integers::<usize>().max_value(2))].clone();
+                let bad_id = tc.draw(gs::sampled_from(&[json!({}), json!([1]), json!(true)][..]));
                 (
                     json!({"jsonrpc": "2.0", "id": bad_id, "method": "version"}).to_string().into_bytes(),
                     Sent::Unanswerable,
                 )
             }
             2 => {
-                let m =
-                    [Value::Null, json!(3), json!(["version"])][tc.draw(gs::integers::<usize>().max_value(2))].clone();
+                let m = tc.draw(gs::sampled_from(&[Value::Null, json!(3), json!(["version"])][..]));
                 let line = json!({"jsonrpc": "2.0", "id": id, "method": m}).to_string().into_bytes();
                 (line, Sent::NoMethod { id })
             }
@@ -221,11 +227,11 @@ fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
                 (line, Sent::Request { id, method: None, refused: true })
             }
             _ => {
-                let m = methods[tc.draw(gs::integers::<usize>().max_value(methods.len() - 1))];
+                let m = tc.draw(gs::sampled_from(&methods[..]));
                 let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
                 let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
                     true => m["name"].as_str().unwrap(),
-                    false => aliases[tc.draw(gs::integers::<usize>().max_value(aliases.len() - 1))],
+                    false => tc.draw(gs::sampled_from(&aliases[..])),
                 };
                 let (params, fits) = params_for(&tc, &fx, m);
                 let line = json!({"jsonrpc": "2.0", "id": id, "method": name, "params": params});
@@ -310,6 +316,8 @@ const STEADY_READS: &[&str] = &[
     "tracks.get",
     "tracks.query",
     "track.analysis",
+    "tracks.analysis",
+    "track.fields",
     "track.show",
     "track.matches",
     "tags.list",
@@ -593,7 +601,7 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
             2 => {
                 let id = match running.is_empty() || tc.draw(gs::weighted_booleans(0.2)) {
                     true => fresh(&tc),
-                    false => running[tc.draw(gs::integers::<usize>().max_value(running.len() - 1))].clone(),
+                    false => tc.draw(gs::sampled_from(&running[..])),
                 };
                 let cancel_id = fresh(&tc);
                 let r = s.call(&cancel_id, "$/cancel", json!({ "id": id }));
@@ -606,7 +614,7 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
                 }
             }
             3 if !running.is_empty() => {
-                let id = running[tc.draw(gs::integers::<usize>().max_value(running.len() - 1))].clone();
+                let id = tc.draw(gs::sampled_from(&running[..]));
                 let r = s.call(&id, "version", json!({}));
                 assert_eq!(r["error"]["code"], -32600, "a running request's id, reused: {r}");
             }
@@ -637,5 +645,39 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
         if m["method"] == "progress" {
             assert!(started.contains(&m["params"]["id"]), "progress about a request never sent: {m}");
         }
+    }
+}
+
+/// Input that can't be read at all (a folder where the pipe should be) ends the sidecar with an
+/// error saying so, however many workers it has, and nothing is answered.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3)]
+fn input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
+    let fx = Env::from_template();
+    let workers = tc.draw(gs::integers::<u32>().min_value(1).max_value(4)).to_string();
+    let folder = std::fs::File::open(&fx.volumes).unwrap();
+    let out = fx.command().args(["rpc", "--workers", &workers]).stdin(folder).output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(out.stdout.is_empty(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(err.contains("reading requests"), "{err}");
+}
+
+/// Requests that each need the store, sent at once to a sidecar that has none yet, all find it:
+/// whichever makes it, the others open the same one.
+#[hegel::test(test_cases = 10)]
+fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
+    let fx = Env::new();
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
+    let lines: Vec<Vec<u8>> = (0..n)
+        .map(|id| {
+            // A change that makes the store and takes no lock (saving the profile choices as they are).
+            json!({ "jsonrpc": "2.0", "id": id, "method": "profile.prefs.set", "params": {} }).to_string().into_bytes()
+        })
+        .collect();
+    let (out, clean) = run_batch(&fx, &lines);
+    assert!(clean, "the sidecar didn't exit cleanly");
+    for a in out.iter().filter(|a| a.get("id").is_some()) {
+        assert!(a["error"].is_null(), "{a}");
     }
 }

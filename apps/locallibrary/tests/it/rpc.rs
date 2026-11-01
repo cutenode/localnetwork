@@ -8,7 +8,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::CommandCargoExt;
+use locallibrary::Store;
 use locallibrary::device::dunce_canonicalize;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields};
 use serde_json::{Value, json};
 
 use crate::support::{blank_drive, demo_drive};
@@ -123,6 +125,25 @@ impl Sidecar {
             let mut msg = self.next();
             if matches(&msg) {
                 return msg["params"].take();
+            }
+            if msg["method"] != "progress" {
+                self.unclaimed.push(msg);
+            }
+        }
+    }
+
+    /// The next `serve` notification about the request `id`: its event. Other messages are kept
+    /// for later.
+    #[cfg(feature = "peers")]
+    fn served(&mut self, id: i64) -> Value {
+        let matches = |m: &Value| m["method"] == "serve" && m["params"]["id"] == id;
+        if let Some(i) = self.unclaimed.iter().position(matches) {
+            return self.unclaimed.remove(i)["params"]["event"].take();
+        }
+        loop {
+            let mut msg = self.next();
+            if matches(&msg) {
+                return msg["params"]["event"].take();
             }
             if msg["method"] != "progress" {
                 self.unclaimed.push(msg);
@@ -261,6 +282,10 @@ fn initialize_says_whether_the_account_is_there() {
     let has = |list: &Value, x: &str| list.as_array().unwrap().contains(&json!(x));
     let built_with = cfg!(feature = "account");
     assert_eq!(has(&v["capabilities"], "account"), built_with, "{v}");
+    for m in ["store.serve", "store.fetch"] {
+        assert_eq!(has(&v["methods"], m), cfg!(feature = "peers"), "{m}");
+    }
+    assert_eq!(has(&v["capabilities"], "peers"), cfg!(feature = "peers"), "{v}");
     for m in ["account.status", "account.login.begin", "profile.publish.plan", "settings.import_published.apply"] {
         assert_eq!(has(&v["methods"], m), built_with, "{m}");
     }
@@ -279,7 +304,7 @@ fn initialize_says_whether_the_account_is_there() {
 fn paths_to_write_to_are_absolute_and_fsck_says_it_can_destroy() {
     let mut s = Sidecar::start();
     for (id, method, params) in [
-        (1, "xml.export", json!({ "drive": "A", "output": "rekordbox.xml" })),
+        (1, "export", json!({ "drive": "A", "output": "list.m3u8" })),
         (2, "recordings.collect.plan", json!({ "drive": "A", "to": "recordings" })),
         (3, "store.copy", json!({ "path": "copy" })),
     ] {
@@ -298,6 +323,9 @@ fn paths_to_write_to_are_absolute_and_fsck_says_it_can_destroy() {
 #[test]
 fn a_plan_stays_when_the_store_wont_open() {
     let mut s = Sidecar::start();
+    // A store to plan against (planning makes none).
+    let made = s.call(0, "players.set.apply", json!({ "models": ["CDJ-2000NXS2"] }));
+    assert!(made["error"].is_null(), "{made}");
     let plan = s.call(1, "players.set.plan", json!({ "models": ["CDJ-3000"] }));
     let id = plan["result"]["plan_id"].clone();
     assert!(id.is_string(), "{plan}");
@@ -353,6 +381,8 @@ fn describe_says_what_each_method_takes_and_returns() {
     // Old and new names answer alike.
     let new = s.call(5, "drive.groups", json!({}))["result"].clone();
     assert_eq!(s.call(6, "drive.sets", json!({}))["result"], new);
+    let made = s.call(9, "players.set.apply", json!({ "models": ["CDJ-3000"] }));
+    assert!(made["error"].is_null(), "a store to collect in: {made}");
     let stats = s.call(7, "store.gc.plan", json!({}))["result"].clone();
     assert_eq!(stats["operation"], "store.gc");
     let gc = s.call(8, "store.gc", json!({ "plan_id": stats["plan_id"] }));
@@ -573,6 +603,47 @@ fn events_say_what_drives_the_store_and_requests_do() {
     assert!(s.exit().success());
 }
 
+/// `store.serve` gives its code in a `serve` notification and serves until it's cancelled, then
+/// says how much went; another computer's `store.fetch` copies the snapshots its store lacks, as
+/// `store serve` and `store fetch` do.
+#[cfg(feature = "peers")]
+#[test]
+fn a_store_is_served_and_fetched_through_the_sidecar() {
+    let mut laptop = Sidecar::start();
+    let main = demo_drive(laptop.root(), "Main");
+    let pulled = laptop.call(1, "pull", json!({ "drive": main, "library": "Main", "new_library": true }));
+    assert!(pulled["result"]["snapshot"].is_object(), "{pulled}");
+    laptop.send(2, "store.serve", json!({ "local_only": true }));
+    let ready = laptop.served(2);
+    assert_eq!(ready["event"], "ready", "{ready}");
+    let code = ready["code"].clone();
+
+    let mut studio = Sidecar::start();
+    let dry = studio.call(1, "store.fetch", json!({ "code": code, "local_only": true, "dry_run": true }));
+    assert_eq!((&dry["result"]["snapshots"], &dry["result"]["dry_run"]), (&json!(1), &json!(true)), "{dry}");
+    assert!(studio.call(2, "library.list", json!({}))["result"].as_array().unwrap().is_empty());
+    let fetched = studio.call(3, "store.fetch", json!({ "code": code, "local_only": true }));
+    let library = &fetched["result"]["libraries"][0];
+    assert_eq!((&library["name"], &library["outcome"]), (&json!("Main"), &json!("added")), "{fetched}");
+    assert_eq!(studio.call(4, "library.list", json!({}))["result"][0]["name"], "Main");
+    let wrong = studio.call(5, "store.fetch", json!({ "code": "not-a-code" }));
+    assert_eq!(kind(&wrong), "invalid", "{wrong}");
+
+    // Each fetch connected, and was done once it had what it came for.
+    let events: Vec<Value> = (0..4).map(|_| laptop.served(2)["event"].clone()).collect();
+    let count = |e: &str| events.iter().filter(|x| *x == e).count();
+    assert_eq!((count("connected"), count("done")), (2, 2), "{events:?}");
+    assert_eq!(laptop.call(3, "$/cancel", json!({ "id": 2 }))["result"]["cancelled"], true);
+    let report = laptop.reply_to(2);
+    assert_eq!(report["result"]["peers"], 2, "{report}");
+    assert!(report["result"]["files"].as_u64().unwrap() > 0, "{report}");
+    // Serving stops when the front end goes away, where the sidecar would wait for it forever.
+    laptop.send(4, "store.serve", json!({ "local_only": true }));
+    assert_eq!(laptop.served(4)["event"], "ready");
+    assert!(laptop.exit().success());
+    assert!(studio.exit().success());
+}
+
 #[test]
 fn watching_pulls_drives_as_they_are_plugged_in() {
     let mut s = Sidecar::start();
@@ -684,6 +755,42 @@ fn reads_keep_the_library_until_it_changes_and_come_in_pieces() {
     assert!(s.exit().success());
 }
 
+/// Several tracks' analyses come in one request, without scrolling waveforms, up to a cap; the
+/// fields analyzer plugins kept are read without making a store when there's none, and only
+/// those of plugins locallibrary has.
+#[test]
+fn analyses_of_several_tracks_and_plugin_fields() {
+    let mut s = Sidecar::start();
+    let root = s.root().to_path_buf();
+    let a = demo_drive(&root, "A");
+    let many = s.call(1, "tracks.analysis", json!({ "drive": a, "ids": [2, 404, 1] }))["result"].clone();
+    let tracks: Vec<&Value> = many["tracks"].as_array().unwrap().iter().map(|t| &t["track"]).collect();
+    assert_eq!((tracks, &many["missing"]), (vec![&json!(2), &json!(1)], &json!([404])), "{many}");
+    let one = s.call(2, "track.analysis", json!({ "drive": a, "track": 1, "waveform": "none" }))["result"].clone();
+    assert_eq!(many["tracks"][1]["analysis"], one);
+    let too_many = s.call(3, "tracks.analysis", json!({ "drive": a, "ids": vec![1; 101] }));
+    assert_eq!(kind(&too_many), "invalid", "{too_many}");
+    let scrolling = s.call(8, "tracks.analysis", json!({ "drive": a, "ids": [1], "waveform": "detail" }));
+    assert_eq!(kind(&scrolling), "invalid", "{scrolling}");
+
+    let store = root.join("store");
+    let nothing = json!({ "tracks": [], "missing": [] });
+    assert_eq!(s.call(4, "track.fields", json!({ "drive": a }))["result"], nothing);
+    assert!(!store.exists(), "a read made the store");
+    let file = s.call(5, "tracks.get", json!({ "drive": a, "ids": [1] }))["result"]["tracks"][0]["file_path"].clone();
+    let audio = a.join(file.as_str().unwrap().trim_start_matches('/'));
+    let fields = FieldStore::in_store(&Store::open_or_init(&store).unwrap());
+    let bpm: Fields = [("bpm".to_string(), FieldValue::Number(128.0))].into_iter().collect();
+    let tempo = Analyzer { plugin: "analysis".into(), version: "0.1.0".into(), analyzer: "tempo".into() };
+    fields.put(&audio, &tempo, &bpm).unwrap();
+    // Only the fields of plugins locallibrary has are read, and it has none here (tests/it/plugins.rs
+    // gives it the test plugin).
+    assert_eq!(s.call(6, "track.fields", json!({ "drive": a }))["result"], nothing);
+    let other = s.call(7, "track.fields", json!({ "drive": a, "tracks": [2, 404, 1], "plugin": "other" }));
+    assert_eq!(other["result"], json!({ "tracks": [], "missing": [404] }));
+    assert!(s.exit().success());
+}
+
 #[test]
 fn errors_say_why_and_what_would_resolve_them() {
     let mut s = Sidecar::start();
@@ -738,6 +845,48 @@ fn mix_methods_that_keep_files_say_they_write() {
         let m = s.call(1, "rpc.describe", json!({ "method": name }))["result"]["methods"][0].clone();
         assert_eq!(m["kind"], "immediate", "{name}: {m}");
     }
+    assert!(s.exit().success());
+}
+
+/// Regression: methods that only look something up in the store made an empty one first, then
+/// failed or found nothing to do. With none, they say so (or plan with nothing remembered) and
+/// leave none behind.
+#[test]
+fn lookups_with_no_store_leave_none_behind() {
+    let mut s = Sidecar::start();
+    let a = demo_drive(&s.root().join("volumes"), "A");
+    let a = a.to_str().unwrap();
+    let copy = s.root().join("copy");
+    let calls = [
+        ("drive.forget", json!({ "drive": a })),
+        ("drive.role", json!({ "drive": a, "role": "backup" })),
+        ("drive.retire", json!({ "drive": a })),
+        ("drive.adopt_as.plan", json!({ "drive": a, "known": "Old" })),
+        ("drive.verify", json!({ "drive": a })),
+        ("drive.fsck", json!({ "drive": a })),
+        ("sets.delete", json!({ "set": "Nope" })),
+        ("sets.export", json!({ "set": "Nope", "format": "text" })),
+        ("sets.playlist.plan", json!({ "set": "Nope", "drive": a })),
+        ("smart.remove", json!({ "path": "Nope" })),
+        ("smart.write.plan", json!({ "drive": a })),
+        ("store.gc.plan", json!({})),
+        ("store.prune.plan", json!({ "keep_last": 1 })),
+        ("store.copy", json!({ "path": copy, "dry_run": true })),
+        ("snapshot.label", json!({ "label": "Friday", "snapshot": "abc" })),
+        ("library.rename", json!({ "library": "Nope", "name": "New" })),
+        ("push.plan", json!({ "drive": a })),
+        ("art.unembed.plan", json!({})),
+        ("players.set.plan", json!({ "models": ["CDJ-3000"] })),
+        ("players.clear.plan", json!({})),
+    ];
+    for (id, (method, params)) in (1..).zip(calls) {
+        let v = s.call(id, method, params);
+        assert_ne!(kind(&v), "invalid_params", "{method}: {v}");
+        assert!(!s.root().join("store").exists(), "{method} made a store: {v}");
+    }
+    // With nothing remembered, the players plan says what it would remember.
+    let v = s.call(99, "players.set.plan", json!({ "models": ["CDJ-3000"] }));
+    assert_eq!((&v["result"]["from"], &v["result"]["to"]), (&json!([]), &json!(["CDJ-3000"])), "{v}");
     assert!(s.exit().success());
 }
 
@@ -853,7 +1002,7 @@ fn a_plan_is_applied_by_its_id_once_and_not_once_stale() {
     assert!(plan["result"]["summary"].as_array().is_some_and(|s| !s.is_empty()), "{plan}");
 
     // Applied by id, exactly once; and only by the method of its kind.
-    let wrong = s.call(2, "clean.apply", json!({ "plan_id": id }));
+    let wrong = s.call(2, "convert.apply", json!({ "plan_id": id }));
     assert_eq!(kind(&wrong), "invalid_params", "{wrong}");
     let done = s.call(3, "edit.apply", json!({ "plan_id": id }));
     assert!(done["result"]["changes"].as_u64().is_some(), "{done}");

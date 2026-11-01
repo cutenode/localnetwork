@@ -1,18 +1,21 @@
 //! `locallibrary collection`: rekordbox's own collection (`master.db`) on this computer: what's in
-//! it, its tracks and playlists, what a drive lacks against it, and exporting it to a drive or
-//! folder.
+//! it, its tracks and playlists, what a drive lacks against it, and exporting it (or a plugin's
+//! library source, `--from`) to a drive or folder.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::api;
 use locallibrary::collection_export::CollectionExportOptions;
+use locallibrary::collection_export::CollectionExportPlan;
 use locallibrary::masterdb::CollectionInfo;
+use locallibrary::op::Planned;
+use locallibrary::plugin::SourceExport;
 use locallibrary::progress::Ctx;
-use locallibrary::query::{self, Filter, QueryContext};
+use locallibrary::query::{self, Filter};
 
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
 
@@ -58,11 +61,18 @@ pub enum CollectionCommand {
     },
     /// The collection's playlist tree (intelligent playlists show empty)
     Playlists,
-    /// Write the collection to a drive or folder, as rekordbox's Export does
+    /// Write the collection (or a plugin's library source) to a drive or folder, as rekordbox's
+    /// Export does
     #[command(
         after_help = "Tracks Cloud Library Sync keeps in Dropbox or Google Drive are read from there (online-only \
 files are downloaded). Exporting again copies only what changed. A folder exported to is a drive like any other: \
-`locallibrary pull FOLDER` saves it in the store, and `library push` writes it to a USB drive."
+`locallibrary pull FOLDER` saves it in the store, and `library push` writes it to a USB drive.
+
+With --from, a plugin reads the library instead (`locallibrary plugin info` lists their sources): only audio files in \
+the folders you --grant it are copied, and cues and beat grids it brings are written to new analysis files.",
+        after_long_help = "Examples:
+  locallibrary collection export /Volumes/USB
+  locallibrary collection export /Volumes/USB --from PLUGIN:SOURCE --grant ~/Music"
     )]
     Export {
         /// The drive or folder to write to (a folder: its path)
@@ -80,6 +90,16 @@ files are downloaded). Exporting again copies only what changed. A folder export
         /// Show the plan without changing anything
         #[arg(long)]
         dry_run: bool,
+        /// Build it from a plugin's library source instead, as PLUGIN:SOURCE
+        #[arg(long, value_name = "PLUGIN:SOURCE")]
+        from: Option<String>,
+        /// With --from: a folder the plugin may read files in (repeatable)
+        #[arg(long = "grant", value_name = "FOLDER", requires = "from")]
+        grants: Vec<PathBuf>,
+        /// With --from: an option for the source, like key=value (repeatable; `locallibrary plugin
+        /// info` shows them)
+        #[arg(long = "option", value_name = "KEY=VALUE", requires = "from")]
+        options: Vec<String>,
     },
     /// What a drive lacks against the collection: tracks, playlists and playlist entries
     Diff {
@@ -114,11 +134,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             if let Some(f) = &filter {
                 let f = Filter::parse(f)?;
                 let tags = f.uses_tags().then(|| c.tags_by_file());
-                let mut ctx = QueryContext::new(lib);
-                if let Some(t) = &tags {
-                    ctx = ctx.with_tags(t);
-                }
-                f.check(&ctx)?;
+                let ctx = api::filter_context(lib, &f, tags.as_ref(), None)?;
                 tracks.retain(|t| f.matches(t, &ctx));
             }
             if let Some(s) = &sort {
@@ -134,9 +150,23 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             let c = api::open_collection(&req)?;
             out.emit_paged(&c.library.playlists, |_| crate::render::playlist_tree(&c.library));
         }
-        CollectionCommand::Export { drive, playlists, all, replace, dry_run } => {
-            let options = CollectionExportOptions { playlists, all, replace, overwrite_archive: false };
-            return export(api::CollectionExportRequest { collection: req, drive, options }, dry_run, store, out, ctx);
+        CollectionCommand::Export { drive, playlists, all, replace, dry_run, from, grants, options } => {
+            let export = CollectionExportOptions { playlists, all, replace, overwrite_archive: false };
+            let plan = match from {
+                Some(_) if req.db.is_some() || req.key.is_some() => {
+                    bail!("--db and --key are for rekordbox's collection, not --from")
+                }
+                Some(from) => {
+                    let existing = crate::diff_cmd::existing_store(store)?;
+                    let req = from_source(&from, &grants, &options, drive.clone(), export)?;
+                    crate::plugins::host()?.plan_source_export(&req, existing.as_ref(), ctx)?
+                }
+                None => {
+                    let req = api::CollectionExportRequest { collection: req, drive: drive.clone(), options: export };
+                    api::collection_export_plan(&req, ctx)?
+                }
+            };
+            return write(plan, &drive, dry_run, store, out, ctx);
         }
         CollectionCommand::Diff { drive, playlist } => {
             let d = api::collection_diff(&api::CollectionDiffRequest { collection: req, drive, playlist })?;
@@ -163,17 +193,35 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
     Ok(ExitCode::SUCCESS)
 }
 
-fn export(
-    req: api::CollectionExportRequest,
+/// Building `drive` from `from`, a plugin's library source (`PLUGIN:SOURCE`), reading the folders
+/// `grants` (made absolute) with the source's `--option`s.
+fn from_source(
+    from: &str,
+    grants: &[PathBuf],
+    options: &[String],
+    drive: String,
+    export: CollectionExportOptions,
+) -> Result<SourceExport> {
+    let (plugin, source) = from.split_once(':').with_context(|| format!("--from takes PLUGIN:SOURCE, not {from:?}"))?;
+    let declared = crate::plugins::host()?.manifest(plugin)?.contributes.sources.iter().find(|s| s.name == source);
+    let declared = declared.with_context(|| format!("the {plugin} plugin has no library source {source:?}"))?;
+    let options = crate::plugin_cmd::options("source", declared.options.as_ref(), options)?;
+    let grants = grants.iter().map(std::path::absolute).collect::<std::io::Result<_>>()?;
+    Ok(SourceExport { plugin: plugin.into(), source: source.into(), options, grants, drive, export })
+}
+
+/// Shows what writing `plan` to its drive (`drive`, as it was given) does, asks first, and writes it.
+fn write(
+    plan: Planned<CollectionExportPlan, CollectionExportOptions>,
+    drive: &str,
     dry_run: bool,
     store: &Option<PathBuf>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
-    let plan = api::collection_export_plan(&req, ctx)?;
     if !out.json {
         let what = match plan.playlists.as_slice() {
-            [] => "rekordbox's collection".to_string(),
+            [] => plan.what(),
             p => p.join(", "),
         };
         say!(
@@ -202,13 +250,17 @@ fn export(
                 ))
             );
         }
+        for s in plan.summary.iter().filter(|s| s.starts_with("read the files") || s.starts_with("keep a smart rule")) {
+            say!("  {}", dim(s));
+        }
         for w in &plan.warnings {
             warn(w);
         }
     }
-    let question = match plan.replaces_library {
-        true => format!("Replace the library on {} with the collection?", plan.target),
-        false => format!("Export to {}?", plan.target),
+    let question = match (plan.replaces_library, &plan.source) {
+        (true, None) => format!("Replace the library on {} with the collection?", plan.target),
+        (true, Some(source)) => format!("Replace the library on {} with {source}?", plan.target),
+        (false, _) => format!("Export to {}?", plan.target),
     };
     if let Some(o) = out.decide(dry_run, &question) {
         // A folder made for the export goes again, as nothing was written to it.
@@ -232,7 +284,7 @@ fn export(
         ));
         output::hint(format!("Save it in the store with: locallibrary pull {:?}", plan.target_root));
         if let Some(b) = &report.backup {
-            output::hint(format!("undo with: locallibrary undo {:?} (backup {b})", req.drive));
+            output::hint(format!("undo with: locallibrary undo {drive:?} (backup {b})"));
         }
     }))
 }

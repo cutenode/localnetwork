@@ -1,9 +1,11 @@
 //! Publishing to an Atmosphere account, against a pretend data server on 127.0.0.1
-//! (`support/mock_pds.rs`): the requests' shapes, DPoP-bound writes, and what a refusal says.
-//! Nothing here signs in to a real account or touches the network.
+//! (`support/mock_pds.rs`), which stands in for Local Network's directory and website too: the
+//! requests' shapes, DPoP-bound writes, reads that only go to the directory, and what a refusal
+//! says. Nothing here signs in to a real account or touches the network.
 
 #![cfg(feature = "account")]
 
+mod recordings;
 mod signing_in;
 
 use crate::common;
@@ -13,23 +15,40 @@ use crate::session::{DID, session_json, sign_in_as};
 use std::path::Path;
 
 use chrono::{NaiveDate, Utc};
-use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::Track;
+use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetRef, SetSettings};
 use locallibrary::atmosphere;
-use locallibrary::atmosphere::lexicon::{self, PROFILE, SET, SETTINGS};
+use locallibrary::atmosphere::lexicon::{self, PROFILE, RECORDING, SET, SETTINGS};
 use locallibrary::error::Reason;
+use locallibrary::mix::{Transition, report};
 use locallibrary::profile::PrefsUpdate;
 use locallibrary::progress::Ctx;
-use locallibrary::publish::PLAYS_PUBLISH_COLLECTION;
-use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
+use locallibrary::publish;
+use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
+use loclib_plugin::StrongRef;
 use mock_pds::{MockPds, Writes, base64url};
 use serde_json::{Value, json};
 use sha2::Digest;
+use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
-const GET: &str = "com.atproto.repo.getRecord";
+const DELETE: &str = "com.atproto.repo.deleteRecord";
+/// How a record is read: from the directory, never from a data server.
+const GET: &str = "computer.localnetwork.directory.getRecords";
+const PDS_GET: &str = "com.atproto.repo.getRecord";
+const REQUEST_INDEX: &str = "computer.localnetwork.directory.requestIndex";
 const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settings \
-                          repo:computer.localnetwork.dj.profile repo:computer.localnetwork.dj.set";
+                          repo:computer.localnetwork.dj.profile repo:computer.localnetwork.dj.set \
+                          repo:computer.localnetwork.dj.recording \
+                          rpc:computer.localnetwork.directory.requestIndex?aud=* blob:audio/*";
+
+/// A pretend data server, which Local Network's directory and website are at too for this test.
+fn network() -> MockPds {
+    let pds = MockPds::start();
+    locallibrary::testing::directory_on_this_thread(Some(pds.url.clone()));
+    pds
+}
 
 /// Sign `DID` in on this computer (the session in files, not the keychain) with a session for
 /// `pds` that was granted `scopes`. Returns the session's DPoP key.
@@ -55,7 +74,7 @@ fn without(mut v: Value, field: &str) -> Value {
 
 #[test]
 fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let key = sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
@@ -65,20 +84,19 @@ fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
     let uri = format!("at://{DID}/{SETTINGS}/self");
     assert_eq!(plan.uri.as_deref(), Some(uri.as_str()));
     assert!(plan.current.is_none() && plan.changed && plan.missing_scope.is_none());
-    // Reading needs no session: a plain getRecord.
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+    // Reading needs no session: the directory's getRecords, and never the data server.
     let reads = pds.calls(GET);
     assert_eq!(reads.len(), 1);
     assert!(reads[0].header("authorization").is_none() && reads[0].header("dpop").is_none());
-    assert_eq!(
-        (reads[0].query["repo"].as_str(), reads[0].query["collection"].as_str(), reads[0].query["rkey"].as_str()),
-        (DID, SETTINGS, "self")
-    );
+    assert_eq!(reads[0].params, [("uris".to_string(), uri.clone())]);
+    assert!(pds.calls(PDS_GET).is_empty());
 
     let published = api::settings_publish_apply(&root).unwrap();
     assert!(published.written);
     assert_eq!(published.uri, uri);
     let (stored, cid) = pds.record(DID, SETTINGS, "self").unwrap();
-    assert_eq!(published.cid.as_deref(), Some(cid.as_str()));
+    assert_eq!(published.cid, cid);
     assert_eq!(stored["player"], json!({ "quantize": "off", "jogMode": "cdj" }));
 
     // The server asked for its DPoP nonce once; the write went again with it.
@@ -124,6 +142,7 @@ fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
     pds.put(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "updatedAt": "2026-10-05T00:00:00.000Z" }));
     let err = locallibrary::publish::apply(&root, &stale).unwrap_err();
     assert_eq!(err.code(), "conflict", "{err}");
+    assert!(err.to_string().contains("isn't the version Local Network's directory has; run it again"), "{err}");
     // Applying the plan someone confirmed: it's stale.
     let err = stale.apply(None, &Ctx::silent()).unwrap_err();
     assert_eq!(err.code(), "stale_plan", "{err}");
@@ -132,7 +151,7 @@ fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
 
     // Another computer, signed out, imports them from the account's server.
     let other = dir.path().join("other");
-    let from = ImportPublishedSettings { from: Some(DID.into()), pds: Some(pds.url.clone()), ..Default::default() };
+    let from = ImportPublishedSettings { from: Some(DID.into()), ..Default::default() };
     let plan = api::settings_import_published_plan(&other, &from).unwrap();
     assert_eq!(plan.from.did, DID);
     assert!(plan.changes.iter().all(|c| c.from.is_none()));
@@ -143,11 +162,14 @@ fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
     assert!(
         api::settings_import_published_plan(&root, &ImportPublishedSettings::default()).unwrap().changes.is_empty()
     );
+    // The directory was asked once to read what the account published before it kept it.
+    assert_eq!(pds.calls(REQUEST_INDEX).len(), 1);
+    assert!(pds.calls(PDS_GET).is_empty());
 }
 
 #[test]
 fn refusals_say_how_to_go_on() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
@@ -192,7 +214,7 @@ fn refusals_say_how_to_go_on() {
 
 #[test]
 fn a_session_that_ran_out_and_cant_be_refreshed_has_ended() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, "2026-01-01T00:00:00.000Z", None);
@@ -209,6 +231,10 @@ fn a_session_that_ran_out_and_cant_be_refreshed_has_ended() {
     assert!(atmosphere::status(&root).unwrap().is_none());
     assert!(!root.join(atmosphere::store::SECRETS_FILE).exists());
 }
+
+/// The plyr.fm track a set's recording is, and its version.
+const PLYR_TRACK: &str = "at://did:plc:dj/fm.plyr.track/3m2plyrtrack2";
+const PLYR_TRACK_CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
 
 /// A set with every field, built from `sessions`, saved in the store at `root`.
 fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
@@ -236,6 +262,8 @@ fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
             Partner { name: "Sam".into(), did: None },
         ],
         link: Some("https://www.mixcloud.com/dj/friday-warm-up/".into()),
+        link_name: Some("Mixcloud".into()),
+        recording_record: Some(StrongRef { uri: PLYR_TRACK.into(), cid: PLYR_TRACK_CID.into() }),
         recording: Some(Recording {
             path: "/Users/dj/Recordings/REC001.WAV".into(),
             report: Some("report-7f3a".into()),
@@ -258,6 +286,107 @@ fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
     book.sets.push(set.clone());
     book.save(&store).unwrap();
     set
+}
+
+/// A set of `n` tracks the recording `r` heard in turn, each blended in over the one before, with
+/// every field filled: names `len` characters long (as long as the Lexicon takes an artist or
+/// release), tagged with MusicBrainz IDs. Saved in the store at `root` with `r`.
+fn save_heard_set(root: &Path, id: &str, n: usize, len: usize) {
+    let store = Store::open_or_init(root).unwrap();
+    let tracks: Vec<Track> = (0..n)
+        .map(|i| Track {
+            title: format!("{i:0len$}"),
+            artist: format!("{i:a>len$}"),
+            album: format!("{i:r>len$}"),
+            isrc: "GBAHT1700123".into(),
+            key: "12A".into(),
+            bpm: 174.99,
+            file_path: format!("/Contents/{i}.mp3"),
+            ..Track::default()
+        })
+        .collect();
+    let plays: Vec<(&Track, f64, f64)> = tracks.iter().enumerate().map(|(i, t)| (t, i as f64 * 180.0, 0.9)).collect();
+    let mut r = crate::sets::report(&plays, None);
+    r.transitions = (1..n)
+        .map(|to| Transition {
+            from: to - 1,
+            to,
+            at: r.plays[to].start,
+            overlap: 20.0,
+            harmony: Some("energy boost".into()),
+            tempo_change: Some(-15.9),
+        })
+        .collect();
+    let report = report::save(&store, &r).unwrap();
+    let id_of = |i: usize| Uuid::from_u128(i as u128);
+    let set = Set {
+        id: id.into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        recording: Some(Recording { path: "/Users/dj/set.wav".into(), report: Some(report) }),
+        tracks: r
+            .plays
+            .iter()
+            .enumerate()
+            .map(|(i, p)| SetEntry {
+                start_seconds: Some(p.start_second()),
+                musicbrainz: MusicBrainzIds {
+                    recording: Some(id_of(i)),
+                    release: Some(id_of(i)),
+                    artists: vec![id_of(i)],
+                },
+                ..SetEntry::from_track(&p.track, EntryOrigin::Recording, None)
+            })
+            .collect(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets.push(set);
+    book.save(&store).unwrap();
+}
+
+/// A set built from a recording says how each track came in, from the recording's report. As
+/// many tracks as a set record holds fit a record and the request writing it, with every field
+/// of every track filled as long as the Lexicon takes (ASCII); an older data server's 150 KB
+/// doesn't, which the plan says. One track more is refused.
+#[test]
+fn a_set_says_how_tracks_came_in_and_holds_as_many_as_a_record_can() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    save_heard_set(&root, "3m2abcdefgh22", 2, 12);
+    let plan = api::set_publish_plan(&root, &publish_set("3m2abcdefgh22")).unwrap();
+    let tracks = plan.record["tracks"].as_array().unwrap();
+    assert!(tracks[0].get("transitionIn").is_none(), "the first track");
+    assert_eq!(
+        tracks[1]["transitionIn"],
+        json!({ "technique": "blend", "durationMs": 20000, "harmony": "energyBoost", "tempoChangePermille": -159 })
+    );
+    assert_eq!(tracks[1]["recordingMbId"], Uuid::from_u128(1).to_string());
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+
+    let most = publish::SET_TRACK_LIMIT;
+    save_heard_set(&root, "3m2abcdefgh23", most, 256);
+    let plan = api::set_publish_plan(&root, &publish_set("3m2abcdefgh23")).unwrap();
+    let r = &plan.record;
+    assert_eq!(r["tracks"][most - 1]["title"].as_str().unwrap().len(), 256);
+    assert!(r["tracks"][most - 1]["transitionIn"].is_object());
+    let request = json!({ "repo": DID, "collection": SET, "rkey": plan.rkey, "record": r, "swapRecord": Value::Null });
+    let size = request.to_string().len();
+    assert!(size < 1_000_000, "{size} bytes");
+    assert!(size > publish::OLDER_PDS_REQUEST_BYTES, "{size} bytes");
+    let record = r.to_string().len();
+    let note =
+        format!("the record is {} KB: a data server not updated since May 2026 refuses one over 150 KB", record / 1024);
+    assert_eq!(plan.notes, [note]);
+
+    save_heard_set(&root, "3m2abcdefgh24", most + 1, 1);
+    let err = api::set_publish_plan(&root, &publish_set("3m2abcdefgh24")).unwrap_err();
+    assert_eq!(err.code(), "invalid");
+    assert!(
+        err.to_string().contains(&format!("the set has {} tracks, more than a set record holds ({most})", most + 1)),
+        "{err}"
+    );
 }
 
 fn publish_set(set: &str) -> SetPublishRequest {
@@ -294,7 +423,8 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
     );
     assert_eq!(r["event"], "at://did:plc:club/community.lexicon.calendar.event/3lte3c7x43l2e");
     assert_eq!(r["playedWith"], json!([{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }]));
-    assert_eq!(r["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
+    assert_eq!(r["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/", "name": "Mixcloud" }]));
+    assert_eq!(r["recording"], json!({ "uri": PLYR_TRACK, "cid": PLYR_TRACK_CID }));
     assert_eq!(r["sources"], json!([{ "kind": "history" }, { "kind": "mix" }, { "kind": "added" }]));
     let tracks = r["tracks"].as_array().unwrap();
     assert_eq!(
@@ -344,7 +474,7 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
 
 #[test]
 fn a_set_and_the_profile_go_where_they_should() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
@@ -399,45 +529,30 @@ fn a_set_and_the_profile_go_where_they_should() {
 const SESSION: &str = "0123456789abcdef0123456789abcdef";
 const OLD_KEY: &str = "3lzzzzzzzzz22";
 
-/// What `plays publish` left: a set record under `OLD_KEY`, in the collection sets had then,
-/// remembered for `SESSION` and `did`.
-fn published_by_plays_publish(root: &Path, pds: &MockPds, did: &str) {
-    let old = json!({
-        "$type": PLAYS_PUBLISH_COLLECTION,
-        "date": "2026-10-03",
-        "source": "history",
-        "tracks": [{ "title": "Glue", "artist": "Bicep" }],
-        "createdAt": "2026-10-04T09:30:00.000Z",
-    });
-    pds.put(did, PLAYS_PUBLISH_COLLECTION, OLD_KEY, old);
+/// What `plays publish` left: the key it published the list `SESSION` under, remembered for `did`.
+fn published_by_plays_publish(root: &Path, did: &str) {
     let keys = json!({ did: { SESSION: OLD_KEY } });
     std::fs::write(root.join(locallibrary::publish::SET_KEYS_FILE), keys.to_string()).unwrap();
 }
 
 #[test]
 fn a_set_from_a_list_plays_publish_published_takes_its_key() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
-    published_by_plays_publish(&root, &pds, DID);
+    published_by_plays_publish(&root, DID);
     let set = save_set(&root, "3m2abcdefgh22", &[SESSION]);
 
     let plan = api::set_publish_plan(&root, &publish_set(&set.id)).unwrap();
     assert_eq!(plan.rkey, OLD_KEY);
     assert!(plan.current.is_none() && !plan.destructive, "nothing of today's sets is replaced");
-    let notes = [
-        format!("takes the key `plays publish` gave session 01234567; the set's id becomes {OLD_KEY}"),
-        format!("what `plays publish` published stays in {PLAYS_PUBLISH_COLLECTION}: publishing can't remove it"),
-    ];
-    assert!(notes.iter().all(|n| plan.notes.contains(n)), "{:?}", plan.notes);
+    let note = format!("takes the key `plays publish` gave session 01234567; the set's id becomes {OLD_KEY}");
+    assert!(plan.notes.contains(&note), "{:?}", plan.notes);
     assert!(plan.apply(None, &Ctx::silent()).unwrap().written);
     let (record, _) = pds.record(DID, SET, OLD_KEY).unwrap();
     assert!(record.get("source").is_none() && record["sources"].is_array());
-    assert_eq!(record["createdAt"], "2026-10-04T09:30:00.000Z", "first published by plays publish");
     assert!(pds.record(DID, SET, &set.id).is_none(), "not published twice");
-    let (old, _) = pds.record(DID, PLAYS_PUBLISH_COLLECTION, OLD_KEY).unwrap();
-    assert_eq!(old["source"], "history", "only read");
     let store = Store::open(&root).unwrap();
     let book = SetBook::load(&store).unwrap();
     assert_eq!(book.sets[0].id, OLD_KEY, "the set took the key as its id");
@@ -453,11 +568,11 @@ fn a_set_from_a_list_plays_publish_published_takes_its_key() {
 
 #[test]
 fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
-    published_by_plays_publish(&root, &pds, DID);
+    published_by_plays_publish(&root, DID);
     let key = |id: &str| {
         let plan = api::set_publish_plan(&root, &publish_set(id)).unwrap();
         assert!(plan.notes.iter().all(|n| !n.contains("plays publish")), "{:?}", plan.notes);
@@ -478,14 +593,101 @@ fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
     // Remembered for another account.
     let other = dir.path().join("other");
     sign_in(&other, &pds.url, PUBLISHING, LATER, Some("refresh-2"));
-    published_by_plays_publish(&other, &pds, "did:plc:someoneelse");
+    published_by_plays_publish(&other, "did:plc:someoneelse");
     let set = save_set(&other, "3m2abcdefgh22", &[SESSION]);
     assert_eq!(api::set_publish_plan(&other, &publish_set(&set.id)).unwrap().rkey, set.id);
 }
 
+/// Deleting a published set deletes its record and its recording's from the account too, in
+/// DPoP-bound `deleteRecord`s of whatever version is there, the set's first (so it never points at
+/// a recording that's gone), before the set: when the session may not delete them or the server
+/// refuses, the set stays. A set that isn't published, or deleted signed out, sends nothing.
+#[test]
+fn deleting_a_published_set_deletes_its_record_and_recording() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let id = "3m2abcdefgh22";
+    let by_id = |id: &str| SetRef { set: Some(id.into()), venue: None };
+    let left = |root: &Path| -> Vec<String> {
+        SetBook::load(&Store::open(root).unwrap()).unwrap().sets.into_iter().map(|s| s.id).collect()
+    };
+    // Its recording, as `sets upload` publishes it under the set's key.
+    let recording = json!({
+        "$type": RECORDING,
+        "audio": { "$type": "blob", "ref": { "$link": PLYR_TRACK_CID }, "mimeType": "audio/mpeg", "size": 1 },
+        "createdAt": "2026-10-05T00:00:00.000Z",
+    });
+    // Granted create and update only, as the permission set was before it took delete.
+    let mut without_delete = PUBLISHING.to_string();
+    for c in [SET, RECORDING] {
+        without_delete =
+            without_delete.replace(&format!("repo:{c} "), &format!("repo:{c}?action=create&action=update "));
+    }
+    sign_in(&root, &pds.url, &without_delete, LATER, Some("refresh-1"));
+    save_set(&root, id, &[]);
+    save_set(&root, "3m2zzzzzzzz22", &[]);
+    api::set_publish_apply(&root, &publish_set(id)).unwrap();
+    pds.put(DID, RECORDING, id, recording.clone());
+    let uris = [format!("at://{DID}/{SET}/{id}"), format!("at://{DID}/{RECORDING}/{id}")];
+    assert_eq!(api::set_published_uris(&root, id).unwrap(), uris);
+    assert!(api::set_published_uris(&root, "3m2zzzzzzzz22").unwrap().is_empty());
+    let store = Store::open(&root).unwrap();
+    let on_account = |c: &str| pds.record(DID, c, id).is_some();
+
+    let err = api::set_delete(&store, &by_id(id)).unwrap_err();
+    assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}");
+    assert!(err.to_string().contains("sign in again, allowing publishing"), "{err}");
+    assert!(pds.calls(DELETE).is_empty(), "stopped before the server");
+    assert!(on_account(SET) && on_account(RECORDING) && left(&root).contains(&id.to_string()));
+
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-2"));
+    pds.set_writes(Writes::RefuseToken);
+    let err = api::set_delete(&store, &by_id(id)).unwrap_err();
+    assert_eq!(err.reason(), Some(Reason::SessionEnded), "{err}");
+    assert!(on_account(SET) && on_account(RECORDING) && left(&root).contains(&id.to_string()));
+
+    pds.set_writes(Writes::Accept);
+    let before = pds.calls(DELETE).len();
+    assert_eq!(api::set_delete(&store, &by_id(id)).unwrap().id, id);
+    for c in [SET, RECORDING] {
+        assert!(!on_account(c) && pds.indexed(DID, c, id).is_none(), "{c} is gone");
+    }
+    assert_eq!(left(&root), ["3m2zzzzzzzz22"]);
+    let deleted: Vec<Value> = pds.calls(DELETE)[before..]
+        .iter()
+        .filter(|d| d.dpop().unwrap().1["nonce"] == "nonce-1")
+        .inspect(|d| assert_eq!(d.header("authorization"), Some("DPoP access-token")))
+        .map(|d| d.json())
+        .collect();
+    let body = |c: &str| json!({ "repo": DID, "collection": c, "rkey": id });
+    assert_eq!(deleted, [body(SET), body(RECORDING)], "whatever version is there, the set's first");
+    assert!(api::set_published_uris(&root, id).unwrap().is_empty());
+
+    // Never published: deleted here alone.
+    let before = pds.requests().len();
+    api::set_delete(&store, &by_id("3m2zzzzzzzz22")).unwrap();
+    assert!(pds.requests()[before..].iter().all(|r| r.path != format!("/xrpc/{DELETE}")));
+
+    // A recording published without the set's record: it goes too.
+    save_set(&root, id, &[]);
+    pds.put(DID, RECORDING, id, recording);
+    api::set_delete(&store, &by_id(id)).unwrap();
+    assert!(!on_account(RECORDING) && left(&root).is_empty());
+
+    // Signed out, nothing is asked: the set goes, and a record published from it stays.
+    save_set(&root, id, &[]);
+    api::set_publish_apply(&root, &publish_set(id)).unwrap();
+    atmosphere::logout(&root).unwrap();
+    let before = pds.requests().len();
+    api::set_delete(&store, &by_id(id)).unwrap();
+    assert_eq!(pds.requests().len(), before);
+    assert!(on_account(SET) && left(&root).is_empty());
+}
+
 #[test]
 fn a_first_publish_doesnt_replace_one_made_meanwhile() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
@@ -502,7 +704,7 @@ fn a_first_publish_doesnt_replace_one_made_meanwhile() {
 
 #[test]
 fn a_plan_is_written_only_to_the_account_it_was_for() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
@@ -519,7 +721,7 @@ fn a_plan_is_written_only_to_the_account_it_was_for() {
 
 #[test]
 fn checking_asks_the_server_and_says_when_it_refuses() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, "atproto", LATER, Some("refresh-1"));
@@ -538,7 +740,7 @@ fn checking_asks_the_server_and_says_when_it_refuses() {
 
 #[test]
 fn signing_out_revokes_the_refresh_token_too() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, "atproto", LATER, Some("refresh-1"));
@@ -564,7 +766,7 @@ fn signing_out_revokes_the_refresh_token_too() {
 
 #[test]
 fn signing_out_of_a_session_that_has_ended_says_whose_it_was() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     // Ran out, with nothing to refresh it: finding that out removes it.
@@ -577,7 +779,7 @@ fn signing_out_of_a_session_that_has_ended_says_whose_it_was() {
 
 #[test]
 fn importing_adds_to_the_base_unless_asked_to_replace_it() {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     set(&root, &[("quantize", "off"), ("jog_mode", "cdj")]);
@@ -587,7 +789,7 @@ fn importing_adds_to_the_base_unless_asked_to_replace_it() {
     unknown.insert("evil\u{1b}]0;owned\u{7}".into(), "on".into());
     let theirs = json!({ "$type": SETTINGS, "player": unknown, "updatedAt": "2026-10-05T00:00:00.000Z" });
     pds.put(DID, SETTINGS, "self", theirs);
-    let from = ImportPublishedSettings { from: Some(DID.into()), pds: Some(pds.url.clone()), replace: false };
+    let from = ImportPublishedSettings { from: Some(DID.into()), replace: false };
 
     // Theirs over yours; what they didn't publish stays.
     let plan = api::settings_import_published_plan(&root, &from).unwrap();
@@ -608,4 +810,126 @@ fn importing_adds_to_the_base_unless_asked_to_replace_it() {
     assert_eq!((plan.changes[0].key.as_str(), plan.changes[0].to.as_deref()), ("jog_mode", None));
     let profile = api::settings_import_published_apply(&root, &replace).unwrap();
     assert_eq!(profile.base, [("quantize".to_string(), "on".to_string())].into());
+}
+
+/// What the account published before Local Network's directory kept it: the first plan has the
+/// directory read the account again, with a token the account's server signed for that one method
+/// at the website, and sees it; from then on the directory isn't asked again.
+#[test]
+fn what_was_published_before_the_directory_kept_it_is_read_again_once() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    set(&root, &[("quantize", "off")]);
+    let earlier = json!({ "$type": SETTINGS, "player": { "quantize": "on" }, "updatedAt": "2026-10-01T00:00:00.000Z" });
+    let cid = pds.put_unindexed(DID, SETTINGS, "self", earlier.clone());
+    pds.put_unindexed("did:plc:someoneelse", SETTINGS, "self", earlier.clone());
+
+    let plan = api::settings_publish_plan(&root).unwrap();
+    assert_eq!(plan.current.as_ref().map(|c| (&c.value, c.cid.as_str())), Some((&earlier, cid.as_str())));
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+    let asked = pds.calls("com.atproto.server.getServiceAuth");
+    assert_eq!(asked.len(), 1);
+    let website = format!("did:web:{}", pds.url.trim_start_matches("http://").replace(':', "%3A"));
+    assert_eq!((asked[0].query["aud"].as_str(), asked[0].query["lxm"].as_str()), (website.as_str(), REQUEST_INDEX));
+    assert_eq!(asked[0].header("authorization"), Some("DPoP access-token"));
+    let index = pds.calls(REQUEST_INDEX);
+    assert_eq!(index.len(), 1);
+    assert!(index[0].method == "POST" && index[0].header("authorization").unwrap().starts_with("Bearer "));
+    assert!(pds.indexed("did:plc:someoneelse", SETTINGS, "self").is_none(), "only the caller's own");
+
+    // Replacing it names the version the directory had.
+    assert!(plan.apply(None, &Ctx::silent()).unwrap().written);
+    assert_eq!(pds.calls(PUT).last().unwrap().json()["swapRecord"], cid.as_str());
+    api::settings_publish_plan(&root).unwrap();
+    assert_eq!(pds.calls(REQUEST_INDEX).len(), 1, "asked once");
+    assert_eq!(atmosphere::store::AccountFile::load(&root).unwrap().indexed, [DID]);
+    assert!(pds.calls(PDS_GET).is_empty());
+}
+
+/// A directory that hasn't finished reading, or a session that may not ask it to: the plan says
+/// so and goes on with what the directory has, and it's asked again next time. Replacing a record
+/// the directory doesn't have yet is refused at the data server, saying to run it again.
+#[test]
+fn a_directory_that_hasnt_read_the_account_yet_is_asked_again() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    set(&root, &[("quantize", "off")]);
+    pds.put_unindexed(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "updatedAt": "2026-10-01T00:00:00.000Z" }));
+    pds.set_index_finishes(false);
+    let plan = api::settings_publish_plan(&root).unwrap();
+    assert!(plan.current.is_none());
+    assert_eq!(
+        plan.notes,
+        [
+            "Local Network's directory couldn't be asked to read this account's earlier records (it's still reading them)"
+        ]
+    );
+    let err = plan.apply(None, &Ctx::silent()).unwrap_err();
+    assert_eq!(err.code(), "stale_plan", "{err}");
+    assert!(err.to_string().contains("run it again in a minute, once the directory has caught up"), "{err}");
+
+    pds.set_index_finishes(true);
+    let plan = api::settings_publish_plan(&root).unwrap();
+    assert!(plan.current.is_some() && plan.notes.is_empty(), "{:?}", plan.notes);
+    assert_eq!(pds.calls(REQUEST_INDEX).len(), 2);
+
+    // Signed in before publishing's permission set let it ask: it can't, and says how to.
+    let other = dir.path().join("other");
+    let without_asking = PUBLISHING.replace(" rpc:computer.localnetwork.directory.requestIndex?aud=*", "");
+    sign_in(&other, &pds.url, &without_asking, LATER, Some("refresh-2"));
+    set(&other, &[("quantize", "off")]);
+    let plan = api::settings_publish_plan(&other).unwrap();
+    assert!(
+        plan.notes[0].ends_with("(the session doesn't allow it: sign in again, allowing publishing)"),
+        "{:?}",
+        plan.notes
+    );
+    assert_eq!(pds.calls(REQUEST_INDEX).len(), 2, "nothing asked");
+}
+
+/// The directory lags behind a write for a moment: a plan made meanwhile replaces nothing it
+/// didn't see, and once the directory catches up, publishing goes on.
+#[test]
+fn a_write_the_directory_hasnt_caught_up_with_isnt_written_over() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    set(&root, &[("quantize", "off")]);
+    assert!(api::settings_publish_apply(&root).unwrap().written);
+    pds.set_firehose(false);
+    set(&root, &[("quantize", "on")]);
+    assert!(api::settings_publish_apply(&root).unwrap().written);
+    let (newest, _) = pds.record(DID, SETTINGS, "self").unwrap();
+
+    set(&root, &[("jog_mode", "cdj")]);
+    let err = api::settings_publish_apply(&root).unwrap_err();
+    assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)), "{err}");
+    assert_eq!(pds.record(DID, SETTINGS, "self").unwrap().0, newest, "the newest stays");
+    pds.set_firehose(true);
+    assert!(api::settings_publish_apply(&root).unwrap().written);
+    assert_eq!(pds.record(DID, SETTINGS, "self").unwrap().0["player"]["jogMode"], "cdj");
+}
+
+/// Someone else's settings the directory doesn't have: it says so, without asking it to read
+/// their account (only the account itself can).
+#[test]
+fn someone_elses_settings_the_directory_doesnt_have_arent_found() {
+    let pds = network();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    pds.put_unindexed("did:plc:someoneelse", SETTINGS, "self", json!({ "$type": SETTINGS }));
+    let from = ImportPublishedSettings { from: Some("did:plc:someoneelse".into()), ..Default::default() };
+    let err = api::settings_import_published_plan(&root, &from).unwrap_err();
+    assert_eq!(err.code(), "not_found");
+    assert_eq!(
+        err.to_string(),
+        "not found: My Settings published by did:plc:someoneelse (Local Network's directory doesn't have them yet)"
+    );
+    assert!(pds.calls(REQUEST_INDEX).is_empty() && pds.calls(PDS_GET).is_empty());
 }

@@ -180,3 +180,42 @@ fn an_update_goes_in_alone_when_its_model_wants_that(tc: hegel::TestCase) {
     );
     assert!(matches!(plan(&d, &dir.path().join("gone.UPD"), replace), Err(Error::Io { .. })));
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// An update's drive is judged by its disk as the system describes it: a partition table other
+/// than MBR is a problem for every model, and so is a file system the model doesn't take updates
+/// from, naming what it does take. When the system can't say, the plan asks to check by hand.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn an_update_drive_is_judged_by_its_disk(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    std::fs::create_dir(fake.dir().join("USB")).unwrap();
+    let d = Device::open(fake.dir().join("USB")).unwrap();
+    let name = tc.draw(gs::sampled_from(MODELS.iter().map(|m| format!("{}100.UPD", m.prefix)).collect::<Vec<_>>()));
+    let file = fake.dir().join(&name);
+    std::fs::write(&file, b"firmware").unwrap();
+    let known = tc.draw(gs::weighted_booleans(0.85));
+    let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
+    if known {
+        fake.volume_at(d.root(), fs, mbr);
+    }
+
+    let p = plan(&d, &file, false).unwrap();
+    let model = model_for(&name).unwrap();
+    let kind = if fs == "exfat" { FsKind::Exfat } else { FsKind::Fat32 };
+    let partitioned = p.problems.iter().any(|m| m.contains("isn't partitioned MBR"));
+    let wrong_fs = p.problems.iter().find(|m| m.contains("takes updates from"));
+    let unknown = p.notes.iter().any(|n| n.starts_with("couldn't read the drive's partition scheme"));
+    assert_eq!((partitioned, unknown), (known && !mbr, !known), "{p:?}");
+    match wrong_fs {
+        Some(m) => {
+            assert!(known && !model.filesystems.contains(&kind), "{m}");
+            let takes = if model.filesystems.contains(&FsKind::Fat16) { "FAT or FAT32" } else { "FAT32" };
+            assert_eq!(*m, format!("the {} takes updates from {takes} drives, and this one is {kind:?}", model.model));
+        }
+        None => assert!(!known || model.filesystems.contains(&kind), "{p:?}"),
+    }
+}

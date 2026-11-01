@@ -3,11 +3,13 @@
 //! and repairs that can't be made: no known-good copy, a file that isn't the library's, a sibling
 //! that isn't there, or a copy that's damaged too.
 
+// Some draws lock a file with Unix permissions to make it unreadable.
+#![cfg(unix)]
+
 use crate::{common, drawn};
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -18,20 +20,12 @@ use locallibrary::scrub::{self, FileProblem, ReferenceKind, RepairSource, ScrubO
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
 
-/// Every file below `root` older than FAT's racy window, so the hash cache vouches for them.
-fn age(root: &Path) {
-    let old = filetime::FileTime::from_unix_time(filetime::FileTime::now().unix_seconds() - 120, 0);
-    for e in walkdir::WalkDir::new(root).into_iter().map(Result::unwrap).filter(|e| e.file_type().is_file()) {
-        filetime::set_file_mtime(e.path(), old).unwrap();
-    }
-}
-
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
-    age(&root);
+    common::age(&root);
     let mut main = Device::open_export(&root).unwrap();
     main.adopt(Some("Main")).unwrap();
     let first = sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
@@ -104,7 +98,7 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
 fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
-    age(&root);
+    common::age(&root);
     let mut main = Device::open_export(&root).unwrap();
     main.adopt(Some("Main")).unwrap();
     let mut mirror = Device::open(common::blank(dir.path(), "Mirror")).unwrap();
@@ -130,8 +124,15 @@ fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let template = problems.iter().find(|p| p.path.eq_ignore_ascii_case(&here)).unwrap().clone();
     problems.push(FileProblem { path: "Contents/unknown.mp3".into(), expected: None, ..template.clone() });
     problems.push(FileProblem { path: "notes.txt".into(), class: FileClass::Other, ..template.clone() });
+    // Where the repair would come from is a drive that isn't here, or isn't known at all.
     let elsewhere = RepairSource::Drive { name: "Away".into(), root: dir.path().join("Away") };
-    problems.push(FileProblem { path: audio[0].clone(), repair: Some(elsewhere), ..template.clone() });
+    let repair = tc.draw(gs::booleans()).then_some(elsewhere);
+    problems.push(FileProblem { path: audio[0].clone(), repair, ..template.clone() });
+    // A damaged file whose time isn't known takes the time of the copy it comes from.
+    let timeless = tc.draw(gs::booleans());
+    if timeless {
+        problems.iter_mut().find(|p| p.path.eq_ignore_ascii_case(&here)).unwrap().mtime = None;
+    }
 
     let rep = scrub::repair(&mut main, None, &siblings, &problems, &Ctx::silent()).unwrap();
     let skipped = |why: &str| rep.skipped.iter().filter(|s| s.reason == why).count();
@@ -139,6 +140,14 @@ fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     assert_eq!(skipped("not a library file"), 1, "{rep:?}");
     assert_eq!(skipped("no known-good copy is available now"), 1, "{rep:?}");
     assert!(rep.repaired.iter().any(|p| p.eq_ignore_ascii_case(&here)), "{rep:?}");
+    if timeless {
+        // To the second: the drive's index keeps whole seconds.
+        let mtime = |root: &std::path::Path| {
+            let modified = fs::metadata(paths::to_fs(root, &here)).unwrap().modified().unwrap();
+            modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+        };
+        assert_eq!(mtime(&root), mtime(mirror.root()));
+    }
     let failed: Vec<&str> =
         rep.failed.iter().filter(|f| f.path.eq_ignore_ascii_case(&both)).map(|f| f.error.as_str()).collect();
     assert_eq!(failed, ["the copy it would come from is damaged too"], "{rep:?}");

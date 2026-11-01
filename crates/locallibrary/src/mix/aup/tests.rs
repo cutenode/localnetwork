@@ -1,4 +1,5 @@
 use super::*;
+use crate::masterdb::tests::scratch_db;
 
 /// A project's binary XML the way Audacity writes it (UTF-32 names), titled REC001, with
 /// `clips` of four samples on one track, each `(offset, trimLeft, block id)`.
@@ -47,7 +48,7 @@ fn odd_rates_deep_nesting_and_views_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     let open = |name: &str, x: Xml| {
         let path = dir.path().join(name);
-        let db = Connection::open(&path).unwrap();
+        let db = scratch_db(&path);
         let table = if name == "view.aup3" { "stored" } else { "project" };
         db.execute_batch(&format!("CREATE TABLE {table}(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);")).unwrap();
         db.execute(&format!("INSERT INTO {table} VALUES (1, ?1, ?2)"), (x.dict, x.doc)).unwrap();
@@ -164,7 +165,7 @@ impl Xml {
 /// `autosave`) and the sample blocks, each `(id, format, samples)`.
 pub(crate) fn project(dir: &Path, table: &str, xml: Option<&Xml>, blocks: &[(i64, i64, Vec<u8>)]) -> PathBuf {
     let path = dir.join(format!("{}.aup3", std::fs::read_dir(dir).unwrap().count()));
-    let db = Connection::open(&path).unwrap();
+    let db = scratch_db(&path);
     db.execute_batch(
         "CREATE TABLE project(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);
              CREATE TABLE autosave(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);
@@ -660,7 +661,7 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
         1 => {
             let table = tc.draw(gs::sampled_from(vec!["project", "autosave"]));
             let path = dir.path().join("view.aup3");
-            let db = Connection::open(&path).unwrap();
+            let db = scratch_db(&path);
             db.execute_batch("CREATE TABLE stored(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);").unwrap();
             db.execute("INSERT INTO stored VALUES (1, ?1, ?2)", (&x.dict, &x.doc)).unwrap();
             db.execute_batch(&format!("CREATE VIEW {table} AS SELECT * FROM stored")).unwrap();
@@ -678,4 +679,90 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
             assert!(e.to_string().contains(&format!("unknown sample format {format:#x}")), "{e}");
         }
     }
+}
+
+/// What isn't a whole Audacity project is refused as unparseable, naming the file and what it
+/// lacks: a file that isn't there, bytes that aren't SQLite, a database without the project's
+/// tables, a project with no rows and no autosave table, a document whose dictionary names
+/// nothing (so no `<project>` element), or one whose audio has no sample blocks table.
+#[hegel::test(test_cases = 40)]
+fn files_that_arent_whole_projects_are_refused_for_what_they_lack(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
+    x.start("project").double("rate", 2.0).start("wavetrack").clip(0.0, 2, &[(0, 1)]);
+    x.end("waveclip").end("wavetrack").end("project");
+    let path = dir.path().join("set.aup3");
+    let sqlite = |sql: &str| Connection::open(&path).unwrap().execute_batch(sql).unwrap();
+    let kind = tc.draw(gs::integers::<u8>().max_value(5));
+    let lacks = match kind {
+        0 => "unable to open",
+        1 => {
+            // Never SQLite's own header, which starts with an `S`; SQLite takes a file shorter
+            // than its 100-byte header for an empty database.
+            let mut bytes = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(100).max_size(600));
+            bytes[0] = bytes[0].saturating_add(1).max(b'T');
+            std::fs::write(&path, bytes).unwrap();
+            "not a database"
+        }
+        2 => {
+            // An empty file is an empty database to SQLite.
+            match tc.draw(gs::booleans()) {
+                true => sqlite("CREATE TABLE notes(body TEXT)"),
+                false => std::fs::write(&path, b"").unwrap(),
+            }
+            "no such table: project"
+        }
+        3 => {
+            sqlite("CREATE TABLE project(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB)");
+            "no such table: autosave"
+        }
+        4 => {
+            let unnamed = Xml { dict: vec![FT_CHAR_SIZE, x.char_size], doc: x.doc.clone(), names: Vec::new(), ..x };
+            std::fs::rename(project(dir.path(), "project", Some(&unnamed), &[]), &path).unwrap();
+            "no <project> element"
+        }
+        _ => {
+            sqlite("CREATE TABLE project(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB)");
+            Connection::open(&path)
+                .unwrap()
+                .execute("INSERT INTO project VALUES (1, ?1, ?2)", (&x.dict, &x.doc))
+                .unwrap();
+            "no such table: sampleblocks"
+        }
+    };
+    let e = match Project::open(&path) {
+        // Only the audio is missing: that shows once it's rendered.
+        Ok(p) => {
+            assert_eq!(kind, 5, "{p:?}");
+            p.render(2, &Ctx::silent(), &mut |_| {}).unwrap_err()
+        }
+        Err(e) => e,
+    };
+    assert!(matches!(&e, Error::Parse { path: at, .. } if *at == path), "{kind}: {e}");
+    assert!(e.to_string().contains(lacks), "{kind}: {e}");
+}
+
+/// A track stating the project's own rate, or one that isn't a rate at all (none or below
+/// 1 Hz), is heard as a track stating none: its clips trimmed at that rate, each starting where
+/// it sits plus what was trimmed.
+#[hegel::test(test_cases = 30)]
+fn a_track_at_the_projects_rate_sounds_as_one_without_a_rate(tc: TestCase) {
+    let stated = tc.draw(gs::sampled_from(vec![Some(4.0), Some(0.0), Some(-4.0), Some(f64::NEG_INFINITY), None]));
+    let samples: Vec<f32> = tc.draw(gs::vecs(gs::sampled_from(vec![0.0f32, 0.25, -0.5])).min_size(1).max_size(8));
+    let offset = tc.draw(gs::integers::<usize>().max_value(4));
+    let trim = tc.draw(gs::integers::<usize>().max_value(samples.len() - 1));
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
+    x.start("project").double("rate", 4.0).start("wavetrack");
+    if let Some(r) = stated {
+        x.double("rate", r);
+    }
+    x.start("waveclip").double("offset", offset as f64 / 4.0).double("trimLeft", trim as f64 / 4.0);
+    x.start("sequence").int(FT_LONG_LONG, "numsamples", samples.len() as i64);
+    x.start("waveblock").int(FT_LONG_LONG, "start", 0).int(FT_LONG_LONG, "blockid", 1).end("waveblock");
+    x.end("sequence").end("waveclip").end("wavetrack").end("project");
+    let path = project(dir.path(), "project", Some(&x), &[(1, FLOAT, floats(&samples))]);
+    let mut expected = vec![0.0; offset + trim];
+    expected.extend_from_slice(&samples[trim..]);
+    assert_eq!(rendered(&path, 4), expected, "{stated:?}");
 }

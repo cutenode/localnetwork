@@ -3,7 +3,8 @@
 //! replacing makes the target the source exactly, a conversion run again has nothing to add, and
 //! undoing it gives the drive back. The XML holds every track and playlist the drive does.
 
-use crate::{common, drawn};
+use crate::common::{self, XmlOptions};
+use crate::drawn;
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -11,18 +12,13 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift};
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Library, backup, paths, pdb};
 use rekordbox_pdb::PdbEditor;
-
-fn fold(s: &str) -> String {
-    paths::key(s).to_lowercase()
-}
 
 /// What a database holds, comparable across databases: track files, every playlist's entries
 /// (as files, by folded path; same-named playlists pooled) and history list names.
@@ -34,8 +30,9 @@ struct Held {
 }
 
 fn held(lib: &Library) -> Held {
-    let file = |id: &u32| lib.track(*id).map(|t| fold(&t.file_path));
-    let mut h = Held { tracks: lib.tracks.iter().map(|t| fold(&t.file_path)).collect(), ..Default::default() };
+    let file = |id: &u32| lib.track(*id).map(|t| paths::file_key(&t.file_path));
+    let mut h =
+        Held { tracks: lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect(), ..Default::default() };
     for p in lib.playlists.iter().filter(|p| !p.is_folder) {
         h.playlists
             .entry(lib.playlist_path(p.id).to_lowercase())
@@ -116,9 +113,7 @@ fn converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     let root = drifted_drive(&tc, dir.path());
     let (pdb_before, plus_before) = libraries(&root);
     let to = match (&pdb_before, &plus_before) {
-        (Some(_), Some(_)) => {
-            tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]).print_as_debug())
-        }
+        (Some(_), Some(_)) => tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary])),
         (Some(_), None) => Target::OneLibrary,
         _ => Target::DeviceLibrary,
     };
@@ -158,7 +153,7 @@ fn converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     }
     // Artwork comes along, under the converted database's own image names.
     for t in source.tracks.iter().filter(|t| t.artwork_path.is_some()) {
-        let m = made.tracks.iter().find(|x| fold(&x.file_path) == fold(&t.file_path)).unwrap();
+        let m = made.tracks.iter().find(|x| paths::file_key(&x.file_path) == paths::file_key(&t.file_path)).unwrap();
         let art = m.artwork_path.as_deref().unwrap_or_else(|| panic!("{} lost its artwork", t.file_path));
         assert!(paths::to_fs(&root, &paths::key(art)).is_file(), "{art}");
     }
@@ -206,7 +201,7 @@ fn read_xml(text: &str) -> Xml {
         let (e, empty) = match &event {
             Event::Start(e) => (e.clone(), false),
             Event::Empty(e) => (e.clone(), true),
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref() == "NODE" => {
                 if open_playlist {
                     open_playlist = false;
                 } else {
@@ -220,19 +215,19 @@ fn read_xml(text: &str) -> Xml {
         let attr = |name: &str| {
             e.attributes()
                 .flatten()
-                .find(|a| a.key.as_ref() == name.as_bytes())
-                .map(|a| a.unescape_value().unwrap().into_owned())
+                .find(|a| a.key.as_ref() == name)
+                .map(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned())
         };
         match e.name().as_ref() {
-            b"COLLECTION" => out.entries = attr("Entries").unwrap().parse().unwrap(),
-            b"TRACK" if attr("Key").is_some() => {
+            "COLLECTION" => out.entries = attr("Entries").unwrap().parse().unwrap(),
+            "TRACK" if attr("Key").is_some() => {
                 out.playlists.last_mut().unwrap().1.push(attr("Key").unwrap().parse().unwrap())
             }
-            b"TRACK" => {
+            "TRACK" => {
                 let id = attr("TrackID").unwrap().parse().unwrap();
                 out.tracks.insert(id, (attr("Name").unwrap(), attr("Artist").unwrap(), attr("Location").unwrap()));
             }
-            b"NODE" => {
+            "NODE" => {
                 let name = attr("Name").unwrap();
                 match attr("Type").as_deref() {
                     Some("1") => {
@@ -288,10 +283,10 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     };
     if only.iter().any(|q| lib.find_playlist(q).is_none()) {
         // A name two playlists share picks neither.
-        assert!(xml::export(&d, &opts, &Ctx::silent()).is_err());
+        assert!(common::rekordbox_xml(&d, &opts).is_err());
         return;
     }
-    let (text, report) = xml::export(&d, &opts, &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &opts).unwrap();
     let x = read_xml(&text);
 
     // Which playlists, and so which tracks, the XML should hold.
@@ -316,7 +311,9 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     for t in &tracks {
         let (name, artist, loc) = &x.tracks[&t.id];
         assert_eq!((name, artist), (&t.title, &t.artist));
-        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().into_owned();
+        // A URL's path: `/`-separated, and on Windows `/C:/...`.
+        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().replace('\\', "/");
+        let want = if want.starts_with('/') { want } else { format!("/{want}") };
         assert_eq!(unpercent(loc.strip_prefix("file://localhost").unwrap()), want);
     }
     let mut want: Vec<(String, Vec<u32>)> =
@@ -326,7 +323,7 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     got.sort();
     assert_eq!(got, want);
     if opts.skip_analysis {
-        assert_eq!((report.tracks_with_beatgrid, report.cues), (0, 0));
+        assert_eq!((report.beat_grids, report.cues), (0, 0));
     }
     assert_eq!(text.matches("<POSITION_MARK").count(), report.cues);
 }
@@ -351,7 +348,7 @@ fn tagged(d: &Device, source: locallibrary::tags::Source) -> BTreeSet<(String, S
         .iter()
         .flat_map(|c| &c.tags)
         .filter(|t| t.sources.contains(&source))
-        .flat_map(|t| t.tracks.iter().map(move |r| (t.path.clone(), fold(&r.file_path))))
+        .flat_map(|t| t.tracks.iter().map(move |r| (t.path.clone(), paths::file_key(&r.file_path))))
         .collect()
 }
 
@@ -420,7 +417,7 @@ fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, varian
         let path = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks[0].artwork_path.clone().unwrap();
         fs::remove_file(paths::to_fs(&root, &paths::key(&path))).unwrap();
     }
-    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]).print_as_debug());
+    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]));
     let replace = variant & 2 != 0;
     let opts = ConvertOptions { to, replace };
     // At times the target can't be read.
@@ -496,15 +493,20 @@ fn xml_marks(text: &str) -> Marks {
         let attrs: IndexMap<String, String> = e
             .attributes()
             .flatten()
-            .map(|a| (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into_owned()))
+            .map(|a| {
+                (
+                    a.key.as_ref().to_owned(),
+                    a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned(),
+                )
+            })
             .collect();
         match e.name().as_ref() {
-            b"TRACK" if attrs.contains_key("TrackID") => {
+            "TRACK" if attrs.contains_key("TrackID") => {
                 let id = attrs["TrackID"].parse().unwrap();
                 out.insert(id, (attrs, Vec::new()));
                 current = Some(id);
             }
-            b"POSITION_MARK" => out[&current.unwrap()].1.push(attrs),
+            "POSITION_MARK" => out[&current.unwrap()].1.push(attrs),
             _ => {}
         }
     }
@@ -551,7 +553,7 @@ fn xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
     }
     let d = Device::open_export(&root).unwrap();
     let lib = d.library().unwrap();
-    let (text, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&d, &XmlOptions::default()).unwrap();
     let marks = xml_marks(&text);
     let mut hexes: IndexMap<String, String> = IndexMap::new();
     for t in &lib.tracks {

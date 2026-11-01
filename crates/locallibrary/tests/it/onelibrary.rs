@@ -1,14 +1,14 @@
 //! OneLibrary (`exportLibrary.db`): reading SQLCipher files and their WAL, OneLibrary-only drives,
 //! and keeping the database and its WAL together through syncs, edits and restores.
 
-use crate::common::{self, media::png};
+use crate::common::{self, XmlOptions, media::png, media::set_artwork};
 
 use rustc_hash::FxHashMap;
 use std::fs;
 
 use std::path::Path;
 
-use locallibrary::artwork::{self, Artwork};
+use locallibrary::artwork;
 use locallibrary::compare::{self, Relation, Side};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MergeOptions};
@@ -16,7 +16,6 @@ use locallibrary::onelibrary::{self, OneLibrary};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
-use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Library, backup, paths};
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -124,7 +123,7 @@ fn onelibrary_only_drives_are_exports() {
     assert_eq!(compare::compare_devices(&a, &b, &Ctx::silent()).unwrap().relation, Relation::Identical);
 
     // And exported as rekordbox XML.
-    let (text, report) = xml::export(&a, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let (text, report) = common::rekordbox_xml(&a, &XmlOptions::default()).unwrap();
     assert_eq!(report.tracks, 12);
     assert!(text.contains("aab"));
 }
@@ -211,9 +210,8 @@ fn edits_replace_the_wal_and_restores_bring_it_back() {
     assert_eq!(titles(&d.library().unwrap()), ["One", "Two"]);
 
     // Track 2 lives only in the WAL; setting its artwork must keep it.
-    let art = Artwork::from_bytes(&png(300, 200, 10)).unwrap();
-    let r = artwork::set_on_drive(&mut d, &[2], &art, &Ctx::silent()).unwrap();
-    assert_eq!((r.tracks_updated, r.artwork_rows_added), (1, 1));
+    let r = set_artwork(&mut d, &[2], &png(300, 200, 10), &Ctx::silent()).unwrap();
+    assert!(r.databases.iter().any(|f| f == "exportLibrary.db"), "{r:?}");
     assert!(!root.join(paths::LIBRARY_PLUS_WAL).exists() && !root.join(paths::LIBRARY_PLUS_SHM).exists());
     common::sqlcipher_reads(&root);
     let lib = d.library().unwrap();
@@ -245,9 +243,9 @@ fn artwork_goes_into_both_databases() {
         common::plus_library(&root).tracks.iter().map(|t| (t.file_path.clone(), t.id)).collect();
     let ids: Vec<u32> = lib.tracks.iter().take(2).map(|t| t.id).collect();
 
-    let art = Artwork::from_bytes(&png(300, 200, 20)).unwrap();
-    let r = artwork::set_on_drive(&mut d, &ids, &art, &Ctx::silent()).unwrap();
-    assert_eq!((r.tracks_updated, r.artwork_rows_added), (2, 2), "one new row in each database");
+    let database = |f: &String| f == "export.pdb" || f == "exportLibrary.db";
+    let r = set_artwork(&mut d, &ids, &png(300, 200, 20), &Ctx::silent()).unwrap();
+    assert_eq!(r.databases.iter().filter(|f| database(f)).count(), 2, "one new row in each database");
     common::sqlcipher_reads(&root);
     let pdb = d.library().unwrap();
     let plus = common::plus_library(&root);
@@ -260,9 +258,8 @@ fn artwork_goes_into_both_databases() {
     }
 
     // Again on exactly those tracks: both images are replaced in place.
-    let art = Artwork::from_bytes(&png(300, 200, 200)).unwrap();
-    let r = artwork::set_on_drive(&mut d, &ids, &art, &Ctx::silent()).unwrap();
-    assert_eq!(r.artwork_rows_added, 0);
+    let r = set_artwork(&mut d, &ids, &png(300, 200, 200), &Ctx::silent()).unwrap();
+    assert!(!r.databases.iter().any(database), "{r:?}");
     assert_eq!(common::plus_library(&root).tracks.iter().filter(|t| t.artwork_id.is_some()).count(), 2);
 }
 

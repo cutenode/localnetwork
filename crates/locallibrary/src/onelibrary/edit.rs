@@ -48,7 +48,7 @@ impl OneLibrary {
     /// Remove nodes with their entries (children of a removed folder must be passed too).
     pub fn remove_nodes(&mut self, tree: Tree, ids: &[u32]) -> Result<()> {
         let t = tree.table();
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         for id in ids {
             tx.execute(&format!("DELETE FROM {t}_content WHERE {t}_id = ?1"), [id])?;
             if tx.execute(&format!("DELETE FROM {t} WHERE {t}_id = ?1"), [id])? != 1 {
@@ -61,7 +61,7 @@ impl OneLibrary {
 
     /// Replace a playlist's contents with `tracks`, in order, numbered from 1.
     pub fn set_playlist_entries(&mut self, playlist: u32, tracks: &[u32]) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         tx.execute("DELETE FROM playlist_content WHERE playlist_id = ?1", [playlist])?;
         {
             let mut insert =
@@ -77,7 +77,7 @@ impl OneLibrary {
     /// Point playlist and history entries for track `from` at `to`, and give `to` the My Tags
     /// `from` has. Returns how many entries changed.
     pub fn repoint_track(&mut self, from: u32, to: u32) -> Result<usize> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         let mut n = 0;
         for t in ["playlist_content", "history_content"] {
             n += tx.execute(&format!("UPDATE {t} SET content_id = ?1 WHERE content_id = ?2"), params![to, from])?;
@@ -168,6 +168,12 @@ impl OneLibrary {
             if let Some(v) = &f.mix_name {
                 set("subtitle", text(v))?;
             }
+            if let Some(v) = &f.isrc {
+                set("isrc", text(v))?;
+            }
+            if let Some(v) = &f.release_date {
+                set("releaseDate", text(v))?;
+            }
             let artist = |name: &str| -> Result<Option<i64>> {
                 if name.trim().is_empty() { Ok(None) } else { self.named(Lookup::Artist, name).map(Some) }
             };
@@ -182,9 +188,27 @@ impl OneLibrary {
                     candidates.push((Lookup::Artist, old_id));
                 }
             }
-            if let Some(name) = &f.album {
-                let album_artist = (old[8] > 0).then_some(old[8]);
-                let album = if name.trim().is_empty() { None } else { Some(self.album(name, album_artist)?) };
+            // An album row holds its artist: either changing takes the row of the pair. Only a name
+            // given blank clears the album; the track's own is kept whatever it is.
+            if f.album.is_some() || f.album_artist.is_some() {
+                let name: Option<String> = match &f.album {
+                    Some(name) => (!name.trim().is_empty()).then(|| name.clone()),
+                    None => self
+                        .conn
+                        .query_row("SELECT name FROM album WHERE album_id = ?1", [old[4]], |r| r.get(0))
+                        .optional()?
+                        .flatten(),
+                };
+                let album = match name {
+                    None => None,
+                    Some(name) => {
+                        let album_artist = match &f.album_artist {
+                            Some(a) => artist(a)?,
+                            None => (old[8] > 0).then_some(old[8]),
+                        };
+                        Some(self.album(&name, album_artist)?)
+                    }
+                };
                 set("album_id", opt(album))?;
                 candidates.push((Lookup::Album, old[4]));
                 candidates.push((Lookup::Artist, old[8]));
@@ -220,6 +244,9 @@ impl OneLibrary {
             }
             if let Some(v) = f.disc_number {
                 set("discNo", rusqlite::types::Value::Integer(v.into()))?;
+            }
+            if let Some(v) = f.bpm {
+                set("bpmx100", rusqlite::types::Value::Integer((v * 100.0).round() as i64))?;
             }
         }
         self.prune_lookups(&candidates)

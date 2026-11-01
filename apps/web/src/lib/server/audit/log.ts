@@ -11,33 +11,79 @@ import type { AuditEntryRow, CopyStatus } from '../db/schema';
 import type { Logger } from '../logger';
 import { type AuditDetails, canonicalJson, chainHash, clip, sanitizeDetails } from './chain';
 
-export type AuditAction =
-	| 'auth.login'
-	| 'auth.logout'
-	| 'project.create'
-	| 'project.update'
-	| 'project.status'
-	| 'project.managers'
-	| 'request.submit'
-	| 'request.update'
-	| 'request.withdraw'
-	| 'request.approve'
-	| 'request.reject'
-	| 'request.changesRequested'
-	| 'role.grant'
-	| 'role.revoke'
-	| 'booking.create'
-	| 'booking.message'
-	| 'booking.status'
-	| 'planner.save'
-	| 'planner.unsave'
-	| 'planner.show'
-	| 'system.bootstrap'
-	| 'system.space';
+/** Every action the log records. The audit entry lexicon lists the same ones as its knownValues. */
+export const AUDIT_ACTIONS = [
+	'auth.login',
+	'auth.logout',
+	'project.create',
+	'project.update',
+	'project.status',
+	'project.managers',
+	'request.submit',
+	'request.update',
+	'request.withdraw',
+	'request.approve',
+	'request.reject',
+	'request.changesRequested',
+	'role.grant',
+	'role.revoke',
+	'verification.grant',
+	'verification.revoke',
+	'booking.create',
+	'booking.message',
+	'booking.status',
+	'planner.save',
+	'planner.unsave',
+	'planner.show',
+	'epk.save',
+	'epk.delete',
+	'epk.request',
+	'epk.grant',
+	'epk.decline',
+	'epk.revoke',
+	'epk.view',
+	'epk.forget',
+	'show.save',
+	'show.delete',
+	'follow.create',
+	'follow.delete',
+	'profile.save',
+	'space.create',
+	'people.add',
+	'people.update',
+	'people.remove',
+	'people.leave',
+	'people.hide',
+	'people.invite',
+	'people.join',
+	'people.request',
+	'people.approve',
+	'people.reject',
+	'people.link',
+	'listing.list',
+	'listing.unlist',
+	'system.bootstrap',
+	'system.space'
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 
-export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space';
+/** What an entry's subject is. The audit entry lexicon lists the same ones as its knownValues. */
+export const SUBJECT_KINDS = [
+	'account',
+	'project',
+	'request',
+	'role',
+	'booking',
+	'planner',
+	'space',
+	'epk',
+	'show'
+] as const;
+
+export type SubjectKind = (typeof SUBJECT_KINDS)[number];
 
 export type AuditChange = { field: string; before?: string; after?: string };
 
@@ -112,7 +158,8 @@ const rootCopy = z
 	.partial()
 	.extend({ chain: z.object({ seq: z.int().min(1), prev: z.string(), hash: z.string() }) });
 
-const backoffMs = (attempts: number) => Math.min(60 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1));
+/** How long to wait before the next try after `attempts` failed ones: 5 seconds, doubling, up to an hour. */
+export const backoffMs = (attempts: number) => Math.min(60 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1));
 
 /**
  * The audit log. Every action is recorded locally first (an outbox with a

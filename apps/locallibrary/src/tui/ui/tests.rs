@@ -87,7 +87,7 @@ fn keys_that_mix_show_green() {
             .unwrap_or_else(|| panic!("{title} not on screen"));
         buf[(key_x, y)].fg
     };
-    let green = theme::rgb3(theme::GREEN);
+    let green = theme::rgb3(theme::current().good);
     app.visible = (0..4).collect();
     let row = |app: &App, title: &str| {
         let l = app.loaded.as_ref().unwrap();
@@ -187,6 +187,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
         drive: "TEST".into(),
         root: l.root().to_path_buf(),
         analysis: Default::default(),
+        from_plugins: None,
         art: None,
         duration: std::time::Duration::from_secs(300),
         phrases: Vec::new(),
@@ -518,7 +519,7 @@ fn the_drives_view_lists_libraries_with_their_clones() {
         last_mount: dir.path().join("Spare"),
         last_seen: at_time,
         capacity: None,
-        standing: Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+        standing: Standing::Behind { snapshots: 2, held: Some("1a2b3c".into()) },
         log: DriveLog::default(),
     };
     app.fleet_libraries = vec![FleetLibrary {
@@ -661,6 +662,33 @@ fn the_full_screen_player_says_all_it_knows_of_the_track() {
     assert!(screen(&mut app, 160, 45).contains("phrase last"));
 }
 
+/// The hot cue the playhead last passed is underlined, and only that one: none before the first.
+#[test]
+fn the_hot_cue_last_passed_is_underlined() {
+    let (mut app, _dir) = playing_in_full();
+    app.fullscreen = true;
+    // Which of hot cues A (at 0:10) and B (at 1:00) are underlined, `secs` in.
+    let mut underlined = |secs| {
+        app.resume = Some(std::time::Duration::from_secs(secs));
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
+        terminal.draw(|f| draw(f, &mut app)).unwrap();
+        let buf = terminal.backend().buffer();
+        let rows: Vec<Vec<&str>> =
+            (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()).collect();
+        // The cues' line: the chips A and B (each after its pad's key), then the memory cue's.
+        let y = rows.iter().position(|row| row.concat().contains("◆1  next")).unwrap_or_else(|| {
+            panic!("no hot cues' line in\n{}", rows.iter().map(|r| r.concat() + "\n").collect::<String>())
+        });
+        let x = |letter| rows[y].iter().position(|s| *s == letter).unwrap() as u16;
+        let y = y as u16;
+        let on = |x| buf[(x, y)].modifier.contains(Modifier::UNDERLINED);
+        (on(x("A")), on(x("B")))
+    };
+    assert_eq!(underlined(5), (false, false));
+    assert_eq!(underlined(30), (true, false));
+    assert_eq!(underlined(70), (false, true));
+}
+
 /// The compact player draws whichever visualiser is picked, the deck from the track's
 /// detail waveform.
 #[test]
@@ -792,6 +820,7 @@ fn outputs_name_the_default() {
         names: vec!["MacBook Speakers".into(), "DJM-A9".into()],
         default: Some("MacBook Speakers".into()),
         state: ListState::default().with_selected(Some(0)),
+        ..Default::default()
     });
     let s = screen(&mut app, 100, 24);
     assert!(s.contains("the system's default (MacBook Speakers)") && s.contains("DJM-A9"), "{s}");
@@ -960,7 +989,7 @@ fn the_selection_is_always_in_the_window(tc: hegel::TestCase) {
     // No rows often: the drives list and the profile's sections have none under 4 rows.
     let page = tc.draw(hegel::one_of!(gs::just(0), gs::integers::<usize>().max_value(40)));
     let offset = tc.draw(gs::integers::<usize>().max_value(120));
-    let sel = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(len.saturating_sub(1))));
+    let sel = tc.draw(gs::optional(gs::integers::<usize>().max_value(len.saturating_sub(1))));
     let top = scroll_window(offset, sel, page, len);
     assert!(top <= len.saturating_sub(page), "{top} leaves rows of {len} empty below a page of {page}");
     if let Some(s) = sel.filter(|_| len > 0) {
@@ -1069,6 +1098,7 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
                 names: names.clone(),
                 default: None,
                 state: ListState::default().with_selected(Some(sel)),
+                ..Default::default()
             });
             ([vec!["the system's default".to_string()], names].concat(), sel)
         }
@@ -1132,9 +1162,9 @@ fn counts_said_short_read_back(tc: hegel::TestCase) {
 /// key and time last; each once, each named apart.
 #[hegel::test(test_cases = 300)]
 fn the_columns_are_the_ones_that_fit_and_the_sort(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let width = tc.draw(gs::integers::<u16>().max_value(220));
-    let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug()));
+    let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..])));
     let sort = field.map(|field| SortKey { field, descending: tc.draw(gs::booleans()) });
     let (ratings, tags) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let cols = columns(width, sort, ratings, tags);
@@ -1195,7 +1225,7 @@ fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
 
     let (dir, root, path) = edited_drive();
     let names = |tc: &hegel::TestCase| -> Vec<String> {
-        LISTS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect()
+        tc.draw(gs::subsequences(LISTS)).iter().map(|s| s.to_string()).collect()
     };
     let track = |id| TrackRef { id, name: format!("Track {id}"), file_path: String::new() };
     let warnings: Vec<String> =
@@ -1358,7 +1388,7 @@ fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
 /// selected track's details, with why there are no matches.
 #[hegel::test(test_cases = 100)]
 fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::sets::{EntryOrigin, SetEntry};
 
     use super::super::app::{Msg, ReplayOffer};
@@ -1404,7 +1434,7 @@ fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
         let edits = if edits == 1 { "1 edit".to_string() } else { format!("{edits} edits") };
         want.push(format!("rekordbox exported over {edits} on DNA. Replay?"));
     }
-    if let Some(field) = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug())) {
+    if let Some(field) = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]))) {
         let descending = tc.draw(gs::booleans());
         app.sort = Some(SortKey { field, descending });
         app.refresh_visible();
@@ -1561,6 +1591,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
                 names: vec!["MacBook Speakers".into(), "DJM-A9".into()],
                 default: Some("MacBook Speakers".into()),
                 state: ListState::default().with_selected(Some(0)),
+                ..Default::default()
             });
             vec!["the system's default (MacBook Speakers)".to_string(), "DJM-A9".into()]
         }
@@ -1589,7 +1620,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     use chrono::TimeZone;
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::fleet::{CheckEntry, DriveLog, KnownDrive, Problem};
     use locallibrary::hash::Hash;
     use locallibrary::store::SnapshotInfo;
@@ -1641,19 +1672,16 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     }
     app.drives = vec![info.clone()];
     app.select_drive_row(DriveRow::Drive(0));
-    let relation = tc.draw(
-        gs::sampled_from(
-            &[
-                None,
-                Some(Relation::Identical),
-                Some(Relation::RightNewer),
-                Some(Relation::LeftNewer),
-                Some(Relation::Diverged),
-                Some(Relation::Unrelated),
-            ][..],
-        )
-        .print_as_debug(),
-    );
+    let relation = tc.draw(gs::sampled_from(
+        &[
+            None,
+            Some(Relation::Identical),
+            Some(Relation::RightNewer),
+            Some(Relation::LeftNewer),
+            Some(Relation::Diverged),
+            Some(Relation::Unrelated),
+        ][..],
+    ));
     let library = tc.draw(gs::booleans()).then_some("Home");
     let back = tc.draw(gs::sampled_from(&[None, Some(0usize), Some(1), Some(3)][..]));
     let error = tc.draw(gs::booleans()).then_some("bad export");
@@ -1760,7 +1788,7 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
         last_seen: at,
         capacity: None,
         standing: match standing {
-            0 => Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+            0 => Standing::Behind { snapshots: 2, held: Some("1a2b3c".into()) },
             1 => Standing::UpToDate,
             2 => Standing::Unsaved,
             _ => Standing::Unknown,
@@ -1827,5 +1855,71 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     }
     for (w, h) in [(80, 24), (40, 12)] {
         assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
+    }
+}
+
+/// Plugins' columns go before tempo, key and time, in the order asked for; one shown already as
+/// the sort's stays where it is.
+#[test]
+fn plugins_columns_go_before_tempo_key_and_time() {
+    let (bpm, key) = (FieldName::new("sound.bpm"), FieldName::new("sound.key"));
+    let base = columns(80, None, false, false);
+    assert_eq!(
+        with_fields(base.clone(), &[bpm, key]),
+        [Col::Title, Col::Artist, Col::Field(bpm), Col::Field(key), Col::Bpm, Col::Key, Col::Time]
+    );
+    assert_eq!(with_fields(base.clone(), &[]), base);
+    let sorted = columns(80, Some(SortKey { field: SortField::Field(key), descending: false }), false, false);
+    assert_eq!(sorted[2], Col::Field(key), "the sort column, not otherwise shown");
+    assert_eq!(with_fields(sorted, &[bpm, key]).iter().filter(|c| **c == Col::Field(key)).count(), 1);
+}
+
+/// A plugin's value as its column shows it: numbers to two places at most, a list joined.
+#[test]
+fn plugins_values_show_shortly() {
+    let text = |v: FieldValue| field_cell(&v, None).to_string();
+    assert_eq!(text(FieldValue::Number(121.0)), "121");
+    assert_eq!(text(FieldValue::Number(121.256)), "121.26");
+    assert_eq!(text(FieldValue::Number(-8.5)), "-8.5");
+    assert_eq!(text(FieldValue::Integer(4000)), "4000");
+    assert_eq!(text(FieldValue::Boolean(true)), "yes");
+    assert_eq!(text(FieldValue::Strings(vec!["deep".into(), "warm".into()])), "deep, warm");
+}
+
+/// With the My Tags column shown and the drive's tags read, each track's row lists its tags by
+/// their own names (not the categories they're under), in the order the drive has them; a track
+/// without any shows none.
+#[hegel::test(test_cases = 50)]
+fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::sync::Arc;
+    let (mut app, _dir) = app_with(library());
+    app.show_tags_column = true;
+    let names = ["Genre/Deep", "Vibe/Moody", "Peak", "Situation/Warm Up"];
+    let l = app.loaded.as_mut().unwrap();
+    let tracks = l.library.tracks.clone();
+    let mut tags = rustc_hash::FxHashMap::default();
+    let mut want = Vec::new();
+    for t in &tracks {
+        let mine: Vec<String> = tc.draw(gs::subsequences(&names[..])).iter().map(|n| n.to_string()).collect();
+        want.push(mine.iter().map(|n| n.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>());
+        tags.insert(locallibrary::paths::file_key(&t.file_path), mine);
+    }
+    l.my_tags = super::super::app::MyTags::Read(Arc::new(tags));
+    let s = screen(&mut app, 200, 30);
+    // The rows under the column headers, in the order the list shows the tracks.
+    let rows: Vec<&str> = s.lines().skip_while(|l| !l.contains("My Tags")).skip(1).take(app.visible.len()).collect();
+    assert_eq!(rows.len(), app.visible.len(), "{s}");
+    for (&i, row) in app.visible.iter().zip(rows) {
+        let (title, leaves) = (&tracks[i].title, &want[i]);
+        assert!(row.contains(title.as_str()), "{title} isn't on {row}\n{s}");
+        if leaves.is_empty() {
+            for n in names {
+                assert!(!row.contains(n.rsplit('/').next().unwrap()), "{title} has no tags: {row}");
+            }
+        } else {
+            assert!(row.contains(&leaves.join(", ")), "{title} has {leaves:?}: {row}");
+        }
+        assert!(!row.contains("Genre/") && !row.contains("Vibe/"), "{row}");
     }
 }

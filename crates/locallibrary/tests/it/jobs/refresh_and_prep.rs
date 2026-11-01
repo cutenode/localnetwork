@@ -47,7 +47,8 @@ fn a_refresh_copies_the_drive_onto_its_librarys_others() {
     let (store, main, backup) = two_drives(dir.path());
     let ctx = Ctx::silent();
     common::export_new_track(&main, "Artist", "Fresh");
-    let refresh = |skip: Vec<StepKind>| api::RefreshRequest { drive: Some(path(&main)), skip, sync: true };
+    let refresh =
+        |skip: Vec<StepKind>| api::RefreshRequest { drive: Some(path(&main)), skip, sync: true, ..Default::default() };
 
     let skipped = api::refresh_plan(&store, &refresh(vec![StepKind::Pull, StepKind::Sync]), &ctx).unwrap();
     assert_eq!(reason(&skipped, StepKind::Pull).as_deref(), Some("skipped"));
@@ -65,6 +66,56 @@ fn a_refresh_copies_the_drive_onto_its_librarys_others() {
     let sync = plan.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
     assert_eq!(sync.reason.as_deref(), Some("Backup is newer than Main"));
     assert!(sync.warnings[0].contains("it isn't copied over"), "{:?}", sync.warnings);
+}
+
+/// Records the target of each item copied, as progress reports it.
+#[derive(Default)]
+struct Targets(std::sync::Mutex<Vec<String>>);
+
+impl locallibrary::progress::Progress for Targets {
+    fn on_event(&self, _: &locallibrary::progress::Event) {}
+    fn on_scoped_event(&self, scope: &locallibrary::progress::Scope, event: &locallibrary::progress::Event) {
+        if let (Some(t), locallibrary::progress::Event::Item { .. }) = (&scope.target, event) {
+            self.0.lock().unwrap().push(t.clone());
+        }
+    }
+}
+
+/// Before a set, the newest drive is copied onto the others at once, as `sync --many` copies, each
+/// target's progress its own; the sync step does it in one go, with a report for each target.
+#[test]
+fn a_set_job_copies_onto_the_other_drives_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main, backup) = two_drives(dir.path());
+    let ctx = Ctx::silent();
+    let spare = common::blank(dir.path(), "Spare");
+    api::sync_apply(Some(&store), &common::sync_pair(&main, &spare), &ctx).unwrap();
+    common::adopt(Some(&store), &spare, "Spare");
+    common::export_new_track(&main, "Artist", "Fresh");
+    let req = api::SetJobRequest {
+        drives: vec![path(&main), path(&backup), path(&spare)],
+        eject: false,
+        ..Default::default()
+    };
+    let plan = api::set_job_plan(&store, &req, &ctx).unwrap();
+    let sync = plan.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
+    assert!(sync.runs && sync.summary[0] == "Main holds the newest library", "{:?}", sync.summary);
+    let seen = Targets::default();
+    let report = plan.apply(Some(&store), &Ctx::new(&seen, locallibrary::progress::CancelToken::new())).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    let synced = report.steps.iter().find(|s| s.step == StepKind::Sync).unwrap();
+    assert_eq!(synced.reports.len(), 1, "one sync onto both");
+    let targets: Vec<&str> =
+        synced.reports[0].as_array().unwrap().iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(targets, ["Backup", "Spare"]);
+    for d in [&backup, &spare] {
+        assert!(titles(d).contains(&"Fresh".to_string()), "{}", d.display());
+    }
+    let seen = seen.0.into_inner().unwrap();
+    for d in [&backup, &spare] {
+        let root = Device::open(d).unwrap().root().display().to_string();
+        assert!(seen.contains(&root), "{root} in {seen:?}");
+    }
 }
 
 /// Only a drive holding an export can be refreshed or taken to a set, and each only once.

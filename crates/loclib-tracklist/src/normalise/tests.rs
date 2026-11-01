@@ -235,7 +235,7 @@ fn version_word_spellings_are_one_token(tc: TestCase) {
     let variants = [("rmx", "remix"), ("acappella", "acapella"), ("accapella", "acapella"), ("remastered", "remaster")];
     let mut words = plain_words(&tc, 4);
     let at = tc.draw(gs::integers::<usize>().max_value(words.len()));
-    let (variant, word) = variants[tc.draw(gs::integers::<usize>().max_value(variants.len() - 1))];
+    let (variant, word) = tc.draw(gs::sampled_from(&variants));
     let spelled: String =
         variant.chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
     let mut with_word = words.clone();

@@ -104,6 +104,26 @@ fn a_recording_is_identified_into_a_tracklist_a_report_and_data() {
     assert_eq!(doc["plays"].as_array().unwrap().len(), 1, "{doc}");
 }
 
+/// The report shows what analyzers worked out of each track it plays, of the fields they say
+/// how to show, as they say.
+#[test]
+fn the_report_shows_the_fields_analyzers_say_how_to_show() {
+    let mut env = Env::ascii();
+    let hinted = crate::support::echo_plugin().replace(
+        "fields = { bytes = \"integer\" }",
+        "fields = { bytes = \"integer\" }\ndisplay.bytes = { unit = \"B\" }",
+    );
+    env.plugins(&[&hinted]);
+    let (drive, recording) = drive_and_recording(&env);
+    let d = path(&drive);
+    env.ok(&["analyze", d, "--analyzer", "size"]);
+    let page = env.outside("friday.html");
+    env.ok(&["mix", path(&recording), "--drive", d, "--html", path(&page)]);
+    let html = std::fs::read_to_string(&page).unwrap();
+    let bytes = std::fs::metadata(drive.join("Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")).unwrap().len();
+    assert!(html.contains(&format!(r#""fields":[{{"label":"echo.bytes","value":"{bytes} B"}}]"#)), "{html}");
+}
+
 #[test]
 fn several_recordings_are_written_into_a_folder() {
     let env = Env::ascii();
@@ -127,6 +147,31 @@ fn indexing_says_which_tracks_it_couldnt_fingerprint() {
     assert!(out.contains("Demo: 0 of 2 tracks fingerprinted (0 new)"), "{out}");
     assert!(out.contains("1 track(s) have no audio file on the drive"), "{out}");
     assert!(out.contains("couldn't read Loopmasters - Demo Track 1: "), "{out}");
+}
+
+/// A cover given with `--cover` goes into the report and the data made to be shared, as one
+/// embedded in the recording does; a file that isn't an image is refused before identifying.
+#[test]
+fn a_given_cover_goes_into_the_report_and_the_data() {
+    let env = Env::ascii();
+    let (drive, recording) = drive_and_recording(&env);
+    let cover = env.outside("cover.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([200, 40, 90])).save(&cover).unwrap();
+    let (page, data) = (env.outside("friday.html"), env.outside("friday.mix.json"));
+    let d = path(&drive);
+    env.ok(&["mix", path(&recording), "--drive", d, "--html", path(&page), "--cover", path(&cover)]);
+    let html = std::fs::read_to_string(&page).unwrap();
+    assert!(html.contains(r#""cover":"data:image/jpeg;base64,"#), "the page holds the cover");
+    env.ok(&["mix", path(&recording), "--drive", d, "--export", path(&data), "--cover", path(&cover)]);
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&data).unwrap()).unwrap();
+    assert!(doc["mix"]["cover"].as_str().is_some_and(|c| c.starts_with("data:image/jpeg;base64,")), "{doc}");
+
+    let notes = env.outside("notes.txt");
+    std::fs::write(&notes, "not an image").unwrap();
+    let err = env.fails(1, &["mix", path(&recording), "--drive", d, "--cover", path(&notes)]);
+    assert!(err.contains("notes.txt can't be a cover"), "{err}");
+    let err = env.fails(1, &["mix", path(&recording), path(&recording), "--cover", path(&cover)]);
+    assert!(err.contains("--cover goes with a single mix"), "{err}");
 }
 
 #[test]

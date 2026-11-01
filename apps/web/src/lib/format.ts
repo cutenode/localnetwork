@@ -1,5 +1,5 @@
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
-import type { AccountView, ProjectProfile } from './types';
+import type { AccountView, DjSetView, Location, ProjectFee, ProjectProfile, RequestKind, RequestView } from './types';
 
 export function shortDid(did: string): string {
 	if (did.length <= 24) return did;
@@ -11,6 +11,26 @@ export function accountLabel(account: AccountView | null | undefined): string {
 	if (!account) return 'unknown';
 
 	return account.handle ? `@${account.handle}` : shortDid(account.did);
+}
+
+/** What each kind of request to staff is called in lists. */
+export const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
+	create: 'New project',
+	claim: 'Claim',
+	update: 'Changes',
+	list: 'Listing'
+};
+
+/** Who or what a request is about: its project, the profile it proposes, or for a listing request, the requester. */
+export function requestSubject(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+	if (request.kind === 'list') return accountLabel(request.requester);
+
+	return request.project?.name ?? request.record.profile?.name ?? 'Project';
+}
+
+/** Where an account's profile is: at its handle, or at its DID when it has no verified handle. */
+export function profileHref(account: AccountView): string {
+	return `/@${account.handle ?? account.did}`;
 }
 
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -58,10 +78,13 @@ export function formatShowDate(iso: string | null | undefined, withTime = false)
 	return formatDate(iso, options);
 }
 
-export function feeLabel(profile: ProjectProfile): string {
-	const fee = profile.fee;
+/** A profile's fee levels, reading a record written before `fees` as one level. */
+export function feeLevels(profile: Pick<ProjectProfile, 'fees' | 'fee'>): ProjectFee[] {
+	return profile.fees ?? (profile.fee ? [profile.fee] : []);
+}
 
-	if (!fee) return '';
+/** A fee level's tier and range, like "Established · €600–1,500". */
+export function feeLabel(fee: ProjectFee): string {
 	const tier = labelFor(FEE_TIERS, fee.tier);
 
 	if (fee.minAmount === undefined && fee.maxAmount === undefined) return tier;
@@ -83,14 +106,24 @@ export function feeLabel(profile: ProjectProfile): string {
 	return `${tier} · ${range}`;
 }
 
+/** The first fee level, and how many more there are, for one-line listings. Empty without fees. */
+export function feeSummary(profile: Pick<ProjectProfile, 'fees' | 'fee'>): string {
+	const [first, ...rest] = feeLevels(profile);
+
+	if (!first) return '';
+
+	return rest.length ? `${feeLabel(first)} +${rest.length}` : feeLabel(first);
+}
+
 export function kindLabel(kind: string): string {
 	return labelFor(PROJECT_KINDS, kind);
 }
 
-export function placeLabel(profile: ProjectProfile): string {
-	const { city, region, country } = profile.location;
+export function placeLabel(place: { location: Location }): string {
+	const { city, region, country } = place.location;
 
-	return [city, region, country].filter(Boolean).join(', ');
+	// A city that's its own region (Berlin, Berlin) is named once.
+	return [city, region === city ? undefined : region, country].filter(Boolean).join(', ');
 }
 
 export function initials(name: string): string {
@@ -116,4 +149,9 @@ export function hueFor(value: string): number {
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
 	return `${count.toLocaleString('en')} ${count === 1 ? singular : plural}`;
+}
+
+/** A DJ set in one line: its title (or venue), and the day it was played. */
+export function djSetLabel(set: Pick<DjSetView, 'title' | 'venue' | 'date'>): string {
+	return `${set.title ?? set.venue ?? 'Untitled set'} · ${formatShowDate(set.date)}`;
 }

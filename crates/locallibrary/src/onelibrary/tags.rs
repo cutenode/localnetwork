@@ -64,8 +64,8 @@ impl OneLibrary {
             .ok_or_else(|| Error::NotFound(format!("My Tag #{id} in exportLibrary.db")))
     }
 
-    /// Add a category (`parent` 0) or a tag after its siblings, with the given id (not 0, see
-    /// [`refuse_parent_id`]). A first sibling is numbered like the rest of its kind (from 0 if
+    /// Add a category (`parent` 0) or a tag after its siblings, with the given id (not 0, which is
+    /// every category's parent). A first sibling is numbered like the rest of its kind (from 0 if
     /// there are none).
     pub fn add_my_tag(&mut self, id: i64, parent: i64, name: &str, is_category: bool) -> Result<()> {
         refuse_parent_id(id)?;
@@ -103,12 +103,12 @@ impl OneLibrary {
     }
 
     /// Remove a tag with its track links, or a category with its tags and their links. Later
-    /// siblings move up, so `sequenceNo` stays without gaps. Id 0 is refused (see
-    /// [`refuse_parent_id`]).
+    /// siblings move up, so `sequenceNo` stays without gaps. Id 0 is refused: it's every
+    /// category's parent, so removing it would remove them all.
     pub fn remove_my_tag(&mut self, id: i64) -> Result<()> {
         refuse_parent_id(id)?;
         let row = self.my_tag(id)?;
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         if row.is_category {
             tx.execute(
                 "DELETE FROM myTag_content WHERE myTag_id IN (SELECT myTag_id FROM myTag WHERE myTag_id_parent = ?1)",
@@ -131,7 +131,7 @@ impl OneLibrary {
         if self.my_tag(tag)?.is_category {
             return Err(Error::invalid(format!("My Tag #{tag} is a category, not a tag")));
         }
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         let mut added = 0;
         {
             let mut stmt = tx.prepare(
@@ -148,7 +148,7 @@ impl OneLibrary {
 
     /// Take every tag off tracks; returns how many links went.
     pub fn unlink_my_tags_of(&mut self, tracks: &[u32]) -> Result<usize> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         let mut removed = 0;
         {
             let mut stmt = tx.prepare("DELETE FROM myTag_content WHERE content_id = ?1")?;
@@ -162,7 +162,7 @@ impl OneLibrary {
 
     /// Take a tag off tracks; returns how many had it.
     pub fn unlink_my_tag(&mut self, tag: i64, tracks: &[u32]) -> Result<usize> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         let mut removed = 0;
         {
             let mut stmt = tx.prepare("DELETE FROM myTag_content WHERE myTag_id = ?1 AND content_id = ?2")?;

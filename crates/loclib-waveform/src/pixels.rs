@@ -13,7 +13,7 @@ pub type PixelBuf = Vec<Option<Rgb>>;
 pub struct Pixels<'a> {
     pub width: u16,
     pub pixels: &'a [Option<Rgb>],
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for Pixels<'_> {

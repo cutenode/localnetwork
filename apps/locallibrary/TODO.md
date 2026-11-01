@@ -15,8 +15,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
-      against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
-      headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
+      against the updated lockfile), docs, cargo-deny, and clippy on the headless CLI without ALSA
+      headers (in the lint job). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
       first run measures. Weekly and on demand, `locallibrary-scheduled.yml` runs Bombadil, the
       no-default-features tests, the cargo-hack feature powerset and cargo-deny's advisories:
@@ -37,17 +37,15 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       role, the RPC method aliases): they only map from builds nobody else ran, and after v0.1.0
       they're public contract. Fold CHANGELOG "Changed" into "Added" at the same time (it still
       lists `mirror` and `push`).
-- [ ] `dist plan` runs only on PRs that touch a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-      `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will trigger it. Then try
+- [ ] `dist plan` runs (in `locallibrary-ci.yml`'s lint job) only on PRs that touch a `Cargo.toml`,
+      `dist-workspace.toml`, `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will
+      trigger it. Then try
       the release pipeline with `locallibrary-v0.1.0-rc.1` (which skips the Homebrew push) before
       tagging `locallibrary-v0.1.0`.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
       `cargo about` in `locallibrary-release.yml`, plus rekordbox-pdb's MIT notice for the vendored
       code and `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in
       CONTRIBUTING.md's release checklist, not both.
-- [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
-      mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
-      drives this job already wrote; refuse otherwise.
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
@@ -62,19 +60,22 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] Sign rekordbox out of Dropbox and back in: a session printed the OAuth tokens from
       `rekordbox3.settings` into its transcript, and the file hasn't changed since Oct 8.
 - [ ] HappyView keys: the web app reads `HAPPYVIEW_API_KEY` (`apps/web/.env.local` has the local
-      dev one), and nothing reads `HAPPYVIEW_ADMIN_TOKEN` in `apps/locallibrary/.env`. Give the
-      deployed web app the hosted HappyView's token under `HAPPYVIEW_API_KEY`.
+      dev one); locallibrary must never hold HappyView's admin key, so delete
+      `apps/locallibrary/.env` (its `HAPPYVIEW_ADMIN_TOKEN` and `HAPPYVIEW_PUBLIC_URL` are read by
+      nothing; locallibrary's HappyView is `LOCALLIBRARY_HAPPYVIEW_URL`, defaulting to production)
+      and rotate that token if it's the hosted HappyView's. Give the deployed web app the hosted
+      HappyView's token under `HAPPYVIEW_API_KEY`: without it, `requestIndex` can't have HappyView
+      read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
-- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
-      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
-- [ ] Decide whether and when to publish the eight crates in `crates/` (loclib-progress,
+- [ ] Decide whether and when to publish the eleven crates in `crates/` (loclib-progress,
       loclib-model, loclib-equipment, loclib-mysettings, loclib-tracklist, loclib-mixid,
-      loclib-interop, loclib-waveform) to crates.io. The names were free on 2026-10-09, and `cargo
-      publish --dry-run` packages all eight. Publish in dependency order (loclib-progress, then
+      loclib-transcode, loclib-analysis, loclib-interop, loclib-waveform, loclib-plugin) to
+      crates.io. The first eight's names were free on 2026-10-09, and `cargo publish --dry-run`
+      packaged those eight then. Publish in dependency order (loclib-progress, then
       loclib-model, then the rest); each `test-util` feature would ship as public API.
       locallibrary itself can't be published while it depends on the vendored rekordbox-pdb
       (`publish = false`; crates.io's 0.1.0 lacks the patches), which the next item decides.
@@ -159,87 +160,22 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] The opener (`rundll32 url.dll,FileProtocolHandler`, used by sign-in, `mix --open` and the
       player's mix report) with a report path that has spaces.
 
-## Tests to add
-
-- [ ] A CI-only `format::apply` test on a disk image per OS (hdiutil, a diskpart vdisk, losetup).
-      Linux first needs loop devices treated as removable under `LOCALLIBRARY_FORMAT_VIRTUAL`
-      (`format/linux.rs`).
-- [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
-      another volume, and naming the volumes it unmounts.
-- [ ] `check --audio` on tiny committed MP3, FLAC and M4A fixtures, truncated in
-      `tests/it/check.rs` (only WAV truncation is tested). The same fixtures cover MP3 gapless.
-- [ ] The underline on the current hot cue, with a ratatui `TestBackend`.
-
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: `drive tidy` exits 0 when it couldn't remove
-      some files (`recordings` says Partial); `setup --role` is ignored for the drive that becomes
-      the primary, even a bad value; a lenient replay that skips `DeleteHistoryLists` only says
-      "not found", dropping which list; merging the same drive twice in folder mode makes "(2)"
-      copies of every playlist; under `LOCALLIBRARY_VOLUMES`, `format::disk_at` still runs
-      read-only `diskutil info`/`lsblk` on the disk holding the test folder.
-- [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
-      undo then redo leaves edits that replay won't redo, and restoring an older backup then a
-      newer one puts back edits the journal has forgotten.
-- [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
-      finishes it, but taking it back needs `undo --force`.
-- [ ] `prep` syncs one pair at a time; it could use the parallel multi-drive sync when no drive came
-      back from a set.
-- [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
-      copy` refuses instead (without `--force`).
-- [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
-      take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
-      nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
-- [ ] Changes that look something up in the store make an empty one and then fail or find nothing
-      to do: `drive forget`/`role`/`retire`, `sets delete`, `smart rm`, `profile unpin`/`unhide`,
-      `store label`/`unlabel`, and the dry runs of `sets playlist`, `smart apply`, `adopt --as`,
-      `store gc`/`prune`/`copy`, `library prune` and `art unembed`. Look up with
-      `diff_cmd::store_to_read` or `read_or_empty` and make the store only when applying.
-- [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
-      `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
-      Register it as what it is, or record only into a store that's there.
-- [ ] `drive groups` (and the sidecar's `drive.groups`) answers `[]` with no store, though
-      `fleet::sets` groups mounted drives by the library id each one holds and listed them
-      (unnamed) against a new store. Decide whether no store should still list those groups.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
-      let the TUI offer one-key fixes.
-- [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
-- [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
-      UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
-      report shows one averaged speed.
-- [ ] `mix --cover FILE`: reports and exports carry a cover only when it's embedded in the
-      recording.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
-- [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
-      without overcommit and on Windows: symphonia-format-isomp4's `stsz.rs` sizes a `Vec` from
-      them (`TODO: Apply a limit`). File it upstream.
-- [ ] `provision` shows the format plan's warnings twice: in the format plan and again in its own
-      `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
-- [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
-      colour, since there's none to keep. For set sticks, clearing it may be better.
 - [ ] Type-check `docs/rpc/locallibrary.d.ts` with `tsc` in CI once something consumes the RPC.
 - [ ] Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
       `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) need a paid
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
-- [ ] `collection export`'s space check counts `written.needed_bytes` but not `download_bytes`
-      (online-only Dropbox files that download onto the boot disk): both the fit warning
-      (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
-      to `~/rekordbox-export` stopped at 1.8 of 25 GB.
-- [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
-      CLI's `sets export` reads with `store_to_read`.
-- [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
-      that `main.rs` and `drive_cmd.rs` add.
-- [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
-      size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
-      steers around the case.
+- [ ] `collection export` copies online-only files one at a time, so one that takes minutes to
+      download stalls the export (it now says which file it's waiting on). Start the next few
+      downloads while one copies (reading a file's first byte is enough).
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
@@ -258,29 +194,33 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and CHANGELOG.
 - [ ] **Put `https://locallibrary.localnetwork.computer` online** (served by the Local Network web
       app). Regenerate the hosted client document with `locallibrary account client-metadata -o
-      apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json` and deploy it there, so it lists the narrowed publish scopes
-      (`repo:<nsid>?action=create&action=update`) before releasing publishing. The copy waiting
-      in localnetwork has them now; it only needs deploying. While it's offline, sign-in falls
+      apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json` and deploy it there, so it asks
+      for the publishing permission set (`include:computer.localnetwork.locallibraryPublishing`)
+      before releasing publishing. The copy waiting in localnetwork has it now; it only needs
+      deploying. While it's offline, sign-in falls
       back to the development client; online without those scopes, a publish sign-in stops and
       points at `--dev-client`. jacquard sends `application_type: web`
       for a hosted ID while the document says `native`: untested.
-- [ ] Publish the Lexicons locallibrary writes as `com.atproto.lexicon.schema` records with the
-      repo's lexicon publisher (`pnpm -C apps/web lexicons:publish`), and add a `_lexicon` TXT
-      record for each of their two authorities: `locallibrary.localnetwork.computer`
-      (`lexicons/computer/localnetwork/locallibrary/`, My Settings) and `dj.localnetwork.computer`
-      (`lexicons/computer/localnetwork/dj/`, the profile, set and their shared defs).
-- [ ] Switch publishing to a permission set (`include:`) once a real sign-in shows whether the PDS
-      expands it in the token response; jacquard only resolves includes with its `scope-check`
-      feature.
+- [ ] **Publish every lexicon** as `com.atproto.lexicon.schema` records in the root account's
+      repo, keyed by NSID, the way upvote.at publishes `at.upvote.*`, with a `_lexicon` TXT record
+      (`did=<root DID>`) for each of the 11 authorities (each sub-namespace is its own; upvote.at
+      has one, at `_lexicon.upvote.at`). None exist yet. One command does both:
+      `ROOT_IDENTIFIER=localnetwork.computer ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm -C
+      apps/web lexicons:publish`. Sign-in to publish fails with `invalid_scope` until
+      `computer.localnetwork.locallibraryPublishing` resolves, and so does the website's until
+      `computer.localnetwork.permissions` and the space types do. Until the set is published with
+      its `rpc:computer.localnetwork.directory.requestIndex?aud=*` permission, sessions can't have
+      the directory read an account again (plans say so); deploy the web app's `requestIndex` and
+      `dj/set.lua` with it.
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.
-- [ ] Unpublishing (`deleteRecord`) needs `action=delete` added to `PUBLISH_SCOPES` and the
-      hosted document; until then `sets delete` leaves a published set's record on the account.
-      The Lexicon validator counts characters, not graphemes, for `maxGraphemes`.
-- [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
-      declared sets the profile finds sessions its own way (history lists, dated by the pull that
-      archived them) rather than with `sets::session::gather` and its windows.
+- [ ] First real `sets delete` of a published set: check a real PDS grants
+      `repo:computer.localnetwork.dj.set` and `repo:computer.localnetwork.dj.recording` (all three
+      actions) from the permission set, and
+      answers `deleteRecord` of a record that's already gone as done.
+- [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
+      only `atproto`, publishing reports a missing scope, and sign-in loops.
 - [ ] File the jacquard-oauth issue on tangled (nonbinary.computer/jacquard): 0.12.2 and `main`
       panic when a token response grants a scope `Scopes` can't parse, in `callback_core`
       (`client.rs`) and on every refresh (`session.rs`'s `update_with_tokens`). Once a release
@@ -290,47 +230,21 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `collection export` skips intelligent playlists: `SmartList` rules aren't read
-      (`masterdb.rs:38`).
-- [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
-      Tags.
-- [ ] `store serve` and `store fetch` aren't in the sidecar.
-- [ ] Decide: x2 and /2 tempo fixes, which need rekordbox's PQT2 per-beat field decoded (`doctor`
-      points at rekordbox's own buttons meanwhile).
-- [ ] Decide: export history lists as playlists for Traktor, Serato and Engine (`traktor.rs:200`
-      and `engine.rs:219` skip them).
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
-- [ ] Decide: Serato `--write-tags` refuses an AIFF whose odd-sized last chunk lacks its pad byte
-      at apply rather than plan; catching it earlier means redoing lofty's chunk walk.
 
-## Lexicons, before publishing
+## Lexicons
 
-From the lexicon design review (R numbers).
-
-- [ ] R11: `recordingMbId` as `mbid:<uuid>` with `format: uri`, as teal.fm does (a bare UUID now,
-      `dj/defs.json`).
-- [ ] R3: `artists[]`, `releaseName` and `releaseMbId` on `dj.defs#track`, and fill
-      `recordingMbId` when publishing (only tests set it now).
-- [ ] R5: `transitionIn` on `dj.set`; transitions only live in the mix-report blob.
-- [ ] R6: with R3 and R5, about 450 tracks fit in a 150 KB record, not the 1000 `dj/set.json`
-      allows.
-- [ ] R2: the profile's `defs#mix` points at the DJ's `dj.set` with a strongRef instead of a JSON
-      tracklist. R10: offer the set lexicon to skaists and FreeMix.
-- [ ] Publish the web app's other `computer.localnetwork.*` lexicons too (11 `_lexicon` TXT
-      records in all; none exist yet).
-- [ ] `docs/account.md:94` links Lexicon Community's archived GitHub repo; link its Tangled repo.
+- [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
+      `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
+      and the `uri` format first.
 
 ## Website (`apps/web`)
 
-- [ ] `planner.save()` can make duplicate save records when two saves of one project overlap: it
-      reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
-      fixed record key per project fixes it, but changes the data shape.
 - [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
-- [ ] The web app defines `lexicons/computer/localnetwork/permissions.json` but never requests it;
-      `oauth.ts`'s `buildScopes` joins explicit scopes.
-- [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
-      the light background (`packages/tokens/colors.json` has one phrase palette).
+- [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
+      backfill from Jetstream, so `dj.set` records are let in only from a published project's
+      managers, and the new-project forms have no set picker.
 - [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like
       `/planner/shows/new` has.
 - [ ] `@lhci/cli` 0.15.1 (Lighthouse, on `bnb/ci-runners`) brings 7 advisories into the dev
@@ -351,8 +265,8 @@ From the lexicon design review (R numbers).
 
 ## Dependencies and upstream
 
-- [ ] symphonia 0.6.1 is out and fixes the AIFF SSND bug `loclib-transcode` works around
-      (`transcode.rs:99`). stratum-dsp 1.0.0 still needs symphonia 0.5, so moving means building
+- [ ] symphonia 0.6.1 is out and fixes the AIFF SSND bug `loclib-mixid` works around
+      (`aiff_frames` in `decode_native`, `audio.rs`). stratum-dsp 1.0.0 still needs symphonia 0.5, so moving means building
       two symphonias until it follows.
 - [ ] flacenc's STREAMINFO min-block fix (PR #255) is merged but unreleased (0.5.1): pin the git
       rev, keep the workaround, or ask for a release on #242.
@@ -362,21 +276,21 @@ From the lexicon design review (R numbers).
 
 ## Performance
 
-- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`).
-- [ ] `Device::scan_fingerprinted` forgets every database key, so `.locallibrary/index.json` is
-      rewritten with `F_FULLFSYNC` on every scan (about 20% of `check`'s per-drive time). Skipping
-      it changes the index's `at` timestamps.
-- [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
-      transaction changes the header's change counters, which `content_hash` already ignores.
+- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`). On one machine, plugged
+      in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
+      with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
+      of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
+      a 5,000-track drive, `check` on a drive and the criterion benches (`cargo bench`). Switch
+      only if the run times win by more than their run-to-run spread. Needs about 15 GB free.
+- [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
+      building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
+      `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
+      planning a replay of one (its edits name tracks by path, which the plan's per-track model
+      in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
-      O(new x N). Use `Library::track_lookup` and measure it.
-- [ ] OneLibrary's `remove_tracks` deletes row by row on columns without an index
-      (`cue.content_id`, `playlist_content.content_id`, `history_content.content_id`), which is
-      O(removed x rows) in pack, clean and dedupe. Not benchmarked; a different way of deleting
-      may lay pages out differently.
-- [ ] Edit plans clone the whole library before every edit (`plan_with` in `edit.rs`) to roll back
-      one that fails part way.
-- [ ] Connect the repo in CodSpeed after the first push (the free tier needs it public).
+      O(new x N). Use `Library::track_lookup` and measure it (`cargo bench -p locallibrary`).
+- [ ] Connect the repo in CodSpeed (LOC-47; the free tier needs it public), then run
+      `locallibrary-bench.yml` on `main` once so pull requests have a baseline to compare with.
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 
@@ -387,11 +301,6 @@ From the lexicon design review (R numbers).
       also fail under Node 25, since the workspace is engine-strict on 24.
 - [ ] Dependabot doesn't update `apps/locallibrary/bombadil/package-lock.json` (its npm entry only
       watches `/`).
-- [ ] CI path filters miss `packages/tokens/**` in `locallibrary-ci.yml` and `mix-report.yml`,
-      though `crates/loclib-model/tests/tokens.rs` reads `colors.json`.
-- [ ] The issue and PR templates don't offer localtoolbox (no bug template, not in "Which tool?").
-- [ ] A deeper Hegel run in the scheduled workflow, with `.hegel/` cached;
-      `tools/hegel-coverage.sh` never runs in CI.
 - [ ] A fuzz target for `PdbEditor`'s edits (the `pdb` target only parses).
 - [ ] `apps/web/.vscode` does nothing when the root is opened: move it to the root or delete it.
       `apps/web/static/robots.txt` is SvelteKit's stock file, and `**/*.rs.bk` in `.gitignore` is

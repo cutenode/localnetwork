@@ -1,9 +1,15 @@
-<svelte:head><title>How it works · Local Network</title></svelte:head>
+<script lang="ts">
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+</script>
 
-<div class="container-page max-w-3xl py-12">
-	<p class="eyebrow">How it works</p>
-	<h1 class="mt-2 text-4xl">Built on the AT Protocol</h1>
-	<div class="prose prose-ansi mt-8 max-w-none">
+<svelte:head>
+	<title>How it works · Local Network</title>
+	<meta name="description" content="How Local Network keeps projects, requests, bookings and its audit log on the AT Protocol." />
+</svelte:head>
+
+<div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
+	<SectionHeader level={1} eyebrow="How it works" title="Built on the AT Protocol" />
+	<div class="prose prose-site">
 		<p>Local Network stores its data on the <a href="https://atproto.com">AT Protocol</a>, not in a private database. Public profiles are ordinary atproto records; everything private uses <a href="https://atproto.com/blog/atproto-spaces-alpha">atproto spaces</a>, the protocol's permissioned-data extension. The app keeps a local index for fast search, and it can rebuild that index from the network.</p>
 
 		<h2 id="projects">Projects</h2>
@@ -17,7 +23,7 @@
 			<li><strong>Audit log</strong>: anyone may write their own audit entries; staff read.</li>
 			<li><strong>Moderation</strong>: anyone may file requests; staff read.</li>
 			<li><strong>Staff</strong>: role assignments, written by the root account.</li>
-			<li><strong>Industry</strong>: private booking details, readable by any signed-in member.</li>
+			<li><strong>Industry</strong>: private booking details, readable by staff. Everyone else sees them through the site, in a press kit they've been let into.</li>
 			<li><strong>Booking threads</strong>: one space per inquiry, shared only by the promoter and the project's managers.</li>
 			<li><strong>Your planner</strong>: a personal space under your own DID, like bookmarks. We keep no copy.</li>
 		</ul>

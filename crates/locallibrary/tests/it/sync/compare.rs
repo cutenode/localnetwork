@@ -222,7 +222,7 @@ fn image(from: &std::path::Path, to: &std::path::Path) {
 #[test]
 fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let mut a = Device::open_export(common::bigger_drive(&root, "A")).unwrap();
     std::fs::create_dir(root.join("B")).unwrap();
     let mut b = Device::open(root.join("B")).unwrap();
@@ -538,4 +538,34 @@ fn the_differences_include_onelibrarys() {
     let c = compare::compare_devices(&a, &b, &Ctx::silent()).unwrap();
     assert_eq!(c.relation, Relation::LeftNewer);
     assert_eq!(c.diff.added_playlists, ["Booth"], "{:?}", c.diff);
+}
+
+/// Regression: a sync that copied a file moments after its source was written took the copy as
+/// current on the next sync while size and mtime matched, though the source could have been
+/// rewritten since in the same second or two (FAT32 keeps mtimes to 2 s). That copy is compared
+/// by content next time, and a rewrite at the same size and mtime is copied.
+#[test]
+fn a_file_copied_as_it_was_written_is_checked_by_content_next_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = Device::open_export(common::demo_drive(dir.path(), "A")).unwrap();
+    let b_root = dir.path().join("B");
+    std::fs::create_dir_all(&b_root).unwrap();
+    let mut b = Device::open(&b_root).unwrap();
+    let audio = paths::key(&a.library().unwrap().tracks[0].file_path);
+    let src = paths::to_fs(a.root(), &audio);
+    // Ahead of the clock, so the copy is made within its window however slow the machine is.
+    let written = chrono::Utc::now().timestamp() + 30;
+    locallibrary::fsutil::set_mtime(&src, written).unwrap();
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+
+    // Rewritten within the same second: same size, same mtime.
+    let mut bytes = std::fs::read(&src).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    std::fs::write(&src, &bytes).unwrap();
+    locallibrary::fsutil::set_mtime(&src, written).unwrap();
+    let (plan, _) = sync::plan_drive_to_drive(&a, &b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    assert!(plan.copies.iter().any(|c| c.path == audio), "{:?}", plan.copies);
+    sync::sync_drive_to_drive(&mut a, &mut b, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(std::fs::read(paths::to_fs(b.root(), &audio)).unwrap(), bytes);
 }

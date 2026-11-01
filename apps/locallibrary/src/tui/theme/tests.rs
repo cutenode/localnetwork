@@ -27,11 +27,13 @@ fn modes_from_the_environment() {
 fn light_terminals_get_the_palette_turned_round() {
     let luma = |c: [u8; 3]| c.iter().map(|v| *v as u32).sum::<u32>() / 3;
     // Text goes dark, backgrounds light, faint stays faint against the page.
-    assert!(luma(for_light(FG)) < 30);
-    assert!(luma(for_light(SELECTION)) > 160);
-    assert!(luma(for_light(FAINT)) > luma(for_light(DIM)));
+    assert!(luma(for_light(current().text)) < 30);
+    assert!(luma(for_light(current().selection)) > 160);
+    assert!(luma(for_light(current().faint)) > luma(for_light(current().dim)));
     // Accents stay themselves, dark enough to read on white.
-    for c in [PINK, CYAN, AMBER, VIOLET, GREEN, RED] {
+    for c in
+        [current().accent, current().info, current().warning, current().secondary, current().good, current().critical]
+    {
         let l = for_light(c);
         assert!(luma(l) < 110, "{c:?} -> {l:?}");
         let top = |c: [u8; 3]| (0..3).max_by_key(|&i| c[i]).unwrap();
@@ -43,11 +45,11 @@ fn light_terminals_get_the_palette_turned_round() {
         let (x, y) = (luminance(a), luminance(b));
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
     };
-    for c in [HOT_CUE, AMBER, CYAN, track_color(TrackColor::Yellow)] {
+    for c in [current().hot_cue, current().warning, current().info, current().track_color(TrackColor::Yellow)] {
         assert!(contrast(for_light(c), for_light([14, 14, 20])) >= 4.5, "{c:?} -> {:?}", for_light(c));
     }
     set_test_mode(Some(Mode::Plain));
-    assert_eq!(rgb3(PINK), Color::Reset);
+    assert_eq!(rgb3(current().accent), Color::Reset);
     assert!(selected().add_modifier.contains(Modifier::REVERSED));
     assert_eq!(colour_dot(TrackColor::Aqua).content, "6");
     set_test_mode(None);
@@ -142,7 +144,7 @@ fn the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
 /// dot in it, or without colours as its number.
 #[hegel::test(test_cases = 100)]
 fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::anlz::PhraseKind;
     let kind = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => PhraseKind::Intro,
@@ -163,9 +165,9 @@ fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) 
         PhraseKind::Unknown(_) => 5,
     };
     let (a, b) = (kind(&tc), kind(&tc));
-    assert_eq!(phrase_color(a) == phrase_color(b), role(a) == role(b), "{a:?} and {b:?}");
-    let c = tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug());
-    let mode = tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]).print_as_debug());
+    assert_eq!(current().phrase(a) == current().phrase(b), role(a) == role(b), "{a:?} and {b:?}");
+    let c = tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]));
+    let mode = tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]));
     set_test_mode(Some(mode));
     let dot = colour_dot(c);
     if mode == Mode::Plain {
@@ -174,4 +176,23 @@ fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) 
         assert_eq!(dot.content, "●");
     }
     set_test_mode(None);
+}
+
+/// The player draws in the theme chosen, turned round on a light terminal as the default is, and
+/// in no colours without them; its waveforms take the theme's colours too.
+#[test]
+fn a_theme_is_drawn_in_every_mode() {
+    let mut t = Theme::DEFAULT;
+    t.set("ui.accent", &[[10, 200, 90]]).unwrap();
+    t.set("waveform.spectrum", &[[1, 2, 3], [4, 5, 6]]).unwrap();
+    set_test_theme(Some(Box::leak(Box::new(t))));
+    assert_eq!(key().fg, Some(exact([10, 200, 90])));
+    assert_eq!(palette().spectrum, [[1, 2, 3], [4, 5, 6]]);
+    set_test_mode(Some(Mode::Light));
+    assert_eq!(key().fg, Some(exact(for_light([10, 200, 90]))));
+    set_test_mode(Some(Mode::Plain));
+    assert_eq!(key().fg, Some(Color::Reset));
+    set_test_mode(None);
+    set_test_theme(None);
+    assert_eq!(key().fg, Some(exact(Theme::DEFAULT.accent)), "the default's again");
 }

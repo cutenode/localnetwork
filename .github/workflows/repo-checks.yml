@@ -1,0 +1,88 @@
+name: Repo checks
+
+# The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
+# config files, ast-grep's rules (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over
+# the lexicons, and on main, that GitHub's "Protect Main" ruleset is .github/rulesets/protect-main.json.
+# ci.yml calls it with the jobs a pull request or push needs, and it runs weekly too, for a ruleset
+# changed in GitHub's settings, which starts no workflow.
+on:
+  workflow_call:
+    inputs:
+      policy:
+        description: Whether to run the policies and ast-grep (ci.yml's repo_checks paths).
+        type: boolean
+        required: true
+      lexicons:
+        description: Whether the lexicons changed, so goat checks them.
+        type: boolean
+        required: true
+      ruleset:
+        description: Whether a push to main changed the ruleset file, so it's checked against GitHub's copy.
+        type: boolean
+        required: true
+  schedule:
+    - cron: "11 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Every pull request but one that only edits Markdown, and manual runs. Not weekly: the policies
+  # and ast-grep read only the repo, which every push to it already checked.
+  policy:
+    if: github.event_name == 'workflow_dispatch' || inputs.policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Node and the root's dev dependencies, for the railway SDK that evaluates .railway/railway.ts.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter localnetwork-monorepo
+      - run: tools/policy.sh
+      - run: pnpm exec ast-grep test --skip-snapshot-tests
+      - run: pnpm exec ast-grep scan
+
+  # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
+  # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so
+  # `inputs.lexicons != false` alone would skip them.)
+  lexicons:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.lexicons
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # goat has no action of its own: tools/lexicons.sh runs its pinned version with `go run`, and
+      # Go checks the module against its public checksum database. goat needs a newer Go than the
+      # runner's.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - run: tools/lexicons.sh lint
+      # Compares with the published lexicons, so it skips any that aren't published yet.
+      - run: tools/lexicons.sh breaking
+
+  # Not on pull requests: a new required check goes into the file with the workflow that reports
+  # it, and an admin applies the file once it merges (tools/ruleset.sh apply). Until then, this
+  # fails on main. On a push to main only when the file changed; weekly for a change made in
+  # GitHub's settings.
+  ruleset:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.ruleset
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: tools/ruleset.sh check
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,9 +1,10 @@
 //! Browsing a library: the sidebar tree (the playlists, plus CDJ-style categories under Browse),
 //! the track list's sort order, and which of its two modes the search box is in.
 
+use locallibrary::fields::TrackValues;
 use locallibrary::harmony::{self, Camelot};
 use locallibrary::model::{TrackColor, normalize};
-use locallibrary::query::{SortField, SortKey};
+use locallibrary::query::{FieldName, SortField, SortKey, compare_values};
 use locallibrary::sets::Set;
 use locallibrary::{Library, Playlist, Track, paths};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -284,7 +285,7 @@ pub fn groups(
             let Some(tags) = tags else { return Vec::new() };
             let mut by_tag: indexmap::IndexMap<&str, Vec<usize>> = Default::default();
             for (i, t) in lib.tracks.iter().enumerate() {
-                for tag in tags.get(&paths::key(&t.file_path).to_lowercase()).into_iter().flatten() {
+                for tag in tags.get(&paths::file_key(&t.file_path)).into_iter().flatten() {
                     by_tag.entry(tag).or_default().push(i);
                 }
             }
@@ -310,7 +311,7 @@ pub fn groups(
                 .iter()
                 .enumerate()
                 .rev()
-                .map(|(i, t)| (locallibrary::plays::file_key(&t.file_path), i))
+                .map(|(i, t)| (locallibrary::paths::file_key(&t.file_path), i))
                 .collect();
             let mut newest: Vec<&Set> = sets.iter().collect();
             newest.sort_by(|a, b| Set::newest_first(a, b));
@@ -319,10 +320,7 @@ pub fn groups(
                 .map(|s| {
                     let tracks: Vec<usize> =
                         s.tracks.iter().filter_map(|e| by_file.get(&e.file_key()?).copied()).collect();
-                    let label = match s.name() {
-                        Some(name) => format!("{} {name}", s.date),
-                        None => s.date.to_string(),
-                    };
+                    let label = set_label(s);
                     Group { key: s.id.clone(), label, left_out: s.tracks.len() - tracks.len(), tracks }
                 })
                 .collect()
@@ -352,6 +350,14 @@ pub fn groups(
             }
             v
         }
+    }
+}
+
+/// How Browse › Sets names a set: its day, and its name when it has one.
+pub fn set_label(s: &Set) -> String {
+    match s.name() {
+        Some(name) => format!("{} {name}", s.date),
+        None => s.date.to_string(),
     }
 }
 
@@ -477,6 +483,7 @@ pub fn sort_label(f: SortField) -> &'static str {
         SortField::Time => "Time",
         SortField::Bitrate => "Bitrate",
         SortField::Path => "Path",
+        SortField::Field(name) => name.as_str(),
     }
 }
 
@@ -499,6 +506,7 @@ pub fn sort_spec(k: SortKey) -> String {
         SortField::Time => "time",
         SortField::Bitrate => "bitrate",
         SortField::Path => "path",
+        SortField::Field(name) => name.as_str(),
     };
     format!("{}{name}", if k.descending { "-" } else { "" })
 }
@@ -561,7 +569,20 @@ pub fn ranks(lib: &Library, field: SortField) -> Vec<u32> {
         SortField::Added => rank_by(t.len(), |a, b| t[a].date_added.cmp(&t[b].date_added)),
         SortField::Time => rank_by(t.len(), |a, b| t[a].duration_secs.cmp(&t[b].duration_secs)),
         SortField::Bitrate => rank_by(t.len(), |a, b| t[a].bitrate.cmp(&t[b].bitrate)),
+        // By its values, once they're read (see `field_ranks`).
+        SortField::Field(_) => vec![0; t.len()],
     }
+}
+
+/// Every track's rank under a plugin's field `name`, by its `values` as
+/// `locallibrary::query::sort_tracks_with` orders them (tracks without one to show share the
+/// last).
+pub fn field_ranks(lib: &Library, values: &TrackValues, name: FieldName) -> Vec<u32> {
+    let value = |i: usize| values.shown(lib.tracks[i].id, name.as_str());
+    rank_by(lib.tracks.len(), |a, b| match (value(a), value(b)) {
+        (Some(x), Some(y)) => compare_values(x, y),
+        (x, y) => x.is_none().cmp(&y.is_none()),
+    })
 }
 
 fn rank_by(n: usize, cmp: impl Fn(usize, usize) -> Ordering) -> Vec<u32> {

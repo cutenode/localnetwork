@@ -1,0 +1,80 @@
+{
+  "defs": {
+    "image": {
+      "properties": {
+        "alt": {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "image": {
+          "accept": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif"
+          ],
+          "maxSize": 1000000,
+          "type": "blob"
+        }
+      },
+      "required": [
+        "image"
+      ],
+      "type": "object"
+    },
+    "main": {
+      "description": "A piece of feedback posted into a space. Lives in the author's repo and points at the space.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "body": {
+            "maxGraphemes": 10000,
+            "maxLength": 20000,
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "datetime",
+            "type": "string"
+          },
+          "images": {
+            "description": "Optional image attachments.",
+            "items": {
+              "ref": "#image",
+              "type": "ref"
+            },
+            "maxLength": 4,
+            "type": "array"
+          },
+          "space": {
+            "description": "Strong reference to the app.userinput.space this belongs to. Indexed by constellation at space.uri.",
+            "ref": "com.atproto.repo.strongRef",
+            "type": "ref"
+          },
+          "tags": {
+            "description": "Tag values drawn from the space's tag list.",
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxLength": 8,
+            "type": "array"
+          },
+          "title": {
+            "maxGraphemes": 300,
+            "maxLength": 600,
+            "type": "string"
+          }
+        },
+        "required": [
+          "space",
+          "title",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    }
+  },
+  "id": "app.userinput.discussion",
+  "lexicon": 1
+}

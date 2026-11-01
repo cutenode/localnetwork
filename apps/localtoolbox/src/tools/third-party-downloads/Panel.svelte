@@ -167,12 +167,12 @@
 
   const STATES = {
     queued: { text: '', tone: '' },
-    working: { text: 'unlocking…', tone: 'text-brand' },
-    saving: { text: 'saving…', tone: 'text-brand' },
-    done: { text: 'saved', tone: 'text-success' },
-    sent: { text: 'signed up', tone: 'text-success' },
-    link: { text: '', tone: 'text-muted-foreground' },
-    failed: { text: 'failed', tone: 'text-destructive' },
+    working: { text: 'unlocking…', tone: 'text-fg-soft' },
+    saving: { text: 'saving…', tone: 'text-fg-soft' },
+    done: { text: 'saved', tone: 'text-good' },
+    sent: { text: 'signed up', tone: 'text-good' },
+    link: { text: '', tone: 'text-fg-muted' },
+    failed: { text: 'failed', tone: 'text-critical' },
   };
 
   // A row is finished when there is nothing more this tool can do for it: it
@@ -644,8 +644,8 @@
           size="icon-sm"
           variant={on ? 'default' : 'outline'}
           class={on
-            ? 'bg-success text-success-foreground hover:bg-success/85'
-            : 'text-muted-foreground'}
+            ? 'bg-good text-fg-inverse hover:bg-good/85'
+            : 'text-fg-muted'}
           aria-pressed={on}
           aria-label="mark downloaded"
           onclick={() => downloaded.toggle(row.permalink)}
@@ -692,7 +692,7 @@
                     <Switch id={toggle.id} bind:checked={toggle.pref.value} />
                     <Label
                       for={toggle.id}
-                      class="text-[11.5px] whitespace-nowrap text-muted-foreground"
+                      class="text-caption whitespace-nowrap text-fg-muted"
                     >
                       {toggle.label}
                     </Label>
@@ -704,7 +704,7 @@
           {/each}
         </div>
         {#if hiddenLine}
-          <p class="tabular text-[11.5px] text-muted-foreground">{hiddenLine}</p>
+          <p class="tabular text-caption text-fg-muted">{hiddenLine}</p>
         {/if}
       </div>
     {/if}
@@ -724,22 +724,22 @@
             ? ''
             : row.detail || (row.state === 'queued' ? waiting(row) : state.text)}
           <li
-            class="lift overflow-hidden rounded-xl border
+            class="overflow-hidden rounded-lg border transition-colors
                    {row.state === 'done' || row.state === 'sent'
-              ? 'border-success/25 bg-success/8'
+              ? 'border-good/40 bg-good/5'
               : row.state === 'failed'
-                ? 'border-destructive/30 bg-card'
+                ? 'border-critical/40 bg-surface'
                 : row.state === 'queued' || row.state === 'link'
-                  ? 'border-border/70 bg-card'
-                  : 'border-brand/40 bg-card'}"
+                  ? 'border-line bg-surface'
+                  : 'border-line-strong bg-surface'}"
           >
             <div class="flex items-center gap-2.5 px-2.5 py-2">
               <div class="min-w-0 flex-1">
-                <p class="truncate text-[12.5px] font-semibold" title={row.url}>{row.label}</p>
-                <p class="flex items-start gap-1 text-[11.5px] {state.tone}">
+                <p class="truncate text-label font-semibold" title={row.url}>{row.label}</p>
+                <p class="flex items-start gap-1 text-caption {state.tone}">
                   <span
-                    class="shrink-0 rounded-[5px] bg-muted px-1 py-px text-[10px] font-medium
-                           text-muted-foreground"
+                    class="shrink-0 rounded-full border border-line-strong px-1.5 font-mono
+                           text-[10px] leading-4 text-fg-muted"
                   >
                     {row.site.name}
                   </span>
@@ -823,10 +823,9 @@
             {#if fault}
               <p
                 transition:slide={{ duration: 240, easing: cubicOut }}
-                class="fault-wash flex items-stretch gap-2 border-t border-destructive/25 px-2.5
-                       py-2 text-[11.5px] leading-relaxed text-destructive"
+                class="border-t border-critical/40 bg-critical/5 px-2.5 py-2 text-caption
+                       leading-relaxed text-critical"
               >
-                <span class="w-0.5 shrink-0 rounded-full bg-destructive/45"></span>
                 <span class="min-w-0 break-words" in:fade={{ duration: 200, delay: 110 }}>
                   {fault}
                 </span>
@@ -839,7 +838,7 @@
 
     <Collapsible.Root bind:open={drawerOpen.value}>
       <Collapsible.Trigger
-        class="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
+        class="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-caption text-fg-muted transition-colors hover:text-fg"
       >
         <Plus class="size-3.5" />
         <span>add links by hand</span>
@@ -851,9 +850,9 @@
       </Collapsible.Trigger>
 
       <Collapsible.Content>
-        <div class="mt-1.5 flex flex-col gap-2.5 rounded-xl border border-border/70 bg-card p-2.5">
+        <div class="mt-1.5 flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-2.5">
           <div class="flex flex-col gap-1.5">
-            <Label for="paste" class="text-[11.5px] text-muted-foreground">
+            <Label for="paste" class="text-caption text-fg-muted">
               paste download links
             </Label>
             <Textarea
@@ -861,14 +860,14 @@
               rows={2}
               spellcheck="false"
               placeholder="https://hypeddit.com/…"
-              class="text-[11.5px]"
+              class="text-caption"
               bind:value={pasted.value}
             />
             <Button size="xs" variant="outline" class="self-start" onclick={onAdd}>
               <Plus />
               add links
             </Button>
-            <p class="text-[11px] leading-relaxed text-muted-foreground">
+            <p class="text-caption leading-relaxed text-fg-muted">
               anything pointing at {SITE_NAMES} is picked out.
             </p>
           </div>

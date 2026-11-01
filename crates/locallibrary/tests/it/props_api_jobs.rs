@@ -9,12 +9,13 @@ use crate::props_api_drives::{saved_copy, saved_demo};
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, StepKind};
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::edit::Edit;
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Role};
+use locallibrary::query::TrackSelector;
 use locallibrary::store::Store;
 use locallibrary::{Error, paths};
 use uuid::Uuid;
@@ -23,7 +24,7 @@ use uuid::Uuid;
 /// refused, naming every step.
 #[hegel::test(test_cases = 300)]
 fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
-    let kind = StepKind::ALL[tc.draw(gs::integers::<usize>().max_value(StepKind::ALL.len() - 1))];
+    let kind = tc.draw(gs::sampled_from(&StepKind::ALL));
     let id: String =
         kind.id().chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", "  "]));
@@ -33,7 +34,7 @@ fn steps_parse_from_their_ids_in_any_case(tc: TestCase) {
         Some(k) => assert_eq!(StepKind::parse(&other).unwrap(), *k),
         None => {
             let e = StepKind::parse(&other).unwrap_err().to_string();
-            assert!(e.contains("clean, replay, smart, player, settings, pull, sync, check, eject"), "{e}");
+            assert!(e.contains("clean, replay, smart, player, settings, operations, pull, sync, check, eject"), "{e}");
         }
     }
 }
@@ -141,7 +142,7 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
     let mut volumes = common::isolate(dir.path(), None);
     let mut club: Option<Uuid> = None;
     for i in 0..n {
-        let kind = [Kind::Loose, Kind::Main, Kind::Club][tc.draw(gs::integers::<usize>().max_value(2))];
+        let kind = tc.draw(gs::sampled_from(&[Kind::Loose, Kind::Main, Kind::Club]));
         if store.is_none() {
             // The store holding the saved demo, with any drive: its own folder goes, each clone is
             // written where it's mounted.
@@ -186,7 +187,7 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
         if kind != Kind::Loose {
             let id = Device::open(&root).unwrap().id().unwrap();
             let roles = [None, Some(Role::Primary), Some(Role::Backup), Some(Role::Archive)];
-            role = tc.draw(gs::sampled_from(&roles[..]).print_as_debug());
+            role = tc.draw(gs::sampled_from(&roles[..]));
             fleet::set_role(store, id, role).unwrap();
             if role == Some(Role::Primary) {
                 for d in drives.iter_mut().filter(|d| d.kind == kind && d.role == Some(Role::Primary)) {
@@ -491,9 +492,10 @@ fn a_set_job_runs_the_steps_the_drives_need(tc: TestCase) {
 
 /// Refreshing Main after an export (named, or as the drive a refresh given none means), some
 /// steps skipped, and copying it onto Backup when asked: only the steps with something to do run
-/// (removing rekordbox's demo sample, making a recorded edit the export replaced again, writing
-/// My Settings, saving the drive, copying it onto Backup when Main is the newer), every other
-/// says why it doesn't; applied, they run in order and do what they said.
+/// (making a recorded edit the export replaced again, writing My Settings, saving the drive,
+/// copying it onto Backup when Main is the newer), every other says why it doesn't; applied, they
+/// run in order and do what they said. Without the demos plugin (the app's), rekordbox's demo
+/// sample stays.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
     let p = &Pair::new(&tc);
@@ -540,14 +542,10 @@ fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
         assert_eq!(api::refresh_drive(Some(&p.store)).unwrap().root(), p.main);
     }
     let drive = (!unnamed).then(|| path(&p.main));
-    let req = api::RefreshRequest { drive, skip: skip.clone(), sync };
+    let req = api::RefreshRequest { drive, skip: skip.clone(), sync, ..Default::default() };
     let plan = api::refresh_plan(&p.store, &req, &ctx).unwrap();
     let skipped = |k: StepKind| skip.contains(&k);
     let mut want = Vec::new();
-    if sample && !skipped(StepKind::Clean) {
-        want.push(StepKind::Clean);
-        assert!(plan.destructive, "the demo sample is deleted");
-    }
     if edited && !skipped(StepKind::Replay) {
         want.push(StepKind::Replay);
     }
@@ -556,14 +554,14 @@ fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
         want.push(StepKind::Settings);
     }
     let idle = [
-        (StepKind::Clean, "no demo samples on the drive"),
+        (StepKind::Clean, "the demos plugin isn't there"),
         (StepKind::Replay, "no recorded edits"),
         (StepKind::Smart, "no rule-based playlists for this drive"),
         (StepKind::Player, "no name or colour remembered for it (setting the name players show remembers them)"),
         (StepKind::Settings, "the My Settings profile is empty (`settings import` starts one)"),
     ];
     for (k, why) in idle {
-        if !(k == StepKind::Clean && sample || k == StepKind::Replay && edited || k == StepKind::Settings && profile) {
+        if !(k == StepKind::Replay && edited || k == StepKind::Settings && profile) {
             assert_eq!(reason(&plan, k), Some(if skipped(k) { "skipped" } else { why }), "{k:?}");
         }
     }
@@ -594,7 +592,7 @@ fn a_refresh_runs_the_steps_with_something_to_do(tc: TestCase) {
     assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), want);
     assert_eq!(report.did_anything(), !want.is_empty());
     let has_sample = titles(&p.main).contains(&"House 1".to_string());
-    assert_eq!(has_sample, sample && skipped(StepKind::Clean));
+    assert_eq!(has_sample, sample);
     let lists: Vec<String> =
         Device::open(&p.main).unwrap().library().unwrap().playlists.into_iter().map(|l| l.name).collect();
     assert_eq!(lists.contains(&"Mine".to_string()), edited && !skipped(StepKind::Replay), "{lists:?}");
@@ -651,7 +649,7 @@ fn a_group_sync_copies_the_newest_onto_the_rest(tc: TestCase) {
     assert_eq!(titles(&p.main), titles(&p.backup));
 }
 
-/// A write to one clone of a library reaches the others: removing rekordbox's demo sample from
+/// A write to one clone of a library reaches the others: deleting rekordbox's demo sample from
 /// Main plans Backup as a clone it's copied onto, unless Backup changed too (then it's left
 /// alone, which the plan says); applied, Main loses the sample and Backup ends up holding Main's
 /// library, or as it was.
@@ -661,7 +659,9 @@ fn a_write_to_a_clone_reaches_the_others(tc: TestCase) {
     let ctx = locallibrary::progress::Ctx::silent();
     add_demo_sample(&p.main);
     let before = titles(&p.backup);
-    let plan = api::clean_plan(&api::DriveRef { drive: path(&p.main) }, &ctx).unwrap();
+    let edits = vec![Edit::DeleteTracks { tracks: TrackSelector::paths([SAMPLE.into()]), keep_files: false }];
+    let plan =
+        api::edit_plan(&api::EditRequest { drive: path(&p.main), edits, options: Default::default() }, &ctx).unwrap();
     let clones: Vec<(&Path, bool)> = plan.clones.iter().map(|c| (c.root.as_path(), c.left_alone.is_some())).collect();
     assert_eq!(clones, [(p.backup.as_path(), p.backup_changed)]);
     assert_eq!(plan.warnings.len(), usize::from(p.backup_changed), "{:?}", plan.warnings);

@@ -81,6 +81,7 @@ impl Track {
 /// rekordbox's eight track colours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(any(test, feature = "test-util"), derive(hegel::DefaultGenerator))]
 #[serde(rename_all = "snake_case")]
 pub enum TrackColor {
     Pink,
@@ -319,7 +320,66 @@ impl Library {
             .filter(|t| normalize(&t.display_name()).contains(&needle) || normalize(&t.file_path).contains(&needle))
             .collect()
     }
+
+    /// The playlists and folders in `only` (paths like `Folder/Name`, or unique names, as
+    /// [`Library::find_playlist`] finds them), everything below them, the folders above them (so
+    /// their paths stay the same) and the tracks they hold: what an export of some playlists
+    /// writes. The whole library when `only` is empty. Fails with the query no playlist answers.
+    pub fn subset(mut self, only: &[String]) -> Result<Library, &str> {
+        if only.is_empty() {
+            return Ok(self);
+        }
+        let mut keep = FxHashSet::default();
+        for query in only {
+            let p = self.find_playlist(query).ok_or(query.as_str())?;
+            // The node and everything below it...
+            let mut queue = vec![p.id];
+            while let Some(id) = queue.pop() {
+                if keep.insert(id) {
+                    queue.extend(self.children(Some(id)).iter().map(|c| c.id));
+                }
+            }
+            // ...and the folders above it.
+            let mut parent = p.parent_id;
+            while let Some(id) = parent.filter(|id| keep.insert(*id)) {
+                parent = self.playlist(id).and_then(|f| f.parent_id);
+            }
+        }
+        self.playlists.retain(|p| keep.contains(&p.id));
+        let used: FxHashSet<u32> = self.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
+        self.tracks.retain(|t| used.contains(&t.id));
+        Ok(self)
+    }
+
+    /// For files other software reads (rekordbox XML, Traktor, Serato, Engine, playlists): tracks
+    /// whose id has [`ONELIBRARY_ONLY`] set numbered on from the others, in library order, with
+    /// the playlists and history lists naming them by their new ids, so no file carries an id
+    /// with that bit. Those formats use the ids only within the file, if at all (rekordbox XML's
+    /// `TrackID`, which its playlists' `Key`s name). Answers each renumbered track's old id, by
+    /// its new one.
+    pub fn number_for_files(&mut self) -> FxHashMap<u32, u32> {
+        let onelibrary_only = |id: u32| id & ONELIBRARY_ONLY != 0;
+        let mut next = self.tracks.iter().map(|t| t.id).filter(|id| !onelibrary_only(*id)).max().unwrap_or(0);
+        let mut ids: FxHashMap<u32, u32> = FxHashMap::default();
+        for t in self.tracks.iter_mut().filter(|t| onelibrary_only(t.id)) {
+            next += 1;
+            ids.insert(t.id, next);
+            t.id = next;
+        }
+        for list in self.playlists.iter_mut().chain(self.history.iter_mut()) {
+            for id in &mut list.track_ids {
+                *id = ids.get(id).copied().unwrap_or(*id);
+            }
+        }
+        ids.into_iter().map(|(old, new)| (new, old)).collect()
+    }
 }
+
+/// The bit set in the ids locallibrary gives tracks only OneLibrary has when it combines a drive's
+/// two databases (`export.pdb`, whose library players see, and OneLibrary) into one library:
+/// `export.pdb` counts its ids up from 1, so a later export never gives one of these to another
+/// track. Edits refuse them.
+pub const ONELIBRARY_ONLY: u32 = 1 << 31;
 
 /// How deep folders nest at most in a tree read from a file: deeper rows are taken for a loop in
 /// a damaged file (see [`untangle`]), so edits and merges never nest playlists deeper. A walk
@@ -409,6 +469,63 @@ pub fn normalize(s: &str) -> String {
         _ => s.nfkc().collect::<String>().to_lowercase(),
     };
     lower.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `s` split wherever one of the (ASCII) separators appears, ignoring case.
+fn split_ci<'s>(s: &'s str, seps: &[&str]) -> Vec<&'s str> {
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < s.len() {
+        match seps.iter().find(|sep| s.get(i..i + sep.len()).is_some_and(|w| w.eq_ignore_ascii_case(sep))) {
+            Some(sep) => {
+                out.push(&s[start..i]);
+                i += sep.len();
+                start = i;
+            }
+            None => {
+                i += 1;
+                while !s.is_char_boundary(i) {
+                    i += 1;
+                }
+            }
+        }
+    }
+    out.push(&s[start..]);
+    out
+}
+
+/// The artists a credit names, for counting: split at commas, semicolons and featuring credits
+/// ("A, B feat. C" is A, B and C). `&` and `x` don't split: "Chase & Status" is one act. A set
+/// record's artists are these, in this order, and an analyzer's `artists` role answers an ID
+/// for each.
+pub fn artist_credits(artist: &str) -> Vec<String> {
+    let seps = [",", ";", " feat. ", " feat ", " ft. ", " ft ", " featuring ", "(feat. ", "(ft. "];
+    let mut out: Vec<String> = Vec::new();
+    for part in split_ci(artist, &seps) {
+        let name = part.trim_matches(|c: char| c.is_whitespace() || c == '(' || c == ')');
+        if !name.is_empty() && !out.iter().any(|x| normalize(x) == normalize(name)) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// Whether `s` is an ISRC as it's written plain (`GBDUW0000059`): a country code, a registrant
+/// code of letters or digits, a year and a number.
+pub fn is_isrc(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 12
+        && b[..2].iter().all(u8::is_ascii_uppercase)
+        && b[2..5].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && b[5..].iter().all(u8::is_ascii_digit)
+}
+
+/// `tag` as an ISRC: trimmed, without its hyphens and in capitals, when that's one
+/// ([`is_isrc`]; `gb-cfb-17-00586` is `GBCFB1700586`). What a published set's track says, and
+/// what MusicBrainz is asked about.
+pub fn isrc(tag: &str) -> Option<String> {
+    let isrc = tag.trim().replace('-', "").to_ascii_uppercase();
+    is_isrc(&isrc).then_some(isrc)
 }
 
 // ---------------------------------------------------------------------------------------------

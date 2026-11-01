@@ -1,6 +1,7 @@
 // An in-memory stand-in for the parts of the `chrome.*` extension API the
 // scripts use: chrome.storage.local and .session (+ onChanged),
-// chrome.runtime.onMessage / sendMessage, and chrome.tabs. Values pass through
+// chrome.runtime.onMessage / sendMessage / getManifest / getContexts, chrome.tabs,
+// chrome.downloads and chrome.offscreen. Values pass through
 // structuredClone on the way in and out, as they do in Chrome, and every `set`
 // notifies onChanged listeners in every context — the mechanism the content
 // script and the Manager panel rely on to see each other's marks.
@@ -15,6 +16,7 @@
 // `declare const chrome: ChromeMock;` — and one in hand (from `createChrome`
 // or `panelChrome`) is a ChromeMock already.
 import { vi, type Mock } from 'vitest';
+import manifest from '../../src/manifest.json';
 import type {
 	DetailsProgress,
 	LocalArea,
@@ -23,7 +25,10 @@ import type {
 	PageRequest,
 	PageType,
 	ProfilesProgress,
-	SessionArea
+	RoundTripRequest,
+	SaveGateRequest,
+	SessionArea,
+	WalkGateRequest
 } from '$lib/types';
 import type { StoredView } from '../../src/lib/view.svelte.ts';
 import type { Kept } from '../../src/tools/third-party-downloads/walked.svelte.ts';
@@ -133,7 +138,18 @@ export interface StubArea {
 	set: Mock<AreaSet>;
 }
 
-type RuntimeSendMessage = (message: PageProgress) => Promise<undefined>;
+/** Everything the scripts send with chrome.runtime.sendMessage, and whatever answers it. */
+type RuntimeSendMessage = (
+	message: PageProgress | SaveGateRequest | WalkGateRequest | RoundTripRequest
+) => Promise<PageReply>;
+
+type GetContexts = (filter: chrome.runtime.ContextFilter) => Promise<object[]>;
+
+type CreateDocument = (parameters: chrome.offscreen.CreateParameters) => Promise<void>;
+
+type CloseDocument = () => Promise<void>;
+
+type GetManifest = () => chrome.runtime.Manifest;
 
 type TabsQuery = (queryInfo: chrome.tabs.QueryInfo) => Promise<TabStub[]>;
 
@@ -157,6 +173,8 @@ export interface ChromeStub {
 	runtime: {
 		onMessage: StubEvent<MessageListener>;
 		sendMessage: Mock<RuntimeSendMessage>;
+		getManifest: Mock<GetManifest>;
+		getContexts: Mock<GetContexts>;
 	};
 	tabs: {
 		query: Mock<TabsQuery>;
@@ -168,6 +186,10 @@ export interface ChromeStub {
 	downloads: {
 		download: Mock<Download>;
 		onChanged: StubEvent<DownloadListener>;
+	};
+	offscreen: {
+		createDocument: Mock<CreateDocument>;
+		closeDocument: Mock<CloseDocument>;
 	};
 	/** A copy of what an area holds, typed as the code under test writes it. */
 	testStore(name?: 'local'): LocalArea;
@@ -329,7 +351,13 @@ export function createChrome({
 			},
 			// The content script broadcasts progress with this; by default nobody
 			// is listening, which Chrome reports as a rejected promise.
-			sendMessage: vi.fn<RuntimeSendMessage>(() => Promise.reject(new Error('Receiving end does not exist')))
+			sendMessage: vi.fn<RuntimeSendMessage>(() => Promise.reject(new Error('Receiving end does not exist'))),
+			// The manifest the build ships, as Chrome answers with it.
+			// SAFETY: src/manifest.json is a Manifest V3 manifest (build.test.ts checks it against the
+			// schema); a JSON import only widens its literals, such as `manifest_version: 3`, to number.
+			getManifest: vi.fn<GetManifest>(() => clone(manifest) as chrome.runtime.Manifest),
+			// No offscreen page is open until a test says one is.
+			getContexts: vi.fn<GetContexts>(async () => [])
 		},
 		tabs: {
 			query: vi.fn<TabsQuery>(async () => (tab ? [clone(tab)] : [])),
@@ -349,6 +377,10 @@ export function createChrome({
 				addListener: vi.fn<Subscribe<DownloadListener>>((fn) => onDownloadListeners.add(fn)),
 				removeListener: vi.fn<Subscribe<DownloadListener>>((fn) => onDownloadListeners.delete(fn))
 			}
+		},
+		offscreen: {
+			createDocument: vi.fn<CreateDocument>(async () => undefined),
+			closeDocument: vi.fn<CloseDocument>(async () => undefined)
 		},
 
 		// ---- test-side controls ------------------------------------------------

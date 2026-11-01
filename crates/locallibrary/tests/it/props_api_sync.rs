@@ -9,7 +9,7 @@ use crate::props_api_jobs::own_identity;
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
+use hegel::{HealthCheck, PrintableGenerator, TestCase};
 use locallibrary::api::{self, Direction, SyncRequest};
 use locallibrary::compare::{Confidence, Relation};
 use locallibrary::device::Device;
@@ -58,7 +58,7 @@ fn make(root: &Path, change: Change) {
 }
 
 fn changes() -> impl PrintableGenerator<Change> {
-    gs::sampled_from(vec![Change::None, Change::History, Change::Export, Change::Remove]).print_as_debug()
+    gs::sampled_from(vec![Change::None, Change::History, Change::Export, Change::Remove])
 }
 
 /// Two drives hold the same library, as compare tells libraries apart.
@@ -77,9 +77,9 @@ fn labels(e: &Error) -> Vec<String> {
 /// order: a guess unless it's taken, drives that both changed unless one only came back from a
 /// set (then it's overwritten, after its players' changes are saved in the store, which it
 /// needs), and what compare can't tell, saying why. Pinned to a direction, keeping the players'
-/// changes is only for a drive back from a set. Synced as several, the newest goes onto every
-/// other, a drive back from a set is sent to be synced as a pair first, and a target that went or
-/// changed since the plan fails alone.
+/// changes is only for a drive back from a set. Synced as several (refused for blank drives alone,
+/// none of them the newest), the newest goes onto every other, a drive back from a set is sent to
+/// be synced as a pair first, and a target that went or changed since the plan fails alone.
 ///
 /// The explicit cases are the situations each branch needs: a guess, drives back from a set
 /// synced with the store and without, pinned and among several, what compare can't tell, and a
@@ -102,7 +102,7 @@ fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
     // Applied as a pair, or left for a sync of several.
     let as_pair = tc.draw(gs::booleans());
     let pinned = tc.draw(gs::booleans());
-    let direction = tc.draw(gs::sampled_from(vec![Direction::LeftToRight, Direction::RightToLeft]).print_as_debug());
+    let direction = tc.draw(gs::sampled_from(vec![Direction::LeftToRight, Direction::RightToLeft]));
     // The blank drive goes (1), or gets a stray audio file the plan didn't see (2), before a sync
     // of several is applied.
     let meddle = tc.draw(gs::integers::<u8>().max_value(2));
@@ -150,6 +150,8 @@ fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
         let empty = common::blank(&volumes, "Empty");
         let e = api::sync_plan(&common::sync_pair(s, &empty), &ctx).unwrap_err();
         assert!(e.to_string().contains("neither drive holds a rekordbox export"), "{e}");
+        let e = api::sync_many_plan(&common::sync_many(&[s, &empty]), &ctx).map(|p| p.noop).unwrap_err();
+        assert!(matches!(&e, Error::Invalid(m) if m == "none of the drives holds a rekordbox export"), "{e}");
         std::fs::remove_dir(empty).unwrap();
         // Another library altogether: copying either way, or merging either way.
         let other = common::bigger_drive(&volumes, "Other");

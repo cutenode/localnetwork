@@ -1,6 +1,9 @@
 [package]
 name = "locallibrary-cli"
 description = "Command line interface for locallibrary"
+# Released with dist (archives, installers, Homebrew), not to crates.io: the locallibrary crate,
+# the plugins and the vendored rekordbox-pdb it's built from aren't published.
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,16 +16,28 @@ path = "src/main.rs"
 # The binary shares its name with the library crate, so their rustdoc output would collide
 # (cargo#6313). The library is the documented API.
 doc = false
+# Its unit tests are built as the `unit` test below.
+test = false
+
+# The binary's unit tests (src/main.rs and its modules, through src/unit.rs), built as an
+# integration test so cargo and nextest hand them the binary's path (`CARGO_BIN_EXE_locallibrary`)
+# when they run: the plugins they use are served by it. A bin target's own tests get no such path.
+[[test]]
+name = "unit"
+path = "src/unit.rs"
 
 # Release packaging (see dist-workspace.toml): name the Homebrew formula after the command.
+# `dist = true` because dist leaves out a package with `publish = false` unless told otherwise.
 [package.metadata.dist]
+dist = true
 formula = "locallibrary"
 
 [features]
 default = ["account", "tui", "playback", "peers"]
 # The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
-# publish`, `settings import --from-handle`), the `account.*` and `*.publish.*` RPC methods and
-# signing in from the player's Profile view. Most of the dependencies (an HTTP client, an async
+# publish`, `settings import --from-handle`), posting bug reports (`bug`; without it, `bug` opens
+# GitHub's form), the `account.*` and `*.publish.*` RPC methods and signing in from the player's
+# Profile view. Most of the dependencies (an HTTP client, an async
 # runtime, TLS, the keychain) are for this alone.
 account = ["locallibrary/account"]
 # `store serve` and `store fetch`: copying snapshots between computers over the network.
@@ -37,7 +52,8 @@ playback = ["tui", "rodio/playback"]
 locallibrary.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
-clap.workspace = true
+# `string`: the commands, flags and formats plugins add are named at run time.
+clap = { workspace = true, features = ["string"] }
 clap_complete.workspace = true
 clap_mangen.workspace = true
 console.workspace = true
@@ -63,12 +79,34 @@ rustfft = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error.workspace = true
 # Columns a typed character takes (ratatui already depends on it).
 unicode-width = "0.2"
 uuid.workspace = true
 rustc-hash.workspace = true
 indexmap.workspace = true
+# The RPC sidecar's framing, error codes and invalid_params errors, shared with the plugin protocol.
+loclib-plugin.workspace = true
+# The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
+loclib-progress.workspace = true
+# The plugins locallibrary ships (`plugins::BUILT_IN`), each served by `plugin serve <id>`: one
+# for every folder in plugins/, which build.rs checks.
+locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
+locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
+locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
+locallibrary-plugin-interop = { version = "0.1.0", path = "../../plugins/interop" }
+locallibrary-plugin-demos = { version = "0.1.0", path = "../../plugins/demos" }
+locallibrary-plugin-musicbrainz = { version = "0.1.0", path = "../../plugins/musicbrainz" }
+os_info = { version = "3.15.0", default-features = false }
+percent-encoding.workspace = true
+base64.workspace = true
+# Splits each `refresh --then` into words the way a shell does (the hints' tests check their
+# quoting with it too).
+shlex = "2.0.1"
+locallibrary-plugin-plyr = { version = "0.1.0", path = "../../plugins/plyr" }
+locallibrary-plugin-archive = { version = "0.1.0", path = "../../plugins/archive" }
+locallibrary-plugin-youtube = { version = "0.1.0", path = "../../plugins/youtube" }
+locallibrary-plugin-mixcloud = { version = "0.1.0", path = "../../plugins/mixcloud" }
+locallibrary-plugin-soundcloud = { version = "0.1.0", path = "../../plugins/soundcloud" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
@@ -94,5 +132,13 @@ walkdir.workspace = true
 filetime.workspace = true
 jacquard-oauth.workspace = true
 tokio.workspace = true
-# Splits hints into words the way a shell does, to check their quoting.
-shlex = "2.0.1"
+loclib-model = { workspace = true, features = ["test-util"] }
+# Writes the Traktor collections the interop plugin's library source is tested on.
+loclib-interop.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# Reads this manifest's dependencies, to check there's one for every plugin (build.rs).
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse"] }

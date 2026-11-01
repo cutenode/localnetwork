@@ -2,19 +2,33 @@ import type { JsonObject } from '@atproto/lex-json';
 import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
 import type { ProjectDetails, RequestRecord } from '#lib/types.ts';
 import { RecordValidationError, validateRecord } from '../atproto/lexicons';
-import { parseSpaceUri } from '../atproto/spaces';
+import { parseSpaceUri, sharedSpaceKind } from '../atproto/spaces';
 import type { AuditLog } from '../audit/log';
 import type { Core } from '../core';
 import type { BookingRecord, BookingService } from '../services/bookings';
+import type { EpkService } from '../services/epk';
 import type { ProjectService } from '../services/projects';
 import { isRequestKind, type RequestService } from '../services/requests';
+import type { ListingWriter } from '../services/listings';
+import type { SharedSpaces } from '../services/shared-spaces';
 import { type StaffService, staffRoleRecord } from '../services/staff';
 import type { ChangeHandler } from './engine';
+
+/** The collections in a performer's, party's or venue's space that only the root writes. */
+const SHARED_SPACE_COLLECTIONS = new Set<string>([
+	COLLECTION.person,
+	COLLECTION.invite,
+	COLLECTION.inviteLink,
+	COLLECTION.joinRequest,
+	COLLECTION.listingStatus
+]);
 
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count.
+ * account's decisions, roles, and details count, only the grants of a press
+ * kit space's authority, and in a performer's, party's or venue's space, only
+ * what the root wrote, in a space under the root.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -23,13 +37,19 @@ export function createProjections(deps: {
 	requests: RequestService;
 	staff: StaffService;
 	bookings: BookingService;
+	epks: EpkService;
+	sharedSpaces: SharedSpaces;
+	listings: ListingWriter;
 }): ChangeHandler {
-	const { core, audit, projects, requests, staff, bookings } = deps;
+	const { core, audit, projects, requests, staff, bookings, epks, sharedSpaces, listings } = deps;
 	const { spaces, rootDid } = core;
 
 	return async (change) => {
 		const fromRoot = change.repoDid === rootDid;
-		const type = parseSpaceUri(change.space)?.type;
+		const ref = parseSpaceUri(change.space);
+		const type = ref?.type;
+		// Who's in a performer's, party's or venue's space, and how it's listed, is the root's to write, in its own space.
+		const governs = fromRoot && ref?.authority === rootDid && !!sharedSpaceKind(ref.type);
 
 		if (change.kind === 'delete') {
 			if (change.collection === COLLECTION.staffRole && change.space === spaces.staff && fromRoot) {
@@ -56,6 +76,15 @@ export function createProjections(deps: {
 				core.logger.warn({ uri: change.uri }, 'an audit copy was deleted');
 			} else if (type === SPACE_TYPE.booking) {
 				await core.db.deleteFrom('bookingEvent').where('uri', '=', change.uri).execute();
+			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkGrant) {
+				await epks.unindexGrant(change.space, change.uri);
+			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkRequest) {
+				await epks.unindexRequest(change.uri);
+			} else if (type === SPACE_TYPE.backstage && change.collection === COLLECTION.epkDraft) {
+				await epks.drafts.unindex(change.uri);
+			} else if (governs && SHARED_SPACE_COLLECTIONS.has(change.collection)) {
+				await sharedSpaces.unindex(change);
+				await listings.refresh(change.space);
 			}
 
 			return;
@@ -146,6 +175,39 @@ export function createProjections(deps: {
 						// SAFETY: validateRecord checked `value` against this booking collection's lexicon, and each of the three
 						// is a subset of BookingRecord with `createdAt` required.
 						value: value as BookingRecord
+					});
+				}
+
+				return;
+			case COLLECTION.epkRequest:
+				if (type === SPACE_TYPE.epk)
+					await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.epkGrant:
+				if (type === SPACE_TYPE.epk)
+					await epks.indexGrant({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.person:
+			case COLLECTION.invite:
+			case COLLECTION.inviteLink:
+			case COLLECTION.joinRequest:
+			case COLLECTION.listingStatus:
+				if (!governs) return;
+				await sharedSpaces.index({ ...change, value });
+				await listings.refresh(change.space);
+
+				return;
+			case COLLECTION.epkDraft:
+				if (type === SPACE_TYPE.backstage) {
+					await epks.drafts.index({
+						space: change.space,
+						uri: change.uri,
+						repoDid: change.repoDid,
+						rkey: change.rkey,
+						cid: change.cid,
+						value
 					});
 				}
 

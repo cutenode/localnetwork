@@ -1,6 +1,6 @@
-//! Property tests of `locallibrary account` and publishing (`settings publish`, `profile
-//! publish`, `sets publish`, `settings import --from-account`) against a pretend data server on
-//! 127.0.0.1, signed in as a sign-in with `--session-file` leaves it (never the keychain): what
+//! Property tests of `locallibrary account`, publishing (`settings publish`, `profile publish`,
+//! `sets publish`, `settings import --from-account`) and bug reports (`bug`) against a pretend
+//! data server on 127.0.0.1, signed in as a sign-in with `--session-file` leaves it (never the keychain): what
 //! each prints is what its `--json` says, and what's published is the record the plan showed.
 //!
 //! Signing in itself happens in a browser, so it isn't run here: a session is written in place
@@ -12,19 +12,32 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
-use crate::mock_pds::{MockPds, Writes};
+use crate::mock_pds::{MockPds, Writes, granted};
 use crate::support::account::{DID, PUBLISHING, sign_in};
 use crate::support::{Env, path};
 
-/// What a session may do, as `account status` says it.
+/// Filing bug reports.
+const REPORTING: &str = "repo:app.userinput.discussion?action=create";
+
+/// What a session that asked for `scopes` may do, as `account status` says it.
 fn allows(scopes: &[&str]) -> String {
-    let publishing = PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect::<Vec<_>>();
-    if scopes.iter().all(|s| *s == "atproto") {
-        "knows who you are; can't post or change anything".into()
-    } else if scopes.iter().all(|s| *s == "atproto" || publishing.contains(&s.to_string())) {
-        "can publish your My Settings, profile and sets; can't post or change anything else".into()
-    } else {
-        format!("allowed: {}", scopes.join(" "))
+    let scopes = granted(scopes);
+    let publishing = granted(&PUBLISHING);
+    let publishes = scopes.iter().any(|s| s != "atproto" && publishing.contains(s));
+    let reports = scopes.iter().any(|s| s == REPORTING);
+    if !scopes.iter().all(|s| publishing.contains(s) || s == REPORTING) {
+        return format!("allowed: {}", scopes.join(" "));
+    }
+    match (publishes, reports) {
+        (false, false) => "knows who you are; can't post or change anything".into(),
+        (true, false) => {
+            "can publish your My Settings, profile, sets and their recordings; can't post or change anything else"
+                .into()
+        }
+        (false, true) => "can post bug reports; can't post or change anything else".into(),
+        (true, true) => "can publish your My Settings, profile, sets and their recordings and post bug reports; \
+                         can't post or change anything else"
+            .into(),
     }
 }
 
@@ -38,11 +51,11 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::from_template();
-    let publish_scopes: Vec<String> =
-        PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect();
-    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(2)) {
+    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => vec!["atproto"],
-        1 => std::iter::once("atproto").chain(publish_scopes.iter().map(String::as_str)).collect(),
+        1 => PUBLISHING.to_vec(),
+        2 => vec!["atproto", REPORTING],
+        3 => [&PUBLISHING[..], &[REPORTING]].concat(),
         _ => vec!["atproto", "transition:generic"],
     };
     let hours = tc.draw(gs::sampled_from(&[-48i64, 2, 24 * 30][..]));
@@ -285,17 +298,10 @@ fn publish_plan_is_printed(p: &Value, what: &str, out: &str, said: &str) {
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
-    let publish_scopes: Vec<String> =
-        PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect();
+    let fx = Env::from_template().with_directory(&pds.url);
     let session = tc.draw(gs::integers::<u8>().max_value(2));
     match session {
-        0 => sign_in(
-            &fx.store,
-            &pds.url,
-            &std::iter::once("atproto").chain(publish_scopes.iter().map(String::as_str)).collect::<Vec<_>>(),
-            json!({}),
-        ),
+        0 => sign_in(&fx.store, &pds.url, &PUBLISHING, json!({})),
         1 => sign_in(&fx.store, &pds.url, &["atproto"], json!({})),
         _ => {}
     }
@@ -373,7 +379,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
             fx.ok(&["--yes", "settings", "set", v]);
         }
         let refusals = [None, None, None, Some(Writes::RefuseScope), Some(Writes::RefuseRecord)];
-        let refusal = refusals[tc.draw(gs::integers::<usize>().max_value(refusals.len() - 1))].clone();
+        let refusal = tc.draw(gs::sampled_from(&refusals[..]));
         pds.set_writes(refusal.clone().unwrap_or(Writes::Accept));
         let planned = fx.run(&[&["--json"][..], words, &["--dry-run"]].concat());
         let printed = fx.run(&[words, &["--dry-run"][..]].concat());
@@ -425,7 +431,8 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
             if let Some(uri) = p["uri"].as_str() {
                 let (repo, rest) = uri.strip_prefix("at://").unwrap().split_once('/').unwrap();
                 let (collection, rkey) = rest.split_once('/').unwrap();
-                let now = pds.record(repo, collection, rkey).map(|r| r.0);
+                // The plan showed what the directory has, which still has what's published.
+                let now = pds.indexed(repo, collection, rkey).map(|r| r.0);
                 assert_eq!(now.as_ref(), p["current"].get("value"), "{said}");
             }
             if p["noop"] == true && !json && session != 2 {
@@ -465,9 +472,9 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     for key in ["quantize", "jog_mode", "lcd_brightness"] {
         fx.run(&["--yes", "settings", "unset", key]);
     }
-    // From the account signed in, or (signed out) one named, at its server.
+    // From the account signed in, or (signed out) one named.
     let import: Vec<&str> = match session {
-        2 => vec!["settings", "import", "--from-handle", DID, "--pds", &pds.url],
+        2 => vec!["settings", "import", "--from-handle", DID],
         _ => vec!["settings", "import", "--from-account"],
     };
     let planned = fx.run(&[&["--json"][..], &import, &["--dry-run"]].concat());
@@ -510,7 +517,7 @@ fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     let pds = MockPds::start();
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let json = tc.draw(gs::booleans());
     let r = fx.run(&[if json { "--json" } else { "--quiet" }, "account", "login"]);
     assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
@@ -518,4 +525,368 @@ fn signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     let r = fx.run(&["--json", "account", "login", &pds.url, "--no-browser", "--timeout", "1"]);
     assert_ne!(r.code, 0, "{}\n{}", r.out, r.err);
     assert!(fx.json(&["account", "status"])["account"].is_null());
+}
+
+/// Each section a profile record can have, with its title in a printed plan and a value for it
+/// as one published before (by an older version, or another computer) might hold.
+fn published_sections() -> Vec<(&'static str, &'static str, Value)> {
+    vec![
+        ("headline", "Headline", json!("Old headline")),
+        ("tags", "Traits", json!([{ "name": "Warm-up" }])),
+        ("sets", "Sets", json!({ "total": { "atLeast": 20 }, "since": 2019, "medianTracks": 14 })),
+        ("tempo", "Tempo", json!({ "low": 120, "high": 128, "median": 124 })),
+        ("arc", "Set shape", json!({ "shape": "builds", "builds": 50, "steady": 30, "windsDown": 20 })),
+        ("mixing", "Mixing", json!({ "harmonic": 40, "smoothTempo": 70 })),
+        ("keys", "Keys", json!({ "top": [{ "key": "8A" }], "minor": 60 })),
+        ("energy", "Energy", json!({ "high": 30, "mid": 50, "low": 20 })),
+        ("genres", "Genres", json!([{ "name": "Techno", "share": 50 }])),
+        ("labels", "Labels", json!([{ "name": "Old Label", "share": 10 }])),
+        ("artists", "Artists", json!([{ "name": "Old Artist", "share": 5 }])),
+        ("era", "Era", json!({ "medianYear": 2015, "recent": 20 })),
+        (
+            "signature",
+            "Signature tracks",
+            json!([{ "artist": "Old Artist", "title": "Anthem" }, { "title": "Untitled" }]),
+        ),
+        ("prep", "Prep", json!({ "hotCues": 80, "memoryCues": 50, "loops": 10 })),
+        ("collection", "Collection", json!({ "tracks": { "count": 100 }, "playlists": { "atLeast": 10 } })),
+        ("style", "Player style", json!({ "jogMode": "vinyl" })),
+    ]
+}
+
+/// Whatever sections a profile published before holds, and whichever the DJ publishes now, the
+/// printed plan marks each section it publishes as new or changed against it, and lists each
+/// section published before that it no longer publishes; its JSON plan holds that record as what
+/// it replaces.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
+    let pds = MockPds::start();
+    let fx = Env::from_template().with_directory(&pds.url);
+    sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
+    let all = published_sections();
+    let names: Vec<&str> = all.iter().map(|(f, _, _)| *f).collect();
+    let before: Vec<&str> = tc.draw(gs::subsequences(names.clone()));
+    let mut current = json!({ "$type": "computer.localnetwork.dj.profile", "precision": "exact" });
+    for (field, _, value) in all.iter().filter(|(f, _, _)| before.contains(f)) {
+        current[*field] = value.clone();
+    }
+    pds.put(DID, "computer.localnetwork.dj.profile", "self", current.clone());
+    // Sections turned on and off now, from the report's own names (`sets` and `summary` stand
+    // for the record's `sets`, and `headline` and `tags`).
+    let report_sections =
+        ["summary", "sets", "tempo", "arc", "mixing", "keys", "energy", "genres", "labels", "artists", "era"];
+    let on: Vec<&str> = tc.draw(gs::subsequences(report_sections.to_vec()));
+    if !on.is_empty() {
+        fx.ok(&["--yes", "profile", "include", &on.join(",")]);
+    }
+    let off: Vec<&str> = tc.draw(gs::subsequences(report_sections.to_vec()));
+    if !off.is_empty() {
+        fx.ok(&["--yes", "profile", "exclude", &off.join(",")]);
+    }
+
+    let words = ["profile", "publish", "A", "--no-analysis", "--dry-run"];
+    let v = fx.json(&words);
+    let out = fx.ok(&words);
+    let said = format!("before: {before:?}\n{out}\n{v}");
+    let p = &v["plan"];
+    assert_eq!(p["current"]["value"], current, "{said}");
+    let record = &p["record"];
+    let gone: Vec<&str> = out.lines().filter_map(|l| l.strip_suffix("no longer published")).map(|l| l.trim()).collect();
+    for (field, title, _) in &all {
+        let line = out.lines().find(|l| l.starts_with(&format!("  {title:<17} ")) && !l.ends_with("published"));
+        match (before.contains(field), record[*field].is_null(), line) {
+            // Published before and not now: said so.
+            (true, true, _) => assert!(gone.contains(title), "{field}: {said}"),
+            (false, false, Some(l)) => assert!(l.ends_with(" (new)"), "{field}: {l:?}: {said}"),
+            (true, false, Some(l)) => {
+                assert_eq!(l.ends_with(" (changed)"), current[*field] != record[*field], "{field}: {l:?}: {said}")
+            }
+            _ => {}
+        }
+        if !before.contains(field) {
+            assert!(!gone.contains(title), "{field}: {said}");
+        }
+    }
+}
+
+/// A client document on this computer, which sign-in refuses before fetching anything.
+#[cfg(unix)]
+const LOCAL_CLIENT: &str = "https://localhost/c.json";
+
+/// Asked in a terminal which account to sign in to, `account login` offers the handle last
+/// signed in with and tries what's typed, or (typed nothing) the handle offered: an account it
+/// can't sign in to fails saying why (an address that isn't a handle, a client document on this
+/// computer, no account at all), and nobody is signed in. What's typed is never a handle that
+/// would be looked up on the network, and the handle offered is only tried when there's none.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
+    let fx = Env::from_template();
+    std::fs::create_dir_all(&fx.store).unwrap();
+    let remembered = tc.draw(gs::booleans());
+    if remembered {
+        std::fs::write(fx.store.join("atmosphere.json"), r#"{ "last_handle": "dj.example.com" }"#).unwrap();
+    }
+    let typed = match remembered {
+        true => tc.draw(gs::sampled_from(&["http://127.0.0.1:9", "@not a handle", "  spaced out  "][..])),
+        false => tc.draw(gs::sampled_from(&["", "http://127.0.0.1:9", "@not a handle"][..])),
+    };
+    let hosted = tc.draw(gs::booleans());
+    let client: &[&str] = if hosted { &["--client-id", LOCAL_CLIENT] } else { &["--dev-client"] };
+    let args = [&["account", "login", "--session-file", "--no-browser"], client].concat();
+    let r = fx.typed_ahead(&args, &format!("{typed}\n"));
+    let said = format!("{args:?} typed {typed:?} exited {}\n{}\n{}", r.code, r.out, r.err);
+    let offered = if remembered { " [dj.example.com]" } else { "" };
+    assert!(r.err.contains(&format!("Your Atmosphere handle, or your account's server{offered}: ")), "{said}");
+    assert_eq!(r.code, 1, "{said}");
+    let why = if typed.is_empty() {
+        "which Atmosphere account?".to_string()
+    } else if hosted {
+        format!("the client document at {LOCAL_CLIENT} can't be used")
+    } else {
+        format!("{:?}", typed.trim().trim_start_matches('@'))
+    };
+    assert!(r.err.contains(&why), "{why:?}: {said}");
+    let status = fx.json(&["account", "status"]);
+    assert!(status["account"].is_null(), "{status}");
+    assert_eq!(status["last_handle"], if remembered { json!("dj.example.com") } else { Value::Null }, "{status}");
+}
+
+/// Publishing in a terminal from a session that may not publish asks to sign in again: said no,
+/// it stops there as declined; said yes, it signs in again for the same account (by handle, or
+/// its DID when it has none) with the same client, which here is one on this computer that
+/// sign-in refuses, so it fails saying so. Either way nothing is published and the session
+/// stays as it was.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
+    let pds = MockPds::start();
+    let fx = Env::from_template().with_directory(&pds.url);
+    let handle = tc.draw(gs::booleans());
+    let mut info = json!({ "client": { "kind": "hosted", "client_id": LOCAL_CLIENT } });
+    if !handle {
+        info["handle"] = Value::Null;
+    }
+    sign_in(&fx.store, &pds.url, &["atproto"], info);
+    // Something to publish of My Settings.
+    fx.ok(&["--yes", "settings", "set", "quantize=on"]);
+    let before = fx.json(&["account", "status"]);
+    let words: &[&str] = tc
+        .draw(gs::sampled_from(&[&["settings", "publish"][..], &["profile", "publish", "A", "--no-analysis"][..]][..]));
+    let yes = tc.draw(gs::booleans());
+    let r = fx.typed_ahead(words, if yes { "y\n" } else { "n\n" });
+    let said = format!("{words:?} answered {yes} exited {}\n{}\n{}", r.code, r.out, r.err);
+    assert!(r.err.contains("Publishing needs your permission"), "{said}");
+    assert!(r.err.contains("? Sign in again to allow publishing? [y/N] "), "{said}");
+    assert!(r.out.contains("this session can't publish yet"), "{said}");
+    match yes {
+        true => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(r.err.contains(&format!("the client document at {LOCAL_CLIENT} can't be used")), "{said}");
+        }
+        false => assert_eq!(r.code, 3, "{said}"),
+    }
+    assert!(pds.calls("com.atproto.repo.putRecord").is_empty(), "{said}");
+    assert_eq!(fx.json(&["account", "status"]), before, "{said}");
+}
+
+/// GitHub's bug report form, as `bug` prints it.
+const FORM: &str = "https://github.com/cutenode/localnetwork/issues/new?template=locallibrary-bug.yml&";
+
+/// Creating a record, as a post does.
+const CREATE: &str = "com.atproto.repo.createRecord";
+
+/// The space bug reports go to, a record of `DID`'s that Local Network's directory (the pretend
+/// server) has.
+fn space_on(pds: &MockPds) -> String {
+    pds.put(DID, "app.userinput.space", "3lspace", json!({ "name": "locallibrary" }));
+    format!("at://{DID}/app.userinput.space/3lspace")
+}
+
+/// `locallibrary ARGS` (a `bug` run) posting to `space` when there's one, with stdin a terminal
+/// on which `typed` was typed ahead when there's that.
+fn bug(fx: &Env, space: Option<&str>, args: &[&str], typed: Option<&str>) -> crate::support::Run {
+    let mut c = fx.command();
+    match space {
+        Some(space) => c.env("LOCALLIBRARY_USERINPUT_SPACE", space),
+        None => c.env_remove("LOCALLIBRARY_USERINPUT_SPACE"),
+    };
+    // Kept open until the run is over: closing it hangs the terminal up, losing what was typed.
+    #[cfg(unix)]
+    let _keyboard = typed.map(|typed| {
+        use std::io::Write;
+        let (mut keyboard, stdin) = crate::support::terminal();
+        keyboard.write_all(typed.as_bytes()).unwrap();
+        c.stdin(std::process::Stdio::from(stdin));
+        keyboard
+    });
+    #[cfg(not(unix))]
+    assert!(typed.is_none(), "only Unix has a terminal to type on here");
+    let out = c.args(args).output().unwrap();
+    crate::support::Run {
+        out: String::from_utf8(out.stdout).unwrap(),
+        err: String::from_utf8(out.stderr).unwrap(),
+        code: out.status.code().unwrap(),
+    }
+}
+
+/// The form's address in what a run printed: its JSON's `url`, or the address in its text.
+fn form_in(out: &str, as_json: bool) -> String {
+    let url = match as_json {
+        true => serde_json::from_str::<Value>(out).unwrap()["url"].as_str().unwrap().to_string(),
+        false => out[out.find(FORM).unwrap_or_else(|| panic!("no form in {out}"))..]
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string(),
+    };
+    assert!(url.starts_with(FORM), "{url}");
+    url
+}
+
+/// Any `bug` run without a terminal (signed out, or in with or without leave to post reports; a
+/// space named or not, gone, or not a space at all; a title or none, or one too long; `--yes` or
+/// not; text or `--json`): a space that isn't one, or a title too long, is refused before
+/// anything's sent; with an account allowed to post, a space and a title it shows the report and
+/// asks, posting with `--yes` (or, when the space is gone or the server refuses it, giving
+/// GitHub's form instead); anything else gives GitHub's form, filled in with what was typed.
+#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_bug_report_is_posted_from_the_account_or_given_to_github(tc: TestCase) {
+    let pds = MockPds::start();
+    let good = space_on(&pds);
+    let gone = format!("at://{DID}/app.userinput.space/3lgone");
+    let fx = Env::new().with_directory(&pds.url);
+    let reporting = ["atproto", REPORTING];
+    let scopes: Option<&[&str]> = tc.draw(gs::sampled_from(vec![None, Some(&reporting[..]), Some(&PUBLISHING[..])]));
+    if let Some(scopes) = scopes {
+        sign_in(&fx.store, &pds.url, scopes, json!({}));
+    }
+    let spaces = vec![None, Some(good.as_str()), Some(good.as_str()), Some(gone.as_str()), Some("bugs please")];
+    let space = tc.draw(gs::sampled_from(spaces));
+    let refused = tc.draw(gs::weighted_booleans(0.3));
+    if refused {
+        pds.set_writes(Writes::RefuseRecord);
+    }
+    let title = tc.draw(gs::sampled_from(vec![None, Some("Sync stops at 99%".to_string()), Some("a".repeat(301))]));
+    let message = tc.draw(gs::optional(gs::sampled_from(vec!["It stopped & said 100%", "line one\nline two"])));
+    let (yes, as_json) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let mut args: Vec<&str> = Vec::new();
+    args.extend(as_json.then_some("--json"));
+    args.extend(yes.then_some("--yes"));
+    args.extend(["bug", "--no-browser"]);
+    if let Some(t) = &title {
+        args.extend(["--title", t]);
+    }
+    args.extend(message.iter().flat_map(|m| ["-m", m]));
+    let r = bug(&fx, space, &args, None);
+    let said = format!("{scopes:?} {space:?} refused {refused} {args:?}: exit {}\n{}\n{}", r.code, r.out, r.err);
+    let printed = format!("{}{}", r.out, r.err);
+    let github = || {
+        assert_eq!(r.code, 0, "{said}");
+        let url = form_in(&r.out, as_json);
+        assert_eq!(url.contains("&title="), title.is_some(), "{said}");
+        assert_eq!(url.contains("&what-happened="), message.is_some(), "{said}");
+    };
+    let reports = scopes.is_some_and(|s| s.contains(&REPORTING));
+    let sent = pds.calls(CREATE);
+    match () {
+        _ if space == Some("bugs please") => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(printed.contains("isn't a userinput.app space"), "{said}");
+        }
+        _ if space.is_none() || scopes.is_none() || title.is_none() => github(),
+        _ if title.as_ref().is_some_and(|t| t.len() > 300) => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(printed.contains("the title is too long to post: 301 characters, 300 at most"), "{said}");
+        }
+        _ if !reports => {
+            assert!(printed.contains("can't post bug reports yet"), "{said}");
+            github();
+        }
+        _ if !yes => {
+            assert_eq!(r.code, 3, "{said}");
+            match as_json {
+                true => assert_eq!(serde_json::from_str::<Value>(&r.out).unwrap()["outcome"], "not_confirmed"),
+                false => assert!(r.out.contains("Bug report from @dj.example.com") && printed.contains(FORM), "{said}"),
+            }
+        }
+        _ if space == Some(gone.as_str()) || refused => {
+            assert!(printed.contains("couldn't post it"), "{said}");
+            assert_eq!(sent.is_empty(), !refused || space == Some(gone.as_str()), "{said}");
+            github();
+            return;
+        }
+        _ => {
+            assert_eq!(r.code, 0, "{said}");
+            let link = format!("https://userinput.app/d/{DID}/");
+            match as_json {
+                true => {
+                    let v: Value = serde_json::from_str(&r.out).unwrap();
+                    assert_eq!(v["outcome"], "applied", "{said}");
+                    assert!(v["report"]["url"].as_str().unwrap().starts_with(&link), "{said}");
+                }
+                false => assert!(r.out.contains("posted your bug report") && r.out.contains(&link), "{said}"),
+            }
+            let record = &sent.last().expect("posted").json()["record"];
+            assert_eq!(record["title"], json!(title), "{said}");
+            let body = record["body"].as_str().unwrap();
+            assert!(body.starts_with(message.unwrap_or("Version: locallibrary ")), "{said}");
+            return;
+        }
+    }
+    assert!(sent.is_empty(), "nothing is sent: {said}");
+}
+
+/// `bug` in a terminal with no title given asks for one and for what happened (lines up to an
+/// empty one), then: nothing typed for the title, GitHub's form with what was; from an account
+/// allowed to post, the report shown and the question answered (posted, or declined); from one
+/// that isn't, asked to sign in again, which declined or failed (its client is on this computer)
+/// gives GitHub's form instead. Only a post that went ahead reaches the server.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn asked_in_a_terminal_bug_takes_what_was_typed(tc: TestCase) {
+    let pds = MockPds::start();
+    let space = space_on(&pds);
+    let fx = Env::new().with_directory(&pds.url);
+    let reports = tc.draw(gs::booleans());
+    let scopes: &[&str] = if reports { &["atproto", REPORTING] } else { &PUBLISHING };
+    let client = json!({ "client": { "kind": "hosted", "client_id": LOCAL_CLIENT } });
+    sign_in(&fx.store, &pds.url, scopes, client);
+    let title = tc.draw(gs::sampled_from(vec!["", "  The map is grey  "]));
+    let lines: Vec<&str> =
+        tc.draw(gs::vecs(gs::sampled_from(vec!["I added a venue", "and it stayed grey"])).max_size(2));
+    let answer = tc.draw(gs::booleans());
+    let typed = format!(
+        "{title}\n{}\n{}\n",
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+        if answer { "y" } else { "n" }
+    );
+    let r = bug(&fx, Some(&space), &["bug", "--no-browser"], Some(&typed));
+    let said = format!("{scopes:?} typed {typed:?}: exit {}\n{}\n{}", r.code, r.out, r.err);
+    assert!(r.err.contains("Title (a line saying what went wrong): "), "{said}");
+    assert!(r.err.contains("What happened? What were you doing? (an empty line ends it)"), "{said}");
+    let told = lines.join("\n");
+    let posted = !title.trim().is_empty() && reports && answer;
+    if title.trim().is_empty() {
+        assert_eq!(r.code, 0, "{said}");
+        let url = form_in(&r.out, false);
+        assert!(!url.contains("&title=") && url.contains("&what-happened=") != lines.is_empty(), "{said}");
+    } else if !reports {
+        assert!(r.err.contains("? Sign in again to allow bug reports? [y/N] "), "{said}");
+        assert_eq!(r.out.contains("couldn't sign in again"), answer, "{said}");
+        assert_eq!(r.code, 0, "{said}");
+        assert!(form_in(&r.out, false).contains("&title=The%20map%20is%20grey"), "{said}");
+    } else {
+        assert!(r.out.contains("  The map is grey\n"), "{said}");
+        assert!(r.err.contains("? Post it as @dj.example.com? Anyone can read it [y/N] "), "{said}");
+        assert_eq!(r.code, if answer { 0 } else { 3 }, "{said}");
+    }
+    let sent = pds.calls(CREATE);
+    assert_eq!(!sent.is_empty(), posted, "{said}");
+    if posted {
+        let record = &sent.last().unwrap().json()["record"];
+        assert_eq!(record["title"], "The map is grey", "{said}");
+        let body = record["body"].as_str().unwrap();
+        assert!(body.starts_with(&told) && body.contains("Version: locallibrary "), "{said}");
+    }
 }

@@ -1,6 +1,7 @@
-//! Reading a drive's library a piece at a time, for a GUI: pages of tracks, the playlist tree,
-//! tracks by id, artwork as files or in batches, and analysis with compact waveforms. Each takes
-//! a [`LibraryCache`], so a long-running caller parses a library once rather than per request.
+//! Reading a drive's library a piece at a time, for a GUI or a plugin: pages of tracks, the
+//! playlist tree, tracks by id, artwork as files or in batches, analysis with compact waveforms
+//! (for one track or several), and the fields analyzer plugins worked out. Each takes a
+//! [`LibraryCache`], so a long-running caller parses a library once rather than per request.
 
 use rustc_hash::FxHashMap;
 use std::path::PathBuf;
@@ -9,15 +10,16 @@ use base64::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{ArtworkImage, DriveRef, IdentifiedMix, IdentifyMixRequest, LibraryCache, ListCues};
+use super::{ArtworkImage, DriveRef, IdentifiedMix, IdentifyMixRequest, LibraryCache, LibraryRef, ListCues};
 use crate::anlz::{self, Beat, Cue, SongStructure, TrackAnalysis, Waveform, WaveformStyle};
 use crate::artwork;
 use crate::cue_edit::{self, TrackCues};
-use crate::device::Device;
+use crate::device::{Device, dunce_canonicalize, without_verbatim_prefix};
+use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
-use crate::mix::{self, Identifier};
+use crate::mix::{self, Identifier, MixReport};
 use crate::model::{Library, LibrarySummary, Playlist, Track};
 use crate::paths;
 use crate::profile::ProfilePrefs;
@@ -33,7 +35,8 @@ use crate::{Error, Result, fsutil};
 /// `drive.library`, optionally paged: without `offset` or `limit` every track comes, as before.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct LibraryRequest {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     #[serde(default)]
     pub offset: Option<usize>,
     #[serde(default)]
@@ -61,14 +64,18 @@ pub struct Page {
 
 /// The drive's library ([`super::drive_library`]), its tracks paged when asked.
 pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Result<LibraryPage> {
-    let (_, cached) = cache.open(&req.drive)?;
-    let lib = &cached.library;
+    let (_, _, lib) = cache.read(&req.library)?;
+    Ok(library_page(&lib, req.offset, req.limit))
+}
+
+/// `lib` with its tracks from `offset`, at most `limit` of them; every track when neither is given.
+pub(super) fn library_page(lib: &Library, offset: Option<usize>, limit: Option<usize>) -> LibraryPage {
     let summary = lib.summary();
-    if req.offset.is_none() && req.limit.is_none() {
-        return Ok(LibraryPage { summary, library: lib.clone(), page: None });
+    if offset.is_none() && limit.is_none() {
+        return LibraryPage { summary, library: lib.clone(), page: None };
     }
-    let offset = req.offset.unwrap_or(0);
-    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
+    let offset = offset.unwrap_or(0);
+    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(limit.unwrap_or(usize::MAX)).cloned().collect();
     let page = Page { offset, count: tracks.len(), total: lib.tracks.len() };
     let library = Library {
         tracks,
@@ -76,7 +83,7 @@ pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Resul
         history_playlists: lib.history_playlists,
         history: lib.history.clone(),
     };
-    Ok(LibraryPage { summary, library, page: Some(page) })
+    LibraryPage { summary, library, page: Some(page) }
 }
 
 /// A playlist or folder in [`PlaylistTree`].
@@ -140,16 +147,16 @@ fn tree(nodes: &[Playlist], durations: &FxHashMap<u32, u32>) -> Vec<PlaylistNode
 }
 
 /// The drive's playlists and history lists as a tree, without their tracks.
-pub fn playlists_tree(cache: &LibraryCache, req: &DriveRef) -> Result<PlaylistTree> {
-    let (_, cached) = cache.open(&req.drive)?;
-    let lib = &cached.library;
+pub fn playlists_tree(cache: &LibraryCache, req: &LibraryRef) -> Result<PlaylistTree> {
+    let (_, _, lib) = cache.read(req)?;
     let durations: FxHashMap<u32, u32> = lib.tracks.iter().map(|t| (t.id, t.duration_secs)).collect();
     Ok(PlaylistTree { playlists: tree(&lib.playlists, &durations), history: tree(&lib.history, &durations) })
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct TracksGet {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     pub ids: Vec<u32>,
 }
 
@@ -161,25 +168,31 @@ pub struct TracksById {
     pub missing: Vec<u32>,
 }
 
-/// Tracks by id (a playlist's entries, say, from [`playlists_tree`] and `tracks.query`).
-pub fn tracks_get(cache: &LibraryCache, req: &TracksGet) -> Result<TracksById> {
-    let (_, cached) = cache.open(&req.drive)?;
-    let by_id: FxHashMap<u32, &Track> = cached.library.tracks.iter().rev().map(|t| (t.id, t)).collect();
-    let mut out = TracksById { tracks: Vec::new(), missing: Vec::new() };
-    for id in &req.ids {
+/// `lib`'s tracks with these ids, in the order asked, and the ids it doesn't have.
+fn by_ids<'l>(lib: &'l Library, ids: &[u32]) -> (Vec<&'l Track>, Vec<u32>) {
+    let by_id: FxHashMap<u32, &Track> = lib.tracks.iter().rev().map(|t| (t.id, t)).collect();
+    let (mut found, mut missing) = (Vec::new(), Vec::new());
+    for id in ids {
         match by_id.get(id) {
-            Some(t) => out.tracks.push((*t).clone()),
-            None => out.missing.push(*id),
+            Some(t) => found.push(*t),
+            None => missing.push(*id),
         }
     }
-    Ok(out)
+    (found, missing)
+}
+
+/// Tracks by id (a playlist's entries, say, from [`playlists_tree`] and `tracks.query`).
+pub fn tracks_get(cache: &LibraryCache, req: &TracksGet) -> Result<TracksById> {
+    let (_, _, lib) = cache.read(&req.library)?;
+    let (found, missing) = by_ids(&lib, &req.ids);
+    Ok(TracksById { tracks: found.into_iter().cloned().collect(), missing })
 }
 
 /// [`super::cues_list`], with the library from `cache`.
 pub fn cues_list_cached(cache: &LibraryCache, req: &ListCues) -> Result<Vec<TrackCues>> {
-    let (d, cached) = cache.open(&req.drive)?;
-    let ids = req.tracks.select_on(&d, &cached.library)?;
-    cue_edit::list_in(&d, &cached.library, &ids)
+    let (d, _, lib) = cache.read(&req.library)?;
+    let ids = req.tracks.select_on(&d, &lib)?;
+    cue_edit::list_in(&d, &lib, &ids)
 }
 
 /// [`super::tags_list`], kept with the library in `cache`.
@@ -196,8 +209,16 @@ pub fn tags_list_cached(cache: &LibraryCache, req: &DriveRef) -> Result<std::syn
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ArtworkRequest {
-    One { drive: String, track: u32 },
-    Many { drive: String, tracks: Vec<u32> },
+    One {
+        #[serde(flatten)]
+        library: LibraryRef,
+        track: u32,
+    },
+    Many {
+        #[serde(flatten)]
+        library: LibraryRef,
+        tracks: Vec<u32>,
+    },
 }
 
 /// A track's artwork in a batch: `image` is `None` when it has none.
@@ -218,9 +239,9 @@ pub enum OneOrMany<T> {
 }
 
 impl ArtworkRequest {
-    fn drive(&self) -> &str {
+    fn library(&self) -> &LibraryRef {
         match self {
-            ArtworkRequest::One { drive, .. } | ArtworkRequest::Many { drive, .. } => drive,
+            ArtworkRequest::One { library, .. } | ArtworkRequest::Many { library, .. } => library,
         }
     }
 
@@ -229,12 +250,12 @@ impl ArtworkRequest {
         cache: &LibraryCache,
         f: impl Fn(&Device, &Library, u32) -> Result<Option<T>>,
     ) -> Result<OneOrMany<T>> {
-        let (d, cached) = cache.open(self.drive())?;
+        let (d, _, lib) = cache.read(self.library())?;
         match self {
-            ArtworkRequest::One { track, .. } => Ok(OneOrMany::One(f(&d, &cached.library, *track)?)),
+            ArtworkRequest::One { track, .. } => Ok(OneOrMany::One(f(&d, &lib, *track)?)),
             ArtworkRequest::Many { tracks, .. } => tracks
                 .iter()
-                .map(|&track| Ok(TrackArtwork { track, image: f(&d, &cached.library, track)? }))
+                .map(|&track| Ok(TrackArtwork { track, image: f(&d, &lib, track)? }))
                 .collect::<Result<_>>()
                 .map(OneOrMany::Many),
         }
@@ -261,25 +282,19 @@ pub struct ArtworkFile {
 /// checked to be inside the drive with no symlink leading out of it.
 pub fn artwork_path(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrMany<ArtworkFile>> {
     req.each(cache, |d, lib, track| {
-        let t = lib.track(track).ok_or_else(|| Error::NotFound(format!("track #{track}")))?;
-        let Some(p) = &t.artwork_path else { return Ok(None) };
-        let key = paths::key(p);
-        for k in [artwork::medium_variant(&key), key] {
-            let Ok(f) = d.checked_path(&k) else { continue };
-            if !f.is_file() {
-                continue;
-            }
-            // Resolved again here: `checked_path` vouches for where it led, and this is that.
-            let resolved = f.canonicalize().map_err(|e| Error::Io { path: f.clone(), source: e })?;
-            let root = d.root().canonicalize().unwrap_or_else(|_| d.root().to_path_buf());
-            if !resolved.starts_with(&root) {
-                return Err(Error::invalid(format!("refusing {k:?}: it resolves outside {}", root.display())));
-            }
-            let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
-            return Ok(Some(ArtworkFile { path: resolved, mime }));
+        let t = lib.track(track).ok_or_else(|| Error::no_track(track))?;
+        let Some(f) = artwork::file_on_drive(d, t) else { return Ok(None) };
+        // Resolved again here: `checked_path` vouches for where it led, and this is that. As
+        // drive roots are, so a client gets the path it gave on Windows, not a `\\?\` one.
+        let resolved =
+            f.canonicalize().map(without_verbatim_prefix).map_err(|e| Error::Io { path: f.clone(), source: e })?;
+        let root = dunce_canonicalize(d.root());
+        if !resolved.starts_with(&root) {
+            return Err(Error::invalid(format!("refusing track #{track}'s artwork: it resolves outside the drive")));
         }
-        Ok(None)
+        let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
+        Ok(Some(ArtworkFile { path: resolved, mime }))
     })
 }
 
@@ -287,7 +302,7 @@ pub fn artwork_path(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrM
 // Analysis
 // ---------------------------------------------------------------------------------------------
 
-/// Which waveforms `track.analysis` sends.
+/// Which waveforms `track.analysis` and `tracks.analysis` send.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WaveformChoice {
@@ -313,12 +328,35 @@ pub enum WaveformEncoding {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct AnalysisRequest {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     pub track: u32,
     #[serde(default)]
     pub waveform: WaveformChoice,
     #[serde(default)]
     pub encoding: WaveformEncoding,
+}
+
+/// The most tracks `tracks.analysis` takes at once, as plugins' read client batches them.
+pub use loclib_plugin::MAX_ANALYSES;
+
+/// [`AnalysisRequest`] for several tracks, without waveforms unless asked.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct TracksAnalysisRequest {
+    #[serde(flatten)]
+    pub library: LibraryRef,
+    /// At most 100 ([`MAX_ANALYSES`]).
+    pub ids: Vec<u32>,
+    /// `none` (the default) or `preview`: scrolling waveforms, megabytes each, come one track at
+    /// a time from `track.analysis`.
+    #[serde(default = "no_waveforms")]
+    pub waveform: WaveformChoice,
+    #[serde(default)]
+    pub encoding: WaveformEncoding,
+}
+
+fn no_waveforms() -> WaveformChoice {
+    WaveformChoice::None
 }
 
 /// One layer of a [`PackedWaveform`].
@@ -383,29 +421,140 @@ pub struct AnalysisView {
     pub structure: Option<SongStructure>,
 }
 
+/// A track's beat grid, cues, waveforms and phrases on `device`: what `track.analysis`,
+/// `tracks.analysis`, `track.show` and the player read.
+pub fn analysis_of(device: &Device, track: &Track) -> TrackAnalysis {
+    anlz::load(device, track)
+}
+
+impl AnalysisView {
+    /// The track's analysis on `device`, with the waveforms chosen and encoded as asked.
+    fn of(device: &Device, track: &Track, waveform: WaveformChoice, encoding: WaveformEncoding) -> AnalysisView {
+        let a = analysis_of(device, track);
+        let encode = |w: Waveform| match encoding {
+            WaveformEncoding::Json => WaveformData::Json(w),
+            WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),
+        };
+        let (preview, detail) = match waveform {
+            WaveformChoice::None => (false, false),
+            WaveformChoice::Preview => (true, false),
+            WaveformChoice::Detail => (false, true),
+            WaveformChoice::All => (true, true),
+        };
+        AnalysisView {
+            beats: a.beats,
+            cues: a.cues,
+            preview: a.preview.filter(|_| preview).map(encode),
+            detail: a.detail.filter(|_| detail).map(encode),
+            structure: a.structure,
+        }
+    }
+}
+
 /// A track's beat grid, cues, waveforms and phrases ([`super::track_analysis`]), with the
 /// waveforms chosen and encoded as asked.
 pub fn track_analysis_cached(cache: &LibraryCache, req: &AnalysisRequest) -> Result<AnalysisView> {
-    let (d, cached) = cache.open(&req.drive)?;
-    let t = cached.library.track(req.track).ok_or_else(|| Error::NotFound(format!("track #{}", req.track)))?;
-    let a: TrackAnalysis = anlz::load(&d, t);
-    let encode = |w: Waveform| match req.encoding {
-        WaveformEncoding::Json => WaveformData::Json(w),
-        WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),
+    let (d, _, lib) = cache.read(&req.library)?;
+    let t = lib.track(req.track).ok_or_else(|| Error::no_track(req.track))?;
+    Ok(AnalysisView::of(&d, t, req.waveform, req.encoding))
+}
+
+/// One track's analysis in [`TracksAnalysis`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AnalysedTrack {
+    pub track: u32,
+    pub analysis: AnalysisView,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct TracksAnalysis {
+    /// In the order asked for.
+    pub tracks: Vec<AnalysedTrack>,
+    /// Ids the library doesn't have.
+    pub missing: Vec<u32>,
+}
+
+/// Several tracks' analyses ([`track_analysis_cached`]) at once, refused for more than
+/// [`MAX_ANALYSES`] or with scrolling waveforms, so an answer stays a few megabytes at most.
+pub fn tracks_analysis(cache: &LibraryCache, req: &TracksAnalysisRequest) -> Result<TracksAnalysis> {
+    if req.ids.len() > MAX_ANALYSES {
+        return Err(Error::invalid(format!("at most {MAX_ANALYSES} tracks at a time, not {}", req.ids.len())));
+    }
+    if matches!(req.waveform, WaveformChoice::Detail | WaveformChoice::All) {
+        return Err(Error::invalid(
+            "several tracks come with the overview waveform at most: ask for scrolling ones one track at a time",
+        ));
+    }
+    let (d, _, lib) = cache.read(&req.library)?;
+    let (found, missing) = by_ids(&lib, &req.ids);
+    let tracks = found
+        .into_iter()
+        .map(|t| AnalysedTrack { track: t.id, analysis: AnalysisView::of(&d, t, req.waveform, req.encoding) })
+        .collect();
+    Ok(TracksAnalysis { tracks, missing })
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plugins' fields
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct PluginFieldsRequest {
+    #[serde(flatten)]
+    pub library: LibraryRef,
+    /// Only these tracks, in this order (every track when left out).
+    #[serde(default)]
+    pub tracks: Option<Vec<u32>>,
+    /// Only this plugin's fields.
+    #[serde(default)]
+    pub plugin: Option<String>,
+}
+
+/// One track's fields in [`PluginFields`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct TrackPluginFields {
+    pub track: u32,
+    /// Each analyzer's fields, by plugin id, then analyzer.
+    pub plugins: PluginsFields,
+}
+
+#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
+pub struct PluginFields {
+    /// Tracks with fields kept for their audio file as it is now; the others are left out.
+    pub tracks: Vec<TrackPluginFields>,
+    /// Ids asked for that the library doesn't have.
+    pub missing: Vec<u32>,
+}
+
+/// What the analyzers `installed` (the plugin host's, see [`crate::plugin::Plugins::analyzers`])
+/// worked out for the drive's tracks ([`crate::fields`]): what other versions of them worked out
+/// is left out. Without a store, none.
+pub fn track_fields_of(
+    cache: &LibraryCache,
+    store: Option<&Store>,
+    req: &PluginFieldsRequest,
+    installed: &[Analyzer],
+) -> Result<PluginFields> {
+    let (d, _, lib) = cache.read(&req.library)?;
+    let (tracks, missing) = match &req.tracks {
+        Some(ids) => by_ids(&lib, ids),
+        None => (lib.tracks.iter().collect(), Vec::new()),
     };
-    let (preview, detail) = match req.waveform {
-        WaveformChoice::None => (false, false),
-        WaveformChoice::Preview => (true, false),
-        WaveformChoice::Detail => (false, true),
-        WaveformChoice::All => (true, true),
+    let analyzers: Vec<Analyzer> =
+        installed.iter().filter(|a| req.plugin.as_ref().is_none_or(|p| *p == a.plugin)).cloned().collect();
+    // Nothing kept: no audio file needs looking at.
+    let Some(fields) = store.map(FieldStore::in_store).filter(|_| !analyzers.is_empty()) else {
+        return Ok(PluginFields { tracks: Vec::new(), missing });
     };
-    Ok(AnalysisView {
-        beats: a.beats,
-        cues: a.cues,
-        preview: a.preview.filter(|_| preview).map(encode),
-        detail: a.detail.filter(|_| detail).map(encode),
-        structure: a.structure,
-    })
+    let tracks = tracks
+        .into_iter()
+        .filter_map(|t| {
+            let audio = d.checked_path(&paths::key(&t.file_path)).ok()?;
+            let plugins = fields.get(&audio, &analyzers);
+            (!plugins.is_empty()).then_some(TrackPluginFields { track: t.id, plugins })
+        })
+        .collect();
+    Ok(PluginFields { tracks, missing })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -427,6 +576,24 @@ fn identifier(
     Ok((device, id))
 }
 
+/// `req`'s mix identified with its drive's identifier (kept in `cache`), with the cover given for
+/// it. The cover is checked first: a bad one is refused before the minutes identifying takes.
+fn identified(
+    cache: &LibraryCache,
+    store: &Store,
+    req: &super::IdentifyMix,
+    ctx: &Ctx<'_>,
+) -> Result<(Device, std::sync::Arc<Identifier>, MixReport)> {
+    let cover = req.cover.as_deref().map(mix::CoverSource::given).transpose()?;
+    let (device, id) = identifier(cache, store, req.drive.as_deref(), ctx)?;
+    let options = mix::Options { tempo_range: req.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
+    let mut report = id.identify(&req.mix, &options, ctx)?;
+    if cover.is_some() {
+        report.mix.cover = cover;
+    }
+    Ok((device, id, report))
+}
+
 /// Which of a drive's tracks a recorded mix plays, when, at what speed and in what key, with the
 /// drive's identifier kept in `cache`. A report that can't be kept (`save`) is still answered,
 /// with a warning.
@@ -436,9 +603,7 @@ pub fn mix_identify_cached(
     req: &IdentifyMixRequest,
     ctx: &Ctx<'_>,
 ) -> Result<IdentifiedMix> {
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let mut saved = None;
     if req.save {
         match report::save(store, &report) {
@@ -459,9 +624,7 @@ pub fn mix_export_cached(
 ) -> Result<MixExport> {
     // Refused before the long run, and checked again as it's written.
     fsutil::refuse_to_replace(req.output.as_deref().as_slice(), req.replace)?;
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let doc = export::build(&report, Some(Drive::new(&device, &id.library)), &ProfilePrefs::load(store)?);
     if let Some(path) = &req.output {
         let json = serde_json::to_vec(&doc).map_err(|e| Error::invalid(e.to_string()))?;

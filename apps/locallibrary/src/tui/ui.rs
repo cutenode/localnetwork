@@ -2,10 +2,12 @@
 
 use locallibrary::api::{DriveStatus, FleetLibrary};
 use locallibrary::compare::Relation;
+use locallibrary::fields::FieldValue;
 use locallibrary::fleet::{Role, Standing};
 use locallibrary::local_time;
-use locallibrary::query::{SortField, SortKey};
+use locallibrary::query::{FieldName, SortField, SortKey};
 use locallibrary::{DeviceInfo, Track};
+use loclib_plugin::{FieldDisplay, FieldFormat};
 use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
@@ -62,6 +64,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), f.area()),
         Some(Modal::Pick(_)) => draw_picker(f, app, f.area()),
         Some(Modal::Report(_)) => draw_report(f, app, f.area()),
+        Some(Modal::Form(_)) => draw_form(f, app, f.area()),
         Some(Modal::Prompt(_)) | None => {}
     }
     if app.deck.outputs.is_some() {
@@ -81,7 +84,7 @@ fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
 }
 
 fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::CYAN) } else { bold(theme::DIM) };
+    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
     Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
 }
 
@@ -146,11 +149,11 @@ fn spinner(app: &App) -> &'static str {
 
 fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     // The logo dot pulses with the music.
-    let pulse = theme::mix(theme::PINK, theme::AMBER, app.analyzer.level);
+    let pulse = theme::mix(theme::current().accent, theme::current().warning, app.analyzer.level);
     let pulsing = app.is_playing() && !theme::reduced_motion();
     let mut spans = vec![
-        Span::styled(" ◉ ", bold(if pulsing { pulse } else { theme::PINK })),
-        Span::styled("locallibrary", bold(theme::FG)),
+        Span::styled(" ◉ ", bold(if pulsing { pulse } else { theme::current().accent })),
+        Span::styled("locallibrary", bold(theme::current().text)),
         Span::raw("   "),
     ];
     app.areas.tabs.clear();
@@ -158,7 +161,7 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     for (i, v) in View::ALL.into_iter().enumerate() {
         let label = format!(" {} {} ", i + 1, v.title());
         let w = label.chars().count() as u16;
-        let style = if app.view == v { theme::on(theme::CYAN, [16, 16, 22]) } else { dim() };
+        let style = if app.view == v { theme::on(theme::current().info, [16, 16, 22]) } else { dim() };
         app.areas.tabs.push((v, Rect::new(x, area.y, w, 1)));
         spans.push(Span::styled(label, style));
         spans.push(Span::raw(" "));
@@ -168,8 +171,8 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
     // A job's progress comes first and is cut short if need be; the rest shows when it fits.
     let mut busy = Vec::new();
     if let Some(j) = &app.job {
-        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::AMBER)));
-        busy.push(Span::styled(format!("{} ", j.label), bold(theme::AMBER)));
+        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().warning)));
+        busy.push(Span::styled(format!("{} ", j.label), bold(theme::current().warning)));
         let secs = j.started.elapsed().as_secs();
         if secs > 0 {
             busy.push(Span::styled(format!("{secs}s "), faint()));
@@ -183,7 +186,7 @@ fn draw_header(f: &mut Frame, app: &mut App, area: Rect) {
         }
         busy.push(Span::raw(" "));
     } else if app.loading.is_some() || app.status_loading || app.profile.loading || app.mix.is_loading() {
-        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::CYAN)));
+        busy.push(Span::styled(format!("{} ", spinner(app)), fg(theme::current().info)));
         if let Some(m) = &app.loading {
             busy.push(Span::styled(format!("{m}  "), dim()));
         } else if let Some(m) = app.profile.status() {
@@ -211,8 +214,8 @@ fn input_line(label: Vec<Span<'static>>, text_: &str, after: Vec<Span<'static>>,
     // A label naming a long playlist mustn't push what's typed off the line.
     let mut spans = fit(label, width as usize * 2 / 3);
     let room = (width as usize).saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 1);
-    spans.push(Span::styled(typed_tail(text_, room).to_string(), bold(theme::FG)));
-    spans.push(Span::styled("▏", fg(theme::PINK)));
+    spans.push(Span::styled(typed_tail(text_, room).to_string(), bold(theme::current().text)));
+    spans.push(Span::styled("▏", fg(theme::current().accent)));
     let used: usize = spans.iter().map(Span::width).sum();
     spans.extend(fit(after, (width as usize).saturating_sub(used)));
     Line::from(spans)
@@ -229,10 +232,13 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         let n = app.visible.len();
         let mut after = vec![
             Span::styled(format!("   {n} match{}", if n == 1 { "" } else { "es" }), dim()),
-            Span::styled(if app.search_all { "  in the whole drive" } else { "  in this list" }, fg(theme::CYAN)),
+            Span::styled(
+                if app.search_all { "  in the whole drive" } else { "  in this list" },
+                fg(theme::current().info),
+            ),
         ];
         match (&app.filter_error, &app.filter_note) {
-            (Some(e), _) => after.push(Span::styled(format!("   {e}"), fg(theme::AMBER))),
+            (Some(e), _) => after.push(Span::styled(format!("   {e}"), fg(theme::current().warning))),
             (None, Some(n)) => after.push(Span::styled(format!("   {n}"), dim())),
             (None, None) => after.push(Span::styled("   tab whole drive · enter keep · esc clear", faint())),
         }
@@ -242,8 +248,8 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     }
     if let Some(p) = &app.picking {
         let spans = vec![
-            Span::styled(" ◆ ", bold(theme::AMBER)),
-            Span::styled(format!("Add {} to which playlist? ", p.target.what), bold(theme::FG)),
+            Span::styled(" ◆ ", bold(theme::current().warning)),
+            Span::styled(format!("Add {} to which playlist? ", p.target.what), bold(theme::current().text)),
             Span::styled("  enter choose · esc cancel", faint()),
         ];
         f.render_widget(Paragraph::new(Line::from(fit(spans, area.width as usize))), area);
@@ -287,8 +293,8 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
 
 fn level_style(level: Level) -> (&'static str, [u8; 3]) {
     match level {
-        Level::Info => ("●", theme::CYAN),
-        Level::Error => ("✖", theme::RED),
+        Level::Info => ("●", theme::current().info),
+        Level::Error => ("✖", theme::current().critical),
     }
 }
 
@@ -312,15 +318,18 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
 fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
     let dialog = matches!(
         app.modal,
-        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_))
+        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_) | Modal::Form(_))
     );
     let footer_busy = matches!(app.modal, Some(Modal::Prompt(_))) || app.searching || app.picking.is_some();
     let mut lines: Vec<Line> = Vec::new();
     if let Some(o) = app.replay_offer.as_ref().filter(|_| !dialog) {
         let edits = if o.edits == 1 { "1 edit".to_string() } else { format!("{} edits", o.edits) };
         let spans = vec![
-            Span::styled(" ◆ ", bold(theme::AMBER)),
-            Span::styled(format!("rekordbox exported over {edits} on {}. Replay? ", o.drive), fg(theme::AMBER)),
+            Span::styled(" ◆ ", bold(theme::current().warning)),
+            Span::styled(
+                format!("rekordbox exported over {edits} on {}. Replay? ", o.drive),
+                fg(theme::current().warning),
+            ),
             Span::styled("y", theme::key()),
             Span::styled(" replay · ", dim()),
             Span::styled("esc", theme::key()),
@@ -465,11 +474,11 @@ fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -> Line<'sta
     let dot = if !d.has_export {
         Span::styled("○ ", faint())
     } else if open {
-        Span::styled("● ", bold(theme::PINK))
+        Span::styled("● ", bold(theme::current().accent))
     } else {
-        Span::styled("● ", fg(theme::GREEN))
+        Span::styled("● ", fg(theme::current().good))
     };
-    let name_style = if open { bold(theme::FG) } else { text() };
+    let name_style = if open { bold(theme::current().text) } else { text() };
     let left = vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)];
     let right = match &d.summary {
         Some(s) => vec![Span::styled(compact(s.tracks), dim())],
@@ -487,7 +496,7 @@ fn drive_list(items: Vec<ListItem<'static>>, focused: bool) -> List<'static> {
     };
     list.block(block(title("Drives", focused), focused))
         .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)))
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)))
 }
 
 /// Keep `sel` in a window of `page` rows starting at `offset`; returns the new offset.
@@ -528,19 +537,21 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Playlists;
     let inner_w = area.width.saturating_sub(3);
     let heading = match &app.loaded {
-        _ if picking => {
-            Line::from(vec![Span::raw(" "), Span::styled("Pick a playlist", bold(theme::AMBER)), Span::raw(" ")])
-        }
+        _ if picking => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("Pick a playlist", bold(theme::current().warning)),
+            Span::raw(" "),
+        ]),
         Some(l) if l.stale => Line::from(vec![
             Span::raw(" "),
-            Span::styled("Playlists", bold(theme::DIM)),
-            Span::styled(" unplugged ", bold(theme::RED)),
+            Span::styled("Playlists", bold(theme::current().dim)),
+            Span::styled(" unplugged ", bold(theme::current().critical)),
         ]),
         _ => title("Playlists", focused),
     };
     let mut b = block(heading, focused || picking);
     if picking {
-        b = b.border_style(fg(theme::AMBER));
+        b = b.border_style(fg(theme::current().warning));
     }
     let Some(l) = &app.loaded else {
         f.render_widget(Paragraph::new(Line::styled("no drive open", dim())).block(b), area);
@@ -558,9 +569,13 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
             let indent = "  ".repeat(n.depth);
             let virtual_folder = matches!(n.id, NodeId::Browse | NodeId::Category(_));
             let (icon, icon_style) = match (&n.id, n.folder, n.expanded) {
-                (NodeId::All, _, _) => ("♫ ", fg(theme::PINK)),
-                (_, true, true) => ("▾ ", fg(if virtual_folder { theme::VIOLET } else { theme::CYAN })),
-                (_, true, false) => ("▸ ", fg(if virtual_folder { theme::VIOLET } else { theme::CYAN })),
+                (NodeId::All, _, _) => ("♫ ", fg(theme::current().accent)),
+                (_, true, true) => {
+                    ("▾ ", fg(if virtual_folder { theme::current().secondary } else { theme::current().info }))
+                }
+                (_, true, false) => {
+                    ("▸ ", fg(if virtual_folder { theme::current().secondary } else { theme::current().info }))
+                }
                 (NodeId::Group(..), false, _) => ("· ", faint()),
                 _ => ("• ", faint()),
             };
@@ -570,15 +585,15 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
                 _ => false,
             };
             let name_style = if current {
-                bold(theme::PINK)
+                bold(theme::current().accent)
             } else if virtual_folder {
-                bold(theme::VIOLET)
+                bold(theme::current().secondary)
             } else if n.folder {
-                bold(theme::FG)
+                bold(theme::current().text)
             } else {
                 text()
             };
-            let (icon, icon_style) = if marked { ("✓ ", bold(theme::PINK)) } else { (icon, icon_style) };
+            let (icon, icon_style) = if marked { ("✓ ", bold(theme::current().accent)) } else { (icon, icon_style) };
             let left =
                 vec![Span::raw(indent), Span::styled(icon, icon_style), Span::styled(n.name.clone(), name_style)];
             let right = vec![Span::styled(compact(n.count), faint())];
@@ -588,7 +603,7 @@ fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     let mut window = ListState::default().with_selected(sel.map(|s| s.saturating_sub(offset)));
     f.render_stateful_widget(list, area, &mut window);
 }
@@ -612,6 +627,8 @@ enum Col {
     Bpm,
     Key,
     Time,
+    /// A plugin's field (`sound.bpm`).
+    Field(FieldName),
 }
 
 impl Col {
@@ -628,6 +645,7 @@ impl Col {
             Col::Bpm => SortField::Bpm,
             Col::Key => SortField::Key,
             Col::Time => SortField::Time,
+            Col::Field(name) => SortField::Field(name),
         })
     }
 
@@ -650,6 +668,10 @@ impl Col {
         ]
         .into_iter()
         .find(|c| c.field() == Some(f))
+        .or(match f {
+            SortField::Field(name) => Some(Col::Field(name)),
+            _ => None,
+        })
     }
 
     fn width(self) -> Constraint {
@@ -663,7 +685,48 @@ impl Col {
             Col::Plays | Col::Bpm => Constraint::Length(6),
             Col::Key => Constraint::Length(4),
             Col::Time => Constraint::Length(6),
+            // Room for its name (or as wide as its analyzer says), and the sort's arrow.
+            Col::Field(name) => {
+                let named = || unicode_width::UnicodeWidthStr::width(name.as_str()).max(5) as u16;
+                Constraint::Length(field_hint(name).and_then(|h| h.width).unwrap_or_else(named) + 1)
+            }
         }
+    }
+}
+
+/// How the field `name` (`sound.bpm`) is shown, as its analyzer says: read from its manifest,
+/// never asked of its plugin.
+fn field_hint(name: FieldName) -> Option<&'static FieldDisplay> {
+    let (plugin, field) = name.as_str().split_once('.')?;
+    crate::plugins::host().ok()?.display(plugin, field)
+}
+
+/// A plugin's field's value as its column shows it: as its analyzer says (`hint`), else numbers to
+/// two places at most and a list joined; one worked out with nothing to show as a faint dash (a
+/// track not analysed has nothing there at all). Numbers are on the right, a meter on the left.
+fn field_cell(v: &FieldValue, hint: Option<&FieldDisplay>) -> Line<'static> {
+    if let Some(h) = hint.filter(|_| *v != FieldValue::Null) {
+        let shown = h.show(v);
+        return match (h.format, v) {
+            (Some(FieldFormat::Meter), _) => Line::styled(shown, fg(theme::current().accent)),
+            (_, FieldValue::Number(_) | FieldValue::Integer(_)) => {
+                Line::styled(shown, fg(theme::current().warning)).right_aligned()
+            }
+            (_, FieldValue::Boolean(_)) => Line::styled(shown, dim()),
+            _ => Line::styled(shown, fg(theme::current().info)),
+        };
+    }
+    match v {
+        FieldValue::Null | FieldValue::Structured(_) => Line::styled("-", faint()).right_aligned(),
+        FieldValue::Number(n) => {
+            let s = format!("{n:.2}");
+            Line::styled(s.trim_end_matches('0').trim_end_matches('.').to_string(), fg(theme::current().warning))
+                .right_aligned()
+        }
+        FieldValue::Integer(n) => Line::styled(n.to_string(), fg(theme::current().warning)).right_aligned(),
+        FieldValue::Boolean(b) => Line::styled(if *b { "yes" } else { "no" }, dim()),
+        FieldValue::String(s) => Line::styled(s.clone(), fg(theme::current().info)),
+        FieldValue::Strings(all) => Line::styled(all.join(", "), fg(theme::current().info)),
     }
 }
 
@@ -690,6 +753,15 @@ fn columns(width: u16, sort: Option<SortKey>, ratings: bool, tags: bool) -> Vec<
     }
     v.extend([Col::Bpm, Col::Key, Col::Time]);
     v
+}
+
+/// `cols` with the columns of the plugins' `fields` asked for, in order, before tempo, key and
+/// time (one already there, as the sort column, staying where it is).
+fn with_fields(mut cols: Vec<Col>, fields: &[FieldName]) -> Vec<Col> {
+    let at = cols.len().saturating_sub(3);
+    let more: Vec<Col> = fields.iter().map(|&f| Col::Field(f)).filter(|c| !cols.contains(c)).collect();
+    cols.splice(at..at, more);
+    cols
 }
 
 /// The key the track list's keys are matched against, and whose file it is: the playing track's,
@@ -722,17 +794,17 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let left_out = app.loaded.as_ref().map_or(0, |l| l.left_out());
     let mut left = vec![
         Span::raw(" "),
-        Span::styled(heading, if focused { bold(theme::CYAN) } else { bold(theme::DIM) }),
+        Span::styled(heading, if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {count} "), faint()),
     ];
     if left_out > 0 {
         left.push(Span::styled(format!("· {left_out} not on this drive "), dim()));
     }
     if !app.marks.is_empty() {
-        left.push(Span::styled(format!("✓{} ", app.marks.len()), bold(theme::PINK)));
+        left.push(Span::styled(format!("✓{} ", app.marks.len()), bold(theme::current().accent)));
     }
     if app.loaded.as_ref().is_some_and(|l| l.stale) {
-        left.push(Span::styled("unplugged ", bold(theme::RED)));
+        left.push(Span::styled("unplugged ", bold(theme::current().critical)));
     }
     let mut b = block(Line::from(left), focused);
     let mix = mix_from(app);
@@ -741,20 +813,20 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some((k, _)) = &mix
         && !app.visible.is_empty()
     {
-        right.push(Span::styled(format!(" ⇄ {} ", k.code()), fg(theme::GREEN)));
+        right.push(Span::styled(format!(" ⇄ {} ", k.code()), fg(theme::current().good)));
     }
     if !app.query.is_empty() {
         right.push(Span::styled(" / ", theme::key()));
         right.push(Span::styled(clip(&app.query, 28), text()));
         if app.search_all {
-            right.push(Span::styled(" whole drive", fg(theme::CYAN)));
+            right.push(Span::styled(" whole drive", fg(theme::current().info)));
         }
         right.push(Span::raw(" "));
     }
     if let Some(k) = app.sort {
         right.push(Span::styled(
             format!(" {} {} ", sort_label(k.field), if k.descending { "↓" } else { "↑" }),
-            fg(theme::AMBER),
+            fg(theme::current().warning),
         ));
     }
     if !right.is_empty() {
@@ -766,10 +838,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         } else {
             vec![
                 Line::raw(""),
-                Line::styled("No rekordbox drive open.", bold(theme::FG)),
+                Line::styled("No rekordbox drive open.", bold(theme::current().text)),
                 Line::raw(""),
                 Line::styled("Plug in a USB drive with a rekordbox export, or start with", dim()),
-                Line::styled("locallibrary tui /path/to/drive", fg(theme::CYAN)),
+                Line::styled("locallibrary tui /path/to/drive", fg(theme::current().info)),
             ]
         };
         f.render_widget(Paragraph::new(msg).alignment(Alignment::Center).block(b), area);
@@ -777,6 +849,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);
+    let cols = with_fields(cols, &app.field_columns);
+    let values = l.values().cloned();
     let my_tags = match &l.my_tags {
         super::app::MyTags::Read(t) => Some(t.clone()),
         _ => None,
@@ -797,9 +871,9 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             match app.sort.filter(|k| Some(k.field) == c.field()) {
                 Some(k) => Cell::from(Span::styled(
                     format!("{name}{}", if k.descending { "↓" } else { "↑" }),
-                    bold(theme::AMBER),
+                    bold(theme::current().warning),
                 )),
-                None => Cell::from(Span::styled(name, bold(theme::DIM))),
+                None => Cell::from(Span::styled(name, bold(theme::current().dim))),
             }
         }))
         .collect();
@@ -823,9 +897,9 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     let mix_bg = theme::behind([30, 66, 42]);
     // Without colours, keys that mix are marked and underlined instead of green.
     let (mix_mark, mix_style) = if theme::plain() {
-        ("⇄", bold(theme::GREEN).add_modifier(Modifier::UNDERLINED))
+        ("⇄", bold(theme::current().good).add_modifier(Modifier::UNDERLINED))
     } else {
-        (" ", bold(theme::GREEN))
+        (" ", bold(theme::current().good))
     };
 
     let rows: Vec<Row> = window
@@ -840,49 +914,54 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     (false, true) => "▶",
                     (false, false) => eq[(t * 8.0) as usize % eq.len()],
                 };
-                Span::styled(sym, bold(theme::PINK))
+                Span::styled(sym, bold(theme::current().accent))
             } else if marked {
-                Span::styled("✓", bold(theme::PINK))
+                Span::styled("✓", bold(theme::current().accent))
             } else {
                 Span::raw(" ")
             };
             let color = tr.color.map_or(Span::raw(" "), theme::colour_dot);
             let problem = if l.problems.is_missing(i) {
-                Span::styled("✖", bold(theme::RED))
+                Span::styled("✖", bold(theme::current().critical))
             } else if l.problems.has_copies(i) {
-                Span::styled("≈", fg(theme::AMBER))
+                Span::styled("≈", fg(theme::current().warning))
             } else {
                 Span::raw(" ")
             };
-            let title_style = if is_playing { bold(theme::PINK) } else { text() };
+            let title_style = if is_playing { bold(theme::current().accent) } else { text() };
             let mut cells = vec![Cell::from(indicator), Cell::from(color), Cell::from(problem)];
             for c in &cols {
                 cells.push(match c {
                     Col::Title => Cell::from(Span::styled(tr.title.clone(), title_style)),
-                    Col::Artist => {
-                        Cell::from(Span::styled(tr.artist.clone(), fg(theme::mix(theme::FG, theme::DIM, 0.4))))
-                    }
+                    Col::Artist => Cell::from(Span::styled(
+                        tr.artist.clone(),
+                        fg(theme::mix(theme::current().text, theme::current().dim, 0.4)),
+                    )),
                     Col::Album => Cell::from(Span::styled(tr.album.clone(), dim())),
                     Col::Genre => Cell::from(Span::styled(tr.genre.clone(), dim())),
                     Col::Tags => {
-                        let key = locallibrary::paths::key(&tr.file_path).to_lowercase();
+                        let key = locallibrary::paths::file_key(&tr.file_path);
                         let tags = my_tags.as_ref().and_then(|t| t.get(&key));
                         let names: Vec<&str> =
                             tags.into_iter().flatten().map(|t| t.rsplit('/').next().unwrap_or(t)).collect();
-                        Cell::from(Span::styled(names.join(", "), fg(theme::VIOLET)))
+                        Cell::from(Span::styled(names.join(", "), fg(theme::current().secondary)))
                     }
-                    Col::Rating => Cell::from(Span::styled(rating(tr.rating), fg(theme::AMBER))),
+                    Col::Rating => Cell::from(Span::styled(rating(tr.rating), fg(theme::current().warning))),
                     Col::Added => Cell::from(Span::styled(tr.date_added.chars().take(10).collect::<String>(), dim())),
                     Col::Plays => Cell::from(Line::styled(tr.play_count.to_string(), dim()).right_aligned()),
                     Col::Bpm => {
                         let bpm = if tr.bpm > 0.0 { format!("{:>6.1}", tr.bpm) } else { String::new() };
-                        Cell::from(Line::styled(bpm, fg(theme::AMBER)).right_aligned())
+                        Cell::from(Line::styled(bpm, fg(theme::current().warning)).right_aligned())
                     }
                     Col::Key if mixes_with(&mix, tr) => {
                         Cell::from(Span::styled(format!("{mix_mark}{}", tr.key), mix_style)).style(mix_bg)
                     }
-                    Col::Key => Cell::from(Span::styled(format!(" {}", tr.key), fg(theme::CYAN))),
+                    Col::Key => Cell::from(Span::styled(format!(" {}", tr.key), fg(theme::current().info))),
                     Col::Time => Cell::from(Line::styled(clock(tr.duration_secs as f64), dim()).right_aligned()),
+                    Col::Field(name) => {
+                        let value = values.as_ref().and_then(|v| v.get(tr.id, name.as_str()));
+                        Cell::from(value.map(|v| field_cell(v, field_hint(*name))).unwrap_or_default())
+                    }
                 });
             }
             let row = Row::new(cells);
@@ -896,7 +975,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         .column_spacing(1)
         .highlight_spacing(HighlightSpacing::Always)
         .row_highlight_style(if focused { theme::selected() } else { theme::behind([32, 32, 46]) })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     let mut window_state = TableState::default().with_selected(sel.map(|s| s - offset));
     f.render_stateful_widget(table, area, &mut window_state);
 
@@ -919,7 +998,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
-                .thumb_style(fg(theme::DIM))
+                .thumb_style(fg(theme::current().dim))
                 .track_style(faint()),
             area.inner(Margin { vertical: 1, horizontal: 0 }),
             &mut sb,
@@ -928,7 +1007,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// The selected track's details: everything rekordbox knows about it, what's wrong with it, the
-/// playlists it's in, and the tracks that mix into it (playable and taggable from here).
+/// playlists it's in, plugins' panels, and the tracks that mix into it (playable and taggable
+/// from here).
 fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Details;
     app.areas.details = area;
@@ -942,35 +1022,36 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let t = &l.library.tracks[i];
     let w = inner.width as usize;
     let mut lines = vec![
-        Line::styled(clip(if t.title.is_empty() { "Untitled" } else { &t.title }, w), bold(theme::FG)),
-        Line::styled(clip(&t.artist, w), bold(theme::PINK)),
+        Line::styled(clip(if t.title.is_empty() { "Untitled" } else { &t.title }, w), bold(theme::current().text)),
+        Line::styled(clip(&t.artist, w), bold(theme::current().accent)),
     ];
     let mut chips: Vec<Span> = Vec::new();
     if let Some(c) = t.color {
         chips.extend([theme::colour_dot(c), Span::raw(" ")]);
     }
     if t.bpm > 0.0 {
-        chips.push(Span::styled(format!("{:.2} BPM  ", t.bpm), fg(theme::AMBER)));
+        chips.push(Span::styled(format!("{:.2} BPM  ", t.bpm), fg(theme::current().warning)));
     }
     match super::keys::Camelot::parse(&t.key) {
-        Some(k) => chips.push(Span::styled(format!("{} {}  ", k.code(), k.note()), fg(theme::CYAN))),
-        None if !t.key.is_empty() => chips.push(Span::styled(format!("{}  ", t.key), fg(theme::CYAN))),
+        Some(k) => chips.push(Span::styled(format!("{} {}  ", k.code(), k.note()), fg(theme::current().info))),
+        None if !t.key.is_empty() => chips.push(Span::styled(format!("{}  ", t.key), fg(theme::current().info))),
         None => {}
     }
     chips.push(Span::styled(clock(t.duration_secs as f64), dim()));
     if t.rating > 0 {
-        chips.push(Span::styled(format!("  {}", rating(t.rating)), fg(theme::AMBER)));
+        chips.push(Span::styled(format!("  {}", rating(t.rating)), fg(theme::current().warning)));
     }
     lines.push(Line::from(fit(chips, w)));
     // Problems early, so they show even in a short panel.
     if l.problems.is_missing(i) {
-        lines.push(Line::styled(clip("✖ the audio file isn't on the drive", w), bold(theme::RED)));
+        lines.push(Line::styled(clip("✖ the audio file isn't on the drive", w), bold(theme::current().critical)));
     }
     let others: Vec<usize> = l.problems.others(i).collect();
     if let Some(&o) = others.first() {
         let other = &l.library.tracks[o];
         let more = if others.len() > 1 { format!(" (+{} more)", others.len() - 1) } else { String::new() };
-        lines.push(Line::styled(clip(&format!("≈ also at {}{more}", other.file_path), w), fg(theme::AMBER)));
+        lines
+            .push(Line::styled(clip(&format!("≈ also at {}{more}", other.file_path), w), fg(theme::current().warning)));
     }
     let mut about: Vec<String> =
         [&t.album, &t.remixer, &t.mix_name].into_iter().filter(|s| !s.is_empty()).cloned().collect();
@@ -1014,8 +1095,15 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let info_h = (lines.len() as u16).min(inner.height.saturating_sub(matches_h));
     let room = inner.height - info_h - matches_h;
     let lists_h = if playlists.is_empty() || room < 2 { 0 } else { (playlists.len() as u16 + 1).min(room).min(4) };
-    let [info, lists_area, mixes] =
-        Layout::vertical([Constraint::Length(info_h), Constraint::Length(lists_h), Constraint::Min(0)]).areas(inner);
+    // Plugins' panels in what's left, before the matches: a panel's title and a row at least.
+    let panels_h = super::plugins::panels::height(app, room - lists_h);
+    let [info, lists_area, panels_area, mixes] = Layout::vertical([
+        Constraint::Length(info_h),
+        Constraint::Length(lists_h),
+        Constraint::Length(panels_h),
+        Constraint::Min(0),
+    ])
+    .areas(inner);
     f.render_widget(Paragraph::new(lines), info);
     if lists_h > 0 {
         draw_in_playlists(f, lists_area, playlists, lists_h as usize - 1);
@@ -1032,6 +1120,9 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let matches = details.map(|d| &d.matches);
     let rows = draw_matches(f, mixes, matches, None, why, &mut app.details_state, focused);
     app.areas.matches = rows;
+    if panels_h > 0 {
+        super::plugins::panels::draw(f, app, panels_area);
+    }
 }
 
 /// The crate panel.
@@ -1041,7 +1132,7 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
     let list = &app.crate_list;
     let mut heading = vec![
         Span::raw(" "),
-        Span::styled("Crate", if focused { bold(theme::CYAN) } else { bold(theme::DIM) }),
+        Span::styled("Crate", if focused { bold(theme::current().info) } else { bold(theme::current().dim) }),
         Span::styled(format!(" {} ", list.len()), faint()),
     ];
     if !list.is_empty() {
@@ -1075,7 +1166,7 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
             let is_playing = playing.as_ref().is_some_and(|(r, p)| *r == item.root && *p == t.file_path);
             let mut left = vec![
                 Span::styled(format!("{:>2} ", n + 1), faint()),
-                Span::styled(t.title.clone(), if is_playing { bold(theme::PINK) } else { text() }),
+                Span::styled(t.title.clone(), if is_playing { bold(theme::current().accent) } else { text() }),
                 Span::styled(format!("  {}", t.artist), dim()),
             ];
             if root.as_ref() != Some(&item.root) {
@@ -1083,9 +1174,9 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
             }
             let mut right = Vec::new();
             if t.bpm > 0.0 {
-                right.push(Span::styled(format!("{:.0} ", t.bpm), fg(theme::AMBER)));
+                right.push(Span::styled(format!("{:.0} ", t.bpm), fg(theme::current().warning)));
             }
-            right.push(Span::styled(format!("{:<3}", t.key), fg(theme::CYAN)));
+            right.push(Span::styled(format!("{:<3}", t.key), fg(theme::current().info)));
             let lw: usize = left.iter().map(Span::width).sum::<usize>();
             let rw: usize = right.iter().map(Span::width).sum::<usize>();
             let left = fit(left, (w as usize).saturating_sub(rw + 1).max(lw.min(8)));
@@ -1095,7 +1186,7 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     app.crate_state.fit(inner.height as usize, app.crate_list.len());
     f.render_stateful_widget(list, area, &mut app.crate_state);
 }
@@ -1109,8 +1200,8 @@ fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
     let b = block(
         Line::from(vec![
             Span::raw(" "),
-            Span::styled(if playing { "▶" } else { "■" }, bold(theme::PINK)),
-            Span::styled(" Now playing ", bold(theme::FG)),
+            Span::styled(if playing { "▶" } else { "■" }, bold(theme::current().accent)),
+            Span::styled(" Now playing ", bold(theme::current().text)),
         ]),
         false,
     )
@@ -1120,7 +1211,10 @@ fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
         } else {
             let mut spans = Vec::new();
             if app.deck.pads {
-                spans.extend([Span::styled(" ' ", theme::key()), Span::styled("pads on ", bold(theme::AMBER))]);
+                spans.extend([
+                    Span::styled(" ' ", theme::key()),
+                    Span::styled("pads on ", bold(theme::current().warning)),
+                ]);
             }
             spans.extend([Span::styled(" v ", theme::key()), Span::styled(format!("{} ", app.vis.name()), dim())]);
             Line::from(spans)
@@ -1216,7 +1310,7 @@ fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
                 let phrases: Vec<(f64, f64, String, [u8; 3])> = now
                     .phrases
                     .iter()
-                    .map(|p| (p.start_ms, p.end_ms, p.kind.name(), theme::phrase_color(p.kind)))
+                    .map(|p| (p.start_ms, p.end_ms, p.kind.name(), theme::current().phrase(p.kind)))
                     .collect();
                 f.render_widget(
                     PhraseStrip {
@@ -1253,8 +1347,12 @@ fn draw_art(f: &mut Frame, app: &mut App, area: Rect) {
         None => {
             // 33⅓ rpm, in the light streak's terms.
             let angle = if playing && !theme::reduced_motion() { t * std::f32::consts::TAU * 0.555 } else { 0.6 };
-            let label = app.now.as_ref().and_then(|n| n.track.color).map_or(theme::PINK, theme::track_color);
-            let px = vinyl(area.width, area.height, angle, label, theme::VINYL);
+            let label = app
+                .now
+                .as_ref()
+                .and_then(|n| n.track.color)
+                .map_or(theme::current().accent, |c| theme::current().track_color(c));
+            let px = vinyl(area.width, area.height, angle, label, theme::current().vinyl);
             f.render_widget(Pixels { width: area.width, pixels: &px, palette: theme::palette() }, area);
         }
     }
@@ -1266,7 +1364,7 @@ fn chip(s: String, c: [u8; 3]) -> Span<'static> {
 
 fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     let Some(now) = &app.now else {
-        let mut lines = vec![Line::raw(""), Line::styled("Nothing playing", bold(theme::FG))];
+        let mut lines = vec![Line::raw(""), Line::styled("Nothing playing", bold(theme::current().text))];
         match app.resumable() {
             // Where the last run left off.
             Some((t, at)) => lines.push(Line::from(vec![
@@ -1277,15 +1375,15 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
         }
         if let Some(e) = &app.audio_error {
             lines.push(Line::raw(""));
-            lines.push(Line::styled(format!("No audio output: {e}"), fg(theme::RED)));
+            lines.push(Line::styled(format!("No audio output: {e}"), fg(theme::current().critical)));
         }
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
         return;
     };
     let t = &now.track;
     let mut lines = vec![
-        Line::styled(if t.title.is_empty() { "Untitled".into() } else { t.title.clone() }, bold(theme::FG)),
-        Line::styled(t.artist.clone(), bold(theme::PINK)),
+        Line::styled(if t.title.is_empty() { "Untitled".into() } else { t.title.clone() }, bold(theme::current().text)),
+        Line::styled(t.artist.clone(), bold(theme::current().accent)),
     ];
     let mut about: Vec<String> =
         [&t.album, &t.remixer, &t.mix_name].into_iter().filter(|s| !s.is_empty()).cloned().collect();
@@ -1300,11 +1398,11 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     let pos_ms = app.position().as_secs_f64() * 1000.0;
     let beat = now.beat_at(pos_ms);
     let bpm = beat.map(|(i, _, _)| now.analysis.beats[i].bpm).filter(|b| *b > 0.0).unwrap_or(t.bpm);
-    let mut chips = vec![chip(format!("{bpm:.2} BPM"), theme::AMBER), Span::raw(" ")];
+    let mut chips = vec![chip(format!("{bpm:.2} BPM"), theme::current().warning), Span::raw(" ")];
     // Camelot and note name, whichever rekordbox stored.
     match now.key {
-        Some(k) => chips.push(chip(format!("{} {}", k.code(), k.note()), theme::CYAN)),
-        None if !t.key.is_empty() => chips.push(chip(t.key.clone(), theme::CYAN)),
+        Some(k) => chips.push(chip(format!("{} {}", k.code(), k.note()), theme::current().info)),
+        None if !t.key.is_empty() => chips.push(chip(t.key.clone(), theme::current().info)),
         None => {}
     }
     if now.key.is_some() || !t.key.is_empty() {
@@ -1313,9 +1411,9 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     if let Some((_, n, bar)) = beat {
         for k in 1..=4u16 {
             let (sym, c) = match (k == n, n == 1) {
-                (true, true) => ("■", theme::PINK),
-                (true, false) => ("■", theme::CYAN),
-                _ => ("□", theme::FAINT),
+                (true, true) => ("■", theme::current().accent),
+                (true, false) => ("■", theme::current().info),
+                _ => ("□", theme::current().faint),
             };
             chips.push(Span::styled(sym, bold(c)));
         }
@@ -1324,12 +1422,15 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     // A loop playing before the phrase, which the strip under the overview shows too.
     if let Some((_, beats)) = app.loop_playing() {
         chips.push(Span::raw("  "));
-        chips.push(chip(format!("LOOP {}", beats.map_or("on".into(), super::deck::beats_label)), theme::LOOP));
+        chips.push(chip(
+            format!("LOOP {}", beats.map_or("on".into(), super::deck::beats_label)),
+            theme::current().loop_cue,
+        ));
     }
     let phrase = now.phrase_at(pos_ms);
     if let Some((_, p, bar)) = phrase {
         chips.push(Span::raw("  "));
-        chips.push(chip(p.kind.name().to_uppercase(), theme::phrase_color(p.kind)));
+        chips.push(chip(p.kind.name().to_uppercase(), theme::current().phrase(p.kind)));
         chips.push(Span::styled(format!(" {bar}/{}", p.bars), dim()));
     }
     lines.push(Line::raw(""));
@@ -1339,7 +1440,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
         match now.phrases.get(i + 1) {
             Some(next) => {
                 spans.push(Span::styled("next ", faint()));
-                spans.push(Span::styled(next.kind.name(), bold(theme::phrase_color(next.kind))));
+                spans.push(Span::styled(next.kind.name(), bold(theme::current().phrase(next.kind))));
                 spans.push(Span::styled(format!(" in {}", clock((next.start_ms - pos_ms) / 1000.0)), dim()));
             }
             None => spans.push(Span::styled("last", dim())),
@@ -1366,6 +1467,10 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     }
     fmt.push(now.drive.clone());
     lines.push(Line::styled(fmt.join(" · "), faint()));
+    // What a plugin's analyzer worked out, drawn for what the drive lacks.
+    if let Some(from) = &now.from_plugins {
+        lines.push(Line::styled(from.clone(), dim()));
+    }
 
     let cues = &now.analysis.cues;
     if !cues.is_empty() {
@@ -1389,7 +1494,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
             spans.push(s);
         }
         if memory > 0 {
-            spans.push(Span::styled(format!(" ◆{memory}"), fg(theme::MEMORY_CUE)));
+            spans.push(Span::styled(format!(" ◆{memory}"), fg(theme::current().memory_cue)));
         }
         let next =
             cues.iter().filter(|c| c.start_ms as f64 > pos_ms + 50.0).min_by_key(|c| (c.start_ms, c.hot_cue.is_none()));
@@ -1416,7 +1521,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
             add(Span::styled(t.genre.clone(), text()));
         }
         if t.rating > 0 {
-            add(Span::styled(rating(t.rating), fg(theme::AMBER)));
+            add(Span::styled(rating(t.rating), fg(theme::current().warning)));
         }
         if t.play_count > 0 {
             add(Span::styled(format!("played {}×", t.play_count), dim()));
@@ -1467,7 +1572,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     if !now.phrases.is_empty() {
         let mut spans = vec![Span::styled(format!("{} phrases ", now.phrases.len()), text())];
         for p in &now.phrases {
-            spans.push(Span::styled("▮", fg(theme::phrase_color(p.kind))));
+            spans.push(Span::styled("▮", fg(theme::current().phrase(p.kind))));
         }
         about.push(Line::from(spans));
     }
@@ -1539,7 +1644,7 @@ fn draw_matches(
                 .map(|x| {
                     let t = m.track(x);
                     let key_color = key_relation_color(x.relation);
-                    let bpm_style = if x.tempo_gap <= 0.02 { fg(theme::AMBER) } else { dim() };
+                    let bpm_style = if x.tempo_gap <= 0.02 { fg(theme::current().warning) } else { dim() };
                     let key = match theme::plain() {
                         true => format!("{}{:<3}", relation_mark(x.relation), x.key.code()),
                         false => format!("{:<4}", x.key.code()),
@@ -1550,7 +1655,7 @@ fn draw_matches(
                         Span::styled(t.title.clone(), text()),
                     ];
                     if next == Some(t.file_path.as_str()) {
-                        spans.push(Span::styled(" next", bold(theme::CYAN)));
+                        spans.push(Span::styled(" next", bold(theme::current().info)));
                     }
                     spans.push(Span::styled(format!("  {}", t.artist), dim()));
                     ListItem::new(Line::from(spans))
@@ -1558,7 +1663,11 @@ fn draw_matches(
                 .collect();
             let list = List::new(items)
                 .highlight_style(if focused { theme::selected() } else { Style::new() })
-                .highlight_symbol(if focused { Span::styled("▍", fg(theme::PINK)) } else { Span::raw("") });
+                .highlight_symbol(if focused {
+                    Span::styled("▍", fg(theme::current().accent))
+                } else {
+                    Span::raw("")
+                });
             state.fit(inner.height as usize, m.items.len());
             if focused {
                 f.render_stateful_widget(list, inner, state);
@@ -1656,7 +1765,7 @@ fn section(f: &mut Frame, area: Rect, name: &str) -> Rect {
     section_with(f, area, Line::from(vec![Span::styled(format!(" {name} "), dim())]))
 }
 
-fn section_with(f: &mut Frame, area: Rect, title: Line<'static>) -> Rect {
+pub(super) fn section_with(f: &mut Frame, area: Rect, title: Line<'static>) -> Rect {
     let b = Block::new().borders(Borders::TOP).border_style(faint()).title(title);
     let inner = b.inner(area);
     f.render_widget(b, area);
@@ -1676,10 +1785,10 @@ fn relation_mark(r: KeyRelation) -> &'static str {
 
 fn key_relation_color(r: KeyRelation) -> [u8; 3] {
     match r {
-        KeyRelation::Same => theme::GREEN,
-        KeyRelation::Adjacent => theme::CYAN,
-        KeyRelation::Relative => theme::VIOLET,
-        KeyRelation::EnergyBoost => theme::AMBER,
+        KeyRelation::Same => theme::current().good,
+        KeyRelation::Adjacent => theme::current().info,
+        KeyRelation::Relative => theme::current().secondary,
+        KeyRelation::EnergyBoost => theme::current().warning,
     }
 }
 
@@ -1755,20 +1864,25 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let glyph = if !have {
         Span::styled("■ ", faint())
     } else if app.is_playing() {
-        Span::styled("▶ ", bold(theme::PINK))
+        Span::styled("▶ ", bold(theme::current().accent))
     } else {
-        Span::styled("‖ ", bold(theme::AMBER))
+        Span::styled("‖ ", bold(theme::current().warning))
     };
-    let left = vec![glyph, Span::styled(clock(if have { pos } else { 0.0 }), bold(theme::FG)), Span::raw(" ")];
+    let left =
+        vec![glyph, Span::styled(clock(if have { pos } else { 0.0 }), bold(theme::current().text)), Span::raw(" ")];
     let vol = app.volume;
     let repeat = match app.repeat {
         Repeat::Off => Span::styled("↻ off", faint()),
-        Repeat::All => Span::styled("↻ all", fg(theme::CYAN)),
-        Repeat::One => Span::styled("↻ one", fg(theme::CYAN)),
+        Repeat::All => Span::styled("↻ all", fg(theme::current().info)),
+        Repeat::One => Span::styled("↻ one", fg(theme::current().info)),
     };
-    let shuffle = if app.shuffle { Span::styled("⇄ on", fg(theme::CYAN)) } else { Span::styled("⇄ off", faint()) };
-    let quantize =
-        if app.deck.quantize { Span::styled("Q on", fg(theme::AMBER)) } else { Span::styled("Q off", faint()) };
+    let shuffle =
+        if app.shuffle { Span::styled("⇄ on", fg(theme::current().info)) } else { Span::styled("⇄ off", faint()) };
+    let quantize = if app.deck.quantize {
+        Span::styled("Q on", fg(theme::current().warning))
+    } else {
+        Span::styled("Q off", faint())
+    };
     let mut right = vec![
         Span::styled(format!(" -{}", clock(if have { dur - pos } else { 0.0 })), dim()),
         Span::styled(format!("  {}", clock(dur)), faint()),
@@ -1782,10 +1896,10 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
         quantize,
     ];
     if app.deck.single {
-        right.extend([Span::raw("  "), Span::styled("single", fg(theme::CYAN))]);
+        right.extend([Span::raw("  "), Span::styled("single", fg(theme::current().info))]);
     }
     if app.deck.auto_cue {
-        right.extend([Span::raw("  "), Span::styled("auto cue", fg(theme::CYAN))]);
+        right.extend([Span::raw("  "), Span::styled("auto cue", fg(theme::current().info))]);
     }
     let lw: usize = left.iter().map(Span::width).sum();
     let rw: usize = right.iter().map(Span::width).sum();
@@ -1794,8 +1908,8 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let filled = (frac * bar_w as f64).round() as usize;
     let mut spans = left;
     if bar_w > 2 {
-        spans.push(Span::styled("━".repeat(filled.min(bar_w - 1)), fg(theme::PINK)));
-        spans.push(Span::styled("●", bold(theme::FG)));
+        spans.push(Span::styled("━".repeat(filled.min(bar_w - 1)), fg(theme::current().accent)));
+        spans.push(Span::styled("●", bold(theme::current().text)));
         spans.push(Span::styled("─".repeat(bar_w.saturating_sub(filled + 1)), faint()));
     }
     spans.extend(right);
@@ -1808,7 +1922,7 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
 
 /// A section's heading in the Drives view's right pane.
 fn pane_heading(s: &str) -> Line<'static> {
-    Line::styled(s.to_uppercase(), bold(theme::CYAN))
+    Line::styled(s.to_uppercase(), bold(theme::current().info))
 }
 
 /// A labelled value in the Drives view's right pane.
@@ -1821,20 +1935,23 @@ fn pane_field(k: &str, v: String) -> Line<'static> {
 fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
     let save = Some("e, then save a snapshot");
     let (icon, msg, hint, c) = match (s.relation, &s.error) {
-        (_, Some(e)) => ("✖", format!("error: {e}"), None, theme::RED),
-        (None, _) if s.library.is_none() => ("○", "not in the store".to_string(), save, theme::DIM),
-        (None, _) => ("○", "library has no snapshots".to_string(), None, theme::DIM),
-        (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), None, theme::GREEN),
+        (_, Some(e)) => ("✖", format!("error: {e}"), None, theme::current().critical),
+        (None, _) if s.library.is_none() => ("○", "not in the store".to_string(), save, theme::current().dim),
+        (None, _) => ("○", "library has no snapshots".to_string(), None, theme::current().dim),
+        (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), None, theme::current().good),
         (Some(Relation::RightNewer), _) => match s.back_from_set {
-            Some(0) => ("▲", "back from a set".to_string(), save, theme::AMBER),
-            Some(n) => ("▲", format!("back from a set: {}", plural(n, "new session")), save, theme::AMBER),
-            None => ("▲", "has changes not in the store".to_string(), save, theme::AMBER),
+            Some(0) => ("▲", "back from a set".to_string(), save, theme::current().warning),
+            Some(n) => ("▲", format!("back from a set: {}", plural(n, "new session")), save, theme::current().warning),
+            None => ("▲", "has changes not in the store".to_string(), save, theme::current().warning),
         },
-        (Some(Relation::LeftNewer), _) => {
-            ("▼", "behind the store".to_string(), Some("e, then sync, or locallibrary library push"), theme::AMBER)
-        }
-        (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), None, theme::RED),
-        (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), None, theme::DIM),
+        (Some(Relation::LeftNewer), _) => (
+            "▼",
+            "behind the store".to_string(),
+            Some("e, then sync, or locallibrary library push"),
+            theme::current().warning,
+        ),
+        (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), None, theme::current().critical),
+        (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), None, theme::current().dim),
     };
     let msg = match hint.filter(|_| hints) {
         Some(h) => format!("{msg} ({h})"),
@@ -1853,7 +1970,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         Some(_) => {
             let p = Paragraph::new(vec![
                 Line::raw(""),
-                Line::styled("These drives aren't in the store yet.", bold(theme::FG)),
+                Line::styled("These drives aren't in the store yet.", bold(theme::current().text)),
                 Line::styled("Select one, then e to save a snapshot: that starts its library.", dim()),
             ])
             .alignment(Alignment::Center)
@@ -1866,7 +1983,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(d) = app.drive_state.selected().and_then(|i| app.drives.get(i)) else {
         let p = Paragraph::new(vec![
             Line::raw(""),
-            Line::styled("No rekordbox drives mounted.", bold(theme::FG)),
+            Line::styled("No rekordbox drives mounted.", bold(theme::current().text)),
             Line::styled("Drives appear here as soon as they're plugged in.", dim()),
         ])
         .alignment(Alignment::Center)
@@ -1875,7 +1992,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::styled(drive_name(d), bold(theme::PINK)));
+    lines.push(Line::styled(drive_name(d), bold(theme::current().accent)));
     let id =
         d.id.map_or("not adopted (locallibrary drive adopt)".to_string(), |id| format!("id {}", &id.to_string()[..8]));
     lines.push(Line::styled(format!("{} · {id}", d.root.display()), faint()));
@@ -1913,8 +2030,14 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         let filled = (used * w as f64).round() as usize;
         let mut spans = vec![Span::raw("  ")];
         for i in 0..w {
-            let c = theme::gradient(&[theme::CYAN, theme::VIOLET, theme::PINK], i as f32 / w as f32);
-            spans.push(Span::styled(if i < filled { "█" } else { "░" }, fg(if i < filled { c } else { theme::FAINT })));
+            let c = theme::gradient(
+                &[theme::current().info, theme::current().secondary, theme::current().accent],
+                i as f32 / w as f32,
+            );
+            spans.push(Span::styled(
+                if i < filled { "█" } else { "░" },
+                fg(if i < filled { c } else { theme::current().faint }),
+            ));
         }
         lines.push(Line::from(spans));
         lines.push(Line::styled(
@@ -1948,7 +2071,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
             if s.settings_drift > 0 {
                 lines.push(Line::styled(
                     format!("  {} setting(s) differ from the profile (locallibrary settings apply)", s.settings_drift),
-                    fg(theme::AMBER),
+                    fg(theme::current().warning),
                 ));
             }
         }
@@ -1993,12 +2116,12 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 if let Some(p) = log.problems.last() {
                     lines.push(Line::styled(
                         format!("  ✖ {} {}: {}", local_time(p.at, "%Y-%m-%d"), p.kind.replace('_', " "), p.detail),
-                        fg(theme::RED),
+                        fg(theme::current().critical),
                     ));
                 }
             }
             for w in warn {
-                lines.push(Line::styled(format!("  ⚠ {w}"), fg(theme::AMBER)));
+                lines.push(Line::styled(format!("  ⚠ {w}"), fg(theme::current().warning)));
             }
             lines.push(Line::raw(""));
         }
@@ -2027,7 +2150,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 p.description,
                 local_time(p.started, "%Y-%m-%d %H:%M")
             ),
-            bold(theme::AMBER),
+            bold(theme::current().warning),
         ));
         lines.push(Line::raw(""));
     }
@@ -2068,7 +2191,7 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
                         Some(l) => format!("{plugged} of {}", plugged + l.offline.len()),
                         None => plugged.to_string(),
                     };
-                    let left = vec![Span::styled(name, bold(theme::FG))];
+                    let left = vec![Span::styled(name, bold(theme::current().text))];
                     let about = match fleet {
                         Some(l) => library_state(l),
                         None if app.status_loading => vec![Span::styled("checking…", faint())],
@@ -2080,7 +2203,10 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
                     ]
                 }
                 DriveRow::Unlinked => {
-                    vec![Line::styled("No library", bold(theme::DIM)), Line::styled("  not in the store yet", faint())]
+                    vec![
+                        Line::styled("No library", bold(theme::current().dim)),
+                        Line::styled("  not in the store yet", faint()),
+                    ]
                 }
                 DriveRow::Drive(i) => {
                     let d = &app.drives[i];
@@ -2109,14 +2235,14 @@ fn library_state(l: &FleetLibrary) -> Vec<Span<'static>> {
         out.push(Span::styled(s, fg(c)));
     };
     match l.identical {
-        Some(true) => say("identical", theme::GREEN),
-        Some(false) => say("not identical", theme::AMBER),
+        Some(true) => say("identical", theme::current().good),
+        Some(false) => say("not identical", theme::current().warning),
         None => {}
     }
     match (&l.head, l.unsaved) {
-        (None, _) => say("no snapshots yet", theme::DIM),
-        (Some(_), true) => say("unsaved", theme::AMBER),
-        (Some(_), false) => say("saved", theme::DIM),
+        (None, _) => say("no snapshots yet", theme::current().dim),
+        (Some(_), true) => say("unsaved", theme::current().warning),
+        (Some(_), false) => say("saved", theme::current().dim),
     }
     out
 }
@@ -2129,7 +2255,7 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
     let here: Vec<&DeviceInfo> = app.drives.iter().filter(|d| app.library_id(d) == Some(id)).collect();
     let away = fleet.map_or(&[][..], |l| l.offline.as_slice());
     let mut lines = vec![
-        Line::styled(name, bold(theme::PINK)),
+        Line::styled(name, bold(theme::current().accent)),
         Line::styled(format!("{} of {} plugged in", here.len(), plural(here.len() + away.len(), "clone")), faint()),
         Line::raw(""),
         pane_heading("Clones"),
@@ -2162,7 +2288,7 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
             None if app.status_loading => vec![Span::styled("checking…", dim())],
             None => Vec::new(),
         };
-        lines.push(clone(Span::styled("● ", fg(theme::GREEN)), drive_name(d), fd.and_then(|f| f.role), state));
+        lines.push(clone(Span::styled("● ", fg(theme::current().good)), drive_name(d), fd.and_then(|f| f.role), state));
     }
     for k in away {
         let behind = match &k.standing {
@@ -2228,16 +2354,19 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
             let head = i == 0 && lib.head.as_ref() == Some(&s.id);
             let source = s.source.as_ref().map(|x| x.drive_name.clone()).unwrap_or_default();
             rows.push(Row::new(vec![
-                Cell::from(Span::styled(if i == 0 { lib.name.clone() } else { String::new() }, bold(theme::PINK))),
+                Cell::from(Span::styled(
+                    if i == 0 { lib.name.clone() } else { String::new() },
+                    bold(theme::current().accent),
+                )),
                 Cell::from(Span::styled(
                     if head { "●" } else { "│" },
-                    fg(if head { theme::GREEN } else { theme::FAINT }),
+                    fg(if head { theme::current().good } else { theme::current().faint }),
                 )),
-                Cell::from(Span::styled(s.short_id.clone(), fg(theme::AMBER))),
+                Cell::from(Span::styled(s.short_id.clone(), fg(theme::current().warning))),
                 Cell::from(Span::styled(local_time(s.created, "%Y-%m-%d %H:%M").to_string(), text())),
                 Cell::from(Line::styled(s.summary.tracks.to_string(), text()).right_aligned()),
                 Cell::from(Line::styled(bytes(s.bytes), dim()).right_aligned()),
-                Cell::from(Span::styled(source, fg(theme::CYAN))),
+                Cell::from(Span::styled(source, fg(theme::current().info))),
                 Cell::from(Span::styled(s.message.clone().unwrap_or_default(), dim())),
             ]));
         }
@@ -2245,8 +2374,8 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     if rows.is_empty() {
         let p = Paragraph::new(vec![
             Line::raw(""),
-            Line::styled("The store has no snapshots yet.", bold(theme::FG)),
-            Line::styled("locallibrary pull <drive> -m \"after Friday's export\"", fg(theme::CYAN)),
+            Line::styled("The store has no snapshots yet.", bold(theme::current().text)),
+            Line::styled("locallibrary pull <drive> -m \"after Friday's export\"", fg(theme::current().info)),
         ])
         .alignment(Alignment::Center)
         .block(b);
@@ -2269,11 +2398,11 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Fill(1),
         ],
     )
-    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::DIM))))))
+    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .block(b)
     .column_spacing(2)
     .row_highlight_style(theme::selected())
-    .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+    .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     f.render_stateful_widget(table, area, &mut app.history_state);
 }
 
@@ -2322,14 +2451,14 @@ fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
                 .map(|a| match a {
                     super::edits::Action::Rate(n) => ListItem::new(Line::from(vec![
                         Span::styled(format!("{n:<5}"), theme::key()),
-                        Span::styled(if n == 0 { "no rating".into() } else { stars(n) }, fg(theme::AMBER)),
+                        Span::styled(if n == 0 { "no rating".into() } else { stars(n) }, fg(theme::current().warning)),
                     ])),
                     super::edits::Action::Colour(c) => {
                         let n = c.map_or(0, |c| COLOURS.iter().position(|x| *x == c).unwrap_or(0) + 1);
                         ListItem::new(Line::from(vec![
                             Span::styled(format!("{n:<5}"), theme::key()),
                             match c {
-                                Some(c) => Span::styled("● ", fg(theme::track_color(c))),
+                                Some(c) => Span::styled("● ", fg(theme::current().track_color(c))),
                                 None => Span::styled("○ ", faint()),
                             },
                             Span::styled(c.map_or("none", colour_name), text()),
@@ -2350,7 +2479,7 @@ fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     f.render_widget(Clear, r);
     f.render_stateful_widget(list, r, state);
     app.areas.menu = r;
@@ -2365,8 +2494,11 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     let h = rows + 3;
     // Near the top, so the list grows down from where the eye is.
     let r = Rect { y: area.y + (area.height.saturating_sub(h) / 4), ..popup(area, w, h, None) };
-    let b = block(title(&p.title, true), true)
-        .title_bottom(Line::styled(" ↑↓ choose · enter · esc close ", faint()).right_aligned());
+    let hint = match p.marks {
+        Some(_) => " ↑↓ choose · space mark · enter takes the marked · esc close ",
+        None => " ↑↓ choose · enter · esc close ",
+    };
+    let b = block(title(&p.title, true), true).title_bottom(Line::styled(hint, faint()).right_aligned());
     let inner = b.inner(r);
     f.render_widget(Clear, r);
     f.render_widget(b, r);
@@ -2379,24 +2511,47 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(format!("  {}", p.empty), dim())), list);
     } else {
         let w = list.width.saturating_sub(2);
-        let items: Vec<ListItem> = (p.shown.iter().map(|&i| &p.items[i]))
-            .map(|it| {
+        let items: Vec<ListItem> = (p.shown.iter().map(|&i| (i, &p.items[i])))
+            .map(|(i, it)| {
                 let style = if it.unavailable.is_some() { faint() } else { text() };
                 let right = vec![Span::styled(format!("{} ", it.detail), theme::key())];
                 let rw: usize = right.iter().map(Span::width).sum();
-                let left = vec![Span::styled(clip(&it.label, (w as usize).saturating_sub(rw + 1)), style)];
+                // Marked as the tracks are, in a list any of which may be chosen.
+                let mark = match p.marks.as_ref().map(|m| m[i]) {
+                    Some(true) => Some(Span::styled("✓ ", bold(theme::current().accent))),
+                    Some(false) => Some(Span::raw("  ")),
+                    None => None,
+                };
+                let room = (w as usize).saturating_sub(rw + 1 + mark.as_ref().map_or(0, Span::width));
+                let left: Vec<Span> = mark.into_iter().chain([Span::styled(clip(&it.label, room), style)]).collect();
                 ListItem::new(spread(left, right, w))
             })
             .collect();
-        let l =
-            List::new(items).highlight_style(theme::selected()).highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        let l = List::new(items)
+            .highlight_style(theme::selected())
+            .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
         p.state.fit(list.height as usize, n);
         f.render_stateful_widget(l, list, &mut p.state);
     }
     app.areas.menu = r;
 }
 
-/// Results to read (a check's): a panel that scrolls, closed by any other key.
+/// How a line of results is drawn: the mark before it, and its style.
+pub(super) fn tone_style(tone: super::drives::Tone) -> (&'static str, Style) {
+    use super::drives::Tone;
+    match tone {
+        Tone::Heading => ("", bold(theme::current().info)),
+        Tone::Ok => ("✓ ", fg(theme::current().good)),
+        Tone::Warning => ("⚠ ", fg(theme::current().warning)),
+        Tone::Problem => ("✖ ", fg(theme::current().critical)),
+        Tone::Text | Tone::Row => ("", text()),
+        Tone::Faint => ("", faint()),
+        Tone::Columns => ("", dim()),
+    }
+}
+
+/// Results to read (a check's, a plugin's command's): a panel that scrolls, closed by any other
+/// key.
 fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     use super::drives::Tone;
     let Some(Modal::Report(r)) = &mut app.modal else { return };
@@ -2404,15 +2559,12 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     let inner_w = w.saturating_sub(4) as usize;
     let mut lines: Vec<Line> = Vec::new();
     for (tone, text_) in &r.lines {
-        let (mark, style) = match tone {
-            Tone::Heading => ("", bold(theme::CYAN)),
-            Tone::Ok => ("✓ ", fg(theme::GREEN)),
-            Tone::Warning => ("⚠ ", fg(theme::AMBER)),
-            Tone::Problem => ("✖ ", fg(theme::RED)),
-            Tone::Text => ("", text()),
-            Tone::Faint => ("", faint()),
+        let (mark, style) = tone_style(*tone);
+        let parts = match tone {
+            Tone::Columns | Tone::Row => vec![clip(text_, inner_w)],
+            _ => wrap_text(text_, inner_w.saturating_sub(mark.chars().count())),
         };
-        for (i, part) in wrap_text(text_, inner_w.saturating_sub(mark.chars().count())).into_iter().enumerate() {
+        for (i, part) in parts.into_iter().enumerate() {
             let lead = if i == 0 { mark.to_string() } else { " ".repeat(mark.chars().count()) };
             lines.push(Line::from(vec![Span::styled(lead, style), Span::styled(part, style)]));
         }
@@ -2428,17 +2580,105 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(Paragraph::new(lines).scroll((r.scroll, 0)).block(b), r_area);
 }
 
+/// A plugin's params to fill in: a row for each field (its label, then what's typed or picked),
+/// then what the selected one is for, and why what's filled in won't do.
+fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
+    use unicode_width::UnicodeWidthStr;
+    let Some(Modal::Form(form)) = &app.modal else { return };
+    let w = 72u16.min(area.width.saturating_sub(2));
+    let inner_w = w.saturating_sub(4) as usize;
+    let label_w = form.fields.iter().map(|x| x.label().width()).max().unwrap_or(0).min(inner_w / 3);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, field) in form.fields.iter().enumerate() {
+        let on = i == form.selected;
+        let mut spans = vec![
+            Span::styled(if on { "▍" } else { " " }, fg(theme::current().accent)),
+            Span::styled(
+                format!("{:<label_w$}  ", clip(&field.label(), label_w)),
+                if on { bold(theme::current().text) } else { dim() },
+            ),
+        ];
+        let room = inner_w.saturating_sub(label_w + 3);
+        // A secret as dots, one for each character typed.
+        let shown = |typed: &str| match field.is_secret() {
+            true => "•".repeat(typed.chars().count()),
+            false => typed.to_string(),
+        };
+        match field.text.as_str() {
+            "true" if field.is_switch() => spans.push(Span::styled("● yes", fg(theme::current().accent))),
+            _ if field.is_switch() => spans.push(Span::styled("○ no", faint())),
+            picked if !field.choices().is_empty() => {
+                spans.push(Span::styled("‹ ", faint()));
+                spans.push(Span::styled(if picked.is_empty() { "none" } else { picked }.to_string(), text()));
+                spans.push(Span::styled(" ›", faint()));
+            }
+            typed if on => {
+                spans.push(Span::styled(
+                    typed_tail(&shown(typed), room.saturating_sub(1)).to_string(),
+                    bold(theme::current().text),
+                ));
+                spans.push(Span::styled("▏", fg(theme::current().accent)));
+            }
+            typed => spans.push(Span::styled(clip(&shown(typed), room), text())),
+        }
+        if field.required && field.text.is_empty() {
+            spans.push(Span::styled(if on { " required" } else { "required" }, faint()));
+        }
+        let line = Line::from(spans);
+        lines.push(if on { line.style(theme::selected()) } else { line });
+    }
+    let selected = &form.fields[form.selected];
+    let about = selected.schema["description"].as_str().or(selected.schema["title"].as_str()).unwrap_or_default();
+    if !about.is_empty() {
+        lines.push(Line::raw(""));
+        lines.extend(wrap_text(about, inner_w).into_iter().map(|l| Line::styled(l, dim())));
+    }
+    if let Some(e) = &form.error {
+        lines.push(Line::raw(""));
+        lines.extend(
+            wrap_text(&format!("⚠ {e}"), inner_w).into_iter().map(|l| Line::styled(l, fg(theme::current().warning))),
+        );
+    }
+    let r = popup(area, w, lines.len() as u16 + 2, None);
+    let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
+    let then = match form.then {
+        super::form::For::Run(_)
+        | super::form::For::Export { .. }
+        | super::form::For::Import { .. }
+        | super::form::For::Source { .. }
+        | super::form::For::ApplyFields { .. }
+        | super::form::For::Fetch { .. } => "run",
+        super::form::For::Settings(_) | super::form::For::ProviderSettings | super::form::For::CheckSettings => "save",
+    };
+    let b = block(title(&form.title, true), true)
+        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
+        .padding(ratatui::widgets::Padding::horizontal(1));
+    f.render_widget(Clear, r);
+    f.render_widget(Paragraph::new(lines).block(b), r);
+    app.areas.menu = r;
+}
+
 /// The outputs to play through (`d`), the system's default first.
 fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let playing = app.audio.as_ref().map(|a| a.device().map(str::to_string));
     let Some(o) = &mut app.deck.outputs else { return };
     let w = 56u16.min(area.width);
-    let mark = |on: bool| if on { Span::styled("● ", bold(theme::PINK)) } else { Span::raw("  ") };
+    let mark = |on: bool| if on { Span::styled("● ", bold(theme::current().accent)) } else { Span::raw("  ") };
     let default = match &o.default {
         Some(d) => format!("the system's default ({d})"),
         None => "the system's default".into(),
     };
     let mut items = vec![ListItem::new(Line::from(vec![mark(playing == Some(None)), Span::styled(default, text())]))];
+    // Until the devices are in, a row where they go says so (or why they can't be listed).
+    let why = match (&o.listing, &o.failed) {
+        (Some(_), _) => Some(("listing the outputs…".to_string(), dim())),
+        (_, Some(e)) => Some((format!("can't list the outputs: {e}"), fg(theme::current().critical))),
+        _ => None,
+    };
+    if let Some((why, style)) = why {
+        let why = Span::styled(clip(&why, (w as usize).saturating_sub(6)), style);
+        items.push(ListItem::new(Line::from(vec![Span::raw("  "), why])));
+    }
     for n in &o.names {
         let on = playing.as_ref().is_some_and(|p| p.as_deref() == Some(n.as_str()));
         items.push(ListItem::new(Line::from(vec![
@@ -2453,7 +2693,7 @@ fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let list = List::new(items)
         .block(b)
         .highlight_style(theme::selected())
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     f.render_widget(Clear, r);
     f.render_stateful_widget(list, r, &mut o.state);
 }
@@ -2461,14 +2701,22 @@ fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
 /// A playlist and track edit's changes, in detail.
 fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) {
     for change in &p.changes {
-        lines
-            .push(Line::from(vec![Span::styled("• ", fg(theme::CYAN)), Span::styled(change.clone(), bold(theme::FG))]));
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(theme::current().info)),
+            Span::styled(change.clone(), bold(theme::current().text)),
+        ]));
     }
     for path in &p.playlists_created {
-        lines.push(Line::from(vec![Span::styled("  + ", bold(theme::GREEN)), Span::styled(path.clone(), text())]));
+        lines.push(Line::from(vec![
+            Span::styled("  + ", bold(theme::current().good)),
+            Span::styled(path.clone(), text()),
+        ]));
     }
     for path in &p.playlists_deleted {
-        lines.push(Line::from(vec![Span::styled("  − ", bold(theme::RED)), Span::styled(path.clone(), text())]));
+        lines.push(Line::from(vec![
+            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(path.clone(), text()),
+        ]));
     }
     for ch in &p.playlists_changed {
         let what = if ch.reordered {
@@ -2484,14 +2732,14 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
             if parts.is_empty() { "entries changed".into() } else { parts.join(" ") }
         };
         lines.push(Line::from(vec![
-            Span::styled("  ~ ", bold(theme::AMBER)),
+            Span::styled("  ~ ", bold(theme::current().warning)),
             Span::styled(ch.path.clone(), text()),
             Span::styled(format!("  {what}, {} → {} tracks", ch.before, ch.after), dim()),
         ]));
     }
     if p.tracks_changed > 0 {
         lines.push(Line::from(vec![
-            Span::styled("  ~ ", bold(theme::AMBER)),
+            Span::styled("  ~ ", bold(theme::current().warning)),
             Span::styled(format!("{} changed", plural(p.tracks_changed, "track")), text()),
         ]));
     }
@@ -2499,7 +2747,7 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
         let files =
             if p.files.is_empty() { String::new() } else { format!(", {} files, {}", p.files.len(), bytes(p.bytes)) };
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::RED)),
+            Span::styled("  − ", bold(theme::current().critical)),
             Span::styled(format!("{} removed{files}", plural(p.tracks_removed.len(), "track")), text()),
         ]));
         for t in p.tracks_removed.iter().take(5) {
@@ -2511,12 +2759,12 @@ fn edit_lines(p: &locallibrary::edit::EditPlan, lines: &mut Vec<Line<'static>>) 
     }
     if p.history_removed > 0 {
         lines.push(Line::from(vec![
-            Span::styled("  − ", bold(theme::RED)),
+            Span::styled("  − ", bold(theme::current().critical)),
             Span::styled(format!("{} removed", plural(p.history_removed, "history list")), text()),
         ]));
     }
     for w in &p.warnings {
-        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
     }
 }
 
@@ -2526,17 +2774,21 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
     let Some(u) = c.undo() else { return };
     let b = &u.backup;
     lines.push(Line::from(vec![
-        Span::styled(format!("{}: ", c.drive), bold(theme::PINK)),
+        Span::styled(format!("{}: ", c.drive), bold(theme::current().accent)),
         Span::styled(format!("put back the backup ({})", b.reason), text()),
     ]));
     lines.push(Line::styled(format!("made {}  ·  {}", local_time(b.created, "%Y-%m-%d %H:%M"), b.id), faint()));
     lines.push(Line::raw(""));
     let d = &u.diff;
     for p in &d.added_playlists {
-        lines.push(Line::from(vec![Span::styled("  + ", bold(theme::GREEN)), Span::styled(p.clone(), text())]));
+        lines
+            .push(Line::from(vec![Span::styled("  + ", bold(theme::current().good)), Span::styled(p.clone(), text())]));
     }
     for p in &d.removed_playlists {
-        lines.push(Line::from(vec![Span::styled("  − ", bold(theme::RED)), Span::styled(p.clone(), text())]));
+        lines.push(Line::from(vec![
+            Span::styled("  − ", bold(theme::current().critical)),
+            Span::styled(p.clone(), text()),
+        ]));
     }
     for p in &d.changed_playlists {
         let mut parts = Vec::new();
@@ -2550,15 +2802,15 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
             parts.push(format!("{} moved", p.moved.len()));
         }
         lines.push(Line::from(vec![
-            Span::styled("  ~ ", bold(theme::AMBER)),
+            Span::styled("  ~ ", bold(theme::current().warning)),
             Span::styled(p.path.clone(), text()),
             Span::styled(format!("  {}", parts.join(" ")), dim()),
         ]));
     }
     let tracks = [
-        (d.added_tracks.len(), "back", theme::GREEN, "  + "),
-        (d.removed_tracks.len(), "gone", theme::RED, "  − "),
-        (d.changed_tracks.len(), "as they were", theme::AMBER, "  ~ "),
+        (d.added_tracks.len(), "back", theme::current().good, "  + "),
+        (d.removed_tracks.len(), "gone", theme::current().critical, "  − "),
+        (d.changed_tracks.len(), "as they were", theme::current().warning, "  ~ "),
     ];
     for (n, what, c, mark) in tracks.into_iter().filter(|t| t.0 > 0) {
         lines.push(Line::from(vec![
@@ -2595,7 +2847,44 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
         }
     }
     for w in c.plan.warnings() {
-        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+    }
+}
+
+/// A plugin's export, as `export --dry-run` shows it: what it writes and what goes in, its first
+/// files (what each holds, and those there already, by their place in the output's folder), what
+/// the format can't hold, then problems with the library.
+fn export_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
+    use crate::export_cmd::{FILES_SHOWN, about};
+    let Some(p) = c.export() else { return };
+    // The summary says where (`write 2 file(s) to ...`).
+    for s in &p.summary {
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(theme::current().info)),
+            Span::styled(s.clone(), bold(theme::current().text)),
+        ]));
+    }
+    let dir = p.plan.output.parent().unwrap_or(&p.plan.output);
+    for f in p.plan.files.iter().take(FILES_SHOWN) {
+        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
+        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
+        if f.exists {
+            spans.push(Span::styled(" (already there)", fg(theme::current().warning)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if p.plan.files.len() > FILES_SHOWN {
+        lines.push(Line::styled(format!("  and {} more", p.plan.files.len() - FILES_SHOWN), dim()));
+    }
+    for n in &p.plan.notes {
+        lines.push(Line::styled(n.clone(), dim()));
+    }
+    for w in &p.warnings {
+        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+    }
+    if p.destructive {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("This replaces files already there.", fg(theme::current().warning)));
     }
 }
 
@@ -2603,14 +2892,32 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Confirm(c)) = &mut app.modal else { return };
     let wording = super::edits::wording(&*c.plan, &c.drive);
     let mut lines = Vec::new();
+    // A guard made blocking found something: applying it is refused.
+    let blocked = c
+        .plan
+        .blocked()
+        .map(|check| Line::styled(format!("✗ {check} stops these changes"), fg(theme::current().critical)));
     match c.edit() {
         Some(p) => {
             lines.push(Line::from(vec![
-                Span::styled(format!("{}: ", c.drive), bold(theme::PINK)),
+                Span::styled(format!("{}: ", c.drive), bold(theme::current().accent)),
                 Span::styled(p.databases.join(" and "), text()),
             ]));
+            // A plugin's operation: what the plugin says it does first.
+            let by = super::plugins::planned_by(c.plan.operation(), false);
+            if let Some((by, said)) = by.zip(c.plan.summary().first()) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{by}: "), bold(theme::current().info)),
+                    Span::styled(said.clone(), text()),
+                ]));
+            }
             lines.push(Line::raw(""));
             edit_lines(p, &mut lines);
+            // What's said about the plan as a whole (a plugin's warnings), besides its edits'.
+            for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
+                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
+            }
+            lines.extend(blocked);
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));
             lines.push(Line::styled(
@@ -2620,25 +2927,27 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
         None if c.undo().is_some() => undo_lines(c, &mut lines),
+        None if c.export().is_some() => export_lines(c, &mut lines),
         None => {
             let plan = &c.plan;
             lines.push(Line::from(vec![
-                Span::styled(format!("{}: ", wording.who), bold(theme::PINK)),
+                Span::styled(format!("{}: ", wording.who), bold(theme::current().accent)),
                 Span::styled(wording.what, text()),
             ]));
             lines.push(Line::raw(""));
             for s in plan.summary() {
                 lines.push(Line::from(vec![
-                    Span::styled("• ", fg(theme::CYAN)),
-                    Span::styled(s.clone(), bold(theme::FG)),
+                    Span::styled("• ", fg(theme::current().info)),
+                    Span::styled(s.clone(), bold(theme::current().text)),
                 ]));
             }
             for w in plan.warnings() {
-                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::current().warning)));
             }
+            lines.extend(blocked);
             if plan.destructive() {
                 lines.push(Line::raw(""));
-                lines.push(Line::styled("This deletes or replaces what's there now.", fg(theme::AMBER)));
+                lines.push(Line::styled("This deletes or replaces what's there now.", fg(theme::current().warning)));
             }
         }
     }
@@ -2650,7 +2959,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     c.scroll = c.scroll.min(total.saturating_sub(visible));
     let more = if total > visible { " ↑↓ scroll ·" } else { "" };
     let b = block(title(&wording.ask, true), true)
-        .border_style(fg(theme::AMBER))
+        .border_style(fg(theme::current().warning))
         .title_bottom(
             Line::from(vec![
                 Span::styled(format!("{more} "), faint()),
@@ -2696,7 +3005,7 @@ fn help_lines(sections: &[super::keymap::HelpSection], width: u16) -> Vec<Line<'
     let desc_w = (width as usize).saturating_sub(KEYS).max(16);
     let mut lines = Vec::new();
     for (name, keys) in sections {
-        lines.push(Line::styled(name.to_uppercase(), bold(theme::CYAN)));
+        lines.push(Line::styled(name.to_uppercase(), bold(theme::current().info)));
         for (k, d) in keys.iter() {
             for (n, part) in wrap_text(d, desc_w).into_iter().enumerate() {
                 let key = if n == 0 { format!("  {k:<13}") } else { " ".repeat(KEYS) };
@@ -2711,11 +3020,11 @@ fn help_lines(sections: &[super::keymap::HelpSection], width: u16) -> Vec<Line<'
 
 fn help_footer(width: u16) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(vec![
-        Span::styled("✓", bold(theme::PINK)),
+        Span::styled("✓", bold(theme::current().accent)),
         Span::styled(" marked  ", dim()),
-        Span::styled("✖", bold(theme::RED)),
+        Span::styled("✖", bold(theme::current().critical)),
         Span::styled(" file missing  ", dim()),
-        Span::styled("≈", fg(theme::AMBER)),
+        Span::styled("≈", fg(theme::current().warning)),
         Span::styled(" another copy on the drive", dim()),
     ])];
     for text_ in [

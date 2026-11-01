@@ -1,6 +1,6 @@
 [package]
 name = "loclib-analysis"
-description = "A second opinion on DJ tracks' tempo and key, loudness and clipping, and benchmark scoring against annotated datasets"
+description = "A second opinion on DJ tracks' tempo and key, loudness and clipping, three-band waveforms, and benchmark scoring against annotated datasets"
 readme = "README.md"
 keywords = ["dj", "bpm", "key-detection", "loudness", "audio"]
 categories = ["multimedia::audio"]
@@ -11,6 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+biquad = "0.6.0"
 ebur128 = "0.1"
 indexmap.workspace = true
 loclib-mixid.workspace = true
@@ -26,11 +27,15 @@ thiserror.workspace = true
 criterion.workspace = true
 hegeltest.workspace = true
 loclib-mixid = { workspace = true, features = ["test-util"] }
+loclib-model = { workspace = true, features = ["test-util"] }
 serde_json.workspace = true
 tempfile.workspace = true
 
 [features]
 schemars = ["dep:schemars"]
+
+[lints]
+workspace = true
 
 [[bench]]
 name = "analyze"

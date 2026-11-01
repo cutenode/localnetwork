@@ -19,9 +19,11 @@
 //! front end hold plans of every kind together.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -80,9 +82,10 @@ struct Applying {
 }
 
 impl Applying {
-    fn start(drives: &[Touched], overwrite_archive: bool) -> Applying {
+    /// `archive`: archive and retired drives may be written.
+    fn start(drives: &[Touched], archive: bool) -> Applying {
         let archive_writes = archive_writes_allowed();
-        allow_archive_writes(archive_writes || overwrite_archive);
+        allow_archive_writes(archive);
         PLANNED.with(|planned| {
             let mut planned = planned.borrow_mut();
             let before = planned.len();
@@ -110,6 +113,19 @@ pub fn allow_archive_writes(yes: bool) {
 /// Whether [`allow_archive_writes`] is set on this thread.
 pub fn archive_writes_allowed() -> bool {
     ARCHIVE_WRITES.with(Cell::get)
+}
+
+/// Run `f` with archive and retired drives refused on this thread, whatever
+/// [`allow_archive_writes`] says (put back after): the plans made in it never write to one.
+pub(crate) fn refusing_archive_writes<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            allow_archive_writes(self.0);
+        }
+    }
+    let _restore = Restore(ARCHIVE_WRITES.with(|a| a.replace(false)));
+    f()
 }
 
 /// What of a drive (or a folder on this computer) a plan depends on. [`Touched`] hashes these
@@ -146,6 +162,9 @@ pub struct Touched {
     pub drive: bool,
     #[serde(skip)]
     probes: Vec<Probe>,
+    /// It was there when planned: a folder an operation makes (an export's) may not be yet.
+    #[serde(skip)]
+    existed: bool,
     #[serde(skip)]
     state: Hash,
     /// Its [`Probe::Databases`] alone, if probed, for the write to check again under the lock.
@@ -166,6 +185,7 @@ impl Touched {
             drive: true,
             probes,
             databases,
+            existed: true,
         }
     }
 
@@ -184,12 +204,23 @@ impl Touched {
             drive: false,
             probes,
             databases: None,
+            existed: path.exists(),
         }
     }
 
     /// Whether it changed since it was measured.
     pub fn changed(&self) -> bool {
-        measure(&self.root, &self.probes, None) != self.state
+        self.measured() != self.state
+    }
+
+    /// Its state as the plan was made.
+    pub(crate) fn planned_state(&self) -> Hash {
+        self.state
+    }
+
+    /// Its state now, measured as when the plan was made.
+    pub(crate) fn measured(&self) -> Hash {
+        measure(&self.root, &self.probes, None)
     }
 
     /// The drive, opened again (refused if it's gone).
@@ -208,6 +239,15 @@ pub struct CloneTarget {
     /// plan's warnings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub left_alone: Option<String>,
+}
+
+/// Names for summaries: `a`, `a and b`, `a, b and c`.
+pub(crate) fn and_list(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [a] => a.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// A size for summaries: `840 B`, `12.5 MB`.
@@ -336,12 +376,16 @@ fn measure(root: &Path, probes: &[Probe], databases: Option<Hash>) -> Hash {
 pub struct Planned<P, R = ()> {
     /// Names this plan in `*.apply {"plan_id": ...}`.
     pub id: String,
-    /// `merge`, `clean`, `edit`...: the RPC method's name without `.plan`.
-    pub operation: &'static str,
+    /// `merge`, `clean`, `edit`...: the RPC method's name without `.plan` (a plugin's
+    /// operation's name, for its edits).
+    pub operation: Cow<'static, str>,
     pub plan: P,
     /// What will change, in a few lines, for a confirmation dialog.
     pub summary: Vec<String>,
     pub warnings: Vec<String>,
+    /// The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+    /// its edits, among its warnings: it isn't applied (see [`Planned::unblocked`]).
+    pub blocked: Option<String>,
     /// It deletes or overwrites something (files, tracks, a library, a disk); a dialog should
     /// say so.
     pub destructive: bool,
@@ -356,16 +400,20 @@ pub struct Planned<P, R = ()> {
     pub(crate) request: R,
     /// Archive and retired drives may be written.
     pub(crate) overwrite_archive: bool,
+    /// Archive and retired drives are never written, whatever this or the applying thread
+    /// allows (a plugin's plan).
+    pub(crate) never_archive: bool,
 }
 
 impl<P, R> Planned<P, R> {
-    pub(crate) fn new(operation: &'static str, plan: P, request: R) -> Self {
+    pub(crate) fn new(operation: impl Into<Cow<'static, str>>, plan: P, request: R) -> Self {
         Planned {
             id: uuid::Uuid::new_v4().to_string(),
-            operation,
+            operation: operation.into(),
             plan,
             summary: Vec::new(),
             warnings: Vec::new(),
+            blocked: None,
             destructive: false,
             noop: false,
             drives: Vec::new(),
@@ -373,6 +421,7 @@ impl<P, R> Planned<P, R> {
             planned_at: Utc::now(),
             request,
             overwrite_archive: archive_writes_allowed(),
+            never_archive: false,
         }
     }
 
@@ -413,6 +462,17 @@ impl<P, R> Planned<P, R> {
     pub(crate) fn overwrite_archive(mut self, yes: bool) -> Self {
         self.overwrite_archive |= yes;
         self
+    }
+
+    /// Never write to an archive or retired drive, whatever the applying thread allows.
+    pub(crate) fn never_archive(mut self) -> Self {
+        self.never_archive = true;
+        self
+    }
+
+    /// Whether applying it may write to archive and retired drives, on this thread.
+    fn archive_allowed(&self) -> bool {
+        !self.never_archive && (self.overwrite_archive || archive_writes_allowed())
     }
 
     /// Once it's applied, copy the drive it writes (the first it touches as written) onto the other
@@ -471,7 +531,7 @@ impl<P, R> Planned<P, R> {
     }
 
     fn guard_targets(&self, store: Option<&Store>) -> Result<()> {
-        if self.overwrite_archive || archive_writes_allowed() {
+        if self.archive_allowed() {
             return Ok(());
         }
         let registry;
@@ -482,27 +542,44 @@ impl<P, R> Planned<P, R> {
                 registry.as_ref()
             }
         };
-        for t in self.drives.iter().filter(|t| t.writes && t.drive) {
-            if let Ok(d) = Device::open(&t.root) {
-                crate::fleet::check_target(store, &d, false)?;
+        let refused: Result<()> = refusing_archive_writes(|| {
+            for t in self.drives.iter().filter(|t| t.writes && t.drive) {
+                if let Ok(d) = Device::open(&t.root) {
+                    crate::fleet::check_target(store, &d, false)?;
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        });
+        // A plan that never writes to one can't be applied again to write to it anyway.
+        refused.map_err(|e| if self.never_archive { e.without_retries() } else { e })
     }
 
     /// Whether the plan can still be applied: every drive and file it touches is as it was when
-    /// planned ([`Error::StalePlan`] otherwise), and none it writes is an archive or retired
-    /// drive unless the plan was made to write to one.
+    /// planned, there or not ([`Error::StalePlan`] otherwise), and none it writes is an archive or
+    /// retired drive unless the plan was made to write to one.
     pub fn check(&self, store: Option<&Store>) -> Result<()> {
         for t in &self.drives {
-            if !t.root.exists() {
-                return Err(Error::stale(&t.name, "is gone"));
+            match (t.existed, t.root.exists()) {
+                (true, false) => return Err(Error::stale(&t.name, "is gone")),
+                (false, true) => return Err(Error::stale(&t.name, "is there now")),
+                _ => {}
             }
             if t.changed() {
                 return Err(Error::stale(&t.name, "changed"));
             }
         }
         self.guard_targets(store)
+    }
+
+    /// Refused when a plugin's guard the user made blocking found something about it
+    /// ([`Planned::blocked`]).
+    pub fn unblocked(&self) -> Result<()> {
+        let Some(check) = &self.blocked else { return Ok(()) };
+        let message = format!(
+            "{check} found something about these changes (see the warnings), so they weren't made; \
+             `locallibrary plugin checks {check} --no-blocking` lets it warn without stopping them"
+        );
+        Err(Error::conflict(crate::error::Reason::Blocked, message).with("check", check))
     }
 
     /// The touched drive at `index`, opened again.
@@ -536,15 +613,41 @@ impl<P: Operation> Planned<P, P::Request> {
     /// since it was made (see [`Self::check`]). Then copy the drive it wrote onto its clones (see
     /// `Self::reaching_clones`): the write is done, so a clone that isn't copied onto is a warning.
     pub fn apply(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<P::Report> {
+        self.unblocked()?;
         self.check(store)?;
-        let _applying = Applying::start(&self.drives, self.overwrite_archive);
+        let _applying = Applying::start(&self.drives, self.archive_allowed());
         let report = P::apply(self, store, ctx)?;
         let clones: Vec<&CloneTarget> = self.copied().collect();
         if let Some(written) = self.written().filter(|_| !clones.is_empty()) {
             crate::api::copy_onto_clones(&written.root, &clones, store, ctx);
         }
+        if let Some(tell) = APPLIED.get() {
+            let (operation, summary, drives) =
+                (self.operation.as_ref(), self.summary.as_slice(), self.drives.as_slice());
+            tell(&Applied { operation, summary, destructive: self.destructive, drives }, store);
+        }
         Ok(report)
     }
+}
+
+/// A plan that was applied, as [`on_applied`] tells of it.
+#[derive(Debug, Clone, Copy)]
+pub struct Applied<'a> {
+    pub operation: &'a str,
+    pub summary: &'a [String],
+    pub destructive: bool,
+    pub drives: &'a [Touched],
+}
+
+type Tell = Box<dyn Fn(&Applied<'_>, Option<&Store>) + Send + Sync>;
+
+static APPLIED: OnceLock<Tell> = OnceLock::new();
+
+/// Has `tell` told of each plan applied from now on, as it's applied, on the thread that applied
+/// it (with the store it was applied with): what an app's plugins hear (`plan.applied`). Set once:
+/// another call does nothing.
+pub fn on_applied(tell: impl Fn(&Applied<'_>, Option<&Store>) + Send + Sync + 'static) {
+    let _ = APPLIED.set(Box::new(tell));
 }
 
 /// What every plan says besides its own fields, as `*.plan` returns it (see [`Planned`]).
@@ -553,12 +656,16 @@ pub struct PlanFields<'a> {
     /// Names the plan in `*.apply {"plan_id": ...}`.
     pub plan_id: &'a str,
     /// The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for
-    /// `drive.eject.plan` and `set` for `prep.plan`.
+    /// `drive.eject.plan` and `set` for `prep.plan`; for a plugin's operation, its name.
     pub operation: &'a str,
     /// What will change, in a few lines, for a confirmation dialog.
     pub summary: &'a [String],
     /// Every warning, the plan's own included.
     pub warnings: &'a [String],
+    /// The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+    /// it: applying it is refused (`blocked`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<&'a str>,
     /// It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
     /// say so.
     pub destructive: bool,
@@ -586,9 +693,10 @@ impl<P: Serialize, R> Serialize for Planned<P, R> {
         };
         let fields = PlanFields {
             plan_id: &self.id,
-            operation: self.operation,
+            operation: &self.operation,
             summary: &self.summary,
             warnings: &self.warnings,
+            blocked: self.blocked.as_deref(),
             destructive: self.destructive,
             noop: self.noop,
             drives: &self.drives,
@@ -642,9 +750,17 @@ impl<P: JsonSchema, R> JsonSchema for Planned<P, R> {
 /// them by id, the TUI shows one in its dialog).
 pub trait AnyPlanned: Send + Sync {
     fn id(&self) -> &str;
-    fn operation(&self) -> &'static str;
+    fn operation(&self) -> &str;
     fn summary(&self) -> &[String];
     fn warnings(&self) -> &[String];
+    /// [`Planned::blocked`] (none for a plan no guard is asked about).
+    fn blocked(&self) -> Option<&str> {
+        None
+    }
+    /// [`Planned::unblocked`].
+    fn unblocked(&self) -> Result<()> {
+        Ok(())
+    }
     fn destructive(&self) -> bool;
     fn is_noop(&self) -> bool;
     fn drives(&self) -> &[Touched];
@@ -668,8 +784,8 @@ where
         &self.id
     }
 
-    fn operation(&self) -> &'static str {
-        self.operation
+    fn operation(&self) -> &str {
+        &self.operation
     }
 
     fn summary(&self) -> &[String] {
@@ -678,6 +794,14 @@ where
 
     fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    fn blocked(&self) -> Option<&str> {
+        self.blocked.as_deref()
+    }
+
+    fn unblocked(&self) -> Result<()> {
+        Planned::unblocked(self)
     }
 
     fn destructive(&self) -> bool {

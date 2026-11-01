@@ -26,24 +26,24 @@ fn players_against_file_systems_and_databases() {
     let drive = |fs, has_plus| Layout { has_pdb: true, has_plus, volume: Some((Some(Scheme::Mbr), Some(fs))) };
     let players = |p: &[&str], layout: &Layout| verdicts(p, layout, &none).0;
     let all = ["CDJ-2000NXS2", "cdj-3000", "CDJ-3000X", "DJM-V10"];
-    assert_eq!(levels(&players(&all, &drive(FsKind::Fat32, true))), [Level::Ok; 4]);
+    assert_eq!(levels(&players(&all, &drive(FsKind::Fat32, true))), [Level::Info; 4]);
     let exfat = players(&all, &drive(FsKind::Exfat, true));
-    assert_eq!(levels(&exfat), [Level::Problem, Level::Warning, Level::Ok, Level::Problem]);
+    assert_eq!(levels(&exfat), [Level::Problem, Level::Warning, Level::Info, Level::Problem]);
     assert!(exfat[1].1.contains("firmware 1.20+"), "{exfat:?}");
     assert_eq!(
         levels(&players(&all, &drive(FsKind::Hfsplus, false))),
-        [Level::Ok, Level::Ok, Level::Problem, Level::Problem]
+        [Level::Info, Level::Info, Level::Problem, Level::Problem]
     );
     let gpt = Layout { has_pdb: true, has_plus: true, volume: Some((Some(Scheme::Gpt), Some(FsKind::Fat32))) };
     assert_eq!(levels(&players(&["CDJ-3000"], &gpt)), [Level::Problem]);
     let unknown = Layout { has_pdb: true, has_plus: false, volume: None };
     assert_eq!(
         levels(&players(&["CDJ-2000NXS2", "OPUS-QUAD", "XYZ-9"], &unknown)),
-        [Level::Ok, Level::Problem, Level::Warning]
+        [Level::Info, Level::Problem, Level::Warning]
     );
     // A drive the CDJ-3000 can't read but players reading only OneLibrary can.
     let only_plus = Layout { has_pdb: false, has_plus: true, volume: None };
-    assert_eq!(levels(&players(&["CDJ-3000", "OMNIS-DUO"], &only_plus)), [Level::Problem, Level::Ok]);
+    assert_eq!(levels(&players(&["CDJ-3000", "OMNIS-DUO"], &only_plus)), [Level::Problem, Level::Info]);
 }
 
 /// Without models, a drive with one database warns (the audit's D8: a drive holding only
@@ -63,40 +63,7 @@ fn no_models_and_one_database() {
 }
 
 fn row(path: &str, bitrate: u32, rate: u32, depth: u16) -> Track {
-    Track {
-        id: 1,
-        title: path.into(),
-        artist: String::new(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 0,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate,
-        sample_rate: rate,
-        sample_depth: depth,
-        file_size: 0,
-        file_path: path.into(),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
+    Track { bitrate, sample_rate: rate, sample_depth: depth, ..loclib_model::test_util::track(1, "", path, path) }
 }
 
 #[test]
@@ -158,7 +125,7 @@ fn formats_players_wont_load() {
     let fine = DriveAudio { pdb: Some(vec![track_audio(&row("/Contents/a.mp3", 320, 44_100, 16), None)]), plus: None };
     assert_eq!(
         verdicts(&["CDJ-3000"], &layout, &fine).1,
-        [(Level::Ok, "CDJ-3000: plays all 1 track(s) (format, sample rate and bit depth)".to_string())]
+        [(Level::Info, "CDJ-3000: plays all 1 track(s) (format, sample rate and bit depth)".to_string())]
     );
     // Mixers have no tracks to play.
     assert!(verdicts(&["DJM-A9"], &layout, &fine).1.is_empty());
@@ -215,7 +182,7 @@ fn formats_out_of_range_are_problems_and_unknown_ones_are_left_open() {
     let mp3 = DriveAudio { pdb: Some(vec![track_audio(&row("/Contents/a.mp3", 320, 44_100, 16), None)]), plus: None };
     let message = "CDJ-2000: probably plays all 1 track(s) (format, sample rate and bit depth; some of its specs \
                        are inferred)";
-    assert_eq!(verdicts(&["CDJ-2000"], &layout, &mp3).1, [(Level::Ok, message.to_string())]);
+    assert_eq!(verdicts(&["CDJ-2000"], &layout, &mp3).1, [(Level::Info, message.to_string())]);
 }
 
 /// Each model given gets one `players` item on any drive: a model nobody knows a warning; a known
@@ -244,10 +211,7 @@ fn every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
         Some(FsKind::Other),
     ];
     let volume = match tc.draw(gs::booleans()) {
-        true => Some((
-            schemes[tc.draw(gs::integers::<usize>().max_value(schemes.len() - 1))],
-            systems[tc.draw(gs::integers::<usize>().max_value(systems.len() - 1))],
-        )),
+        true => Some((tc.draw(gs::sampled_from(&schemes)), tc.draw(gs::sampled_from(&systems)))),
         false => None,
     };
     let (has_pdb, has_plus) = match tc.draw(gs::integers::<u8>().max_value(2)) {
@@ -271,12 +235,12 @@ fn every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
             assert!(message.contains("not a model"), "{message}");
             continue;
         };
-        assert_eq!(*best_level, Level::Ok, "{g} on an MBR FAT32 drive with both databases");
+        assert_eq!(*best_level, Level::Info, "{g} on an MBR FAT32 drive with both databases");
         assert!(*level >= *best_level);
         let reads_its_database = (m.export_pdb.value && has_pdb) || (m.onelibrary.value && has_plus);
         let lacks = !(m.is_mixer() || reads_its_database);
         if lacks {
-            assert!(*level > Level::Ok && message.contains("which this drive doesn't have"), "{message}");
+            assert!(*level > Level::Info && message.contains("which this drive doesn't have"), "{message}");
         }
         if let Some((scheme, fs)) = volume {
             match scheme {
@@ -293,7 +257,7 @@ fn every_player_is_checked_against_the_drives_layout(tc: hegel::TestCase) {
         }
         let fine = !lacks
             && volume.is_none_or(|(s, fs)| s == Some(Scheme::Mbr) && fs.is_some_and(|fs| m.reads(fs) == Some(true)));
-        assert_eq!(*level == Level::Ok, fine, "{message}");
+        assert_eq!(*level == Level::Info, fine, "{message}");
     }
 }
 
@@ -315,24 +279,23 @@ fn said(f: impl FnOnce(&mut dyn FnMut(&'static str, Level, String))) -> Said {
 #[hegel::explicit_test_case(scheme = Some(Scheme::Mbr), fs = Some(FsKind::Hfsplus), name = "Mac OS Extended (Case-sensitive)", volumes = 2usize)]
 #[hegel::explicit_test_case(scheme = None::<Scheme>, fs = Some(FsKind::Exfat), name = "exFAT", volumes = 0usize)]
 fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let scheme = tc.draw(
-        gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm), Some(Scheme::Other)])
-            .print_as_debug(),
-    );
-    let fs = tc.draw(
-        gs::sampled_from(vec![
-            None,
-            Some(FsKind::Fat16),
-            Some(FsKind::Fat32),
-            Some(FsKind::Exfat),
-            Some(FsKind::Hfsplus),
-            Some(FsKind::Apfs),
-            Some(FsKind::Ntfs),
-        ])
-        .print_as_debug(),
-    );
+    let scheme = tc.draw(gs::sampled_from(vec![
+        None,
+        Some(Scheme::Mbr),
+        Some(Scheme::Gpt),
+        Some(Scheme::Apm),
+        Some(Scheme::Other),
+    ]));
+    let fs = tc.draw(gs::sampled_from(vec![
+        None,
+        Some(FsKind::Fat16),
+        Some(FsKind::Fat32),
+        Some(FsKind::Exfat),
+        Some(FsKind::Hfsplus),
+        Some(FsKind::Apfs),
+        Some(FsKind::Ntfs),
+    ]));
     let name = tc.draw(gs::sampled_from(vec!["MS-DOS FAT32", "Mac OS Extended (Case-sensitive)", "exFAT", "NTFS"]));
     let volumes = tc.draw(gs::integers::<usize>().max_value(2));
     let mut disk = crate::format::tests::sample_disk();
@@ -352,7 +315,7 @@ fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
     assert_eq!(*check, "file_system");
     let c = players::assess_disk(&disk);
     let want = match c.verdict {
-        Verdict::AllPlayers => Level::Ok,
+        Verdict::AllPlayers => Level::Info,
         Verdict::NoPlayers => Level::Problem,
         Verdict::SomePlayers | Verdict::Unknown => Level::Warning,
     };
@@ -392,7 +355,7 @@ fn large_files_are_a_problem_only_beside_a_fat32_drive(tc: hegel::TestCase) {
     assert_eq!(*check, "large_files");
     let others: Vec<&String> = on_fat32.iter().copied().filter(|n| *n != "A").collect();
     match (files, others.is_empty()) {
-        (0, _) => assert_eq!((*level, message.as_str()), (Level::Ok, "no files of 4 GB or more")),
+        (0, _) => assert_eq!((*level, message.as_str()), (Level::Info, "no files of 4 GB or more")),
         (n, true) => {
             assert_eq!(*level, Level::Warning);
             assert!(
@@ -450,7 +413,7 @@ fn audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
     let kinds_found: FxHashSet<u8> = kinds.iter().copied().collect();
     if kinds.is_empty() {
         assert!(groups.is_empty());
-        assert_eq!(items, [("audio", Level::Ok, format!("all {checked} audio file(s) open and decode to the end"))]);
+        assert_eq!(items, [("audio", Level::Info, format!("all {checked} audio file(s) open and decode to the end"))]);
         return;
     }
     assert_eq!(items.len(), kinds_found.len());
@@ -478,7 +441,6 @@ fn audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(path = "/Contents/a.m4a", bitrate = 401u32, rate = 44_100u32, depth = 16u16, probed = None::<Codec>)]
 #[hegel::explicit_test_case(path = "/Contents/Music/readme", bitrate = 0u32, rate = 0u32, depth = 0u16, probed = None::<Codec>)]
 fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let path = tc.draw(gs::sampled_from(vec![
         "/Contents/a.m4a",
@@ -492,7 +454,7 @@ fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
     let bitrate = tc.draw(gs::sampled_from(vec![0u32, 128, 320, 321, 400, 401, 900]));
     let rate = tc.draw(gs::sampled_from(vec![0u32, 44_100, 96_000]));
     let depth = tc.draw(gs::sampled_from(vec![0u16, 16, 24]));
-    let probed = tc.draw(gs::optional(gs::sampled_from(Codec::ALL.to_vec())).print_as_debug());
+    let probed = tc.draw(gs::optional(gs::sampled_from(Codec::ALL.to_vec())));
     let file = probe::Format { codec: probed, sample_rate: 48_000, bit_depth: 32, channels: 2, duration_secs: None };
     let t = row(path, bitrate, rate, depth);
     let by_rate = match bitrate {
@@ -609,7 +571,7 @@ fn every_model_says_which_tracks_it_wont_load(tc: hegel::TestCase) {
         }
         if groups.is_empty() {
             let [(_, level, message)] = items.as_slice() else { panic!("{items:?}") };
-            assert_eq!(*level, Level::Ok);
+            assert_eq!(*level, Level::Info);
             assert!(message.contains(&format!("plays all {known} track(s)")), "{message}");
         }
     }
@@ -654,7 +616,8 @@ fn rates_and_lists_read_as_written(tc: hegel::TestCase) {
 }
 
 /// A drive compared with the first one: the same library is fine; anything else is a problem
-/// naming the first drive, saying which way it differs.
+/// naming the first drive, saying which way it differs, and fixed by syncing the drive when one of
+/// the two is newer.
 #[hegel::test(test_cases = 40)]
 #[hegel::explicit_test_case(same_fp = true, overlap = 4usize, extra = 0usize)]
 #[hegel::explicit_test_case(same_fp = false, overlap = 4usize, extra = 0usize)]
@@ -693,11 +656,17 @@ fn a_drive_compared_with_the_first_says_how_they_differ(tc: hegel::TestCase) {
     let mut second = tracks(0..overlap);
     second.extend(tracks(10..10 + extra));
     let other = side("Backup", second, if same_fp { 1 } else { 2 });
-    let items = said(|mut item| same_library_item("Main", &first, "Backup", &other, &mut item));
-    let [(check, level, message)] = items.as_slice() else { panic!("{items:?}") };
-    assert_eq!(*check, "same_library");
+    let mut found = DriveItems { drive: "Backup".into(), items: Vec::new() };
+    same_library_item("Main", &first, &other, &mut found);
+    let [CheckItem { drive, finding, fix }] = found.items.as_slice() else { panic!("{:?}", found.items) };
+    let (check, level, message) = (&finding.check, &finding.level, &finding.message);
+    assert_eq!((check.as_str(), drive.as_str()), ("same_library", "Backup"));
     let relation = compare::compare(&first, &other).relation;
-    assert_eq!(*level == Level::Ok, relation == Relation::Identical, "{message}");
+    assert_eq!(*level == Level::Info, relation == Relation::Identical, "{message}");
+    // One of the two newer, a sync of the drive brings them level; else nothing does.
+    let sync = Fix::Host(HostAction::Sync(DriveAction { drive: "Backup".into() }));
+    let newer = matches!(relation, Relation::LeftNewer | Relation::RightNewer);
+    assert_eq!(fix.as_ref(), newer.then_some(&sync), "{relation:?}");
     assert!(message.contains("Main"), "{message}");
     let phrase = match relation {
         Relation::Identical => "same library as Main",
@@ -739,7 +708,7 @@ fn each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
             if reads {
                 assert_eq!(
                     (*level, message.as_str()),
-                    (Level::Ok, format!("{}: has the database it reads (file system not checked)", m.name).as_str())
+                    (Level::Info, format!("{}: has the database it reads (file system not checked)", m.name).as_str())
                 );
                 continue;
             }
@@ -749,5 +718,40 @@ fn each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
             let add = if m.onelibrary_only() { "--to onelibrary" } else { "--to device-library" };
             assert!(message.ends_with(&format!("`locallibrary convert {add}` adds it")), "{message}");
         }
+    }
+}
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// An export on a drive that is a volume of its own has its file system judged by the disk it is
+/// on, as players get on with it: FAT32 on MBR by every player, exFAT by some, nothing on a GUID
+/// partition table. A drive that is only a folder is warned it wasn't judged.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8)]
+fn a_drives_file_system_is_judged_by_its_disk(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let d = Device::open(fake.demo_drive("DNA")).unwrap();
+    let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
+    let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
+    if on_a_disk {
+        fake.volume_at(d.root(), fs, mbr);
+    }
+
+    let report = check(&[d], None, &CheckOptions::default(), &Ctx::silent()).unwrap();
+    let judged: Vec<(Level, &str)> =
+        report.items.iter().filter(|i| i.check == "file_system").map(|i| (i.level, i.message.as_str())).collect();
+    let [(level, message)] = judged[..] else { panic!("{judged:?}") };
+    match (on_a_disk, mbr, fs) {
+        (false, ..) => assert_eq!(
+            (level, message),
+            (Level::Warning, "not the root of a mounted volume, so its file system wasn't checked")
+        ),
+        (true, false, _) => {
+            assert!(level == Level::Problem && message.starts_with("GUID partition table"), "{message}")
+        }
+        (true, true, "vfat") => assert_eq!((level, message), (Level::Info, "every player")),
+        _ => assert!(level == Level::Warning && message.starts_with("exFAT: only"), "{message}"),
     }
 }

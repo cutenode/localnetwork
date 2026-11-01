@@ -349,6 +349,8 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const svgEl = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); return e; };
 const clock = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
 const pct = (r) => { const v = (r - 1) * 100; return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "%"; };
+// A play's speed, or the slowest and fastest when the pitch fader was ridden.
+const speed = (p) => p.speed_range ? `${pct(p.speed_range[0])} to ${pct(p.speed_range[1])}` : pct(p.tempo);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const name = (t) => t.artist ? `${t.artist} – ${t.title}` : t.title;
 const b64 = (s) => { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
@@ -556,7 +558,7 @@ function showPlayTip(i, e) {
   const lines = [
     `${clock(p.start)}–${clock(p.end)} in the mix`,
     `${clock(p.track_start)}–${clock(p.track_end)} of the track (${clock(t.duration_secs)})`,
-    p.played_bpm ? `${p.played_bpm.toFixed(1)} BPM (${pct(p.tempo)}${p.key_lock === true ? ", key lock" : p.key_lock === false ? ", pitched" : ""})` : `Speed ${pct(p.tempo)}`,
+    p.played_bpm ? `${p.played_bpm.toFixed(1)} BPM (${speed(p)}${p.key_lock === true ? ", key lock" : p.key_lock === false ? ", pitched" : ""})` : `Speed ${speed(p)}`,
   ];
   if (p.played_key) lines.push(p.key && p.played_key !== p.key ? `Key ${p.key} → ${p.played_key} (pitched)` : `Key ${p.played_key}` + (t.key && t.key !== p.played_key ? ` (${t.key})` : ""));
   if (p.alternates.some(a => a.same_audio)) lines.push("Also in the library as " + [...new Set(p.alternates.filter(a => a.same_audio).map(a => a.name))].join(", "));
@@ -613,7 +615,7 @@ function drawTempo() {
     tip.replaceChildren();
     tip.append(el("div", "tv", `${r.played.toFixed(1)} BPM`));
     const row = el("div", "row ts"); const ln = el("span", "ln"); ln.style.background = css("--accent"); row.append(ln, el("span", null, `${r.i + 1}. ${r.p.track.title}`)); tip.append(row);
-    tip.append(el("div", "tm", `recorded at ${r.orig.toFixed(1)} BPM, played ${pct(r.p.tempo)}`));
+    tip.append(el("div", "tm", `recorded at ${r.orig.toFixed(1)} BPM, played ${speed(r.p)}`));
     tip.append(el("div", "tm", `${clock(r.p.start)}–${clock(r.p.end)}`));
     tip.classList.add("show"); moveTip(e);
   });
@@ -729,6 +731,7 @@ function drawTracks() {
     if (p.key_lock === false && Math.abs(p.semitones) >= 0.05) meta.append(el("span", "badge", `Pitched ${p.semitones > 0 ? "+" : "−"}${Math.abs(p.semitones).toFixed(1)} st`));
     if (p.jumps > 0) meta.append(el("span", "badge", `${p.jumps} jump${p.jumps > 1 ? "s" : ""}/loop${p.jumps > 1 ? "s" : ""}`));
     if (p.tentative) meta.append(el("span", "badge warn", "Tentative"));
+    (ex.fields || []).forEach((f) => meta.append(el("span", null, `${f.label} ${f.value}`)));
     who.append(meta); li.append(who);
 
     const used = el("div", "used"); const c = el("canvas"); c.setAttribute("aria-label", `Played ${clock(p.track_start)} to ${clock(p.track_end)} of ${clock(t.duration_secs)}`); used.append(c);
@@ -740,7 +743,7 @@ function drawTracks() {
 
     const nums = el("div", "nums");
     const bpm = el("div", "bpm"); bpm.textContent = p.played_bpm ? p.played_bpm.toFixed(1) + " " : "? "; bpm.append(el("small", null, "BPM")); nums.append(bpm);
-    nums.append(el("div", "speed", t.bpm ? `${t.bpm.toFixed(1)} ${pct(p.tempo)}` : pct(p.tempo)));
+    nums.append(el("div", "speed", t.bpm ? `${t.bpm.toFixed(1)} ${speed(p)}` : speed(p)));
     const key = el("div", "key", p.key && p.played_key && p.played_key !== p.key ? `${p.key} → ${p.played_key}` : (p.played_key || t.key || "?"));
     if (t.key && t.key !== (p.played_key || "")) key.title = `${t.key} in rekordbox`;
     const conf = el("span", "conf"); conf.title = `Confidence ${Math.round(p.confidence * 100)}%`; const fill = el("i"); fill.style.width = Math.round(p.confidence * 100) + "%"; conf.append(fill); key.append(conf);
@@ -763,7 +766,7 @@ function drawTracks() {
     if (tr) {
       const h = el("li", "handoff"); h.setAttribute("aria-hidden", "true");
       // Fades below what fingerprints can hear make short "gaps"; only call a long one a gap.
-      const how = tr.overlap >= 8 ? `${Math.round(tr.overlap)}s blend` : tr.overlap > -12 ? "quick mix" : `${Math.round(-tr.overlap)}s apart`;
+      const how = tr.overlap >= D.blendSecs ? `${Math.round(tr.overlap)}s blend` : tr.overlap > -12 ? "quick mix" : `${Math.round(-tr.overlap)}s apart`;
       const parts = [how];
       if (tr.tempo_change != null && Math.abs(tr.tempo_change) >= 0.3) parts.push(`${tr.tempo_change > 0 ? "+" : "−"}${Math.abs(tr.tempo_change).toFixed(1)}% tempo`);
       h.append(el("span", null, "↓ " + parts.join(" · ")));

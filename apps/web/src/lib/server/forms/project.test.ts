@@ -2,15 +2,8 @@ import type { JsonValue } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
 import { sampleReport } from '#lib/mix/sample.ts';
 import type { BlobRefJson } from '#lib/types.ts';
-import {
-	formValues,
-	parseAvatar,
-	parseDetails,
-	parseProfile,
-	profileToValues,
-	sniffImage,
-	withTracklists
-} from './project';
+import { parseAvatar, parseDetails, parseProfile, profileToValues, sniffImage, withTracklists } from './project';
+import { formValues } from '#lib/project-form.ts';
 
 function form(entries: [string, string | File][]): FormData {
 	const data = new FormData();
@@ -59,6 +52,7 @@ describe('parseProfile', () => {
 				['activeSince', '2015'],
 				['capacityMin', '100'],
 				['capacityMax', '900'],
+				['feeLabel', ' Club nights '],
 				['feeTier', 'established'],
 				['feeCurrency', 'eur'],
 				['feeMin', '500'],
@@ -82,7 +76,7 @@ describe('parseProfile', () => {
 			setLength: { minMinutes: 60, maxMinutes: 240 },
 			activeSince: 2015,
 			capacity: { min: 100, max: 900 },
-			fee: { tier: 'established', currency: 'EUR', minAmount: 500, maxAmount: 1500 },
+			fees: [{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 500, maxAmount: 1500 }],
 			links: [
 				{ kind: 'soundcloud', url: 'https://soundcloud.com/neon' },
 				{ kind: 'other', url: 'https://neon.example/' }
@@ -122,7 +116,7 @@ describe('parseProfile', () => {
 		[[...minimal, ['kind', 'band']], 'kind'],
 		[[...minimal, ['setMin', '200'], ['setMax', '100']], 'Shortest set'],
 		[[...minimal, ['capacityMin', '500'], ['capacityMax', '100']], 'Smallest room'],
-		[[...minimal, ['feeMin', '9'], ['feeMax', '1']], 'Minimum fee'],
+		[[...minimal, ['feeTier', 'emerging'], ['feeMin', '9'], ['feeMax', '1']], 'Minimum fee'],
 		[[...minimal, ['feeTier', 'free']], 'fee tier'],
 		[[...minimal, ['travelRadiusKm', 'far']], 'travelRadiusKm'],
 		[[...minimal, ['linkUrl', 'javascript:alert(1)']], 'not a valid link'],
@@ -177,18 +171,78 @@ describe('parseProfile', () => {
 		);
 	});
 
+	it("links each mix to the set picked on its row, and refuses anything that isn't one", () => {
+		const set = { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafyreiaaaaaaaaaaaaaaaaaaaaaaa' };
+
+		const mixes = (...sets: string[]) =>
+			form([
+				...minimal,
+				...sets.flatMap((value, index): [string, string][] => [
+					['mixTitle', `Mix ${index}`],
+					['mixUrl', `https://m.test/${index}`],
+					['mixSet', value]
+				])
+			]);
+
+		expect(parseProfile(mixes('', `${set.uri} ${set.cid}`)).mixes).toEqual([
+			{ title: 'Mix 0', url: 'https://m.test/0' },
+			{ title: 'Mix 1', url: 'https://m.test/1', set }
+		]);
+
+		for (const value of [
+			set.uri,
+			`at://did:plc:neon/computer.localnetwork.project/3kset ${set.cid}`,
+			`${set.uri} not-a-cid`,
+			`https://pds.test ${set.cid}`
+		])
+			expect(() => parseProfile(mixes(value))).toThrow(/Pick a set/);
+	});
+
 	it('refuses fee amounts without a tier and bad currency codes', () => {
 		expect(() => parseProfile(form([...minimal, ['feeMin', '100']]))).toThrow(/fee tier/);
 		expect(() => parseProfile(form([...minimal, ['feeCurrency', 'EUR']]))).toThrow(/fee tier/);
+		expect(() => parseProfile(form([...minimal, ['feeLabel', 'Festivals'], ['feeTier', '']]))).toThrow(/fee tier/);
+		expect(() => parseProfile(form([...minimal, ['feeTier', 'emerging'], ['feeLabel', 'x'.repeat(65)]]))).toThrow(
+			/fee label/
+		);
 
 		for (const currency of ['EU', 'EURO', '€'])
 			expect(() => parseProfile(form([...minimal, ['feeTier', 'emerging'], ['feeCurrency', currency]]))).toThrow(
 				/three-letter currency/
 			);
-		expect(parseProfile(form([...minimal, ['feeTier', 'emerging'], ['feeCurrency', 'usd']])).fee).toEqual({
-			tier: 'emerging',
-			currency: 'USD'
-		});
+		expect(parseProfile(form([...minimal, ['feeTier', 'emerging'], ['feeCurrency', 'usd']])).fees).toEqual([
+			{ tier: 'emerging', currency: 'USD' }
+		]);
+	});
+
+	it('keeps every filled fee row, in order, and skips empty ones', () => {
+		const row = (label: string, tier: string, currency = '', min = '', max = ''): [string, string][] => [
+			['feeLabel', label],
+			['feeTier', tier],
+			['feeCurrency', currency],
+			['feeMin', min],
+			['feeMax', max]
+		];
+
+		const levels = Array.from({ length: 20 }, (_, index) => row(`Level ${index}`, 'emerging')).flat();
+
+		expect(
+			parseProfile(
+				form([
+					...minimal,
+					...row('Club nights', 'established', 'eur', '600', '1500'),
+					...row('', ''),
+					...row('Festivals', 'headliner', 'EUR', '2000'),
+					...row('', 'community')
+				])
+			).fees
+		).toEqual([
+			{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 },
+			{ label: 'Festivals', tier: 'headliner', currency: 'EUR', minAmount: 2000 },
+			{ tier: 'community' }
+		]);
+		expect(parseProfile(form([...minimal, ...levels])).fees).toHaveLength(20);
+		expect(parseProfile(form([...minimal, ...row('', '')])).fees).toBeUndefined();
 	});
 
 	it('refuses more than 12 highlights', () => {
@@ -331,6 +385,15 @@ describe('form round-trips', () => {
 		});
 		expect(profileToValues(undefined, null)).toEqual({});
 		expect(
+			profileToValues({ ...profile, fees: [{ label: 'Festivals', tier: 'headliner', minAmount: 2000 }] })
+		).toMatchObject({
+			fees: [{ label: 'Festivals', tier: 'headliner', currency: '', minAmount: '2000', maxAmount: '' }]
+		});
+		// A record written before `fees` fills the form's first row.
+		expect(profileToValues({ ...profile, fee: { tier: 'emerging', currency: 'GBP' } })).toMatchObject({
+			fees: [{ label: '', tier: 'emerging', currency: 'GBP', minAmount: '', maxAmount: '' }]
+		});
+		expect(
 			formValues(
 				form([
 					...minimal,
@@ -339,18 +402,24 @@ describe('form round-trips', () => {
 					['linkKind', 'website'],
 					['linkUrl', 'https://a.test'],
 					['mixTitle', 'One'],
-					['mixUrl', 'https://m.test']
+					['mixUrl', 'https://m.test'],
+					['feeLabel', 'Festivals'],
+					['feeTier', ''],
+					['feeCurrency', 'eur'],
+					['feeMin', '2000'],
+					['feeMax', '']
 				])
 			)
 		).toMatchObject({
 			formats: ['cdj', 'vinyl'],
+			fees: [{ label: 'Festivals', tier: '', currency: 'eur', minAmount: '2000', maxAmount: '' }],
 			links: [{ kind: 'website', url: 'https://a.test' }],
 			mixes: [{ title: 'One', url: 'https://m.test' }],
 			international: false
 		});
 		expect(formValues(form([...minimal, ['international', 'on']])).international).toBe(true);
 	});
-	it('echoes link labels and mix lengths and years', () => {
+	it('echoes link labels, mix lengths and years, and picked sets', () => {
 		expect(
 			formValues(
 				form([
@@ -361,12 +430,21 @@ describe('form round-trips', () => {
 					['mixTitle', 'One'],
 					['mixUrl', 'https://m.test'],
 					['mixDuration', '90'],
-					['mixYear', '2024']
+					['mixYear', '2024'],
+					['mixSet', 'at://did:plc:neon/computer.localnetwork.dj.set/3kset bafyset']
 				])
 			)
 		).toMatchObject({
 			links: [{ kind: 'website', url: 'https://a.test', label: 'Shop' }],
-			mixes: [{ title: 'One', url: 'https://m.test', durationMinutes: 90, year: 2024 }]
+			mixes: [
+				{
+					title: 'One',
+					url: 'https://m.test',
+					durationMinutes: 90,
+					year: 2024,
+					set: { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafyset' }
+				}
+			]
 		});
 	});
 });

@@ -11,7 +11,7 @@
 //! [`crate::backup`]), so `locallibrary undo` takes an edit back.
 //!
 //! A drive with `export.pdb` but no `exportExt.pdb` only has its OneLibrary tags edited, with a
-//! warning: creating `exportExt.pdb` isn't supported.
+//! warning: only `collection export` creates `exportExt.pdb` (see `new_ext`).
 //!
 //! Every applied edit is recorded in the drive's journal of edits (as a [`TagChange`], tracks
 //! named by file), so `edits replay` makes it again after rekordbox exports to the drive.
@@ -25,7 +25,6 @@ use rekordbox_pdb::{ExtDatabase, ExtEditor, ExtTableType};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::clean::open_plus;
 use crate::commit::{self, Changes, NewDatabases, Options};
 use crate::device::{Device, LineageOp};
 use crate::edit::Replayed;
@@ -33,6 +32,7 @@ use crate::error::IoContext;
 use crate::hash::Hash;
 use crate::model::{Library, TrackRef};
 use crate::onelibrary::OneLibrary;
+use crate::onelibrary::open_plus;
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
@@ -141,13 +141,14 @@ impl TagChange {
     /// The edit for `library`'s tracks ([`Device::library`]), and the recorded files it has no
     /// track for.
     fn edit(&self, library: &Library) -> (Edit, Vec<String>) {
-        let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (track_key(&t.file_path), t.id)).collect();
+        let by_key: FxHashMap<String, u32> =
+            library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
         let mut gone = Vec::new();
         let mut ids = |files: &[String]| -> Vec<u32> {
             files
                 .iter()
                 .filter_map(|f| {
-                    let id = by_key.get(&track_key(f)).copied();
+                    let id = by_key.get(&paths::file_key(f)).copied();
                     if id.is_none() {
                         gone.push(f.clone());
                     }
@@ -253,11 +254,6 @@ struct TagNode {
     strays: usize,
 }
 
-/// How tracks are matched across the two databases (and their ids differ).
-fn track_key(file_path: &str) -> String {
-    paths::key(file_path).to_lowercase()
-}
-
 /// `name` matched exactly, else ignoring case if only one matches.
 fn find_named<'a, T>(items: &'a [T], name: impl Fn(&T) -> &str, wanted: &str) -> Option<&'a T> {
     items.iter().find(|i| name(i) == wanted).or_else(|| {
@@ -336,7 +332,7 @@ impl Tree {
 
 /// `track id -> key` for a library.
 fn keys_by_id(library: &Library) -> FxHashMap<u32, String> {
-    library.tracks.iter().map(|t| (t.id, track_key(&t.file_path))).collect()
+    library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect()
 }
 
 fn ext_tree(db: &ExtDatabase, library: &Library) -> Tree {
@@ -465,7 +461,7 @@ pub(crate) fn guard_ext<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
 
 fn read_ext(device: &Device, library: &Library) -> Result<Db> {
     let path = device.path(paths::EXPORT_EXT_PDB);
-    let bytes = std::fs::read(&path).at(&path)?;
+    let bytes = crate::fsutil::read(&path).at(&path)?;
     let db = parse_ext(bytes.clone(), &path)?;
     Ok(Db::new(Source::ExportExt, ext_tree(&db, library), library.clone(), Handle::Ext(bytes)))
 }
@@ -637,7 +633,7 @@ fn track_refs(opened: &Opened) -> FxHashMap<String, TrackRef> {
     let mut refs = FxHashMap::default();
     for lib in std::iter::once(&opened.primary).chain(opened.dbs.iter().map(|d| &d.library)) {
         for t in &lib.tracks {
-            refs.entry(track_key(&t.file_path)).or_insert_with(|| TrackRef::from(t));
+            refs.entry(paths::file_key(&t.file_path)).or_insert_with(|| TrackRef::from(t));
         }
     }
     refs
@@ -678,8 +674,8 @@ pub fn read(device: &Device) -> Result<MyTags> {
     })
 }
 
-/// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file key
-/// in lower case (`paths::key(&track.file_path).to_lowercase()`). Tags from both databases.
+/// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file
+/// ([`paths::file_key`]). Tags from both databases.
 pub fn by_track(device: &Device) -> Result<FxHashMap<String, Vec<String>>> {
     let opened = open(device)?;
     let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
@@ -801,7 +797,8 @@ impl Ids {
     }
 
     /// The other database's id for the same category, if this one doesn't use it; else the next
-    /// small id (rekordbox's categories are 1..4).
+    /// small id (rekordbox's categories are 1..4), or the smallest free one when that's past what
+    /// the database holds (a OneLibrary database can number them past exportExt.pdb's `u32`).
     fn category(&self, source: Source, tree: &Tree, other: Option<&Tree>, name: &str) -> i64 {
         if let Some(id) = other.and_then(|o| o.category(name)).map(|c| c.id)
             && Ids::fits(source, id)
@@ -809,11 +806,15 @@ impl Ids {
         {
             return id;
         }
-        let mut id = self.max_category + 1;
-        while self.used.contains(&id) {
-            id += 1;
-        }
-        id
+        let free_from = |mut id: i64| {
+            while self.used.contains(&id) {
+                id += 1;
+            }
+            id
+        };
+        // The next free id can run past `u32::MAX` even when `max_category + 1` fits.
+        let id = free_from(self.max_category + 1);
+        if Ids::fits(source, id) { id } else { free_from(1) }
     }
 
     /// The other database's id for the same tag, if this one doesn't use it; else a large id
@@ -959,11 +960,18 @@ fn plan_db(
     Ok(ops)
 }
 
-/// Refuse a name too long for one exportExt.pdb row, which its editor would only refuse when
-/// applying (OneLibrary takes any length).
+/// Refuse a name too long for one exportExt.pdb row, or an id past its `u32`, which applying
+/// would only refuse then (OneLibrary takes any length, and `i64` ids).
 fn check_names(db: &Db, ops: &[Op]) -> Result<()> {
     let Handle::Ext(bytes) = &db.handle else { return Ok(()) };
     let editor = guard_ext(|| ext_editor(bytes.clone()))?;
+    for op in ops {
+        match op {
+            Op::AddTag { category, id, .. } => [*category, *id].into_iter().try_for_each(|i| ext_id(i).map(drop))?,
+            Op::AddCategory { id, .. } | Op::Rename { id, .. } | Op::Remove { id } => drop(ext_id(*id)?),
+            Op::Link { tag, .. } | Op::Unlink { tag, .. } => drop(ext_id(*tag)?),
+        }
+    }
     for op in ops {
         let (what, name) = match op {
             Op::AddCategory { name, .. } => ("the category name", name),
@@ -1004,7 +1012,7 @@ pub fn plan(device: &Device, edit: &Edit) -> Result<TagPlan> {
     let primary_keys = keys_by_id(&opened.primary);
     let keys: BTreeSet<String> = selected
         .iter()
-        .map(|id| primary_keys.get(id).cloned().ok_or_else(|| Error::NotFound(format!("track #{id}"))))
+        .map(|id| primary_keys.get(id).cloned().ok_or_else(|| Error::no_track(*id)))
         .collect::<Result<_>>()?;
 
     // Where the category or tag already is, for the plan's name and "not found".
@@ -1159,20 +1167,18 @@ pub fn apply(plan: &TagPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<TagRe
     apply_locked(plan, device, Some((&edit, &changes)), ctx)
 }
 
-/// Replay a recorded edit, under the backup the replay made (see [`crate::edit::apply`]). One
-/// that no longer applies is skipped with a warning; an error is a failure while writing.
-pub(crate) fn replay(device: &mut Device, change: &TagChange, ctx: &Ctx<'_>) -> Result<Replayed> {
+/// Make an edit of a plan's, under the backup the plan made (see [`crate::edit::apply`]).
+/// Replaying (not `strict`), one that no longer applies is skipped with a warning; an error is a
+/// failure while writing.
+pub(crate) fn replay(device: &mut Device, change: &TagChange, strict: bool, ctx: &Ctx<'_>) -> Result<Replayed> {
     let mut out = Replayed::default();
     let (edit, gone) = change.edit(&device.library()?);
     if let Some(example) = gone.first() {
-        out.tracks_gone(gone.len(), example, &change.describe());
+        out.tracks_gone(strict, gone.len(), example, &change.describe())?;
     }
     let plan = match plan(device, &edit) {
         Ok(plan) => plan,
-        Err(e) => {
-            out.warnings.push(format!("skipped an edit that no longer applies ({}): {e}", change.describe()));
-            return Ok(out);
-        }
+        Err(e) => return out.skipped(strict, &change.describe(), e),
     };
     out.warnings.extend(plan.warnings.iter().cloned());
     if !plan.is_noop() {
@@ -1264,7 +1270,7 @@ pub(crate) struct DbTags {
 
 impl DbTags {
     fn new(tree: Tree, library: &Library) -> DbTags {
-        DbTags { tree, tracks: library.tracks.iter().map(|t| track_key(&t.file_path)).collect() }
+        DbTags { tree, tracks: library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect() }
     }
 
     /// `exportExt.pdb`'s, whose track ids are `library`'s (the drive's export.pdb).
@@ -1276,7 +1282,7 @@ impl DbTags {
     /// A drive's `exportExt.pdb`'s, if it has the file (`library`: its export.pdb's).
     pub(crate) fn ext_of(device: &Device, library: &Library) -> Result<Option<DbTags>> {
         let path = device.path(paths::EXPORT_EXT_PDB);
-        match std::fs::read(&path) {
+        match crate::fsutil::read(&path) {
             Ok(bytes) => Ok(Some(DbTags::new(ext_tree(&parse_ext(bytes, &path)?, library), library))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(Error::Io { path, source: e }),
@@ -1492,6 +1498,42 @@ pub(crate) fn carry_into_ext(
     })
 }
 
+/// A real rekordbox `exportExt.pdb` to start new ones from (see [`new_ext`]). It's rekordbox-pdb's
+/// `tests/data/one-song-exportExt.pdb` (MIT, see `vendor/rekordbox-pdb/LICENSE`), kept in this
+/// package as `convert`'s `export.pdb` template is.
+const EXT_TEMPLATE: &[u8] = include_bytes!("tags/template_ext.pdb");
+
+/// A new `exportExt.pdb` for `library` (a new `export.pdb`'s tracks) with `tags`' categories and
+/// tags, in their order and with their ids (as [`copy_categories`] gives OneLibrary), and their
+/// tracks' links: [`EXT_TEMPLATE`] emptied, then filled through [`carry_into_ext`]. What goes past
+/// rekordbox's limits is left out, which the [`Carried`] says.
+pub(crate) fn new_ext(tags: &DbTags, library: &Library) -> Result<(Vec<u8>, Carried)> {
+    let empty = guard_ext(|| {
+        let mut editor = ext_editor(EXT_TEMPLATE.to_vec())?;
+        let template: Vec<u32> = editor.categories().iter().map(|(id, _)| *id).collect();
+        for id in template {
+            editor.remove(id)?;
+        }
+        for c in tags.tree.categories.iter().take(MAX_CATEGORIES) {
+            editor.add_category(ext_id(c.id)?, &c.name)?;
+            for t in c.tags.iter().take(MAX_TAGS) {
+                editor.add_tag(ext_id(c.id)?, ext_id(t.id)?, &t.name)?;
+            }
+        }
+        Ok(editor.to_bytes()?)
+    })?;
+    let wanted: Wanted = library
+        .tracks
+        .iter()
+        .filter_map(|t| {
+            let key = paths::file_key(&t.file_path);
+            Some((t.id, key.clone(), tags.of(&key)?))
+        })
+        .collect();
+    let (out, carried) = carry_into_ext(empty.clone(), library, &[], &wanted, Some(tags))?;
+    Ok((out.unwrap_or(empty), carried))
+}
+
 /// [`carry_into_ext`] for OneLibrary's working copy (`library`: its tracks now).
 pub(crate) fn carry_into_plus(
     one: &mut OneLibrary,
@@ -1536,7 +1578,7 @@ pub(crate) fn remap_ext(bytes: Vec<u8>, old: Option<&Library>, new: &Library) ->
         let old_keys = old.map(keys_by_id).unwrap_or_default();
         let mut new_ids: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for t in &new.tracks {
-            new_ids.entry(track_key(&t.file_path)).or_default().push(t.id);
+            new_ids.entry(paths::file_key(&t.file_path)).or_default().push(t.id);
         }
         let mut editor = ext_editor(bytes)?;
         let mut tracks: Vec<u32> = db.tag_tracks.iter().map(|l| l.track_id).collect();

@@ -226,9 +226,9 @@ pub fn write(device: &Device, bytes: &[u8]) -> Result<()> {
 /// Read a drive's `exportLibrary.db` and `-wal` (if present).
 pub fn read_files(root: &Path) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
     let db = paths::to_fs(root, paths::LIBRARY_PLUS_DB);
-    let bytes = std::fs::read(&db).at(&db)?;
+    let bytes = crate::fsutil::read(&db).at(&db)?;
     let wal = paths::to_fs(root, paths::LIBRARY_PLUS_WAL);
-    let wal = match std::fs::read(&wal) {
+    let wal = match crate::fsutil::read(&wal) {
         Ok(b) => Some(b),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(Error::Io { path: wal, source: e }),
@@ -265,6 +265,43 @@ fn empty_database() -> Vec<u8> {
 /// rekordbox's file type code (`content.fileType`): export.pdb's table.
 pub(crate) fn file_type(path: &str) -> i64 {
     rekordbox_pdb::file_type_code(path).into()
+}
+
+/// An integer as SQLite's `=` matches one: an integer, or a real of that value (text never is).
+fn sql_int(v: ValueRef<'_>) -> Option<i64> {
+    match v {
+        ValueRef::Integer(i) => Some(i),
+        ValueRef::Real(f) if f.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&f) => Some(f as i64),
+        _ => None,
+    }
+}
+
+/// Rows by a value they hold: each one's rowid, rowid ascending, and another column's integer.
+type RowsBy = FxHashMap<i64, Vec<(i64, Option<i64>)>>;
+
+/// The rows of `table` that hold one of `wanted` in one of `columns`, by that value, with their
+/// `extra` column.
+fn rows_by(conn: &Connection, table: &str, columns: &[&str], wanted: &FxHashSet<i64>, extra: &str) -> Result<RowsBy> {
+    let mut by = RowsBy::default();
+    if wanted.is_empty() {
+        return Ok(by);
+    }
+    let sql = format!("SELECT rowid, {extra}, {} FROM {table} ORDER BY rowid", columns.join(", "));
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let rowid: i64 = row.get(0)?;
+        let extra = sql_int(row.get_ref(1)?);
+        for i in 0..columns.len() {
+            let Some(value) = sql_int(row.get_ref(i + 2)?).filter(|v| wanted.contains(v)) else { continue };
+            let found = by.entry(value).or_default();
+            // A row naming a track in both columns is one row of it.
+            if found.last().is_none_or(|(last, _)| *last != rowid) {
+                found.push((rowid, extra));
+            }
+        }
+    }
+    Ok(by)
 }
 
 fn int(v: ValueRef<'_>) -> i64 {
@@ -448,6 +485,29 @@ impl std::fmt::Debug for OneLibrary {
     }
 }
 
+/// The drive's OneLibrary database and its library, if it has one. On a drive that also has
+/// `export.pdb`, one that can't be read is reported and left alone rather than failing the edit.
+pub(crate) fn open_plus(
+    device: &Device,
+    has_pdb: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Option<(Library, OneLibrary)>> {
+    if !device.has_library_plus() {
+        return Ok(None);
+    }
+    match device.library_plus().and_then(|one| Ok((one.library()?, one))) {
+        Ok(x) => Ok(Some(x)),
+        Err(e) if has_pdb => {
+            warnings.push(format!(
+                "{e}. Only export.pdb will be changed, so CDJ-3000X, OPUS-QUAD, XDJ-AZ and other players that \
+                 read OneLibrary won't see this until the drive is exported from rekordbox again"
+            ));
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 impl OneLibrary {
     /// Open a drive's OneLibrary database (and its WAL).
     pub fn open(device: &Device) -> Result<OneLibrary> {
@@ -477,14 +537,18 @@ impl OneLibrary {
     /// A new, empty OneLibrary database: rekordbox 7's schema and default rows (colours, browse
     /// menus, sort columns), a fresh salt, and WAL mode like rekordbox's own files.
     pub fn create() -> Result<OneLibrary> {
-        let mut one = OneLibrary::from_plain(Codec::random()?, empty_database())?;
-        one.journal = [2, 2];
-        one.conn.execute_batch(include_str!("schema.sql"))?;
-        one.conn.execute(
+        OneLibrary::from_plain(Codec::random()?, empty_database())?.into_new()
+    }
+
+    /// An empty working copy made a new database (see [`OneLibrary::create`]).
+    fn into_new(mut self) -> Result<OneLibrary> {
+        self.journal = [2, 2];
+        self.conn.execute_batch(include_str!("schema.sql"))?;
+        self.conn.execute(
             "UPDATE property SET createdDate = ?1, numberOfContents = 0",
             [chrono::Local::now().format("%Y-%m-%d").to_string()],
         )?;
-        Ok(one)
+        Ok(self)
     }
 
     /// A working copy of a plain database image (header bytes 18-19 still as stored).
@@ -502,7 +566,10 @@ impl OneLibrary {
             return Err(Error::OneLibrary(why));
         }
         // A scratch copy: no need for durability, and thousands of single-row edits stay fast.
-        conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF;")?;
+        // They make one transaction, committed only to read the file (see `to_encrypted`):
+        // committing after each statement made building a 3,000-track database 20 to 40% slower.
+        // Edits that must go whole or not at all are savepoints within it.
+        conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF; BEGIN;")?;
         Ok(OneLibrary { conn, codec, journal, path, _dir: dir, contents: None })
     }
 
@@ -514,6 +581,16 @@ impl OneLibrary {
     /// The edited database, encrypted with the original file's salt, after checking that SQLite
     /// finds it intact and that it decrypts back to exactly what was edited.
     pub fn to_encrypted(&self) -> Result<Vec<u8>> {
+        // The edits so far, committed to the file, and a transaction for the next ones.
+        if !self.conn.is_autocommit() {
+            self.conn.execute_batch("COMMIT")?;
+        }
+        let bytes = self.encrypt_committed();
+        self.conn.execute_batch("BEGIN")?;
+        bytes
+    }
+
+    fn encrypt_committed(&self) -> Result<Vec<u8>> {
         let check: String = self.conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
         if check != "ok" {
             return Err(Error::OneLibrary(format!("integrity check failed: {check}")));
@@ -744,32 +821,59 @@ impl OneLibrary {
         self.check_no_unknown_references()?;
         let removed: FxHashSet<u32> = ids.iter().copied().collect();
         let lookups = self.unused_lookups(&removed)?;
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
+        // Each table's rows of the removed tracks come from one pass over it, where a delete for
+        // each track would scan it again (nothing indexes content_id but myTag_content). They're
+        // deleted by rowid in the order those deletes took them, so the file comes out the same.
+        let tracks: FxHashSet<i64> = removed.iter().map(|&id| i64::from(id)).collect();
         let mut touched_lists: Vec<(&str, &str, i64)> = Vec::new();
         for (table, list) in [("playlist_content", "playlist_id"), ("history_content", "history_id")] {
-            let mut stmt = tx.prepare(&format!("SELECT DISTINCT {list} FROM {table} WHERE content_id = ?1"))?;
-            for id in ids {
-                for l in stmt.query_map([id], |r| r.get::<_, i64>(0))? {
-                    touched_lists.push((table, list, l?));
+            let mut stmt = tx.prepare(&format!("SELECT {list}, content_id FROM {table}"))?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                if sql_int(row.get_ref(1)?).is_some_and(|id| tracks.contains(&id)) {
+                    touched_lists.push((table, list, row.get(0)?));
                 }
             }
         }
-        for id in ids {
-            tx.execute(
-                "DELETE FROM hotCueBankList_cue WHERE cue_id IN (SELECT cue_id FROM cue WHERE content_id = ?1)",
-                [id],
-            )?;
-            for sql in [
-                "DELETE FROM cue WHERE content_id = ?1",
-                "DELETE FROM playlist_content WHERE content_id = ?1",
-                "DELETE FROM history_content WHERE content_id = ?1",
-                "DELETE FROM myTag_content WHERE content_id = ?1",
-                "DELETE FROM recommendedLike WHERE content_id_1 = ?1 OR content_id_2 = ?1",
-                "DELETE FROM content WHERE content_id = ?1",
-            ] {
-                tx.execute(sql, [id])?;
-            }
+        let cue_ids = rows_by(&tx, "cue", &["content_id"], &tracks, "cue_id")?;
+        let wanted_cues: FxHashSet<i64> = cue_ids.values().flatten().filter_map(|(_, cue)| *cue).collect();
+        let bank_rows = rows_by(&tx, "hotCueBankList_cue", &["cue_id"], &wanted_cues, "NULL")?;
+        let mut tables = Vec::new();
+        for (table, columns) in [
+            ("cue", &["content_id"][..]),
+            ("playlist_content", &["content_id"]),
+            ("history_content", &["content_id"]),
+            ("myTag_content", &["content_id"]),
+            ("recommendedLike", &["content_id_1", "content_id_2"]),
+        ] {
+            tables.push((
+                tx.prepare(&format!("DELETE FROM {table} WHERE rowid = ?1"))?,
+                rows_by(&tx, table, columns, &tracks, "NULL")?,
+            ));
         }
+        let mut delete_bank_row = tx.prepare("DELETE FROM hotCueBankList_cue WHERE rowid = ?1")?;
+        let mut delete_track = tx.prepare("DELETE FROM content WHERE content_id = ?1")?;
+        for &id in ids {
+            let id = i64::from(id);
+            let mut bank: Vec<i64> = (cue_ids.get(&id).into_iter().flatten())
+                .filter_map(|(_, cue)| bank_rows.get(&(*cue)?))
+                .flatten()
+                .map(|(rowid, _)| *rowid)
+                .collect();
+            bank.sort_unstable();
+            bank.dedup();
+            for rowid in bank {
+                delete_bank_row.execute([rowid])?;
+            }
+            for (delete, rows) in &mut tables {
+                for (rowid, _) in rows.get(&id).into_iter().flatten() {
+                    delete.execute([rowid])?;
+                }
+            }
+            delete_track.execute([id])?;
+        }
+        drop((tables, delete_bank_row, delete_track));
         touched_lists.sort_unstable();
         touched_lists.dedup();
         for (table, list, id) in touched_lists {
@@ -807,7 +911,7 @@ impl OneLibrary {
     }
 
     pub fn set_track_image(&mut self, ids: &[u32], image: u32) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.savepoint()?;
         {
             let mut stmt = tx.prepare("UPDATE content SET image_id = ?1 WHERE content_id = ?2")?;
             for id in ids {

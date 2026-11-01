@@ -14,6 +14,7 @@ use locallibrary::export::{self, Format, Locator, PathStyle};
 use locallibrary::local_time;
 use locallibrary::pack::PackOptions;
 use locallibrary::{Ctx, DeviceInfo, Error, Store, Track, fsutil};
+use loclib_plugin::Where;
 use uuid::Uuid;
 
 use super::app::{App, Focus, Level, View};
@@ -57,10 +58,14 @@ pub enum Tone {
     Problem,
     Text,
     Faint,
+    /// A table's headings, and its rows: cut at the panel's edge rather than wrapped, so the
+    /// columns stay aligned.
+    Columns,
+    Row,
 }
 
 /// The lines of a check's report: how it went, then each drive's items, problems and warnings
-/// first, then the tracks the players won't load.
+/// first (a plugin's naming its fix), then the tracks the players won't load.
 pub fn check_lines(r: &CheckReport) -> Vec<(Tone, String)> {
     let mut out = Vec::new();
     let verdict = match (r.problems, r.warnings) {
@@ -86,11 +91,14 @@ pub fn check_lines(r: &CheckReport) -> Vec<(Tone, String)> {
         items.sort_by_key(|i| std::cmp::Reverse(i.level));
         for i in items {
             let tone = match i.level {
-                CheckLevel::Ok => Tone::Ok,
+                CheckLevel::Info => Tone::Ok,
                 CheckLevel::Warning => Tone::Warning,
                 CheckLevel::Problem => Tone::Problem,
             };
             out.push((tone, i.message.clone()));
+            if i.fix.is_some() {
+                out.push((Tone::Faint, "    fix it from the commands (:)".into()));
+            }
         }
         for u in r.unloadable.iter().filter(|u| &u.drive == drive) {
             out.push((Tone::Text, format!("{} won't load on the {}:", u.message, u.player)));
@@ -318,13 +326,19 @@ impl App {
             Act::Replay => self.replay(root),
             Act::Undo => self.undo_on(root),
             Act::Eject => self.eject(vec![root]),
+            Act::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(root), None),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, Some(root), None),
+            Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, Some(root)),
+            Act::Export(plugin, format, from) => self.plugin_export(plugin, format, from, Some(root)),
+            Act::Import(plugin, format) => self.plugin_import(plugin, format, Some(root)),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, Some(root)),
             act => self.perform(act, None),
         }
     }
 
-    /// `e` in the Drives view: what can be done to the selected drive. What's chosen is done to
-    /// that drive (by its identity: see [`DriveKey`]), even if another is selected by then, or
-    /// refused once it's been unplugged.
+    /// `e` in the Drives view: what can be done to the selected drive (plugins' commands and
+    /// operations last). What's chosen is done to that drive (by its identity: see [`DriveKey`]),
+    /// even if another is selected by then, or refused once it's been unplugged.
     pub(super) fn drive_menu(&mut self) {
         match self.header() {
             Some(DriveRow::Library(id)) => return self.library_menu(id),
@@ -351,7 +365,8 @@ impl App {
             item(Act::Undo, undo_key, &None),
             item(Act::Eject, "", &None),
         ];
-        let (acts, items): (Vec<Act>, Vec<Item>) = items.into_iter().unzip();
+        let (acts, items): (Vec<Act>, Vec<Item>) =
+            items.into_iter().chain(self.plugin_items(Some(&root), &[Where::Drive])).unzip();
         let drive = self.drive_at(root);
         self.modal =
             Some(Modal::Pick(Picker::new(format!("Drive · {name}"), items, Then::Drive { drive, name, acts })));
@@ -389,12 +404,14 @@ impl App {
             let req = CheckRequest { drives: specs, options: CheckOptions::default() };
             let report = api::check(store.as_ref(), &req, ctx)?;
             let lines = check_lines(&report);
+            let fixes = super::plugins::checks::fixes(&drives, &report);
             let title = if report.drives.len() == 1 {
                 format!("Check · {}", report.drives[0])
             } else {
                 format!("Check · {}", report.drives.join(", "))
             };
             Ok(Box::new(move |app: &mut App| {
+                app.fixes = fixes;
                 app.modal = Some(Modal::Report(Report { title, lines, scroll: 0 }));
             }))
         });
@@ -666,30 +683,9 @@ impl App {
         }));
     }
 
-    /// Write rekordbox XML of the drive (just the marked playlists and their tracks, when any are
-    /// marked), to take it back into rekordbox: asks where first.
-    pub(super) fn export_xml(&mut self) {
-        let Some(l) = &self.loaded else {
-            self.toast("open a drive first", Level::Info);
-            return;
-        };
-        let only = self.list_marks.clone();
-        let label = match only.len() {
-            0 => "rekordbox XML of the drive to".to_string(),
-            n => format!("rekordbox XML of the {n} marked playlist{} to", s(n)),
-        };
-        let name = l.device.name();
-        self.modal = Some(Modal::Prompt(Prompt {
-            label,
-            text: format!("~/Music/{name}.xml"),
-            purpose: PromptFor::ExportXml { only },
-            root: l.root().to_path_buf(),
-        }));
-    }
-
     /// Write the file asked for, in the background; one that's there already is replaced only
     /// once that's asked about, as `--replace` does on the command line.
-    pub(super) fn write_export(&mut self, root: PathBuf, to: &str, what: Export) {
+    pub(super) fn write_export(&mut self, root: PathBuf, to: &str, list: ExportOf) {
         let output = super::mix::typed_path(to);
         if output.as_os_str().is_empty() {
             self.toast("say where: a file name", Level::Info);
@@ -701,36 +697,22 @@ impl App {
         }
         if output.exists() {
             let q = format!("{} is there already. Replace it?", output.display());
-            self.modal = Some(Modal::Ask(q, Box::new(move |app: &mut App| app.export_to(root, output, what, true))));
+            self.modal = Some(Modal::Ask(q, Box::new(move |app: &mut App| app.export_to(root, output, list, true))));
             return;
         }
-        self.export_to(root, output, what, false);
+        self.export_to(root, output, list, false);
     }
 
-    fn export_to(&mut self, root: PathBuf, output: PathBuf, what: Export, replace: bool) {
-        let drive = root.display().to_string();
+    fn export_to(&mut self, root: PathBuf, output: PathBuf, list: ExportOf, replace: bool) {
         let shown = output.display().to_string();
         let store_root = self.store_root.clone();
         self.task("Exporting".into(), move |ctx| {
             if let Some(dir) = output.parent() {
                 std::fs::create_dir_all(dir).map_err(|source| Error::Io { path: dir.to_path_buf(), source })?;
             }
-            let msg = match what {
-                Export::List(list) => {
-                    let store = Store::open(&store_root).ok();
-                    let n = write_list(store.as_ref(), &root, list, output, replace, ctx)?;
-                    format!("wrote {shown}: {n} track{}", s(n))
-                }
-                Export::Xml(only) => {
-                    let req =
-                        api::ExportXml { drive, output, location_root: None, skip_analysis: false, only, replace };
-                    let r = api::export_xml(&req, ctx)?;
-                    format!(
-                        "wrote {shown}: {} tracks, {} playlists (rekordbox: File › Import › rekordbox xml)",
-                        r.tracks, r.playlists
-                    )
-                }
-            };
+            let store = Store::open(&store_root).ok();
+            let n = write_list(store.as_ref(), &root, list, output, replace, ctx)?;
+            let msg = format!("wrote {shown}: {n} track{}", s(n));
             Ok(Box::new(move |app: &mut App| app.toast(msg, Level::Info)))
         });
     }
@@ -782,13 +764,6 @@ pub enum ExportOf {
     History(String),
     /// A set: its name, and its tracks on the drive in the order played.
     Set(String, Vec<Track>),
-}
-
-/// A file to write.
-pub enum Export {
-    List(ExportOf),
-    /// rekordbox XML, of these playlists only (all when empty).
-    Xml(Vec<String>),
 }
 
 /// A role as the player says it.

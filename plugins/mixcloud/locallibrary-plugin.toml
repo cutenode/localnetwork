@@ -1,0 +1,43 @@
+id = "mixcloud"
+name = "Mixcloud"
+version = "0.1.0"
+protocol = "^0.2"
+# It sends the set's recording, title and tracklist to Mixcloud's upload API, and nowhere else.
+capabilities = ["net:api.mixcloud.com"]
+
+# `sets publish SET --to mixcloud:show`: the recording becomes a show on the signed-in account, its
+# tracklist the show's sections, and the show's page the set's link.
+[[contributes.destinations]]
+name = "show"
+title = "A show on Mixcloud"
+kind = "set"
+
+# Mixcloud wants a client secret when a code is traded for a token, so the trade goes through Local
+# Network's token exchange, which holds it. Mixcloud has no scopes, and takes the token only as the
+# `access_token` query parameter. It compares the redirect URI with the authorize request's alone,
+# not with one registered for the client, so the browser can come back to any free port.
+[[contributes.accounts]]
+id = "mixcloud"
+title = "Mixcloud"
+authorize_url = "https://www.mixcloud.com/oauth/authorize"
+token_exchange = "https://localnetwork.computer/api/token-exchange/mixcloud"
+# PLACEHOLDER: Local Network's Mixcloud client isn't registered yet. Once it is, this is its client
+# id (public), the same as the website's MIXCLOUD_CLIENT_ID, which the token exchange sends with it.
+client_id = "PLACEHOLDER-unregistered"
+token = { query = "access_token" }
+
+[[contributes.settings]]
+key = "tags"
+title = "Tags for a set's show, separated by commas (Mixcloud takes 5)"
+type = "string"
+
+[[contributes.settings]]
+key = "picture"
+title = "Picture for a set's show (10 MB at most)"
+type = "file"
+
+[[contributes.settings]]
+key = "unlisted"
+title = "Keep a set's show unlisted"
+type = "boolean"
+default = false

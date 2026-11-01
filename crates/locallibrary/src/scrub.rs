@@ -11,7 +11,8 @@
 //! 2. the drive's hash cache, when the file's size and modification time are what they were
 //!    when locallibrary last hashed or wrote it (a changed file has a new mtime; a damaged one
 //!    doesn't);
-//! 3. any snapshot holding the same path with the same size and modification time.
+//! 3. any snapshot holding the same path with the same size and modification time, taken
+//!    clearly after the file's modification time (so it isn't a rewrite since).
 //!
 //! Players and rekordbox rewrite database and analysis files legitimately, but they also change
 //! the modification time, so such files simply have no reference and count as unverified.
@@ -19,11 +20,12 @@
 //! lists, or without one (a file gone changes the state), those of a consulted snapshot whose
 //! databases the drive still holds. [`repair`] rewrites damaged and missing
 //! files from store objects or another mounted drive, verifying every byte on the way, then
-//! reads them back.
+//! reads them back. A copy of the store at a plugin's destination can supply them too
+//! ([`offer`]): they're fetched into the store first ([`fetch`]), each checked against its hash.
 
 use std::collections::BTreeSet;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -34,6 +36,7 @@ use crate::device::{self, Device, LineageOp};
 use crate::fsutil;
 use crate::hash::{self, Hash};
 use crate::model::{Library, TrackRef};
+use crate::offsite::{self, Destination};
 use crate::paths::{self, FileClass};
 use crate::progress::{Ctx, Event, Phase};
 use crate::schema::{Failure, Skip};
@@ -66,7 +69,15 @@ struct Expected {
 #[serde(tag = "from", rename_all = "snake_case")]
 pub enum RepairSource {
     Store,
-    Drive { name: String, root: PathBuf },
+    Drive {
+        name: String,
+        root: PathBuf,
+    },
+    /// The copy of the store at a plugin's destination, from which it's fetched into the store.
+    Destination {
+        plugin: String,
+        destination: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -176,10 +187,13 @@ impl<'a> References<'a> {
         if let Some(hash) = self.index.lookup(e) {
             return Some(Expected { hash, size: e.size, mtime: e.mtime, kind: ReferenceKind::Cache });
         }
+        // Only files written clearly before the snapshot: a database rekordbox or a player saved
+        // again moments after a pull would otherwise be taken for damage and "repaired" back.
         for s in &self.history {
             if let Some(f) = s.files.iter().find(|f| f.path.to_lowercase() == key)
                 && f.size == e.size
                 && fsutil::mtime_eq(f.mtime, e.mtime)
+                && fsutil::settled(f.mtime, s.created.timestamp())
                 && let Some(hash) = f.hash
             {
                 return Some(Expected { hash, size: f.size, mtime: f.mtime, kind: ReferenceKind::History });
@@ -418,9 +432,9 @@ pub fn affected<'k>(lib: &Library, keys: impl Iterator<Item = &'k str>) -> (Vec<
     let mut ids = BTreeSet::new();
     let mut tracks = Vec::new();
     for t in &lib.tracks {
-        let audio = paths::key(&t.file_path).to_lowercase();
-        let anlz = paths::key(&t.analyze_path).to_lowercase();
-        let art = t.artwork_path.as_deref().map(|p| paths::key(p).to_lowercase());
+        let audio = paths::file_key(&t.file_path);
+        let anlz = paths::file_key(&t.analyze_path);
+        let art = t.artwork_path.as_deref().map(paths::file_key);
         let hit = keys.contains(&audio)
             || (!t.analyze_path.is_empty() && analysis_dirs.contains(&dir(&anlz)))
             || art.is_some_and(|a| keys.contains(&a));
@@ -515,7 +529,10 @@ pub fn repair(
             continue;
         }
         let src = match &p.repair {
-            Some(RepairSource::Store) => store.filter(|s| s.has_object(&expected)).map(|s| s.object_path(&expected)),
+            // A destination's once it's fetched (see `fetch`).
+            Some(RepairSource::Store | RepairSource::Destination { .. }) => {
+                store.filter(|s| s.has_object(&expected)).map(|s| s.object_path(&expected))
+            }
             Some(RepairSource::Drive { root, .. }) => sibling_trees
                 .iter()
                 .find(|(d, _)| d.root() == root)
@@ -582,6 +599,42 @@ pub fn repair(
     }
     device.save_index(&index)?;
     Ok(report)
+}
+
+/// Offers the good copies a store destination has of the files `report` found no other for:
+/// their repair is from it, once they're fetched into the store ([`fetch`]).
+pub fn offer(report: &mut ScrubReport, dest: &dyn Destination, ctx: &Ctx<'_>) -> Result<()> {
+    let unrepaired = |p: &FileProblem| p.repair.is_none().then_some(p.expected).flatten();
+    let hashes: FxHashSet<Hash> = report.problems().filter_map(unrepaired).collect();
+    let hashes: Vec<Hash> = hashes.into_iter().collect();
+    let missing = offsite::missing_from(dest, &hashes, ctx)?;
+    let from = RepairSource::Destination { plugin: dest.plugin().into(), destination: dest.name().into() };
+    for p in report.damaged.iter_mut().chain(&mut report.unreadable).chain(&mut report.missing) {
+        if unrepaired(p).is_some_and(|h| !missing.contains(&h)) {
+            p.repair = Some(from.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Fetches into `store` the good copies `dest` has of `problems` that are to be repaired from it
+/// (see [`offer`]), each checked against its hash: then [`repair`] rewrites them from the store.
+pub fn fetch(store: &Store, dest: &dyn Destination, problems: &[FileProblem], ctx: &Ctx<'_>) -> Result<()> {
+    let _lock = store.lock()?;
+    let ours = |p: &&FileProblem| {
+        matches!(&p.repair, Some(RepairSource::Destination { plugin, destination })
+            if plugin == dest.plugin() && destination == dest.name())
+    };
+    let mut fetched = Vec::new();
+    let got: Result<()> = problems.iter().filter(ours).filter_map(|p| p.expected).try_for_each(|h| {
+        if !store.has_object(&h) && !fetched.contains(&h) {
+            offsite::fetch_object(store, dest, &h, ctx)?;
+            fetched.push(h);
+        }
+        Ok(())
+    });
+    store.flush_objects(&fetched)?;
+    got
 }
 
 /// Whether a file a scrub flags would change the drive's fingerprint when repaired (database,

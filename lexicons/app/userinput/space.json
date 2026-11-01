@@ -1,0 +1,72 @@
+{
+  "defs": {
+    "main": {
+      "description": "A feedback space created by an organization. Lives in the owner's repo; the owner DID is the repo it is stored in.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "createdAt": {
+            "format": "datetime",
+            "type": "string"
+          },
+          "description": {
+            "maxGraphemes": 1500,
+            "maxLength": 3000,
+            "type": "string"
+          },
+          "icon": {
+            "accept": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "description": "Optional space icon/logo.",
+            "maxSize": 1000000,
+            "type": "blob"
+          },
+          "name": {
+            "maxGraphemes": 100,
+            "maxLength": 200,
+            "type": "string"
+          },
+          "tags": {
+            "description": "The set of categories feedback in this space may be filed under.",
+            "items": {
+              "ref": "#tag",
+              "type": "ref"
+            },
+            "maxLength": 24,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    },
+    "tag": {
+      "properties": {
+        "label": {
+          "description": "Human-readable display label.",
+          "maxLength": 64,
+          "type": "string"
+        },
+        "value": {
+          "description": "Stable machine value stored on discussions.",
+          "maxLength": 64,
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    }
+  },
+  "id": "app.userinput.space",
+  "lexicon": 1
+}

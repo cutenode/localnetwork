@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
 use loclib_model::analysis::Cue;
+use loclib_model::audio::Format;
 use loclib_model::{Library, Playlist, Track, TrackColor, paths};
 use loclib_progress::{Ctx, Event, Phase};
 
@@ -152,7 +153,8 @@ fn volume_relative(path: &Path) -> (String, PathBuf) {
         return (s[2..].trim_start_matches('/').to_string(), PathBuf::from(format!("{}\\", &s[..2])));
     }
     if let Some((volume, rest)) = s.strip_prefix("/Volumes/").and_then(|r| r.split_once('/')) {
-        return (rest.to_string(), PathBuf::from("/Volumes").join(volume));
+        // Written out rather than joined, so a Mac volume reads the same when exported on Windows.
+        return (rest.to_string(), PathBuf::from(format!("/Volumes/{volume}")));
     }
     (s.trim_start_matches('/').to_string(), PathBuf::from("/"))
 }
@@ -323,10 +325,10 @@ impl Markers {
 /// the audio get Serato's tag only in these formats.
 fn tag_kind(name: &str) -> Option<lofty::file::FileType> {
     use lofty::file::FileType;
-    match name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
-        Some("mp3") => Some(FileType::Mpeg),
-        Some("aif" | "aiff") => Some(FileType::Aiff),
-        Some("wav") => Some(FileType::Wav),
+    match Format::from_name(name)? {
+        Format::Mp3 => Some(FileType::Mpeg),
+        Format::Aiff => Some(FileType::Aiff),
+        Format::Wav => Some(FileType::Wav),
         _ => None,
     }
 }
@@ -374,7 +376,7 @@ pub fn build<E: From<Error>>(
         } else {
             format!("crate {} ({} tracks)", lib.playlist_path(p.id), tracks.len())
         };
-        export.file(output.join("_Serato_/Subcrates").join(format!("{name}.crate")), what, crate_file(&tracks));
+        export.file(output.join("_Serato_").join("Subcrates").join(format!("{name}.crate")), what, crate_file(&tracks));
     }
     export.tracks = lib.tracks.len();
     let volume = volume.unwrap_or_else(|| volume_relative(&root.join("Contents")).1);
@@ -386,7 +388,7 @@ pub fn build<E: From<Error>>(
     export.notes.push(format!(
         "Copy the .crate files from {} into {serato_home}, next to any crates already there, then restart Serato: \
          crates belong to the volume that holds their music. Folders become crates holding their crates.",
-        output.join("_Serato_/Subcrates").display()
+        output.join("_Serato_").join("Subcrates").display()
     ));
     export.notes.push(
         "Crates only list tracks: Serato reads each file's own tags and analyses it again. Beat grids aren't carried."
@@ -510,13 +512,28 @@ fn marked_tag(
     }
     if kind != FileType::Mpeg {
         // lofty reads an AIFF or WAV file cut off short of the size its header gives, but won't
-        // write into one.
+        // write into one. It writes its tag's chunk where that size says the chunks end, so a size
+        // ending anywhere but after a chunk (0, as a streamed file's header is left, puts it before
+        // `WAVE`) leaves a copy nothing can read.
+        let little = kind == FileType::Wav;
         let mut header = [0; 8];
         f.read_exact(&mut header).map_err(io)?;
-        let size = [header[4], header[5], header[6], header[7]];
-        let size = if kind == FileType::Wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
-        if f.metadata().map_err(io)?.len() < u64::from(size) + 8 {
+        let size = u64::from(chunk_size(&header, little));
+        let len = f.metadata().map_err(io)?.len();
+        let end = size + 8;
+        if len < end {
             return Err(tag_error(named, &"it's cut off: shorter than its header says"));
+        }
+        if size < 4 {
+            return Err(tag_error(named, &format!("its header says it holds {size} bytes")));
+        }
+        // Bytes past that size (trailing junk) are fine if it ends after a chunk. One that counts
+        // a stray byte or junk lofty stops reading at puts the tag where lofty never finds it.
+        if !chunks_end_at(&mut f, end, little).map_err(io)? {
+            return Err(tag_error(named, &"its header's size doesn't end where one of its chunks does"));
+        }
+        if last_chunk_unpadded(&mut f, little, end, len).map_err(io)? {
+            return Err(tag_error(named, &"its last chunk is missing the pad byte after it"));
         }
         f.rewind().map_err(io)?;
     }
@@ -557,6 +574,81 @@ fn marked_tag(
         tag.set_flags(flags);
     }
     Ok((tag, kind, WriteOptions::new().use_id3v23(v23)))
+}
+
+/// The size an AIFF or WAV chunk's 8-byte `header` gives, little-endian in a WAV.
+fn chunk_size(header: &[u8; 8], little: bool) -> u32 {
+    let size = [header[4], header[5], header[6], header[7]];
+    if little { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) }
+}
+
+/// Whether the chunks after an AIFF or WAV file's 12-byte header end at `end`, walked as lofty
+/// reads them: it stops at an id that isn't a chunk's. A chunk of odd size is followed by a 0
+/// byte, which some encoders leave out: as lofty does, one followed by a chunk id instead is taken
+/// to have none.
+fn chunks_end_at(f: &mut std::fs::File, end: u64, little: bool) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut at = 12;
+    while at < end {
+        let mut header = [0; 8];
+        f.seek(SeekFrom::Start(at))?;
+        match f.read_exact(&mut header) {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+            r => r?,
+        }
+        if !is_chunk_id([header[0], header[1], header[2], header[3]]) {
+            return Ok(false);
+        }
+        let size = u64::from(chunk_size(&header, little));
+        at += 8 + size;
+        if size % 2 == 1 && at != end {
+            let mut next = [0; 4];
+            f.seek(SeekFrom::Start(at))?;
+            let unpadded = f.read_exact(&mut next).is_ok() && next[0] != 0 && is_chunk_id(next);
+            at += u64::from(!unpadded);
+        }
+    }
+    Ok(at == end)
+}
+
+/// Whether `id` reads as a chunk's: printable ASCII, any spaces only at the end (lofty's test).
+fn is_chunk_id(id: [u8; 4]) -> bool {
+    let first_space = id.iter().position(|&b| b == b' ').unwrap_or(4);
+    id.iter().all(|b| (0x20..=0x7e).contains(b)) && id[first_space..].iter().all(|&b| b == b' ')
+}
+
+/// Whether the chunks of an AIFF or WAV file `len` bytes long, walked as lofty walks them to write
+/// a tag, end in an odd-sized chunk with no pad byte after it: lofty reads such a file but fails
+/// writing into it. The chunks end at `end`, as the file's header says. As in lofty, a pad byte
+/// missing mid-file (where the next chunk's id starts instead) is let go, and the walk stops at an
+/// id that isn't a chunk's.
+fn last_chunk_unpadded(f: &mut std::fs::File, wav: bool, end: u64, len: u64) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut at = 12;
+    let mut header = [0; 8];
+    while at + 8 <= end {
+        f.seek(SeekFrom::Start(at))?;
+        f.read_exact(&mut header)?;
+        if !is_chunk_id([header[0], header[1], header[2], header[3]]) {
+            return Ok(false);
+        }
+        let size = [header[4], header[5], header[6], header[7]];
+        let size = if wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
+        at += 8 + u64::from(size);
+        if size % 2 == 0 {
+            continue;
+        }
+        if at >= len {
+            return Ok(true);
+        }
+        let mut next = [0; 4];
+        f.seek(SeekFrom::Start(at))?;
+        let pad_left_out = f.read_exact(&mut next).is_ok() && next[0] != 0 && is_chunk_id(next);
+        at += u64::from(!pad_left_out);
+    }
+    Ok(false)
 }
 
 /// The most bytes [`write_markers`] adds to the file at `path`: the whole new tag, in its chunk for

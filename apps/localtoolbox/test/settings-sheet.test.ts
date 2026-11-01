@@ -37,6 +37,7 @@ import {
 } from './helpers/panel.ts';
 import type { ChromeMock } from './helpers/chrome.ts';
 import { SEARCH_SITES as SITES } from '../src/lib/search-sites.ts';
+import manifest from '../src/manifest.json';
 
 declare const chrome: ChromeMock;
 
@@ -389,10 +390,38 @@ describe('the theme', () => {
 
 		await click(themeButton('dark'));
 		expect(themeButton('dark')!.getAttribute('aria-pressed')).toBe('true');
-		expect(document.documentElement.classList.contains('dark')).toBe(true);
+		expect(!document.documentElement.classList.contains('light')).toBe(true);
 
 		await click(themeButton('light'));
-		expect(document.documentElement.classList.contains('dark')).toBe(false);
+		expect(!document.documentElement.classList.contains('light')).toBe(false);
+	});
+});
+
+describe('reporting a bug', () => {
+	const reportLink = () => [...settingsSheet()!.querySelectorAll('a')].find((link) => clean(link) === 'report a bug');
+
+	const reported = () => Object.fromEntries(new URL(reportLink()!.href).searchParams);
+
+	it('shows the version, and opens GitHub’s form in a tab with it filled in', async () => {
+		await openApp();
+		await openSettings();
+
+		expect(clean(settingsSheet())).toContain(`localtoolbox ${manifest.version}`);
+		expect(reportLink()!.href).toMatch(/^https:\/\/github\.com\/cutenode\/localnetwork\/issues\/new\?/);
+		expect(reportLink()!.target).toBe('_blank');
+		expect(reportLink()!.rel).toBe('noreferrer');
+		// Over the tool menu nothing says which part it is about, so that is left for them to pick.
+		expect(reported()).toMatchObject({ template: 'localtoolbox-bug.yml', version: manifest.version });
+		expect(reported()).not.toHaveProperty('tool');
+		expect(audit()).toEqual([]);
+	});
+
+	it('picks the tool under the sheet as the part it is about', async () => {
+		await openApp();
+		await click(button('playlist to text'));
+		await openSettings();
+
+		expect(reported()).toMatchObject({ tool: 'SoundCloud playlist to text', version: manifest.version });
 	});
 });
 

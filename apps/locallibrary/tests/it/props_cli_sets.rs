@@ -283,13 +283,14 @@ fn sets_agree_with_a_model_and_print_what_their_json_says(tc: TestCase) {
             assert!(printed.starts_with("no sets yet"), "{printed}");
             continue;
         }
-        let s = &now[tc.draw(gs::integers::<usize>().max_value(now.len() - 1))];
+        let s = &tc.draw(gs::sampled_from(&now[..]));
         let short = s["id"].as_str().unwrap()[..8].to_string();
         let mut shown = fx.json(&["sets", "show", &short]);
         shown.as_object_mut().unwrap().remove("schema");
         assert_eq!(&shown, s, "{said}");
         set_is_printed(s, &fx.ok(&["sets", "show", &short]), &said);
-        let format = tc.draw(gs::sampled_from(&["text", "mixcloud", "1001", "csv", "youtube", "cue", "m3u8"][..]));
+        let format =
+            tc.draw(gs::sampled_from(&["text", "mixcloud", "1001", "chapters", "csv", "youtube", "cue", "m3u8"][..]));
         let export = ["sets", "export", &short, "--format", format];
         let (printed, as_json) = (fx.run(&export), fx.run(&[&["--json"][..], &export].concat()));
         assert_eq!(printed.code, as_json.code, "{export:?}\n{}\n{}", printed.err, as_json.out);
@@ -300,7 +301,14 @@ fn sets_agree_with_a_model_and_print_what_their_json_says(tc: TestCase) {
         // Written to a file, the format is the one its extension names (text when none does):
         // the file holds what that format prints.
         let (ext, named) = tc.draw(gs::sampled_from(
-            &[("txt", "text"), ("csv", "csv"), ("cue", "cue"), ("m3u8", "m3u8"), ("list", "text")][..],
+            &[
+                ("txt", "text"),
+                ("csv", "csv"),
+                ("cue", "cue"),
+                ("json", "chapters"),
+                ("m3u8", "m3u8"),
+                ("list", "text"),
+            ][..],
         ));
         let file = fx.home(&format!("set-{}.{ext}", now.len()));
         let mut args = vec!["sets", "export", &short, "-o", path(&file), "--replace"];
@@ -537,8 +545,9 @@ fn plays_print_what_their_json_says(tc: TestCase) {
 }
 
 /// A log of plays (Beat Link Trigger's Playlist Writer) with drawn tracks and start times kept as a
-/// session: a set made from it is timed, `sets show` prints each start, and its Mixcloud and
-/// YouTube tracklists print what its JSON export does.
+/// session (`--quiet` leaving out the tip to make a set of it): a set made from it is timed, `sets
+/// show` prints each start, and its Mixcloud and YouTube tracklists and chapters print what its JSON
+/// export does, the chapters a chapter per track at its start.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_timed_log_makes_a_timed_set(tc: TestCase) {
     let fx = Env::from_template();
@@ -580,6 +589,7 @@ fn a_timed_log_makes_a_timed_set(tc: TestCase) {
         assert!(r.out.contains("kept Friday as session"), "{}", r.out);
         let plays = if picked.len() == 1 { "1 play".to_string() } else { format!("{} plays", picked.len()) };
         assert!(r.out.contains(&format!(": {plays}, ")), "{}", r.out);
+        assert!(!r.out.contains("makes a set of it"), "{}", r.out);
     }
     let sessions = fx.json(&["plays", "lists", "Club", "--all"]);
     let id = sessions["sessions"]
@@ -598,7 +608,11 @@ fn a_timed_log_makes_a_timed_set(tc: TestCase) {
     let want: Vec<u64> = starts.iter().map(|s| (*s - starts[0]).num_seconds() as u64).collect();
     assert_eq!(got, want, "{set}");
     set_is_printed(set, &fx.ok(&["sets", "show", "last"]), &format!("{set}"));
-    for format in ["mixcloud", "youtube", "cue"] {
+    let chapters: Value = serde_json::from_str(&fx.ok(&["sets", "export", "last", "--format", "chapters"])).unwrap();
+    let at: Vec<u64> =
+        chapters["chapters"].as_array().unwrap().iter().map(|c| c["startTime"].as_u64().unwrap()).collect();
+    assert_eq!((chapters["version"].as_str(), at), (Some("1.2.0"), want), "{chapters}");
+    for format in ["mixcloud", "youtube", "cue", "chapters"] {
         let export = ["sets", "export", "last", "--format", format];
         let (printed, j) = (fx.run(&export), fx.run(&[&["--json"][..], &export].concat()));
         assert_eq!(printed.code, j.code, "{format}: {}\n{}", printed.err, j.out);

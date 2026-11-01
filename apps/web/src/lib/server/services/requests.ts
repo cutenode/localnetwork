@@ -1,8 +1,10 @@
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
-import { parseMixReportText } from '#lib/mix/report.ts';
+import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
+import { parseMixReportText } from '#lib/mix/schema.ts';
 import type {
+	BlobRefJson,
 	ClaimEvidence,
 	ProjectDetails,
 	ProjectMix,
@@ -21,6 +23,8 @@ import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { RequestRow } from '../db/schema';
 import { diff } from './diff';
+import type { DjListings } from './dj-listings';
+import type { ProfileService } from './profiles';
 import type { ProjectService } from './projects';
 
 export const DECISION_OUTCOMES = ['approved', 'rejected', 'changesRequested'] as const;
@@ -37,6 +41,7 @@ const decisionRecord = z.object({
 	decidedBy: z.string(),
 	project: z.string().optional(),
 	projectRevision: z.number().optional(),
+	listing: z.string().optional(),
 	createdAt: z.string()
 });
 
@@ -49,6 +54,8 @@ export type SubmitInput = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a list request: the requester's own profile, at the version they asked with. */
+	listing?: { subject: string; cid: string };
 	message?: string;
 	avatar?: { bytes: Uint8Array; mimeType: string };
 	/** New mix tracklists, aligned with `profile.mixes` (see `withTracklists`). */
@@ -63,7 +70,12 @@ const OUTCOME_STATUS: Record<DecisionOutcome, RequestStatus> = {
 	changesRequested: 'changes_requested'
 };
 
-const KIND_LABEL: Record<RequestKind, string> = { create: 'new project', claim: 'claim', update: 'change request' };
+const KIND_LABEL: Record<RequestKind, string> = {
+	create: 'new project',
+	claim: 'claim',
+	update: 'change request',
+	list: 'listing request'
+};
 
 /** The request lexicon leaves `kind` open (`knownValues`), so a valid record can still carry one this app doesn't handle. */
 export const isRequestKind = (value: JsonValue | undefined): value is RequestKind =>
@@ -72,7 +84,9 @@ export const isRequestKind = (value: JsonValue | undefined): value is RequestKin
 export class RequestService {
 	constructor(
 		private readonly core: Core,
-		private readonly projects: ProjectService
+		private readonly projects: ProjectService,
+		private readonly profiles: ProfileService,
+		private readonly listings: DjListings
 	) {}
 
 	/** The client to write as the actor, or null when the root must write on their behalf. */
@@ -86,7 +100,9 @@ export class RequestService {
 		const { actor, kind } = input;
 		const project = input.projectUri ? await this.projects.byUri(input.projectUri) : null;
 
-		if (kind !== 'create' && !project) throw new NotFoundError('That project does not exist');
+		if ((kind === 'claim' || kind === 'update') && !project) throw new NotFoundError('That project does not exist');
+
+		if (kind === 'list') await this.checkListing(actor, input.listing);
 
 		if (kind === 'create') {
 			if (!input.profile) throw new UserError('Fill in the project profile');
@@ -134,7 +150,7 @@ export class RequestService {
 		}
 
 		const client = await this.actorClient(actor);
-		const profile = input.profile ? await this.attachFiles(input.profile, input, client) : undefined;
+		const profile = input.profile ? await this.attachFiles(input.profile, input, client, project) : undefined;
 
 		const record: RequestRecord = { kind, createdAt: nowIso() };
 
@@ -149,6 +165,8 @@ export class RequestService {
 		if (input.details) record.details = input.details;
 
 		if (input.claim) record.claim = input.claim;
+
+		if (input.listing) record.listing = input.listing;
 		const message = input.message?.trim();
 
 		if (message) record.message = message;
@@ -181,7 +199,13 @@ export class RequestService {
 				subjectKind: 'request',
 				summary: `Submitted a ${KIND_LABEL[kind]}${project ? ` for ${project.profile.name}` : profile ? ` for ${profile.name}` : ''}`,
 				changes,
-				details: { kind, project: project?.uri, onBehalf: !client, relationship: input.claim?.relationship }
+				details: {
+					kind,
+					project: project?.uri,
+					listing: input.listing?.subject,
+					onBehalf: !client,
+					relationship: input.claim?.relationship
+				}
 			},
 			{ actorClient: client }
 		);
@@ -192,15 +216,39 @@ export class RequestService {
 		return view;
 	}
 
-	/** Uploads a new avatar and mix tracklists to the writer's repo and references them. */
+	/**
+	 * Whether `actor` can ask staff to list them in Find DJs, with `listing` naming their profile: it has to be theirs,
+	 * have the performer section on, not be listed already, and not have a list request open.
+	 */
+	private async checkListing(actor: Viewer, listing: SubmitInput['listing']): Promise<void> {
+		const profile = await this.profiles.get(actor.did);
+
+		if (!profile || listing?.subject !== profile.uri) throw new UserError('Set up your profile first');
+
+		if (!profile.record.performer) throw new UserError('Turn on the DJ section of your profile first');
+
+		if (await this.listings.get(actor.did)) throw new UserError("You're already listed in Find DJs");
+
+		const [open] = await this.list({ kind: 'list', requester: actor.did, status: 'open', limit: 1 });
+
+		if (open) throw new UserError('You already asked to be listed. Staff will get to it soon');
+	}
+
+	/**
+	 * Uploads a new avatar and mix tracklists to the writer's repo and references them. A PDS only
+	 * accepts a record whose blobs it holds, so an avatar or tracklist kept from the published
+	 * project (root's) is copied to the writer's repo too, under the same CID.
+	 */
 	private async attachFiles(
 		profile: ProjectProfile,
 		files: Pick<SubmitInput, 'avatar' | 'tracklists'>,
-		client: RepoClient | null
+		client: RepoClient | null,
+		published: ProjectView | null
 	): Promise<ProjectProfile> {
-		if (!files.avatar && !files.tracklists?.some(Boolean)) return profile;
 		const writer = client ?? (await this.core.root());
-		let next = profile;
+		let next = await this.keepPublished(profile, published, writer);
+
+		if (!files.avatar && !files.tracklists?.some(Boolean)) return next;
 
 		if (files.avatar) next = { ...next, avatar: await writer.uploadBlob(files.avatar.bytes, files.avatar.mimeType) };
 
@@ -212,6 +260,48 @@ export class RequestService {
 					mixes[index] = { ...mixes[index], tracklist: await writer.uploadBlob(file.bytes, file.mimeType) };
 			}
 
+			next = { ...next, mixes };
+		}
+
+		return next;
+	}
+
+	/** Copies the published blobs a proposed profile still references into the writer's repo. */
+	private async keepPublished(
+		profile: ProjectProfile,
+		published: ProjectView | null,
+		writer: RepoClient
+	): Promise<ProjectProfile> {
+		if (!published || writer.did === this.core.rootDid) return profile;
+
+		const kept = new Set(
+			[published.profile.avatar, ...(published.profile.mixes ?? []).map((mix) => mix.tracklist)]
+				.values()
+				.filter((blob) => blob !== undefined)
+				.map((blob) => blob.ref.$link)
+		);
+
+		const fetchBlob = this.core.fetchBlob;
+
+		const copy = async (blob: BlobRefJson): Promise<BlobRefJson> => {
+			if (!kept.has(blob.ref.$link)) return blob;
+
+			if (!fetchBlob) throw new Error('No blob fetcher configured to copy published files');
+			// Avatars and tracklists are both capped at 1 MB.
+			const { bytes } = await fetchBlob(this.core.rootDid, blob.ref.$link, MIX_REPORT_MAX_BYTES);
+
+			return writer.uploadBlob(bytes, blob.mimeType);
+		};
+
+		let next = profile;
+
+		if (profile.avatar) next = { ...next, avatar: await copy(profile.avatar) };
+
+		if (profile.mixes) {
+			const mixes = [];
+
+			for (const mix of profile.mixes)
+				mixes.push(mix.tracklist ? { ...mix, tracklist: await copy(mix.tracklist) } : mix);
 			next = { ...next, mixes };
 		}
 
@@ -231,10 +321,15 @@ export class RequestService {
 		if (row.status !== 'pending' && row.status !== 'changes_requested')
 			throw new UserError('This request has already been decided');
 		const current = storedRecord(row);
+
+		// A listing request only names the profile, which its owner edits in their dashboard instead.
+		if (current.kind === 'list')
+			throw new UserError('Edit your profile instead. Staff see it as it is when they review');
 		const client = row.repoDid === actor.did ? await this.core.userClient(actor.did) : null;
 
 		if (row.repoDid === actor.did && !client) throw new UserError('Sign in again to edit this request');
-		const profile = input.profile ? await this.attachFiles(input.profile, input, client) : current.profile;
+		const published = row.projectUri ? await this.projects.byUri(row.projectUri) : null;
+		const profile = input.profile ? await this.attachFiles(input.profile, input, client, published) : current.profile;
 		const next: RequestRecord = { ...current, updatedAt: nowIso() };
 
 		if (profile) next.profile = profile;
@@ -347,8 +442,17 @@ export class RequestService {
 		const record = storedRecord(row);
 		const existing = row.projectUri ? await this.projects.byUri(row.projectUri) : null;
 		let result: { uri: string; revision: number; name: string; changes: ReturnType<typeof diff> } | null = null;
+		let listing: { uri: string; name: string } | null = null;
 
-		if (outcome === 'approved') {
+		if (outcome === 'approved' && record.kind === 'list') {
+			const profile = await this.profiles.get(row.requesterDid, { reread: true });
+
+			if (!profile || profile.uri !== record.listing?.subject) throw new UserError('Their profile is gone');
+
+			if (!profile.record.performer) throw new UserError('Their profile no longer has the DJ section on');
+			const listed = await this.listings.list(actor, row.requesterDid, row.uri);
+			listing = { uri: listed.uri, name: profile.record.basics.name };
+		} else if (outcome === 'approved') {
 			const profile = record.profile ? await this.copyFiles(record.profile, row.repoDid, existing) : undefined;
 
 			if (record.kind === 'create') {
@@ -408,6 +512,8 @@ export class RequestService {
 			decision.projectRevision = result.revision;
 		}
 
+		if (listing) decision.listing = listing.uri;
+
 		const validated = validateRecord(COLLECTION.decision, decision);
 
 		const ref = await root.createSpaceRecord({
@@ -418,7 +524,13 @@ export class RequestService {
 
 		await this.applyDecision({ uri: ref.uri, value: validated });
 
-		const subjectName = result?.name ?? existing?.profile.name ?? record.profile?.name ?? 'a project';
+		const subjectName =
+			result?.name ??
+			listing?.name ??
+			existing?.profile.name ??
+			record.profile?.name ??
+			(record.kind === 'list' ? 'their profile' : 'a project');
+
 		const requester = await this.core.accounts.view(row.requesterDid);
 		const who = requester.handle ? `@${requester.handle}` : row.requesterDid;
 		const verb = outcome === 'approved' ? 'Approved' : outcome === 'rejected' ? 'Rejected' : 'Requested changes to';
@@ -440,7 +552,8 @@ export class RequestService {
 				requester: row.requesterDid,
 				decision: ref.uri,
 				project: result?.uri,
-				revision: result?.revision
+				revision: result?.revision,
+				listing: listing?.uri
 			}
 		});
 
@@ -599,6 +712,7 @@ export class RequestService {
 			rkey: parts.rkey,
 			kind: input.value.kind,
 			projectUri: input.value.project ?? null,
+			subjectUri: input.value.listing?.subject ?? null,
 			status,
 			record: JSON.stringify(input.value),
 			createdAt: input.value.createdAt,

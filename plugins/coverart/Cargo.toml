@@ -1,0 +1,29 @@
+[package]
+name = "locallibrary-plugin-coverart"
+description = "locallibrary's online cover art and track details, as a plugin: finds them for tracks on MusicBrainz and the Cover Art Archive"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# A search's query in its URL, encoded as a form's are (MusicBrainz reads `+` as a space): the
+# encoder `url` is built on, without the rest of it.
+form_urlencoded = "1.2.2"
+image.workspace = true
+indexmap.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

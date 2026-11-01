@@ -26,7 +26,16 @@ fn wave(n: usize) -> Waveform {
 
 /// A hot cue (`hot` is its slot) or memory cue, a loop if it has an end, named `comment`.
 fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>, comment: &str) -> Cue {
-    Cue { hot_cue: hot, start_ms, end_ms, comment: comment.into(), color: None, color_id: 0, loop_beats: None }
+    Cue {
+        hot_cue: hot,
+        start_ms,
+        end_ms,
+        comment: comment.into(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    }
 }
 
 #[test]
@@ -96,7 +105,7 @@ fn cue_labels_name_loops_by_length() {
 fn memory_cues_take_their_colour_from_the_table() {
     let p = Palette::default();
     let red = Cue { color_id: 2, ..cue(None, 0, None, "") };
-    assert_eq!(p.cue_color(&red), (p.track_color)(TrackColor::Red));
+    assert_eq!(p.cue_color(&red), p.track_color(TrackColor::Red));
     assert_eq!(p.cue_color(&cue(None, 0, None, "")), p.memory_cue);
     let hot = Cue { color: Some([1, 2, 3]), color_id: 2, ..cue(Some(0), 0, None, "") };
     assert_eq!(p.cue_color(&hot), [1, 2, 3], "a hot cue's own colour first");

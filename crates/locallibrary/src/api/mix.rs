@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{default_drive, known_drives, registry, resolve_drive};
 use crate::device::Device;
 use crate::mix::index::{Cache, IndexReport};
-use crate::mix::report::{self, Drive, PlayExtras, SavedReport};
+use crate::mix::report::{self, Drive, PlayExtras, SavedReport, ShownFields};
 use crate::mix::{Identifier, MixReport};
 use crate::profile::ProfilePrefs;
 use crate::progress::Ctx;
@@ -47,6 +47,10 @@ pub struct IdentifyMix {
     /// Playback speeds to search, as a fraction: 0.16 is ±16%.
     #[serde(default)]
     pub tempo_range: Option<f64>,
+    /// The mix's cover, an image file, for its report and export (instead of one embedded in
+    /// the recording). Checked before identifying.
+    #[serde(default)]
+    pub cover: Option<PathBuf>,
 }
 /// `mix.identify`'s request ([`super::mix_identify_cached`]): the mix, and what to answer with
 /// its report.
@@ -159,13 +163,14 @@ pub struct ReportPage {
 }
 
 /// Write a kept report's interactive page into the store's reports folder (again), with the
-/// tracks' waveforms, cues, phrases and covers from the drive when it's mounted, the mix's audio
-/// linked relative to the page, and the tracks the profile hides unnamed.
-pub fn mix_report_html(store: &Store, req: &ReportHtml) -> Result<ReportPage> {
+/// tracks' waveforms, cues, phrases, covers and the `fields` shown from the drive when it's
+/// mounted, the mix's audio linked relative to the page, and the tracks the profile hides
+/// unnamed.
+pub fn mix_report_html(store: &Store, req: &ReportHtml, fields: Option<ShownFields<'_>>) -> Result<ReportPage> {
     let r = report::load(store.root(), &req.id)?;
     let device = report_drive(&r);
     let library = device.as_ref().and_then(|d| d.library().ok());
-    let drive = device.as_ref().zip(library.as_ref()).map(|(d, l)| Drive::new(d, l));
+    let drive = device.as_ref().zip(library.as_ref()).map(|(d, l)| Drive { fields, ..Drive::new(d, l) });
     let path = report::reports_dir(store.root()).join(format!("{}.html", req.id));
     let audio = report::playable_audio(&r.mix.path).filter(|a| a.is_file());
     let page = report::page(&r, drive, audio.as_deref(), &path, &ProfilePrefs::load(store)?, false);

@@ -1,5 +1,15 @@
 use super::*;
-use crate::test_util::track;
+use crate::test_util::{TrackGenerator, track};
+
+#[test]
+fn artists_are_credited_once_each() {
+    assert_eq!(artist_credits("Bicep FEAT. Clara La San"), ["Bicep", "Clara La San"]);
+    assert_eq!(artist_credits("Chris Lake, Amber Mark"), ["Chris Lake", "Amber Mark"]);
+    assert_eq!(artist_credits("Simon & Garfunkel"), ["Simon & Garfunkel"]);
+    assert_eq!(artist_credits("Röyksopp (feat. Robyn)"), ["Röyksopp", "Robyn"]);
+    assert_eq!(artist_credits("İzel, Ölgü"), ["İzel", "Ölgü"]);
+    assert_eq!(artist_credits(""), Vec::<String>::new());
+}
 
 #[test]
 fn diff_detects_adds_removes_changes() {
@@ -195,6 +205,24 @@ fn blank_names_in_a_query_are_no_names() {
     assert_eq!((found(" "), found("  "), found(" / ")), (None, None, None));
 }
 
+/// A doubled or blank-padded slash, or one at either end, names the same playlist as the plain
+/// path: `x//y` is `x/y`.
+#[test]
+fn blank_names_inside_a_path_are_left_out() {
+    let node = |id, parent_id, name: &str| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: parent_id.is_none(),
+        sort_order: id,
+        track_ids: vec![],
+    };
+    let lib = Library { playlists: vec![node(1, None, "x"), node(2, Some(1), "y")], ..Default::default() };
+    let found = |q| lib.find_playlist(q).map(|p| p.id);
+    assert_eq!(found("x/y"), Some(2));
+    assert_eq!((found("x//y"), found("x/ /y"), found("/x/y/")), (Some(2), Some(2), Some(2)));
+}
+
 #[test]
 fn untangled_trees_have_each_id_once_no_loops_and_bounded_depth() {
     let node = |id, parent_id, name: &str| Playlist {
@@ -231,49 +259,37 @@ fn untangled_trees_have_each_id_once_no_loops_and_bounded_depth() {
     assert_eq!(looped.playlist_names(1).len(), MAX_DEPTH);
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 
-/// A track with every field drawn: short text, any numbers, a tempo in hundredths of a beat
-/// per minute (as rekordbox stores it).
-#[hegel::test_helper]
-fn any_track(tc: &TestCase, id: u32) -> Track {
-    let text = || tc.draw(gs::text().max_size(6));
-    Track {
-        id,
-        title: text(),
-        artist: text(),
-        album: text(),
-        album_artist: text(),
-        genre: text(),
-        label: text(),
-        key: text(),
-        remixer: text(),
-        original_artist: text(),
-        composer: text(),
-        comment: text(),
-        mix_name: text(),
-        isrc: text(),
-        bpm: f64::from(tc.draw(gs::integers::<u32>().max_value(30_000))) / 100.0,
-        duration_secs: tc.draw(gs::integers()),
-        year: tc.draw(gs::integers()),
-        track_number: tc.draw(gs::integers()),
-        disc_number: tc.draw(gs::integers()),
-        rating: tc.draw(gs::integers::<u8>().max_value(5)),
-        color: TrackColor::from_id(tc.draw(gs::integers::<u8>().max_value(9))),
-        play_count: tc.draw(gs::integers()),
-        bitrate: tc.draw(gs::integers()),
-        sample_rate: tc.draw(gs::integers()),
-        sample_depth: tc.draw(gs::integers()),
+/// A track with every field drawn: short text, a tempo in hundredths of a beat per minute (as
+/// rekordbox stores it), a 0-5 star rating, and any other numbers, colour and artwork id.
+fn any_track(id: u32) -> TrackGenerator<'static> {
+    let text = || gs::text().max_size(6);
+    TrackGenerator::new()
+        .id(gs::just(id))
+        .title(text())
+        .artist(text())
+        .album(text())
+        .album_artist(text())
+        .genre(text())
+        .label(text())
+        .key(text())
+        .remixer(text())
+        .original_artist(text())
+        .composer(text())
+        .comment(text())
+        .mix_name(text())
+        .isrc(text())
+        .bpm(gs::integers::<u32>().max_value(30_000).map(|b| f64::from(b) / 100.0))
+        .rating(gs::integers::<u8>().max_value(5))
         // Up to 4 GiB, so a library's total stays far from u64's limit.
-        file_size: u64::from(tc.draw(gs::integers::<u32>())),
-        file_path: text(),
-        analyze_path: text(),
-        date_added: text(),
-        release_date: text(),
-        artwork_id: tc.draw(gs::optional(gs::integers())),
-        artwork_path: tc.draw(gs::optional(gs::text().max_size(6))),
-    }
+        .file_size(gs::integers::<u32>().map(u64::from))
+        .file_path(text())
+        .analyze_path(text())
+        .date_added(text())
+        .release_date(text())
+        .artwork_path(gs::optional(text()))
 }
 
 /// Up to `n` playlist rows with ids and folders from a small range, so ids repeat, folders
@@ -322,7 +338,7 @@ fn ancestors(rows: &[Playlist], p: &Playlist) -> (usize, bool) {
 #[hegel::test(test_cases = 100)]
 fn libraries_round_trip_through_json(tc: TestCase) {
     let count = tc.draw(gs::integers::<u32>().max_value(3));
-    let tracks: Vec<Track> = (0..count).map(|id| any_track(&tc, id)).collect();
+    let tracks: Vec<Track> = (0..count).map(|id| tc.draw(any_track(id))).collect();
     let lib = Library {
         tracks,
         playlists: rows(&tc, 4),
@@ -704,9 +720,7 @@ fn lookups_and_summaries_agree_with_the_library(tc: TestCase) {
     let tracks: Vec<Track> = (0..count)
         .map(|_| {
             let id = tc.draw(gs::integers::<u32>().max_value(5));
-            let mut t = any_track(&tc, id);
-            t.artist = tc.draw(gs::sampled_from(vec!["A", "B", "a", ""])).into();
-            t
+            tc.draw(any_track(id).artist(gs::sampled_from(vec!["A", "B", "a", ""]).map(String::from)))
         })
         .collect();
     let lib = Library { tracks, playlists: rows(&tc, 5), ..Default::default() };
@@ -802,4 +816,98 @@ fn normalised_text_skips_normalising(tc: hegel::TestCase) {
     let s = tc.draw(hegel::generators::text().alphabet(alphabet).max_size(12));
     let unicode = s.nfkc().collect::<String>().to_lowercase();
     assert_eq!(normalize(&s), unicode.split_whitespace().collect::<Vec<_>>().join(" "), "{s:?}");
+}
+
+/// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and
+/// their tracks; a playlist that isn't there is named.
+#[test]
+fn a_subset_keeps_its_folders_and_tracks() {
+    let node = |id, parent_id, name: &str, track_ids: Vec<u32>| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: track_ids.is_empty(),
+        sort_order: id,
+        track_ids,
+    };
+    let library = Library {
+        tracks: (1..=4).map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![
+            node(1, None, "Sets", vec![]),
+            node(2, Some(1), "Shows", vec![]),
+            node(3, Some(2), "Friday", vec![1]),
+            node(4, Some(1), "Saturday", vec![2, 3]),
+            node(5, None, "All", vec![1, 2, 3, 4]),
+        ],
+        ..Default::default()
+    };
+    let kept = |only: &[&str]| {
+        let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        (s.playlists.iter().map(|p| p.id).collect::<Vec<_>>(), s.tracks.iter().map(|t| t.id).collect::<Vec<_>>())
+    };
+    assert_eq!(kept(&["Sets/Shows"]), (vec![1, 2, 3], vec![1]));
+    assert_eq!(kept(&["Saturday", "Friday"]), (vec![1, 2, 3, 4], vec![1, 2, 3]));
+    assert_eq!(kept(&[]), (vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4]));
+    let only = ["Friday".to_string(), "Sunday".to_string()];
+    assert_eq!(library.subset(&only), Err("Sunday"));
+}
+
+/// Tracks only OneLibrary has are numbered on from the others for files, in library order, and
+/// the lists name them by their new numbers; their old ids are answered by the new.
+#[test]
+fn onelibrary_only_tracks_are_numbered_on_for_files() {
+    let list =
+        |id, track_ids| Playlist { id, parent_id: None, name: "L".into(), is_folder: false, sort_order: 0, track_ids };
+    let (a, b) = (ONELIBRARY_ONLY | 9, ONELIBRARY_ONLY | 2);
+    let mut library = Library {
+        tracks: [3, a, 7, b].into_iter().map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![list(1, vec![b, 3, a])],
+        history: vec![list(2, vec![a, 7])],
+        ..Default::default()
+    };
+    let old = library.number_for_files();
+    assert_eq!(library.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [3, 8, 7, 9]);
+    assert_eq!(
+        (library.playlists[0].track_ids.as_slice(), library.history[0].track_ids.as_slice()),
+        (&[9, 3, 8][..], &[8, 7][..])
+    );
+    assert_eq!(old, FxHashMap::from_iter([(8, a), (9, b)]));
+    let mut plain = Library { tracks: vec![track(4, "A", "T", "/Contents/4.mp3")], ..Default::default() };
+    assert!(plain.number_for_files().is_empty());
+    assert_eq!(plain.tracks[0].id, 4);
+}
+
+/// An ISRC (two letters, three letters or digits, seven digits) is one however a tag writes it
+/// (lowercase, hyphens, spaces around), as the capitals alone; anything else (another length,
+/// letters where the digits go, other characters inside) isn't one, nor is it plain.
+#[hegel::test(test_cases = 200)]
+fn isrcs_are_one_however_tagged(tc: TestCase) {
+    let part = |alphabet: &'static str, n: usize| tc.draw(gs::text().alphabet(alphabet).min_size(n).max_size(n));
+    let code = [part("ABXZabxz", 2), part("ABXZabxz0189", 3), part("0189", 7)].concat();
+    let hyphens: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(12)).max_size(4));
+    let mut tagged = code.clone();
+    for at in hyphens.into_iter().rev() {
+        tagged.insert(at.min(tagged.len()), '-');
+    }
+    let tagged = format!(
+        "{}{tagged}{}",
+        tc.draw(gs::sampled_from(vec!["", " ", "\t"])),
+        tc.draw(gs::sampled_from(vec!["", " "]))
+    );
+    let plain = code.to_ascii_uppercase();
+    assert_eq!(isrc(&tagged), Some(plain.clone()), "{tagged:?}");
+    assert!(is_isrc(&plain) && (code == plain || !is_isrc(&code)), "{code:?}");
+    // Anything drawn from what ISRCs are made of is one only where each character's place says.
+    let other = tc.draw(gs::text().alphabet("AZaz09- ").max_size(16));
+    let squeezed = other.trim().replace('-', "").to_ascii_uppercase();
+    let placed = squeezed.len() == 12
+        && squeezed.char_indices().all(|(i, c)| match i {
+            0 | 1 => c.is_ascii_uppercase(),
+            2..=4 => c.is_ascii_alphanumeric(),
+            _ => c.is_ascii_digit(),
+        });
+    assert_eq!(isrc(&other).is_some(), placed, "{other:?}");
+    assert_eq!(isrc("GBCFB17005 86"), None, "a space inside");
+    assert_eq!(isrc("1BCFB1700586"), None, "a digit in the country code");
+    assert_eq!(isrc("GBCFB17005X6"), None, "a letter in the number");
 }

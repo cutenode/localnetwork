@@ -160,6 +160,9 @@ pub struct Playhead {
     since: AtomicU64,
     /// The last seek asked for couldn't be made.
     seek_failed: AtomicBool,
+    /// The player is paused. rodio only looks at its own pause every 5 ms of the track, so till it
+    /// does the audio thread plays silence in place of the track, and the playhead stops at once.
+    paused: AtomicBool,
     /// The player has moved on to this track (its first sample was asked for).
     started: AtomicBool,
     /// A sample of the track has played (a file with no audio in it ends without one).
@@ -186,6 +189,7 @@ impl Default for Playhead {
             seek: AtomicU64::new(NO_SEEK),
             since: AtomicU64::new(u64::MAX),
             seek_failed: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
             started: AtomicBool::new(false),
             played: AtomicBool::new(false),
             broke: Mutex::new(None),
@@ -263,6 +267,8 @@ pub struct Looper<S> {
     keeping: bool,
     /// Playing from `kept` (the next sample's index), while the track waits at the loop's end.
     replay: Option<usize>,
+    /// Paused: this frame is silence (see [`Playhead::paused`]).
+    silent: bool,
     /// A sample has been asked for.
     started: bool,
     /// Playing it panicked: it has ended (see [`Playhead::broke`]).
@@ -285,6 +291,7 @@ impl<S: Source> Looper<S> {
             kept: Vec::new(),
             keeping: false,
             replay: None,
+            silent: false,
             started: false,
             broken: false,
         }
@@ -462,7 +469,15 @@ impl<S: Source> Looper<S> {
                 self.head.ended.store(true, Ordering::Release);
                 return None;
             }
-            self.frame_start();
+            // A seek or loop asked for while paused is taken up once it plays on.
+            self.silent = self.head.paused.load(Ordering::Acquire);
+            if !self.silent {
+                self.frame_start();
+            }
+        }
+        if self.silent {
+            self.channel = (self.channel + 1) % self.channels;
+            return Some(0.0);
         }
         let s = match self.replay.and_then(|i| self.kept.get(i)) {
             Some(&s) => {
@@ -563,8 +578,10 @@ const LONG_MP3: u64 = 40_000_000;
 /// Open `path` to play, on the worker and guarded ([`probe::guarded`]): symphonia's probe can
 /// panic on a bad file (a WAV saying 0 Hz), and so can rodio asked for the channels or rate of a
 /// stream that has none, which playing it would ask on the UI thread. A panic while decoding as
-/// it plays is caught on the audio thread, in [`Looper`]'s `next`.
+/// it plays is caught on the audio thread, in [`Looper`]'s `next`. An MP4 that would make
+/// symphonia abort is refused before it gets there ([`probe::vet_container`]).
 pub fn open_file(path: &Path) -> Result<OpenedFile> {
+    probe::vet_container(path)?;
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let len = file.metadata().map(|m| m.len()).ok();
     let mut builder = Decoder::builder().with_data(BufReader::new(file)).with_seekable(true).with_gapless(true);
@@ -588,12 +605,16 @@ pub fn open_file(path: &Path) -> Result<OpenedFile> {
     })
 }
 
+/// The outputs' names, and which is the system's default.
+pub type Listed = (Vec<String>, Option<String>);
+
 /// The outputs the player can play through: the machine's devices (see [`Outputs::DEVICES`]), or
 /// none (an app made for a test, which mustn't play through the speakers).
 #[derive(Clone, Copy)]
 pub struct Outputs {
-    /// The outputs' names, and which is the system's default.
-    pub list: fn() -> (Vec<String>, Option<String>),
+    /// List the outputs. It can take a while (cpal asks every host), so the player does it in
+    /// the background.
+    pub list: fn() -> Result<Listed>,
     /// Open the output called `name` (the default for `None`).
     pub open: fn(Option<&str>) -> Result<Audio>,
 }
@@ -604,7 +625,20 @@ impl Outputs {
 
     /// None at all.
     pub const NONE: Outputs =
-        Outputs { list: || (Vec::new(), None), open: |_| anyhow::bail!("no audio output device") };
+        Outputs { list: || Ok((Vec::new(), None)), open: |_| anyhow::bail!("no audio output device") };
+
+    /// One that plays to no one, in real time (see [`Audio::silent`]).
+    pub const SILENT: Outputs = Outputs { list: || Ok((Vec::new(), None)), open: |_| Ok(Audio::silent()) };
+
+    /// The machine's devices, or [`Outputs::SILENT`] when `$LOCALLIBRARY_AUDIO` is `silent`: a
+    /// test switch, for harnesses that play tracks in the player (the AT Store screenshots) and
+    /// mustn't be heard.
+    pub fn from_env() -> Outputs {
+        match std::env::var_os("LOCALLIBRARY_AUDIO") {
+            Some(v) if v == "silent" => Outputs::SILENT,
+            _ => Outputs::DEVICES,
+        }
+    }
 
     /// Open the output called `name` (the default one for `None`), else the default. Also says
     /// why the one asked for didn't open.
@@ -617,21 +651,22 @@ impl Outputs {
     }
 }
 
-/// The names of the output devices, and which is the system's default.
+/// The names of the output devices, and which is the system's default (failing when the host
+/// can't list them at all).
 #[cfg(feature = "playback")]
-fn device_names() -> (Vec<String>, Option<String>) {
+fn device_names() -> Result<Listed> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
     let host = rodio::cpal::default_host();
     let name = |d: &rodio::cpal::Device| d.description().ok().map(|d| d.name().to_string());
     let default = host.default_output_device().as_ref().and_then(name);
-    let names = host.output_devices().map(|ds| ds.filter_map(|d| name(&d)).collect()).unwrap_or_default();
-    (names, default)
+    let names = host.output_devices()?.filter_map(|d| name(&d)).collect();
+    Ok((names, default))
 }
 
 /// Built without the `playback` feature: no output devices.
 #[cfg(not(feature = "playback"))]
-fn device_names() -> (Vec<String>, Option<String>) {
-    (Vec::new(), None)
+fn device_names() -> Result<Listed> {
+    Ok((Vec::new(), None))
 }
 
 /// Open the output device called `name`, or the default one (failing that, as rodio does, the
@@ -699,7 +734,6 @@ pub struct Audio {
 
 impl Audio {
     /// Playing into `mixer`, with no device.
-    #[cfg(any(test, feature = "playback"))]
     fn with(mixer: Mixer) -> Audio {
         Audio {
             #[cfg(feature = "playback")]
@@ -719,11 +753,31 @@ impl Audio {
         self.device.as_deref()
     }
 
-    /// For tests: no device; what plays is read from the mixer returned, mono at `rate`.
-    #[cfg(test)]
+    /// No device: what plays is read from the mixer returned, mono at `rate`.
     pub fn offline(rate: u32) -> (Audio, rodio::mixer::MixerSource) {
         let (mixer, out) = rodio::mixer::mixer(ChannelCount::MIN, SampleRate::new(rate).unwrap());
         (Audio::with(mixer), out)
+    }
+
+    /// No device, with a thread of its own reading what plays as fast as a device would and
+    /// throwing it away, so the playhead and the visualisers move as they do through speakers.
+    /// The thread lasts as long as the process: [`Outputs::SILENT`] lists no outputs to switch to,
+    /// so it's opened once a run.
+    fn silent() -> Audio {
+        const RATE: u32 = 44_100;
+        /// A hundredth of a second of samples, read at a time.
+        const CHUNK: usize = RATE as usize / 100;
+        let (audio, mut out) = Audio::offline(RATE);
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            for n in 1u32.. {
+                out.by_ref().take(CHUNK).for_each(drop);
+                std::thread::sleep(
+                    (start + Duration::from_millis(10) * n).saturating_duration_since(std::time::Instant::now()),
+                );
+            }
+        });
+        audio
     }
 
     /// Start playing an opened file (from the beginning, or where auto cue put it), replacing
@@ -745,7 +799,8 @@ impl Audio {
 
     fn append(&mut self, file: OpenedFile) {
         let Some(p) = &self.player else { return };
-        let head = Arc::new(Playhead { format: file.format, ..Playhead::default() });
+        let paused = AtomicBool::new(p.is_paused());
+        let head = Arc::new(Playhead { format: file.format, paused, ..Playhead::default() });
         let mut looper = Looper::new(*file.decoder, head.clone());
         if let Some(at) = file.start {
             // Made by the audio thread before the first frame (from the start, if it can't be).
@@ -803,9 +858,18 @@ impl Audio {
         self.player.as_ref().is_none_or(Player::is_paused)
     }
 
+    /// Pause or play on. Paused, the playhead stands still from the next frame the audio thread
+    /// plays (see [`Playhead::paused`]).
     pub fn toggle_pause(&self) {
-        if let Some(p) = &self.player {
-            if p.is_paused() { p.play() } else { p.pause() }
+        let Some(p) = &self.player else { return };
+        let pause = !p.is_paused();
+        if pause {
+            p.pause()
+        } else {
+            p.play()
+        }
+        for h in &self.heads {
+            h.paused.store(pause, Ordering::Release);
         }
     }
 

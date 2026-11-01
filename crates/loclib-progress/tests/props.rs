@@ -8,7 +8,7 @@ use loclib_progress::{
     CancelToken, Cancelled, Ctx, Event, NoProgress, Phase, Progress, Scope, Step, Steps, WarningLimiter,
 };
 
-const PHASES: [Phase; 12] = [
+const PHASES: [Phase; 13] = [
     Phase::Scan,
     Phase::Hash,
     Phase::Copy,
@@ -21,6 +21,7 @@ const PHASES: [Phase; 12] = [
     Phase::Listen,
     Phase::Match,
     Phase::Analyze,
+    Phase::Upload,
 ];
 
 /// Step names: `Steps` takes `&'static str`s, so generated steps pick from these.
@@ -48,7 +49,7 @@ impl Progress for Recorder {
 
 #[hegel::test_helper]
 fn phase(tc: &TestCase) -> Phase {
-    tc.draw(gs::sampled_from(PHASES.to_vec()).print_as_debug())
+    tc.draw(gs::sampled_from(PHASES.to_vec()))
 }
 
 #[hegel::test_helper]

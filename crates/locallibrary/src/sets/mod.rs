@@ -12,6 +12,7 @@
 //! logs imported from other tools (Beat Link Trigger), which carry real play times.
 
 pub mod build;
+pub mod chapters;
 pub mod edit;
 pub mod export;
 pub mod import;
@@ -20,14 +21,20 @@ pub mod session;
 pub mod suggest;
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
+use lofty::prelude::*;
+use lofty::tag::ItemKey;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
+use crate::fields::FieldValue;
+use crate::fields::roles::{Role, RoleValues};
 use crate::local_time;
-use crate::model::Track;
+use crate::model::{Track, artist_credits, isrc};
+use crate::profile::ProfilePrefs;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -64,6 +71,13 @@ pub struct Set {
     /// Where people can listen to it (Mixcloud, SoundCloud, YouTube...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// What the link is, as the plugin that published the set there named it (`plyr.fm`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_name: Option<String>,
+    /// The Atmosphere record its recording can be played from (a plyr.fm track), as the plugin
+    /// that published it there said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording_record: Option<loclib_plugin::StrongRef>,
     /// The recording on this computer the tracklist was found in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<Recording>,
@@ -103,6 +117,53 @@ impl Set {
     /// Newest first: by the day it was played, then the one declared last.
     pub fn newest_first(a: &Set, b: &Set) -> std::cmp::Ordering {
         b.date.cmp(&a.date).then(b.created_at.cmp(&a.created_at))
+    }
+
+    /// Which tracks go out without their names wherever the set is published: those it marks
+    /// unnamed, those at the positions (from 1) in `hide`, and those `prefs` hides (see
+    /// [`SetEntry::may_name`]). A position the set doesn't have is refused.
+    pub fn unnamed(&self, hide: &[usize], prefs: &ProfilePrefs) -> Result<Unnamed> {
+        if let Some(&bad) = hide.iter().find(|&&p| p == 0 || p > self.tracks.len()) {
+            return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", self.tracks.len())));
+        }
+        let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
+        for (n, e) in (1..).zip(&self.tracks) {
+            if e.unnamed {
+                marked.push(n);
+            } else if hide.contains(&n) {
+                asked.push(n);
+            } else if !e.may_name(prefs) {
+                profile.push(n);
+            }
+        }
+        let notes = [
+            unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
+            unnamed_note(&asked, "hidden as asked"),
+            unnamed_note(&profile, "hidden by your profile (`profile unhide`)"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Ok(Unnamed { positions: marked.into_iter().chain(asked).chain(profile).collect(), notes })
+    }
+}
+
+/// A set's tracks published without their names ([`Set::unnamed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unnamed {
+    /// Their positions, from 1.
+    pub positions: BTreeSet<usize>,
+    /// Why, for each reason one is: `tracks 3, 7 aren't named: hidden as asked`.
+    pub notes: Vec<String>,
+}
+
+/// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
+fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
+    let list: Vec<String> = positions.iter().map(usize::to_string).collect();
+    match list.as_slice() {
+        [] => None,
+        [one] => Some(format!("track {one} isn't named: {why}")),
+        many => Some(format!("tracks {} aren't named: {why}", many.join(", "))),
     }
 }
 
@@ -167,6 +228,10 @@ pub struct SetEntry {
     /// Seconds from the start of the set (from a recording or a timed log).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_seconds: Option<u32>,
+    /// MusicBrainz IDs from the audio file's tags, else from what the analyzers chosen for their
+    /// roles worked out for it, read from a mounted drive when the set is made, edited or published.
+    #[serde(default, skip_serializing_if = "MusicBrainzIds::is_empty")]
+    pub musicbrainz: MusicBrainzIds,
     /// Published without naming it: only its place in the set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unnamed: bool,
@@ -174,6 +239,110 @@ pub struct SetEntry {
     /// The session that logged it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+}
+
+/// MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
+/// recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist. An
+/// analyzer answers them as the roles `recording`, `release` and `artists`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MusicBrainzIds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<Uuid>,
+    /// In the credit's order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artists: Vec<Uuid>,
+}
+
+impl MusicBrainzIds {
+    /// The roles of the analyzers' fields these are read from: the IDs, and what they were
+    /// worked out from.
+    pub const ROLES: [Role; 5] = [Role::Recording, Role::Release, Role::Artists, Role::Isrc, Role::Credits];
+
+    pub fn is_empty(&self) -> bool {
+        *self == MusicBrainzIds::default()
+    }
+
+    /// These, with what they lack from `other`: the recording and the release each, the artists
+    /// all together (they pair with the credit's names only as a whole).
+    pub fn or(self, other: MusicBrainzIds) -> MusicBrainzIds {
+        MusicBrainzIds {
+            recording: self.recording.or(other.recording),
+            release: self.release.or(other.release),
+            artists: if self.artists.is_empty() { other.artists } else { self.artists },
+        }
+    }
+
+    /// Whether `values` (an analyzer's for [`Self::ROLES`]) were worked out for `e` as the set has
+    /// it, as far as the analyzer says (its `isrc` and `credits`): for `e`'s ISRC, and then for
+    /// its artist's credits too. An analyzer's values are kept by audio file, and a library can
+    /// retag a track without changing the file.
+    fn worked_out_for(values: &RoleValues, e: &SetEntry) -> (bool, bool) {
+        let isrc = match values.get(&Role::Isrc) {
+            None => true,
+            Some(FieldValue::Null) => isrc(&e.isrc).is_none(),
+            Some(FieldValue::String(s)) => isrc(s).is_some_and(|s| Some(s) == isrc(&e.isrc)),
+            Some(_) => false,
+        };
+        let credits = match values.get(&Role::Credits) {
+            None => true,
+            Some(FieldValue::Strings(names)) => *names == artist_credits(&e.artist),
+            Some(_) => false,
+        };
+        (isrc, isrc && credits)
+    }
+
+    /// Whether `values` (an analyzer's for [`Self::ROLES`]) say something [`Self::from_roles`]
+    /// leaves out as being about another ISRC or credit than `e`'s: worth working out again.
+    pub fn stale(values: &RoleValues, e: &SetEntry) -> bool {
+        !values.is_empty() && Self::worked_out_for(values, e) != (true, true)
+    }
+
+    /// The IDs `values` (an analyzer's for [`Self::ROLES`]) give `e`, once they're for its ISRC:
+    /// the recording and the release each when it's a UUID, and the artists only when every one
+    /// is, they're for its credit, and there's one for each name [`artist_credits`] splits its
+    /// artist into, since they're paired with those names in that order. Anything else is left
+    /// out.
+    pub fn from_roles(values: &RoleValues, e: &SetEntry) -> MusicBrainzIds {
+        let (ids, credited) = Self::worked_out_for(values, e);
+        if !ids {
+            return MusicBrainzIds::default();
+        }
+        let id = |role| match values.get(&role) {
+            Some(FieldValue::String(s)) => Uuid::parse_str(s.trim()).ok(),
+            _ => None,
+        };
+        let artists: Option<Vec<Uuid>> = match values.get(&Role::Artists) {
+            Some(FieldValue::Strings(ids)) if credited => ids.iter().map(|s| Uuid::parse_str(s.trim()).ok()).collect(),
+            _ => None,
+        };
+        let artists = artists.filter(|ids| ids.len() == artist_credits(&e.artist).len()).unwrap_or_default();
+        MusicBrainzIds { recording: id(Role::Recording), release: id(Role::Release), artists }
+    }
+
+    /// The IDs the tags of the audio file at `path` hold: none when it has none, or can't be read.
+    /// Anything that isn't a UUID is left out. A file whose name doesn't say its type (the store's
+    /// copy of one, named by its hash) is read as its first bytes say.
+    pub fn read(path: &Path) -> MusicBrainzIds {
+        let read = || {
+            let probe = lofty::probe::Probe::open(path).ok()?;
+            let probe = if probe.file_type().is_some() { probe } else { probe.guess_file_type().ok()? };
+            probe.read().ok()
+        };
+        let Some(tagged) = read() else { return MusicBrainzIds::default() };
+        let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else { return MusicBrainzIds::default() };
+        // ID3v2.4 keeps several values in one frame (lofty splits those); Picard writes ID3v2.3's
+        // joined with `/`.
+        let ids = |key: ItemKey| -> Vec<Uuid> {
+            tag.get_strings(key).flat_map(|v| v.split('/')).filter_map(|v| Uuid::parse_str(v.trim()).ok()).collect()
+        };
+        MusicBrainzIds {
+            recording: ids(ItemKey::MusicBrainzRecordingId).into_iter().next(),
+            release: ids(ItemKey::MusicBrainzReleaseId).into_iter().next(),
+            artists: ids(ItemKey::MusicBrainzArtistId),
+        }
+    }
 }
 
 /// A tempo as JSON holds it: an infinite or NaN one is no tempo, and serde_json would write it as
@@ -198,6 +367,7 @@ impl SetEntry {
             duration_secs: t.duration_secs,
             file: Some(t.file_path.clone()).filter(|f| !f.is_empty()),
             start_seconds: None,
+            musicbrainz: MusicBrainzIds::default(),
             unnamed: false,
             origin,
             session: session.map(String::from),
@@ -223,6 +393,7 @@ impl SetEntry {
             duration_secs: 0,
             file: None,
             start_seconds: None,
+            musicbrainz: MusicBrainzIds::default(),
             unnamed: false,
             origin: EntryOrigin::Added,
             session: None,
@@ -238,9 +409,15 @@ impl SetEntry {
         }
     }
 
-    /// The file as [`crate::plays::file_key`] keys it, to match a library's tracks by.
+    /// Whether what's shared with others may name it: not when the set marks it unnamed, or
+    /// `prefs`, the DJ's profile, hides the track or its artist.
+    pub fn may_name(&self, prefs: &ProfilePrefs) -> bool {
+        !self.unnamed && prefs.may_name(&self.name(), &self.artist)
+    }
+
+    /// The file as [`crate::paths::file_key`] keys it, to match a library's tracks by.
     pub fn file_key(&self) -> Option<String> {
-        self.file.as_deref().map(crate::plays::file_key)
+        self.file.as_deref().map(crate::paths::file_key)
     }
 }
 
@@ -255,7 +432,7 @@ pub struct Session {
     /// Folders and name.
     pub path: String,
     /// `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-    /// (`beat_link_trigger`).
+    /// (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
     pub source: String,
     /// The mounted drives holding it now.
     pub drives: Vec<String>,
@@ -328,7 +505,7 @@ pub struct ImportedSession {
     /// Like a history list's fingerprint: the same log imported twice is one session.
     pub id: String,
     pub name: String,
-    /// `beat_link_trigger`.
+    /// `beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`).
     pub tool: String,
     /// The file it was imported from.
     pub file: PathBuf,
@@ -416,6 +593,13 @@ impl SetBook {
             }
         }
         Err(Error::NotFound(format!("set {q:?} (`locallibrary sets` lists them)")))
+    }
+
+    /// Keeps `log` (checked as it was read) as a session: the same log imported again replaces
+    /// its session.
+    pub(crate) fn keep(&mut self, log: ImportedSession) {
+        self.imported.retain(|s| s.id != log.id);
+        self.imported.push(log);
     }
 
     /// The sets built from session `id`.

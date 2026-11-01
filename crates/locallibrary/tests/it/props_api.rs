@@ -32,7 +32,7 @@ use locallibrary::retention::PruneOptions;
 use locallibrary::settings::{self, DriveSettings, SCHEMA, SettingValue};
 use locallibrary::store::{Snapshot, Store};
 use locallibrary::tree::FileEntry;
-use locallibrary::{Error, Hash, Library, artwork, backup, clean, convert, merge, xml};
+use locallibrary::{Error, Hash, Library, artwork, backup, convert, merge};
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::Serialize;
@@ -262,7 +262,7 @@ impl StoreApiMachine {
             0 if !labelled.is_empty() => labelled[0].to_uppercase(),
             1 => format!("snapshot:{}", &hex[..8]),
             2 => hex.to_ascii_uppercase(),
-            3 => hex[..tc.draw(gs::integers::<usize>().min_value(4).max_value(12))].to_string(),
+            3 => hex[..tc.draw(gs::integers::<usize>().min_value(4).max_value(hex.len()))].to_string(),
             _ => id.short(),
         }
     }
@@ -868,16 +868,28 @@ impl SyncMachine {
         }
     }
 
-    fn descends(&self, mut from: usize, of: usize) -> bool {
-        loop {
-            if from == of {
-                return true;
-            }
-            match self.parents[from] {
-                Some(p) => from = p,
-                None => return false,
-            }
+    /// The fingerprints of the states `s` came through, oldest first, as a drive holding it
+    /// records them.
+    fn history(&self, mut s: usize) -> Vec<Option<Hash>> {
+        let mut history = vec![self.fingerprints[s]];
+        while let Some(p) = self.parents[s] {
+            history.push(self.fingerprints[p]);
+            s = p;
         }
+        history.reverse();
+        history.dedup();
+        history
+    }
+
+    /// Whether state `from` has been through state `of`, by content: `from` held `of`'s
+    /// fingerprint after every state the two histories share, and after every state `of` came
+    /// through since first holding it. Those `of` came through before that and `from` never held
+    /// don't count (a drive's lineage keeps only its latest entries).
+    fn descends(&self, from: usize, of: usize) -> bool {
+        let (ours, theirs, current) = (self.history(from), self.history(of), self.fingerprints[of]);
+        let Some(at) = ours.iter().rposition(|f| *f == current) else { return false };
+        let since = theirs.iter().position(|f| *f == current).unwrap();
+        theirs.iter().enumerate().all(|(n, f)| ours.iter().position(|o| o == f).map_or(n < since, |i| i <= at))
     }
 
     /// How two states stand, as compare should say: the same, left newer, right newer, or
@@ -887,9 +899,9 @@ impl SyncMachine {
             return Some(Relation::Identical);
         }
         match (self.descends(l, r), self.descends(r, l)) {
-            (true, _) => Some(Relation::LeftNewer),
+            (true, false) => Some(Relation::LeftNewer),
             (false, true) => Some(Relation::RightNewer),
-            (false, false) => None,
+            _ => None,
         }
     }
 
@@ -904,13 +916,14 @@ impl SyncMachine {
     /// A drive holding an export (the first always does, until it's overwritten with another's).
     fn with_export(&self, tc: &TestCase) -> Option<usize> {
         let held: Vec<usize> = (0..3).filter(|i| self.held[*i].is_some()).collect();
-        (!held.is_empty()).then(|| held[tc.draw(gs::integers::<usize>().max_value(held.len() - 1))])
+        (!held.is_empty()).then(|| tc.draw(gs::sampled_from(held)))
     }
 
     /// Two different drives.
     fn pair(&self, tc: &TestCase) -> (usize, usize) {
-        let i = tc.draw(gs::integers::<usize>().max_value(2));
-        let j = (i + tc.draw(gs::integers::<usize>().min_value(1).max_value(2))) % 3;
+        let n = self.roots.len();
+        let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
+        let j = (i + tc.draw(gs::integers::<usize>().min_value(1).max_value(n - 1))) % n;
         (i, j)
     }
 
@@ -1081,8 +1094,9 @@ impl SyncMachine {
     }
 
     /// Pulling a drive saves its state as the library's latest when it's newer than the
-    /// latest (once: pulling it again is up to date), labelled when asked; an older or other
-    /// state is refused, as is a label blank or already taken, or a library not there yet.
+    /// latest (once: pulling it again is up to date), labelled when asked; an older state is
+    /// refused offering a push that can be made (saved or not), and one that went its own way as
+    /// diverged; so is a label blank or already taken, or a library not there yet.
     #[rule(weight = 2)]
     fn pull(&mut self, tc: TestCase) {
         let Some(i) = self.with_export(&tc) else { return };
@@ -1141,9 +1155,19 @@ impl SyncMachine {
                 assert!(report.up_to_date, "{report:?}");
                 self.labels.extend(label);
             }
-            Some(_) => {
+            // `RightNewer`: the latest went through this state.
+            Some(Some(_)) => {
                 let e = res.unwrap_err();
-                assert!(matches!(e.inner(), Error::Conflict(_)), "{e}");
+                assert_eq!(e.reason(), Some(Reason::OlderThanStore), "{e}");
+                let push = e.detail().actions.into_iter().find(|a| a.method.as_deref() == Some("push.plan"));
+                let req: api::PushRequest =
+                    serde_json::from_value(Value::Object(push.expect("a push").params)).unwrap();
+                assert_described(&api::push_plan(&self.store, &req, &Ctx::silent()).unwrap());
+            }
+            // Neither went through the other's state.
+            Some(None) => {
+                let e = res.unwrap_err();
+                assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
             }
         }
         let lib = self.store.find_library("Home").unwrap();
@@ -1151,13 +1175,13 @@ impl SyncMachine {
         assert_eq!(history.first().map(|s| s.id), lib.and_then(|l| l.head));
     }
 
-    /// Pushing writes the library's latest onto a drive that's blank or holds a state the store
-    /// has, after which it holds exactly that state; a drive with changes the store doesn't have
-    /// is refused.
+    /// Pushing writes the library's latest onto a drive that's blank, holds a state the store
+    /// has or one the latest went through, after which it holds exactly that state; a drive with
+    /// changes the store doesn't have is refused.
     #[rule(weight = 2)]
     fn push(&mut self, tc: TestCase) {
         let Some(head) = self.head else { return };
-        let j = tc.draw(gs::integers::<usize>().max_value(2));
+        let j = tc.draw(gs::integers::<usize>().max_value(self.roots.len() - 1));
         let req = api::PushRequest {
             drive: path(&self.roots[j]),
             library: Some("Home".into()),
@@ -1168,7 +1192,8 @@ impl SyncMachine {
             delete_first: false,
         };
         let planned = api::push_plan(&self.store, &req, &Ctx::silent());
-        let saved = self.held[j].is_none_or(|s| self.fingerprints[s].is_some_and(|f| self.saved.contains(&f)));
+        let saved = self.held[j]
+            .is_none_or(|s| self.fingerprints[s].is_some_and(|f| self.saved.contains(&f)) || self.descends(head, s));
         if !saved {
             let e = planned.unwrap_err();
             assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
@@ -1206,6 +1231,112 @@ impl SyncMachine {
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
     hegel::stateful::machine(SyncMachine::new()).steps(8).run(tc);
+}
+
+/// The examples hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say` make their
+/// edits by hand: drive `i` takes `edit`.
+fn edit_drive(m: &SyncMachine, i: usize, edit: Edit) {
+    let req = api::EditRequest { drive: path(&m.roots[i]), edits: vec![edit], options: EditOptions::default() };
+    api::edit_plan(&req, &Ctx::silent()).unwrap().apply(Some(&m.store), &Ctx::silent()).unwrap();
+}
+
+/// Drive `i`'s first track rated `rating`.
+fn rate(m: &SyncMachine, i: usize, rating: u8) {
+    let tracks = TrackSelector { ids: vec![library(&m.roots[i]).tracks[0].id], ..Default::default() };
+    edit_drive(m, i, Edit::EditTracks { tracks, fields: TrackFields { rating: Some(rating), ..Default::default() } });
+}
+
+/// Drive `i` pulled into the library "Home" (made by it when `new_library`).
+fn pull_home(m: &SyncMachine, i: usize, new_library: bool) -> locallibrary::Result<locallibrary::sync::PullReport> {
+    let req =
+        api::PullRequest { drive: path(&m.roots[i]), library: Some("Home".into()), new_library, ..Default::default() };
+    api::pull(&m.store, &req, &Ctx::silent())
+}
+
+/// The first example hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say`: a track
+/// rated on Main, synced onto Backup, then rated back. Main is back to a state Backup's lineage
+/// holds from before the sync, but only Main moved on since, so it's the newer. Once rekordbox
+/// exports to Backup too, both moved on: they diverged, and Backup isn't pulled on top of Main's.
+#[test]
+fn a_drive_edited_back_to_an_earlier_state_moved_on_from_the_other() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    let relation = || api::compare(&api::ComparePair { left: path(main), right: path(backup) }, &Ctx::silent());
+    let was = library(main).tracks[0].rating;
+    rate(&m, 0, was % 5 + 1);
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, was);
+    assert_eq!(fingerprint(main), m.fingerprints[0], "Main holds what it did before the sync");
+    assert_eq!(relation().unwrap().relation, Relation::LeftNewer);
+    let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+    assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
+
+    common::export_new_track(backup, "Exported", "Track 1");
+    assert_eq!(relation().unwrap().relation, Relation::Diverged);
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 1, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
+}
+
+/// The second: Spare, synced from Backup, gets a playlist; meanwhile Backup's track is rated,
+/// synced onto Main and rated back there. Main's state, pulled, is the one Spare's lineage starts
+/// with, but Spare changed it before Main went through the rating: Spare isn't pulled on top.
+#[test]
+fn a_drive_changed_before_another_went_and_came_back_isnt_pulled_on_top_of_it() {
+    let m = SyncMachine::new();
+    let (main, backup, spare) = (&m.roots[0], &m.roots[1], &m.roots[2]);
+    api::sync_apply(Some(&m.store), &common::sync_pair(backup, spare), &Ctx::silent()).unwrap();
+    let was = library(main).tracks[0].rating;
+    rate(&m, 1, was % 5 + 1);
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, was);
+    edit_drive(&m, 2, Edit::CreatePlaylist { path: "Friday".into(), folder: false });
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 2, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
+    let pair = api::ComparePair { left: path(main), right: path(spare) };
+    assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::Diverged);
+}
+
+/// The third: Main and Backup each make the playlist Friday, and Main then rates a track. Backup
+/// holds what Main held after its playlist, and only Main moved on from there: it's the newer,
+/// and syncing all three copies it over the others.
+#[test]
+fn a_drive_that_made_the_change_another_made_is_behind_it_once_that_moved_on() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    let friday = || Edit::CreatePlaylist { path: "Friday".into(), folder: false };
+    edit_drive(&m, 0, friday());
+    let made = fingerprint(main);
+    rate(&m, 0, library(main).tracks[0].rating % 5 + 1);
+    edit_drive(&m, 1, friday());
+    assert_eq!(fingerprint(backup), made, "Backup holds what Main held after its playlist");
+    let pair = api::ComparePair { left: path(main), right: path(backup) };
+    assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::LeftNewer);
+    let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+    assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
+}
+
+/// The fourth: Main gets a playlist, is synced onto Backup, then rates a track and is pulled.
+/// Backup's state was never saved, but the library's latest went through it: Backup is behind,
+/// so its pull is refused as older, and the push it offers brings it up to date.
+#[test]
+fn a_drive_the_librarys_latest_went_through_is_behind_it_unsaved() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    edit_drive(&m, 0, Edit::CreatePlaylist { path: "Friday".into(), folder: false });
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, library(main).tracks[0].rating % 5 + 1);
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 1, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::OlderThanStore), "{e}");
+    assert!(!e.to_string().contains("snapshot"), "names no snapshot: {e}");
+    let detail = e.detail();
+    assert!(!detail.fields.contains_key("snapshot"), "{:?}", detail.fields);
+    let push = detail.actions.iter().find(|a| a.method.as_deref() == Some("push.plan")).expect("offers a push");
+    let req: api::PushRequest = serde_json::from_value(Value::Object(push.params.clone())).unwrap();
+    api::push_apply(&m.store, &req, &Ctx::silent()).unwrap();
+    assert_eq!(fingerprint(backup), fingerprint(main), "Backup holds the library's latest");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1270,13 +1401,14 @@ fn drives_are_found_by_path_name_and_id(tc: TestCase) {
             (1, _, _) if m.export => path(&m.root.join("PIONEER")),
             (2, Some(n), _) => swap_case(&tc, n),
             (3, _, Some(id)) => {
-                id.to_string()[..tc.draw(gs::integers::<usize>().min_value(4).max_value(12))].to_string()
+                let id = id.to_string();
+                id[..tc.draw(gs::integers::<usize>().min_value(4).max_value(id.len()))].to_string()
             }
             (4, _, _) => "Nowhere".to_string(),
             _ => swap_case(&tc, &m.volume),
         };
         // What the word names, as the model takes it.
-        let meant: Vec<&Mounted> = if word.contains('/') {
+        let meant: Vec<&Mounted> = if word.contains(std::path::is_separator) {
             vec![m]
         } else {
             let lower = word.to_lowercase();
@@ -1534,8 +1666,8 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let per_drive = tc.draw(gs::booleans());
     let mut values = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
-        let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-        let choice = &def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))];
+        let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+        let choice = tc.draw(gs::sampled_from(def.choices));
         values.insert(def.key.to_string(), choice.id.to_string());
     }
     let req = api::SetSettings { values: values.clone(), drive: per_drive.then(|| path(&root)) };
@@ -1579,8 +1711,8 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     assert!(api::settings_apply_plan(&store, &write).unwrap().noop, "written again");
 
     // A value changed again, written in one go.
-    let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-    let choice = def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))].id;
+    let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+    let choice = tc.draw(gs::sampled_from(def.choices)).id;
     let again = api::SetSettings { values: [(def.key.to_string(), choice.to_string())].into(), drive: None };
     api::settings_set(&store, &again).unwrap();
     let apply = api::ApplySettings { drive: path(&root), dry_run: false, create_missing: false };
@@ -1658,9 +1790,8 @@ fn json_of<T: Serialize>(v: &T) -> Value {
 
 /// A drive named by its path, adopted name in any case, or id's first characters, reads and
 /// plans through the api as the modules do for it directly: its library and backups, compare,
-/// clean, convert, merge, missing and automatic artwork, its tracks' art and an XML export
-/// (which won't replace a file unless asked). Applying a clean or a merge leaves nothing more
-/// to do; a conversion leaves the drive with the database it was for.
+/// convert, merge, missing and automatic artwork and its tracks' art. Applying a merge leaves
+/// nothing more to do; a conversion leaves the drive with the database it was for.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -1717,36 +1848,11 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
         assert_eq!(bytes, artwork::read_from_drive(&d, &lib, t.id).unwrap(), "track {}", t.id);
     }
 
-    let only: Vec<String> = match tc.draw(gs::booleans()) {
-        true => lib.playlists.iter().take(1).map(|p| p.name.clone()).collect(),
-        false => vec![],
-    };
-    let opts = xml::XmlOptions { location_root: None, skip_analysis: tc.draw(gs::booleans()), only: only.clone() };
-    let output = dir.path().join("library.xml");
-    let export = |replace| api::ExportXml {
-        drive: spec.clone(),
-        output: output.clone(),
-        location_root: None,
-        skip_analysis: opts.skip_analysis,
-        only: only.clone(),
-        replace,
-    };
-    let report = api::export_xml(&export(false), &ctx).unwrap();
-    let (text, direct) = xml::export(&d, &opts, &ctx).unwrap();
-    assert_eq!(fs::read_to_string(&output).unwrap(), text);
-    assert_eq!(json_of(&report), json_of(&direct));
-    assert!(api::export_xml(&export(false), &ctx).is_err(), "an XML export replaced a file unasked");
-    api::export_xml(&export(true), &ctx).unwrap();
-
     let merge = api::MergeRequest { source: path(&other), target: spec.clone(), options: Default::default() };
     let merged = api::merge_plan(&merge, &ctx).unwrap();
     assert_described(&merged);
     assert_eq!(json_of(&merged.plan), json_of(&merge::plan(&other_dev, &d, &Default::default(), &ctx).unwrap()));
     assert_eq!(merged.plan.new_tracks.len(), 1, "the guest's track");
-    let cleaned = api::clean_plan(&drive, &ctx).unwrap();
-    assert_described(&cleaned);
-    assert_eq!(json_of(&cleaned.plan), json_of(&clean::plan(&d, &ctx).unwrap()));
-    assert_eq!((cleaned.noop, cleaned.destructive), (cleaned.plan.is_noop(), !cleaned.plan.is_noop()));
     // Each applied, through the plan or in one go: then there's nothing more to do.
     match tc.draw(gs::booleans()) {
         true => merged.apply(None, &ctx).map(|_| ()).unwrap(),
@@ -1765,14 +1871,6 @@ fn reads_and_plans_agree_with_the_modules(tc: TestCase) {
             convert::Target::DeviceLibrary => d.has_device_library(),
         };
         assert!(has, "converted, the drive has the database");
-    }
-    let cleaned = api::clean_plan(&drive, &ctx).unwrap();
-    if !cleaned.noop {
-        match tc.draw(gs::booleans()) {
-            true => cleaned.apply(None, &ctx).map(|_| ()).unwrap(),
-            false => api::clean_apply(&drive, &ctx).map(|_| ()).unwrap(),
-        }
-        assert!(api::clean_plan(&drive, &ctx).unwrap().noop, "cleaned again");
     }
     locallibrary::testing::volumes_on_this_thread(None);
 }
@@ -1793,7 +1891,7 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let ctx = Ctx::silent();
     let lib = library(&root);
-    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|_| tc.draw(gs::booleans())).collect();
+    let ids: Vec<u32> = tc.draw(gs::subsequences(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
     let set = |image: &Path, ids: &[u32]| api::SetArtwork {
         drive: path(&root),
         image: image.to_path_buf(),
@@ -1806,7 +1904,7 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
         tc.draw(gs::integers::<u32>().min_value(1).max_value(48)),
     );
     fs::write(&small, common::media::png(w, h, 0)).unwrap();
-    let refused = api::artwork_set_plan(&set(&small, &[lib.tracks[0].id])).map(|p| p.noop).unwrap_err();
+    let refused = api::artwork_set_plan(&set(&small, &[lib.tracks[0].id]), &ctx).map(|p| p.noop).unwrap_err();
     assert_eq!(refused.code(), "image", "{refused}");
     let embed = api::EmbedArtwork { files: vec![], image: small };
     assert_eq!(api::artwork_embed_plan(&embed).map(|p| p.noop).unwrap_err().code(), "image");
@@ -1816,17 +1914,22 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let image = dir.path().join("cover.png");
     fs::write(&image, common::media::png(w, h, tc.draw(gs::integers::<u8>()))).unwrap();
     let set = set(&image, &ids);
-    match api::artwork_set_plan(&set) {
+    match api::artwork_set_plan(&set, &ctx) {
         Err(e) => assert!(ids.is_empty() && matches!(e, Error::Invalid(_)), "selecting no tracks: {e}"),
         Ok(plan) => {
             assert_described(&plan);
-            assert_eq!((plan.width, plan.height), (w, h));
-            assert_eq!(plan.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), ids);
+            assert_eq!(plan.changes, [format!("set the artwork of {} track(s)", ids.len())]);
+            let files: Vec<String> = lib.tracks_by_id(&ids).into_iter().map(|t| t.file_path.clone()).collect();
+            assert!(
+                matches!(&plan.recorded[..], [Edit::SetArtwork { tracks, .. }] if tracks.paths == files),
+                "{:?}",
+                plan.recorded
+            );
             let report = match tc.draw(gs::booleans()) {
                 true => plan.apply(None, &ctx).unwrap(),
                 false => api::artwork_set(&set, &ctx).unwrap(),
             };
-            assert_eq!(report.tracks_updated, ids.len());
+            assert_eq!(report.changes, 1);
             for id in &ids {
                 let art = api::artwork_get(&api::GetArtwork { drive: path(&root), track: *id }).unwrap().unwrap();
                 let jpeg = BASE64_STANDARD.decode(&art.base64).unwrap();
@@ -1957,7 +2060,6 @@ fn requests_are_taken_as_their_schemas_describe(tc: TestCase) {
         request_agrees::<api::AdoptDrive>,
         request_agrees::<api::ListDrives>,
         request_agrees::<api::DriveRef>,
-        request_agrees::<api::ExportXml>,
         request_agrees::<api::SetArtwork>,
         request_agrees::<api::GetArtwork>,
         request_agrees::<api::EmbedArtwork>,

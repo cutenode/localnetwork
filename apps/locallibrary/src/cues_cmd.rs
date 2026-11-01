@@ -239,7 +239,7 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     };
     let (req, dry_run) = match command {
         CuesCommand::List { drive, track } => {
-            let list = api::cues_list(&ListCues { drive, tracks: track.selector() })?;
+            let list = api::cues_list(&ListCues { library: drive.into(), tracks: track.selector() })?;
             out.emit(&list, |l| render_list(l));
             return Ok(ExitCode::SUCCESS);
         }
@@ -276,8 +276,10 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     if !out.json {
         render_plan(&plan);
         crate::output::clones(&plan);
+        // What a plugin's guard says, say.
+        crate::output::more_warnings(&plan, &plan.plan.warnings);
     }
-    if let Some(o) = out.decide(dry_run, "Write these cues?") {
+    if let Some(o) = out.decide_on(&plan, dry_run, "Write these cues?")? {
         return Ok(out.not_applied(&plan, o));
     }
     let report = plan.apply(None, ctx)?;

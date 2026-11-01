@@ -1,8 +1,24 @@
-import { ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
-import { describe, expect, it } from 'vitest';
-import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
+import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
+import { describe, expect, it, vi } from 'vitest';
+import { CALENDAR_EVENT, CALENDAR_RSVP, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
-import { buildScopes, clientMetadata, grantsAll, isLoopback } from './oauth';
+import { openDatabase } from '../db';
+import { silentLogger } from '../logger';
+import { permissionSetFor } from './lexicons';
+import {
+	clientMetadata,
+	DECLARED_SCOPES,
+	grantsAll,
+	grantsProfile,
+	grantsPublicRecords,
+	grantsSpaces,
+	heldOptionalScopes,
+	isLoopback,
+	OAuthService,
+	OptionalScopeUnsupported,
+	SCOPES,
+	type SignedInAccount
+} from './oauth';
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -13,68 +29,275 @@ const config = (publicUrl: string) =>
 	});
 
 describe('OAuth scopes', () => {
-	const { full, base } = buildScopes('did:plc:root');
+	const { full, base } = SCOPES;
 	const user = 'did:plc:user';
+	const root = 'did:plc:root';
+	const permissionSet = permissionSetFor(root);
 
-	it('requests granular space scopes that parse with the official parser', () => {
-		const spaces = full.split(' ').filter((scope) => scope.startsWith('space:'));
-		expect(spaces).toHaveLength(4);
+	// What the PDS grants for `full`: the permission set expanded, with the planner's `self` authority resolved.
+	const granted = [
+		...new IncludeScope(PERMISSIONS)
+			.toPermissions(permissionSet)
+			.map((permission) =>
+				permission instanceof SpacePermission ? permission.withResolvedAuthority(user) : permission
+			)
+			.map(String),
+		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
+	];
 
-		for (const scope of spaces) expect(SpacePermission.fromString(scope)).not.toBeNull();
-		const audit = SpacePermission.fromString(spaces[0])!;
+	/**
+	 * What accounts hold from before the profiles permissions: the grant `full` got from the permission set and scopes as
+	 * they were, with the shared spaces pinned to the root, written out as the PDS stores it, so it doesn't change with
+	 * them.
+	 */
+	const beforeProfiles = [
+		`space:computer.localnetwork.space.audit?authority=${root}&skey=main&collection=computer.localnetwork.audit.entry&action=read_self&action=create`,
+		`space:computer.localnetwork.space.moderation?authority=${root}&skey=main&collection=computer.localnetwork.moderation.request&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.booking?authority=${root}&collection=computer.localnetwork.booking.inquiry&collection=computer.localnetwork.booking.message&collection=computer.localnetwork.booking.status&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.planner?authority=${user}&skey=self&collection=computer.localnetwork.planner.save&collection=computer.localnetwork.planner.show&manage=create&manage=update`,
+		'repo:computer.localnetwork.epk',
+		'repo:computer.localnetwork.show',
+		'repo:computer.localnetwork.follow?action=create&action=delete',
+		`space:computer.localnetwork.space.epk?authority=${user}&collection=computer.localnetwork.epk.content&collection=computer.localnetwork.epk.grant&manage=create&manage=update&manage=delete`,
+		`space:computer.localnetwork.space.backstage?authority=${root}&collection=computer.localnetwork.epk.draft&action=read_self&action=create&action=update&action=delete`,
+		`space:computer.localnetwork.space.epk?authority=${root}&collection=computer.localnetwork.epk.request&action=read_self&action=create&action=delete`,
+		'atproto',
+		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
+		'repo:community.lexicon.calendar.event?action=create&action=update&action=delete'
+	];
+
+	it('requests the permission set, keeping explicit only what a set cannot hold', () => {
+		expect(full.split(' ').filter((scope) => IncludeScope.fromString(scope)?.nsid === PERMISSIONS)).toHaveLength(1);
+		// A permission outside the set's own NSID authority would be dropped silently when the PDS expands it.
+		expect(new IncludeScope(PERMISSIONS).toPermissions(permissionSet)).toHaveLength(permissionSet.permissions.length);
+	});
+
+	it("allows every space write the app makes with a user's session, and no reads of others' records", () => {
+		const permissions = new ScopePermissions(granted);
+		const audit = { type: SPACE_TYPE.audit, authority: root, skey: 'main' } as const;
+		const moderation = { type: SPACE_TYPE.moderation, authority: root, skey: 'main' } as const;
+		const booking = { type: SPACE_TYPE.booking, authority: root, skey: '3mxq3whd6gi2d' } as const;
+		const planner = { type: SPACE_TYPE.planner, authority: user, skey: 'self' } as const;
+
+		expect(permissions.allowsSpace({ ...audit, action: 'create', collection: COLLECTION.auditEntry })).toBe(true);
+
+		for (const action of ['create', 'update', 'delete'] as const) {
+			expect(permissions.allowsSpace({ ...moderation, action, collection: COLLECTION.request })).toBe(true);
+
+			for (const collection of [COLLECTION.bookingInquiry, COLLECTION.bookingMessage, COLLECTION.bookingStatus])
+				expect(permissions.allowsSpace({ ...booking, action, collection })).toBe(true);
+
+			for (const collection of [COLLECTION.plannerSave, COLLECTION.plannerShow])
+				expect(permissions.allowsSpace({ ...planner, action, collection })).toBe(true);
+		}
+
+		for (const manage of ['create', 'update'] as const)
+			expect(permissions.allowsSpace({ ...planner, manage })).toBe(true);
+
+		for (const space of [audit, moderation, booking])
+			expect(permissions.allowsSpace({ ...space, action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace({ ...planner, authority: 'did:plc:someoneelse', action: 'read' })).toBe(false);
 		expect(
-			audit.matches({
-				type: 'computer.localnetwork.space.audit',
-				authority: 'did:plc:root',
+			permissions.allowsSpace({
+				type: SPACE_TYPE.staff,
+				authority: root,
 				skey: 'main',
 				action: 'create',
-				collection: 'computer.localnetwork.audit.entry'
-			})
-		).toBe(true);
-		expect(
-			audit.matches({
-				type: 'computer.localnetwork.space.audit',
-				authority: 'did:plc:root',
-				skey: 'main',
-				action: 'read'
+				collection: COLLECTION.staffRole
 			})
 		).toBe(false);
-		const planner = SpacePermission.fromString(spaces[3])!;
-		expect(planner.authority).toBe('self');
-		expect(planner.manage).toEqual(['create', 'update']);
+	});
+
+	it("lets a DJ run their own press kit spaces, and anyone ask for access to the root's", () => {
+		const permissions = new ScopePermissions(granted);
+		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
+		const theirs = { ...own, authority: root } as const;
+		// Another DJ's own press kit space, made before the root held them: the root asks there on the user's behalf.
+		const legacy = { ...own, authority: 'did:plc:other' } as const;
+
+		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
+		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
+		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
+		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace({ ...legacy, action: 'create', collection: COLLECTION.epkRequest })).toBe(false);
+	});
+
+	it("lets users keep their profile, edit their sets, draft in a performer's space, and answer events", () => {
+		const permissions = new ScopePermissions(granted);
+		const performer = { type: SPACE_TYPE.performer, authority: root, skey: '3mperf' } as const;
+
+		for (const action of ['create', 'update', 'delete'] as const) {
+			expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: CALENDAR_RSVP, action })).toBe(true);
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.epkDraft })).toBe(true);
+			// Only staff list a DJ, from the root account.
+			expect(permissions.allowsRepo({ collection: COLLECTION.listingProfile, action })).toBe(false);
+			// The root keeps a performer's people.
+			expect(permissions.allowsSpace({ ...performer, action, collection: COLLECTION.person })).toBe(false);
+		}
+
+		// locallibrary makes and removes sets; the site only edits them.
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'update' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'create' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: COLLECTION.djSet, action: 'delete' })).toBe(false);
+		expect(permissions.allowsSpace({ ...performer, action: 'read_self' })).toBe(true);
+		expect(permissions.allowsSpace({ ...performer, action: 'read' })).toBe(false);
 	});
 
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
 		// The PDS checks uploadBlob against the token's scopes like this.
-		const permissions = new ScopePermissionsTransition(full);
+		for (const scope of [full, base]) {
+			const permissions = new ScopePermissionsTransition(scope);
 
-		for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
-			expect(permissions.allowsBlob({ mime })).toBe(true);
-		expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+			for (const mime of ['image/png', 'image/jpeg', 'image/webp', 'application/json'])
+				expect(permissions.allowsBlob({ mime })).toBe(true);
+			expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
+		}
 	});
 
-	it('has a base scope without spaces for fallback', () => {
-		expect(base).toBe('atproto');
-		expect(grantsAll(base, full, user)).toBe(false);
-		expect(grantsAll(full, full, user)).toBe(true);
-		expect(grantsAll(null, full, user)).toBe(false);
+	it('has a base scope without spaces for fallback, which a full grant covers', () => {
+		expect(base.split(' ').some((scope) => scope.startsWith('include:') || scope.startsWith('space'))).toBe(false);
+		expect(grantsAll(base, full, user, root)).toBe(false);
+		expect(grantsAll(granted.join(' '), base, user, root)).toBe(true);
+		expect(grantsAll(full, full, user, root)).toBe(true);
+		expect(grantsAll(null, full, user, root)).toBe(false);
+		expect(SCOPES.minimal).toBe('atproto');
+	});
+
+	it('lets any account keep a profile, follow, and announce shows as calendar events, with or without spaces', () => {
+		for (const scopes of [granted, base.split(' ')]) {
+			const permissions = new ScopePermissions(scopes);
+
+			for (const action of ['create', 'update', 'delete'] as const)
+				expect(permissions.allowsRepo({ collection: COLLECTION.profile, action })).toBe(true);
+
+			for (const action of ['create', 'delete'] as const)
+				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: COLLECTION.follow, action: 'update' })).toBe(false);
+
+			for (const collection of [COLLECTION.show, CALENDAR_EVENT])
+				for (const action of ['create', 'update', 'delete'] as const)
+					expect(permissions.allowsRepo({ collection, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(scopes === granted);
+		}
+	});
+
+	it('counts a grant from before shows and follows as one with spaces, which lacks only those writes', () => {
+		// What the PDS grants from the permission set as it was, or from one it hasn't fetched again yet.
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const before = granted.filter((scope) => !publicRecords(scope)).join(' ');
+
+		expect(grantsSpaces(before, user, root)).toBe(true);
+		expect(grantsPublicRecords(before, user, root)).toBe(false);
+		expect(grantsSpaces(granted.join(' '), user, root)).toBe(true);
+		expect(grantsPublicRecords(granted.join(' '), user, root)).toBe(true);
+		expect(grantsSpaces(base, user, root)).toBe(false);
+		expect(grantsPublicRecords(base, user, root)).toBe(true);
+		expect(grantsSpaces(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user, root)).toBe(false);
+	});
+
+	it("grants the shared spaces under this network's root only, as that root publishes the set", () => {
+		const permissions = new ScopePermissions(granted);
+		const elsewhere = 'did:plc:elsewhere';
+
+		const writes = [
+			{ type: SPACE_TYPE.audit, skey: 'main', collection: COLLECTION.auditEntry },
+			{ type: SPACE_TYPE.moderation, skey: 'main', collection: COLLECTION.request },
+			{ type: SPACE_TYPE.booking, skey: '3mxq3whd6gi2d', collection: COLLECTION.bookingInquiry },
+			{ type: SPACE_TYPE.backstage, skey: '3mabc', collection: COLLECTION.epkDraft },
+			{ type: SPACE_TYPE.epk, skey: '3mabc', collection: COLLECTION.epkRequest }
+		] as const;
+
+		for (const write of writes) {
+			expect(permissions.allowsSpace({ ...write, authority: root, action: 'create' })).toBe(true);
+			expect(permissions.allowsSpace({ ...write, authority: elsewhere, action: 'create' })).toBe(false);
+		}
+
+		// What a PDS grants from another network's set, whose root is someone else, isn't this network's grant.
+		const theirs = new IncludeScope(PERMISSIONS).toScopes(permissionSetFor(elsewhere)).join(' ');
+		expect(grantsSpaces(`${theirs} ${full}`, user, elsewhere)).toBe(true);
+		expect(grantsSpaces(granted.join(' ').replaceAll(root, elsewhere), user, root)).toBe(false);
+	});
+
+	it('says which grants can save a profile and its picture, so the editor asks the others to sign in first', () => {
+		expect(grantsProfile(granted.join(' '), user, root)).toBe(true);
+		expect(grantsProfile(base, user, root)).toBe(true);
+		expect(grantsProfile(beforeProfiles.join(' '), user, root)).toBe(false);
+		expect(grantsProfile(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user, root)).toBe(false);
+		expect(grantsProfile(null, user, root)).toBe(false);
+	});
+
+	it('counts a grant from before profiles as one with spaces, so nobody is signed out at deploy', () => {
+		const before = beforeProfiles.join(' ');
+
+		// The app signs a spaces-capable account out when this is false for its stored grant.
+		expect(grantsSpaces(before, user, root)).toBe(true);
+		expect(grantsSpaces(`${before} account:email?action=read`, user, root)).toBe(true);
+		// It lacks the new writes, so the first one that needs them asks for a fresh sign-in, which gets them all.
+		expect(grantsAll(before, full, user, root)).toBe(false);
+		expect(grantsPublicRecords(before, user, root)).toBe(false);
+
+		// Every space write it had is still needed, drafts in a project's backstage included.
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+
+		for (const dropped of beforeProfiles.filter((scope) => !publicRecords(scope)))
+			expect(grantsSpaces(beforeProfiles.filter((scope) => scope !== dropped).join(' '), user, root)).toBe(false);
+	});
+
+	it('declares every scope it may ask for in its client metadata', () => {
+		const declared = DECLARED_SCOPES.split(' ');
+
+		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
+		expect(new Set(declared).size).toBe(declared.length);
+		expect(new ScopePermissions(declared).allowsRepo({ collection: CALENDAR_RSVP, action: 'create' })).toBe(true);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
-		// As the PDS returns them: the planner's `self` authority resolved and its default actions dropped.
-		const granted = full
-			.split(' ')
-			.map((scope) =>
-				scope.startsWith(`space:${SPACE_TYPE.planner}`)
-					? `space:${SPACE_TYPE.planner}?authority=${user}&skey=self&collection=${COLLECTION.plannerSave}&collection=${COLLECTION.plannerShow}&manage=create&manage=update`
-					: scope
-			);
-
-		expect(grantsAll(granted.join(' '), full, user)).toBe(true);
-		expect(grantsAll(granted.join(' '), full, 'did:plc:someoneelse')).toBe(false);
+		expect(grantsAll(granted.join(' '), full, user, root)).toBe(true);
+		expect(grantsAll(granted.join(' '), full, 'did:plc:someoneelse', root)).toBe(false);
 
 		for (const dropped of granted)
-			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user)).toBe(false);
+			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user, root)).toBe(false);
+	});
+
+	it('asks separately to post bug reports to userinput.app, and for nothing more there', () => {
+		const permissions = new ScopePermissions(SCOPES.bugReport.split(' '));
+		const discussion = 'app.userinput.discussion';
+
+		expect(permissions.allowsRepo({ collection: discussion, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: discussion, action: 'update' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: 'app.userinput.upvote', action: 'create' })).toBe(false);
+		// Asking for it at sign-in would send every older session back to approve it.
+		expect(grantsAll(SCOPES.bugReport, full, user, root)).toBe(false);
+		expect(grantsAll(granted.join(' '), SCOPES.bugReport, user, root)).toBe(false);
+		expect(grantsAll(`${granted.join(' ')} ${SCOPES.bugReport}`, full, user, root)).toBe(true);
+	});
+
+	it('asks separately to read the email address, in either form a PDS knows, without touching sign-in', () => {
+		expect(DECLARED_SCOPES.split(' ')).toEqual(expect.arrayContaining([SCOPES.email, SCOPES.emailLegacy]));
+		// The PDS writes the default action out.
+		expect(grantsAll('atproto account:email?action=read', SCOPES.email, user, root)).toBe(true);
+		expect(grantsAll(SCOPES.emailLegacy, SCOPES.email, user, root)).toBe(false);
+		expect(new ScopePermissionsTransition([SCOPES.emailLegacy]).allowsAccount({ attr: 'email', action: 'read' })).toBe(
+			true
+		);
+		// An older grant without it still signs in, and one with it counts the same.
+		expect(grantsSpaces(granted.join(' '), user, root)).toBe(true);
+		expect(grantsSpaces(`${granted.join(' ')} ${SCOPES.email}`, user, root)).toBe(true);
+		expect(grantsAll(SCOPES.email, full, user, root)).toBe(false);
+	});
+
+	it('finds the optional scopes a grant holds, in the form it holds them', () => {
+		expect(heldOptionalScopes(granted.join(' '), user)).toEqual([]);
+		expect(heldOptionalScopes(null, user)).toEqual([]);
+		expect(heldOptionalScopes(`${granted.join(' ')} ${SCOPES.bugReport} account:email?action=read`, user)).toEqual([
+			SCOPES.bugReport,
+			SCOPES.email
+		]);
+		expect(heldOptionalScopes(`atproto ${SCOPES.emailLegacy}`, user)).toEqual([SCOPES.emailLegacy]);
 	});
 
 	it('builds loopback metadata for local development and web metadata otherwise', () => {
@@ -88,5 +311,137 @@ describe('OAuth scopes', () => {
 			redirect_uris: ['https://localnetwork.computer/oauth/callback'],
 			dpop_bound_access_tokens: true
 		});
+	});
+});
+
+describe('OAuthService', () => {
+	/** Signing in at an http PDS from a production build with ALLOW_PRIVATE_NETWORK as given. */
+	const signInAtHttpPds = async (allowPrivateNetwork: string) => {
+		const oauth = new OAuthService({
+			config: loadConfig({
+				NODE_ENV: 'production',
+				ALLOW_PRIVATE_NETWORK: allowPrivateNetwork,
+				ROOT_IDENTIFIER: 'did:plc:root',
+				ROOT_PASSWORD: 'x',
+				PUBLIC_URL: 'https://localnetwork.test',
+				HAPPYVIEW_URL: 'http://127.0.0.1:8000'
+			}),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger
+		});
+
+		// Port 9 is one fetch refuses to connect to, so nothing leaves the machine either way.
+		return oauth.client.authorize('http://127.0.0.1:9/');
+	};
+
+	it('signs in at an http PDS in a production build only on a private network it may reach', async () => {
+		const refusedHttp = expect.stringMatching(/Unsecure resource metadata URL \(http:\)/);
+
+		await expect(signInAtHttpPds('false')).rejects.toMatchObject({ cause: { message: refusedHttp } });
+		await expect(signInAtHttpPds('true')).rejects.toMatchObject({
+			cause: { message: expect.not.stringMatching(/Unsecure/) }
+		});
+	});
+});
+
+describe('OAuthService.authorize', () => {
+	const user = 'did:plc:user';
+	const page = new URL('https://pds.test/oauth/authorize');
+
+	const account = (overrides: Partial<SignedInAccount> = {}): SignedInAccount => ({
+		did: user,
+		grantedScope: SCOPES.full,
+		spacesCapable: 1,
+		publicWrites: 1,
+		...overrides
+	});
+
+	/**
+	 * The OAuth service over a PDS that answers with `error` (a refused scope, by default) for every scope `refused`
+	 * matches, recording each scope asked for.
+	 */
+	const service = async (
+		refused: (scope: string) => boolean,
+		error = new Error('invalid_scope: unsupported scope')
+	) => {
+		const oauth = new OAuthService({
+			config: config('http://127.0.0.1:5173'),
+			db: await openDatabase(':memory:'),
+			logger: silentLogger
+		});
+
+		const asked: string[] = [];
+
+		vi.spyOn(oauth.client, 'authorize').mockImplementation(async (_identifier, options) => {
+			const scope = options?.scope ?? '';
+			asked.push(scope);
+
+			if (refused(scope)) throw error;
+
+			return page;
+		});
+
+		return { oauth, asked };
+	};
+
+	it('falls back through the tiers on a first sign-in, and gives up on anything but a scope error', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+
+		expect(await oauth.authorize('alice.test', '{}')).toBe(page);
+		expect(asked).toEqual([SCOPES.full, SCOPES.base]);
+
+		const down = await service(() => true, new Error('fetch failed'));
+		await expect(down.oauth.authorize('alice.test', '{}')).rejects.toThrow('fetch failed');
+		expect(down.asked).toHaveLength(1);
+	});
+
+	it('asks again for the optional scopes an account holds, so signing in keeps them', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+		const holding = account({ grantedScope: `${SCOPES.base} ${SCOPES.bugReport} account:email?action=read` });
+
+		await oauth.authorize('alice.test', '{}', { account: holding });
+		expect(asked).toEqual([
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.email}`,
+			`${SCOPES.base} ${SCOPES.bugReport} ${SCOPES.email}`
+		]);
+	});
+
+	it('never lowers an account with spaces to get an optional scope, trying each form of it instead', async () => {
+		const { oauth, asked } = await service((scope) => scope.includes('email'));
+
+		await expect(
+			oauth.authorize(user, '{}', {
+				account: account({ grantedScope: `${SCOPES.full} ${SCOPES.bugReport}` }),
+				optional: 'email'
+			})
+		).rejects.toThrow(OptionalScopeUnsupported);
+		expect(asked).toEqual([
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.email}`,
+			`${SCOPES.full} ${SCOPES.bugReport} ${SCOPES.emailLegacy}`
+		]);
+	});
+
+	it('lets an account without spaces try for them while opting in, but no lower than its own tier', async () => {
+		const base = account({ grantedScope: SCOPES.base, spacesCapable: 0 });
+		const { oauth, asked } = await service((scope) => scope.includes('include:'));
+
+		await oauth.authorize(user, '{}', { account: base, optional: 'bugReport' });
+		expect(asked).toEqual([`${SCOPES.full} ${SCOPES.bugReport}`, `${SCOPES.base} ${SCOPES.bugReport}`]);
+
+		const refusing = await service((scope) => scope.includes('userinput'));
+		await expect(refusing.oauth.authorize(user, '{}', { account: base, optional: 'bugReport' })).rejects.toThrow(
+			OptionalScopeUnsupported
+		);
+		expect(refusing.asked).toHaveLength(2);
+
+		// Before the app asked for public records, nothing says whether the base scopes were granted.
+		const unknown = await service(() => true);
+		await expect(
+			unknown.oauth.authorize(user, '{}', {
+				account: account({ grantedScope: 'atproto', spacesCapable: 0, publicWrites: null }),
+				optional: 'bugReport'
+			})
+		).rejects.toThrow(OptionalScopeUnsupported);
+		expect(unknown.asked).toHaveLength(3);
 	});
 });

@@ -1,73 +1,85 @@
 import type { Agent } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
-import { jsonToLex, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
-import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/entry.json' with { type: 'json' };
-import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
-import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
-import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
-import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
-import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
-import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
-import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
-import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
-import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
-import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
-import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
-import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
-import permissions from '../../../../../../lexicons/computer/localnetwork/permissions.json' with { type: 'json' };
-import plannerSave from '../../../../../../lexicons/computer/localnetwork/planner/save.json' with { type: 'json' };
-import plannerShow from '../../../../../../lexicons/computer/localnetwork/planner/show.json' with { type: 'json' };
-import project from '../../../../../../lexicons/computer/localnetwork/project.json' with { type: 'json' };
-import projectDetails from '../../../../../../lexicons/computer/localnetwork/project/details.json' with { type: 'json' };
-import spaceAudit from '../../../../../../lexicons/computer/localnetwork/space/audit.json' with { type: 'json' };
-import spaceBooking from '../../../../../../lexicons/computer/localnetwork/space/booking.json' with { type: 'json' };
-import spaceIndustry from '../../../../../../lexicons/computer/localnetwork/space/industry.json' with { type: 'json' };
-import spaceModeration from '../../../../../../lexicons/computer/localnetwork/space/moderation.json' with { type: 'json' };
-import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space/planner.json' with { type: 'json' };
-import spaceStaff from '../../../../../../lexicons/computer/localnetwork/space/staff.json' with { type: 'json' };
-import staffRole from '../../../../../../lexicons/computer/localnetwork/staff/role.json' with { type: 'json' };
+import {
+	jsonToLex,
+	type LexiconDoc,
+	lexPermissionSet,
+	type LexPermissionSet,
+	Lexicons,
+	parseLexiconDoc
+} from '@atproto/lexicon';
+import { LEXICON_FILES } from '#lexicon-files';
+import { NS, PERMISSIONS } from '#lib/nsid.ts';
 
-/** Every Local Network lexicon document, for validation and publishing. */
-export const LEXICON_DOCS = [
-	defs,
-	project,
-	projectDetails,
-	auditEntry,
-	request,
-	decision,
-	staffRole,
-	bookingInquiry,
-	bookingMessage,
-	bookingStatus,
-	plannerSave,
-	plannerShow,
-	spaceAudit,
-	spaceModeration,
-	spaceStaff,
-	spaceIndustry,
-	spaceBooking,
-	spacePlanner,
-	permissions,
-	directoryDefs,
-	searchProjects,
-	matchProjects,
-	getProject,
-	getProjects,
-	getStats
-].map((doc) => parseLexiconDoc(doc));
+/** Every document in lexicons/, by NSID, so the order doesn't depend on which loader read them. */
+const DOCS: LexiconDoc[] = LEXICON_FILES.map((file) => parseLexiconDoc(file)).toSorted((a, b) =>
+	a.id.localeCompare(b.id)
+);
+
+/** Ours are every Local Network tool's, all of lexicons/computer/; the other folders are other authorities'. */
+const isOurs = (doc: LexiconDoc) => doc.id.startsWith(`${NS}.`);
+
+/** Every Local Network lexicon, for validation and publishing. */
+export const LEXICON_DOCS = DOCS.filter(isOurs);
+
+/**
+ * The authority permissions.json gives the shared spaces under the root account. A network's root publishes the set
+ * with its own DID in its place (`schemaRecord`), so one approved sign-in grants writes to that network's spaces and no
+ * other's. A `.invalid` host never resolves, so a set published without the swap grants nothing.
+ */
+export const ROOT_AUTHORITY = 'did:web:root.invalid';
+
+const PERMISSION_SET = lexPermissionSet.parse(LEXICON_DOCS.find((doc) => doc.id === PERMISSIONS)?.defs.main);
+
+function pinRoot(set: LexPermissionSet, rootDid: string): LexPermissionSet {
+	const pinned = set.permissions.map((permission) =>
+		permission.authority === ROOT_AUTHORITY ? { ...permission, authority: rootDid } : permission
+	);
+
+	return { ...set, permissions: pinned };
+}
+
+/** The permission set as PDSes read it from `rootDid`'s repo to expand `include:computer.localnetwork.permissions`. */
+export function permissionSetFor(rootDid: string): LexPermissionSet {
+	return pinRoot(PERMISSION_SET, rootDid);
+}
+
+/**
+ * `doc` as the com.atproto.lexicon.schema record the root `rootDid` publishes it as, a permission set with that DID
+ * for ROOT_AUTHORITY.
+ */
+export function schemaRecord(doc: LexiconDoc, rootDid: string): JsonObject {
+	const main = doc.defs.main;
+
+	const published =
+		main?.type === 'permission-set' ? { ...doc, defs: { ...doc.defs, main: pinRoot(main, rootDid) } } : doc;
+
+	return { $type: 'com.atproto.lexicon.schema', ...JSON.parse(JSON.stringify(published)) };
+}
+
+/**
+ * Other authorities' lexicons that ours reference, this app writes, or HappyView keeps for it (calendar events and
+ * the locations they can hold, strongRef, Bluesky's verifications, profiles and follows and the label defs profiles
+ * refer to, and userinput.app's spaces and the bug reports posted to them), copied into lexicons/ as they publish
+ * them. They're validated against and offered to HappyView, never published.
+ */
+export const REFERENCED_DOCS = DOCS.filter((doc) => !isOurs(doc));
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
-export const lexicons = new Lexicons(structuredClone(LEXICON_DOCS));
+export const lexicons = new Lexicons(structuredClone(DOCS));
 
-/** Publishes every lexicon as a com.atproto.lexicon.schema record in the agent's own repo. */
+/**
+ * Publishes every lexicon in the agent's own repo, with the agent as the permission set's root (`schemaRecord`). The
+ * dev network and the integration tests publish this way, each with its own root.
+ */
 export async function publishLexicons(agent: Agent): Promise<void> {
 	for (const doc of LEXICON_DOCS)
 		await agent.com.atproto.repo.putRecord({
 			repo: agent.assertDid,
 			collection: 'com.atproto.lexicon.schema',
 			rkey: doc.id,
-			record: { $type: 'com.atproto.lexicon.schema', ...JSON.parse(JSON.stringify(doc)) }
+			record: schemaRecord(doc, agent.assertDid)
 		});
 }
 

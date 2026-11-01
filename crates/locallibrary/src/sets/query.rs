@@ -32,7 +32,7 @@ pub struct Appearance {
 /// case and spacing).
 pub(crate) fn played(book: &SetBook, query: &str) -> Vec<Appearance> {
     let query = query.trim();
-    let file = query.starts_with('/').then(|| paths::key(query).to_lowercase());
+    let file = query.starts_with('/').then(|| paths::file_key(query));
     let needle = normalize(query);
     let matches = |e: &super::SetEntry| match &file {
         Some(f) => e.file_key().as_ref() == Some(f),

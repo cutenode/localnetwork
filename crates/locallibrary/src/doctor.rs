@@ -1,9 +1,9 @@
 //! A health report for one drive: duplicate tracks, missing and broken files, files nothing
 //! references any more, tracks in no playlist, drift between the two databases, files FAT32 can't
-//! hold, and how players get on with the drive's file system. On request ([`Section::Audio`]),
-//! also audio files that are cut short or don't decode (see [`crate::probe::check_tracks`]), and
-//! ([`Section::Analysis`]) stored tempos and keys an analysis of the audio disagrees with, and
-//! tracks whose level may be a problem (see [`crate::sound`]).
+//! hold, how players get on with the drive's file system, and what plugins' checks find. On
+//! request ([`Section::Audio`]), also audio files that are cut short or don't decode (see
+//! [`crate::probe::check_tracks`]), and ([`Section::Analysis`]) stored tempos and keys an analysis
+//! of the audio disagrees with, and tracks whose level may be a problem (see [`crate::sound`]).
 //!
 //! The report never writes to the drive (with `hash_audio`, the hash cache is kept on adopted
 //! drives, as every scan does). [`plan_orphans`] / [`apply_orphans`] remove orphaned files: audio
@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::check::{CheckItem, Level};
 use crate::commit::{self, Changes, Options};
 use crate::device::{Device, LibraryDrift, LineageOp};
 use crate::equipment::{Codec, FromPath};
@@ -28,7 +29,7 @@ use crate::fsutil;
 use crate::hash::Hash;
 use crate::mix::index::{Cache, fingerprint_library};
 use crate::model::{Library, Track, TrackRef, normalize};
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::store::{Snapshot, Store};
@@ -36,14 +37,11 @@ use crate::timeline;
 use crate::tree::FileTree;
 use crate::{Error, Result};
 use loclib_mixid::matcher;
+use loclib_model::audio::Format;
 
 /// FAT32 stores file sizes in 32 bits: a file of 4 GiB or more can't be stored on it (or copied
 /// to it).
 pub const FAT32_MAX_FILE: u64 = 1 << 32;
-
-/// Extensions of the audio files rekordbox exports. Anything else under `Contents/` (a
-/// `cover.jpg`, notes) is never reported as orphaned.
-pub(crate) const AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "flac", "ogg", "alac"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "DoctorSection")]
@@ -56,12 +54,15 @@ pub enum Section {
     Drift,
     LargeFiles,
     Compatibility,
+    /// What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`]).
+    Checks,
     /// Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
     /// naming it): it reads every file's last seconds.
     Audio,
     /// Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
     /// clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
-    /// it): it decodes every track not analysed before.
+    /// it): from what the analyzers chosen for tempo, key and loudness kept, which the app runs on
+    /// the tracks not analysed before, first.
     Analysis,
 }
 
@@ -92,7 +93,8 @@ pub struct DoctorOptions {
 }
 
 impl DoctorOptions {
-    fn wants(&self, s: Section) -> bool {
+    /// Whether section `s` runs.
+    pub fn wants(&self, s: Section) -> bool {
         match s {
             Section::Audio => self.audio || self.only.contains(&s),
             Section::Analysis => self.analyze || self.only.contains(&s),
@@ -125,6 +127,8 @@ pub struct DoctorReport {
     pub compatibility: Option<Compatibility>,
     /// The volume's file system as the OS names it.
     pub file_system: Option<String>,
+    /// What plugins' checks found, each named `<plugin>.<check>`.
+    pub checks: Option<Vec<CheckItem>>,
     pub warnings: Vec<String>,
 }
 
@@ -137,8 +141,9 @@ pub struct AudioReport {
 
 impl DoctorReport {
     /// Whether it found something to fix: duplicates, missing or orphaned files, drift between
-    /// the databases, files too big for FAT32, or audio files cut short (with
-    /// [`DoctorOptions::audio`]). (Tracks in no playlist are only listed.)
+    /// the databases, files too big for FAT32, audio files cut short (with
+    /// [`DoctorOptions::audio`]), or a problem a plugin's check found. (Tracks in no playlist are
+    /// only listed.)
     pub fn has_problems(&self) -> bool {
         self.duplicates.as_ref().is_some_and(|v| !v.is_empty())
             || self.missing.as_ref().is_some_and(|v| !v.is_empty())
@@ -146,6 +151,7 @@ impl DoctorReport {
             || self.drift.as_ref().is_some_and(|d| !d.is_empty())
             || self.large_files.as_ref().is_some_and(|v| !v.is_empty())
             || self.audio.as_ref().is_some_and(|a| !a.problems.is_empty())
+            || self.checks.iter().flatten().any(|i| i.level == Level::Problem)
     }
 }
 
@@ -396,10 +402,6 @@ fn image_paths(one: &crate::onelibrary::OneLibrary) -> Result<Vec<String>> {
     Ok(out)
 }
 
-pub(crate) fn fold(s: &str) -> String {
-    s.to_lowercase()
-}
-
 // ---------------------------------------------------------------------------------------------
 // The report
 // ---------------------------------------------------------------------------------------------
@@ -440,9 +442,13 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         }
         false => None,
     };
-    let analysis =
-        opts.wants(Section::Analysis).then(|| crate::sound::analyze_library(device, library, ctx)).transpose()?;
+    // From what was kept: the app analyses the tracks first. Without a store nothing was.
+    let analysis = opts
+        .wants(Section::Analysis)
+        .then(|| crate::api::registry().map(|store| crate::sound::report(&store, device, library)).unwrap_or_default());
     let volume = opts.wants(Section::Compatibility).then(|| volume_of(device.root())).flatten();
+    let plugins = crate::plugin::hosted().filter(|_| opts.wants(Section::Checks));
+    let checks = plugins.map(|p| p.run_checks(device, crate::api::registry().as_ref(), ctx)).transpose()?;
     Ok(DoctorReport {
         drive: device.name(),
         root: device.root().to_path_buf(),
@@ -457,6 +463,7 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         analysis,
         file_system: volume.as_ref().and_then(|(_, v)| v.filesystem_name.clone()),
         compatibility: volume.as_ref().map(|(disk, _)| players::assess_disk(disk)),
+        checks,
         warnings,
     })
 }
@@ -480,8 +487,7 @@ pub fn unfiled(library: &Library) -> Vec<TrackRef> {
 
 /// Library files of 4 GiB or more, which FAT32 can't hold.
 pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
-    let by_key: FxHashMap<String, &Track> =
-        library.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
+    let by_key: FxHashMap<String, &Track> = library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t)).collect();
     tree.library_entries()
         .filter(|e| e.size >= FAT32_MAX_FILE)
         .map(|e| LargeFile {
@@ -575,7 +581,7 @@ pub(crate) fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
     let mut analysis_stems: FxHashSet<String> = FxHashSet::default();
     for (_, library) in dbs.all() {
         for t in &library.tracks {
-            in_use.insert(fold(&paths::key(&t.file_path)));
+            in_use.insert(paths::file_key(&t.file_path));
             let dat = paths::key(&t.analyze_path);
             if let Some((stem, _)) = dat.rsplit_once('.') {
                 analysis_stems.insert(fold(stem));
@@ -592,10 +598,11 @@ pub(crate) fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
         .values()
         .filter(|e| paths::classify(&e.path) == Some(e.class))
         .filter(|e| match e.class {
+            // Only audio players list: anything else under `Contents/` (a `cover.jpg`, notes) is
+            // never reported as orphaned.
             FileClass::Audio => {
-                let ext = e.path.rsplit_once('.').map(|(_, x)| x.to_ascii_lowercase()).unwrap_or_default();
                 e.path.starts_with("Contents/")
-                    && AUDIO_EXTENSIONS.contains(&ext.as_str())
+                    && Format::for_players(&e.path).is_some()
                     && !in_use.contains(&fold(&e.path))
             }
             FileClass::Analysis => {
@@ -695,7 +702,7 @@ fn same_recordings(
     let index: FxHashMap<u32, usize> = library.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
     // Rows for one file are duplicates by file already. (Two files can share a cache key: one
     // file in two folders, with its name and time.)
-    let file = |id: u32| fold(&paths::key(&library.tracks[index[&id]].file_path));
+    let file = |id: u32| paths::file_key(&library.tracks[index[&id]].file_path);
     let mut pairs = Vec::new();
     for (i, a) in prints.iter().enumerate() {
         for b in
@@ -798,7 +805,7 @@ fn duplicates(
     ctx: &Ctx<'_>,
 ) -> Result<Vec<DuplicateGroup>> {
     let tracks = &library.tracks;
-    let keys: Vec<String> = tracks.iter().map(|t| fold(&paths::key(&t.file_path))).collect();
+    let keys: Vec<String> = tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     // Each track's audio file on the drive (its tree key), if present.
     let files: Vec<Option<String>> =
         tracks.iter().map(|t| tree.resolve(&paths::key(&t.file_path)).map(|e| e.path.clone())).collect();
@@ -1059,6 +1066,9 @@ pub fn apply_orphans(plan: &OrphanPlan, device: &mut Device, ctx: &Ctx<'_>) -> R
         fingerprint: done.fingerprint,
     })
 }
+
+mod tempo;
+pub use tempo::tempo_fixes;
 
 #[cfg(test)]
 mod tests;

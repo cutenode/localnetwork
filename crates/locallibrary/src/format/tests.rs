@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(unix)]
+#[path = "test_util.rs"]
+pub(crate) mod fake_tools;
+
 pub(crate) fn sample_disk() -> Disk {
     Disk {
         id: "disk4".into(),
@@ -115,9 +119,12 @@ fn plans_warn_where_formatting_is_untested() {
         untested(warnings(Some("linux"), false)),
         ["formatting hasn't been tested on Linux yet; check the result"]
     );
+    // Windows itself refuses the capacity check, so there the plan is made without one.
+    let checked = !cfg!(windows);
+    let what = if checked { "formatting with a capacity check" } else { "formatting" };
     assert_eq!(
-        untested(warnings(Some("windows"), true)),
-        ["formatting with a capacity check hasn't been tested on Windows yet; check the result"]
+        untested(warnings(Some("windows"), checked)),
+        [format!("{what} hasn't been tested on Windows yet; check the result")]
     );
     assert!(untested(warnings(Some("macos"), false)).is_empty());
 }
@@ -191,8 +198,7 @@ fn file_systems_are_named_and_small_volumes_get_small_clusters() {
     assert_eq!(Filesystem::Hfsplus.label(""), "REKORDBOX");
 }
 
-/// A disk image is refused unless tests allow them, and so is a disk holding `/` whatever it
-/// says about itself.
+/// A disk image is refused, and so is a disk holding `/` whatever it says about itself.
 #[test]
 fn refuses_disk_images_and_the_root_volume() {
     let image = Disk { virtual_disk: true, ..sample_disk() };
@@ -200,6 +206,30 @@ fn refuses_disk_images_and_the_root_volume() {
     let mut root = sample_disk();
     root.volumes[0].mount = Some("/".into());
     assert_eq!(root.problem(&[]).as_deref(), Some("it holds the running operating system"));
+}
+
+/// The disk image a test attached is let through, and only that one: a disk image under another
+/// identifier is refused, and so is a disk that isn't an image under the image's identifier.
+#[test]
+fn only_the_tests_own_image_is_let_through() {
+    let image = Disk { virtual_disk: true, internal: true, removable: false, ..sample_disk() };
+    TEST_IMAGE.set(Some(image.id.clone()));
+    assert_eq!(image.problem(&[]), None);
+    let other = Disk { id: "disk9".into(), ..image.clone() };
+    assert_eq!(
+        other.problem(&[]).as_deref(),
+        Some("it's an internal disk (only external and removable drives can be formatted)")
+    );
+    let real = Disk { virtual_disk: false, ..image.clone() };
+    assert!(real.problem(&[]).unwrap().contains("internal"));
+    // Read-only, holding the system or a protected path: refused all the same.
+    assert_eq!(Disk { read_only: true, ..image.clone() }.problem(&[]).as_deref(), Some("it's write-protected"));
+    assert!(Disk { system: true, ..image.clone() }.problem(&[]).unwrap().contains("operating system"));
+    assert!(image.problem(&[PathBuf::from("/Volumes/DNA/store")]).unwrap().contains("holds"));
+    // Nor is it listed: tests name it by its identifier.
+    assert!(views(vec![image.clone()], &[]).is_empty());
+    TEST_IMAGE.set(None);
+    assert!(image.problem(&[]).unwrap().contains("internal"));
 }
 
 /// Only external and removable physical disks are listed, each with why it can't be
@@ -325,7 +355,7 @@ fn volume(tc: &TestCase, disk: &str, n: usize) -> Volume {
     Volume {
         id: format!("{disk}s{}", n + 1),
         size: tc.draw(gs::integers::<u64>().max_value(3 << 40)),
-        filesystem: if opt(tc) { Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).print_as_debug())) } else { None },
+        filesystem: if opt(tc) { Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()))) } else { None },
         filesystem_name: match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => None,
             1 => Some(name(tc)),
@@ -366,9 +396,7 @@ pub(crate) fn any_disk(tc: &TestCase) -> Disk {
         system: rare(tc),
         virtual_disk: rare(tc),
         read_only: rare(tc),
-        scheme: tc.draw(
-            gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm)]).print_as_debug(),
-        ),
+        scheme: tc.draw(gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm)])),
         volumes,
         id,
     }
@@ -403,7 +431,7 @@ fn labels_suit_their_file_system(tc: TestCase) {
 /// the file system's limit, and the default one is always taken.
 #[hegel::test(test_cases = 500)]
 fn cluster_sizes_follow_each_file_systems_rules(tc: TestCase) {
-    let fs = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+    let fs = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let sector = tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096]));
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(31).map(|s| 1u32 << s), gs::integers::<u32>(),));
     let limit = match fs {
@@ -530,22 +558,19 @@ fn lenient_json_reads_every_spelling(tc: TestCase) {
     assert_eq!(json::str(&v, "s"), want);
     assert_eq!(json::str(&v, "missing"), None);
 
-    let flag = tc.draw(
-        gs::sampled_from(vec![
-            (json!(true), true),
-            (json!(false), false),
-            (json!("1"), true),
-            (json!(" true"), true),
-            (json!("True "), true),
-            (json!("yes"), false),
-            (json!("0"), false),
-            (json!(1), true),
-            (json!(2), false),
-            (json!(null), false),
-            (json!([true]), false),
-        ])
-        .print_as_debug(),
-    );
+    let flag = tc.draw(gs::sampled_from(vec![
+        (json!(true), true),
+        (json!(false), false),
+        (json!("1"), true),
+        (json!(" true"), true),
+        (json!("True "), true),
+        (json!("yes"), false),
+        (json!("0"), false),
+        (json!(1), true),
+        (json!(2), false),
+        (json!(null), false),
+        (json!([true]), false),
+    ]));
     assert_eq!(json::bool(&json!({ "f": flag.0 }), "f"), flag.1, "{}", flag.0);
 
     let items: Vec<u64> = tc.draw(gs::vecs(gs::integers::<u64>()).max_size(4));
@@ -613,7 +638,7 @@ fn identity_follows_what_is_on_the_disk(tc: TestCase) {
         (9, true) => {
             let was = other.volumes[i].filesystem;
             other.volumes[i].filesystem =
-                Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).filter(move |k| Some(*k) != was).print_as_debug()));
+                Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).filter(move |k| Some(*k) != was)));
             (false, true)
         }
         _ => {
@@ -687,10 +712,12 @@ fn disks_are_refused_for_exactly_their_problems(tc: TestCase) {
 fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let disk = any_disk(&tc);
     let opts = FormatOptions {
-        filesystem: tc.draw(
-            gs::sampled_from(vec![None, Some(Filesystem::Fat32), Some(Filesystem::Exfat), Some(Filesystem::Hfsplus)])
-                .print_as_debug(),
-        ),
+        filesystem: tc.draw(gs::sampled_from(vec![
+            None,
+            Some(Filesystem::Fat32),
+            Some(Filesystem::Exfat),
+            Some(Filesystem::Hfsplus),
+        ])),
         label: if tc.draw(gs::booleans()) { Some(name(&tc)) } else { None },
         cluster_size: tc.draw(gs::sampled_from(vec![
             None,
@@ -713,7 +740,9 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let fits = disk.problem(&[]).is_none()
         && disk.size < players::MBR_MAX
         && fs.check_cluster_size(cluster, disk.sector_size).is_ok()
-        && (fs != Filesystem::Fat32 || fat32::Layout::new(part, disk.sector_size, cluster, 0).is_ok());
+        && (fs != Filesystem::Fat32 || fat32::Layout::new(part, disk.sector_size, cluster, 0).is_ok())
+        // Windows itself makes no HFS+ and checks no capacity.
+        && !(cfg!(windows) && (fs == Filesystem::Hfsplus || opts.check_capacity));
     let p = match made {
         Ok(p) => p,
         Err(e) => {
@@ -736,7 +765,7 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let warned = p.warnings.iter().filter(|w| w.contains("isn't mounted")).count();
     assert_eq!(warned, unmounted.count());
     let untested = p.warnings.iter().any(|w| w.contains("hasn't been tested on"));
-    assert_eq!(untested, matches!(os, Some("linux" | "windows")));
+    assert_eq!(untested, matches!(os.unwrap_or(std::env::consts::OS), "linux" | "windows"));
     let all = p.compatibility.verdict == Verdict::AllPlayers;
     assert_eq!(p.warnings.iter().any(|w| w.contains("won't work on every player")), !all);
     assert_eq!(all, fs != Filesystem::Exfat);
@@ -860,4 +889,24 @@ fn write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
         Err(Error::Io { path, .. }) => assert_eq!(path, dev),
         other => panic!("{other:?}"),
     }
+}
+
+/// Regression: under `$LOCALLIBRARY_VOLUMES`, the disk holding a drive folder was still looked up
+/// with the system's disk tools (`diskutil info`, `lsblk`), though that disk is this machine's
+/// own. It's refused without running any, as listing and formatting are.
+#[cfg(unix)]
+#[test]
+fn the_test_switch_runs_no_disk_tool_for_a_drive_folder() {
+    let mut fake = fake_tools::FakeTools::new();
+    let root = fake.dir().join("DNA");
+    std::fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    fake.volume_at(&root, "vfat", true);
+    assert!(disk_at(&root).is_ok(), "the fake tools answer for it");
+    let before = fake.calls().len();
+    crate::testing::volumes_on_this_thread(Some(Vec::new()));
+    let hidden = disk_at(&root);
+    crate::testing::volumes_on_this_thread(None);
+    assert!(matches!(&hidden, Err(Error::Invalid(m)) if m.starts_with("LOCALLIBRARY_VOLUMES is set")), "{hidden:?}");
+    assert_eq!(fake.calls().len(), before, "no tool ran");
 }

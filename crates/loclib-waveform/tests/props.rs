@@ -50,6 +50,7 @@ fn cue(tc: &TestCase, max_ms: u32) -> Cue {
         color: tc.draw(gs::optional(gs::arrays::<_, _, 3>(gs::integers::<u8>()))),
         color_id: tc.draw(gs::integers::<u8>().max_value(10)),
         loop_beats: length.and(loop_beats),
+        active_loop: length.is_some() && tc.draw(gs::booleans()),
     }
 }
 
@@ -60,7 +61,7 @@ fn cues(tc: &TestCase, max_ms: u32) -> Vec<Cue> {
 }
 
 #[hegel::test_helper]
-fn palette(tc: &TestCase) -> Palette {
+fn palette(tc: &TestCase) -> Palette<'static> {
     Palette { plain: tc.draw(gs::booleans()), ..Palette::default() }
 }
 
@@ -358,17 +359,14 @@ fn the_record_is_round(tc: TestCase) {
 #[cfg(feature = "image")]
 #[hegel::test(test_cases = 60)]
 fn art_is_resampled_to_any_size(tc: TestCase) {
-    use hegel::Generator;
     use loclib_waveform::Art;
     let colour = rgb(&tc);
     let (w, h) = (
         tc.draw(gs::integers::<u32>().min_value(1).max_value(24)),
         tc.draw(gs::integers::<u32>().min_value(1).max_value(24)),
     );
-    let format = tc.draw(
-        gs::sampled_from(vec![image::ImageFormat::Png, image::ImageFormat::Bmp, image::ImageFormat::Jpeg])
-            .print_as_debug(),
-    );
+    let format =
+        tc.draw(gs::sampled_from(vec![image::ImageFormat::Png, image::ImageFormat::Bmp, image::ImageFormat::Jpeg]));
     let mut bytes = std::io::Cursor::new(Vec::new());
     image::RgbImage::from_pixel(w, h, image::Rgb(colour)).write_to(&mut bytes, format).unwrap();
     let mut art = Art::decode(bytes.get_ref()).unwrap();

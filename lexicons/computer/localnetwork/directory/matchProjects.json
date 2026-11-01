@@ -22,7 +22,11 @@
 					},
 					"radiusKm": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 50 },
 					"genres": { "type": "array", "maxLength": 12, "items": { "type": "string", "maxLength": 48 } },
-					"budgetTier": { "type": "string", "knownValues": ["community", "emerging", "established", "headliner"] },
+					"budgetTier": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["community", "emerging", "established", "headliner"]
+					},
 					"capacity": { "type": "integer", "minimum": 1 },
 					"setType": { "type": "string", "maxLength": 32 },
 					"formats": { "type": "array", "maxLength": 10, "items": { "type": "string", "maxLength": 48 } },

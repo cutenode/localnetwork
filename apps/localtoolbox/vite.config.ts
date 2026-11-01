@@ -1,8 +1,9 @@
 // Build for the extension's UI.
 //
 // The extension used to ship exactly what it ran: classic scripts, one HTML
-// page per tool, no build step. The UI is now a Svelte app, so there is one
-// — but only for the popup, which is bundled into ES modules (.mjs).
+// page per tool, no build step. The UI is now a Svelte app, so there is one,
+// but only for the extension's own pages: the popup, and the background
+// worker with the offscreen page it opens, all bundled into ES modules.
 // Everything that runs *in the page* (content.ts and the store it shares with
 // the panels) is still a classic script: it is written in TypeScript, and the
 // only compiling it gets is its types blanked out, so the content script keeps
@@ -18,6 +19,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import blankSpace from 'ts-blank-space';
+import { execFileSync } from 'node:child_process';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -88,9 +90,28 @@ const dropCrossorigin = (): Plugin => ({
 	}
 });
 
+// The commit the build was made from, which the settings sheet shows beside the
+// version and puts into a bug report: the manifest's number alone says which
+// release, and a build from source is usually somewhere between two. A copy of
+// the source with no git (a zip) builds without one.
+function commit() {
+	try {
+		return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+			cwd: here,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'ignore']
+		}).trim();
+	} catch (_e) {
+		return '';
+	}
+}
+
+// The popup's alone: the offscreen page reads neither global.
 const injectClassicScripts = (): Plugin => ({
 	name: 'toolbox-classic-scripts',
-	transformIndexHtml() {
+	transformIndexHtml(_html, { filename }) {
+		if (!filename.endsWith('popup.html')) return undefined;
+
 		return classicScripts.map((src) => ({
 			tag: 'script',
 			attrs: { src: `./${src}` },
@@ -112,6 +133,7 @@ export default defineConfig(({ mode }) => ({
 	resolve: {
 		alias: { $lib: resolve(root, 'lib') }
 	},
+	define: { 'import.meta.env.VITE_COMMIT': JSON.stringify(commit()) },
 	build: {
 		outDir: '../dist',
 		// A release starts from an empty folder; a watch does not. `pnpm dev`
@@ -139,11 +161,18 @@ export default defineConfig(({ mode }) => ({
 		// a release does not.
 		sourcemap: mode === 'development',
 		rollupOptions: {
-			input: { popup: resolve(root, 'popup.html') },
+			// The popup, and the two that walk a gate for the page's Download button:
+			// the background worker and the offscreen page it opens (background.ts).
+			input: {
+				popup: resolve(root, 'popup.html'),
+				offscreen: resolve(root, 'offscreen.html'),
+				background: resolve(root, 'background.ts')
+			},
 			// ES modules, named as such. Chrome serves an extension's .mjs files as
-			// JavaScript, which is all a module script needs.
+			// JavaScript, which is all a module script needs. The worker keeps a name
+			// without a hash, because the manifest has to name it.
 			output: {
-				entryFileNames: 'assets/[name]-[hash].mjs',
+				entryFileNames: (chunk) => (chunk.name === 'background' ? 'background.js' : 'assets/[name]-[hash].mjs'),
 				chunkFileNames: 'assets/[name]-[hash].mjs'
 			}
 		}

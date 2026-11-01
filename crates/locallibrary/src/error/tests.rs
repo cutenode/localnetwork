@@ -122,12 +122,12 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     for step in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => {
-                let r = reasons[tc.draw(gs::integers::<usize>().max_value(reasons.len() - 1))];
+                let r = tc.draw(gs::sampled_from(&reasons));
                 e = e.because(r);
                 reason = Some(r);
             }
             1 => {
-                let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+                let key = tc.draw(gs::sampled_from(&keys));
                 e = e.with(key, step);
                 fields.insert(key.into(), step.into());
             }
@@ -165,6 +165,31 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     // Round trips through JSON, as the sidecar sends it.
     let back: Detail = serde_json::from_value(serde_json::to_value(&d).unwrap()).unwrap();
     assert_eq!(back, d);
+
+    // Without its retries an error keeps only the actions that call a method (a permission error
+    // still offers to run elevated), and everything else it said.
+    let mut calls: Vec<Action> = d.actions.iter().filter(|a| a.method.is_some()).cloned().collect();
+    if permission {
+        calls.push(Action::elevate("Run it as an administrator"));
+    }
+    let text = e.to_string();
+    let bare = e.without_retries();
+    assert_eq!((bare.code(), bare.to_string()), (code, text));
+    let b = bare.detail();
+    assert_eq!((b.reason, &b.fields, &b.actions), (d.reason, &d.fields, &calls));
+}
+
+/// A track id the library doesn't have is `not_found` naming it, and says it's one only
+/// OneLibrary has exactly when the id carries OneLibrary's own-track flag.
+#[hegel::test(test_cases = 200)]
+fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let id = tc.draw(gs::integers::<u32>());
+    let e = Error::no_track(id);
+    assert_eq!(e.code(), "not_found");
+    let text = e.to_string();
+    assert!(text.contains(&format!("track #{id}")), "{text}");
+    assert_eq!(text.contains("only OneLibrary has"), id & crate::convert::ONELIBRARY_ONLY != 0, "{text}");
 }
 
 /// An I/O error given a path says which, and keeps its cause.
@@ -173,9 +198,11 @@ fn io_errors_name_their_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "Ünï/ANLZ0000.DAT", "a b"]));
     let r: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "no such file"));
-    let e = r.at(Path::new("/Volumes/USB").join(name)).unwrap_err();
+    // Written out rather than joined, so the path reads the same with Windows' separator.
+    let path = format!("/Volumes/USB/{name}");
+    let e = r.at(PathBuf::from(&path)).unwrap_err();
     assert_eq!(e.code(), "io");
-    assert_eq!(e.detail().fields["path"], format!("/Volumes/USB/{name}"));
+    assert_eq!(e.detail().fields["path"], path);
     assert!(e.to_string().ends_with("no such file"), "{e}");
 }
 
@@ -197,7 +224,7 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
     let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
     let kind = tc.draw(gs::integers::<u8>().max_value(3));
     // (the error, its code, whether its message (or path) comes through)
-    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(9)) {
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
         1 => {
             let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -222,16 +249,6 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
             (e.0.into(), e.1, e.2)
         }
         3 => {
-            use loclib_interop::Error as I;
-            let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
-                0 => (I::Cancelled(loclib_progress::Cancelled), "cancelled", false),
-                1 => (I::Invalid(message.clone()), "invalid", true),
-                2 => (I::Io { path: path.clone(), source: io() }, "io", true),
-                _ => (I::Tags(message.clone()), "tags", true),
-            };
-            (e.0.into(), e.1, e.2)
-        }
-        4 => {
             use loclib_mysettings::Error as M;
             let e = match tc.draw(gs::integers::<u8>().max_value(2)) {
                 0 => (M::UnknownSetting(message.clone()), "invalid", true),
@@ -248,10 +265,9 @@ fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase)
             };
             (e.0.into(), e.1, e.2)
         }
-        5 => (loclib_progress::Cancelled.into(), "cancelled", false),
-        6 => (loclib_equipment::UnknownModels(vec![message.clone()]).into(), "invalid", true),
-        7 => (loclib_tracklist::Error::NoTitleColumn { found: message.clone() }.into(), "invalid", true),
-        8 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
+        4 => (loclib_progress::Cancelled.into(), "cancelled", false),
+        5 => (loclib_equipment::UnknownModels(vec![message.clone()]).into(), "invalid", true),
+        6 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
         _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
     };
     let detailed = e.to_string();

@@ -1,0 +1,29 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "headline.schema.json",
+	"title": "Homepage headline",
+	"description": "The words the homepage's headline cycles through, read as \"<verb> your <noun>.\" The two lists step together, so the first verb and first noun are shown first and are what screen readers and search engines read.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["verbs", "nouns"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"verbs": {
+			"description": "What a promoter or someone going out does with a DJ, capitalized: \"Find\", \"Dig up\", \"Catch\".",
+			"type": "array",
+			"minItems": 1,
+			"uniqueItems": true,
+			"items": { "$ref": "#/$defs/word" }
+		},
+		"nouns": {
+			"description": "Who they're looking for, in lowercase unless it's a name or an acronym: \"DJ\", \"b2b duo\".",
+			"type": "array",
+			"minItems": 1,
+			"uniqueItems": true,
+			"items": { "$ref": "#/$defs/word" }
+		}
+	},
+	"$defs": {
+		"word": { "type": "string", "pattern": "^\\S(.*\\S)?$", "maxLength": 20 }
+	}
+}

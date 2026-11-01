@@ -164,7 +164,6 @@ pub enum Act {
     SmartApply,
     SmartNew,
     ExportList,
-    ExportXml,
     // Profile
     ProfileInclude,
     ProfilePin,
@@ -180,6 +179,45 @@ pub enum Act {
     MixZoom,
     MixExport,
     MixReport,
+    /// A plugin's command, by the plugin's id and its name (from the palette and the drive
+    /// menu, never a key).
+    Plugin(&'static str, &'static str),
+    /// Run a plugin's analyzer (the plugin's id, the analyzer's name) on the drive's tracks.
+    Analyze(&'static str, &'static str),
+    /// Write the key and BPM a plugin's analyzer (the plugin's id, the analyzer's name) worked
+    /// out to the drive's tracks.
+    ApplyFields(&'static str, &'static str),
+    /// Show or hide the column of a plugin's field.
+    FieldColumn(locallibrary::query::FieldName),
+    /// A plugin's settings (the plugin's id).
+    PluginSettings(&'static str),
+    /// Sign in to a plugin's account in the browser (the plugin's id, the account's).
+    PluginSignIn(&'static str, &'static str),
+    /// Sign out of a plugin's account (the plugin's id, the account's).
+    PluginSignOut(&'static str, &'static str),
+    /// Plan what a plugin suggested, which it no longer keeps: the one waiting to be reviewed
+    /// with this mark (see `tui::plugins::events::mark`), so a palette open as others come and go
+    /// still plans the one picked.
+    Review(u64),
+    /// No longer keep what a plugin suggested, by its mark (as [`Act::Review`]).
+    Dismiss(u64),
+    /// The settings of every provider: when a candidate is picked for the user.
+    ProviderSettings,
+    /// Which plugins' checks run, and how long one has to answer.
+    CheckSettings,
+    /// Plan a fix the last check found (its place in [`super::app::App::fixes`]).
+    Fix(usize),
+    /// Draw in a theme, by its key (`<plugin>.<name>`; empty for the default).
+    Theme(&'static str),
+    /// Export the drive, or the set open, in a plugin's format (the plugin's id, the format, and
+    /// which of the two).
+    Export(&'static str, &'static str, loclib_plugin::ExportFrom),
+    /// Import a file into the drive with a plugin's importer (the plugin's id, the format).
+    Import(&'static str, &'static str),
+    /// Build the drive from a plugin's library source (the plugin's id, the source).
+    Source(&'static str, &'static str),
+    /// Fetch what plugins' providers of a kind find for the tracks selected.
+    Fetch(loclib_plugin::ProviderKind),
 }
 
 /// The help's sections.
@@ -359,7 +397,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the crate", "show / hide the crate: tracks collected while browsing, a CDJ's TAG LIST", G::Crate),
     note(S::Library, "enter", "in the crate: play from there", G::Crate),
     note(S::Library, "", "Every change shows what it will do and asks first; the drive is backed up before it's written.", G::Changing),
-    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive", G::Changing),
+    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
     key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
     note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so above the footer; esc puts it away)", G::Changing),
@@ -368,7 +406,7 @@ pub static KEYMAP: &[Binding] = &[
     // The Drives and Snapshots views
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
     tip(S::Drives, "↑↓", "select", 4),
     tip(S::Drives, "enter", "browse", 9),
     tip(S::Drives, "e", "actions", 8),
@@ -494,9 +532,10 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "4", A::ShowView(View::Profile), "the DJ profile", "", G::Player),
     key(S::Global, &[], "5", A::ShowView(View::Mixes), "recorded mixes", "", G::Player),
     key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
-    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), and the commands with no key", G::Player).hint("commands", 6),
+    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "the keys", "this help", G::Player).hint("help", 5),
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
+    note(S::Global, "", "found a bug? locallibrary bug, in a terminal, reports it", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
     key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", "save the drive in the store, a snapshot of its library (shows what that adds first)", G::Commands),
@@ -511,7 +550,6 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "smart apply", A::SmartApply, "fill the smart playlists on the drive", "fill the rule-based playlists on the drive from its own library (shows what changes first)", G::Commands),
     key(S::Global, &[], "smart new", A::SmartNew, "smart playlist from the search", "a rule-based playlist from the search box's filter and the list's sort", G::Commands),
     key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, set, session or all tracks shown to a file on this computer", G::Commands),
-    key(S::Global, &[], "xml", A::ExportXml, "export rekordbox XML", "rekordbox XML of the drive (the marked playlists only, when some are), to take back into rekordbox", G::Commands),
     key(S::Global, &[], "eject", A::Eject, "eject the drive", "unmount the drive and power it off (playing from it stops first)", G::Commands),
     key(S::Global, &[K::Ch('q'), K::Ctrl('c'), K::Ctrl('q')], "q", A::Quit, "quit", "quit (a write to the drive finishes first)", G::Player).hint("quit", 1),
 ];
@@ -615,5 +653,6 @@ pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
     (sections(rows.into_iter()), sections(global.into_iter()))
 }
 
+pub mod bound;
 #[cfg(test)]
 mod tests;

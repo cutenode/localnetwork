@@ -3,9 +3,15 @@
 //! Only what locallibrary needs: the audio path a file belongs to (`PPTH`, which must be
 //! rewritten when a merge relocates a track), the beat grid (`PQTZ`) and cue points
 //! (`PCOB`/`PCO2`) for XML export and editing (see [`write_cue_points`]), and the waveforms
-//! (`PWAV`/`PWV3`/`PWV4`/`PWV5`) and phrase analysis (`PSSI`) for display. Everything else is
-//! passed through byte for byte. What they decode to is [`loclib_model::analysis`]'s, re-exported
-//! here, and [`load`] reads it all for a track.
+//! (`PWAV`/`PWV3`/`PWV4`/`PWV5`, and `PWV6`/`PWV7` for a track with no others) and phrase analysis
+//! (`PSSI`) for display. Everything else is passed through byte for byte. What they decode to is
+//! [`loclib_model::analysis`]'s, re-exported here, and [`load`] reads it all for a track.
+//!
+//! The beat grid, phrases and waveforms can be written too ([`write_beat_grid`],
+//! [`write_song_structure`], [`write_waveform`]), and new files made for a track without any
+//! ([`new_analysis_files`]). Each writer reads what it wrote back with the reader here and fails
+//! when that isn't what it was given; these layouts are checked against rekordbox's own files, but
+//! only real players show what they make of them.
 //!
 //! All integers are big-endian. A file is a `PMAI` header followed by tagged sections, each
 //! starting with `tag[4] header_len:u32 total_len:u32`. Layouts follow
@@ -16,9 +22,18 @@ use crate::model::Track;
 use crate::paths;
 use crate::{Error, Result};
 
+mod grid;
+mod structure;
+mod tags;
+mod waves;
 mod write;
 
+pub use grid::{checked_grid, doubled_grid, halved_grid, without_extended_grid, write_beat_grid};
 pub use loclib_model::analysis::*;
+pub use structure::{kind_number, write_song_structure};
+pub use tags::new_analysis_files;
+pub use waves::{DETAIL_RATE, at_detail_rate, waveform_entries, waveform_from_bands, waveform_tags, write_waveform};
+pub(crate) use write::MAX_COMMENT;
 pub use write::{CueFile, CuePoint, RawCue, read_cue_points, shift_times, write_cue_points};
 
 #[derive(Debug, Clone, Copy)]
@@ -68,6 +83,11 @@ fn sections(bytes: &[u8]) -> Result<Vec<SectionRef>> {
 
 fn find<'a>(secs: &'a [SectionRef], tag: &[u8; 4]) -> Option<&'a SectionRef> {
     secs.iter().find(|s| &s.tag == tag)
+}
+
+/// Whether an analysis file has a section tagged `tag`.
+pub fn has_section(bytes: &[u8], tag: &[u8; 4]) -> Result<bool> {
+    Ok(find(&sections(bytes)?, tag).is_some())
 }
 
 fn utf16be(bytes: &[u8]) -> String {
@@ -135,22 +155,37 @@ pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
 }
 
 /// Cue points. Uses the extended list (`PCO2`, in `.EXT`) when present, which carries names and
-/// colours; otherwise the basic list (`PCOB`).
+/// colours; otherwise the basic list (`PCOB`). Only the basic list says which loops are active,
+/// so its say goes for the extended list's loops too.
 pub fn cues(bytes: &[u8]) -> Result<Vec<Cue>> {
     let secs = sections(bytes)?;
-    let extended: Vec<&SectionRef> = secs.iter().filter(|s| &s.tag == b"PCO2").collect();
-    let mut out = Vec::new();
-    if !extended.is_empty() {
-        for s in extended {
-            parse_entries(bytes, s, b"PCP2", &mut out, parse_pcp2);
-        }
-    } else {
-        for s in secs.iter().filter(|s| &s.tag == b"PCOB") {
-            parse_entries(bytes, s, b"PCPT", &mut out, parse_pcpt);
-        }
+    let mut basic = Vec::new();
+    for s in secs.iter().filter(|s| &s.tag == b"PCOB") {
+        parse_entries(bytes, s, b"PCPT", &mut basic, parse_pcpt);
     }
+    let extended: Vec<&SectionRef> = secs.iter().filter(|s| &s.tag == b"PCO2").collect();
+    let mut out = match extended.is_empty() {
+        true => basic,
+        false => {
+            let mut out = Vec::new();
+            for s in extended {
+                parse_entries(bytes, s, b"PCP2", &mut out, parse_pcp2);
+            }
+            mark_active_loops(&mut out, &basic);
+            out
+        }
+    };
     out.sort_by_key(|c| (c.hot_cue.map_or(0, |h| h as u32 + 1), c.start_ms));
     Ok(out)
+}
+
+/// Mark the loops of `cues` that `basic` (cues from a `PCOB` list, the only one with the flag)
+/// has as active loops.
+fn mark_active_loops(cues: &mut [Cue], basic: &[Cue]) {
+    let key = |c: &Cue| (c.hot_cue, c.start_ms, c.end_ms);
+    for c in cues.iter_mut().filter(|c| c.end_ms.is_some()) {
+        c.active_loop |= basic.iter().any(|b| b.active_loop && key(b) == key(c));
+    }
 }
 
 fn parse_entries(
@@ -180,22 +215,24 @@ fn loop_end(start: u32, loop_time: u32, is_loop: bool) -> Option<u32> {
     (is_loop && loop_time != u32::MAX && loop_time > start).then_some(loop_time)
 }
 
-/// `PCPT`: hot_cue u32, status u32, u32, order u16 x2, type u8, u8, u16, time u32, loop u32.
-/// (status is not interpreted; its meaning is not fully understood.) A hot cue number past 256
-/// isn't a cue, as for [`read_cue_points`].
+/// `PCPT`: hot_cue u32, status u32 (4: an active loop), u32, order u16 x2, type u8, u8, u16,
+/// time u32, loop u32. A hot cue number past 256 isn't a cue, as for [`read_cue_points`].
 fn parse_pcpt(b: &[u8], o: usize, _len: usize) -> Option<Cue> {
     let hot = be_u32(b, o + 12)?;
+    let status = be_u32(b, o + 16)?;
     let kind = *b.get(o + 28)?;
     let time = be_u32(b, o + 32)?;
     let loop_time = be_u32(b, o + 36)?;
+    let end_ms = loop_end(time, loop_time, kind == 2);
     Some(Cue {
         hot_cue: write::slot(hot)?,
         start_ms: time,
-        end_ms: loop_end(time, loop_time, kind == 2),
+        end_ms,
         comment: String::new(),
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: end_ms.is_some() && status == write::ACTIVE_LOOP,
     })
 }
 
@@ -217,7 +254,8 @@ fn parse_pcp2(b: &[u8], o: usize, len: usize) -> Option<Cue> {
     let comment = b.get(comment_start..comment_start + comment_len).map(utf16be).unwrap_or_default();
     let rgb_at = comment_start + comment_len + 1;
     let color = (rgb_at + 3 <= o + len).then(|| [b[rgb_at], b[rgb_at + 1], b[rgb_at + 2]]).filter(|c| c != &[0, 0, 0]);
-    Some(Cue { hot_cue: write::slot(hot)?, start_ms: time, end_ms, comment, color, color_id, loop_beats })
+    let hot_cue = write::slot(hot)?;
+    Some(Cue { hot_cue, start_ms: time, end_ms, comment, color, color_id, loop_beats, active_loop: false })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -261,7 +299,7 @@ fn detail_rate(bytes: &[u8], s: &SectionRef) -> f64 {
 }
 
 /// The whole-track overview waveform in an analysis file: colour (`PWV4`, in `.EXT`) if present,
-/// else blue (`PWAV`, in `.DAT`).
+/// else blue (`PWAV`, in `.DAT`), else 3-band (`PWV6`, in `.2EX`).
 pub fn preview(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
     if let Some(s) = find(&secs, b"PWV4")
@@ -288,11 +326,16 @@ pub fn preview(bytes: &[u8]) -> Result<Option<Waveform>> {
         let columns = body.iter().copied().map(blue_column).collect();
         return Ok(Some(Waveform { style: WaveformStyle::Blue, columns_per_sec: None, columns }));
     }
+    if let Some(s) = find(&secs, b"PWV6")
+        && let Some(body) = entries(bytes, s, 3, Some(16))
+    {
+        return Ok(Some(waves::three_band(body, b"PWV6").waveform(None)));
+    }
     Ok(None)
 }
 
-/// The scrolling detail waveform in an analysis file (`.EXT`): colour (`PWV5`) if present, else
-/// blue (`PWV3`).
+/// The scrolling detail waveform in an analysis file: colour (`PWV5`, in `.EXT`) if present, else
+/// blue (`PWV3`, `.EXT`), else 3-band (`PWV7`, `.2EX`).
 pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
     if let Some(s) = find(&secs, b"PWV5")
@@ -319,6 +362,11 @@ pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
             columns_per_sec: Some(detail_rate(bytes, s)),
             columns,
         }));
+    }
+    if let Some(s) = find(&secs, b"PWV7")
+        && let Some(body) = entries(bytes, s, 3, Some(16))
+    {
+        return Ok(Some(waves::three_band(body, b"PWV7").waveform(Some(detail_rate(bytes, s)))));
     }
     Ok(None)
 }
@@ -389,6 +437,20 @@ pub fn song_structure(bytes: &[u8]) -> Result<Option<SongStructure>> {
     Ok(Some(SongStructure { mood, phrases }))
 }
 
+/// A track's cues, from its `.DAT` and `.EXT` (unreadable ones leave none). The `.EXT`'s extended
+/// list has names and colours, so it's preferred when present; which loops are active the `.DAT`'s
+/// basic lists say too (a rekordbox 7 `.EXT` keeps no memory cues in its own).
+pub fn track_cues(dat: Option<&[u8]>, ext: Option<&[u8]>) -> Vec<Cue> {
+    let basic = dat.and_then(|b| cues(b).ok()).unwrap_or_default();
+    match ext.and_then(|b| cues(b).ok()).filter(|c| !c.is_empty()) {
+        Some(mut extended) => {
+            mark_active_loops(&mut extended, &basic);
+            extended
+        }
+        None => basic,
+    }
+}
+
 /// A track's beat grid, cues, waveforms and phrases. Missing or unreadable files leave fields
 /// empty.
 pub fn load(device: &Device, track: &Track) -> TrackAnalysis {
@@ -406,30 +468,32 @@ fn read_track(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis 
         return a;
     }
     let dat = paths::key(&track.analyze_path);
-    let read = |key: &str| device.checked_path(key).ok().and_then(|p| std::fs::read(p).ok());
-    let ext = dat.strip_suffix(".DAT").map(|s| format!("{s}.EXT")).and_then(|k| read(&k));
-    if let Some(bytes) = read(&dat) {
+    let read = |key: &str| device.checked_path(key).ok().and_then(|p| crate::fsutil::read(&p).ok());
+    let sibling = |ext: &str| dat.strip_suffix(".DAT").map(|s| format!("{s}.{ext}")).and_then(|k| read(&k));
+    let ext = sibling("EXT");
+    let dat = read(&dat);
+    a.cues = track_cues(dat.as_deref(), ext.as_deref());
+    if let Some(bytes) = dat {
         a.beats = beat_grid(&bytes).unwrap_or_default();
-        a.cues = cues(&bytes).unwrap_or_default();
         if waveforms {
             a.preview = preview(&bytes).ok().flatten();
         }
     }
-    if let Some(bytes) = ext {
-        // The .EXT file's extended cue list has names and colours; prefer it when present.
-        if let Ok(cues) = cues(&bytes)
-            && !cues.is_empty()
-        {
-            a.cues = cues;
+    if waveforms && let Some(bytes) = ext {
+        // Colour waveforms live in .EXT; keep the .DAT's blue preview otherwise.
+        if let Some(p) = preview(&bytes).ok().flatten() {
+            a.preview = Some(p);
         }
-        if waveforms {
-            // Colour waveforms live in .EXT; keep the .DAT's blue preview otherwise.
-            if let Some(p) = preview(&bytes).ok().flatten() {
-                a.preview = Some(p);
-            }
-            a.detail = detail(&bytes).ok().flatten();
-            a.structure = song_structure(&bytes).ok().flatten();
-        }
+        a.detail = detail(&bytes).ok().flatten();
+        a.structure = song_structure(&bytes).ok().flatten();
+    }
+    // The 3-band waveforms (`.2EX`), only for a track with no others.
+    if waveforms
+        && (a.preview.is_none() || a.detail.is_none())
+        && let Some(bytes) = sibling("2EX")
+    {
+        a.preview = a.preview.or_else(|| preview(&bytes).ok().flatten());
+        a.detail = a.detail.or_else(|| detail(&bytes).ok().flatten());
     }
     a
 }

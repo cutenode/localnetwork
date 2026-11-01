@@ -3,6 +3,8 @@
 pub mod encode;
 #[cfg(feature = "engine")]
 pub mod engine;
+#[cfg(feature = "rekordbox")]
+pub mod rekordbox;
 #[cfg(feature = "serato")]
 pub mod serato;
 #[cfg(feature = "traktor")]
@@ -11,7 +13,7 @@ pub mod traktor;
 use std::path::PathBuf;
 
 use loclib_model::analysis::TrackAnalysis;
-use loclib_model::{Library, Track, paths};
+use loclib_model::{Library, Playlist, Track, paths};
 use serde::{Deserialize, Serialize};
 
 /// The DJ software to write for.
@@ -26,6 +28,8 @@ pub enum Software {
     Serato,
     /// Engine DJ: `Engine Library/Database2/m.db`.
     Engine,
+    /// rekordbox: a `DJ_PLAYLISTS` XML file, for its Imported Library.
+    Rekordbox,
 }
 
 impl Software {
@@ -34,6 +38,7 @@ impl Software {
             Software::Traktor => "Traktor",
             Software::Serato => "Serato",
             Software::Engine => "Engine DJ",
+            Software::Rekordbox => "rekordbox",
         }
     }
 }
@@ -55,6 +60,43 @@ impl Source<'_> {
     pub fn audio(&self, t: &Track) -> PathBuf {
         paths::to_fs(&self.root, &paths::key(&t.file_path))
     }
+}
+
+/// The folder [`with_history`] puts history lists in.
+pub const HISTORY_FOLDER: &str = "History";
+
+/// `lib` with `history` (history lists and their folders, shaped like playlists as
+/// [`Library::history`] holds them) as playlists, for software that keeps no history of its own:
+/// in a folder [`HISTORY_FOLDER`] after `lib`'s other top-level playlists, each named as the list
+/// is (players number them, `HISTORY 001`; the databases keep no date for one), and with the
+/// tracks of `all` (the library `lib` was cut from) they play. There they're playlists, no longer
+/// history.
+pub fn with_history(mut lib: Library, history: &[Playlist], all: &[Track]) -> Library {
+    if history.is_empty() {
+        return lib;
+    }
+    let folder = lib.playlists.iter().map(|p| p.id).max().map_or(1, |m| m + 1);
+    let ids: rustc_hash::FxHashMap<u32, u32> = (folder + 1..).zip(history).map(|(new, h)| (h.id, new)).collect();
+    let sort_order = lib.playlists.iter().filter(|p| p.parent_id.is_none()).map(|p| p.sort_order + 1).max();
+    let history_folder = Playlist {
+        id: folder,
+        parent_id: None,
+        name: HISTORY_FOLDER.into(),
+        is_folder: true,
+        sort_order: sort_order.unwrap_or(0),
+        track_ids: Vec::new(),
+    };
+    lib.playlists.push(history_folder);
+    for h in history {
+        let parent = h.parent_id.and_then(|p| ids.get(&p)).copied().unwrap_or(folder);
+        lib.playlists.push(Playlist { id: ids[&h.id], parent_id: Some(parent), ..h.clone() });
+    }
+    let mut kept: rustc_hash::FxHashSet<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    kept.extend(history.iter().flat_map(|h| h.track_ids.iter().copied()));
+    lib.tracks = all.iter().filter(|t| kept.contains(&t.id)).cloned().collect();
+    lib.history.clear();
+    lib.history_playlists = 0;
+    lib
 }
 
 /// Which file a track's audio is, for keeping one track per file: its path below the library (the
@@ -113,7 +155,7 @@ pub enum Content {
 
 impl Export {
     /// An export of `lib`, counting its playlists and folders.
-    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine"))]
+    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine", feature = "rekordbox"))]
     fn new(lib: &Library) -> Export {
         Export {
             playlists: lib.playlists.iter().filter(|p| !p.is_folder).count(),
@@ -122,7 +164,7 @@ impl Export {
         }
     }
 
-    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine"))]
+    #[cfg(any(feature = "traktor", feature = "serato", feature = "engine", feature = "rekordbox"))]
     fn file(&mut self, path: PathBuf, what: impl Into<String>, bytes: Vec<u8>) {
         self.files.push(File { path, what: what.into(), bytes: bytes.len() as u64, content: Content::Bytes(bytes) });
     }

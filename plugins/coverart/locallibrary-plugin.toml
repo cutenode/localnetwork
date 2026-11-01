@@ -1,0 +1,48 @@
+id = "coverart"
+name = "Cover art"
+version = "0.1.0"
+protocol = "^0.2"
+# It's given the tracks to find covers and tags for (their tags, which takes library:read) and
+# answers what it finds, which locallibrary offers and sets itself. The Cover Art Archive's images are
+# served by archive.org, which redirects them to its own servers (`ia800100.us.archive.org`...):
+# the host follows those redirects only to the servers named here. It hears of drives changing
+# (events:drives) to suggest covers for their tracks without any, reading which they are.
+capabilities = [
+    "library:read",
+    "events:drives",
+    "net:musicbrainz.org",
+    "net:coverartarchive.org",
+    "net:archive.org",
+    "net:*.archive.org",
+]
+
+# MusicBrainz's limit: a request a second from each address, on average.
+[[net]]
+host = "musicbrainz.org"
+per_second = 1
+
+# Each album's front cover, found on MusicBrainz (`locallibrary art fetch`).
+[[contributes.providers]]
+name = "covers"
+title = "Cover Art Archive"
+kind = "artwork"
+
+# Each album's title, year and genre found on MusicBrainz, its label when it's found by name, and
+# the title and artist of a track found by its ISRC (`locallibrary track fetch`).
+[[contributes.providers]]
+name = "tags"
+title = "MusicBrainz"
+kind = "metadata"
+
+# MusicBrainz asks every program to say how to reach whoever runs it: the host sends this in the
+# User-Agent of the plugin's requests.
+[[contributes.settings]]
+key = "contact"
+title = "Contact for MusicBrainz (a web page or email address)"
+type = "string"
+default = "https://localnetwork.computer"
+
+# A drive plugged in, or its databases changed: it suggests fetching covers for the tracks
+# without artwork.
+[[contributes.events]]
+on = ["drive.mounted", "drive.changed"]

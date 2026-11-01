@@ -22,8 +22,8 @@ use locallibrary::import::read_table;
 use locallibrary::model::normalize;
 use locallibrary::progress::Ctx;
 use locallibrary::sets::{
-    self, EntryOrigin, ImportedSession, Partner, Recording, SETS_FILE, Session, Set, SetBook, SetEntry, TimedPlay,
-    Window, session,
+    self, EntryOrigin, ImportedSession, MusicBrainzIds, Partner, Recording, SETS_FILE, Session, Set, SetBook, SetEntry,
+    TimedPlay, Window, session,
 };
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
@@ -159,9 +159,9 @@ fn details(tc: &TestCase) -> Details {
         (*slot, want[i]) = given(tc, pool, refused);
     }
     let dates: Vec<_> = DATES.iter().filter(|(_, d)| refused || d.is_some()).copied().collect();
-    let date = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(dates)));
+    let date = tc.draw(gs::optional(gs::sampled_from(dates)));
     fields.date = date.map(|(text, _)| text.to_string());
-    let with = tc.draw(gs::booleans()).then(|| tc.draw(gs::vecs(gs::sampled_from(PARTNERS.to_vec())).max_size(3)));
+    let with = tc.draw(gs::optional(gs::vecs(gs::sampled_from(PARTNERS.to_vec())).max_size(3)));
     fields.with = with.as_ref().map(|w| w.iter().map(|(text, _)| text.to_string()).collect());
     Details {
         fields,
@@ -191,6 +191,10 @@ fn with_details(set: &Set, d: &Details) -> Option<Set> {
     }
     if let Some(with) = &d.with {
         s.with = with.clone();
+    }
+    // A link given, the name a plugin gave the one before goes with it.
+    if d.want[6].is_some() {
+        s.link_name = None;
     }
     Some(s)
 }
@@ -684,8 +688,8 @@ fn sets_through_the_api_match_the_model(tc: TestCase) {
 }
 
 /// Details are written into a set as the model has them: given, trimmed, cleared when blank, a
-/// country upper-cased, partners with a DID kept as accounts; all of them, or (when any is
-/// refused) none.
+/// country upper-cased, partners with a DID kept as accounts, a link without the name a plugin
+/// gave the one before; all of them, or (when any is refused) none.
 #[hegel::test(test_cases = 300)]
 fn details_are_written_whole_or_not_at_all(tc: TestCase) {
     let base = Set {
@@ -696,6 +700,8 @@ fn details_are_written_whole_or_not_at_all(tc: TestCase) {
         city: Some("London".into()),
         country: Some("GB".into()),
         with: vec![Partner { name: "Old".into(), did: None }],
+        link: Some("https://plyr.fm/track/1".into()),
+        link_name: Some("plyr.fm".into()),
         ..Default::default()
     };
     let d = details(&tc);
@@ -722,9 +728,8 @@ fn maybe_text(tc: &TestCase) -> Option<String> {
 
 #[hegel::test_helper]
 fn time(tc: &TestCase) -> DateTime<Utc> {
-    let secs = tc.draw(gs::integers::<i64>().min_value(0).max_value(4_000_000_000));
-    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
-    Utc.timestamp_opt(secs, nanos).unwrap()
+    let last = DateTime::from_timestamp(4_000_000_000, 999_999_999).unwrap();
+    tc.draw(gs::default::<DateTime<Utc>>().min_value(DateTime::UNIX_EPOCH.naive_utc()).max_value(last.naive_utc()))
 }
 
 #[hegel::test_helper]
@@ -741,7 +746,16 @@ fn any_entry(tc: &TestCase) -> SetEntry {
         year: tc.draw(gs::integers::<u16>()),
         duration_secs: tc.draw(gs::integers::<u32>()),
         file: maybe_text(tc),
-        start_seconds: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>())),
+        start_seconds: tc.draw(gs::optional(gs::integers::<u32>())),
+        musicbrainz: MusicBrainzIds {
+            recording: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
+            release: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
+            artists: tc
+                .draw(gs::vecs(gs::integers::<u128>()).max_size(3))
+                .into_iter()
+                .map(uuid::Uuid::from_u128)
+                .collect(),
+        },
         unnamed: tc.draw(gs::booleans()),
         origin: one_of(tc, &[EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added]),
         session: maybe_text(tc),
@@ -754,8 +768,11 @@ fn any_set(tc: &TestCase) -> Set {
     Set {
         id: text(tc),
         title: maybe_text(tc),
-        date: NaiveDate::from_num_days_from_ce_opt(tc.draw(gs::integers::<i32>().min_value(1).max_value(800_000)))
-            .unwrap(),
+        date: tc.draw(
+            gs::default::<NaiveDate>()
+                .min_value(NaiveDate::from_num_days_from_ce_opt(1).unwrap())
+                .max_value(NaiveDate::from_num_days_from_ce_opt(800_000).unwrap()),
+        ),
         kind: maybe_text(tc),
         venue: maybe_text(tc),
         city: maybe_text(tc),
@@ -763,6 +780,8 @@ fn any_set(tc: &TestCase) -> Set {
         event: maybe_text(tc),
         with: (0..few(2)).map(|_| Partner { name: text(tc), did: maybe_text(tc) }).collect(),
         link: maybe_text(tc),
+        link_name: maybe_text(tc),
+        recording_record: tc.draw(gs::booleans()).then(|| loclib_plugin::StrongRef { uri: text(tc), cid: text(tc) }),
         recording: tc.draw(gs::booleans()).then(|| Recording { path: text(tc).into(), report: maybe_text(tc) }),
         notes: maybe_text(tc),
         sessions: (0..few(2)).map(|_| text(tc)).collect(),
@@ -1061,8 +1080,7 @@ fn imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
         written.push((id, rows, file));
     }
     // Imported again under another name: the same session, renamed.
-    let which = tc.draw(gs::integers::<usize>().max_value(written.len() - 1));
-    let (id, rows, file) = written[which].clone();
+    let (id, rows, file) = tc.draw(gs::sampled_from(&written));
     assert_eq!(import(&desk, &mut logs, &file, Some("Again"), &rows).id, id);
 
     let ids: Vec<String> = logs.iter().map(|l| l.id.clone()).collect();
@@ -1466,7 +1484,7 @@ fn sets_become_playlists_on_a_drive(tc: TestCase) {
     let main = common::bigger_drive(&desk.volumes, "Main");
     let library: Library = pdb::read_library(&main.join(paths::EXPORT_PDB)).unwrap();
     let picks: Vec<Option<usize>> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)))
-        .map(|_| tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(library.tracks.len() - 1))))
+        .map(|_| tc.draw(gs::optional(gs::integers::<usize>().max_value(library.tracks.len() - 1))))
         .collect();
     let title = tc.draw(gs::booleans()).then(|| "Fri/day".to_string());
     let fields = SetFields { title: title.clone(), date: Some("2026-10-03".into()), ..Default::default() };
@@ -1512,7 +1530,10 @@ fn sets_become_playlists_on_a_drive(tc: TestCase) {
     for (line, t) in listed.iter().zip(&found) {
         match output {
             Some(_) => assert_eq!(line, &t.file_path[1..]),
-            None => assert!(line.ends_with(&t.file_path) && line.starts_with('/'), "{line} is {}", t.file_path),
+            None => {
+                let file = Path::new(line);
+                assert!(file.is_absolute() && file.ends_with(&t.file_path[1..]), "{line} is {}", t.file_path);
+            }
         }
     }
 

@@ -229,7 +229,7 @@ fn loading_and_errors_draw() {
 
 #[test]
 fn columns_stack_eighths() {
-    let lines = columns(&[Some(0.0), Some(1.0), None], 0.0, 2, 2, |_| theme::CYAN);
+    let lines = columns(&[Some(0.0), Some(1.0), None], 0.0, 2, 2, |_| theme::current().info);
     assert_eq!(lines.len(), 2);
     let top: String = lines[0].spans.iter().map(|s| s.content.to_string()).collect();
     let bottom: String = lines[1].spans.iter().map(|s| s.content.to_string()).collect();
@@ -524,9 +524,9 @@ fn a_builds_the_profile_from_the_open_drive() {
     let Scope::Drive(_, name) = app.profile.scope.clone() else { panic!("{:?}", app.profile.scope) };
     assert_eq!(last_message(&app), format!("profile from {name} only"));
     assert!(app.profile.loading);
-    // The header says so while it builds.
-    app.profile.progress[1].store(12, Ordering::Relaxed);
-    app.profile.progress[0].store(3, Ordering::Relaxed);
+    // The header says so while it builds. Counters of the test's own: the build's thread keeps
+    // the ones it was given, and counting there can't overwrite these.
+    app.profile.progress = Arc::new([AtomicU64::new(3), AtomicU64::new(12)]);
     let s = screen(&mut app, 140, 30);
     assert!(s.contains("Building profile… 3/12 tracks"), "{s}");
     // A build started before this one is stopped, and what it sends back ignored.
@@ -625,7 +625,7 @@ fn the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
     .into_iter()
     .filter(|(_, names)| !names.is_empty())
     .collect();
-    let (section, names) = tables[tc.draw(gs::integers::<usize>().max_value(tables.len() - 1))].clone();
+    let (section, names) = tc.draw(gs::sampled_from(&tables[..]));
     t.select_section(Section::ALL.iter().position(|s| *s == section).unwrap());
     let sel = tc.draw(gs::integers::<usize>().max_value(names.len() - 1));
     (t.pane, t.rows) = (Pane::Detail, TableState::default().with_selected(Some(sel)));
@@ -663,14 +663,16 @@ fn tab_of(view: ProfileView) -> ProfileTab {
 /// Each section says what its numbers show, whatever they are: the arc's opening and closing
 /// tempo, how it runs (summed up in a word in the list) and its curve; the moods and theirs; the
 /// era's decades; the cues; how much of the collection was played and its copies; and, without
-/// the data, what it needs. The header says what the numbers come from and how they're rounded.
+/// the data, what it needs; how the sets are mixed: in key, by tempo steps, across genres, each
+/// share said as unknown when it is. The header says what the numbers come from and how they're
+/// rounded.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::profile::{DecadeCount, EnergySection, PrepSection};
     let mut v = full_view();
     let r = &mut v.report;
-    r.basis = tc.draw(gs::sampled_from(&[Basis::Plays, Basis::Sessions, Basis::Collection][..]).print_as_debug());
+    r.basis = tc.draw(gs::sampled_from(&[Basis::Plays, Basis::Sessions, Basis::Collection][..]));
     let shares = &[0.0, 0.2, 0.3, 0.5, 0.6, 1.0][..];
     r.arc.sets = tc.draw(gs::integers::<usize>().max_value(3));
     (r.arc.opening_bpm, r.arc.closing_bpm) = (Some(122.0), Some(tc.draw(gs::sampled_from(&[118.25, 127.5][..]))));
@@ -697,6 +699,20 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
     });
     r.collection.played_share = tc.draw(gs::optional(gs::sampled_from(shares)));
     r.collection.duplicate_files = tc.draw(gs::integers::<usize>().max_value(3));
+    let m = &mut r.mixing;
+    m.transitions = tc.draw(gs::sampled_from(&[0usize, 40][..]));
+    (m.keyed, m.timed, m.genred, m.half_double) = (
+        tc.draw(gs::sampled_from(&[0usize, 30][..])),
+        tc.draw(gs::sampled_from(&[0usize, 30][..])),
+        tc.draw(gs::sampled_from(&[0usize, 20][..])),
+        tc.draw(gs::integers::<usize>().max_value(2)),
+    );
+    m.harmonic_share = tc.draw(gs::optional(gs::sampled_from(shares)));
+    (m.within_3pct, m.within_6pct, m.genre_change_share) = (
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+    );
     v.prefs.precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
     // However the sets run, the list sums it up in a word.
     let mut arc = v.report.clone();
@@ -778,6 +794,34 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
                     want.push(format!("{}{each}", pct(p.hot_cue_share)));
                 }
             },
+            Section::Mixing if r.mixing.transitions == 0 => want.push(format!("Needs {unit}s.")),
+            Section::Mixing => {
+                let m = &r.mixing;
+                // A share unknown is a dash.
+                let share = |x: Option<f64>| x.map_or_else(|| "–".to_string(), pct);
+                if m.keyed > 0 {
+                    want.push(format!(
+                        "{} of {} transitions between keyed tracks are harmonic",
+                        share(m.harmonic_share),
+                        m.keyed
+                    ));
+                }
+                if m.timed > 0 {
+                    let half = if m.half_double > 0 {
+                        format!(" · {} at half or double time", m.half_double)
+                    } else {
+                        String::new()
+                    };
+                    want.push(format!(
+                        "Tempo steps: median 1.2% · {} within 3% · {} within 6%{half}",
+                        share(m.within_3pct),
+                        share(m.within_6pct)
+                    ));
+                }
+                if m.genred > 0 {
+                    want.push(format!("{} of transitions change genre", share(m.genre_change_share)));
+                }
+            }
             Section::Collection => {
                 if let Some(p) = r.collection.played_share {
                     want.push(format!("Played in a {unit}"));
@@ -804,7 +848,7 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
 /// keys used where they mean nothing say where to go.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use std::collections::BTreeSet;
     let (mut app, _dir) = profile_app(tab_of(full_view()));
     let at = |s: Section| Section::ALL.iter().position(|x| *x == s).unwrap();
@@ -819,8 +863,7 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
         [Act::ProfilePin, Act::ProfileHide, Act::ProfileHideArtist, Act::ProfileInclude, Act::ProfileRounding];
     // Every act on a row of every section first (as drawn, they'd seldom meet), then as drawn.
     for step in 0..15 + tc.draw(gs::integers::<usize>().max_value(10)) {
-        let section =
-            if step < 15 { SECTIONS[step / 5] } else { tc.draw(gs::sampled_from(&SECTIONS[..]).print_as_debug()) };
+        let section = if step < 15 { SECTIONS[step / 5] } else { tc.draw(gs::sampled_from(&SECTIONS[..])) };
         app.profile.select_section(at(section));
         let detail = (step < 15 || tc.draw(gs::booleans())) && app.profile.detail_len() > 0;
         app.profile.pane = if detail { Pane::Detail } else { Pane::Sections };
@@ -837,7 +880,7 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
             Section::Artists => row.and_then(|i| v.report.artists.top.get(i)).map(|a| a.name.clone()),
             _ => None,
         };
-        let act = if step < 15 { ACTS[step % 5] } else { tc.draw(gs::sampled_from(&ACTS[..]).print_as_debug()) };
+        let act = if step < 15 { ACTS[step % 5] } else { tc.draw(gs::sampled_from(&ACTS[..])) };
         // Once, or (as often, to take it back) twice.
         for _ in 0..1 + usize::from(tc.draw(gs::booleans())) {
             app.perform(act, None);
@@ -926,10 +969,7 @@ fn the_profile_view_answers_to_its_keys_and_the_mouse(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = profile_app(tab_of(full_view()));
     let signature = Section::ALL.iter().position(|s| *s == Section::Signature).unwrap();
-    let mut turns: Vec<u8> = (0..8).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..8).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(8).max_value(16)) {
         app.view = View::Profile;
         if !matches!(app.profile.view, Some(Ok(_))) {

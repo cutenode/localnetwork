@@ -1,45 +1,38 @@
 <script lang="ts">
-	import { clock, niceTicks, speed, timeStep, type MixReport } from '#lib/mix/report.ts';
+	import { clock, niceTicks, playColor, playSpeed, timeStep, type MixReport } from '#lib/mix/report.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
-	const W = 600;
+	// The chart stretches to its box, so lines keep their width and labels are HTML beside it.
+	const W = 1000;
 
-	const H = 220;
-
-	const M = { l: 44, r: 10, t: 10, b: 28 };
+	const H = 100;
 
 	const duration = $derived(Math.max(1, report.mix.durationSecs));
 
-	const rows = $derived(
-		report.plays.flatMap((play, i) =>
-			play.playedBpm !== undefined ? [{ i, play, played: play.playedBpm, recorded: play.track.bpm ?? play.playedBpm }] : []
-		)
-	);
+	const rows = $derived(report.plays.flatMap((play, i) => (play.playedBpm !== undefined ? [{ i, play, played: play.playedBpm, recorded: play.track.bpm ?? play.playedBpm }] : [])));
 
 	const scale = $derived.by(() => {
 		const values = rows.flatMap((r) => [r.played, r.recorded]);
-		let lo = Math.min(...values);
-		let hi = Math.max(...values);
-		const pad = Math.max(2, (hi - lo) * 0.12);
-		lo -= pad;
-		hi += pad;
+		const pad = Math.max(2, (Math.max(...values) - Math.min(...values)) * 0.12);
+		const lo = Math.min(...values) - pad;
+		const hi = Math.max(...values) + pad;
 		const ticks = niceTicks(lo, hi, 4);
 
 		return { lo: Math.min(lo, ticks[0]), hi: Math.max(hi, ticks[ticks.length - 1]), ticks };
 	});
 
-	const x = (t: number) => M.l + (t / duration) * (W - M.l - M.r);
+	const x = (t: number) => (Math.min(Math.max(t, 0), duration) / duration) * W;
 
-	const y = (v: number) => M.t + (1 - (v - scale.lo) / (scale.hi - scale.lo)) * (H - M.t - M.b);
+	const y = (v: number) => (1 - (v - scale.lo) / (scale.hi - scale.lo)) * H;
 
-	const played = $derived(rows.map((r, k) => `${k ? 'L' : 'M'}${x(r.play.start).toFixed(1)} ${y(r.played).toFixed(1)}H${x(r.play.end).toFixed(1)}`).join(''));
+	const pct = (fraction: number) => `${fraction * 100}%`;
 
 	const times = $derived.by(() => {
-		const step = timeStep(duration, 6);
+		const step = timeStep(duration, 4);
 		const out: number[] = [];
 
-		for (let t = 0; t <= duration; t += step) out.push(t);
+		for (let t = 0; t < duration - step / 2; t += step) out.push(t);
 
 		return out;
 	});
@@ -48,10 +41,9 @@
 
 	const shown = $derived(rows.find((r) => r.i === (hover ?? selected)));
 
-	function onpointermove(event: PointerEvent & { currentTarget: SVGRectElement }) {
-		const svg = event.currentTarget.ownerSVGElement ?? event.currentTarget;
-		const box = svg.getBoundingClientRect();
-		const t = ((((event.clientX - box.left) / box.width) * W - M.l) / (W - M.l - M.r)) * duration;
+	function onpointermove(event: PointerEvent & { currentTarget: HTMLDivElement }) {
+		const box = event.currentTarget.getBoundingClientRect();
+		const t = ((event.clientX - box.left) / box.width) * duration;
 		let best = rows[0];
 		let bestDistance = Infinity;
 
@@ -69,36 +61,42 @@
 </script>
 
 {#if rows.length}
-	<svg viewBox="0 0 {W} {H}" class="block w-full font-sans" role="img" aria-label="Tempo of each track as played and as recorded, across the mix">
-		{#each scale.ticks as v (v)}
-			<line x1={M.l} x2={W - M.r} y1={y(v)} y2={y(v)} class="stroke-ansi-blue" stroke-dasharray="4 4" />
-			<text x={M.l - 6} y={y(v) + 5} text-anchor="end" font-size="16" class="fill-ansi-cyan">{v}</text>
-		{/each}
-		<line x1={M.l} x2={W - M.r} y1={H - M.b} y2={H - M.b} class="stroke-ansi-cyan" />
-		{#each times as t (t)}
-			<text x={x(t)} y={H - 8} text-anchor="middle" font-size="16" class="fill-ansi-cyan">{clock(t)}</text>
-		{/each}
-		{#each rows as r (r.i)}
-			<line x1={x(r.play.start)} x2={x(r.play.end)} y1={y(r.recorded)} y2={y(r.recorded)} class="stroke-ansi-gray" stroke-dasharray="6 3" />
-		{/each}
-		<path d={played} class="fill-none stroke-ansi-yellow" stroke-width="3" shape-rendering="crispEdges" />
-		{#if shown}
-			<line x1={x(shown.play.start)} x2={x(shown.play.end)} y1={y(shown.played)} y2={y(shown.played)} class="stroke-ansi-white" stroke-width="5" />
-		{/if}
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<rect x={M.l} y="0" width={W - M.l - M.r} height={H - M.b} fill="transparent" {onpointermove} onpointerleave={() => (hover = null)} />
-	</svg>
-	<div class="mt-2 flex flex-wrap gap-x-4 text-sm">
-		<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4 bg-ansi-yellow"></span>As played</span>
-		<span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-ansi-gray"></span>As recorded</span>
+	<div class="flex flex-col gap-1.5">
+		<div class="relative mt-2 ml-9 h-36 sm:h-40">
+			{#each scale.ticks as v (v)}
+				<span class="absolute -left-9 w-7 -translate-y-1/2 text-right font-mono text-caption text-fg-subtle" style:top={pct(y(v) / H)}>{v}</span>
+			{/each}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="absolute inset-0" {onpointermove} onpointerleave={() => (hover = null)}>
+				<svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" class="block size-full overflow-visible" role="img" aria-label="Tempo of each track as played and as recorded, across the mix">
+					{#each scale.ticks as v (v)}
+						<line x1="0" x2={W} y1={y(v)} y2={y(v)} class="stroke-line" vector-effect="non-scaling-stroke" />
+					{/each}
+					{#each rows as r (r.i)}
+						{@const active = shown?.i === r.i}
+						<rect x={x(r.play.start)} y={y(r.played)} width={Math.max(1, x(r.play.end) - x(r.play.start))} height={Math.max(0, H - y(r.played))} class={active ? undefined : 'fill-line-strong'} style:fill={active ? playColor(r.i) : undefined} fill-opacity={active ? 0.45 : 0.6} />
+						<line x1={x(r.play.start)} x2={x(r.play.end)} y1={y(r.played)} y2={y(r.played)} class="stroke-band-high" stroke-width="2" vector-effect="non-scaling-stroke" />
+						<line x1={x(r.play.start)} x2={x(r.play.end)} y1={y(r.recorded)} y2={y(r.recorded)} class="stroke-fg-subtle" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" />
+					{/each}
+					<line x1="0" x2={W} y1={H} y2={H} class="stroke-line-strong" vector-effect="non-scaling-stroke" />
+				</svg>
+			</div>
+		</div>
+		<div class="relative ml-9 h-4 font-mono text-caption text-fg-subtle" aria-hidden="true">
+			{#each times as t, k (t)}<span class={['absolute top-0', k && '-translate-x-1/2']} style:left={pct(x(t) / W)}>{clock(t)}</span>{/each}
+		</div>
 	</div>
-	<p class="mt-1 min-h-6 text-sm text-ansi-cyan" aria-live="polite">
+	<ul class="m-0 mt-3 flex list-none flex-wrap gap-x-4 p-0 text-label text-fg-muted">
+		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-band-high"></span>BPM as played</li>
+		<li class="flex items-center gap-1.5"><svg aria-hidden="true" viewBox="0 0 16 2" class="h-0.5 w-4"><line x1="0" x2="16" y1="1" y2="1" class="stroke-fg-subtle" stroke-width="2" stroke-dasharray="4 3" /></svg>BPM as recorded</li>
+	</ul>
+	<p class="m-0 mt-1 min-h-10 text-label text-fg-muted" aria-live="polite">
 		{#if shown}
-			{shown.i + 1}. {shown.play.track.title}: <span class="text-ansi-white">{shown.played.toFixed(1)} BPM</span>, recorded at {shown.recorded.toFixed(1)} ({speed(shown.play.tempo)})
+			{shown.i + 1}. {shown.play.track.title}: <span class="font-mono text-fg">{shown.played.toFixed(1)} BPM</span>, recorded at {shown.recorded.toFixed(1)} ({playSpeed(shown.play)})
 		{:else}
 			Point at the chart for each track’s tempo.
 		{/if}
 	</p>
 {:else}
-	<p class="muted text-sm">The library has no BPMs for these tracks.</p>
+	<p class="m-0 text-label text-fg-muted">The library has no BPMs for these tracks.</p>
 {/if}

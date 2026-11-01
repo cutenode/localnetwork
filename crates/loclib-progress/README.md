@@ -9,7 +9,10 @@ An operation takes a `Ctx`, reports phases, items, bytes and warnings through it
 `Ctx::check` between steps. `check` fails with `Cancelled` once anything holding a clone of the
 context's `CancelToken` cancels it. `Steps` and `Ctx::for_target` mark events with the step and
 the drive they belong to (a `Scope`), and `WarningLimiter` passes on the first few warnings of
-each kind and sums up the rest. Events serialise as tagged JSON objects, such as
+each kind and sums up the rest. `Coalesced`, for a front end at the other end of a pipe, adds
+up bytes and per-file events and passes them on at most once an interval; a `Flusher` sends
+what they hold back once it's due. Events serialise as
+(and read back from) tagged JSON objects, such as
 `{"event":"phase_start","phase":"copy","items":2,"bytes":0}`.
 
 ```rust
@@ -42,7 +45,7 @@ assert_eq!(copy_all(&["Contents/c.mp3"], &ctx), Err(Cancelled));
 - Draw anything. Progress bars, logs and UIs are up to the front end.
 - Stop work by force. Cancelling sets a flag that the work checks between steps, so nothing is
   interrupted mid-write, and there are no timeouts.
-- Run anything. There are no threads and no async runtime.
+- Run anything. There are no threads of its own (a `Flusher` runs on yours) and no async runtime.
 - Take phases of your own. `Phase` is a fixed list of the phases locallibrary has (`scan`,
   `hash`, `copy`, `write`, `delete`, `verify`, `format`, `fingerprint`, `index`, `listen`,
   `match`).

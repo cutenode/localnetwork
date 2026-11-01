@@ -5,7 +5,7 @@
 //! whatever is open and q quits.
 //!
 //! The walks stay off the machine: nothing they press opens a browser, signs in, reads the
-//! machine's drives, ejects or writes outside the test's folder (see [`allowed`]).
+//! machine's drives, goes online, ejects or writes outside the test's folder (see [`allowed`]).
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, Mo
 use ratatui::layout::{Position, Rect};
 use rustc_hash::FxHashSet;
 
-use super::app::testing::{Template, mouse, wait};
+use super::app::testing::{Template, mouse, overlay, wait};
 use super::app::{App, Focus, View};
 use super::browse;
 use super::edits::{Modal, PromptFor};
@@ -42,7 +42,7 @@ const KEYS: &[&str] = &[
 /// Words a walk types: commands for the palette, names for prompts, searches and filters.
 #[rustfmt::skip]
 const WORDS: &[&str] = &[
-    "Friday", "loop", "sort", "rating", "colour", "playlist", "undo", "pull", "check", "export", "xml", "smart",
+    "Friday", "loop", "sort", "rating", "colour", "playlist", "undo", "pull", "check", "export", "smart",
     "Sets/New", "Genre/Deep House", "bpm:120-130", "rating:>=3", "artist:floor", "key:8A", "tag:Genre/House", "-x",
     "playlist:Nope", "(", "zzz", "日本 😹", "Demo", "loopmasters",
 ];
@@ -101,6 +101,8 @@ fn allowed(app: &App, key: KeyEvent) -> bool {
             return !(matches!(key.code, KeyCode::Char('y' | 'Y')) && c.plan.operation() == "eject");
         }
         Some(Modal::Pick(p)) => return !(enter && p.selected().is_some_and(|i| denied_pick(&p.then, i))),
+        // Providers go online (the cover art plugin to MusicBrainz).
+        Some(Modal::Form(f)) => return !(enter && matches!(f.then, super::form::For::Fetch { .. })),
         Some(_) => return true,
         None => {}
     }
@@ -128,12 +130,9 @@ fn click_allowed(app: &App, kind: MouseEventKind, (column, row): (u16, u16)) -> 
 /// An export about to be written goes into the test's folder, not `~/Music`.
 fn keep_exports_in(app: &mut App, dir: &Path) {
     if let Some(Modal::Prompt(p)) = &mut app.modal
-        && matches!(p.purpose, PromptFor::ExportList { .. } | PromptFor::ExportXml { .. })
+        && matches!(p.purpose, PromptFor::ExportList { .. })
     {
-        let ext = match p.purpose {
-            PromptFor::ExportXml { .. } => "xml",
-            _ => ["m3u8", "csv", "txt"][p.text.len() % 3],
-        };
+        let ext = ["m3u8", "csv", "txt"][p.text.len() % 3];
         p.text = dir.join(format!("exported.{ext}")).display().to_string();
     }
 }
@@ -228,8 +227,7 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
     let s = screen(app, w, h);
     let lines: Vec<&str> = s.lines().collect();
     assert_eq!(lines.len(), h as usize, "{w}x{h}");
-    let overlay = app.help || app.show_log || app.modal.is_some();
-    if !overlay && w >= 80 && h >= 3 {
+    if !overlay(app) && w >= 80 && h >= 3 {
         assert!(lines[0].contains("◉ locallibrary"), "no header at {w}x{h}:\n{s}");
         assert!(!lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
     }
@@ -386,7 +384,7 @@ fn walk_in(tc: &TestCase, start: &str, keys: &'static [&'static str], steps: usi
     use super::theme::{Mode, set_test_mode};
     let Fixture { _dir, mut app, .. } = walk_fixture();
     // On a dark terminal, a light one, or one without colours.
-    set_test_mode(Some([Mode::Dark, Mode::Light, Mode::Plain][tc.draw(gs::integers::<usize>().max_value(2))]));
+    set_test_mode(Some(tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]))));
     app.on_key(key_event(start));
     walk(tc, &mut app, _dir.path(), keys, steps);
     set_test_mode(None);
@@ -412,6 +410,17 @@ const LIBRARY_KEYS: &[&str] = &[
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 fn library_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", LIBRARY_KEYS, 30);
+}
+
+/// What a library walk found: the outputs list (`d`) in a terminal three rows tall is drawn over
+/// the header, as a dialog is.
+#[test]
+fn the_outputs_list_may_cover_the_header() {
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    app.on_key(key_event("1"));
+    app.on_key(key_event("d"));
+    assert!(screen(&mut app, 80, 3).contains("the system's default"));
+    check(&mut app, (80, 3));
 }
 
 /// The Drives and Snapshots views' keys, and their menus and dialogs'.
@@ -748,20 +757,20 @@ const TERMS: &[&str] = &[
 /// A small library of made-up tracks, and a playlist of some of them in any order.
 #[hegel::test_helper]
 fn small_library(tc: &TestCase) -> locallibrary::Library {
-    use super::app::testing::track;
+    use super::app::testing::{strings_from, track};
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let tracks: Vec<_> = (1..=n)
         .map(|id| {
-            let mut t = track(id, tc.draw(gs::sampled_from(ARTISTS)), tc.draw(gs::sampled_from(TITLES)));
-            t.genre = tc.draw(gs::sampled_from(GENRES)).into();
-            t
+            tc.draw(
+                loclib_model::test_util::tracks_like(track(id, "", ""))
+                    .artist(strings_from(ARTISTS))
+                    .title(strings_from(TITLES))
+                    .genre(strings_from(GENRES)),
+            )
         })
         .collect();
-    let mut ids: Vec<u32> = (1..=n).collect();
-    let mut listed = Vec::new();
-    for _ in 0..tc.draw(gs::integers::<usize>().max_value(n as usize)) {
-        listed.push(ids.remove(tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))));
-    }
+    let mut listed = tc.draw(gs::permutations((1..=n).collect::<Vec<u32>>()));
+    listed.truncate(tc.draw(gs::integers::<usize>().max_value(n as usize)));
     let list = locallibrary::Playlist {
         id: 1,
         parent_id: None,
@@ -1131,8 +1140,7 @@ fn edits_write_what_they_say(tc: TestCase) {
 }
 
 /// Exporting the list shown (every track, or a playlist) writes a file of that list's tracks in
-/// its order, in the format its name asks for, and rekordbox XML of the whole drive; writing over
-/// a file that's there asks first.
+/// its order, in the format its name asks for; writing over a file that's there asks first.
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn exports_hold_the_list_shown(tc: TestCase) {
     use super::browse::NodeId;
@@ -1164,11 +1172,10 @@ fn exports_hold_the_list_shown(tc: TestCase) {
         }
         false => tracks.iter().collect(),
     };
-    let xml = tc.draw(gs::booleans());
-    let ext = if xml { "xml" } else { tc.draw(gs::sampled_from(&["m3u8", "csv", "txt"][..])) };
+    let ext = tc.draw(gs::sampled_from(&["m3u8", "csv", "txt"][..]));
     let out = _dir.path().join(format!("out/list.{ext}"));
     for again in [false, true] {
-        let name = if xml { "rekordbox xml" } else { "export the list" };
+        let name = "export the list";
         command(&mut app, name);
         let Some(Modal::Prompt(p)) = &mut app.modal else { panic!("no prompt for {name}") };
         assert!(p.text.starts_with("~/Music/"), "{:?}", p.text);
@@ -1181,11 +1188,6 @@ fn exports_hold_the_list_shown(tc: TestCase) {
         wait(&mut app, |a| a.job.is_none());
         let text = std::fs::read_to_string(&out)
             .unwrap_or_else(|e| panic!("{e}: {}", super::app::testing::last_message(&app)));
-        if xml {
-            assert!(text.contains("<DJ_PLAYLISTS"), "{text}");
-            assert_eq!(text.matches("<TRACK TrackID=").count(), tracks.len(), "every track's in the collection");
-            continue;
-        }
         // Each track of the list, once, in its order: by its file (a text file names it).
         let named = |t: &locallibrary::Track| match ext {
             "txt" => t.title.clone(),
@@ -1309,7 +1311,7 @@ fn the_drive_list_follows_what_is_plugged_in(tc: TestCase) {
             app.on_key(key_event(tc.draw(gs::sampled_from(&["j", "k", "g", "G"][..]))));
             continue;
         }
-        let mut list: Vec<_> = pool.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+        let mut list = tc.draw(gs::subsequences(&pool[..]));
         if tc.draw(gs::booleans()) {
             list.reverse();
         }
@@ -1436,7 +1438,8 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
     use locallibrary::compare::Relation;
     use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
     let (mut app, dir) = super::app::testing::blank(View::Drives);
-    let libs: Vec<(uuid::Uuid, &str)> = ["Home", "away", "Club"][..tc.draw(gs::integers::<usize>().max_value(3))]
+    let names = ["Home", "away", "Club"];
+    let libs: Vec<(uuid::Uuid, &str)> = names[..tc.draw(gs::integers::<usize>().max_value(names.len()))]
         .iter()
         .enumerate()
         .map(|(i, n)| (uuid::Uuid::from_u128(i as u128 + 1), *n))
@@ -1445,19 +1448,22 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
     for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
         let root = dir.path().join(format!("DRIVE{i}"));
         std::fs::create_dir_all(&root).unwrap();
-        let lib = tc.draw(gs::booleans()).then(|| libs.get(tc.draw(gs::integers::<usize>().max_value(2)))).flatten();
+        let lib = tc.draw(gs::optional(gs::integers::<usize>().max_value(names.len() - 1))).and_then(|i| libs.get(i));
         let info = locallibrary::DeviceInfo {
             has_export: tc.draw(gs::booleans()),
             library_id: lib.map(|l| l.0),
             ..locallibrary::Device::open(&root).unwrap().info()
         };
         let mut f = super::app::testing::fleet(info.clone(), lib.map(|l| l.1));
-        f.role = tc.draw(gs::booleans()).then(|| Role::ALL[tc.draw(gs::integers::<usize>().max_value(3))]);
-        f.status.relation = tc.draw(gs::booleans()).then(|| {
-            [Relation::Identical, Relation::LeftNewer, Relation::RightNewer, Relation::Diverged, Relation::Unrelated]
-                [tc.draw(gs::integers::<usize>().max_value(4))]
-        });
-        f.status.back_from_set = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(3)));
+        f.role = tc.draw(gs::optional(gs::sampled_from(&Role::ALL[..])));
+        f.status.relation = tc.draw(gs::optional(gs::sampled_from(vec![
+            Relation::Identical,
+            Relation::LeftNewer,
+            Relation::RightNewer,
+            Relation::Diverged,
+            Relation::Unrelated,
+        ])));
+        f.status.back_from_set = tc.draw(gs::optional(gs::integers::<usize>().max_value(3)));
         f.status.settings_drift = tc.draw(gs::integers::<usize>().max_value(2));
         f.status.error = tc.draw(gs::booleans()).then(|| "unreadable".to_string());
         (f.read_only, f.low_space) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
@@ -1483,13 +1489,11 @@ fn the_drives_view_lists_libraries_and_their_drives(tc: TestCase) {
                     last_mount: dir.path().join("gone"),
                     last_seen: chrono::Utc::now(),
                     capacity: None,
-                    standing: [Standing::UpToDate, Standing::Unsaved, Standing::Unknown]
-                        [tc.draw(gs::integers::<usize>().max_value(2))]
-                    .clone(),
+                    standing: tc.draw(gs::sampled_from(vec![Standing::UpToDate, Standing::Unsaved, Standing::Unknown])),
                     log: DriveLog::default(),
                 })
                 .collect(),
-            identical: tc.draw(gs::booleans()).then(|| tc.draw(gs::booleans())),
+            identical: tc.draw(gs::optional(gs::booleans())),
             unsaved: tc.draw(gs::booleans()),
         })
         .collect();
@@ -1600,9 +1604,10 @@ fn a_smart_playlist_holds_what_the_search_showed(tc: TestCase) {
     assert!(app.modal.is_none(), "x didn't close the panel");
 }
 
-/// The details panel of whichever track is selected lists what mixes into it, as the library
-/// suggests (the other recordings in a key that mixes, near its tempo, best first), names it and
-/// the best of them on screen, and enter there queues those tracks from the one picked.
+/// The details panel of whichever track is selected lists what mixes into it, as the api's
+/// matches (`track.matches`) are (the other recordings in a key that mixes, near its tempo, best
+/// first), names it and the best of them on screen, and enter there queues those tracks from the
+/// one picked.
 #[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     use super::app::testing::{app_with, track};
@@ -1625,7 +1630,7 @@ fn the_details_list_what_mixes_into_the_track(tc: TestCase) {
     app.on_key(key_event("i"));
     wait(&mut app, |a| a.details_current());
     let d = app.details.as_ref().unwrap();
-    let want: Vec<usize> = (super::keys::suggestions(&lib, &lib.tracks[at], 60).iter())
+    let want: Vec<usize> = (locallibrary::api::matches_in(&lib, &lib.tracks[at], 60).iter())
         .map(|s| lib.tracks.iter().position(|t| t.id == s.track.id).unwrap())
         .collect();
     assert_eq!(d.matches.items.iter().map(|m| m.index).collect::<Vec<_>>(), want, "for {:?}", lib.tracks[at]);

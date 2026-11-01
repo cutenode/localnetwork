@@ -110,7 +110,7 @@ fn draw_op(tc: &TestCase, trees: [&Tree; 2], keys: &[String]) -> Op {
 #[hegel::test(test_cases = 30)]
 fn the_tree_model_is_what_both_databases_read_back(tc: TestCase) {
     let library = six_tracks();
-    let keys: Vec<String> = library.tracks.iter().map(|t| track_key(&t.file_path)).collect();
+    let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendor/rekordbox-pdb/tests/data/one-song-exportExt.pdb");
     let path = Path::new(paths::EXPORT_EXT_PDB);
     let mut ext = std::fs::read(fixture).unwrap();
@@ -178,11 +178,11 @@ fn draw_tree(tc: &TestCase, names: &[&str], ids: &dyn Fn(&TestCase) -> i64) -> T
         }
     };
     let cased = |tc: &TestCase, n: &str| if tc.draw(gs::booleans()) { n.to_string() } else { n.to_uppercase() };
-    for c in names.iter().filter(|_| tc.draw(gs::booleans())) {
+    for c in tc.draw(gs::subsequences(names)) {
         let id = fresh(tc, &tree);
         tree.ids.insert(id);
         let mut node = CategoryNode { id, name: cased(tc, c), tags: Vec::new() };
-        for t in names.iter().filter(|_| tc.draw(gs::booleans())) {
+        for t in tc.draw(gs::subsequences(names)) {
             let id = fresh(tc, &tree);
             tree.ids.insert(id);
             node.tags.push(TagNode { id, name: cased(tc, t), tracks: BTreeSet::new(), strays: 0 });
@@ -220,7 +220,17 @@ fn new_categories_and_tags_get_ids_both_databases_can_share(tc: TestCase) {
             let got = ids.category(source, &tree, Some(&other), &name);
             match other.category(&name).map(|c| c.id).filter(|id| usable(*id)) {
                 Some(theirs) => assert_eq!(got, theirs, "{name}: the other database's id"),
-                None => assert!(got > max_category && !used.contains(&got), "{name}: {got}, used {used:?}"),
+                // The next free id, or the smallest free one when none past every category's fits
+                // (LOC-37).
+                None => assert!(
+                    Ids::fits(source, got)
+                        && !used.contains(&got)
+                        && (got > max_category
+                            || (max_category + 1..)
+                                .take_while(|id| Ids::fits(source, *id))
+                                .all(|id| used.contains(&id))),
+                    "{name}: {got}, used {used:?}"
+                ),
             }
             for tag in NAMES {
                 let got = ids.tag(source, &tree, Some(&other), &name, tag);
@@ -277,7 +287,7 @@ fn tree_of(tc: &TestCase, categories: &[&str], first_tags: usize, keys: &[String
 #[hegel::test(test_cases = 30)]
 fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
     let library = six_tracks();
-    let keys: Vec<String> = library.tracks.iter().map(|t| track_key(&t.file_path)).collect();
+    let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let pair = |c: &str, t: &str| (c.to_string(), t.to_string());
     let choices = [
         pair("Genre", "Tag 1"),
@@ -289,10 +299,11 @@ fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
         pair("Situation", "Tag 0"),
     ];
     // Room to spare, and every category taken with the first one full.
+    let all: [&str; MAX_CATEGORIES] = ["Genre", "Components", "Situation", "Mood"];
     for full in [false, true] {
         let categories: &[&str] = match full {
-            true => &["Genre", "Components", "Situation", "Mood"],
-            false => &["Genre", "Components", "Situation"][..tc.draw(gs::integers::<usize>().max_value(3))],
+            true => &all,
+            false => &all[..tc.draw(gs::integers::<usize>().max_value(all.len() - 1))],
         };
         let tree = tree_of(&tc, categories, if full { MAX_TAGS } else { 2 }, &keys);
         let other = tc.draw(gs::booleans()).then(|| {
@@ -384,7 +395,7 @@ fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
     let mut one = onelibrary_of(&library);
     one.add_my_tag(1, 0, "Genre", true).unwrap();
     one.add_my_tag(2, 1, "Deep", false).unwrap();
-    let linked: Vec<u32> = (1..=6).filter(|_| tc.draw(gs::booleans())).collect();
+    let linked: Vec<u32> = tc.draw(gs::subsequences(&[1, 2, 3, 4, 5, 6]));
     one.link_my_tag(2, &linked).unwrap();
     let clean = plus_tree(&one, &library).unwrap();
     assert_eq!(clean.strays, 0);
@@ -418,4 +429,45 @@ fn rows_that_point_nowhere_are_counted_and_left_out(tc: TestCase) {
     }
     without.ids.retain(|id| clean.ids.contains(id));
     assert_eq!(without, clean, "the rows that belong somewhere read as they did");
+}
+
+/// [`new_ext`]: a new exportExt.pdb holds the drawn categories and tags in order (up to
+/// rekordbox's limits, the rest said as skipped) and links exactly the tracks that carry them,
+/// and nothing of its template.
+#[hegel::test(test_cases = 30)]
+fn a_new_export_ext_holds_the_tags_given_and_nothing_else(tc: TestCase) {
+    let library = six_tracks();
+    let names = || gs::sampled_from(vec!["Genre", "Deep", "Peak Time", "Ünï", "x", "Situation"]);
+    let mut categories: Vec<crate::masterdb::TagCategory> = Vec::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(MAX_CATEGORIES + 1)) {
+        let name = tc.draw(names()).to_string();
+        if categories.iter().any(|c| c.name == name) {
+            continue;
+        }
+        let mut tags: Vec<crate::masterdb::TagEntry> = Vec::new();
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+            let name = tc.draw(names()).to_string();
+            if tags.iter().any(|t| t.name == name) {
+                continue;
+            }
+            let ids: BTreeSet<u32> =
+                tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(6))).into_iter().collect();
+            tags.push(crate::masterdb::TagEntry { name, track_ids: ids.into_iter().collect() });
+        }
+        categories.push(crate::masterdb::TagCategory { name, tags });
+    }
+    let given = DbTags::collection(&categories, &library);
+    let (bytes, carried) = new_ext(&given, &library).unwrap();
+    let got = DbTags::ext(&bytes, &library).unwrap();
+    let kept: Vec<CategoryNode> = given.tree.categories.iter().take(MAX_CATEGORIES).cloned().collect();
+    assert_eq!(got.tree.categories, kept);
+    assert_eq!(got.tree.strays, 0, "nothing of the template is left");
+    let past: BTreeSet<String> = given
+        .tree
+        .categories
+        .iter()
+        .skip(MAX_CATEGORIES)
+        .flat_map(|c| c.tags.iter().filter(|t| !t.tracks.is_empty()).map(move |t| format!("{}/{}", c.name, t.name)))
+        .collect();
+    assert_eq!(carried.skipped, past);
 }

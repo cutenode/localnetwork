@@ -3,10 +3,11 @@ use crate::common::{self, path};
 use std::fs;
 use std::path::Path;
 
-use locallibrary::api::{self, DiffRequest, RestoreBackup};
-use locallibrary::clean;
+use locallibrary::api::{self, DiffRequest, LabelRequest, RestoreBackup, SnapshotLibraryRequest};
 use locallibrary::device::Device;
+use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::progress::Ctx;
+use locallibrary::query::TrackSelector;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::{Error, paths};
@@ -84,8 +85,42 @@ fn a_drive_against_a_snapshot() {
     assert!(matches!(api::diff(None, &req(spec, path(&a), None)), Err(Error::Invalid(_))));
 }
 
+/// A snapshot's library is the drive's as it was then, whatever the drive has since: the whole
+/// library, or its tracks a page at a time as `drive.library` pages them, the snapshot named by an
+/// id prefix (with or without `snapshot:`) or a label.
 #[test]
-fn restore_preview_shows_what_a_clean_would_bring_back() {
+fn a_snapshot_s_library_is_the_drive_s_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    let then = locallibrary::pdb::read_library(&a.join(paths::EXPORT_PDB)).unwrap();
+    let mut d = Device::open_export(&a).unwrap();
+    let snap = sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    set_entries(&a, aab(&a), &[1]);
+    let label = LabelRequest { label: "gig".into(), snapshot: Some(snap.short_id.clone()), remove: false };
+    api::snapshot_label(&store, &label).unwrap();
+    let read = |snapshot: &str, offset, limit| {
+        api::snapshot_library(&store, &SnapshotLibraryRequest { snapshot: snapshot.into(), offset, limit })
+    };
+
+    let ids = |tracks: &[locallibrary::model::Track]| tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    for spec in [&snap.short_id[..6], &format!("snapshot:{}", snap.short_id), "GIG"] {
+        let whole = read(spec, None, None).unwrap();
+        assert!(whole.page.is_none(), "{spec}");
+        assert_eq!(ids(&whole.library.tracks), ids(&then.tracks), "{spec}");
+        let playlist = whole.library.find_playlist("aab").unwrap();
+        assert_eq!(playlist.track_ids, then.find_playlist("aab").unwrap().track_ids, "{spec}: not the drive's now");
+    }
+    let page = read(&snap.short_id, Some(2), Some(3)).unwrap();
+    let p = page.page.unwrap();
+    assert_eq!((p.offset, p.count, p.total), (2, 3, then.tracks.len()));
+    assert_eq!(ids(&page.library.tracks), ids(&then.tracks[2..5]));
+    assert_eq!(page.summary.tracks, then.tracks.len());
+    assert!(matches!(read("ffffffff", None, None), Err(Error::NotFound(_))));
+}
+
+#[test]
+fn restore_preview_shows_what_deleting_a_track_would_bring_back() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let file = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
@@ -98,12 +133,13 @@ fn restore_preview_shows_what_a_clean_would_bring_back() {
     fs::create_dir_all(audio.parent().unwrap()).unwrap();
     fs::write(&audio, "demo sample").unwrap();
     let mut d = Device::open_export(&root).unwrap();
-    let plan = clean::plan(&d, &Ctx::silent()).unwrap();
-    clean::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let edits = [Edit::DeleteTracks { tracks: TrackSelector::paths([file.to_string()]), keep_files: false }];
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent()).unwrap();
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let before = common::library_files(&root);
 
     let p = api::restore_preview(&RestoreBackup { drive: path(&root), backup: None, force: false }).unwrap();
-    assert_eq!(p.backup.reason, "before cleaning");
+    assert_eq!(p.backup.reason, "before editing");
     assert_eq!(p.diff.added_tracks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["rekordbox - House 1"]);
     let entries = &p.diff.changed_playlists[0];
     assert_eq!((entries.path.as_str(), entries.added.len(), entries.added[0].position), ("aab", 1, 13));

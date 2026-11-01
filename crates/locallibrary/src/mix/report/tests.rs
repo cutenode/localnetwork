@@ -92,6 +92,7 @@ pub(crate) fn play(track: Track) -> Play {
         track_start: 0.0,
         track_end: 190.0,
         tempo: 1.0,
+        speed_range: None,
         played_bpm: Some(128.0),
         key_lock: None,
         semitones: 0.0,
@@ -186,21 +187,32 @@ fn the_page_reads_back_any_title() {
     let data = data.split_once("</script>").unwrap().0;
     let v: serde_json::Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{e}: {data}"));
     assert_eq!(v["report"]["mix"]["title"], title);
+    assert_eq!(v["blendSecs"], crate::mix::BLEND_SECS, "the page calls blends what the player does");
 }
 
-/// The page draws in the colours the player does: the bands and phrases, and good, warning
-/// and critical for the light page and both ways it goes dark.
+/// The page draws in the colours the player does: the bands, and the phrases, cue defaults and
+/// good, warning and critical for the light page and both ways it goes dark.
 #[test]
 fn the_page_shares_the_players_colours() {
-    use crate::tokens::{Rgb, bands, phrases, status};
+    use crate::tokens::{Rgb, bands, cues, cues_light, phrases, phrases_light, status};
     let html = page(&report("x"), None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
     let prop = |name: &str, [r, g, b]: Rgb| format!("--{name}: #{r:02x}{g:02x}{b:02x};");
     assert!(!html.contains("{{TOKENS}}"));
-    for (name, rgb) in [("band-low", bands::LOW), ("phrase-verse", phrases::VERSE), ("good", status::light::GOOD)] {
+    let light = [
+        ("band-low", bands::LOW),
+        ("phrase-verse", phrases_light::VERSE),
+        ("cue-hot", cues_light::HOT),
+        ("good", status::light::GOOD),
+    ];
+    for (name, rgb) in light {
         assert_eq!(html.matches(&prop(name, rgb)).count(), 1, "{name}");
     }
     assert!(html.contains("--band-scale-mid: 0.66;"));
-    assert_eq!(html.matches(&prop("critical", status::dark::CRITICAL)).count(), 2, "both dark blocks");
+    for (name, rgb) in
+        [("critical", status::dark::CRITICAL), ("phrase-bridge", phrases::BRIDGE), ("cue-hot", cues::HOT)]
+    {
+        assert_eq!(html.matches(&prop(name, rgb)).count(), 2, "{name} in both dark blocks");
+    }
 }
 
 /// A page made to be shared holds what it shows and nothing that only makes sense here (the
@@ -265,15 +277,33 @@ fn extras_come_from_the_drive_by_file() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let analyses = [TrackAnalysis { cues: vec![cue(1), cue(200)], ..Default::default() }];
-    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses) };
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
     let labels = |e: PlayExtras| e.cues.into_iter().map(|c| c.label).collect::<Vec<_>>();
     let p = play(track(1, "A", "One", "/Contents/one.mp3"));
     assert_eq!(labels(extras(drive, &p, 0, false)), ["B · drop", "? · drop"]);
     assert_eq!(labels(extras(drive, &p, 0, true)), ["B", "?"]);
     let elsewhere = play(track(7, "B", "Two", "/Contents/two.mp3"));
     assert_eq!(extras(drive, &elsewhere, 0, false), PlayExtras::default());
+}
+
+/// A play has the fields its drive shows of its track, and none said when there are none.
+#[test]
+fn a_play_has_the_fields_its_drive_shows() {
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let library = Library { tracks: vec![track(7, "A", "One", "/Contents/one.mp3")], ..Default::default() };
+    let shown = |_: &Device, t: &Track| vec![ShownField { label: "echo.id".into(), value: format!("#{}", t.id) }];
+    let drive = Drive { fields: Some(&shown), ..Drive::new(&device, &library) };
+    let p = play(track(1, "A", "One", "/Contents/one.mp3"));
+    let e = extras(drive, &p, 0, true);
+    assert_eq!(e.fields, [ShownField { label: "echo.id".into(), value: "#7".into() }], "the drive's track");
+    assert_eq!(serde_json::to_value(&e).unwrap()["fields"][0]["value"], "#7");
+    let none = extras(Drive::new(&device, &library), &p, 0, true);
+    assert!(serde_json::to_value(none).unwrap().get("fields").is_none());
 }
 
 #[test]
@@ -361,8 +391,10 @@ fn any_title_slugs_to_a_file_name(tc: TestCase) {
 /// for; a `file:` URL leads to its path.
 #[hegel::test(test_cases = 300)]
 fn urls_read_back_as_their_paths(tc: TestCase) {
+    // One piece each: on Windows a backslash separates too, and a colon makes a drive.
+    let separators = if cfg!(windows) { "/\\:\0" } else { "/\0" };
     let parts: Vec<String> =
-        tc.draw(gs::vecs(gs::text().min_size(1).max_size(10).exclude_characters("/\0")).min_size(1).max_size(4));
+        tc.draw(gs::vecs(gs::text().min_size(1).max_size(10).exclude_characters(separators)).min_size(1).max_size(4));
     for part in &parts {
         let encoded = url_encode(part);
         assert!(encoded.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~%".contains(&b)), "{encoded}");
@@ -414,7 +446,8 @@ fn a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
 }
 
 /// Any report kept in the store is listed with what it found and reads back as it was,
-/// by an id made only of what ids are made of; nothing else is an id.
+/// by an id made only of what ids are made of; nothing else is an id. Without a readable
+/// reports folder, listing fails.
 #[hegel::test(test_cases = 20)]
 fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
     use loclib_model::test_util::track;
@@ -447,6 +480,11 @@ fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
         Error::Invalid(_) => assert!(!well_formed, "{other:?}"),
         e => panic!("{other:?}: {e}"),
     }
+    // A reports folder that can't be read is an error, never an empty list.
+    let reports = reports_dir(dir.path());
+    std::fs::remove_dir_all(&reports).unwrap();
+    std::fs::write(&reports, b"a file where the folder goes").unwrap();
+    assert!(matches!(list(dir.path()).unwrap_err().inner(), Error::Io { path, .. } if *path == reports));
 }
 
 /// The page reads back any title, holds one entry for each play (and with the drive, what
@@ -538,11 +576,12 @@ fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
             color: color.map(|(r, g, b)| [r, g, b]),
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         })
         .collect();
     let library = Library { tracks: vec![t.clone()], ..Default::default() };
     let analyses = [TrackAnalysis { cues: cues.clone(), ..Default::default() }];
-    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses) };
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
     let page = tc.draw(gs::booleans());
     let e = extras(drive, &play(t), 0, page);
 
@@ -637,4 +676,55 @@ fn the_reports_folder_lists_each_report_once(tc: TestCase) {
     assert_eq!(got, want);
     assert_eq!(listed.len(), want.len(), "each once");
     assert!(listed.windows(2).all(|w| w[0].modified >= w[1].modified), "newest first");
+}
+
+/// A page shows the cover embedded in the recording as a JPEG at most 640 pixels across, and
+/// none for an image beside the recording (a guess) or a recording without one.
+#[hegel::test(test_cases = 12)]
+fn a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    std::fs::write(&set, crate::probe::tests::wav(8_000, 16, 0.2)).unwrap();
+    let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(48));
+    let png = dir.path().join("set.png");
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 40])).save(&png).unwrap();
+    let source = tc.draw(gs::integers::<u8>().max_value(2));
+    let mut r = report("set");
+    r.mix.cover = match source {
+        0 => {
+            Artwork::from_path(&png).map(|a| crate::artwork::embed_in_file(&set, &a)).unwrap().unwrap();
+            Some(super::super::CoverSource::Embedded(set.clone()))
+        }
+        1 => Some(super::super::CoverSource::Embedded(set.clone())),
+        _ => Some(super::super::CoverSource::File(png.clone())),
+    };
+    let html = page(&r, None, None, &dir.path().join("set.html"), &ProfilePrefs::default(), true);
+    let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
+    let v: serde_json::Value = serde_json::from_str(data.split_once("</script>").unwrap().0).unwrap();
+    match v["cover"].as_str() {
+        Some(url) => {
+            assert_eq!(source, 0, "{url:.40}");
+            let jpeg = BASE64_STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+            assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+            assert!(image::load_from_memory(&jpeg).unwrap().width() <= 640);
+        }
+        None => assert_ne!(source, 0, "{}", v["cover"]),
+    }
+}
+
+/// The page holds a ridden pitch fader's slowest and fastest speeds, which it shows in place of
+/// the average, and none for a play at one speed.
+#[test]
+fn a_page_holds_the_speeds_a_ridden_fader_went_between() {
+    use loclib_model::test_util::track;
+    let mut r = report("set");
+    let ridden =
+        Play { tempo: 1.02, speed_range: Some((1.0, 1.04)), ..play(track(1, "A", "One", "/Contents/one.wav")) };
+    r.plays = vec![ridden, play(track(2, "B", "Two", "/Contents/two.wav"))];
+    let html = page(&r, None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
+    let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
+    let v: serde_json::Value = serde_json::from_str(data.split_once("</script>").unwrap().0).unwrap();
+    let ranges: Vec<&serde_json::Value> =
+        v["report"]["plays"].as_array().unwrap().iter().map(|p| &p["speed_range"]).collect();
+    assert_eq!(ranges, [&serde_json::json!([1.0, 1.04]), &serde_json::Value::Null]);
 }

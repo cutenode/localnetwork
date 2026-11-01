@@ -9,19 +9,25 @@ use locallibrary::anlz::{Beat, Cue, TrackAnalysis};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
-use super::app::{App, Level, View};
+use super::app::{App, Level, Msg, View};
+use super::audio::{Audio, Listed};
 use super::theme;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
 pub const PADS: u8 = 8;
 
 /// The outputs listed to pick from (`d`).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Outputs {
     /// The devices' names; the list shows "the system's default" before them.
     pub names: Vec<String>,
     /// Which of them is the default.
     pub default: Option<String>,
+    /// The listing of the devices still running (see `Msg::Outputs`), so one that comes back
+    /// after the list was closed or opened again is dropped.
+    pub listing: Option<u64>,
+    /// Why the devices couldn't be listed.
+    pub failed: Option<String>,
     pub state: ListState,
 }
 
@@ -57,11 +63,22 @@ pub struct Deck {
     pub output: Option<String>,
     /// The outputs, while they're listed to pick from.
     pub outputs: Option<Outputs>,
+    /// The output still opening in the background (see `Msg::Output`): the last asked for.
+    pub opening: Option<u64>,
 }
 
 impl Default for Deck {
     fn default() -> Deck {
-        Deck { pads: false, quantize: true, looped: None, single: false, auto_cue: false, output: None, outputs: None }
+        Deck {
+            pads: false,
+            quantize: true,
+            looped: None,
+            single: false,
+            auto_cue: false,
+            output: None,
+            outputs: None,
+            opening: None,
+        }
     }
 }
 
@@ -173,7 +190,7 @@ pub fn phrase_jump(app: &mut App, forward: bool) {
         app.toast("no more phrases", Level::Info);
         return;
     };
-    let color = now.phrases.iter().find(|p| p.start_ms == start).map(|p| theme::phrase_color(p.kind));
+    let color = now.phrases.iter().find(|p| p.start_ms == start).map(|p| theme::current().phrase(p.kind));
     app.jump(at, color);
 }
 
@@ -202,6 +219,22 @@ pub(super) fn seeking(app: &mut App, to: Duration) {
     let ms = to.as_secs_f64() * 1000.0;
     if let Some(l) = app.deck.looped.filter(|l| l.on && !l.contains(ms)) {
         set_loop(app, Some(Loop { on: false, ..l }));
+    }
+}
+
+/// Playback reaching a loop rekordbox marks active (from `prev` to `pos` ms, playing on rather
+/// than seeking) plays round it, as a CDJ does, unless a loop is playing already.
+pub(super) fn reach_active_loop(app: &mut App, prev: f64, pos: f64) {
+    let played_on = pos > prev && pos - prev < 500.0;
+    if !played_on || app.deck.looped.is_some_and(|l| l.on) {
+        return;
+    }
+    let Some(now) = &app.now else { return };
+    let reached = (now.analysis.cues.iter().filter(|c| c.active_loop))
+        .filter_map(|c| Some(Loop { start: c.start_ms as f64, end: c.end_ms? as f64, on: true }))
+        .find(|l| prev <= l.start && l.contains(pos));
+    if reached.is_some() {
+        set_loop(app, reached);
     }
 }
 
@@ -316,6 +349,7 @@ impl App {
                 color: None,
                 color_id: 0,
                 loop_beats: None,
+                active_loop: false,
             });
         }
         cues
@@ -326,12 +360,29 @@ impl App {
 // The output
 // ---------------------------------------------------------------------------------------------
 
-/// `d`: list the outputs, the one playing selected.
+/// `d`: list the outputs. The list opens at once with the system's default, and the devices are
+/// listed in the background: that can take a while, and keys pressed meanwhile mustn't go astray.
 pub fn list_outputs(app: &mut App) {
-    let (names, default) = (app.outputs.list)();
+    let (id, list) = (app.next_id(), app.outputs.list);
+    let state = ListState::default().with_selected(Some(0));
+    app.deck.outputs = Some(Outputs { listing: Some(id), state, ..Default::default() });
+    app.spawn_or(move || Msg::Outputs(id, list().map_err(|e| format!("{e:#}"))), move |e| Msg::Outputs(id, Err(e)));
+}
+
+/// The devices listed for listing `id`, the one playing selected; dropped when the list has been
+/// closed or opened again since.
+pub fn listed_outputs(app: &mut App, id: u64, listed: Result<Listed, String>) {
     let playing = app.audio.as_ref().and_then(|a| a.device().map(str::to_string));
-    let at = playing.and_then(|p| names.iter().position(|n| *n == p)).map_or(0, |i| i + 1);
-    app.deck.outputs = Some(Outputs { names, default, state: ListState::default().with_selected(Some(at)) });
+    let Some(o) = app.deck.outputs.as_mut().filter(|o| o.listing == Some(id)) else { return };
+    o.listing = None;
+    match listed {
+        Ok((names, default)) => {
+            let at = playing.and_then(|p| names.iter().position(|n| *n == p)).map_or(0, |i| i + 1);
+            o.state.select(Some(at));
+            (o.names, o.default) = (names, default);
+        }
+        Err(e) => o.failed = Some(e),
+    }
 }
 
 /// Keys while the outputs are listed: move, pick one, or close the list.
@@ -351,22 +402,40 @@ pub fn on_outputs_key(app: &mut App, key: KeyEvent) {
     }
 }
 
-/// Play through the output called `name` (`None`: the system's default) from now on, the track
-/// carrying on as it was: from where it was (or was to start), looping, paused or playing.
+/// Play through the output called `name` (`None`: the system's default) from now on. Opening it
+/// can take a while (a Bluetooth or AirPlay device), so it opens in the background, and the track
+/// plays on through the output it's on till then (see [`picked_output`]).
 fn use_output(app: &mut App, name: Option<String>) {
-    match (app.outputs.open)(name.as_deref()) {
-        Ok(mut a) => {
-            a.set_volume(app.volume);
-            let (at, playing) = app.playback();
-            app.audio = Some(a); // the old output closes here
-            app.audio_error = None;
-            app.deck.output = name;
-            let label = app.deck.output.clone().unwrap_or_else(|| "the default output".into());
-            app.toast(format!("playing through {label}"), Level::Info);
-            app.restart(at, playing);
-        }
-        Err(e) => app.toast(format!("{e:#}"), Level::Error),
-    }
+    app.toast(format!("opening {}…", output_label(name.as_deref())), Level::Info);
+    app.open_in_background(OutputAsk::Pick(name));
+}
+
+/// What an output was opened for (see `Msg::Output`).
+#[derive(Debug, Clone)]
+pub enum OutputAsk {
+    /// Picked from the outputs list (`None`: the system's default).
+    Pick(Option<String>),
+    /// To play through, with none open: the one picked before, else the default.
+    Play,
+}
+
+/// An output opened, and why the one asked for didn't (the default opened in its place).
+pub type OpenedOutput = (Box<Audio>, Option<String>);
+
+/// The output picked, `name`, opened: the track carries on through it as it was, from where it is
+/// now (or was to start), looping, paused or playing.
+pub(super) fn picked_output(app: &mut App, name: Option<String>, mut a: Audio) {
+    a.set_volume(app.volume);
+    let (at, playing) = app.playback();
+    app.audio = Some(a); // the old output closes here
+    app.audio_error = None;
+    app.toast(format!("playing through {}", output_label(name.as_deref())), Level::Info);
+    app.deck.output = name;
+    app.restart(at, playing);
+}
+
+fn output_label(name: Option<&str>) -> &str {
+    name.unwrap_or("the default output")
 }
 
 // ---------------------------------------------------------------------------------------------

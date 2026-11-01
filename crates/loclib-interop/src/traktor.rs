@@ -1,5 +1,7 @@
 //! Traktor Pro's collection file, `collection.nml`, which Traktor imports with "Import another
-//! Collection" (right-click Track Collection in the browser tree), merging it into its own.
+//! Collection" (right-click Track Collection in the browser tree), merging it into its own:
+//! written with [`build`], and read with [`read`] (Traktor keeps its own in
+//! `~/Documents/Native Instruments/Traktor <version>/collection.nml`).
 //!
 //! NML is XML (`<NML VERSION="19">`, as Traktor Pro 3 and 4 write it); Native Instruments
 //! doesn't document it, so this follows what Traktor writes and what converters that read it
@@ -21,7 +23,7 @@
 //!   `TYPE="PLAYLIST"` with a `PLAYLIST` of `ENTRY`/`PRIMARYKEY`s.
 
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path, PathBuf};
 
 use chrono::{Datelike, Timelike};
 
@@ -31,7 +33,7 @@ use loclib_model::{Library, Playlist, Track, TrackColor};
 use loclib_progress::{Ctx, Event, Phase};
 
 use crate::encode::xml_escape as esc;
-use crate::{Export, Result, Source};
+use crate::{Error, Export, Result, Source};
 
 /// The startup disk's name when this computer doesn't say (it isn't a Mac): macOS's default.
 const STARTUP_VOLUME: &str = "Macintosh HD";
@@ -46,18 +48,42 @@ fn startup_volume(volumes: &Path) -> Option<String> {
         .map(|e| e.file_name().to_string_lossy().into_owned())
 }
 
+/// This computer's startup disk, by the name [`Location::path`] takes: this Mac's, or the name
+/// [`build`] gives it when this computer doesn't say (it isn't a Mac).
+pub fn startup_disk() -> String {
+    startup_volume(Path::new("/Volumes")).unwrap_or_else(|| STARTUP_VOLUME.into())
+}
+
 /// Where a file is, the way `LOCATION` says it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Location {
-    volume: String,
-    dir: String,
-    file: String,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Location {
+    /// A Mac volume's name, or a Windows drive letter with its colon (`E:`).
+    pub volume: String,
+    /// Every folder as `/:name`, then a final `/:`.
+    pub dir: String,
+    pub file: String,
 }
 
 impl Location {
     /// `VOLUME` + `DIR` + `FILE`: what playlists name the track by.
-    fn key(&self) -> String {
+    pub fn key(&self) -> String {
         format!("{}{}{}", self.volume, self.dir, self.file)
+    }
+
+    /// The file on this computer, as [`build`] locates one the other way: below its drive
+    /// letter, below `/` on the startup disk (the volume named `startup`, see [`startup_disk`]),
+    /// else below `/Volumes`. In this computer's separator throughout: on Windows a Mac volume's
+    /// file is `\Volumes\USB\x.mp3` (which isn't there, but reads as a path as any other does), on
+    /// a Mac a drive letter's is `E:/x.mp3`.
+    pub fn path(&self, startup: &str) -> PathBuf {
+        let mut path = match self.volume.as_bytes() {
+            [letter, b':'] if letter.is_ascii_alphabetic() => PathBuf::from(format!("{}{MAIN_SEPARATOR}", self.volume)),
+            _ if self.volume == startup => PathBuf::from(MAIN_SEPARATOR_STR),
+            _ => Path::new(MAIN_SEPARATOR_STR).join("Volumes").join(&self.volume),
+        };
+        path.extend(self.dir.split("/:").filter(|p| !p.is_empty()));
+        path.push(&self.file);
+        path
     }
 }
 
@@ -89,6 +115,11 @@ fn date(s: &str) -> Option<String> {
 fn key_value(key: &str) -> Option<u8> {
     let c = Camelot::parse(key)?;
     Some(c.pitch() as u8 + if c.major { 0 } else { 12 })
+}
+
+/// A `MUSICAL_KEY VALUE` as a key: [`key_value`] the other way.
+fn key_of(value: u8) -> Option<Camelot> {
+    (value < 24).then(|| Camelot::from_pitch(u32::from(value % 12), value < 12))
 }
 
 fn colour(c: TrackColor) -> u8 {
@@ -134,7 +165,18 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
     let lib = &src.library;
     let mut tally = Tally::default();
     let mut keys: rustc_hash::FxHashMap<u32, String> = rustc_hash::FxHashMap::default();
-    let now = chrono::Local::now();
+    // Stamped as written now, or at `SOURCE_DATE_EPOCH` (seconds since 1970, as reproducible builds
+    // name it) when that's set: a stamp's length changes with the time of day, so then a dry run's
+    // size for the file is the size written. Any other value is refused, as their spec asks.
+    let now = match std::env::var("SOURCE_DATE_EPOCH") {
+        Err(std::env::VarError::NotPresent) => chrono::Local::now(),
+        epoch => epoch
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+            .ok_or_else(|| Error::Invalid("SOURCE_DATE_EPOCH isn't a number of seconds since 1970".into()))?
+            .with_timezone(&chrono::Local),
+    };
     let stamps = Stamps {
         modified: format!(
             "MODIFIED_DATE=\"{}/{}/{}\" MODIFIED_TIME=\"{}\"",
@@ -197,7 +239,8 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
         "Traktor and rekordbox can place an MP3's cues and grid a few milliseconds apart (they handle the encoder's \
          delay differently); nothing corrects for it, so check an MP3's grid before relying on it."
             .into(),
-        "History lists aren't exported; My Tags, artwork and waveforms aren't part of the file.".into(),
+        "History lists go only as playlists (`with_history`); My Tags, artwork and waveforms aren't part of the file."
+            .into(),
     ];
     if tally.startup_volume {
         export.notes.push(format!(
@@ -352,6 +395,9 @@ fn node(x: &mut String, lib: &Library, p: &Playlist, keys: &rustc_hash::FxHashMa
     }
     x.push_str("</PLAYLIST></NODE>\n");
 }
+
+mod read;
+pub use read::{Collection, Entry, List, Marker, MarkerKind, read};
 
 #[cfg(test)]
 mod tests;

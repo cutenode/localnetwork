@@ -174,7 +174,7 @@ pub(super) fn plan(
     let players = players.as_slice();
     let options = &Options { container: choice.container, decode_lossy: choice.decode_lossy };
     let mut out = Copies::default();
-    let taken: FxHashSet<String> = tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+    let taken: FxHashSet<String> = tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let mut seen = FxHashSet::default();
     let mut wanted: Vec<Wanted<'_>> = Vec::new();
     let mut lossy = 0;
@@ -276,7 +276,7 @@ pub(super) fn plan(
                 && tgt_tree.resolve(&w.to).is_some_and(|e| e.size == r.file.size)
         });
         let copy_path = paths::device_path(&w.to);
-        for analysis in crate::clean::analysis_files(&t.analyze_path, src_tree) {
+        for analysis in crate::track_files::analysis_files(&t.analyze_path, src_tree) {
             let e = src_tree.resolve(&analysis).expect("listed from the tree");
             let rewritten =
                 library_write::Source::analysis(src_tree.fs_path(&e.path), e.mtime, &copy_path, w.shift_ms)?;
@@ -292,7 +292,7 @@ pub(super) fn plan(
             size: kept.map_or(w.estimate, |r| r.file.size),
             current: kept.is_some(),
             job: Job {
-                track_key: paths::key(&t.file_path).to_lowercase(),
+                track_key: paths::file_key(&t.file_path),
                 source: src_tree.fs_path(&entry.path),
                 source_size: w.source_size,
                 hash,
@@ -351,7 +351,7 @@ fn transcode(job: &Job, dst: &Path, ctx: &Ctx<'_>) -> Result<AudioFile> {
     let made = loclib_transcode::transcode(&job.source, &job.recipe, tmp.path(), ctx)?;
     tmp.as_file().sync_all().at(tmp.path())?;
     let size = tmp.as_file().metadata().at(tmp.path())?.len();
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
+    fsutil::replace(tmp.into_temp_path(), dst)?;
     let r = &job.recipe;
     let bitrate = match r.container {
         // rekordbox gives uncompressed audio its nominal rate, and FLAC its average.

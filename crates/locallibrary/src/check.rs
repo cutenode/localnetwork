@@ -21,15 +21,19 @@
 //! With [`CheckOptions::audio`], every audio file is opened and its last seconds decoded (see
 //! [`probe::check_tracks`]), not only the smaller ones, which also finds files that don't decode.
 //!
-//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from analyses
-//! already in the store's cache (see [`crate::sound`]): the check decodes nothing for them, and
-//! says nothing about levels on a library never analysed. It's here rather than in the DJ's
-//! profile because this is the report read before a set, when a track that will clip the
+//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from the levels
+//! analyzers kept in the store already (see [`crate::sound`]): the check analyses nothing for
+//! them, and says nothing about levels on a library never analysed. It's here rather than in the
+//! DJ's profile because this is the report read before a set, when a track that will clip the
 //! mixer or need the trim cranked can still be swapped.
+//!
+//! What plugins' checks find on each drive that could be read follows (see
+//! [`crate::plugin::Plugins::run_checks`]).
 //!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
 use indexmap::IndexMap;
+use loclib_plugin::{DriveAction, FetchAction, HostAction, ProviderKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
 use std::path::PathBuf;
@@ -47,6 +51,7 @@ use crate::format::{FsKind, Scheme};
 use crate::model::{Library, Track, TrackRef};
 use crate::paths;
 use crate::plays;
+use crate::plugin::Fix;
 use crate::probe;
 use crate::progress::{Ctx, Phase};
 use crate::sound;
@@ -70,23 +75,49 @@ const CHECKS: &[&str] = &[
     "formats",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Level {
-    Ok,
-    Warning,
-    Problem,
-}
+pub use loclib_model::finding::{Finding, Level};
 
+/// What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,
+/// `files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`
+/// or `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CheckItem {
     /// The drive it's about.
     pub drive: String,
-    /// What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
-    /// `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
-    pub check: &'static str,
-    pub level: Level,
-    pub message: String,
+    #[serde(flatten)]
+    pub finding: Finding,
+    /// What fixes it, planned on the drive and confirmed as any plan is: a plugin's operation (its
+    /// check says), or one of locallibrary's own flows (pulling the drive, syncing it, fetching
+    /// artwork for its tracks without any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
+}
+
+/// One drive's items, as its checks find them.
+struct DriveItems {
+    drive: String,
+    items: Vec<CheckItem>,
+}
+
+impl DriveItems {
+    /// What a check found, with nothing to fix it.
+    fn add(&mut self, check: &'static str, level: Level, message: String) {
+        self.fixed(Finding::new(level, check, message), None);
+    }
+
+    /// What a check found, and what fixes it.
+    fn fixed(&mut self, finding: Finding, fix: Option<Fix>) {
+        self.items.push(CheckItem { drive: self.drive.clone(), finding, fix });
+    }
+}
+
+/// An item reads as its finding (`item.level`).
+impl std::ops::Deref for CheckItem {
+    type Target = Finding;
+
+    fn deref(&self) -> &Finding {
+        &self.finding
+    }
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -183,7 +214,7 @@ impl CheckReport {
     /// Count the warnings of `check` (`history`...) as problems.
     pub(crate) fn escalate(&mut self, check: &str) {
         for i in self.items.iter_mut().filter(|i| i.check == check && i.level == Level::Warning) {
-            i.level = Level::Problem;
+            i.finding.level = Level::Problem;
             self.warnings -= 1;
             self.problems += 1;
         }
@@ -240,13 +271,11 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
             players.models.iter().map(|m| (m.clone(), equipment::find(m))).collect();
         chosen.push(players);
         let mut audio = DriveAudio::default();
-        let mut mine = Vec::new();
-        let mut item =
-            |check, level, message: String| mine.push(CheckItem { drive: name.clone(), check, level, message });
+        let mut mine = DriveItems { drive: name.clone(), items: Vec::new() };
         let mut d = Drive { device, name: name.clone(), side: None, dbs: None, fs: None, large: Vec::new() };
         if !device.has_export() {
-            item("export", Level::Problem, "no rekordbox export on this drive".into());
-            items.push(mine);
+            mine.add("export", Level::Problem, "no rekordbox export on this drive".into());
+            items.push(mine.items);
             drives.push(d);
             continue;
         }
@@ -259,14 +288,14 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         match read {
             Ok((side, dbs, tree)) => {
                 d.large = doctor::large_files(dbs.primary(), &tree);
-                files_item(&name, &doctor::missing(device, &dbs, &tree, ctx)?, &mut item);
+                files_item(&doctor::missing(device, &dbs, &tree, ctx)?, &mut mine);
                 audio = DriveAudio::read(device, &dbs, &tree, &models, ctx)?;
                 if opts.audio {
                     let (checked, findings) = probe::check_tracks(device, &dbs.everything(), &tree, ctx)?;
-                    let issues = audio_items(checked, findings, &mut item);
+                    let issues = audio_items(checked, findings, &mut |c, l, m| mine.add(c, l, m));
                     audio_issues.extend(issues.into_iter().map(|g| AudioIssues { drive: name.clone(), ..g }));
                 }
-                let tracks = loudness_item(device, dbs.primary(), store, &mut item);
+                let tracks = loudness_item(device, dbs.primary(), store, &mut |c, l, m| mine.add(c, l, m));
                 if !tracks.is_empty() {
                     loudness.push(DriveLoudness { drive: name.clone(), tracks });
                 }
@@ -274,12 +303,12 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
                 d.dbs = Some(dbs);
             }
             Err(Error::Cancelled) => return Err(Error::Cancelled),
-            Err(e) => item("export", Level::Problem, format!("the library can't be read: {e}")),
+            Err(e) => mine.add("export", Level::Problem, format!("the library can't be read: {e}")),
         }
         let volume = doctor::volume_of(device.root());
         match &volume {
-            Some((disk, _)) => disk_items(disk, &mut item),
-            None => item(
+            Some((disk, _)) => disk_items(disk, &mut |c, l, m| mine.add(c, l, m)),
+            None => mine.add(
                 "file_system",
                 Level::Warning,
                 "not the root of a mounted volume, so its file system wasn't checked".into(),
@@ -290,10 +319,10 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
             has_plus: device.has_library_plus(),
             volume: volume.as_ref().map(|(disk, v)| (disk.scheme, v.filesystem)),
         };
-        let groups = player_items(&models, &layout, &audio, &mut item);
+        let groups = player_items(&models, &layout, &audio, &mut |c, l, m| mine.add(c, l, m));
         unloadable.extend(groups.into_iter().map(|g| Unloadable { drive: name.clone(), ..g }));
         d.fs = volume.and_then(|(_, v)| v.filesystem);
-        items.push(mine);
+        items.push(mine.items);
         drives.push(d);
     }
 
@@ -301,30 +330,32 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         drives.iter().filter(|d| matches!(d.fs, Some(FsKind::Fat32 | FsKind::Fat16))).map(|d| &d.name).collect();
     let first = drives.first().and_then(|d| d.side.as_ref().map(|s| (d.name.clone(), s)));
     for (n, d) in drives.iter().enumerate() {
-        let mine = &mut items[n];
-        let mut item =
-            |check, level, message: String| mine.push(CheckItem { drive: d.name.clone(), check, level, message });
+        let mut mine = DriveItems { drive: d.name.clone(), items: std::mem::take(&mut items[n]) };
         if let (Some((first_name, first)), Some(side), true) = (&first, &d.side, n > 0) {
             match packed_item(&drives[0], d) {
-                Some((level, message)) => item("same_library", level, message),
-                None => same_library_item(first_name, first, &d.name, side, &mut item),
+                Some((level, message)) => mine.add("same_library", level, message),
+                None => same_library_item(first_name, first, side, &mut mine),
             }
         }
         if let Some(dbs) = &d.dbs {
-            databases_item(dbs, &mut item);
+            databases_item(dbs, &mut |c, l, m| mine.add(c, l, m));
         }
-        large_files_item(d, &fat32, &mut item);
+        large_files_item(d, &fat32, &mut |c, l, m| mine.add(c, l, m));
         match d.device.state().and_then(|s| s.pending.as_ref()) {
-            Some(p) => item("interrupted", Level::Problem, format!("{}: {}", p.describe(), p.remedy())),
-            None => item("interrupted", Level::Ok, "no interrupted operation".into()),
+            Some(p) => mine.add("interrupted", Level::Problem, format!("{}: {}", p.describe(), p.remedy())),
+            None => mine.add("interrupted", Level::Info, "no interrupted operation".into()),
         }
         if let (Some(dbs), Some(side)) = (&d.dbs, &d.side) {
-            history_item(d, dbs, side, store, &mut archives, ctx, &mut item)?;
+            history_item(d, dbs, side, store, &mut archives, ctx, &mut mine)?;
         }
+        items[n] = mine.items;
     }
-    // By drive, then by check.
-    for mine in &mut items {
-        mine.sort_by_key(|i| CHECKS.iter().position(|c| *c == i.check));
+    // By drive, then by check, plugins' after locallibrary's own (see `plugin::set_hosted`).
+    for (mine, d) in items.iter_mut().zip(&drives) {
+        mine.sort_by_key(|i| CHECKS.iter().position(|c| i.check == *c));
+        if let Some(plugins) = crate::plugin::hosted().filter(|_| d.dbs.is_some()) {
+            mine.extend(plugins.run_checks(d.device, store, ctx)?);
+        }
     }
     let items: Vec<CheckItem> = items.into_iter().flatten().collect();
     Ok(CheckReport {
@@ -339,13 +370,10 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
     })
 }
 
-fn same_library_item(
-    first_name: &str,
-    first: &Side,
-    name: &str,
-    side: &Side,
-    item: &mut impl FnMut(&'static str, Level, String),
-) {
+/// How the drive compares with the first: a problem unless it's the same library, which a sync
+/// fixes when one of the two is newer.
+fn same_library_item(first_name: &str, first: &Side, side: &Side, item: &mut DriveItems) {
+    let name = &item.drive;
     let c = compare::compare(first, side);
     let d = &c.diff;
     let changes = format!(
@@ -354,7 +382,7 @@ fn same_library_item(
         d.added_playlists.len() + d.removed_playlists.len() + d.changed_playlists.len()
     );
     let (level, message) = match c.relation {
-        Relation::Identical => (Level::Ok, format!("same library as {first_name}")),
+        Relation::Identical => (Level::Info, format!("same library as {first_name}")),
         Relation::LeftNewer => {
             (Level::Problem, format!("behind {first_name} ({changes}); `locallibrary sync` brings it up to date"))
         }
@@ -363,7 +391,9 @@ fn same_library_item(
         Relation::Unrelated => (Level::Problem, format!("holds a different library from {first_name}")),
         Relation::Undetermined => (Level::Problem, format!("differs from {first_name} ({changes})")),
     };
-    item("same_library", level, message);
+    let fix = matches!(c.relation, Relation::LeftNewer | Relation::RightNewer)
+        .then(|| Fix::Host(HostAction::Sync(DriveAction { drive: item.drive.clone() })));
+    item.fixed(Finding::new(level, "same_library", message), fix);
 }
 
 /// When one of the two drives was packed from the other (see [`crate::pack`]), it holds some of
@@ -387,7 +417,7 @@ fn packed_item(first: &Drive, d: &Drive) -> Option<(Level, String)> {
         record.source_fingerprint.is_some_and(|fp| source.fingerprint == Some(fp) || source.aliases.contains(&fp));
     let playlists = record.playlists.join(", ");
     Some(if fresh {
-        (Level::Ok, format!("{packed_name} is packed from {source_name} ({playlists}) and up to date"))
+        (Level::Info, format!("{packed_name} is packed from {source_name} ({playlists}) and up to date"))
     } else {
         (
             Level::Warning,
@@ -416,39 +446,44 @@ fn databases_item(dbs: &Databases, item: &mut impl FnMut(&'static str, Level, St
                 drift.playlists.len()
             ),
         ),
-        (Some(_), _, _) => (Level::Ok, "export.pdb and OneLibrary agree".into()),
+        (Some(_), _, _) => (Level::Info, "export.pdb and OneLibrary agree".into()),
         (None, Some(_), None) => {
-            (Level::Ok, "export.pdb only (CDJ-3000X, OPUS-QUAD, XDJ-AZ... need OneLibrary)".into())
+            (Level::Info, "export.pdb only (CDJ-3000X, OPUS-QUAD, XDJ-AZ... need OneLibrary)".into())
         }
-        (None, _, _) => (Level::Ok, "OneLibrary only (older players need export.pdb)".into()),
+        (None, _, _) => (Level::Info, "OneLibrary only (older players need export.pdb)".into()),
     };
     item("databases", level, message);
 }
 
-fn files_item(drive: &str, missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static str, Level, String)) {
-    let of = |problems: &[Problem]| -> Vec<String> {
+/// What's missing of the tracks' files. Tracks without artwork are fixed by fetching it, when a
+/// plugin finds cover art.
+fn files_item(missing: &[doctor::BrokenTrack], item: &mut DriveItems) {
+    let drive = item.drive.clone();
+    // Each track once, by its first database's id.
+    let tracks = |problems: &[Problem]| -> Vec<&TrackRef> {
         let mut seen = FxHashSet::default();
         missing
             .iter()
             .filter(|m| problems.contains(&m.problem))
             .filter(|m| seen.insert(m.track.file_path.clone()))
-            .map(|m| m.track.name.clone())
+            .map(|m| &m.track)
             .collect()
     };
+    let of = |problems: &[Problem]| -> Vec<String> { tracks(problems).iter().map(|t| t.name.clone()).collect() };
     let audio = of(&[Problem::MissingAudio, Problem::UnsafePath]);
     let cut = of(&[Problem::Truncated]);
     let analysis = of(&[Problem::MissingAnalysis]);
     let artwork = of(&[Problem::MissingArtwork]);
     if !audio.is_empty() {
-        item("files", Level::Problem, format!("{} track(s) have no audio file: {}", audio.len(), names(&audio, 3)));
+        item.add("files", Level::Problem, format!("{} track(s) have no audio file: {}", audio.len(), names(&audio, 3)));
     }
     if !cut.is_empty() {
         let message =
             format!("{} track(s) stop short of their length (an interrupted copy?): {}", cut.len(), names(&cut, 3));
-        item("files", Level::Problem, message);
+        item.add("files", Level::Problem, message);
     }
     if !analysis.is_empty() {
-        item(
+        item.add(
             "files",
             Level::Warning,
             format!(
@@ -459,24 +494,29 @@ fn files_item(drive: &str, missing: &[doctor::BrokenTrack], item: &mut impl FnMu
         );
     }
     if !artwork.is_empty() {
-        item(
-            "files",
-            Level::Warning,
-            format!(
-                "{} track(s) have no artwork image: {}; `locallibrary art auto \"{drive}\"` fills in art their files embed",
-                artwork.len(),
-                names(&artwork, 3)
-            ),
+        // Named only when the app runs a plugin that finds cover art (see `plugin::set_hosted`).
+        let fetches = crate::plugin::hosted().is_some_and(|p| !p.providers(Some(ProviderKind::Artwork)).is_empty());
+        let fetch = match fetches {
+            true => format!(", and `locallibrary art fetch \"{drive}\"` finds covers online"),
+            false => String::new(),
+        };
+        let message = format!(
+            "{} track(s) have no artwork image: {}; `locallibrary art auto \"{drive}\"` fills in art their files embed{fetch}",
+            artwork.len(),
+            names(&artwork, 3)
         );
+        let ids = tracks(&[Problem::MissingArtwork]).iter().map(|t| t.id).collect();
+        let fix = fetches.then(|| Fix::Host(HostAction::ArtFetch(FetchAction { drive, tracks: ids, provider: None })));
+        item.fixed(Finding::new(Level::Warning, "files", message), fix);
     }
     if missing.is_empty() {
-        item("files", Level::Ok, "every track's audio, analysis and artwork is there".into());
+        item.add("files", Level::Info, "every track's audio, analysis and artwork is there".into());
     }
 }
 
 fn large_files_item(d: &Drive<'_>, fat32: &[&String], item: &mut impl FnMut(&'static str, Level, String)) {
     if d.large.is_empty() {
-        item("large_files", Level::Ok, "no files of 4 GB or more".into());
+        item("large_files", Level::Info, "no files of 4 GB or more".into());
         return;
     }
     let files: Vec<String> = d.large.iter().map(|f| f.path.clone()).collect();
@@ -499,6 +539,7 @@ fn large_files_item(d: &Drive<'_>, fat32: &[&String], item: &mut impl FnMut(&'st
     item("large_files", level, message);
 }
 
+/// Whether the drive's history lists are in the store, which pulling the drive fixes.
 fn history_item(
     d: &Drive<'_>,
     dbs: &Databases,
@@ -506,11 +547,11 @@ fn history_item(
     store: Option<&Store>,
     archives: &mut FxHashMap<Option<Uuid>, plays::HistoryArchive>,
     ctx: &Ctx<'_>,
-    item: &mut impl FnMut(&'static str, Level, String),
+    item: &mut DriveItems,
 ) -> Result<()> {
     let lists = plays::histories(dbs);
     if lists.is_empty() {
-        item("history", Level::Ok, "no history lists on the drive".into());
+        item.add("history", Level::Info, "no history lists on the drive".into());
         return Ok(());
     }
     let not_archived = |n: usize| {
@@ -521,8 +562,9 @@ fn history_item(
             d.name
         )
     };
+    let pull = || Some(Fix::Host(HostAction::Pull(DriveAction { drive: d.name.clone() })));
     let Some(store) = store else {
-        item("history", Level::Warning, not_archived(lists.len()));
+        item.fixed(Finding::new(Level::Warning, "history", not_archived(lists.len())), pull());
         return Ok(());
     };
     let library = d.device.state().and_then(|s| s.library_id);
@@ -536,7 +578,7 @@ fn history_item(
             if let Some(s) = store.find_by_fingerprint(lib, &fp)? {
                 let message =
                     format!("{} history list(s) saved in snapshot {} of {}", lists.len(), s.short_id, lib.name);
-                item("history", Level::Ok, message);
+                item.add("history", Level::Info, message);
                 return Ok(());
             }
         }
@@ -547,8 +589,8 @@ fn history_item(
         Entry::Vacant(e) => e.insert(plays::archive(store, library, ctx)?),
     };
     match lists.iter().filter(|l| !plays::is_archived(l, archive)).count() {
-        0 => item("history", Level::Ok, format!("{} history list(s), all in the store", lists.len())),
-        n => item("history", Level::Warning, not_archived(n)),
+        0 => item.add("history", Level::Info, format!("{} history list(s), all in the store", lists.len())),
+        n => item.fixed(Finding::new(Level::Warning, "history", not_archived(n)), pull()),
     }
     Ok(())
 }
@@ -556,7 +598,7 @@ fn history_item(
 fn disk_items(disk: &crate::format::Disk, item: &mut impl FnMut(&'static str, Level, String)) {
     let c = players::assess_disk(disk);
     let level = match c.verdict {
-        Verdict::AllPlayers => Level::Ok,
+        Verdict::AllPlayers => Level::Info,
         Verdict::SomePlayers | Verdict::Unknown => Level::Warning,
         Verdict::NoPlayers => Level::Problem,
     };
@@ -594,8 +636,8 @@ fn choose_players(
     Ok(players)
 }
 
-/// The `loudness` item, from the analyses cached in `store` (none without a store, or when none
-/// of the library's tracks were analysed). Returns the tracks it warns about.
+/// The `loudness` item, from the levels kept in `store` (none without a store, or when none of
+/// the library's tracks were analysed). Returns the tracks it warns about.
 fn loudness_item(
     device: &Device,
     library: &Library,
@@ -603,20 +645,19 @@ fn loudness_item(
     item: &mut impl FnMut(&'static str, Level, String),
 ) -> Vec<sound::LoudnessFinding> {
     let Some(store) = store else { return Vec::new() };
-    let cached = sound::Cache::in_store(store).cached(device, &library.tracks);
-    if cached.is_empty() {
+    let tracks: Vec<&Track> = library.tracks.iter().collect();
+    let levels = sound::levels(store, device, &tracks);
+    if levels.is_empty() {
         return Vec::new();
     }
-    let found = sound::loudness_findings(
-        library.tracks.iter().filter_map(|t| cached.get(&t.id).map(|a| (t, a.loudness.as_ref()))),
-    );
+    let found = sound::loudness_findings(&levels);
     match found.is_empty() {
         true => item(
             "loudness",
-            Level::Ok,
+            Level::Info,
             format!(
                 "none of the {} analysed track(s) is over 0 dBTP, clipped or far from the rest's level",
-                cached.len()
+                levels.len()
             ),
         ),
         false => {
@@ -660,7 +701,7 @@ fn audio_items(
         groups.push(AudioIssues { drive: String::new(), level, kind, message, files });
     }
     if groups.is_empty() {
-        item("audio", Level::Ok, format!("all {checked} audio file(s) open and decode to the end"));
+        item("audio", Level::Info, format!("all {checked} audio file(s) open and decode to the end"));
     }
     groups
 }
@@ -768,8 +809,8 @@ impl DriveAudio {
             library
                 .tracks
                 .iter()
-                .filter(|t| files.insert(paths::key(&t.file_path).to_lowercase()))
-                .map(|t| track_audio(t, probed.get(&paths::key(&t.file_path).to_lowercase())))
+                .filter(|t| files.insert(paths::file_key(&t.file_path)))
+                .map(|t| track_audio(t, probed.get(&paths::file_key(&t.file_path))))
                 .collect()
         };
         Ok(DriveAudio { pdb: pdb.map(audio), plus: plus.map(audio) })
@@ -874,7 +915,7 @@ fn player_items(
             None => match issues.first() {
                 None => item(
                     "players",
-                    Level::Ok,
+                    Level::Info,
                     format!("{}: has the database it reads (file system not checked)", m.name),
                 ),
                 Some((level, message)) => item("players", *level, format!("{}: {message}", m.name)),
@@ -907,7 +948,7 @@ fn player_items(
                     Some((fs, Some(false))) => issues.push((Level::Problem, format!("can't read {}", fs_name(fs)))),
                 }
                 match issues.iter().map(|(l, _)| *l).max() {
-                    None => item("players", Level::Ok, format!("{}: can read this drive", m.name)),
+                    None => item("players", Level::Info, format!("{}: can read this drive", m.name)),
                     Some(level) => {
                         let text: Vec<&str> = issues.iter().map(|(_, s)| s.as_str()).collect();
                         item("players", level, format!("{}: {}", m.name, text.join("; ")));
@@ -1023,7 +1064,7 @@ fn format_items(
                 m.name
             ),
         };
-        item("formats", Level::Ok, message);
+        item("formats", Level::Info, message);
     }
     groups
 }

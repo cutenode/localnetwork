@@ -18,7 +18,7 @@ describe('the theme', () => {
 		theme.set('neon');
 		expect(theme.mode).toBe('system');
 		expect(localStorage.getItem('pref:theme')).toBe('system');
-		expect(document.documentElement.classList.contains('dark')).toBe(false);
+		expect(!document.documentElement.classList.contains('light')).toBe(false);
 	});
 
 	it('reports dark when the browser is dark and nothing was chosen', async () => {
@@ -31,7 +31,7 @@ describe('the theme', () => {
 		}));
 		const theme = await freshTheme();
 		expect(theme.dark).toBe(true);
-		expect(document.documentElement.classList.contains('dark')).toBe(true);
+		expect(!document.documentElement.classList.contains('light')).toBe(true);
 
 		theme.set('light');
 		expect(theme.dark).toBe(false);

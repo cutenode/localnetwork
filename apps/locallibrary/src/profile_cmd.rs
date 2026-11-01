@@ -17,7 +17,7 @@ use locallibrary::profile::{
 use locallibrary::progress::Ctx;
 
 use crate::open_store;
-use crate::output::{Output, dim, fit, heading, ok, plural, thousands, warn};
+use crate::output::{BLOCKS, Output, bar, dim, fit, heading, ok, opt_pct, pct, plural, thousands, warn};
 
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -128,7 +128,7 @@ enum ProfileCommand {
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]
-        browser: crate::account_cmd::BrowserArgs,
+        browser: crate::browser::BrowserArgs,
     },
     /// Every section: whether the document includes it, and what it reveals
     Sections,
@@ -264,8 +264,8 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             update(store_path, PrefsUpdate { pin: vec![name], ..Default::default() }, out, &msg)?;
         }
         ProfileCommand::Unpin { query } => {
-            let store = open_store(store_path)?;
-            let name = find_entry(&ProfilePrefs::load(&store)?.pinned, &query, "pinned")?;
+            let pinned = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?.pinned;
+            let name = find_entry(&pinned, &query, "pinned")?;
             let msg = format!("unpinned {name}");
             update(store_path, PrefsUpdate { unpin: vec![name], ..Default::default() }, out, &msg)?;
         }
@@ -279,7 +279,7 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             update(store_path, PrefsUpdate { hide: vec![name], ..Default::default() }, out, &msg)?;
         }
         ProfileCommand::Unhide { query, artist } => {
-            let prefs = ProfilePrefs::load(&open_store(store_path)?)?;
+            let prefs = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?;
             let u = if artist {
                 PrefsUpdate {
                     unhide_artist: vec![find_entry(&prefs.hidden_artists, &query, "hidden")?],
@@ -392,18 +392,6 @@ fn find_entry(list: &[String], query: &str, what: &str) -> Result<String> {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
-const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-
-/// A horizontal bar `frac` of `width` cells long, in eighths.
-fn bar(frac: f64, width: usize) -> String {
-    let eighths = (frac.clamp(0.0, 1.0) * width as f64 * 8.0).round() as usize;
-    let mut s = "█".repeat(eighths / 8);
-    if !eighths.is_multiple_of(8) {
-        s.push(['▏', '▎', '▍', '▌', '▋', '▊', '▉'][eighths % 8 - 1]);
-    }
-    s
-}
-
 /// One block per value, scaled between the smallest and largest.
 fn spark(values: &[Option<f64>]) -> String {
     let known: Vec<f64> = values.iter().flatten().copied().collect();
@@ -418,14 +406,6 @@ fn spark(values: &[Option<f64>]) -> String {
             Some(_) => BLOCKS[3],
         })
         .collect()
-}
-
-fn pct(x: f64) -> String {
-    format!("{:.0}%", x * 100.0)
-}
-
-fn opt_pct(x: Option<f64>) -> String {
-    x.map_or_else(|| "–".to_string(), pct)
 }
 
 struct Page<'a> {
@@ -466,7 +446,16 @@ fn render(v: &ProfileView, view: &ViewArgs) {
         }
         Basis::Collection => "no sets found: describing the collection".to_string(),
     };
-    say!("  {}", dim(format!("{basis} · built {}", local_time(r.generated, "%Y-%m-%d %H:%M"))));
+    let mut built = format!("{basis} · built {}", local_time(r.generated, "%Y-%m-%d %H:%M"));
+    let from_cache = [(r.cached.databases, "snapshots' lists"), (r.cached.analysis, "analysis files")]
+        .into_iter()
+        .filter(|((cached, _), _)| *cached > 0)
+        .map(|((cached, read), what)| format!("{cached} of {read} {what}"))
+        .collect::<Vec<_>>();
+    if !from_cache.is_empty() {
+        built.push_str(&format!(" · from the cache: {}", from_cache.join(", ")));
+    }
+    say!("  {}", dim(built));
 
     if c.section(Section::Summary, "") {
         let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());

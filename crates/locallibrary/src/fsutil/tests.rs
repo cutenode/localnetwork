@@ -7,21 +7,6 @@ fn paths_are_made_absolute_lexically() {
     assert!(absolute(Path::new("x")).is_absolute());
 }
 
-/// The part of a path that exists is resolved (symlinks too), the rest appended; `..` below a
-/// folder that isn't there yet is folded first. Regression: export's own copy of this left
-/// such a path unresolved, so `/tmp/new/../out` and `/private/tmp/out` didn't compare.
-#[test]
-fn the_part_that_exists_is_resolved() {
-    let dir = tempfile::tempdir().unwrap();
-    let real = crate::device::dunce_canonicalize(dir.path());
-    assert_eq!(resolved(&dir.path().join("new/../out/x")), real.join("out/x"));
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(&real, real.join("link")).unwrap();
-        assert_eq!(resolved(&real.join("link/missing/../there")), real.join("there"));
-    }
-}
-
 /// Regression: a lock was released by closing its file, so it stayed held while a child
 /// process another thread was starting still shared the file (until it ran its program), and
 /// taking it again right away failed.
@@ -144,6 +129,16 @@ fn temp_files(dir: &Path) -> Vec<String> {
 #[hegel::explicit_test_case(writer = 6u8, obstacle = 1u8, durable = false, mtime = Some(1_600_000_000i64))]
 #[hegel::explicit_test_case(writer = 7u8, obstacle = 2u8, durable = false, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 1u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+// Each writer once where its folder is missing, or a folder stands where it would persist.
+#[hegel::explicit_test_case(writer = 2u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 4u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 5u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 6u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 0u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 1u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 2u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 5u8, obstacle = 1u8, durable = true, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 6u8, obstacle = 5u8, durable = false, mtime = None::<i64>)]
 fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // write_atomic, write_private, write_deferred, write_output, stage_bytes, copy_file,
@@ -267,54 +262,6 @@ fn json_reads_back_what_was_written(tc: hegel::TestCase) {
     assert!(matches!(read_json::<IndexMap<String, i64>>(&path), Err(Error::Parse { .. })));
 }
 
-/// Made absolute, a path is the current folder (when it's relative) followed by its parts, each
-/// `..` taking the part before it away and each `.` nothing; nothing at all stays nothing. Resolved,
-/// the part that exists is the real folder, followed by the rest.
-#[hegel::test(test_cases = 60)]
-#[hegel::explicit_test_case(parts = vec!["a", "..", ".", "b"], rooted = false, made = 1usize)]
-#[hegel::explicit_test_case(parts = Vec::<&str>::new(), rooted = false, made = 0usize)]
-fn paths_are_folded_part_by_part(tc: hegel::TestCase) {
-    use hegel::generators as gs;
-    let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
-    let rooted = tc.draw(gs::booleans());
-    let joined = parts.join("/");
-    let path = PathBuf::from(if rooted { format!("/{joined}") } else { joined.clone() });
-    let mut want = if rooted { PathBuf::from("/") } else { std::env::current_dir().unwrap() };
-    if !rooted && parts.is_empty() {
-        want = PathBuf::new();
-    }
-    for p in &parts {
-        match *p {
-            ".." => {
-                want.pop();
-            }
-            "." => {}
-            name => want.push(name),
-        }
-    }
-    assert_eq!(absolute(&path), want, "{path:?}");
-    if !rooted && parts.is_empty() {
-        assert_eq!(resolved(&path), PathBuf::new());
-    }
-    // Below a real folder: the parts that exist resolve, the rest are appended.
-    let dir = tempfile::tempdir().unwrap();
-    let real = crate::device::dunce_canonicalize(dir.path());
-    let made = tc.draw(gs::integers::<usize>().max_value(2));
-    fs::create_dir_all(real.join("a/b").iter().take(real.components().count() + made).collect::<PathBuf>()).unwrap();
-    let below = dir.path().join(&joined);
-    let mut folded = real.clone();
-    for p in &parts {
-        match *p {
-            ".." => {
-                folded.pop();
-            }
-            "." => {}
-            name => folded.push(name),
-        }
-    }
-    assert_eq!(resolved(&below), folded, "{below:?}");
-}
-
 /// Flushing makes every file that's there durable and skips the ones that are gone, but a file it
 /// may not open stops it, naming the file; a file exists for reading exactly when it opens.
 #[cfg(unix)]
@@ -406,4 +353,99 @@ fn a_lock_has_one_holder_at_a_time(tc: hegel::TestCase) {
     assert!(matches!(FileLock::wait(&nowhere), Err(Error::Io { path, .. }) if path == nowhere));
     assert!(matches!(FileLock::try_take(&nowhere), Err(Error::Io { path, .. }) if path == nowhere));
     assert!(!dir.path().join("gone").exists());
+}
+
+/// A rename waits for a look [`unreplaced`] is taking (on Windows the look's handles would fail
+/// it), and is made once the look is done.
+#[test]
+fn a_rename_waits_for_a_look_to_finish() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("export.pdb");
+    fs::write(&path, b"old").unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        unreplaced(|| {
+            s.spawn(|| tx.send(write_atomic(&path, b"new")).unwrap());
+            assert!(rx.recv_timeout(std::time::Duration::from_millis(100)).is_err(), "renamed during the look");
+            assert_eq!(fs::read(&path).unwrap(), b"old");
+        });
+        rx.recv().unwrap().unwrap();
+    });
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+}
+
+/// One thread reads a JSON file while another writes it over and over: every read finds the file
+/// whole, and every write lands. Regression: on Windows a rename over the file while a read held
+/// it open failed ("Access is denied"), as a plugin's settings changed while its service ran.
+#[test]
+fn a_file_read_while_its_rewritten_is_read_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    write_json_atomic(&path, &0u32).unwrap();
+    let writing = std::sync::atomic::AtomicBool::new(true);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut last = 0;
+            while writing.load(std::sync::atomic::Ordering::SeqCst) {
+                let read: u32 = read_json(&path).unwrap();
+                assert!(read >= last, "read {read} after {last}");
+                last = read;
+            }
+        });
+        for n in 1..=50u32 {
+            write_json_atomic(&path, &n).unwrap();
+        }
+        writing.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!(read_json::<u32>(&path).unwrap(), 50);
+}
+
+/// A file's size and mtime recorded at `at` count as settled exactly when no rewrite after `at`
+/// can show an mtime [`mtime_eq`] takes for the recorded one: a rewrite at second `t` (at or after
+/// `at`) shows `t` where mtimes are kept to the second, and `t` rounded down to an even second on
+/// FAT32. Unsettled, a FAT32 file (even mtime) has such a rewrite: one at `at` itself. Regression:
+/// the hash cache and scrub each had a window of their own, neither allowing for that drift.
+#[hegel::test(test_cases = 300)]
+fn settled_means_no_rewrite_since_can_look_unchanged(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mtime: i64 = tc.draw(gs::integers::<i64>().min_value(1_000_000_000).max_value(2_000_000_000));
+    let at = mtime + tc.draw(gs::integers::<i64>().min_value(0).max_value(12));
+    let later = tc.draw(gs::integers::<i64>().min_value(0).max_value(10));
+    let rewrite = at + later;
+    let shown = [rewrite, rewrite - rewrite.rem_euclid(2)];
+    if settled(mtime, at) {
+        assert!(shown.iter().all(|s| !mtime_eq(mtime, *s)), "mtime {mtime}, recorded {at}, rewritten {rewrite}");
+    }
+    let fat = mtime - mtime.rem_euclid(2);
+    if !settled(fat, at.max(fat)) {
+        let at = at.max(fat);
+        assert!(
+            mtime_eq(fat, at - at.rem_euclid(2)),
+            "FAT mtime {fat}, recorded {at}: a rewrite at {at} looks unchanged"
+        );
+    }
+}
+
+/// Waiting longer than `after` (an online-only file downloading), the wait is said once, naming
+/// what it's for; finishing in time, nothing is said. Each closure waits on the other side's
+/// signal, not on a clock, so neither case depends on timing.
+#[test]
+fn a_slow_wait_is_said_once() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (said, heard) = mpsc::channel::<String>();
+    let said = std::sync::Mutex::new(said);
+    let tell = move |e: &crate::progress::Event| {
+        if let crate::progress::Event::Warning { message } = e {
+            let _ = said.lock().unwrap().send(message.clone());
+        }
+    };
+    let ctx = Ctx::new(&tell, crate::progress::CancelToken::new());
+    let waited = warn_if_slow(&ctx, Duration::from_millis(1), "waiting for a.mp3".into(), || {
+        heard.recv_timeout(Duration::from_secs(60)).expect("the warning comes while it waits")
+    });
+    assert_eq!(waited, "waiting for a.mp3");
+    let quick = warn_if_slow(&ctx, Duration::from_secs(3600), "waiting for b.mp3".into(), || 7);
+    assert_eq!(quick, 7);
+    assert!(heard.try_recv().is_err(), "nothing said for a quick one");
 }

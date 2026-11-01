@@ -7,7 +7,7 @@ use clap::{Command, CommandFactory};
 const GROUPS: &[(&str, &[&str])] = &[
     ("Everyday", &["setup", "status", "refresh", "prep", "sync", "pull", "check", "eject", "undo", "tui"]),
     ("Drives", &["drive", "provision", "doctor", "watch"]),
-    ("Library and store", &["tracks", "library", "store", "diff", "collection", "export", "xml"]),
+    ("Library and store", &["tracks", "library", "store", "diff", "collection", "export", "xml", "analyze"]),
     (
         "Editing",
         &[
@@ -16,7 +16,7 @@ const GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Plays and players", &["plays", "sets", "mix", "profile", "players"]),
-    ("Other", &["account", "completions", "help"]),
+    ("Other", &["account", "plugin", "bug", "completions", "help"]),
 ];
 
 /// The old top-level names of commands that moved into a group, and where they went: a "did you
@@ -170,9 +170,19 @@ fn visible_names(cmd: &Command, out: &mut Vec<String>) {
     }
 }
 
-/// The command line `locallibrary` parses: [`crate::Cli`], with the top-level help grouped.
+/// The command line `locallibrary` parses: [`crate::Cli`] and what plugins add, with the
+/// top-level help grouped.
 pub fn command() -> Command {
+    // The plugins first: `export --format` lists their formats once they're checked. Refused,
+    // they add nothing (what uses them says why).
+    let plugins = crate::plugins::host().ok();
     let mut cmd = crate::Cli::command();
+    if let Some(plugins) = plugins {
+        cmd = crate::plugin_cmd::add_to(cmd, plugins);
+    }
+    // `analyze` is offered only when a plugin has an analyzer.
+    let analyzers = plugins.is_some_and(|p| !p.analyzers().is_empty());
+    cmd = cmd.mut_subcommand("analyze", |c| c.hide(!analyzers));
     let json = cmd.get_arguments().find(|a| a.get_id() == "json").cloned().expect("--json is global");
     mark_writes(&mut cmd, &json);
     // Built first, so the help subcommand clap adds is there to be listed.
@@ -210,6 +220,7 @@ fn color_asked() -> Option<clap::ColorChoice> {
 /// Neither does `account login`: signing in is done in the browser.)
 const WRITES: &[&str] = &[
     "role", "forget", "retire", "set", "unset", "add", "rm", "rename", "label", "unlabel", "reset", "setup", "delete",
+    "bug",
 ];
 
 /// `--json` on a command that writes says it needs `--yes`; on one that only reads, it doesn't.

@@ -50,7 +50,7 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase, Scope};
 use crate::store::{Snapshot, SnapshotSource, Store};
 use crate::tree::{FileEntry, FileTree};
@@ -241,10 +241,6 @@ impl SyncPlan {
     }
 }
 
-fn fold(key: &str) -> String {
-    key.to_lowercase()
-}
-
 /// `exportLibrary.db` or its WAL.
 fn is_library_plus(key: &str) -> bool {
     key.eq_ignore_ascii_case(paths::LIBRARY_PLUS_DB) || key.eq_ignore_ascii_case(paths::LIBRARY_PLUS_WAL)
@@ -364,6 +360,10 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // The DJ's own files where the source keeps audio outside PIONEER/ and Contents/.
     let mut in_the_way = Vec::new();
     let cut_off = cut_off_since(target);
+    // Files copied onto the target moments after their source was written (see
+    // `fsutil::settled`): their size and mtime don't say they're still the same, so they're
+    // compared by content.
+    let index = target.load_index();
 
     for &e in &source_entries {
         if !paths::is_safe_key(&e.path) {
@@ -379,9 +379,13 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
         let (reason, replaced) = match target_by_fold.get(&f) {
             Some(t) => {
                 let suspect = cut_off.is_some_and(|since| t.mtime >= since);
-                ((!same_content(e, t, opts, suspect)?).then_some(CopyReason::Changed), Some((t.path.clone(), t.size)))
+                let same = match !suspect && index.racy(t) {
+                    true => same_by_content(source, e, &target_tree.fs_path(&t.path), t.size)?,
+                    false => same_content(e, t, opts, suspect)?,
+                };
+                ((!same).then_some(CopyReason::Changed), Some((t.path.clone(), t.size)))
             }
-            None => match outside_file(target, e, cut_off)? {
+            None => match outside_file(source, target, &index, e, cut_off)? {
                 Outside::Free => (Some(CopyReason::New), None),
                 Outside::Same => (None, None),
                 Outside::Ours(size) => (Some(CopyReason::Changed), Some((e.path.clone(), size))),
@@ -467,6 +471,9 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // Database files last, OneLibrary's WAL after its database; deletes of database files (e.g.
     // exportLibrary.db disappearing) too.
     plan.copies.sort_by_key(|c| (c.class == FileClass::Database, c.path.clone()));
+    if plan.copies.iter().any(|c| is_library_plus(&c.path)) {
+        plan.warnings.extend(crate::player::no_name_note(target));
+    }
     if plan.replaces_databases() {
         let from = match source {
             Source::Drive { device, .. } => Some(*device),
@@ -522,7 +529,13 @@ enum Outside {
 /// The target's scan lists everything under PIONEER/ and Contents/, and audio its own library
 /// keeps elsewhere. Anywhere else, a file at the source's path is the DJ's, unless it's the same
 /// or a run cut off on this drive wrote it.
-fn outside_file(target: &Device, e: &FileEntry, cut_off: Option<i64>) -> Result<Outside> {
+fn outside_file(
+    source: &Source<'_>,
+    target: &Device,
+    index: &crate::tree::HashIndex,
+    e: &FileEntry,
+    cut_off: Option<i64>,
+) -> Result<Outside> {
     if paths::classify(&e.path).is_some() {
         return Ok(Outside::Free);
     }
@@ -532,16 +545,39 @@ fn outside_file(target: &Device, e: &FileEntry, cut_off: Option<i64>) -> Result<
         return Ok(Outside::Theirs);
     }
     let ours = cut_off.is_some_and(|since| fsutil::mtime_secs(&meta) >= since);
+    let here = FileEntry {
+        path: e.path.clone(),
+        size: meta.len(),
+        mtime: fsutil::mtime_secs(&meta),
+        class: e.class,
+        hash: None,
+    };
     let same = meta.len() == e.size
         && match e.hash {
             Some(h) => crate::hash::hash_file(&path, &Ctx::silent(), crate::progress::Phase::Hash)? == h,
-            None => !ours && fsutil::mtime_eq(fsutil::mtime_secs(&meta), e.mtime),
+            None if ours => false,
+            None if index.racy(&here) => same_by_content(source, e, &path, here.size)?,
+            None => fsutil::mtime_eq(here.mtime, e.mtime),
         };
     Ok(match (same, ours) {
         (true, _) => Outside::Same,
         (false, true) => Outside::Ours(meta.len()),
         (false, false) => Outside::Theirs,
     })
+}
+
+/// Whether the target's file at `path` (`size` bytes) holds the source's `src`, by content: for a
+/// copy made moments after its source was written (see [`crate::tree::HashIndex::racy`]).
+fn same_by_content(source: &Source<'_>, src: &FileEntry, path: &Path, size: u64) -> Result<bool> {
+    if src.size != size {
+        return Ok(false);
+    }
+    let hash = |p: &Path| crate::hash::hash_file(p, &Ctx::silent(), crate::progress::Phase::Hash);
+    let theirs = match src.hash {
+        Some(h) => h,
+        None => hash(&source.fs_path(src)?)?,
+    };
+    Ok(hash(path)? == theirs)
 }
 
 /// Whether the target's file `dst` already holds the source's `src`. A `suspect` file (see
@@ -750,7 +786,14 @@ fn settle(copied: &[Copied], index: &mut crate::tree::HashIndex) -> Result<()> {
     Ok(())
 }
 
-fn record(index: &mut crate::tree::HashIndex, path: &Path, key: &str, class: FileClass, hash: Hash) -> Result<()> {
+/// Note in `index` that the file at `path` (`key`) holds `hash`, as it is now.
+pub(crate) fn record(
+    index: &mut crate::tree::HashIndex,
+    path: &Path,
+    key: &str,
+    class: FileClass,
+    hash: Hash,
+) -> Result<()> {
     let meta = std::fs::metadata(path).at(path)?;
     index.record(&FileEntry {
         path: key.to_string(),
@@ -932,8 +975,8 @@ pub(crate) fn target_label(d: &Device) -> String {
 }
 
 /// Mirror `source` onto several drives at once. The source is scanned once; each target is
-/// scanned and planned in turn, then all of them are written in parallel (one thread each), so
-/// three sticks take about as long as the slowest. A failing target doesn't stop the others:
+/// scanned and planned in turn, then they're written in parallel (up to one per core at a time),
+/// so three sticks take about as long as the slowest. A failing target doesn't stop the others:
 /// results come back in `targets` order.
 pub fn sync_drive_to_many(
     source: &mut Device,
@@ -1022,43 +1065,35 @@ fn sync_many(
     let (items, bytes) =
         plans.iter().flatten().fold((0u64, 0u64), |(i, b), p| (i + p.copies.len() as u64, b + p.copy_bytes));
     ctx.phase_start(Phase::Copy, items, bytes);
-    let results = std::thread::scope(|s| {
-        let handles: Vec<_> = targets
-            .iter_mut()
-            .zip(plans)
-            .map(|(t, plan)| {
-                let (src, lineage, cancel) = (&src, &lineage, ctx.cancel.clone());
-                s.spawn(move || -> Result<SyncReport> {
-                    let plan = plan?;
-                    let scope = Scope { target: Some(target_label(t)), step: None };
-                    let progress = TargetProgress { inner: ctx.progress, label: t.name(), scope };
-                    let tctx = Ctx::new(&progress, cancel);
-                    let holds = Holds {
-                        lineage,
-                        entry: LineageEntry {
-                            fingerprint: src_fp,
-                            at: Utc::now(),
-                            op: LineageOp::Sync,
-                            snapshot: None,
-                            source: source_id,
-                            tracks,
-                        },
-                        library_id,
-                    };
-                    copy_library(&plan, src, t, opts, holds, &tctx)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| {
-                h.join().unwrap_or_else(|p| {
-                    let said = crate::error::panic_text(&*p);
-                    Err(Error::invalid(format!("internal error: a sync thread panicked: {said}")))
-                })
-            })
-            .collect()
+    let jobs: Vec<(&mut Device, Result<SyncPlan>)> = targets.iter_mut().zip(plans).collect();
+    let results = crate::workers::each(jobs, crate::workers::per_core(), |(t, plan)| -> Result<SyncReport> {
+        let plan = plan?;
+        let scope = Scope { target: Some(target_label(t)), step: None };
+        let progress = TargetProgress { inner: ctx.progress, label: t.name(), scope };
+        let tctx = Ctx::new(&progress, ctx.cancel.clone());
+        let holds = Holds {
+            lineage: &lineage,
+            entry: LineageEntry {
+                fingerprint: src_fp,
+                at: Utc::now(),
+                op: LineageOp::Sync,
+                snapshot: None,
+                source: source_id,
+                tracks,
+            },
+            library_id,
+        };
+        copy_library(&plan, &src, t, opts, holds, &tctx)
     });
+    let results = results
+        .into_iter()
+        .map(|r| {
+            r.unwrap_or_else(|p| {
+                let said = crate::error::panic_text(&*p);
+                Err(Error::invalid(format!("internal error: a sync thread panicked: {said}")))
+            })
+        })
+        .collect();
     ctx.phase_end(Phase::Copy);
     Ok(results)
 }
@@ -1128,6 +1163,7 @@ fn pull_into(
     let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
     let fp = scanned.fingerprint.ok_or_else(|| Error::NotAnExport(device.root().into()))?;
     let legacy = scanned.legacy_fingerprints.clone();
+    let recorded: Vec<Hash> = scanned.fingerprints().collect();
     let mut tree = scanned.tree;
 
     // Resolve the target library.
@@ -1176,32 +1212,41 @@ fn pull_into(
                 reused_files: 0,
             });
         }
-        let descends = device.state().is_some_and(|s| s.knows(&head.fingerprint));
+        let descends = device.state().is_some_and(|s| s.knows(&head.fingerprint, &head.lineage));
         if !descends && !opts.force {
             let mut older = None;
-            for fp in std::iter::once(fp).chain(legacy) {
-                older = store.find_by_fingerprint(&lib, &fp)?;
+            for fp in &recorded {
+                older = store.find_by_fingerprint(&lib, fp)?;
                 if older.is_some() {
                     break;
                 }
             }
+            // Older when it's saved in the library, or the library's latest went through it
+            // after every state the two share (as compare tells), saved or not.
+            let lineage = device.state().map_or(&[][..], |s| &s.lineage[..]);
+            let behind = older.is_some() || crate::device::has_held(&head.lineage, &recorded, lineage);
             let drive = device.root().display().to_string();
-            return Err(match older {
-                Some(s) => Error::conflict(
+            let refused = if behind {
+                let named = older.as_ref().map(|s| format!(" (snapshot {})", s.short_id)).unwrap_or_default();
+                let older_than = Error::conflict(
                     Reason::OlderThanStore,
                     format!(
-                        "the drive holds an older state of {:?} (snapshot {}); push to update the drive, or force the pull to record it as the newest",
-                        lib.name, s.short_id
+                        "the drive holds an older state of {:?}{named}; push to update the drive, or force the pull to record it as the newest",
+                        lib.name
                     ),
-                )
-                .with("snapshot", &s.short_id)
+                );
+                match older {
+                    Some(s) => older_than.with("snapshot", &s.short_id),
+                    None => older_than,
+                }
                 .action(Action::call(
                     "push.plan",
                     serde_json::json!({ "drive": drive, "library": lib.name }),
                     format!("Update the drive from {:?}", lib.name),
                 ))
-                .action(Action::retry(serde_json::json!({ "force": true }), "Record it as the newest")),
-                None => Error::conflict(
+                .action(Action::retry(serde_json::json!({ "force": true }), "Record it as the newest"))
+            } else {
+                Error::conflict(
                     Reason::DivergedFromStore,
                     format!(
                         "the drive's library has diverged from {:?} (or was never synced with it); force the pull to make it the newest state, pull into a different library, or merge",
@@ -1209,10 +1254,9 @@ fn pull_into(
                     ),
                 )
                 .action(Action::retry(serde_json::json!({ "force": true }), "Make it the newest state"))
-                .action(Action::retry(serde_json::json!({ "library": null }), "Pull into another library")),
-            }
-            .with("drive", &drive)
-            .with("library", &lib.name));
+                .action(Action::retry(serde_json::json!({ "library": null }), "Pull into another library"))
+            };
+            return Err(refused.with("drive", &drive).with("library", &lib.name));
         }
     }
 
@@ -1404,12 +1448,14 @@ pub fn plan_push(
 ///
 /// The drive's own lineage isn't enough: merges, artwork edits and drive-to-drive syncs record
 /// new states there without snapshotting them. Only a state that exists as a snapshot is safe to
-/// overwrite.
+/// overwrite, or one the snapshot written went through (the drive is behind it, as compare tells):
+/// its changes are all in the snapshot already.
 fn guard_unsaved_changes(store: &Store, device: &Device, fps: &[Hash], snapshot: &Snapshot) -> Result<()> {
     if fps.is_empty() {
         return Ok(()); // empty drive
     }
-    if fps.contains(&snapshot.fingerprint) {
+    let lineage = device.state().map_or(&[][..], |s| &s.lineage[..]);
+    if fps.contains(&snapshot.fingerprint) || crate::device::has_held(&snapshot.lineage, fps, lineage) {
         return Ok(());
     }
     let head_snapshot = device

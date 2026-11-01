@@ -1,3 +1,4 @@
+use loclib_mixid::test_util::{be, m4a, mp4_empty_tables, mp4_full};
 use rodio::buffer::SamplesBuffer;
 
 use super::*;
@@ -115,38 +116,23 @@ fn a_file_that_crashes_the_decoder_fails_to_open() {
 /// the file fails to open there instead of panicking the UI thread when it starts playing.
 #[test]
 fn a_file_whose_decoder_says_0_hz_fails_to_open() {
-    let atom = |kind: &[u8], body: &[u8]| [&(8 + body.len() as u32).to_be_bytes(), kind, body].concat();
-    let full = |kind: &[u8], body: &[u8]| atom(kind, &[&[0; 4], body].concat());
-    let be = |vs: &[u32]| vs.iter().flat_map(|v| v.to_be_bytes()).collect::<Vec<u8>>();
-    let matrix = be(&[0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x4000_0000]);
-    let mvhd = full(
-        b"mvhd",
-        &[be(&[0, 0, 1000, 0, 0x10000, 0x0100_0000, 0, 0]), matrix.clone(), vec![0; 24], be(&[2])].concat(),
-    );
-    let tkhd = full(b"tkhd", &[be(&[0, 0, 1, 0, 0, 0, 0, 0, 0x0100_0000]), matrix, be(&[0, 0])].concat());
-    let mdhd = full(b"mdhd", &be(&[0, 0, 8000, 0, 0x55c4_0000]));
-    let hdlr = full(b"hdlr", &[&be(&[0])[..], b"soun", &[0; 13]].concat());
-    // Frame length, version, bit depth, rice parameters, 2 channels, run, frame and bit rate
-    // limits, and the rate: 0.
-    let cookie = be(&[4096, 16 << 16 | 40 << 8 | 10, 14 << 24 | 2 << 16 | 255, 0, 0, 0]);
-    let entry = atom(b"alac", &[be(&[0, 1, 0, 0, 2 << 16 | 16, 0, 8000 << 16]), full(b"alac", &cookie)].concat());
-    let stbl = [
-        full(b"stsd", &[be(&[1]), entry].concat()),
-        full(b"stts", &be(&[0])),
-        full(b"stsc", &be(&[0])),
-        full(b"stsz", &be(&[0, 0])),
-        full(b"stco", &be(&[0])),
-    ]
-    .concat();
-    let minf = atom(b"minf", &[full(b"smhd", &be(&[0])), atom(b"stbl", &stbl)].concat());
-    let trak = atom(b"trak", &[tkhd, atom(b"mdia", &[mdhd, hdlr, minf].concat())].concat());
-    let m4a = [atom(b"ftyp", b"M4A \0\0\0\0M4A isom"), atom(b"moov", &[mvhd, trak].concat()), atom(b"mdat", &[])];
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("zero.m4a");
-    std::fs::write(&path, m4a.concat()).unwrap();
+    std::fs::write(&path, m4a(0, &mp4_empty_tables(), &[])).unwrap();
     let err = open_file(&path).err().expect("no decoder for it");
     assert!(format!("{err:#}").contains("crashed"), "{err:#}");
+}
+
+/// An M4A whose `stsz` claims 4 billion sample sizes it doesn't hold (symphonia would ask for
+/// 16 GiB, aborting the player where memory isn't overcommitted) fails to open instead.
+#[test]
+fn an_m4a_claiming_more_samples_than_it_holds_fails_to_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("huge.m4a");
+    let stsz = mp4_full(b"stsz", &be(&[0, u32::MAX]));
+    std::fs::write(&path, m4a(8_000, &[mp4_empty_tables(), stsz].concat(), &[])).unwrap();
+    let err = open_file(&path).err().expect("refused");
+    assert!(format!("{err:#}").contains("sample table claims more"), "{err:#}");
 }
 
 /// A file opened to start further in (auto cue) plays from there, and says so.
@@ -163,6 +149,26 @@ fn files_start_where_asked() {
     assert_eq!(audio.position(), ms(50));
     let first = out.next().unwrap();
     assert_eq!((first * 32768.0).round(), 400.0);
+}
+
+/// An MP3 plays without the silence its encoder put at either end, as its LAME tag says (the
+/// encoder's delay and padding), and is as long as what's left; one with no tag plays every frame.
+#[test]
+fn mp3s_play_gapless() {
+    use loclib_mixid::test_util::{MP3_FRAME_SAMPLES, mp3};
+
+    let dir = tempfile::tempdir().unwrap();
+    let frames = 40;
+    for (gapless, trimmed) in [(Some((1105, 1000)), 2105), (None, 0)] {
+        let path = dir.path().join("set.mp3");
+        std::fs::write(&path, mp3(frames, gapless)).unwrap();
+        let file = open_file(&path).unwrap();
+        let samples = u64::from(frames * MP3_FRAME_SAMPLES) - trimmed;
+        assert_eq!(file.format, (2, 44_100), "{gapless:?}");
+        let frames_long = file.duration.map(|d| (d.as_secs_f64() * 44_100.0).round() as u64);
+        assert_eq!(frames_long, Some(samples), "{gapless:?}");
+        assert_eq!(file.decoder.count() as u64, samples * 2, "{gapless:?}");
+    }
 }
 
 /// A track queued behind the playing one starts the moment it ends; one queued and dropped
@@ -197,7 +203,7 @@ fn queued_tracks_follow_without_a_gap() {
 /// Made-up outputs for tests (which never open the machine's): the default, and "Phones".
 /// What plays through them goes nowhere.
 pub const OUTPUTS: Outputs = Outputs {
-    list: || (vec!["Phones".into()], None),
+    list: || Ok((vec!["Phones".into()], None)),
     open: |name| match name {
         Some("Phones") | None => {
             let (mut a, _) = Audio::offline(8000);
@@ -218,7 +224,22 @@ fn outputs_by_name_fall_back_to_the_default() {
     assert_eq!(audio.unwrap().device(), None, "the default");
     let (audio, why) = outputs.open_preferring(Some("Phones"));
     assert_eq!((audio.unwrap().device(), why), (Some("Phones"), None));
-    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().0.is_empty());
+    assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().unwrap().0.is_empty());
+}
+
+/// The silent output plays to no one, at the pace a device would: half a second on, the track
+/// has moved on by about that much, not run to its end.
+#[test]
+fn the_silent_output_plays_in_real_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ten-seconds.wav");
+    std::fs::write(&path, wav(8000, 80_000, 1000)).unwrap();
+    assert!((Outputs::SILENT.list)().unwrap().0.is_empty());
+    let mut audio = (Outputs::SILENT.open)(None).unwrap();
+    audio.play(open_file(&path).unwrap(), false);
+    std::thread::sleep(ms(500));
+    let at = audio.position();
+    assert!(at >= ms(100) && at <= ms(3000), "{at:?}");
 }
 
 /// A loop goes round as the track plays through the player, and once exited, playback
@@ -554,6 +575,36 @@ fn a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
     }
 }
 
+/// Paused, a track stands still at once, though rodio only looks at its pause every 5 ms of the
+/// track (40 samples here): one queued behind a track that ended starts after the queue's 512
+/// samples of silence, so rodio next looks 32 samples into the output's next read, and none of
+/// those play.
+#[test]
+fn a_pause_stops_the_playhead_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = |name: &str, frames: i16| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, wav_of(8000, &(1..=frames).collect::<Vec<i16>>())).unwrap();
+        open_file(&path).unwrap()
+    };
+    let (mut audio, mut out) = Audio::offline(8000);
+    audio.play(file("a.wav", 800), false);
+    (&mut out).take(1200).for_each(drop);
+    assert!(audio.finished());
+    assert!(audio.queue(file("b.wav", 400)).is_ok());
+    (&mut out).take(400).for_each(drop);
+    assert!(audio.advanced());
+    let at = audio.position();
+    assert_eq!(at, ms(36), "the rest of the silence, then 288 frames");
+    audio.toggle_pause();
+    let heard: Vec<f32> = (&mut out).take(80).collect();
+    assert_eq!(audio.position(), at, "paused, time stands still");
+    assert!(heard.iter().all(|&s| s == 0.0), "{heard:?}");
+    audio.toggle_pause();
+    (&mut out).take(80).for_each(drop);
+    assert!(audio.position() > at, "on again");
+}
+
 /// An output plays what it's given as asked: a file from its start (or where it's to start),
 /// paused or playing, its time passing only while it plays; a seek is where it is at once; space
 /// pauses and plays; the volume stays within bounds; only a track of the same format queues
@@ -676,4 +727,63 @@ fn a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
     let mut l = Looper::new(counting(10), head.clone());
     head.dropped.store(true, Ordering::Relaxed);
     assert!(l.next().is_none() && head.ended.load(Ordering::Acquire) && head.started.load(Ordering::Acquire));
+}
+
+/// A track whose spans change rate (as a chained stream's can) plays through the looper and the
+/// tap sample for sample, its frames counted across the changes: the playhead ends at the frames
+/// played, timed in the last span's rate, the tap holds a mono sample a frame at that rate, and
+/// both say the track's length as it does. A playhead nothing has played yet is at the start.
+#[hegel::test(test_cases = 200)]
+fn a_track_plays_through_whatever_its_spans_rate(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    assert_eq!(Playhead::default().position(), Duration::ZERO);
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
+    let spans: Vec<(u32, usize)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::sampled_from(&[8_000u32, 22_050, 44_100, 48_000][..]),
+            gs::integers::<usize>().min_value(1).max_value(40)
+        ))
+        .min_size(1)
+        .max_size(4),
+    );
+    let mut want = Vec::new();
+    let buffers: Vec<SamplesBuffer> = spans
+        .iter()
+        .map(|&(rate, frames)| {
+            let data: Vec<f32> = (0..frames * channels as usize).map(|i| (want.len() + i) as f32).collect();
+            want.extend(data.iter().copied());
+            SamplesBuffer::new(ChannelCount::new(channels).unwrap(), SampleRate::new(rate).unwrap(), data)
+        })
+        .collect();
+    // One span plays as it is, its length known; more are chained, which rodio can't say.
+    let length = (buffers.len() == 1).then(|| buffers[0].total_duration()).flatten();
+    let source: Box<dyn Source + Send> = match length {
+        Some(_) => Box::new(buffers.into_iter().next().unwrap()),
+        None => Box::new(rodio::source::from_iter(buffers)),
+    };
+    let head = Arc::new(Playhead::default());
+    let tap = Arc::new(Tap::default());
+    let mut tapped = Tapped::new(Looper::new(source, head.clone()), tap.clone());
+    assert_eq!(tapped.total_duration(), length);
+    let played: Vec<f32> = (&mut tapped).collect();
+    assert_eq!(played, want);
+    let frames: usize = spans.iter().map(|(_, f)| f).sum();
+    let last_rate = spans.last().unwrap().0;
+    assert_eq!(head.frame.load(Ordering::Relaxed), frames as u64);
+    assert_eq!(head.position(), Duration::from_nanos((frames as u128 * 1_000_000_000 / last_rate as u128) as u64));
+    assert_eq!((tap.written(), tap.sample_rate()), (frames, last_rate));
+}
+
+/// Text saved under any audio file's name (no audio in it) fails to open, saying which file it
+/// can't decode, rather than playing noise or panicking.
+#[hegel::test(test_cases = 50)]
+fn a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let ext = tc.draw(gs::sampled_from(&["mp3", "MP3", "wav", "flac", "m4a", "aiff", "ogg"][..]));
+    let text = tc.draw(gs::text().alphabet("abcdefghij klmnop\n").max_size(2_000));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(format!("not audio.{ext}"));
+    std::fs::write(&path, &text).unwrap();
+    let err = open_file(&path).err().unwrap_or_else(|| panic!("{ext} of {} bytes opened", text.len()));
+    assert!(format!("{err:#}").starts_with(&format!("can't decode {}", path.display())), "{err:#}");
 }

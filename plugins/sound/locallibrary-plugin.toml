@@ -1,0 +1,55 @@
+id = "sound"
+name = "Sound analysis"
+version = "0.1.0"
+protocol = "^0.2"
+# It measures only the audio files it's handed. To suggest analysing a drive's new tracks once it's
+# plugged in or its databases change (events:drives), it reads the drive's tracks (library:read) and which of them
+# the host keeps its fields for (analysis:read).
+capabilities = ["library:read", "analysis:read", "events:drives"]
+
+[[contributes.events]]
+on = ["drive.mounted", "drive.changed"]
+
+[[contributes.analyzers]]
+name = "tempo-key-loudness"
+title = "Tempo, key and loudness"
+# The host keeps the fields by the analyzer's version: loclib-analysis's VERSION, so tracks
+# measured the old way are measured again once it changes.
+version = "5"
+
+# As doctor's `--analyze` reports them. A field with nothing to show is null: no tempo or key for
+# silence, no tempo for a blip too short for one, no key where the best keys tie, no loudness,
+# true peak or waveform for silence.
+[contributes.analyzers.fields]
+bpm = "number"
+bpm_confidence = "number"
+# Camelot (`8A`).
+key = "string"
+key_confidence = "number"
+# LUFS.
+integrated_lufs = "number"
+true_peak_dbtp = "number"
+clipped_runs = "integer"
+# Lows, mids and highs, a column every 23 ms.
+waveform = "waveform"
+
+# The columns' names (`sound.integrated_lufs`) are wider than any of these values, so the columns
+# keep those widths.
+[contributes.analyzers.display]
+bpm = { precision = 1 }
+bpm_confidence = { format = "percent" }
+key = { format = "key" }
+key_confidence = { format = "percent" }
+integrated_lufs = { unit = "LUFS", precision = 1 }
+true_peak_dbtp = { format = "db", unit = "dBTP", precision = 1 }
+
+# What locallibrary reads them as: doctor's tempos, keys and levels, the check before a set,
+# ordering a set, and `analyze --apply key,bpm`.
+[contributes.analyzers.roles]
+bpm = "bpm"
+bpm_confidence = "bpm_confidence"
+key = "key"
+key_confidence = "key_confidence"
+loudness = "integrated_lufs"
+true_peak = "true_peak_dbtp"
+clipped_runs = "clipped_runs"

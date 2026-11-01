@@ -17,7 +17,6 @@
 //! * `atmosphere`: sign in with an Atmosphere account (AT Protocol OAuth) and keep the session.
 //! * `publish`: the records locallibrary publishes to that account (My Settings, the profile,
 //!   sets).
-//! * [`clean`]: remove tracks nobody wants (rekordbox's bundled demo samples) from a drive.
 //! * [`cue_edit`]: set, rename, recolour, delete and copy hot cues, memory cues and loops.
 //! * [`edit`]: edit playlists, folders and track details on a drive, in both databases.
 //! * [`onelibrary`]: read and edit `exportLibrary.db`, the only database newer players
@@ -31,11 +30,8 @@
 //! * [`mix`]: find which library tracks a recorded DJ mix plays, when, and how (the fingerprints
 //!   and the matcher are loclib-mixid's).
 //! * [`query`]: the track filter and sort language, and track selectors.
-//! * [`xml`]: export a drive's library as rekordbox XML (to import it back into rekordbox).
 //! * [`masterdb`]: read rekordbox's own collection (`master.db`) on this computer, and compare a
 //!   drive with it.
-//! * [`interop`]: export a drive's library for other DJ software (the formats are written by
-//!   loclib-interop).
 //! * [`op`]: planned operations: what a change will do, confirmed and then applied exactly as
 //!   planned.
 //! * [`opener`]: hand an https address to the browser, or a file to the app that opens it.
@@ -57,6 +53,7 @@
 //!   everything else works, the profile document included; it just can't be published.
 
 pub mod after_set;
+pub mod analysis_edit;
 pub mod anlz;
 pub mod api;
 pub mod artwork;
@@ -64,8 +61,9 @@ pub mod artwork;
 pub mod atmosphere;
 pub mod audio_cache;
 pub mod backup;
+pub mod callback;
+pub mod catalog;
 pub mod check;
-pub mod clean;
 pub mod collection_export;
 mod commit;
 pub mod compare;
@@ -79,6 +77,7 @@ pub mod eject;
 pub mod equipment;
 pub mod error;
 pub mod export;
+pub mod fields;
 pub mod firmware;
 pub mod fleet;
 pub mod format;
@@ -87,12 +86,13 @@ pub mod fsutil;
 pub mod hash;
 pub mod import;
 mod incoming;
-pub mod interop;
+pub mod keychain;
 pub mod library_write;
 mod local_time;
 pub mod masterdb;
 pub mod merge;
 pub mod mix;
+mod net;
 pub mod offsite;
 pub mod onelibrary;
 pub mod op;
@@ -104,6 +104,7 @@ pub mod pdb;
 pub mod peers;
 pub mod player;
 pub mod plays;
+pub mod plugin;
 pub mod probe;
 pub mod profile;
 pub mod progress;
@@ -120,20 +121,54 @@ pub mod settings;
 pub mod smart;
 pub mod sound;
 pub mod space;
+mod staged;
 pub mod store;
 pub mod sync;
 pub mod tags;
 pub mod tidy;
 mod timeline;
+mod track_files;
 pub mod tree;
 pub mod upgrade;
 pub mod watch;
-pub mod xml;
+mod workers;
 
-/// Hooks for tests: what a failed write leaves behind, and tests that share a process.
+/// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
+/// that take no room.
 #[doc(hidden)]
 pub mod testing {
-    pub use crate::commit::fail_before_swap;
+    pub use crate::commit::{fail_after_swap, fail_before_swap};
+
+    /// Make the file at `path` (made if missing) `len` bytes long without taking the room: sparse,
+    /// as `set_len` makes it on Unix, and on Windows once it's marked sparse (NTFS and ReFS; FAT
+    /// can't), where `set_len` alone reserves it all. Tests make tracks of 4 GiB and more this
+    /// way, and the Windows runners' 10 GB drive held only two of them otherwise.
+    pub fn sparse(path: &std::path::Path, len: u64) -> std::io::Result<()> {
+        let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::System::{IO::DeviceIoControl, Ioctl::FSCTL_SET_SPARSE};
+            let mut returned = 0;
+            // SAFETY: an open file's handle, no buffers, and a place for the byte count.
+            let ok = unsafe {
+                DeviceIoControl(
+                    f.as_raw_handle(),
+                    FSCTL_SET_SPARSE,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut returned,
+                    std::ptr::null_mut(),
+                )
+            };
+            if ok == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        f.set_len(len)
+    }
 
     /// Drive lookups on this thread consult the store at `root` (`None`: the one
     /// [`crate::api::set_store_root`] named), as `set_store_root` would make them do for the whole
@@ -148,14 +183,41 @@ pub mod testing {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
     }
 
+    /// Readers on this thread find the analyzers' fields with roles in `offered` (`None`: what
+    /// [`crate::fields::roles::set_offered`] said), as `set_offered` would have them for the
+    /// whole process, which it can only do once.
+    pub fn roles_on_this_thread(offered: Option<crate::fields::roles::Offered>) {
+        crate::fields::roles::THREAD_OFFERED.with(|o| *o.borrow_mut() = offered);
+    }
+
+    /// Plugins started from this thread are refused as from an elevated process (`Some(true)`),
+    /// or not (`Some(false)`), whatever this process is (`None`: as it is).
+    pub fn elevated_on_this_thread(elevated: Option<bool>) {
+        crate::plugin::THREAD_ELEVATED.with(|e| e.set(elevated));
+    }
+
     /// Plans on this thread warn as they would on `os` (`linux`, `windows`; `None`: this one)
     /// about what hasn't been tested there (see [`crate::format::untested_here`]).
     pub fn os_on_this_thread(os: Option<&'static str>) {
         crate::format::THREAD_OS.with(|o| o.set(os));
     }
+
+    /// Local Network's directory and website are both at `url` for requests from this thread
+    /// (`None`: where `$LOCALLIBRARY_HAPPYVIEW_URL` and `$LOCALLIBRARY_WEBSITE_URL` say), as those
+    /// variables would have them for the whole process: one stand-in server for each test.
+    #[cfg(feature = "account")]
+    pub fn directory_on_this_thread(url: Option<String>) {
+        crate::atmosphere::directory::THREAD_DIRECTORY.with(|d| *d.borrow_mut() = url);
+    }
 }
 
-pub use loclib_model::{harmony, model, tokens};
+pub use loclib_model::{harmony, model, theme, tokens};
+
+/// A mutex's guard, though a thread panicked holding it: what it guards is left whole by every
+/// change made under it.
+pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 pub use device::{Device, DeviceInfo};
 pub use error::{Error, Result};

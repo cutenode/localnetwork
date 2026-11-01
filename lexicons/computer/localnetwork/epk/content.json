@@ -1,0 +1,37 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.content",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "The private part of a press kit, written by the Local Network root account into the press kit's space whenever a manager publishes it.",
+			"record": {
+				"type": "object",
+				"required": ["updatedAt"],
+				"properties": {
+					"bio": { "type": "string", "maxLength": 50000, "maxGraphemes": 5000, "description": "The full bio." },
+					"mixes": {
+						"type": "array",
+						"maxLength": 12,
+						"description": "Mixes only people with access can play, like unreleased promos.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.defs#mix" }
+					},
+					"photos": {
+						"type": "array",
+						"maxLength": 20,
+						"items": { "type": "ref", "ref": "computer.localnetwork.epk.defs#photo" }
+					},
+					"quotes": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "ref", "ref": "computer.localnetwork.epk.defs#quote" }
+					},
+					"contact": { "type": "ref", "ref": "computer.localnetwork.epk.defs#contact" },
+					"techRider": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

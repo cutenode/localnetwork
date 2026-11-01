@@ -1,4 +1,5 @@
 import { isValidLatLng } from '#lib/geo.ts';
+import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { FEE_TIERS, FORMATS, isOneOf, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type { PageServerLoad } from './$types';
 
@@ -14,7 +15,7 @@ const list = (url: URL, name: string) => [
 ];
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const { projects, geocoder } = locals.app;
+	const { performers, geocoder } = locals.app;
 	const lat = Number(url.searchParams.get('lat'));
 	const lng = Number(url.searchParams.get('lng'));
 	const hasNear = url.searchParams.get('lat') !== null && url.searchParams.get('lat') !== '' && isValidLatLng(lat, lng);
@@ -46,8 +47,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
-	const [result, stats] = await Promise.all([
-		projects.search({
+	// Projects and the DJs staff list, together. Null when the directory is offline: the filters still render, so a retry
+	// is one click.
+	const result = await unlessOffline(locals.log, () =>
+		performers.search({
 			q: filters.q || undefined,
 			near: hasNear ? { lat, lng } : undefined,
 			radiusKm,
@@ -61,9 +64,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			sort,
 			page,
 			pageSize: 24
-		}),
-		projects.stats()
-	]);
+		})
+	);
 
-	return { result, filters, topGenres: stats.genres.slice(0, 24), geocoder: geocoder.enabled };
+	return { result, filters, geocoder: geocoder.enabled };
 };

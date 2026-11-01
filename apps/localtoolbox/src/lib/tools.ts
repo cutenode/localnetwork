@@ -7,19 +7,21 @@
 // batch to name themselves.
 //
 // To add a tool: write src/tools/<id>/Panel.svelte and register it here. The
-// entry is all the shell needs — the menu, the header, the colour of every
-// tinted thing in the panel and the route it lives at are read from it.
+// entry is all the shell needs: the menu, the header, the colour of its icon
+// tile and the route it lives at are read from it.
 //
-// `brand` is the tool's own colour, written onto <html> while its panel is
-// open; everything else (the primary buttons, the focus ring, the header
-// wash, the icon tile) is derived from it in app.css.
+// `tone` is the background of the tool's icon tile, one of the DJ-data colours
+// from packages/tokens, the way the website gives a DJ's monogram a track
+// colour. It is the only colour a tool has: the Local Network design system has
+// no brand accent, so buttons, focus rings and headers look the same in every
+// tool. It is written out as a whole class so Tailwind finds it.
 //
 // `load` rather than the panel itself: the panels and the component library
 // under them are the bulk of the bundle, and a popup that opens on the menu —
 // or on one tool — has no use for the others. Each is its own
 // chunk, fetched when its tool is opened (and speculatively, at boot, for the
 // tool the popup was left on: see loadPanel and $lib/view.svelte.ts).
-// Everything the menu draws — the name, the icon, the colour — is here, so
+// Everything the menu draws (the name, the icon, the tone) is here, so
 // nothing has to be loaded to draw it.
 //
 // `warm` is the slow thing the tool's panel will do first, started before the
@@ -48,8 +50,6 @@ import Users from '@lucide/svelte/icons/users';
 
 export type PanelComponent = Component<PanelProps>;
 
-export const MENU_BRAND = 'oklch(0.56 0.2 285)';
-
 export const TOOLS: Tool[] = [
 	{
 		id: 'soundcloud-playlist-to-text',
@@ -57,7 +57,7 @@ export const TOOLS: Tool[] = [
 		short: 'playlist to text',
 		description: 'a playlist, likes or track page as text you can paste.',
 		icon: ListMusic,
-		brand: 'oklch(0.68 0.19 45)',
+		tone: 'bg-band-mid',
 		load: () => import('../tools/soundcloud-playlist-to-text/Panel.svelte'),
 		warm: () => warmPage('EXTRACT_TRACKS')
 	},
@@ -67,7 +67,7 @@ export const TOOLS: Tool[] = [
 		short: 'manager',
 		description: 'list tracks from playlist, likes and track pages, and find their download links.',
 		icon: Download,
-		brand: 'oklch(0.72 0.17 68)',
+		tone: 'bg-phrase-up',
 		load: () => import('../tools/manager/Panel.svelte'),
 		warm: () => warmPage('EXTRACT_TRACKS')
 	},
@@ -77,7 +77,7 @@ export const TOOLS: Tool[] = [
 		short: 'downloader',
 		description: 'walk the gate links behind a page and save the files.',
 		icon: LockOpen,
-		brand: 'oklch(0.62 0.15 238)',
+		tone: 'bg-band-low',
 		load: () => import('../tools/third-party-downloads/Panel.svelte'),
 		warm: () => warmActiveTab()
 	},
@@ -87,7 +87,7 @@ export const TOOLS: Tool[] = [
 		short: 'artists',
 		description: 'every artist behind your tracks, with their socials.',
 		icon: Users,
-		brand: 'oklch(0.62 0.19 345)',
+		tone: 'bg-phrase-chorus',
 		load: () => import('../tools/artists/Panel.svelte'),
 		// The same cheap read the Manager warms, and for the same reason: the
 		// tab in front is read to describe the add button, and asking SoundCloud
@@ -129,9 +129,4 @@ export function loadPanel(id: string): Promise<PanelComponent> | null {
 	chunks.set(id, chunk);
 
 	return chunk;
-}
-
-/** Paints the whole popup in a tool's colour (or the menu's when given none). */
-export function applyBrand(brand?: string) {
-	document.documentElement.style.setProperty('--brand', brand || MENU_BRAND);
 }

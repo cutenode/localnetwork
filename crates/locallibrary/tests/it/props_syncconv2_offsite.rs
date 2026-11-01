@@ -78,9 +78,9 @@ fn a_stopped_copy_carries_on_from_where_it_stopped_with(tc: &TestCase, later: bo
     assert!(marker.finished.is_none() && marker.last_complete.is_some() == later);
 
     // What a pulled plug leaves: temp files among the stored files and snapshots.
-    let left: Vec<std::path::PathBuf> = ["objects", "snapshots"]
+    let left: Vec<std::path::PathBuf> = tc
+        .draw(gs::subsequences(&["objects", "snapshots"]))
         .into_iter()
-        .filter(|_| tc.draw(gs::booleans()))
         .map(|d| dest.join(d).join(format!("{}stopped", paths::TEMP_PREFIX)))
         .collect();
     for p in &left {
@@ -128,8 +128,10 @@ fn a_copy_that_cant_be_made_says_why(tc: TestCase) {
     fs::write(&file, b"x").unwrap();
     let under = file.join(tc.draw(gs::sampled_from(vec!["copy", "NAS"])));
     let named = std::path::Path::new("notes.txt").join(under.file_name().unwrap());
-    // Its marker can't be read there; forced past that, its folder can't be made.
-    for (force, at) in [(false, named.join("copy.json")), (true, named.clone())] {
+    // Its marker can't be read there; forced past that, its folder can't be made. Windows says a
+    // path through a file isn't there, so the marker reads as missing and the folder is first.
+    let marker = if cfg!(windows) { named.clone() } else { named.join("copy.json") };
+    for (force, at) in [(false, marker), (true, named.clone())] {
         let err =
             offsite::copy(&store, &under, &CopyOptions { force, ..Default::default() }, &Ctx::silent()).unwrap_err();
         assert!(matches!(&err, Error::Io { path, .. } if path.ends_with(&at)), "{err}");
@@ -156,7 +158,7 @@ fn a_copy_that_cant_be_made_says_why(tc: TestCase) {
     let old: BTreeSet<Option<Hash>> =
         before.iter().flat_map(|h| store.load_snapshot(h).unwrap().files).map(|f| f.hash).collect();
     let only_new: Vec<_> = snap.files.iter().filter(|f| !old.contains(&f.hash)).collect();
-    let lost = only_new[tc.draw(gs::integers::<usize>().max_value(only_new.len() - 1))];
+    let lost = tc.draw(gs::sampled_from(&only_new));
     fs::remove_file(store.object_path(&lost.hash.unwrap())).unwrap();
     let r = offsite::copy(&store, &dest, &CopyOptions::default(), &Ctx::silent()).unwrap();
     assert!(!r.complete);

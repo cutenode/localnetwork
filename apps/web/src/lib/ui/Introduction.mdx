@@ -1,0 +1,27 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Introduction" />
+
+# Local Network design system
+
+The look of the product page: dark ink, white type, and colour only where DJ data puts it.
+
+## Rules
+
+- **No brand accent.** Colour comes from DJ data: waveform bands, phrases, track colours. Section eyebrows borrow one each (`Eyebrow` tones). Status colours are for status only.
+- **One primary action per view.** `Button` primary is white on ink. Everything else is `secondary` or `ghost`.
+- **Words in Instrument Sans, data in JetBrains Mono.** Numbers, keys, BPM, record names and eyebrows are mono.
+- **Every text colour reads at 4.5:1.** Text on a data colour goes through `onColour` (`contrast.ts`), which picks the ink and darkens the colour when neither ink reads. Stories fail their test on any accessibility violation.
+- **Surfaces step up, never sideways.** `canvas`, then `sunken` for alternate sections, `surface` for cards, `well` for inputs and insets. Borders are `line`; controls use `line-strong`.
+
+## Where things live
+
+- `theme.css`: the fonts and Tailwind plugins, over the shared theme in `packages/tokens/theme.css` (the tokens, base styles and shared classes, which localtoolbox uses too). Import it after `@import 'tailwindcss'`.
+- `packages/tokens/data-colors.css`: generated from `packages/tokens/colors.json`, the colours the player and the HTML report also use. After editing that file, run `TOKENS_BLESS=1 pnpm -C apps/web vitest run --project server src/lib/ui/data-colors.test.ts`.
+- `*.svelte`: the components. Each has stories beside it, and `ui.svelte.test.ts` tests their behaviour.
+- **Patterns/Homepage**: the live homepage, rendered from the real `+layout.svelte` and `+page.svelte` with the seed data's projects (`src/routes/page.stories.svelte`), on desktop and on a phone, with its empty and offline states.
+- **Proposals/Homepage**: homepage sections the site doesn't have yet (a product shot, mixes, shows, a match demo, tool previews). Ideas, not the live page.
+
+## Checks
+
+`pnpm test:storybook` renders every story in Chromium and fails on an accessibility violation. It runs in `pnpm verify`.

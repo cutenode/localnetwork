@@ -11,12 +11,13 @@
 
 use rustc_hash::FxHashSet;
 use std::fmt::Write as _;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use loclib_model::paths::PathStyle;
+use loclib_model::paths::relative;
 
 use crate::model::{Library, Playlist, Track};
 use crate::paths;
@@ -79,19 +80,6 @@ impl Locator {
             PathStyle::Relative => relative(&self.base, &paths::to_fs(&self.drive_root, &key)).unwrap_or_else(absolute),
         }
     }
-}
-
-/// `to` relative to the folder `from`, `/`-separated. `None` when they share no root.
-fn relative(from: &Path, to: &Path) -> Option<String> {
-    let a: Vec<Component> = from.components().filter(|c| *c != Component::CurDir).collect();
-    let b: Vec<Component> = to.components().filter(|c| *c != Component::CurDir).collect();
-    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    if common == 0 || !matches!(a.first(), Some(Component::RootDir | Component::Prefix(_))) {
-        return None;
-    }
-    let ups = (common..a.len()).map(|_| "..".to_string());
-    let downs = b[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned());
-    Some(ups.chain(downs).collect::<Vec<_>>().join("/"))
 }
 
 /// The file's text in `format`. `title` names an M3U8 playlist (`#PLAYLIST:`).

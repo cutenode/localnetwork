@@ -13,27 +13,30 @@
 use chrono::{DateTime, Utc};
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use crate::Result;
+use crate::audio_cache::{Cache, Kind};
 use crate::device::Device;
 use crate::doctor::Databases;
 use crate::hash::Hash;
 use crate::model::{Library, Playlist, Track, TrackRef};
-use crate::paths;
+use crate::paths::{self, file_key};
 use crate::progress::{Ctx, Event, Phase};
 use crate::store::{Snapshot, SnapshotInfo, SnapshotSource, Store};
 
 /// One history list: the tracks a player played during one session, in order.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HistoryList {
     pub name: String,
     /// Folders and name (OneLibrary can keep history lists in folders).
     pub path: String,
     /// The database it was read from: `device_library` (`export.pdb`) or `onelibrary` (the first
     /// one, when both hold it).
-    pub database: &'static str,
+    #[serde(deserialize_with = "database")]
+    #[schemars(with = "String")]
+    pub database: DatabaseName,
     pub tracks: Vec<Track>,
     /// Entries whose track isn't in the library any more.
     pub missing: usize,
@@ -41,6 +44,19 @@ pub struct HistoryList {
     /// one weren't played one after the other).
     #[serde(skip)]
     pub missing_at: Vec<usize>,
+}
+
+/// A database's name: `device_library` or `onelibrary`. (An alias, so serde doesn't take the
+/// `&str` as borrowed from what a list is read back from.)
+pub type DatabaseName = &'static str;
+
+/// [`HistoryList::database`] read back: one of [`Databases::all`]'s names, or not a list.
+fn database<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<&'static str, D::Error> {
+    match String::deserialize(d)?.as_str() {
+        "device_library" => Ok("device_library"),
+        "onelibrary" => Ok("onelibrary"),
+        other => Err(serde::de::Error::custom(format!("no database {other:?}"))),
+    }
 }
 
 impl HistoryList {
@@ -66,12 +82,6 @@ impl HistoryList {
         }
         h.finalize().to_hex()[..32].to_string()
     }
-}
-
-/// A track's file as sessions and sets key it, to match tracks across libraries by: its path in
-/// the library, lower case, without the leading slash.
-pub fn file_key(file_path: &str) -> String {
-    paths::key(file_path).to_lowercase()
 }
 
 /// History lists of a library in display order, with their folder paths. The library is a
@@ -145,13 +155,32 @@ pub struct DriveHistory {
     pub drive: String,
     pub lists: Vec<HistoryList>,
     pub warnings: Vec<String>,
+    /// The drive, as snapshots know it ([`HistoryArchive::pulled_before`]).
+    #[serde(skip)]
+    key: DriveKey,
+}
+
+impl DriveHistory {
+    /// The history lists in `dbs`, read from `device` already.
+    pub(crate) fn of(device: &Device, dbs: &Databases) -> DriveHistory {
+        let warnings = dbs.plus_error.iter().map(|e| format!("{e}; only export.pdb's history was read")).collect();
+        DriveHistory { drive: device.name(), lists: histories(dbs), warnings, key: DriveKey::of_device(device) }
+    }
+
+    /// [`drive_history`], or for a drive whose databases can't be read, no lists and why.
+    pub fn read(device: &Device) -> DriveHistory {
+        drive_history(device).unwrap_or_else(|e| DriveHistory {
+            drive: device.name(),
+            lists: Vec::new(),
+            warnings: vec![e.to_string()],
+            key: DriveKey::of_device(device),
+        })
+    }
 }
 
 /// The history lists on a drive, from both databases.
 pub fn drive_history(device: &Device) -> Result<DriveHistory> {
-    let dbs = Databases::read(device)?;
-    let warnings = dbs.plus_error.iter().map(|e| format!("{e}; only export.pdb's history was read")).collect();
-    Ok(DriveHistory { drive: device.name(), lists: histories(&dbs), warnings })
+    Ok(DriveHistory::of(device, &Databases::read(device)?))
 }
 
 /// Where an archived list was first seen.
@@ -189,14 +218,45 @@ pub struct HistoryArchive {
     /// When each drive's newest snapshot that was read was taken.
     #[serde(skip)]
     pulled: FxHashMap<DriveKey, DateTime<Utc>>,
+    /// Sets of databases whose lists came from the store's cache, of those read.
+    #[serde(skip)]
+    pub cached: (usize, usize),
 }
 
 impl HistoryArchive {
     /// When `device` was last pulled, of the snapshots read: a list on it that none of them
     /// holds was recorded after then.
     pub fn last_pulled(&self, device: &Device) -> Option<DateTime<Utc>> {
-        let key = device.id().map_or_else(|| DriveKey::Name(device.name()), DriveKey::Id);
-        self.pulled.get(&key).copied()
+        self.pulled.get(&DriveKey::of_device(device)).copied()
+    }
+
+    /// [`HistoryArchive::last_pulled`] for the drive `history` was read from.
+    pub fn pulled_before(&self, history: &DriveHistory) -> Option<DateTime<Utc>> {
+        self.pulled.get(&history.key).copied()
+    }
+}
+
+/// The history lists of a snapshot's databases, in `<store>/cache/histories`, by the databases'
+/// hashes: a snapshot's files never change, so these never go stale.
+pub(crate) struct Histories;
+
+impl Kind for Histories {
+    const DIR: &'static str = "histories";
+    const EXT: &'static str = "json";
+    const WHAT: &'static str = "history lists";
+    /// Bump when reading the databases or [`histories`] makes something else of the same files.
+    const VERSION: u32 = 1;
+    type Value = Vec<HistoryList>;
+
+    /// Each list with where its missing entries were, which reports leave out.
+    fn encode(lists: &Vec<HistoryList>) -> Vec<u8> {
+        let kept: Vec<(&HistoryList, &Vec<usize>)> = lists.iter().map(|l| (l, &l.missing_at)).collect();
+        serde_json::to_vec(&kept).unwrap_or_default()
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Vec<HistoryList>> {
+        let kept: Vec<(HistoryList, Vec<usize>)> = serde_json::from_slice(bytes).ok()?;
+        Some(kept.into_iter().map(|(list, missing_at)| HistoryList { missing_at, ..list }).collect())
     }
 }
 
@@ -211,17 +271,26 @@ impl DriveKey {
     fn of(source: &SnapshotSource) -> DriveKey {
         source.drive_id.map_or_else(|| DriveKey::Name(source.drive_name.clone()), DriveKey::Id)
     }
+
+    fn of_device(device: &Device) -> DriveKey {
+        device.id().map_or_else(|| DriveKey::Name(device.name()), DriveKey::Id)
+    }
 }
 
 /// Every history list in the store's snapshots (of one library, or all of them), each once, in
 /// the order they were first seen.
 pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<HistoryArchive> {
+    archive_of(store, |l| library.is_none_or(|x| x == l), ctx)
+}
+
+/// [`archive`] of the snapshots of the libraries `library` takes.
+pub(crate) fn archive_of(store: &Store, library: impl Fn(Uuid) -> bool, ctx: &Ctx<'_>) -> Result<HistoryArchive> {
     let names: FxHashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
     // Which snapshots, without their file lists; each one's files are read in turn below.
     let mut snapshots: Vec<SnapshotInfo> = Vec::new();
     for id in store.snapshot_ids()? {
         let s = store.load_info(&id)?;
-        if library.is_none_or(|l| l == s.library_id) {
+        if library(s.library_id) {
             snapshots.push(s);
         }
     }
@@ -232,10 +301,13 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
         snapshots: snapshots.len(),
         warnings: Vec::new(),
         pulled: FxHashMap::default(),
+        cached: (0, 0),
     };
     let mut index: FxHashMap<(String, Vec<String>), usize> = FxHashMap::default();
-    // Snapshots of one state share their database files; read each set once.
+    // Snapshots of one state share their database files; read each set once, and keep what's in
+    // them for next time.
     let mut cache: FxHashMap<Vec<Option<Hash>>, Vec<HistoryList>> = FxHashMap::default();
+    let kept = Cache::<Histories>::in_store(store);
     ctx.phase_start(Phase::Scan, snapshots.len() as u64, 0);
     for info in &snapshots {
         ctx.check()?;
@@ -246,13 +318,30 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
             .map(|k| s.files.iter().find(|f| f.path == *k).and_then(|f| f.hash))
             .collect();
         if !cache.contains_key(&databases) {
-            match Databases::from_snapshot(store, &s) {
-                Ok(dbs) => cache.insert(databases.clone(), histories(&dbs)),
-                Err(e) => {
-                    out.warnings.push(format!("snapshot {}: {e}", s.id.short()));
-                    continue;
+            let key = Cache::<Histories>::key_of(
+                &databases.iter().map(|h| h.map(|h| h.to_hex()).unwrap_or_default()).collect::<Vec<_>>().join(","),
+            );
+            out.cached.1 += 1;
+            let lists = match kept.get(&key) {
+                Some(lists) => {
+                    out.cached.0 += 1;
+                    lists
                 }
+                None => match Databases::from_snapshot(store, &s) {
+                    Ok(dbs) => {
+                        let lists = histories(&dbs);
+                        if let Err(e) = kept.put(&key, &lists) {
+                            ctx.warn(format!("couldn't cache {}: {e}", Histories::WHAT));
+                        }
+                        lists
+                    }
+                    Err(e) => {
+                        out.warnings.push(format!("snapshot {}: {e}", s.id.short()));
+                        continue;
+                    }
+                },
             };
+            cache.insert(databases.clone(), lists);
         }
         let lists = &cache[&databases];
         // The drive's snapshot before this one held none of the lists this one is the first to

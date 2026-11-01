@@ -1,0 +1,48 @@
+name: CodeQL
+
+# CodeQL's code scanning of the workflows, the TypeScript and the Rust, with the paths in
+# .github/codeql/codeql-config.yml left out (the Rust tests). Default setup ran the same languages
+# and suite but can't take a config file. Each language uploads under the category default setup
+# used, so its alerts carry over.
+#
+# ci.yml calls it for every pull request into main, merge queue group and push to main but a
+# draft's, with every language whatever changed. The "Protect Main" ruleset's code scanning rule
+# holds a pull request or a merge queue group until its commit has a result in every category
+# main has (netresearch/.github#170 had every queued pull request stuck on "Code scanning is still
+# expecting 1 result from CodeQL", and so did #347 when only the languages that changed ran).
+# CodeQL's own result is that check. No weekly run: main gets pushes most days, and each analyses
+# with the queries of the action's pinned bundle.
+on:
+  workflow_call:
+
+permissions: {}
+
+# Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    # Default setup's Rust analysis took 15 to 19 minutes with the tests in.
+    timeout-minutes: 40
+    permissions:
+      # Uploading the results to code scanning.
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, rust]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is built: Rust and TypeScript are read from the source, which is also what lets
+      # paths-ignore leave files out.
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}

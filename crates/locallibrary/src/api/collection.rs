@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::resolve_drive;
 use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
+use crate::device::Device;
 use crate::masterdb::{self, CloudFolders, Collection, CollectionInfo, DriveDiff, TagCategory};
 use crate::model::Library;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
@@ -102,10 +103,24 @@ pub fn collection_export_plan(
     ctx: &Ctx<'_>,
 ) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
     let collection = open_collection(&req.collection)?;
-    let made = make_folder(&req.drive)?;
-    let planned = resolve_drive(&req.drive).and_then(|d| {
-        Ok((collection_export::plan(&collection, &CloudFolders::this_computer(), &d, &req.options, ctx)?, d))
-    });
+    let planned = export_planned("collection export", &req.drive, &req.options, |d| {
+        collection_export::plan(&collection, &CloudFolders::this_computer(), d, &req.options, ctx)
+    })?;
+    // rekordbox saving its collection in between makes the plan stale.
+    planned.touches(Touched::path(&collection.path, false, vec![Probe::Stamp(vec![String::new()])])).guard(None)
+}
+
+/// An export (`operation`) to the drive or folder `drive` names, as `plan` plans it with `options`:
+/// a folder that isn't there yet is made for it, and taken away again when planning fails. For the
+/// caller to add what else it touches to, and guard.
+pub(crate) fn export_planned(
+    operation: impl Into<std::borrow::Cow<'static, str>>,
+    drive: &str,
+    options: &CollectionExportOptions,
+    plan: impl FnOnce(&Device) -> Result<CollectionExportPlan>,
+) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
+    let made = make_folder(drive)?;
+    let planned = resolve_drive(drive).and_then(|d| Ok((plan(&d)?, d)));
     let (mut plan, d) = match planned {
         Ok(p) => p,
         Err(e) => {
@@ -117,7 +132,7 @@ pub fn collection_export_plan(
     };
     plan.made_folder = made.is_some();
     let what = match plan.playlists.as_slice() {
-        [] => "rekordbox's collection".to_string(),
+        [] => plan.what(),
         p => p.join(", "),
     };
     let mut summary = vec![
@@ -137,18 +152,20 @@ pub fn collection_export_plan(
             bytes(plan.download_bytes)
         ));
     }
+    if !plan.smart.is_empty() {
+        summary.push(format!(
+            "keep a smart rule for {} intelligent playlist(s), so `smart apply` keeps them up to date",
+            plan.smart.len()
+        ));
+    }
     let destructive = !plan.deletes.is_empty() || plan.replaces_library;
     let warnings = plan.warnings.clone();
-    // rekordbox saving its collection in between makes the plan stale.
-    let db = Touched::path(&collection.path, false, vec![Probe::Stamp(vec![String::new()])]);
-    Planned::new("collection export", plan, req.options.clone())
+    Ok(Planned::new(operation, plan, options.clone())
         .summary(summary)
         .warnings(warnings)
         .destructive(destructive)
-        .overwrite_archive(req.options.overwrite_archive)
-        .touches(Touched::library(&d, true))
-        .touches(db)
-        .guard(None)
+        .overwrite_archive(options.overwrite_archive)
+        .touches(Touched::library(&d, true)))
 }
 
 /// A folder `spec` names that isn't there yet, made to export into; not the folders above it, as a
@@ -184,9 +201,27 @@ impl Operation for CollectionExportPlan {
         if let Some(store) = store {
             crate::sync::register_drive(store, &dst, report.fingerprint)?;
             crate::fleet::record_write(store, &dst, report.copied_bytes)?;
+            keep_smart_rules(store, &dst, &planned.plan, ctx)?;
         }
         Ok(report)
     }
+}
+
+/// Keep the smart rules of the intelligent playlists `plan` exported to `drive` in the store,
+/// and take away those of the ones its last export had and this one doesn't.
+fn keep_smart_rules(store: &Store, drive: &Device, plan: &CollectionExportPlan, ctx: &Ctx<'_>) -> Result<()> {
+    let Some(id) = drive.id().filter(|_| !plan.smart.is_empty() || !plan.smart_gone.is_empty()) else { return Ok(()) };
+    let _lock = store.lock()?;
+    let mut all = store.smart_playlists()?;
+    let left = all.keep_for_drive(id, &plan.smart, &plan.smart_gone)?;
+    store.save_smart_playlists(&all)?;
+    if let Some(first) = left.first() {
+        ctx.warn(format!(
+            "{} intelligent playlist(s) got no smart rule, as the store has another rule for the same path (e.g. {first})",
+            left.len()
+        ));
+    }
+    Ok(())
 }
 
 /// Plan and export in one go, for callers that don't confirm (see [`collection_export_plan`]).

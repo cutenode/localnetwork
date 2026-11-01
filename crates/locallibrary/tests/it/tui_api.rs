@@ -72,7 +72,7 @@ fn my_tags_by_track() {
     let plan = tags::plan(&d, &edit).unwrap();
     tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let by = api::tags_by_track(&DriveRef { drive: root.display().to_string() }).unwrap();
-    let key = locallibrary::paths::key(&track.file_path).to_lowercase();
+    let key = locallibrary::paths::file_key(&track.file_path);
     assert_eq!(by.get(&key).map(Vec::as_slice), Some(&["Genre/Deep".to_string()][..]));
 }
 

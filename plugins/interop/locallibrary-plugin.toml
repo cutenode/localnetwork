@@ -1,0 +1,139 @@
+id = "interop"
+name = "Other DJ software"
+version = "0.1.0"
+protocol = "^0.2"
+# library:read for the library exports read (`combined`), analysis:read for beat grids and cues,
+# sets:read for a set or a mix written out as a playlist. The files name the audio by its full
+# path: where the drive is mounted comes with the export.
+# fs:read for the Traktor source, whose tracks are audio files in the folders the user grants.
+capabilities = ["library:read", "analysis:read", "sets:read", "fs:read"]
+
+[[contributes.exporters]]
+format = "traktor"
+title = "Traktor Pro: collection.nml with tracks, beat grids, cues and playlists"
+folder = true
+# Each writes out a drive's library, or a set or a mix as one playlist of the tracks played
+# from the drive, with the same options.
+source = ["drive", "set", "mix"]
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Traktor reads the files, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "Leave out beat grids and cues"
+
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
+
+[[contributes.exporters]]
+format = "serato"
+title = "Serato DJ: a crate per playlist"
+folder = true
+source = ["drive", "set", "mix"]
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Serato reads the crates, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "With write_tags: leave out cue points"
+
+[contributes.exporters.options.properties.write_tags]
+type = "boolean"
+default = false
+description = "Copy the audio into the output folder and write cue points into the copies' tags; the crates list the copies"
+
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
+
+[[contributes.exporters]]
+format = "engine"
+title = "Engine DJ: a new Engine Library with tracks and playlists"
+folder = true
+source = ["drive", "set", "mix"]
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Engine DJ reads the library, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.paths]
+type = "string"
+enum = ["relative", "drive"]
+default = "relative"
+description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"
+
+[contributes.exporters.options.properties.include_history]
+type = "boolean"
+default = false
+description = "Also export the history lists, as playlists in a History folder (they stop being history there)"
+
+[[contributes.exporters]]
+format = "rekordbox"
+title = "rekordbox: rekordbox XML with tracks, beat grids, cues and playlists, to import"
+extension = "xml"
+# A drive's library only: a set goes into rekordbox as a playlist on the drive (`sets playlist`).
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when rekordbox imports the file, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "Leave out beat grids and cues"
+
+# Reads a file the user names, for the host to find its tracks on a drive and plan the edits:
+# no capability.
+[[contributes.importers]]
+format = "traktor"
+title = "Traktor Pro: keys, BPMs and cues from a collection.nml"
+extension = "nml"
+provides = ["fields", "cues"]
+
+[[contributes.sources]]
+name = "traktor"
+title = "Traktor Pro: a collection.nml's tracks, cues, beat grids and playlists"
+
+[contributes.sources.options]
+type = "object"
+additionalProperties = false
+required = ["collection"]
+
+[contributes.sources.options.properties.collection]
+type = "string"
+minLength = 1
+x-path = true
+description = "Traktor's collection.nml (in Documents/Native Instruments/Traktor <version>/)"

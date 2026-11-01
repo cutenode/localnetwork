@@ -2,7 +2,8 @@
 
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
 
@@ -36,18 +37,53 @@ pub fn is_online_only(meta: &fs::Metadata) -> bool {
     }
 }
 
+/// Held exclusively while [`replace`] renames a file into place, and shared by [`unreplaced`].
+static REPLACING: RwLock<()> = RwLock::new(());
+
+/// Rename the temp file `tmp` over `dst`. On Windows a rename over a file that another handle
+/// has open fails ("Access is denied"), as do two renames onto one file at once, so this waits
+/// for the other renames this process makes and for the looks [`unreplaced`] takes.
+pub fn replace(tmp: tempfile::TempPath, dst: &Path) -> Result<()> {
+    let _held = REPLACING.write().unwrap_or_else(PoisonError::into_inner);
+    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })
+}
+
+/// Run `look` (a few `stat` calls, a small file read) while this process renames nothing into
+/// place (see [`replace`]): a watcher polling a drive that another thread is writing. `look`
+/// mustn't call this (or [`read`]) again: std's lock can deadlock on a second read while a rename
+/// waits for the first.
+pub fn unreplaced<T>(look: impl FnOnce() -> T) -> T {
+    let _held = REPLACING.read().unwrap_or_else(PoisonError::into_inner);
+    look()
+}
+
+/// [`fs::read`] between this process's renames (see [`unreplaced`]): for a file that one thread
+/// reads while another may rename a new one over it (a drive's database or state, settings).
+pub fn read(path: &Path) -> std::io::Result<Vec<u8>> {
+    unreplaced(|| fs::read(path))
+}
+
 /// Write `bytes` to `path` atomically (temp file in the same directory, fsync, rename).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = stage_bytes(path, bytes)?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(stage_bytes(path, bytes)?.into_temp_path(), path)
 }
 
 /// [`write_atomic`] for secrets: the file is readable by its owner only, whatever `path` was.
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = stage(path, bytes, true)?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(stage(path, bytes, true)?.into_temp_path(), path)
+}
+
+/// A temp file `builder` makes in `dir`, an error said of `dir`: tempfile adds the random name it
+/// tried (`... at path "<dir>/.locallibrary-tmp-x1Yz"`), which differs each time and means nothing
+/// to a person.
+pub fn temp_in(builder: &tempfile::Builder, dir: &Path) -> Result<tempfile::NamedTempFile> {
+    builder.tempfile_in(dir).map_err(|e| {
+        let source = match e.to_string().split_once(" at path ") {
+            Some((cause, _)) => std::io::Error::new(e.kind(), cause),
+            None => e,
+        };
+        Error::Io { path: dir.to_path_buf(), source }
+    })
 }
 
 /// A temp file in `dir` (named to end in `suffix`) to write `path` through and rename over it:
@@ -58,13 +94,15 @@ pub fn temp_for(dir: &Path, path: &Path, suffix: &str) -> Result<tempfile::Named
     builder.prefix(paths::TEMP_PREFIX).suffix(suffix);
     #[cfg(unix)]
     builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
-    let tmp = builder.tempfile_in(dir).at(dir)?;
+    let tmp = temp_in(&builder, dir)?;
     // Best effort: FAT keeps none (Linux refuses to set them there). Not on Windows, where a
     // read-only temp file couldn't be cleaned up.
     #[cfg(unix)]
     if let Ok(meta) = fs::metadata(path) {
         let _ = fs::set_permissions(tmp.path(), meta.permissions());
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(tmp)
 }
 
@@ -100,14 +138,15 @@ pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write_atomic(path, &bytes)
 }
 
+/// Read JSON (with [`read`]).
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    let bytes = fs::read(path).at(path)?;
+    let bytes = read(path).at(path)?;
     serde_json::from_slice(&bytes).map_err(|e| Error::parse(path, e))
 }
 
-/// Read JSON if the file exists.
+/// Read JSON (with [`read`]) if the file exists.
 pub fn read_json_opt<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    match fs::read(path) {
+    match read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::parse(path, e)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(Error::Io { path: path.to_path_buf(), source: e }),
@@ -147,7 +186,7 @@ pub fn copy_file(
     if let Some(secs) = mtime {
         filetime::set_file_handle_times(tmp.as_file(), None, Some(FileTime::from_unix_time(secs, 0))).at(tmp.path())?;
     }
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
+    replace(tmp.into_temp_path(), dst)?;
     Ok(hash)
 }
 
@@ -188,7 +227,7 @@ fn stage(path: &Path, bytes: &[u8], private: bool) -> Result<tempfile::NamedTemp
     let dir = path.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", path.display())))?;
     fs::create_dir_all(dir).at(dir)?;
     let mut tmp = match private {
-        true => tempfile::Builder::new().prefix(paths::TEMP_PREFIX).tempfile_in(dir).at(dir)?,
+        true => temp_in(tempfile::Builder::new().prefix(paths::TEMP_PREFIX), dir)?,
         false => temp_for(dir, path, "")?,
     };
     tmp.write_all(bytes).at(tmp.path())?;
@@ -199,39 +238,10 @@ fn stage(path: &Path, bytes: &[u8], private: bool) -> Result<tempfile::NamedTemp
 /// `path` made absolute against the current folder, `.` and `..` resolved lexically (as a browser
 /// resolves a link: symlinks aren't followed).
 pub fn absolute(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
-        match c {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            c => out.push(c),
-        }
-    }
-    out
+    loclib_model::paths::absolute_with(path, |_| None)
 }
 
-/// `path` made [`absolute`], with symlinks resolved as far as it exists (macOS's `/tmp` is
-/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
-/// without Windows' `\\?\` prefix.
-pub fn resolved(path: &Path) -> PathBuf {
-    let abs = absolute(path);
-    let mut existing = abs.as_path();
-    let mut rest = Vec::new();
-    while !existing.exists() {
-        match (existing.parent(), existing.file_name()) {
-            (Some(parent), Some(name)) => {
-                rest.push(name.to_os_string());
-                existing = parent;
-            }
-            _ => return abs,
-        }
-    }
-    let mut out = crate::device::dunce_canonicalize(existing);
-    out.extend(rest.iter().rev());
-    out
-}
+pub use loclib_model::paths::resolved;
 
 /// Delete a file if it exists. Returns whether it did.
 pub fn remove_if_exists(path: &Path) -> Result<bool> {
@@ -253,8 +263,7 @@ pub fn write_deferred(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::create_dir_all(dir).at(dir)?;
     let mut tmp = temp_for(dir, path, "")?;
     tmp.write_all(bytes).at(tmp.path())?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(tmp.into_temp_path(), path)
 }
 
 /// Make previously written files durable (the barrier before a commit point).
@@ -305,9 +314,61 @@ pub fn mtime_secs(meta: &fs::Metadata) -> i64 {
     FileTime::from_last_modification_time(meta).unix_seconds()
 }
 
+/// How far apart two mtimes of the same file may be: FAT32 stores them with 2 second
+/// granularity.
+const MTIME_DRIFT: i64 = 2;
+
 /// FAT32 stores mtimes with 2 second granularity, so allow that much drift.
 pub fn mtime_eq(a: i64, b: i64) -> bool {
-    (a - b).abs() <= 2
+    (a - b).abs() <= MTIME_DRIFT
+}
+
+/// Whether a file's size and modification time `mtime`, recorded at `at` (unix seconds), still
+/// tell it apart from any rewrite since: a file rewritten after `at` has an mtime of `at - 1` or
+/// later (FAT32 rounds down to 2 s, and `at` is whole seconds), which must be more than
+/// [`mtime_eq`]'s drift from `mtime`. A file recorded in the same window it was written in can be
+/// rewritten at the same size with an mtime that looks unchanged ("racy", as git calls it), so
+/// equal size and mtime say nothing about it.
+pub fn settled(mtime: i64, at: i64) -> bool {
+    at - 1 > mtime + MTIME_DRIFT
+}
+
+/// The file or folder at `path` (whose metadata is `m`): its device, and its id there. The
+/// device and inode on Unix; on Windows the volume serial number and file index, through a
+/// handle (0s when it can't be opened).
+#[cfg(unix)]
+pub(crate) fn ids(_: &Path, m: &fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (m.dev(), m.ino())
+}
+
+#[cfg(windows)]
+pub(crate) fn ids(path: &Path, _: &fs::Metadata) -> (u64, u64) {
+    let info = winapi_util::Handle::from_path_any(path).and_then(winapi_util::file::information);
+    info.map_or((0, 0), |i| (i.volume_serial_number(), i.file_index()))
+}
+
+/// Whether `a` and `b` are on the same volume, each by its nearest folder that's there (a folder
+/// an export makes may not be yet). `false` when either can't be told.
+pub(crate) fn same_volume(a: &Path, b: &Path) -> bool {
+    let volume = |p: &Path| p.ancestors().find_map(|p| fs::metadata(p).ok().map(|m| ids(p, &m).0)).filter(|v| *v != 0);
+    volume(a).is_some_and(|v| volume(b) == Some(v))
+}
+
+/// Run `f`, warning `waiting` once if it's still running after `after`: reading an online-only
+/// file waits for its download, which can take minutes, and the warning says which file it is.
+pub(crate) fn warn_if_slow<T>(ctx: &Ctx<'_>, after: std::time::Duration, waiting: String, f: impl FnOnce() -> T) -> T {
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            if finished.recv_timeout(after) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                ctx.warn(waiting);
+            }
+        });
+        let out = f();
+        drop(done);
+        out
+    })
 }
 
 /// Free bytes on the filesystem holding `path`.

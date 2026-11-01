@@ -184,8 +184,10 @@ impl DeviceState {
         self.lineage.last()
     }
 
-    pub fn knows(&self, fingerprint: &Hash) -> bool {
-        self.lineage.iter().any(|e| &e.fingerprint == fingerprint)
+    /// Whether this drive has been through `fingerprint`, the current state of a drive or
+    /// snapshot whose lineage is `theirs` (see `has_held`).
+    pub fn knows(&self, fingerprint: &Hash, theirs: &[LineageEntry]) -> bool {
+        has_held(&self.lineage, std::slice::from_ref(fingerprint), theirs)
     }
 
     /// Append a state unless it is already the head.
@@ -213,6 +215,20 @@ impl DeviceState {
             self.lineage.drain(..excess);
         }
     }
+}
+
+/// Whether a library with lineage `ours` has been through another's current state (`current`,
+/// the fingerprints it goes by; `theirs`, its lineage): `ours` held it after every state the two
+/// lineages share, and after every state `theirs` went through since first holding it. A library
+/// edited back to what it once was goes by a fingerprint other lineages hold from before, and
+/// that earlier visit doesn't put it behind them, nor them behind it. States `theirs` had before
+/// that `ours` lacks don't count: a lineage keeps only its latest entries, and older ones may go
+/// by an earlier fingerprint (see [`Scanned::legacy_fingerprints`]).
+pub(crate) fn has_held(ours: &[LineageEntry], current: &[Hash], theirs: &[LineageEntry]) -> bool {
+    let Some(at) = ours.iter().rposition(|e| current.contains(&e.fingerprint)) else { return false };
+    let first = |fp: &Hash| ours.iter().position(|e| e.fingerprint == *fp);
+    let since = theirs.iter().position(|e| current.contains(&e.fingerprint)).unwrap_or(theirs.len());
+    theirs.iter().enumerate().all(|(n, e)| first(&e.fingerprint).map_or(n < since, |i| i <= at))
 }
 
 /// Quick, hash-free description of a drive, for listings and UIs.
@@ -332,6 +348,9 @@ impl RekordboxSync {
 pub struct Device {
     root: PathBuf,
     state: Option<DeviceState>,
+    /// Writes through this handle that began swapping files in (see [`crate::commit`]): one that
+    /// failed after that changed the drive.
+    swaps: u32,
 }
 
 /// Exclusive hold on a drive for an operation that writes it, so two operations (say a sync and
@@ -356,7 +375,17 @@ impl Device {
         }
         let root = dunce_canonicalize(root);
         let state = fsutil::read_json_opt(&root.join(paths::STATE_DIR).join("state.json"))?;
-        Ok(Device { root, state })
+        Ok(Device { root, state, swaps: 0 })
+    }
+
+    /// How many writes through this handle began changing the drive.
+    pub(crate) fn swaps(&self) -> u32 {
+        self.swaps
+    }
+
+    /// A write through this handle begins changing the drive.
+    pub(crate) fn swapping(&mut self) {
+        self.swaps += 1;
     }
 
     /// Open a drive and require an existing rekordbox export (either database) on it.
@@ -395,6 +424,36 @@ impl Device {
             return Err(Error::invalid(format!("refusing {key:?}: it resolves outside {}", self.root.display())));
         }
         Ok(p)
+    }
+
+    /// The key of the file at `key` ignoring letter case, as the drive spells it (an exact match
+    /// first). DJ drives are FAT32, exFAT or HFS+, where both name one file; a drive in a folder
+    /// that tells case apart (Linux's, say) has it under one spelling only. `None` when no one
+    /// file matches, or `key` would leave the drive.
+    pub fn file_key(&self, key: &str) -> Option<String> {
+        if !paths::is_safe_key(key) {
+            return None;
+        }
+        let (mut at, mut found) = (self.root.clone(), Vec::new());
+        for name in key.split('/') {
+            let names: Vec<std::ffi::OsString> =
+                std::fs::read_dir(&at).ok()?.flatten().map(|e| e.file_name()).collect();
+            let spelled = |n: &std::ffi::OsString| paths::key(&n.to_string_lossy());
+            let real = match names.iter().find(|n| spelled(n) == name) {
+                Some(n) => n,
+                None => {
+                    let mut near = names.iter().filter(|n| spelled(n).to_lowercase() == name.to_lowercase());
+                    match (near.next(), near.next()) {
+                        (Some(n), None) => n,
+                        _ => return None,
+                    }
+                }
+            };
+            found.push(spelled(real));
+            at.push(real);
+        }
+        let inside = dunce_canonicalize(&at).starts_with(&self.root);
+        (inside && at.is_file()).then(|| found.join("/"))
     }
 
     /// Whether the drive holds a rekordbox export: `export.pdb`, `exportLibrary.db` or both.
@@ -501,13 +560,16 @@ impl Device {
 
     pub fn pdb_bytes(&self) -> Result<Vec<u8>> {
         let p = self.path(paths::EXPORT_PDB);
-        std::fs::read(&p).at(&p)
+        fsutil::read(&p).at(&p)
     }
 
     pub fn pdb_header(&self) -> Option<PdbHeader> {
-        let mut f = std::fs::File::open(self.path(paths::EXPORT_PDB)).ok()?;
         let mut buf = [0u8; 0x1c];
-        std::io::Read::read_exact(&mut f, &mut buf).ok()?;
+        fsutil::unreplaced(|| {
+            let mut f = std::fs::File::open(self.path(paths::EXPORT_PDB))?;
+            std::io::Read::read_exact(&mut f, &mut buf)
+        })
+        .ok()?;
         pdb::read_header(&buf)
     }
 
@@ -858,19 +920,10 @@ impl Device {
 /// `\\?\` prefix [`Path::canonicalize`] adds, so it compares equal to [`Device::root`] and to the
 /// mount points the OS reports (`E:\`).
 pub fn dunce_canonicalize(p: &Path) -> PathBuf {
-    let c = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    // Strip Windows' verbatim prefix so paths stay readable and joinable.
-    #[cfg(windows)]
-    {
-        let s = c.to_string_lossy();
-        if let Some(rest) = s.strip_prefix(r"\\?\")
-            && !rest.starts_with("UNC\\")
-        {
-            return PathBuf::from(rest);
-        }
-    }
-    c
+    without_verbatim_prefix(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
 }
+
+pub use loclib_model::paths::without_verbatim_prefix;
 
 // ---------------------------------------------------------------------------------------------
 // Detection

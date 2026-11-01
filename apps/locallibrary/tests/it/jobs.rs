@@ -124,7 +124,8 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     let (out, err, code) = env.run(&["--yes", "refresh"]);
     assert_eq!(code, 0, "{out}\n{err}");
     assert!(err.contains("[1/3] Remove rekordbox's demo samples"), "{err}");
-    assert!(out.contains("✓ remove 1 track(s)"), "{out}");
+    assert!(out.contains("✓ remove 1 of rekordbox's demo track(s) and their files"), "{out}");
+    assert!(!out.contains("skipped an edit"), "the replay finds the sample gone: {out}");
     assert!(!main.join(SAMPLE.trim_start_matches('/')).exists());
     let (v, _) = env.json(&["playlists", "Main"]);
     assert!(v.to_string().contains("Friday"), "{v}");
@@ -490,6 +491,31 @@ fn setup_refuses_a_name_two_drives_answer_to() {
         assert!(err.contains("\"REKORDBOX\" matches 2 drives"), "{err}");
     }
     assert!(!main.join(".locallibrary").exists(), "nothing written");
+}
+
+/// Regression: `setup --role` was ignored for the drive that became the primary, even a role
+/// that isn't one. It's refused before anything is written, unless it's `primary`.
+#[test]
+fn setup_refuses_a_role_for_the_primary() {
+    let env = Env::new();
+    let main = demo_drive(&env.volumes, "REKORDBOX");
+    let backup = env.volumes.join("BACKUP");
+    copy_dir(&main, &backup);
+    let setup = |role: &str| env.run(&["--yes", "setup", "--library", "Home", "--primary", "BACKUP", "--role", role]);
+    for role in ["BACKUP=backup", "BACKUP=nope"] {
+        let (_, err, code) = setup(role);
+        assert_eq!(code, 2, "{role}: {err}");
+        assert!(err.contains("it's the primary"), "{role}: {err}");
+    }
+    // Without --primary and a terminal, the first drive named is the primary.
+    let role = format!("{}=set", path(&main));
+    let (_, err, code) = env.run(&["--yes", "setup", path(&main), "BACKUP", "--library", "Home", "--role", &role]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("it's the primary"), "{err}");
+    assert!(!main.join(".locallibrary").exists() && !backup.join(".locallibrary").exists(), "nothing written");
+
+    let (out, err, code) = setup("BACKUP=primary");
+    assert_eq!(code, 0, "{out}\n{err}");
 }
 
 /// Regression: setup took every mounted drive with no way to leave one out, started a second

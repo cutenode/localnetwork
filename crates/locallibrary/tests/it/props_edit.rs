@@ -48,11 +48,6 @@ fn plus_db() -> &'static [u8] {
     })
 }
 
-/// A track across databases: its audio file's key, lower-cased (as edits match them).
-fn tkey(device_path: &str) -> String {
-    paths::key(device_path).to_lowercase()
-}
-
 /// The track details an edit can change.
 #[derive(Clone, Debug, PartialEq)]
 struct Details {
@@ -120,7 +115,7 @@ struct Shape {
 }
 
 fn shape(lib: &Library) -> Shape {
-    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(&t.file_path))).collect();
+    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
     let entries = |ids: &[u32]| -> Vec<String> {
         ids.iter().map(|id| keys.get(id).cloned().unwrap_or_else(|| format!("<no track #{id}>"))).collect()
     };
@@ -141,7 +136,7 @@ fn shape(lib: &Library) -> Shape {
     history.sort_by_key(|h| (h.sort_order, h.id));
     let s = Shape {
         top,
-        tracks: lib.tracks.iter().map(|t| (tkey(&t.file_path), Details::from(t))).collect(),
+        tracks: lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), Details::from(t))).collect(),
         history: history.iter().map(|h| (h.name.clone(), entries(&h.track_ids))).collect(),
     };
     assert_eq!(s.walk().len(), lib.playlists.len(), "every playlist hangs off the tree");
@@ -298,7 +293,12 @@ impl Shape {
     /// [`Shape::find`] among folders only (`Some(true)`) or playlists only (`Some(false)`), as
     /// edits that need one of them look.
     fn find_kind(&self, spec: &str, folder: Option<bool>) -> Option<Ix> {
-        let q = spec.trim_matches('/');
+        // Blank names are left out, as `Library::find_node` reads them: `x//y` is `x/y`.
+        let names: Vec<&str> = spec.split('/').filter(|n| !n.trim().is_empty()).collect();
+        if names.is_empty() {
+            return None;
+        }
+        let q: &str = &names.join("/");
         let all: Vec<(Ix, String)> =
             self.walk().into_iter().filter(|(ix, _)| folder.is_none_or(|f| self.node(ix).folder == f)).collect();
         let by_path: Vec<&Ix> = all.iter().filter(|(_, p)| p.eq_ignore_ascii_case(q)).map(|(ix, _)| ix).collect();
@@ -319,8 +319,8 @@ impl Shape {
     /// How an edit that makes a playlist if it's missing names one: by its exact path only, never
     /// a playlist of that name in another folder.
     fn find_exact(&self, spec: &str) -> Option<Ix> {
-        let q = spec.trim_matches('/');
-        self.walk().into_iter().find(|(ix, p)| !self.node(ix).folder && p == q).map(|(ix, _)| ix)
+        let q = split_path(spec).join("/");
+        self.walk().into_iter().find(|(ix, p)| !self.node(ix).folder && *p == q).map(|(ix, _)| ix)
     }
 
     /// A node by its exact names from the top.
@@ -404,7 +404,7 @@ fn track_rows(root: &Path) -> IndexMap<String, usize> {
                 .filter(|(_, name)| !edited.contains(name))
                 .map(|(s, name)| if name == "isrc" { common::isrc_len(s) } else { encoded_len(s) }.next_multiple_of(4))
                 .sum();
-            (tkey(t.file_path()), 136 + others + 4)
+            (paths::file_key(t.file_path()), 136 + others + 4)
         })
         .collect()
 }
@@ -446,7 +446,7 @@ impl Model {
         }
         let mut out = Vec::new();
         for p in &sel.paths {
-            let k = tkey(p);
+            let k = paths::file_key(p);
             if !self.shape.tracks.contains_key(&k) {
                 return Err(format!("no track at {p}"));
             }
@@ -864,7 +864,7 @@ impl Drive {
         assert_eq!(set(&plan.playlists_deleted), old.difference(&new).cloned().collect(), "playlists deleted");
         let removed: BTreeSet<String> =
             self.model.shape.tracks.keys().filter(|k| !after.shape.tracks.contains_key(*k)).cloned().collect();
-        let planned: BTreeSet<String> = plan.tracks_removed.iter().map(|t| tkey(&t.file_path)).collect();
+        let planned: BTreeSet<String> = plan.tracks_removed.iter().map(|t| paths::file_key(&t.file_path)).collect();
         assert_eq!(planned, removed, "tracks removed");
     }
 
@@ -880,7 +880,7 @@ impl Drive {
         assert_rekordcrate_agrees(&self.root, &lib);
         for p in &self.pool {
             let present = paths::to_fs(&self.root, &paths::key(p)).is_file();
-            assert_eq!(present, !self.model.audio_gone.contains(&tkey(p)), "audio of {p} on the drive");
+            assert_eq!(present, !self.model.audio_gone.contains(&paths::file_key(p)), "audio of {p} on the drive");
         }
     }
 
@@ -992,7 +992,7 @@ fn draw_node_name(tc: &TestCase, m: &Model, names: Names) -> String {
     if all.is_empty() || !tc.draw(gs::weighted_booleans(0.3)) {
         return draw_name(tc, names);
     }
-    m.shape.node(&all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))].0).name.clone()
+    m.shape.node(&tc.draw(gs::sampled_from(all)).0).name.clone()
 }
 
 fn draw_text(tc: &TestCase, names: Names) -> String {
@@ -1014,7 +1014,7 @@ fn draw_spec(tc: &TestCase, m: &Model, folders_only: bool, names: Names) -> Stri
     if all.is_empty() || tc.draw(gs::integers::<u8>().max_value(9)) == 0 {
         return draw_name(tc, names);
     }
-    let (ix, path) = &all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    let (ix, path) = &tc.draw(gs::sampled_from(all));
     match tc.draw(gs::integers::<u8>().max_value(9)) {
         0..=6 => path.clone(),
         7 => swap_ascii_case(path),
@@ -1030,8 +1030,8 @@ fn draw_tracks(tc: &TestCase, pool: &[String], max: usize) -> TrackSelector {
             if tc.draw(gs::weighted_booleans(0.05)) {
                 return "/Contents/Nobody/Nothing.mp3".to_string();
             }
-            let p = &pool[tc.draw(gs::integers::<usize>().max_value(pool.len() - 1))];
-            if tc.draw(gs::weighted_booleans(0.1)) { p.to_uppercase() } else { p.clone() }
+            let p = tc.draw(gs::sampled_from(pool));
+            if tc.draw(gs::weighted_booleans(0.1)) { p.to_uppercase() } else { p }
         })
         .collect::<Vec<_>>();
     TrackSelector::paths(paths)
@@ -1330,7 +1330,7 @@ fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase
     let dir = tempfile::tempdir().unwrap();
     let root = fresh_pdb_drive(dir.path());
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
-    let track = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+    let track = tc.draw(gs::sampled_from(&lib.tracks));
     // Around a row's 4,050 bytes: as ASCII, or as UTF-16 (two bytes a character).
     let (c, width) = tc.draw(gs::sampled_from(vec![("x", 1), ("é", 2)]));
     let around =
@@ -1373,7 +1373,7 @@ fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase
                 (fields(f), None)
             }
             _ => {
-                let others = track_rows(&root)[&tkey(&track.file_path)];
+                let others = track_rows(&root)[&paths::file_key(&track.file_path)];
                 // One, two or all three of the strings sharing the track's row, together near the limit.
                 let mut f = TrackFields::default();
                 let budget = 4050 - others;
@@ -1458,7 +1458,7 @@ fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
     let ids: Vec<u32> = db.tracks.iter().map(|t| t.id).collect();
     let gone: Vec<u32> = crate::drawn::some(&tc, &ids).into_iter().take(3).collect();
     let gone_files: BTreeSet<String> =
-        db.tracks.iter().filter(|t| gone.contains(&t.id)).map(|t| tkey(t.file_path())).collect();
+        db.tracks.iter().filter(|t| gone.contains(&t.id)).map(|t| paths::file_key(t.file_path())).collect();
     let lists: Vec<u32> = db.playlist_tree.iter().map(|n| n.id).collect();
     let history: Vec<u32> = db.history_playlists.iter().map(|h| h.id).collect();
     ed.remove_tracks(&gone).unwrap();
@@ -1473,9 +1473,9 @@ fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
     tc.note(&format!("journal: {edits:?}\nwarnings: {:?}", plan.warnings));
     edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let after = d.library().unwrap();
-    let files: BTreeSet<String> = after.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    let files: BTreeSet<String> = after.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     assert!(files.is_disjoint(&gone_files), "a missing track came back");
-    let before: BTreeSet<String> = exported.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    let before: BTreeSet<String> = exported.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     assert!(files.is_subset(&before), "a replay adds no tracks");
     // Each playlist that's left is one the export or the edits made.
     let made: BTreeSet<String> = drive.model.shape.walk().into_iter().map(|(_, path)| path).collect();
@@ -1555,7 +1555,7 @@ fn names_that_differ_only_in_case_name_different_playlists(tc: TestCase) {
         p.track_ids.len()
     };
     let (a, b) = (entries(&first), entries(&second));
-    let track = drive.pool[tc.draw(gs::integers::<usize>().max_value(drive.pool.len() - 1))].clone();
+    let track = tc.draw(gs::sampled_from(&drive.pool));
     run(vec![Edit::AddTracks {
         playlist: second.clone(),
         tracks: TrackSelector::paths([track]),
@@ -1598,7 +1598,7 @@ fn plan_refuses_names_and_details_one_character_too_long_for_export_pdb() {
         let dir = tempfile::tempdir().unwrap();
         let root = fresh_pdb_drive(dir.path());
         let track = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks[0].clone();
-        let others = track_rows(&root)[&tkey(&track.file_path)];
+        let others = track_rows(&root)[&paths::file_key(&track.file_path)];
         let title_fits = |n: usize| details_fit(others, &Details { title: c.repeat(n), ..Details::from(&track) });
         let title_max = (0..).take_while(|n| title_fits(*n)).last().unwrap();
         let fields = |title: Option<usize>, genre: Option<usize>| Edit::EditTracks {
@@ -1689,6 +1689,24 @@ fn moving_a_playlist_next_to_a_namesake_is_refused() {
     before.untouched(&root).unwrap();
 }
 
+/// Regression: the model read a playlist named with a doubled or blank-padded slash (`x//y`) as
+/// no playlist, while edits leave blank names out and find `x/y`, so a batch naming it was taken
+/// by the plan and refused by the model.
+#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+fn blank_names_in_a_playlist_path_are_left_out(tc: TestCase) {
+    let mut drive = Drive::new(tc.draw(gs::booleans()));
+    let file = drive.pool[0].clone();
+    let create = [Edit::CreatePlaylist { path: "x//y".into(), folder: false }];
+    assert!(matches!(drive.attempt(&tc, &create), Attempt::Applied));
+    let edits = [Edit::RenamePlaylist { playlist: "x//y".into(), name: "z".into() }, add("/x/ /z/", &[&file], false)];
+    assert!(matches!(drive.attempt(&tc, &edits), Attempt::Applied));
+    let lib = Device::open_export(&drive.root).unwrap().library().unwrap();
+    let z = lib.find_playlist("x/z").expect("x/y is renamed x/z");
+    assert!(!z.is_folder && lib.find_playlist("x/y").is_none());
+    let held: Vec<&str> = z.track_ids.iter().map(|id| lib.track(*id).unwrap().file_path.as_str()).collect();
+    assert_eq!(held, [file.as_str()], "the add went to x/z");
+}
+
 /// Plan and apply one edit replacing the track `duplicate` with `keep` (by file), keeping the
 /// duplicate. Returns the files of the drive's tracks, as export.pdb lists them.
 fn replace_keeping(root: &Path, duplicate: usize, keep: usize) -> Vec<String> {
@@ -1715,7 +1733,7 @@ fn replacing_a_track_only_history_lists_hold_repoints_them() {
     apply(&root, &[Edit::DeletePlaylist { playlist: "aab".into(), with_tracks: false }]);
     let files = replace_keeping(&root, 0, 1);
     let d = Device::open_export(&root).unwrap();
-    let (two, three) = (tkey(&files[1]), tkey(&files[2]));
+    let (two, three) = (paths::file_key(&files[1]), paths::file_key(&files[2]));
     let expected = vec![
         ("HISTORY 001".to_string(), vec![two.clone(), two.clone()]),
         ("History 002".to_string(), vec![three, two]),
@@ -2023,4 +2041,53 @@ fn replaying_a_fill_leaves_out_tracks_the_new_export_lacks() {
     let three = lib.find_playlist("Rules/Three").unwrap();
     let got: Vec<&str> = three.track_ids.iter().map(|id| lib.track(*id).unwrap().file_path.as_str()).collect();
     assert_eq!(got, [files[0].as_str(), files[2].as_str()]);
+}
+
+/// A tempo and an album artist set on a drive read back the same from every database it has:
+/// the tempo to hundredths, the album artist with the album (given, or the track's own), and
+/// refused, changing nothing, when the track would be left without an album to keep it with.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn tempos_and_album_artists_read_back_from_every_database(tc: TestCase) {
+    use hegel::Generator;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fresh_pdb_drive(dir.path());
+    let plus = tc.draw(gs::booleans());
+    if plus {
+        fs::write(root.join(paths::LIBRARY_PLUS_DB), plus_db()).unwrap();
+    }
+    let tracks = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks;
+    let was = tc.draw(gs::sampled_from(&tracks));
+    let bpm = tc.draw(gs::optional(gs::floats::<f64>().min_value(1.0).max_value(999.99)));
+    let album = tc.draw(gs::optional(gs::sampled_from(vec!["", "Isles"]).map(String::from)));
+    let album_artist = tc.draw(gs::optional(gs::sampled_from(vec![" ", "Bicep", "Four Tet"]).map(String::from)));
+    tc.assume(bpm.is_some() || album.is_some() || album_artist.is_some());
+    let fields = TrackFields { bpm, album: album.clone(), album_artist: album_artist.clone(), ..Default::default() };
+    let edits = [Edit::EditTracks { tracks: TrackSelector::paths([was.file_path.clone()]), fields }];
+    let mut d = Device::open_export(&root).unwrap();
+    let before = drive_files(&root);
+    let albumless = album.as_deref().unwrap_or(&was.album).trim().is_empty();
+    let planned = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent());
+    if album_artist.as_deref().is_some_and(|a| !a.trim().is_empty()) && albumless {
+        let err = planned.unwrap_err().to_string();
+        assert!(err.contains("has no album to keep an album artist with"), "{err}");
+        assert_eq!(drive_files(&root), before);
+        return;
+    }
+    edit::apply(&planned.unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let mut libraries = vec![d.library().unwrap()];
+    if plus {
+        libraries.push(common::plus_library(&root));
+    }
+    let want_album = album.clone().unwrap_or_else(|| was.album.clone());
+    let want_artist = match &album_artist {
+        _ if want_album.is_empty() => String::new(),
+        Some(a) if a.trim().is_empty() => String::new(),
+        Some(a) => a.clone(),
+        None => was.album_artist.clone(),
+    };
+    for lib in libraries {
+        let t = lib.tracks.iter().find(|t| t.file_path == was.file_path).unwrap();
+        assert_eq!(t.bpm, bpm.map_or(was.bpm, |b| (b * 100.0).round() / 100.0));
+        assert_eq!((t.album.as_str(), t.album_artist.as_str()), (want_album.as_str(), want_artist.as_str()));
+    }
 }

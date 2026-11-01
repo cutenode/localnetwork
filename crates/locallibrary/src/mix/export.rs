@@ -5,9 +5,9 @@
 //! played, transitions, each track's overview waveform, hot cues and phrases, small artwork) and
 //! nothing that only makes sense on this computer. File paths, the drive (its name, its other
 //! tracks), ratings, play counts and comments are left out, and so is a cover found next to the
-//! recording rather than embedded in it. Tracks the DJ's profile hides (see
-//! [`ProfilePrefs::may_name`]) are "ID - ID", as DJs list an unreleased track. Local Network
-//! renders it on a DJ's profile.
+//! recording rather than embedded in it or given for it (`mix --cover`). Tracks the DJ's profile
+//! hides (see [`ProfilePrefs::may_name`]) are "ID - ID", as DJs list an unreleased track. Local
+//! Network renders it on a DJ's profile.
 //!
 //! The format is versioned: `format` is always [`FORMAT`] and `version` [`VERSION`]. Fields are
 //! camelCase; times are seconds into the mix (or into the track, for `trackStart`/`trackEnd`,
@@ -84,7 +84,8 @@ pub struct ExportMix {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recorder: Option<String>,
     pub duration_secs: f64,
-    /// The cover embedded in the recording: a JPEG `data:` URL, 320 px square.
+    /// The cover given for the recording (`mix --cover`) or embedded in it: a JPEG `data:` URL,
+    /// 320 px square.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
 }
@@ -114,6 +115,9 @@ pub struct ExportPlay {
     pub track_end: f64,
     /// Playback speed: 1.03 is +3%.
     pub tempo: f64,
+    /// The slowest and fastest speeds, when the pitch fader was ridden; `tempo` is their average.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_range: Option<(f64, f64)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub played_bpm: Option<f64>,
     /// `None` when the speed is too close to 1.0 to tell.
@@ -373,7 +377,8 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
         end: r2(p.end),
         track_start: r2(p.track_start),
         track_end: r2(p.track_end),
-        tempo: (p.tempo * 10_000.0).round() / 10_000.0,
+        tempo: r4(p.tempo),
+        speed_range: p.speed_range.map(|(slowest, fastest)| (r4(slowest), r4(fastest))),
         played_bpm: p.played_bpm.map(|b| (b * 10.0).round() / 10.0),
         key_lock: p.key_lock,
         semitones: r2(p.semitones),
@@ -384,6 +389,11 @@ fn play(p: &Play, i: usize, drive: Option<Drive<'_>>, prefs: &ProfilePrefs) -> E
         presence_step: p.presence_step,
         jumps: p.jumps,
     }
+}
+
+/// A speed to the ten-thousandth.
+fn r4(speed: f64) -> f64 {
+    (speed * 10_000.0).round() / 10_000.0
 }
 
 #[cfg(test)]

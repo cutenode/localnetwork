@@ -1,6 +1,6 @@
 import { ROOT_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
 import { createSpaceIfMissing, type SimpleSpaceConfig } from './atproto/repo-client';
-import { parseSpaceUri } from './atproto/spaces';
+import { parseSpaceUri, SHARED_SPACE_TYPES } from './atproto/spaces';
 import type { Core } from './core';
 
 const memberList = { $type: 'com.atproto.simplespace.defs#memberListPolicy' } as const;
@@ -14,13 +14,14 @@ const open = { $type: 'com.atproto.simplespace.defs#open' } as const;
  * - audit: anyone may write (their own audit entries are tracked); only staff read.
  * - moderation: anyone may file requests; only staff read.
  * - staff: only the root writes; staff read.
- * - industry: only the root writes; any signed-in atproto account may read.
+ * - industry: only the root writes; only staff read, so everyone else sees booking details through the app, in a press
+ *   kit they were let into, which leaves a receipt.
  */
 export const ROOT_SPACE_POLICIES: Record<keyof Core['spaces'], SimpleSpaceConfig> = {
 	audit: { readPolicy: memberList, writePolicy: publicPolicy, appAccess: open },
 	moderation: { readPolicy: memberList, writePolicy: publicPolicy, appAccess: open },
 	staff: { readPolicy: memberList, writePolicy: memberList, appAccess: open },
-	industry: { readPolicy: publicPolicy, writePolicy: memberList, appAccess: open }
+	industry: { readPolicy: memberList, writePolicy: memberList, appAccess: open }
 };
 
 /** Each root space's name and URI, with the policies it should have. */
@@ -87,10 +88,14 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		watched.push(space);
 	}
 
-	try {
-		watched.push(...(await root.listSpaces(SPACE_TYPE.booking)));
-	} catch (error) {
-		core.logger.debug({ err: error }, 'could not list booking spaces');
+	// The root's spaces per booking thread, press kit, project backstage, performer, party and venue, which it creates
+	// as they're needed.
+	for (const type of [SPACE_TYPE.booking, SPACE_TYPE.epk, SPACE_TYPE.backstage, ...Object.values(SHARED_SPACE_TYPES)]) {
+		try {
+			watched.push(...(await root.listSpaces(type)));
+		} catch (error) {
+			core.logger.debug({ err: error, type }, "could not list the root's spaces");
+		}
 	}
 
 	const first = await core.db.selectFrom('kv').select('value').where('key', '=', 'bootstrapped_at').executeTakeFirst();

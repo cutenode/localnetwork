@@ -23,13 +23,15 @@
   name, the badge switches and the casing below are in the popup's own
   localStorage because nothing outside the popup has any use for them.
 
-  The last section is not a setting at all. Everything the extension has saved
+  One section is not a setting at all. Everything the extension has saved
   — the marks, the looked-up details, the Manager's list, the session queue and
   every panel option — goes out to one file there and reads back in
   (StateTransfer.svelte). It was in the Manager panel's footer, which was the
   wrong place for it twice over: the file carries four other tools' worth of
   state, and a backup is something you take before opening a playlist rather
-  than while looking at one.
+  than while looking at one. Nor is the last: which version this is, and a
+  link to report a bug with that version already filled in ($lib/bug-report.ts),
+  since this sheet is about the extension rather than any one tool.
 
   A sheet rather than a tool, and for the reason the session queue is one: it
   is about the tools rather than beside them. It comes up over whichever one is
@@ -43,22 +45,26 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import Bug from '@lucide/svelte/icons/bug';
   import Monitor from '@lucide/svelte/icons/monitor';
   import Moon from '@lucide/svelte/icons/moon';
   import Settings from '@lucide/svelte/icons/settings';
   import Sun from '@lucide/svelte/icons/sun';
   import X from '@lucide/svelte/icons/x';
   import StateTransfer from '$lib/components/StateTransfer.svelte';
+  import ToolTile from '$lib/components/ToolTile.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Input } from '$lib/components/ui/input/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
   import { Switch } from '$lib/components/ui/switch/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
+  import { bugReportUrl, extensionVersion } from '$lib/bug-report.ts';
   import { downloader } from '$lib/downloader.svelte.ts';
   import { searchSites } from '$lib/search-sites.svelte.ts';
   import { settings } from '$lib/settings.svelte.ts';
   import { theme } from '$lib/theme.svelte.ts';
   import { titleCasing } from '$lib/title-case.svelte.ts';
+  import { view } from '$lib/view.svelte.ts';
 
   interface Props {
     /** Puts the sheet away, leaving the view under it where it was. */
@@ -91,6 +97,11 @@
 
   const badges = $derived(searchSites.all);
 
+  const version = extensionVersion();
+
+  // The tool under the sheet, if any, is the part a report is most likely about.
+  const reportUrl = $derived(bugReportUrl(view.open));
+
   const THEMES = [
     { mode: 'system', icon: Monitor, label: 'system' },
     { mode: 'light', icon: Sun, label: 'light' },
@@ -117,7 +128,7 @@
       type="button"
       tabindex="-1"
       aria-hidden="true"
-      class="absolute inset-0 bg-foreground/30 backdrop-blur-[1px]"
+      class="absolute inset-0 bg-black/50"
       transition:fade={{ duration: 150 }}
       onclick={onclose}
     ></button>
@@ -126,24 +137,15 @@
       role="dialog"
       aria-modal="true"
       aria-label="settings"
-      class="relative flex max-h-[85vh] flex-col rounded-t-2xl border-t border-border/70
-             bg-background shadow-[0_-8px_30px_oklch(0_0_0/12%)]"
+      class="relative flex max-h-[85vh] flex-col rounded-t-xl border-t border-line-strong bg-canvas"
       transition:fly={{ y: 240, duration: 240, easing: cubicOut, opacity: 1 }}
     >
-      <header
-        class="brand-wash flex shrink-0 items-center gap-2.5 rounded-t-2xl border-b
-               border-border/70 px-3 py-2.5"
-      >
-        <div
-          class="brand-tile grid size-8 shrink-0 place-items-center rounded-[10px] text-white"
-          aria-hidden="true"
-        >
-          <Settings class="size-4" />
-        </div>
+      <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
+        <ToolTile icon={Settings} />
 
         <div class="min-w-0 flex-1">
-          <h2 class="truncate text-[13px] leading-tight font-semibold">settings</h2>
-          <p class="truncate text-[11px] leading-tight text-muted-foreground">
+          <h2 class="m-0 truncate text-label leading-tight font-semibold">settings</h2>
+          <p class="m-0 truncate text-caption leading-tight text-fg-muted">
             for the whole extension
           </p>
         </div>
@@ -155,7 +157,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="-mr-1 shrink-0 text-muted-foreground"
+          class="-mr-1 shrink-0"
           aria-label="close settings"
           title="close"
           onclick={onclose}
@@ -166,8 +168,8 @@
 
       <div class="scroll-slim min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <div class="flex flex-col gap-2.5">
-          <section class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-2.5">
-            <h3 class="text-[11.5px] font-semibold">SoundCloud pages</h3>
+          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+            <h3 class="section-title m-0">SoundCloud pages</h3>
 
             <div class="flex items-start gap-2.5">
               <Switch
@@ -179,10 +181,10 @@
                 }
               />
               <div class="min-w-0 flex-1">
-                <Label for="replace-download-buttons" class="text-[12px] font-normal">
+                <Label for="replace-download-buttons" class="text-label leading-snug font-normal">
                   replace SoundCloud’s download buttons
                 </Label>
-                <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
                   {REPLACE_HINT}
                 </p>
               </div>
@@ -197,10 +199,10 @@
                 }
               />
               <div class="min-w-0 flex-1">
-                <Label for="likes-list-view" class="text-[12px] font-normal">
+                <Label for="likes-list-view" class="text-label leading-snug font-normal">
                   open your likes as a list
                 </Label>
-                <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
                   {LIKES_VIEW_HINT}
                 </p>
               </div>
@@ -214,30 +216,30 @@
             typed on the day one gate asks for them, and a failed row that
             wants either sends you straight to this sheet.
           -->
-          <section class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-2.5">
-            <h3 class="text-[11.5px] font-semibold">downloads</h3>
+          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+            <h3 class="section-title m-0">downloads</h3>
 
             <div class="flex flex-col gap-1.5">
-              <Label for="email" class="text-[11.5px] text-muted-foreground">email</Label>
+              <Label for="email" class="text-caption text-fg-muted">email</Label>
               <Input
                 id="email"
                 type="email"
                 placeholder="you@example.com"
                 autocomplete="off"
                 spellcheck="false"
-                class="h-8 text-[12px]"
+                class="h-8"
                 bind:value={downloader.email.value}
               />
-              <Label for="name" class="text-[11.5px] text-muted-foreground">name</Label>
+              <Label for="name" class="text-caption text-fg-muted">name</Label>
               <Input
                 id="name"
                 type="text"
                 placeholder="your name"
                 autocomplete="off"
-                class="h-8 text-[12px]"
+                class="h-8"
                 bind:value={downloader.name.value}
               />
-              <p class="text-[11px] leading-relaxed text-muted-foreground">{EMAIL_HINT}</p>
+              <p class="m-0 text-caption leading-relaxed text-fg-muted">{EMAIL_HINT}</p>
             </div>
 
             <div class="flex items-start gap-2.5">
@@ -247,10 +249,10 @@
                 bind:checked={downloader.mark.value}
               />
               <div class="min-w-0 flex-1">
-                <Label for="mark" class="text-[12px] font-normal">
+                <Label for="mark" class="text-label leading-snug font-normal">
                   mark the SoundCloud track downloaded
                 </Label>
-                <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
                   {MARK_HINT}
                 </p>
               </div>
@@ -269,9 +271,9 @@
             buy from is a fact about you, settled once, and the panel's own
             options are the two that say how its list is drawn.
           -->
-          <section class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-2.5">
-            <h3 class="text-[11.5px] font-semibold">search badges</h3>
-            <p class="text-[11px] leading-relaxed text-muted-foreground">{SEARCH_HINT}</p>
+          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+            <h3 class="section-title m-0">search badges</h3>
+            <p class="m-0 text-caption leading-relaxed text-fg-muted">{SEARCH_HINT}</p>
 
             <div class="flex flex-col gap-2">
               {#each badges as site (site.id)}
@@ -290,7 +292,7 @@
                     style={site.style}
                     aria-hidden="true">{site.badge}</span
                   >
-                  <Label for={`search-${site.id}`} class="text-[12px] font-normal">
+                  <Label for={`search-${site.id}`} class="text-label leading-snug font-normal">
                     {site.name}
                   </Label>
                 </div>
@@ -298,25 +300,25 @@
             </div>
 
             {#if badges.every((site) => !site.on)}
-              <p class="text-[11px] leading-relaxed text-muted-foreground">{NO_SEARCH_HINT}</p>
+              <p class="m-0 text-caption leading-relaxed text-fg-muted">{NO_SEARCH_HINT}</p>
             {/if}
           </section>
 
-          <!-- Last, and a section of its own (StateTransfer.svelte): it is the
-               only thing here that writes anything but a setting, and the one
+          <!-- A section of its own (StateTransfer.svelte): it is the only
+               thing here that writes anything but a setting, and the one
                control in the sheet that can take something away. -->
           <StateTransfer />
 
-          <section class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-2.5">
-            <h3 class="text-[11.5px] font-semibold">appearance</h3>
+          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+            <h3 class="section-title m-0">appearance</h3>
             <div class="flex gap-1.5">
               {#each THEMES as option (option.mode)}
                 {@const Icon = option.icon}
                 {@const on = theme.mode === option.mode}
                 <Button
-                  size="xs"
+                  size="sm"
                   variant={on ? 'default' : 'outline'}
-                  class={on ? '' : 'text-muted-foreground'}
+                  class={on ? '' : 'text-fg-muted'}
                   aria-pressed={on}
                   onclick={() => theme.set(option.mode)}
                 >
@@ -340,13 +342,32 @@
                 bind:checked={titleCasing.value}
               />
               <div class="min-w-0 flex-1">
-                <Label for="title-case" class="text-[12px] font-normal">
+                <Label for="title-case" class="text-label leading-snug font-normal">
                   title case the title, artist and genre
                 </Label>
-                <p class="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
                   {TITLE_CASE_HINT}
                 </p>
               </div>
+            </div>
+          </section>
+
+          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+            <h3 class="section-title m-0">about</h3>
+            <div class="flex items-center gap-2.5">
+              <p class="m-0 min-w-0 flex-1 truncate font-mono text-caption text-fg-muted">
+                localtoolbox {version}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                href={reportUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Bug />
+                report a bug
+              </Button>
             </div>
           </section>
         </div>

@@ -226,9 +226,11 @@ pub fn record_problem(store: &Store, id: Uuid, kind: &str, detail: impl Into<Str
 pub enum Standing {
     /// It held the latest snapshot.
     UpToDate,
-    /// It held an older snapshot: `snapshots` newer ones have been saved since.
-    Behind { snapshots: usize, held: String },
-    /// It held a state the store never saved (a later export or edit that wasn't pulled).
+    /// It held an older state: `snapshots` newer ones have been saved since. `held` is the
+    /// snapshot holding it, none when the library's latest went through it unsaved.
+    Behind { snapshots: usize, held: Option<String> },
+    /// It held a state the store never saved, which the library's latest never went through (a
+    /// later export or edit that wasn't pulled).
     Unsaved,
     /// Not linked to a library, or the library has no snapshots.
     Unknown,
@@ -255,21 +257,28 @@ pub struct KnownDrive {
 pub fn known(store: &Store, mounted: &[Device], include_retired: bool) -> Result<Vec<KnownDrive>> {
     let libraries: FxHashMap<Uuid, crate::store::LibraryRecord> =
         store.libraries()?.into_iter().map(|l| (l.id, l)).collect();
-    // A library's history, loaded once (snapshots are big).
+    // A library's history, and its latest's lineage when a drive's state isn't in it, loaded
+    // once (snapshots are big).
     let mut histories: FxHashMap<Uuid, Vec<SnapshotInfo>> = FxHashMap::default();
+    let mut lineages: FxHashMap<Uuid, Vec<LineageEntry>> = FxHashMap::default();
     let mut out = Vec::new();
     for rec in store.drives()?.into_values() {
         if rec.log.retired.is_some() && !include_retired {
             continue;
         }
         let lib = rec.library_id.and_then(|id| libraries.get(&id));
-        let standing = match (lib, rec.last_fingerprint) {
-            (Some(lib), Some(fp)) if lib.head.is_some() => {
+        let standing = match (lib, lib.and_then(|l| l.head), rec.last_fingerprint) {
+            (Some(lib), Some(head), Some(fp)) => {
                 let history = match histories.get(&lib.id) {
                     Some(h) => h,
                     None => histories.entry(lib.id).or_insert(store.history(lib, None)?),
                 };
-                standing(history, &fp)
+                let lineage = match (history.iter().any(|s| s.fingerprint == fp), lineages.get(&lib.id)) {
+                    (true, _) => &[][..],
+                    (false, Some(l)) => l,
+                    (false, None) => lineages.entry(lib.id).or_insert(store.load_snapshot(&head)?.lineage),
+                };
+                standing(history, lineage, &fp)
             }
             _ => Standing::Unknown,
         };
@@ -292,13 +301,21 @@ pub fn known(store: &Store, mounted: &[Device], include_retired: bool) -> Result
     Ok(out)
 }
 
-/// `history` is newest first.
-fn standing(history: &[SnapshotInfo], fp: &Hash) -> Standing {
+/// Where a drive holding `fp` stands against its library: `history` is the library's, newest
+/// first, and `lineage` its latest's (only needed when no snapshot holds `fp`).
+fn standing(history: &[SnapshotInfo], lineage: &[LineageEntry], fp: &Hash) -> Standing {
     match history.iter().position(|s| &s.fingerprint == fp) {
-        Some(0) => Standing::UpToDate,
-        Some(n) => Standing::Behind { snapshots: n, held: history[n].short_id.clone() },
-        None => Standing::Unsaved,
+        Some(0) => return Standing::UpToDate,
+        Some(n) => return Standing::Behind { snapshots: n, held: Some(history[n].short_id.clone()) },
+        None => {}
     }
+    // Unsaved, but the latest went through it: behind the snapshots of what it held since. The
+    // registry keeps no lineage of the drive's, so one edited back to such a state counts too,
+    // as one edited back to a snapshot's does.
+    let last = |fp: &Hash| lineage.iter().rposition(|e| e.fingerprint == *fp);
+    let Some(at) = last(fp) else { return Standing::Unsaved };
+    let snapshots = history.iter().take_while(|s| last(&s.fingerprint).is_some_and(|i| i > at)).count();
+    Standing::Behind { snapshots, held: None }
 }
 
 /// Registered drives by name (any case), or by id prefix (4 characters or more) when none has
@@ -500,10 +517,12 @@ pub struct DriveSet {
     pub excluded: Vec<String>,
 }
 
-/// Mounted drives grouped by library.
-pub fn sets(store: &Store, mounted: &[Device]) -> Result<Vec<DriveSet>> {
-    let registry = store.drives()?;
-    let libraries: FxHashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
+/// Mounted drives grouped by library. With no store, the groups are unnamed and every member is
+/// synced: no drive has a role or is retired without one.
+pub fn sets(store: Option<&Store>, mounted: &[Device]) -> Result<Vec<DriveSet>> {
+    let registry = store.map(Store::drives).transpose()?.unwrap_or_default();
+    let libraries = store.map(Store::libraries).transpose()?.unwrap_or_default();
+    let libraries: FxHashMap<Uuid, String> = libraries.into_iter().map(|l| (l.id, l.name)).collect();
     let mut groups: IndexMap<Option<Uuid>, DriveSet> = IndexMap::new();
     for d in mounted.iter().filter(|d| d.has_export() || d.is_adopted()) {
         let Some(state) = d.state() else { continue };

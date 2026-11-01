@@ -61,7 +61,8 @@ describe('what the build produces', () => {
 			...contentScript.js,
 			...contentScript.css,
 			...Object.values(manifest.icons),
-			manifest.action.default_popup
+			manifest.action.default_popup,
+			manifest.background.service_worker
 		]) {
 			expect(there(file), file).toBe(true);
 		}
@@ -87,11 +88,13 @@ describe('what the build produces', () => {
 		expect(top).toEqual(
 			[
 				'assets',
+				'background.js',
 				'content.css',
 				'content.js',
 				'downloaded-store.js',
 				'icons',
 				'manifest.json',
+				'offscreen.html',
 				'popup.html',
 				'state-transfer.js'
 			].sort()
@@ -259,9 +262,16 @@ describe('the bundle', () => {
 			// artist's bio (src/tools/artists/profiles.js), which is opened when
 			// its badge is pressed and never fetched: the host is the bio's, not
 			// the bundle's. Svelte's own errors end in a link to their page on
-			// svelte.dev, which is text in a message, not a request.
+			// svelte.dev, which is text in a message, not a request. The settings
+			// sheet's "report a bug" is a link to this repository's issue form
+			// (src/lib/bug-report.ts), opened in a tab and never fetched.
 			for (const [, url] of code.matchAll(/["'`](https?:\/\/[^"'`\s]+)/g)) {
-				if (/^https:\/\/\$\{\w+\}$/.test(url) || url.startsWith('https://svelte.dev/e/')) continue;
+				const isLinkOut =
+					/^https:\/\/\$\{\w+\}$/.test(url) ||
+					url.startsWith('https://svelte.dev/e/') ||
+					url === 'https://github.com/cutenode/localnetwork/issues/new';
+
+				if (isLinkOut) continue;
 				expect(url, `${file}: ${url}`).toMatch(
 					/soundcloud\.com|sndcdn\.com|beatport\.com|bandcamp\.com|zipdj\.com|mp3poolonline\.com|hypeddit|droploud|toneden|fanlink|laylo|feature\.fm|ffm\.to|pumpyoursound|gate\.sc|cloudfront\.net|w3\.org|json-schema\.org|dropbox|drive\.google/i
 				);
@@ -289,6 +299,40 @@ describe('the bundle', () => {
 			expect(code, file).not.toContain(ROOT);
 			expect(code, file).not.toMatch(/\/Users\/[a-z]/i);
 		}
+	});
+});
+
+describe('the background worker', () => {
+	// A service worker has no document, no window and no localStorage, and
+	// Chrome refuses to start one that reaches for them as it loads. The walk
+	// that needs a document runs in the offscreen page for exactly that reason
+	// (background.ts), so a static import that pulled a panel's code, or a site
+	// module, into the worker would be the bug this is here to catch.
+	it('loads only files beside it, none of which reaches for a page', () => {
+		const loaded = new Set<string>();
+
+		const visit = (file: string) => {
+			if (loaded.has(file)) return;
+			loaded.add(file);
+
+			for (const [, path] of read(file).matchAll(/(?:from|import)\s*"\.\/([^"]+\.mjs)"/g)) {
+				visit(file.startsWith('assets/') ? `assets/${path}` : path);
+			}
+		};
+
+		visit('background.js');
+		expect(loaded.size).toBeGreaterThan(1);
+
+		for (const file of loaded) {
+			expect(read(file), file).not.toMatch(/\b(document|window|localStorage|DOMParser)\b/);
+		}
+	});
+
+	it('opens an offscreen page that loads its script by relative path', () => {
+		const html = read('offscreen.html');
+		const [, script] = /<script[^>]*src="\.\/(assets\/[^"]+\.mjs)"/.exec(html) ?? [];
+
+		expect(script && there(script), html).toBe(true);
 	});
 });
 
@@ -342,6 +386,7 @@ const MV3_SCHEMA = {
 					'history',
 					'idle',
 					'notifications',
+					'offscreen',
 					'scripting',
 					'storage',
 					'tabs',
@@ -410,6 +455,7 @@ describe('the manifest itself', () => {
 			read('content.js'),
 			read('downloaded-store.js'),
 			read('state-transfer.js'),
+			read('background.js'),
 			...files.filter((f) => /\.m?js$/.test(f) && f.startsWith('assets/')).map(read)
 		].join('\n');
 
@@ -417,7 +463,8 @@ describe('the manifest itself', () => {
 			['activeTab', /tabs\.query|tabs\.sendMessage/],
 			['clipboardWrite', /clipboard\.(writeText|write)/],
 			['storage', /chrome\.storage/],
-			['downloads', /chrome\.downloads/]
+			['downloads', /chrome\.downloads/],
+			['offscreen', /chrome\.offscreen\.createDocument/]
 		]);
 
 		for (const permission of manifest.permissions) {

@@ -110,12 +110,13 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         "drive.reidentify",
         "snapshot.label",
         "convert.plan",
+        #[cfg(feature = "account")]
         "account.login.begin",
         "settings.schema",
         "settings.import.plan",
         "library.list",
     ];
-    let value = |tc: &hegel::TestCase| VALUES[tc.draw(gs::integers::<usize>().max_value(VALUES.len() - 1))];
+    let value = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(VALUES));
     let mut params = Map::new();
     for key in ["drive", "left", "right", "source", "target", "label"] {
         if tc.draw(gs::weighted_booleans(0.8)) {
@@ -217,7 +218,7 @@ fn retries_add_a_flag_for_each_parameter(tc: hegel::TestCase) {
             2 => Value::Bool(false),
             3 => Value::Null,
             4 => Value::from(tc.draw(gs::integers::<i64>().min_value(-5).max_value(500))),
-            _ => Value::from(VALUES[tc.draw(gs::integers::<usize>().max_value(VALUES.len() - 1))]),
+            _ => Value::from(tc.draw(gs::sampled_from(VALUES))),
         };
         params.insert(key.into(), value);
     }

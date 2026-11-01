@@ -54,6 +54,11 @@
 						"description": "Where people can listen to it: Mixcloud, SoundCloud, YouTube, a station's archive.",
 						"items": { "type": "ref", "ref": "#link" }
 					},
+					"recording": {
+						"type": "ref",
+						"ref": "com.atproto.repo.strongRef",
+						"description": "The record where its recording can be played, like an fm.plyr.track in the DJ's own repo."
+					},
 					"sources": {
 						"type": "array",
 						"maxLength": 10,
@@ -62,7 +67,7 @@
 					},
 					"tracks": {
 						"type": "array",
-						"maxLength": 1000,
+						"maxLength": 500,
 						"description": "In play order.",
 						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#track" }
 					},

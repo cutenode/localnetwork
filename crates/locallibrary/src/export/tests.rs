@@ -2,27 +2,6 @@ use super::*;
 use loclib_model::test_util::track;
 
 #[test]
-fn relative_paths() {
-    assert_eq!(
-        relative(Path::new("/Volumes/USB/Lists"), Path::new("/Volumes/USB/Contents/A/x.mp3")).as_deref(),
-        Some("../Contents/A/x.mp3")
-    );
-    assert_eq!(
-        relative(Path::new("/Volumes/USB"), Path::new("/Volumes/USB/Contents/x.mp3")).as_deref(),
-        Some("Contents/x.mp3")
-    );
-    assert_eq!(
-        relative(Path::new("/Users/me"), Path::new("/Volumes/USB/x.mp3")).as_deref(),
-        Some("../../Volumes/USB/x.mp3")
-    );
-}
-
-#[test]
-fn a_relative_path_needs_a_root_in_common() {
-    assert_eq!(relative(Path::new("Lists"), Path::new("/Volumes/USB/x.mp3")), None);
-}
-
-#[test]
 fn formats_are_told_by_their_extension() {
     for f in [Format::M3u8, Format::Csv, Format::Txt] {
         assert_eq!(Format::from_path(Path::new(&format!("set.{}", f.extension().to_uppercase()))), Some(f));

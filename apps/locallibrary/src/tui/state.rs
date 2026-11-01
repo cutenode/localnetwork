@@ -1,18 +1,18 @@
 //! What the player remembers between runs (the drive and list it was showing, the view, sort,
-//! volume, visualiser and panels, quantize, the output, the crate, and the queue and where it was
-//! in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
+//! volume, visualiser and panels, its theme, quantize, the output, the crate, and the queue and
+//! where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
-//! a drive.
+//! a drive. Of it, the choices that are the user's preferences (the theme, the columns, the
+//! visualiser, playback modes) go in `settings export`; see `locallibrary::settings::transfer`.
 
 use std::path::{Path, PathBuf};
 
 use locallibrary::Track;
 use locallibrary::query::SortKey;
+use locallibrary::store::{PLAYER_FILE as FILE, player_fallback as fallback};
 use serde::{Deserialize, Serialize};
 
 use super::browse::SavedNode;
-
-const FILE: &str = "tui.json";
 
 /// The most of the queue kept: a list played from a big library can hold every track on it.
 pub const QUEUE_KEPT: usize = 1000;
@@ -39,6 +39,10 @@ pub struct Saved {
     pub ratings: bool,
     /// The track list's My Tags column.
     pub tags_column: bool,
+    /// The track list's columns of plugins' fields (`sound.bpm`), in order.
+    pub field_columns: Vec<String>,
+    /// The theme it draws in, a plugin's (`<plugin>.<name>`): the default without one.
+    pub theme: Option<String>,
     pub shuffle: bool,
     /// `off`, `all` or `one`.
     pub repeat: Option<String>,
@@ -79,13 +83,6 @@ pub struct SavedQueue {
     pub at_ms: u64,
 }
 
-/// Where the state goes while there's no store: a folder beside the store's
-/// (`locallibrary-player` next to `locallibrary` in the platform's data folder by default).
-fn fallback(store_root: &Path) -> Option<PathBuf> {
-    let name = store_root.file_name()?.to_string_lossy();
-    Some(store_root.with_file_name(format!("{name}-player")))
-}
-
 fn has_store(store_root: &Path) -> bool {
     store_root.join("store.json").is_file()
 }
@@ -108,7 +105,10 @@ pub fn save(store_root: &Path, saved: &Saved) {
     let Some(dir) = (if has_store(store_root) { Some(store_root.to_path_buf()) } else { fallback(store_root) }) else {
         return;
     };
-    if saved.root.as_deref().is_some_and(|r| dir.starts_with(r)) {
+    // Compared resolved: the drive's root comes resolved (macOS's /var is /private/var), the
+    // store's folder as it was given.
+    let resolved = locallibrary::fsutil::resolved;
+    if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
         return;
     }
     if let Ok(json) = serde_json::to_vec_pretty(saved)

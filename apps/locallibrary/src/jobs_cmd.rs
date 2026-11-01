@@ -279,13 +279,18 @@ pub struct RefreshArgs {
     /// the only mounted rekordbox drive, else the one rekordbox exported over recorded edits on,
     /// else the newest drive of the one library plugged in]
     pub drive: Option<String>,
-    /// Leave a step out: clean, replay, smart, player, settings, pull or sync (repeatable or
-    /// comma-separated)
+    /// Leave a step out: clean, replay, smart, player, settings, operations, pull or sync
+    /// (repeatable or comma-separated)
     #[arg(long, value_name = "STEP", value_delimiter = ',', value_parser = parse_step)]
     pub skip: Vec<StepKind>,
     /// Then copy the drive onto the other mounted drives of its library, when it's the newest
     #[arg(long)]
     pub sync: bool,
+    /// Also run a plugin's operation on the drive before it's saved: one quoted value, the
+    /// operation then its params as KEY=VALUE, quoted as in a shell when one holds a space
+    /// (repeatable: they run in the order given)
+    #[arg(long, value_name = "'PLUGIN.OPERATION KEY=VALUE...'")]
+    pub then: Vec<String>,
     /// Show the plan without changing anything
     #[arg(long)]
     pub dry_run: bool,
@@ -294,20 +299,51 @@ pub struct RefreshArgs {
 pub const REFRESH_HELP: &str = "Steps, each only when needed: remove rekordbox's demo samples (clean), make the \
 recorded edits again (edits replay: playlists, tracks, My Tags, cues), fill the rule-based playlists (smart \
 apply), put back the name and colour players show (as `drive player` last set them), write My Settings \
-(settings apply), save the drive in the store (pull), and with --sync copy it onto the other mounted drives \
-of its library. One plan lists them all and asks once; the first step that fails stops it (exit status 5 \
-when some steps were done).";
+(settings apply), run the plugins' operations --then asks for (operations), save the drive in the store \
+(pull), and with --sync copy it onto the other mounted drives of its library. One plan lists them all and \
+asks once; the first step that fails stops it (exit status 5 when some steps were done).";
 
 /// `locallibrary refresh [DRIVE]`: rekordbox just exported to this drive.
 pub fn refresh(args: RefreshArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let drive = drive_or(args.drive, store_path, api::refresh_drive)?;
     let store = crate::open_store(store_path)?;
-    let req = api::RefreshRequest { drive: Some(drive), skip: args.skip, sync: args.sync };
+    let operations = operation_steps(&args.then)?;
+    let req = api::RefreshRequest { drive: Some(drive), skip: args.skip, sync: args.sync, operations };
     let plan = api::refresh_plan(&store, &req, ctx)?;
     let target = plan.targets.first().map(|t| format!("{} ({})", t.name, t.root.display())).unwrap_or_default();
     let heading = format!("Refresh {target} after rekordbox's export");
     let nothing = "nothing to do: the drive has everything rekordbox's export left out";
     run_job(plan, &store, Shown { heading: &heading, nothing, dry_run: args.dry_run, verbose: false }, out, ctx)
+}
+
+/// The plugins' operations the `--then`s give, each split into words as a shell would:
+/// PLUGIN.OPERATION, then its params as KEY=VALUE, read as its operation's schema says. One the
+/// plugins don't have goes as it is, for the plan to refuse.
+fn operation_steps(given: &[String]) -> Result<Vec<api::OperationStep>> {
+    given
+        .iter()
+        .map(|v| {
+            let words = shlex::split(v)
+                .ok_or_else(|| usage(format!("--then {v:?} has a quote it doesn't close (or ends in a backslash)")))?;
+            match words.split_first() {
+                Some((operation, pairs)) if operation.contains('.') => operation_step(operation, pairs),
+                _ => Err(usage(format!("--then takes 'PLUGIN.OPERATION KEY=VALUE...', not {v:?}"))),
+            }
+        })
+        .collect()
+}
+
+/// `operation` with `pairs` (KEY=VALUE) for its params.
+fn operation_step(operation: &str, pairs: &[String]) -> Result<api::OperationStep> {
+    let declared = operation.split_once('.').and_then(|(plugin, name)| {
+        let manifest = crate::plugins::host().ok()?.manifest(plugin).ok()?;
+        manifest.contributes.operations.iter().find(|o| o.name == name)
+    });
+    let params = match declared {
+        Some(op) => crate::plugin_cmd::options(&format!("{operation} operation"), op.params.as_ref(), pairs)?,
+        None => Value::Null,
+    };
+    Ok(api::OperationStep { operation: operation.into(), params })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -479,6 +515,8 @@ impl Setup<'_> {
                 output::summary(p.summary(), p.warnings());
             }
         }
+        // A guard made blocking found something: not asked, as it can't be applied.
+        plans.iter().try_for_each(|p| p.unblocked())?;
         if self.asking && !self.out.confirm(question) {
             self.note("left as it is");
             return Ok(false);
@@ -524,6 +562,16 @@ fn label(d: &DeviceInfo) -> String {
     d.name.clone().unwrap_or_else(|| d.volume_name.clone())
 }
 
+/// `d`'s label, with its folder when another of `among` goes by the same one (a drive and a copy
+/// of it are both Club), so a question says which drive it means.
+fn label_among(d: &DeviceInfo, among: &[DeviceInfo]) -> String {
+    let name = label(d);
+    match among.iter().any(|o| o.root != d.root && label(o) == name) {
+        true => format!("{name} ({})", d.root.display()),
+        false => name,
+    }
+}
+
 /// A role as `drive role` takes it.
 fn role_arg(s: &str) -> Result<String> {
     match Role::parse(s) {
@@ -564,29 +612,42 @@ fn choose_drives(
     };
     let several = mounted.len() > 1;
     let mut out = Vec::new();
-    for d in mounted {
+    for d in &mounted {
+        let label = |d| label_among(d, &mounted);
         let other = d.library_id.filter(|id| target.as_ref().is_none_or(|t| t.id != *id));
         let other = other.and_then(|id| libraries.iter().find(|l| l.id == id));
         let take = match other {
             None if !several => true,
-            None => s.ask_yes(&format!("Is {} a copy of your library?", label(&d)), true)?,
+            None => s.ask_yes(&format!("Is {} a copy of your library?", label(d)), true)?,
             Some(l) => s.ask_yes(
-                &format!("Is {} a copy of your library? It's a drive of library {:?}", label(&d), l.name),
+                &format!("Is {} a copy of your library? It's a drive of library {:?}", label(d), l.name),
                 false,
             )?,
         };
         match (take, other) {
-            (true, _) => out.push(d),
+            (true, _) => out.push(d.clone()),
             (false, Some(l)) => {
-                s.note(format!("left out {}, a drive of library {:?} (name it to set it up)", label(&d), l.name))
+                s.note(format!("left out {}, a drive of library {:?} (name it to set it up)", label(d), l.name))
             }
-            (false, None) => s.note(format!("left out {}", label(&d))),
+            (false, None) => s.note(format!("left out {}", label(d))),
         }
     }
     if out.is_empty() {
         bail!("no drive to set up: name the drives (`locallibrary setup DRIVE...`)");
     }
     Ok(out)
+}
+
+/// A `--role` for the drive that becomes the primary, refused unless it's `primary`: that drive's
+/// role is always primary.
+fn no_role_for_primary(roles: &IndexMap<PathBuf, String>, primary: &DeviceInfo) -> Result<()> {
+    match roles.get(&primary.root) {
+        Some(role) if role_arg(role).ok().as_deref() != Some(Role::Primary.name()) => Err(usage(format!(
+            "--role {role:?} for {}: it's the primary, whose role is primary (--primary chooses another)",
+            label(primary)
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// The drive `--primary` names among `drives`, if it's given.
@@ -680,6 +741,10 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let player_names = by_drive(&args.player_names, &drives, "--player-name")?;
     let roots: Vec<PathBuf> = drives.iter().map(|d| d.root.clone()).collect();
     let given = given_primary(args.primary.as_deref(), &drives)?;
+    // Refused before anything is written when the primary is known by now.
+    if let Some(primary) = given.or((drives.len() == 1 || !asking).then(|| &drives[0])) {
+        no_role_for_primary(&roles, primary)?;
+    }
     let library = match args.library {
         Some(l) => l,
         None => s.ask("Name for your library", &default_library(&store, given, &drives)?)?,
@@ -738,7 +803,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         None if drives.len() == 1 || !asking => &drives[0],
         None => {
             for (i, d) in drives.iter().enumerate() {
-                say!("  {}. {}", i + 1, label(d));
+                say!("  {}. {}", i + 1, label_among(d, &drives));
             }
             let mut pick = None;
             while pick.is_none() {
@@ -748,6 +813,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             pick.expect("chosen")
         }
     };
+    no_role_for_primary(&roles, primary)?;
     let mut chosen: Vec<(&DeviceInfo, String)> = vec![(primary, "primary".into())];
     // Run again, setup keeps the roles drives have unless told otherwise.
     let registry = store.drives()?;
@@ -755,7 +821,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let had = d.id.and_then(|id| registry.get(&id)).and_then(|r| r.role).filter(|r| *r != Role::Primary);
         let default = roles.get(&d.root).cloned().unwrap_or_else(|| had.map_or("backup", Role::name).to_string());
         let role = loop {
-            let a = s.ask(&format!("Role for {} (backup, set or archive)", label(d)), &default)?;
+            let a = s.ask(&format!("Role for {} (backup, set or archive)", label_among(d, &drives)), &default)?;
             match role_arg(&a) {
                 Ok(r) => break r,
                 Err(e) if s.asking => output::warn(e),
@@ -916,7 +982,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let mut plans: Vec<Box<dyn AnyPlanned>> = Vec::new();
         for d in &drives {
             let req = api::SetContact { drive: d.root.display().to_string(), contact: contact.clone(), playlist };
-            plans.extend(plan_for(&mut s, d, "contact details", api::drive_contact_plan(&req))?);
+            plans.extend(plan_for(&mut s, d, "contact details", api::drive_contact_plan(&req, ctx))?);
         }
         s.apply("contact", "Write them?", plans)?;
     }
@@ -931,7 +997,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     };
     let models: Vec<String> = models.split(',').map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
     if !models.is_empty() {
-        match api::players_set_plan(&store, &api::SetPlayers { models, library: None }) {
+        match api::players_set_plan(Some(&store), &api::SetPlayers { models, library: None }) {
             Ok(plan) => {
                 s.apply("players", "Remember them?", vec![Box::new(plan)])?;
             }

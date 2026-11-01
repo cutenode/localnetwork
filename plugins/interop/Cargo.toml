@@ -1,0 +1,28 @@
+[package]
+name = "locallibrary-plugin-interop"
+description = "locallibrary's exports for other DJ software, as a plugin: Traktor's collection.nml, Serato crates (and cue tags in copies of the audio), a new Engine DJ library and rekordbox XML; and Traktor's collection.nml read back"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+fs4.workspace = true
+loclib-interop.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-model = { workspace = true, features = ["test-util"] }
+rusqlite.workspace = true
+
+[lints]
+workspace = true

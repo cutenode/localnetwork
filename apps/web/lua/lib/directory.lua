@@ -6,6 +6,12 @@
 
 local PROJECT = 'computer.localnetwork.project'
 
+local SET = 'computer.localnetwork.dj.set'
+
+local SHOW = 'computer.localnetwork.show'
+
+local FOLLOW = 'computer.localnetwork.follow'
+
 -- The mean Earth radius the app's distances have always used.
 local EARTH_RADIUS_KM = 6371.0088
 
@@ -74,6 +80,43 @@ local function meters(km)
 	return math.floor(km * 1000 + 0.5)
 end
 
+-- A lat/lng box around every point within `radiusKm` of `center`, for a cheap SQL prefilter before exact distances.
+local function boundingBox(center, radiusKm)
+	local latDelta = radiusKm / 111.32
+	local lngDelta = center.cos < 1e-6 and 180 or math.min(180, radiusKm / (111.32 * center.cos))
+	return {
+		minLat = math.max(-90, center.lat - latDelta),
+		maxLat = math.min(90, center.lat + latDelta),
+		minLng = center.lng - lngDelta,
+		maxLng = center.lng + lngDelta,
+	}
+end
+
+-- An SQL condition keeping the latE6 and lngE6 under `location` (a JSON path into `column`) inside a boundingBox
+-- around `center`, and its placeholders' values. A box that crosses the antimeridian takes longitudes on both sides.
+local function withinBox(center, radiusKm, column, location)
+	local box = boundingBox(center, radiusKm)
+	local lat = 'json_extract(' .. column .. ", '" .. location .. ".latE6')"
+	local lng = 'json_extract(' .. column .. ", '" .. location .. ".lngE6')"
+	local clause = lat .. ' BETWEEN ? AND ?'
+	local values = { math.floor(box.minLat * 1e6), math.ceil(box.maxLat * 1e6) }
+	local ranges = { { box.minLng, box.maxLng } }
+	if box.maxLng - box.minLng >= 360 then
+		return clause, values
+	elseif box.minLng < -180 then
+		ranges = { { box.minLng + 360, 180 }, { -180, box.maxLng } }
+	elseif box.maxLng > 180 then
+		ranges = { { box.minLng, 180 }, { -180, box.maxLng - 360 } }
+	end
+	local either = {}
+	for i, range in ipairs(ranges) do
+		either[i] = lng .. ' BETWEEN ? AND ?'
+		values[#values + 1] = math.floor(range[1] * 1e6)
+		values[#values + 1] = math.ceil(range[2] * 1e6)
+	end
+	return clause .. ' AND (' .. table.concat(either, ' OR ') .. ')', values
+end
+
 -- Records ---------------------------------------------------------------------------------------------------------
 
 -- The root account's project records, as projectViews ({ uri, cid, record }), narrowed by `where` (SQL starting
@@ -87,6 +130,211 @@ local function projects(where, args, order)
 	)
 	for _, row in ipairs(rows) do row.record = json.decode(row.record) end
 	return rows
+end
+
+-- A happyview_records row (uri, cid, and record JSON) as a recordView, its value as its record script stored it.
+local function recordView(row)
+	return { uri = row.uri, cid = row.cid, value = json.decode(row.record) }
+end
+
+-- A stored set's view fields (as JSON) as a setView, with `uri` and `cid`.
+local function setView(record, uri, cid)
+	local set = json.decode(record)
+	set.uri, set.cid = uri, cid
+	return set
+end
+
+-- SQL for a stored set's view fields: its record without the tracklist, who it was played with, where to listen and
+-- its event, which only the DJ sets block reads, the named tracks the support queries count, or the sources and
+-- createdAt only locallibrary reads (through getRecords).
+local SET_FIELDS = "json_remove(record, '$.tracks', '$.playedWith', '$.links', '$.recording', '$.event',"
+	.. " '$.namedTracks', '$.sources', '$.createdAt') AS record"
+
+-- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, tracklist,
+-- and named tracks. It keeps every account's, so only sets by accounts that manage one of the root's projects, in any
+-- status, are read here. Narrowed and sorted like projects(), with `order` required.
+local function sets(where, args, order)
+	local values = { SET, PROJECT, ROOT_DID }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	local rows = db.raw(
+		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records AS s WHERE s.collection = ?'
+			.. " AND s.did IN (SELECT m.value FROM happyview_records AS p, json_each(p.record, '$.managers') AS m"
+			.. ' WHERE p.collection = ? AND p.did = ?)'
+			.. where
+			.. order,
+		values
+	)
+	local out = {}
+	for i, row in ipairs(rows) do out[i] = setView(row.record, row.uri, row.cid) end
+	return toarray(out)
+end
+
+-- Shows -------------------------------------------------------------------------------------------------------------
+
+-- SQL (starting with ' AND ') for a show, aliased s, that hasn't ended. One without an end stays on for 12 hours after
+-- it starts, through the night. datetime() reads each time's UTC offset, so this compares instants.
+local UPCOMING = " AND coalesce(datetime(json_extract(s.record, '$.endsAt')),"
+	.. " datetime(json_extract(s.record, '$.startsAt'), '+12 hours')) > datetime('now')"
+
+-- The FROM and WHERE of showRows and showCount.
+local SHOWS_FROM = " FROM happyview_records s JOIN happyview_records p ON p.uri = json_extract(s.record, '$.project')"
+	.. " WHERE s.collection = ? AND p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'"
+	.. " AND EXISTS (SELECT 1 FROM json_each(p.record, '$.managers') WHERE value = s.did)"
+
+-- Shows (aliased s) by a current manager of the active root project they name (aliased p), narrowed by `where` (SQL
+-- starting with ' AND ') and followed by `order` (ORDER BY and LIMIT, or ''), their placeholders filled from `args`.
+-- Each row has the show's uri, cid, and record JSON, its latE6 and lngE6, and the project's projectUri, projectCid,
+-- and project JSON, so callers decode only the rows they return.
+local function showRows(where, args, order)
+	local values = { SHOW, PROJECT, ROOT_DID }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	return db.raw(
+		'SELECT s.uri, s.cid, s.record,'
+			.. " json_extract(s.record, '$.location.latE6') AS latE6, json_extract(s.record, '$.location.lngE6') AS lngE6,"
+			.. ' p.uri AS projectUri, p.cid AS projectCid, p.record AS project'
+			.. SHOWS_FROM
+			.. where
+			.. order,
+		values
+	)
+end
+
+-- How many shows showRows would return for `where` and `args`, without reading them.
+local function showCount(where, args)
+	local values = { SHOW, PROJECT, ROOT_DID }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	return db.raw('SELECT count(*) AS n' .. SHOWS_FROM .. where, values)[1].n
+end
+
+-- A showRows row as a showView, `km` from the searched place when there was one.
+local function showView(row, km)
+	return {
+		uri = row.uri,
+		cid = row.cid,
+		record = json.decode(row.record),
+		project = { uri = row.projectUri, cid = row.projectCid, record = json.decode(row.project) },
+		distanceM = km and meters(km),
+	}
+end
+
+-- Supports --------------------------------------------------------------------------------------------------------
+
+-- How the support queries count, after 1001Tracklists' Top 101 Producers: a DJ supports a track once however often
+-- they play it, an artist gets at most 5 supports from one DJ, and a track charts once 3 DJs support it. A DJ is an
+-- act: a project, so a crew whose managers each publish the same gig counts once.
+local MAX_SUPPORTS_PER_DJ = 5
+
+local MIN_DJS_TO_CHART = 3
+
+local UUID = '^' .. string.rep('%x', 8) .. string.rep('%-' .. string.rep('%x', 4), 3) .. '%-'
+	.. string.rep('%x', 12) .. '$'
+
+-- Like the record script's normalize(), which made the keys these queries compare against. ASCII-only lowercasing,
+-- as Lua has no Unicode case tables, so "Ä" and "ä" stay two names.
+local function normalize(name)
+	return (name:lower():gsub('%s+', ' '):match('^ ?(.-) ?$'))
+end
+
+-- A MusicBrainz ID param (`mbid:<uuid>` or the bare UUID) as the bare lowercase UUID the record script stores, or
+-- nil when it isn't one.
+local function mbid(value)
+	return (value:lower():gsub('^mbid:', '')):match(UUID)
+end
+
+-- The accounts that manage an active root project, each with their act: the first such project (by URI), so a
+-- crew's managers count as one DJ. Checked on every query, since the record script only checks when a set arrives.
+-- Its placeholders are the project collection and the root DID.
+local DJS = [[djs AS MATERIALIZED (
+	SELECT m.value AS did, min(p.uri) AS act FROM happyview_records AS p, json_each(p.record, '$.managers') AS m
+	WHERE p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'
+	GROUP BY m.value
+)]]
+
+-- Every named track of the current DJs' sets as a play: a row per play and artist it credits, with the track and
+-- the artist it counts for. A track is its recording MBID, else its ISRC, else its credit and title; an artist is
+-- their MBID, else their name. A play without an ID takes the one other plays have when only one fits (an ISRC's
+-- recording, a title's recording or ISRC, a name's artist), so sets published before their writer filled in IDs
+-- count with the ones after. It reads every set each time, which is why each query builds it once (MATERIALIZED).
+-- Each set's named tracks are pulled out of its record once, and each play keeps its track's JSON (`track`), since
+-- going back to a record for a track means SQLite parsing the whole record, tracklist and all, again: dozens of
+-- times slower over long sets. playsArgs() gives its placeholders.
+local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
+	SELECT s.uri, s.did, d.act, json_extract(s.record, '$.namedTracks') AS named,
+		json_extract(s.record, '$.date') AS date,
+		json_extract(s.record, '$.location.locality') AS city, upper(json_extract(s.record, '$.location.country')) AS country
+	FROM happyview_records AS s JOIN djs AS d ON d.did = s.did WHERE s.collection = ?
+), credits AS MATERIALIZED (
+	SELECT s.uri AS setUri, t.key AS position, s.did, s.act, s.date, s.city, s.country,
+		json_extract(t.value, '$.startSeconds') AS startSeconds, json_extract(t.value, '$.recordingMbId') AS mbid,
+		json_extract(t.value, '$.isrc') AS isrc, json_extract(t.value, '$.key') AS name,
+		json_extract(a.value, '$.artistMbId') AS artistMbid, json_extract(a.value, '$.key') AS artistKey,
+		json_extract(a.value, '$.artistName') AS artistName, t.value AS track
+	FROM sets AS s, json_each(s.named) AS t, json_each(t.value, '$.artists') AS a
+), isrcMbids AS (
+	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
+	GROUP BY isrc HAVING count(DISTINCT mbid) = 1
+), nameMbids AS (
+	SELECT name, min(mbid) AS mbid FROM credits WHERE mbid IS NOT NULL GROUP BY name HAVING count(DISTINCT mbid) = 1
+), nameIsrcs AS (
+	SELECT name, min(isrc) AS isrc FROM credits WHERE isrc IS NOT NULL GROUP BY name HAVING count(DISTINCT isrc) = 1
+), artistMbids AS (
+	SELECT artistKey, min(artistMbid) AS mbid FROM credits WHERE artistMbid IS NOT NULL
+	GROUP BY artistKey HAVING count(DISTINCT artistMbid) = 1
+), plays AS MATERIALIZED (
+	SELECT c.setUri, c.position, c.did, c.act, c.date, c.city, c.country, c.startSeconds, c.artistKey, c.artistName,
+		c.track,
+		coalesce(
+			'mbid:' || coalesce(c.mbid, i.mbid, CASE WHEN c.isrc IS NULL OR ni.isrc = c.isrc THEN n.mbid END),
+			'isrc:' || coalesce(c.isrc, ni.isrc),
+			'name:' || c.name
+		) AS trackId,
+		coalesce('mbid:' || coalesce(c.artistMbid, am.mbid), 'name:' || c.artistKey) AS artistId
+	FROM credits AS c
+	LEFT JOIN isrcMbids AS i ON i.isrc = c.isrc
+	LEFT JOIN nameMbids AS n ON n.name = c.name
+	LEFT JOIN nameIsrcs AS ni ON ni.name = c.name
+	LEFT JOIN artistMbids AS am ON am.artistKey = c.artistKey
+)]]
+
+-- PLAYS' placeholders, then `...`.
+local function playsArgs(...)
+	local args = { PROJECT, ROOT_DID, SET }
+	for _, arg in ipairs({ ... }) do args[#args + 1] = arg end
+	return args
+end
+
+-- Continues PLAYS, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it by supports:
+-- each act's distinct tracks of theirs, at most MAX_SUPPORTS_PER_DJ, summed; its placeholder is the limit) and
+-- `artistNames` (each one's name as plays credit it most).
+local function rankArtists(source)
+	return ', perAct AS (SELECT artistId, act, min(count(DISTINCT trackId), ' .. MAX_SUPPORTS_PER_DJ .. ') AS n'
+		.. ' FROM ' .. source .. ' GROUP BY artistId, act)'
+		.. ', topArtists AS (SELECT artistId, sum(n) AS supports, count(*) AS djCount FROM perAct GROUP BY artistId'
+		.. ' ORDER BY supports DESC, djCount DESC, artistId LIMIT ?)'
+		.. ', artistNames AS (SELECT artistId, artistName FROM (SELECT artistId, artistName,'
+		.. ' row_number() OVER (PARTITION BY artistId ORDER BY count(*) DESC, max(date) DESC, artistName) AS rank'
+		.. ' FROM plays WHERE artistId IN (SELECT artistId FROM topArtists) GROUP BY artistId, artistName)'
+		.. ' WHERE rank = 1)'
+end
+
+local function artistView(row)
+	return { name = row.name, mbid = row.id:match('^mbid:(.+)$'), supports = row.supports, djCount = row.djCount }
+end
+
+-- A track (JSON, as a set has it) as a trackView, with its id and `supports`.
+local function trackView(id, encoded, supports)
+	local track = json.decode(encoded)
+	local artists = {}
+	for i, artist in ipairs(track.artists) do artists[i] = { name = artist.artistName, mbid = artist.artistMbId } end
+	return {
+		id = id,
+		title = track.title,
+		artist = track.artist,
+		artists = toarray(artists),
+		recordingMbId = id:match('^mbid:(.+)$'),
+		isrc = id:match('^isrc:(.+)$') or track.isrc,
+		supports = supports
+	}
 end
 
 -- Genres ----------------------------------------------------------------------------------------------------------
@@ -155,4 +403,131 @@ local function similarities(wanted)
 		if value > 0 then out[genre] = value end
 	end
 	return out
+end
+
+-- Performers ------------------------------------------------------------------------------------------------------
+
+-- searchProjects and searchPerformers filter and rank a performer, a project's profile or a DJ's, by what both have:
+-- name, tagline, bio, lookingFor, highlights, genres, formats, setTypes, and location (which a DJ can leave out).
+
+-- Up to 8 lowercase words from `q`. UTF-8 bytes count as word characters, so accented words stay whole.
+local function terms(q)
+	local out = {}
+	for term in q:lower():gmatch('[%w\128-\255]+') do
+		out[#out + 1] = term
+		if #out == 8 then break end
+	end
+	return out
+end
+
+-- `value` as lowercase words, each preceded by a space, so ' ' .. term finds a word starting with term.
+local function words(value)
+	return ' ' .. value:lower():gsub('[^%w\128-\255]+', ' ')
+end
+
+local find, concat = string.find, table.concat
+
+-- How well a performer matches `needles` (' ' .. term each), weighting fields like the old full-text index did
+-- (name 10, tagline 4, about 1, genres 6, place 3) for every term found. nil when some term matches nowhere. It runs
+-- for every performer a search's words prefilter keeps, so it's written out field by field, without tables.
+local function relevance(performer, needles)
+	local location = performer.location or {}
+	local name, tagline = words(performer.name), words(performer.tagline or '')
+	local about = words((performer.bio or '') .. ' ' .. (performer.lookingFor or '') .. ' '
+		.. concat(performer.highlights or {}, ' '))
+	local genres = words(concat(performer.genres, ' '))
+	local place = words((location.city or '') .. ' ' .. (location.region or '') .. ' ' .. (location.country or ''))
+	local total = 0
+	for i = 1, #needles do
+		local needle = needles[i]
+		local found = (find(name, needle, 1, true) and 10 or 0) + (find(tagline, needle, 1, true) and 4 or 0)
+			+ (find(about, needle, 1, true) and 1 or 0) + (find(genres, needle, 1, true) and 6 or 0)
+			+ (find(place, needle, 1, true) and 3 or 0)
+		if found == 0 then return nil end
+		total = total + found
+	end
+	return total
+end
+
+-- True when nothing is wanted or `offered` (a list, maybe missing) shares a value with `wanted`.
+local function overlaps(wanted, offered)
+	if #wanted == 0 then return true end
+	for _, value in ipairs(offered or {}) do
+		if contains(wanted, value) then return true end
+	end
+	return false
+end
+
+-- An SQL condition keeping records with a fee level (the objects at `fees`, a JSON path into `column`) in one of
+-- `tiers`, or whose one fee from before fee levels (at `legacy`, when given) is, and its placeholders' values.
+local function inFeeTiers(column, fees, tiers, legacy)
+	local inTiers, values = ' IN (' .. marks(#tiers) .. ')', table.move(tiers, 1, #tiers, 1, {})
+	local clause = 'EXISTS (SELECT 1 FROM json_each(' .. column .. ", '" .. fees .. "')"
+		.. " WHERE json_extract(value, '$.tier')" .. inTiers .. ')'
+	if not legacy then return clause, values end
+	table.move(tiers, 1, #tiers, #tiers + 1, values)
+	return '(' .. clause .. ' OR json_extract(' .. column .. ", '" .. legacy .. ".tier')" .. inTiers .. ')', values
+end
+
+-- The filters SQL can't apply, short of distance and search words, from the genres, formats and setTypes params: a
+-- function saying whether a performer plays one of those genres or a close subgenre, and has one of those formats
+-- and set types, each only when the params ask for any.
+local function performerFilter(params)
+	local close = {}
+	for _, want in ipairs(normalizeGenres(list(params.genres, 20), 20)) do
+		for genre, value in pairs(similarities(want)) do
+			if value >= 0.6 then close[genre] = true end
+		end
+	end
+	local wantsGenres = next(close) ~= nil
+	local formats, setTypes = list(params.formats, 10), list(params.setTypes, 10)
+	return function(performer)
+		if not (overlaps(formats, performer.formats) and overlaps(setTypes, performer.setTypes)) then return false end
+		if not wantsGenres then return true end
+		for _, genre in ipairs(normalizeGenres(performer.genres, 12)) do
+			if close[genre] then return true end
+		end
+		return false
+	end
+end
+
+-- How a search sorts: as the sort param says, else by relevance with search words, by distance from a place, or
+-- newest first.
+local function searchSort(params, needles, near)
+	return text(params.sort) or (#needles > 0 and 'relevance') or (near and 'distance') or 'recent'
+end
+
+-- Sorts search results ({ view, km, rank, i }, in order by name or newest first, which `i` numbers) by relevance (when
+-- there were search words) or distance when `sort` asks, ties keeping that order, and returns a page of their views,
+-- the total, and the next cursor.
+local function searchPage(items, sort, params, needles)
+	if sort == 'relevance' and #needles > 0 then
+		-- Relevance is a small whole number, so grouping by it sorts in one pass, each group in order, where a
+		-- comparison sort would cost thousands of instructions more per page.
+		local groups, top = {}, 0
+		for _, item in ipairs(items) do
+			local group = groups[item.rank]
+			if not group then
+				group = {}
+				groups[item.rank], top = group, math.max(top, item.rank)
+			end
+			group[#group + 1] = item
+		end
+		items = {}
+		for rank = top, 1, -1 do
+			for _, item in ipairs(groups[rank] or {}) do items[#items + 1] = item end
+		end
+	elseif sort == 'distance' then
+		table.sort(items, function(a, b)
+			local x, y = a.km or math.huge, b.km or math.huge
+			if x ~= y then return x < y end
+			return a.i < b.i
+		end)
+	end
+	local limit = pageSize(params.limit, 24, 60)
+	local offset = tonumber(text(params.cursor) or '')
+	offset = math.type(offset) == 'integer' and offset > 0 and offset or 0
+	local page = {}
+	for i = offset + 1, math.min(#items, offset + limit) do page[#page + 1] = items[i].view end
+	return toarray(page), #items, offset + limit < #items and tostring(offset + limit) or nil
 end

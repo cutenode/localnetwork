@@ -1,5 +1,5 @@
 //! Analysing a minute of a 16-bit stereo WAV: at 44.1 kHz (the analyzer's own rate) and at 48 kHz
-//! (resampled for it), each measurement alone and both from one decode.
+//! (resampled for it), each measurement alone and all three from one decode.
 
 use std::f64::consts::PI;
 use std::hint::black_box;
@@ -35,8 +35,9 @@ fn bench(c: &mut Criterion) {
         let path = dir.path().join(format!("{rate}.wav"));
         std::fs::write(&path, wav_of(rate, 16, kick_track(rate).into_iter())).unwrap();
         let wants = [
-            ("estimate", Want { estimate: true, loudness: false }),
-            ("loudness", Want { estimate: false, loudness: true }),
+            ("estimate", Want { estimate: true, loudness: false, waveform: false }),
+            ("loudness", Want { estimate: false, loudness: true, waveform: false }),
+            ("waveform", Want { estimate: false, loudness: false, waveform: true }),
             ("all", Want::ALL),
         ];
         for (name, want) in wants {

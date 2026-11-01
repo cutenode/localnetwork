@@ -1,4 +1,4 @@
-use locallibrary::check::{CheckItem, DrivePlayers, PlayersFrom, Unloadable};
+use locallibrary::check::{CheckItem, DrivePlayers, Finding, PlayersFrom, Unloadable};
 use locallibrary::model::TrackRef;
 
 use super::super::app::testing::{app_on, app_with, blank, demo_drive, fleet, last_message, library, wait};
@@ -45,8 +45,9 @@ fn a_checks_report_says_how_it_went_problems_first() {
         players(&["CDJ-2000NXS2"], PlayersFrom::Default),
         players(&[], PlayersFrom::None),
     ];
-    let item = |level, message: &str| CheckItem { drive: "DNA".into(), check: "x", level, message: message.into() };
-    r.items = vec![item(CheckLevel::Ok, "the export reads"), item(CheckLevel::Problem, "2 tracks missing")];
+    let item =
+        |level, message: &str| CheckItem { drive: "DNA".into(), finding: Finding::new(level, "x", message), fix: None };
+    r.items = vec![item(CheckLevel::Info, "the export reads"), item(CheckLevel::Problem, "2 tracks missing")];
     r.unloadable = vec![Unloadable {
         drive: "DNA".into(),
         player: "CDJ-2000NXS2".into(),
@@ -81,9 +82,6 @@ fn a_drives_commands_need_a_drive() {
     app.perform(Act::Pack, None);
     assert_eq!(last_message(&app), "open the drive to pack from in the library first");
     app.perform(Act::ExportList, None);
-    assert_eq!(last_message(&app), "open a drive first");
-    app.toast = None;
-    app.perform(Act::ExportXml, None);
     assert_eq!(last_message(&app), "open a drive first");
 }
 
@@ -229,13 +227,10 @@ fn exporting_asks_where() {
         Some(Modal::Prompt(p)) => (p.label, p.text),
         _ => panic!("no prompt: {}", last_message(app)),
     };
-    app.export_xml();
-    assert_eq!(asked(&mut app), ("rekordbox XML of the drive to".into(), "~/Music/DEMO.xml".into()));
-    app.list_marks = vec!["A".into(), "B".into()];
-    app.export_xml();
-    assert_eq!(asked(&mut app).0, "rekordbox XML of the 2 marked playlists to");
+    app.export_list();
+    assert_eq!(asked(&mut app), ("Export to (.m3u8, .csv or .txt)".into(), "~/Music/DEMO.m3u8".into()));
 
-    app.write_export(root, "  ", Export::List(ExportOf::Everything));
+    app.write_export(root, "  ", ExportOf::Everything);
     assert_eq!(last_message(&app), "say where: a file name");
 }
 
@@ -279,20 +274,20 @@ fn the_list_shown_is_the_one_acted_on() {
 #[hegel::test(test_cases = 200)]
 fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    let drives: Vec<String> = ["DNA", "SD", "USB"][..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))]
+    let names = ["DNA", "SD", "USB"];
+    let drives: Vec<String> = names[..tc.draw(gs::integers::<usize>().min_value(1).max_value(names.len()))]
         .iter()
         .map(|d| d.to_string())
         .collect();
-    let pick = |tc: &hegel::TestCase| drives[tc.draw(gs::integers::<usize>().max_value(drives.len() - 1))].clone();
-    let levels = [CheckLevel::Ok, CheckLevel::Warning, CheckLevel::Problem];
+    let pick = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(&drives[..]));
+    let levels = [CheckLevel::Info, CheckLevel::Warning, CheckLevel::Problem];
     let mut r = report(tc.draw(gs::integers::<usize>().max_value(3)), tc.draw(gs::integers::<usize>().max_value(3)));
     r.drives = drives.clone();
     r.items = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|i| CheckItem {
             drive: pick(&tc),
-            check: "x",
-            level: levels[tc.draw(gs::integers::<usize>().max_value(2))],
-            message: format!("item {i}"),
+            finding: Finding::new(tc.draw(gs::sampled_from(&levels[..])), "x", format!("item {i}")),
+            fix: None,
         })
         .collect();
     r.unloadable = (0..tc.draw(gs::integers::<usize>().max_value(2)))
@@ -349,7 +344,7 @@ fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
 /// export reads it, on one without says so.
 #[hegel::test(test_cases = 200)]
 fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (main, backup) = (Uuid::from_u128(1), Uuid::from_u128(2));
     let (mut app, dir) = blank(View::Drives);
     // (The jobs planned are dropped: nothing waits for them.)
@@ -365,7 +360,7 @@ fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
                 library_id: if i < 2 {
                     Some(main)
                 } else {
-                    tc.draw(gs::sampled_from(&[Some(main), Some(backup), None][..]).print_as_debug())
+                    tc.draw(gs::sampled_from(&[Some(main), Some(backup), None][..]))
                 },
                 ..locallibrary::Device::open(&root).unwrap().info()
             }
@@ -478,8 +473,9 @@ fn acts_on_what_is_selected(app: &mut App, row: DriveRow, act: Act, known: bool,
 
 /// Exporting the list shown (every track, a playlist, a session, or a set: its tracks on the
 /// drive) asks where, starting from a file named for it in ~/Music; no name, or a place on the
-/// drive itself, is refused saying why; a file that's there is replaced only once that's agreed
-/// to; and what's written holds the tracks the list shows. A list of lists (Browse) isn't
+/// drive itself, is refused saying why, as is a place whose folder can't be made; a file that's
+/// there is replaced only once that's agreed to; and what's written holds the tracks the list
+/// shows. A list of lists (Browse) isn't
 /// exported.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
@@ -569,15 +565,26 @@ fn exports_the_list_shown(
         std::fs::create_dir_all(out.parent().unwrap()).unwrap();
         std::fs::write(&out, "mine").unwrap();
     }
-    p.text = match tc.draw(gs::integers::<u8>().max_value(3)) {
+    // A file where its folder would go.
+    let blocked = dir.join(format!("blocked{k}"));
+    p.text = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => " ".into(),
         1 => root.join("list.m3u8").display().to_string(),
+        4 => {
+            std::fs::write(&blocked, "a file").unwrap();
+            blocked.join("list.m3u8").display().to_string()
+        }
         _ => out.display().to_string(),
     };
     let typed = p.text.clone();
     press(app, "\n");
     if typed.trim().is_empty() {
         return assert_eq!(last_message(app), "say where: a file name");
+    }
+    if blocked.is_file() {
+        wait(app, |a| a.job.is_none());
+        assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(app));
+        return assert!(last_message(app).contains(&blocked.display().to_string()), "{}", last_message(app));
     }
     if typed.starts_with(&root.display().to_string()) {
         assert_eq!(last_message(app), "not onto the drive: somewhere on this computer");
@@ -604,21 +611,17 @@ fn exports_the_list_shown(
 /// in the tree; the crate's tracks from this drive; what went on last time), then asks onto which
 /// drive (not this one, and only when one's plugged in) unless it was picked; the crate is saved
 /// as a playlist first, named. A drive's other commands need a drive, a playlist to bring back
-/// is guessed from the one shown, rekordbox XML of the marked playlists says how many, and a
-/// session is exported by its name.
+/// is guessed from the one shown, rekordbox XML (the interop plugin's) takes the marked
+/// playlists, and a session is exported by its name.
 #[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     use super::super::app::testing::{key, press};
     use hegel::generators as gs;
     let (mut app, _dir, root) = demo_app();
     let lib = app.loaded.as_ref().unwrap().library.clone();
-    let marks: Vec<String> = lib
-        .playlists
-        .iter()
-        .filter(|p| !p.is_folder)
-        .map(|p| lib.playlist_path(p.id))
-        .filter(|_| tc.draw(gs::booleans()))
-        .collect();
+    let marks = tc.draw(gs::subsequences(
+        lib.playlists.iter().filter(|p| !p.is_folder).map(|p| lib.playlist_path(p.id)).collect::<Vec<_>>(),
+    ));
     app.list_marks = marks.clone();
     let shown = lib.playlists.iter().find(|p| !p.is_folder).map(|p| p.id).filter(|_| tc.draw(gs::booleans()));
     let l = app.loaded.as_mut().unwrap();
@@ -675,15 +678,11 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
     // those), and a playlist to bring back guessed from the tree.
     let xml_of = |app: &mut App, marks: &[String]| {
         app.list_marks = marks.to_vec();
-        app.perform(Act::ExportXml, None);
-        let Some(Modal::Prompt(p)) = app.modal.take() else { panic!("no prompt") };
-        let n = marks.len();
-        let want = if n == 0 {
-            "rekordbox XML of the drive to".to_string()
-        } else {
-            format!("rekordbox XML of the {n} marked playlist{} to", if n == 1 { "" } else { "s" })
-        };
-        assert_eq!(p.label, want);
+        app.perform(Act::Export("interop", "rekordbox", loclib_plugin::ExportFrom::Drive), None);
+        let Some(Modal::Form(f)) = app.modal.take() else { panic!("no form: {}", last_message(app)) };
+        assert!(f.fields[0].text.ends_with(".xml"), "{}", f.fields[0].text);
+        let super::super::form::For::Export { playlists, .. } = f.then else { panic!("not an export") };
+        assert_eq!(playlists, marks);
     };
     xml_of(&mut app, &marks);
     let (mut more, _more_dir) = app_with(library());
@@ -714,11 +713,9 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
 
     // With no drive: each says one's needed.
     let (mut none, _store) = blank(View::Library);
-    for (act, says) in [
-        (Act::Check, "no drive: plug one in, or open one in the library"),
-        (Act::ExportList, "open a drive first"),
-        (Act::ExportXml, "open a drive first"),
-    ] {
+    for (act, says) in
+        [(Act::Check, "no drive: plug one in, or open one in the library"), (Act::ExportList, "open a drive first")]
+    {
         none.toast = None;
         none.perform(act, None);
         assert_eq!(last_message(&none), says);
@@ -735,18 +732,19 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
 /// it went.
 #[hegel::test(test_cases = 30)]
 fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     const FROM: [PlayersFrom; 4] = [PlayersFrom::Given, PlayersFrom::Library, PlayersFrom::Default, PlayersFrom::None];
     let mut r = report(0, 0);
+    let models = ["CDJ-3000", "XDJ-AZ"];
     // Every source once, then as drawn.
     r.players = (0..4 + tc.draw(gs::integers::<usize>().max_value(3)))
         .map(|i| DrivePlayers {
             drive: format!("D{i}"),
-            models: ["CDJ-3000", "XDJ-AZ"][..tc.draw(gs::integers::<usize>().max_value(2))]
+            models: models[..tc.draw(gs::integers::<usize>().max_value(models.len()))]
                 .iter()
                 .map(|m| m.to_string())
                 .collect(),
-            from: if i < 4 { FROM[i] } else { tc.draw(gs::sampled_from(&FROM[..]).print_as_debug()) },
+            from: if i < 4 { FROM[i] } else { tc.draw(gs::sampled_from(&FROM[..])) },
             library: None,
         })
         .collect();
@@ -779,4 +777,41 @@ fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
         );
         assert!(r.lines.iter().any(|(t, l)| *t == Tone::Heading && l == "DEMO"), "the drive's own part");
     }
+}
+
+/// Packing from a drive with marked playlists offers them first (and not the playlist shown),
+/// with what went on last time; onto the drive it's from, or none, it asks which drive (none
+/// plugged in here), and onto another it plans packing there, saying why it can't when that
+/// drive isn't one.
+#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
+    use super::super::app::testing::key;
+    use hegel::generators as gs;
+    let (mut app, dir) = app_with(library());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let source = app.loaded.as_ref().unwrap().root().to_path_buf();
+    let marks = tc.draw(gs::subsequences(lib.playlists.iter().map(|p| lib.playlist_path(p.id)).collect::<Vec<_>>()));
+    app.list_marks = marks.clone();
+    let other = dir.path().join("OTHER");
+    let onto = tc.draw(gs::sampled_from(&[None, Some(source.clone()), Some(other.clone())][..]));
+    app.pack(onto.clone());
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no picker: {}", last_message(&app)) };
+    let labels: Vec<String> = p.items.iter().map(|i| i.label.clone()).collect();
+    if marks.is_empty() {
+        assert!(!labels.iter().any(|l| l.starts_with("the marked")), "{labels:?}");
+    } else {
+        assert_eq!(
+            labels,
+            [format!("the marked playlists: {}", marks.join(", ")), "what the drive was packed with last time".into()]
+        );
+    }
+    assert_eq!(labels.last().map(String::as_str), Some("what the drive was packed with last time"));
+    key(&mut app, ratatui::crossterm::event::KeyCode::Enter);
+    if onto.as_ref() != Some(&other) {
+        return assert_eq!(last_message(&app), "plug in the drive to pack onto");
+    }
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(&app));
+    assert!(last_message(&app).contains("OTHER"), "{}", last_message(&app));
 }

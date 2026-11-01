@@ -1,6 +1,7 @@
 {
 	"name": "localnetwork-monorepo",
 	"private": true,
+	"license": "MIT",
 	"type": "module",
 	"scripts": {
 		"dev": "pnpm -r --parallel dev",
@@ -12,13 +13,17 @@
 		"lexicons:format": "oxfmt lexicons/computer",
 		"test": "pnpm -r test",
 		"knip": "pnpm -r knip",
-		"verify": "pnpm lexicons:format --check && pnpm -r verify"
+		"verify": "pnpm lexicons:format --check && pnpm -r verify",
+		"atstore": "pnpm -C packages/atstore assets"
 	},
 	"devDependencies": {
+		"@ast-grep/cli": "^0.51.0",
 		"@oxlint/plugins": "1.86.0",
 		"lefthook": "^2.1.16",
 		"oxfmt": "^0.71.0",
-		"oxlint": "1.86.0"
+		"oxlint": "1.86.0",
+		"railway": "^3.16.0",
+		"typescript": "^6.0.3"
 	},
 	"engines": {
 		"node": ">=24.12"

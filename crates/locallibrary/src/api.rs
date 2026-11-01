@@ -21,11 +21,11 @@ use uuid::Uuid;
 
 use crate::artwork::{self, Artwork};
 use crate::backup::{self, BackupInfo};
-use crate::clean;
 use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
 use crate::doctor::Databases;
+use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
 use crate::hash::Hash;
@@ -38,7 +38,6 @@ pub use crate::settings::BaseChange;
 use crate::settings::{self, DriveSettings, FlatSettings, SettingsProfile};
 use crate::store::{LibraryRecord, SnapshotInfo, Store, StoreStats};
 use crate::sync::{self, PullOptions, PullReport, PushOptions, SyncOptions, SyncPlan, SyncReport};
-use crate::xml::{self, XmlOptions, XmlReport};
 use crate::{Error, Result, fsutil};
 
 // ---------------------------------------------------------------------------------------------
@@ -48,7 +47,8 @@ use crate::{Error, Result, fsutil};
 static STORE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 thread_local! {
-    /// [`set_store_root`] for one thread: tests sharing a process each name their own store
+    /// [`set_store_root`] for one thread: a plugin's callbacks', the store of the host that
+    /// started it, and tests', sharing a process, each naming their own
     /// (`testing::store_root_on_this_thread`).
     pub(crate) static THREAD_STORE_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
@@ -67,6 +67,12 @@ pub fn set_store_root(root: PathBuf) {
     let _ = STORE_ROOT.set(root);
 }
 
+/// The store's folder [`set_store_root`] named (this thread's, for a plugin's callback and in
+/// tests), if it was named.
+pub fn store_root() -> Option<PathBuf> {
+    default_store_root()
+}
+
 /// The store whose registry drive lookups consult, if it exists.
 pub(crate) fn registry() -> Option<Store> {
     default_store_root().and_then(|r| Store::open(r).ok())
@@ -74,7 +80,7 @@ pub(crate) fn registry() -> Option<Store> {
 
 /// Mounted drives, plus registered drives still present at their last mount point (while
 /// [`device::volume_folders`] names folders, only those last seen inside one of them).
-fn known_drives(include_blank: bool) -> Vec<Device> {
+pub(crate) fn known_drives(include_blank: bool) -> Vec<Device> {
     let mut out = device::detect(include_blank);
     let folders: Option<Vec<PathBuf>> =
         device::volume_folders().map(|f| f.iter().map(|d| device::dunce_canonicalize(d)).collect());
@@ -94,6 +100,11 @@ fn known_drives(include_blank: bool) -> Vec<Device> {
     out
 }
 
+/// [`known_drives`] with a rekordbox library.
+fn mounted_exports() -> Vec<Device> {
+    known_drives(false).into_iter().filter(Device::has_export).collect()
+}
+
 /// Find what a command acting on a library means by `spec`: a drive by mount path, adopted name
 /// (case-insensitive), volume name or id prefix, or else a library's name, meaning its lead clone
 /// (see [`jobs::lead_clone`]). A bare word (no `/`, not starting with `.` or `~`) is a drive's
@@ -102,6 +113,12 @@ fn known_drives(include_blank: bool) -> Vec<Device> {
 /// where a `Backup/` folder is must not write there).
 pub fn resolve_drive(spec: &str) -> Result<Device> {
     resolve(spec, true, true)
+}
+
+/// [`resolve_drive`] for a name from somewhere less trusted (a plugin): a drive known here (by
+/// adopted name, volume name or id prefix) or a library's name, never a path or a folder.
+pub fn resolve_known_drive(spec: &str) -> Result<Device> {
+    found(find(spec, true, true, false)?)
 }
 
 /// [`resolve_drive`] for commands about one particular drive rather than its library (its role,
@@ -114,7 +131,7 @@ pub fn resolve_one_drive(spec: &str) -> Result<Device> {
 /// [`resolve_drive`] takes it): the library's drive group (see [`jobs::drive_group`]). `None`
 /// when it names a drive.
 pub fn library_clones(spec: &str) -> Result<Option<DriveGroup>> {
-    Ok(match find(spec, true, true)? {
+    Ok(match find(spec, true, true, true)? {
         Found::Drive(_) => None,
         Found::Library(_, group) => Some(group),
     })
@@ -128,7 +145,7 @@ pub fn expand_libraries(specs: &[String]) -> Result<(Vec<String>, Vec<String>)> 
     let (mut drives, mut left_out) = (Vec::new(), Vec::new());
     let (mut named, mut cloned): (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
     for spec in specs {
-        match find(spec, true, true)? {
+        match find(spec, true, true, true)? {
             Found::Drive(d) if cloned.iter().any(|c| c == d.root()) => {}
             Found::Drive(d) => {
                 named.push(d.root().to_path_buf());
@@ -152,7 +169,12 @@ pub fn expand_libraries(specs: &[String]) -> Result<(Vec<String>, Vec<String>)> 
 /// taken only as a path (`./Backup`): for erasing, where the label of an unrelated volume could
 /// match while the drive meant isn't plugged in. Without `libraries`, a library's name isn't taken.
 fn resolve(spec: &str, labels: bool, libraries: bool) -> Result<Device> {
-    match find(spec, labels, libraries)? {
+    found(find(spec, labels, libraries, true)?)
+}
+
+/// The drive what was found means: a library's lead clone.
+fn found(found: Found) -> Result<Device> {
+    match found {
         Found::Drive(d) => Ok(*d),
         Found::Library(store, group) => jobs::lead_clone(Some(&store), &group, &Ctx::silent()),
     }
@@ -165,8 +187,9 @@ enum Found {
     Library(Store, DriveGroup),
 }
 
-/// What `spec` names, as [`resolve`] takes it.
-fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
+/// What `spec` names, as [`resolve`] takes it. Without `folders`, neither a path nor a folder
+/// here is taken.
+fn find(spec: &str, labels: bool, libraries: bool, folders: bool) -> Result<Found> {
     let p = Path::new(spec);
     // A folder inside an export (e.g. `/Volumes/USB/Contents`) means the export's drive.
     let open = |p: &Path| match p.ancestors().skip(1).find(|a| crate::paths::is_export_root(a)) {
@@ -174,6 +197,11 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
         _ => Device::open(p),
     };
     let path_like = p.is_absolute() || spec.contains(['/', '\\']) || spec.starts_with(['.', '~']);
+    if path_like && !folders {
+        return Err(Error::invalid(format!(
+            "{spec:?} is a path: name a drive by its name or identity, or a library by its name"
+        )));
+    }
     if path_like && p.is_dir() {
         return open(p).map(|d| Found::Drive(Box::new(d)));
     }
@@ -196,8 +224,10 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
         let group = jobs::drive_group(Some(&store), Some(&library.name))?;
         return Ok(Found::Library(store, group));
     }
+    // A folder here is taken only when folders are.
+    let folder = folders && p.is_dir();
     match matches.len() {
-        0 if labels && p.is_dir() => open(p).map(|d| Found::Drive(Box::new(d))),
+        0 if labels && folder => open(p).map(|d| Found::Drive(Box::new(d))),
         0 => match others.iter().find(|d| labelled(d)) {
             Some(d) => Err(Error::invalid(format!(
                 "{spec:?} is the label of the volume at {}, not the name of a drive locallibrary adopted: give its path, or the disk's identifier",
@@ -205,7 +235,7 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
             ))),
             None => Err(jobs::unmatched_drive(spec, &others)),
         },
-        1 if p.is_dir() && !same(&matches[0]) => Err(Error::invalid(format!(
+        1 if folder && !same(&matches[0]) => Err(Error::invalid(format!(
             "{spec:?} is both a folder here and the drive at {}; give a path (./{spec}) or the drive's mount path",
             matches[0].root().display()
         ))),
@@ -1308,45 +1338,6 @@ pub fn merge_apply(req: &MergeRequest, ctx: &Ctx<'_>) -> Result<merge::MergeRepo
     merge_plan(req, ctx)?.apply(None, ctx)
 }
 // ---------------------------------------------------------------------------------------------
-// Clean
-// ---------------------------------------------------------------------------------------------
-
-/// The useless tracks (rekordbox's demo samples) a clean would remove, with their files.
-pub fn clean_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<clean::CleanPlan>> {
-    let d = resolve_drive(&req.drive)?;
-    let plan = clean::plan(&d, ctx)?;
-    let line = format!(
-        "remove {} track(s) and {} file(s) ({}) from {}",
-        plan.tracks.len(),
-        plan.files.len(),
-        bytes(plan.bytes),
-        d.name()
-    );
-    let (noop, warnings) = (plan.is_noop(), plan.warnings.clone());
-    Planned::new("clean", plan, ())
-        .line(line)
-        .warnings(warnings)
-        .destructive(!noop)
-        .noop(noop)
-        .touches(Touched::library(&d, true))
-        .reaching_clones(ctx)?
-        .guard(None)
-}
-
-impl Operation for clean::CleanPlan {
-    type Request = ();
-    type Report = clean::CleanReport;
-
-    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<clean::CleanReport> {
-        clean::apply(&planned.plan, &mut planned.drive(0)?, ctx)
-    }
-}
-
-/// Plan and apply a clean in one go, for callers that don't confirm (see [`clean_plan`]).
-pub fn clean_apply(req: &DriveRef, ctx: &Ctx<'_>) -> Result<clean::CleanReport> {
-    clean_plan(req, ctx)?.apply(None, ctx)
-}
-// ---------------------------------------------------------------------------------------------
 // Convert
 // ---------------------------------------------------------------------------------------------
 
@@ -1716,49 +1707,22 @@ pub struct SetArtwork {
     pub tracks: TrackSelector,
 }
 
-/// What setting artwork on tracks would do.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct ArtworkSetPlan {
-    pub drive: String,
-    pub root: PathBuf,
-    pub image: PathBuf,
-    /// The image's size, before it's scaled for the players.
-    pub width: u32,
-    pub height: u32,
-    pub tracks: Vec<TrackRef>,
-}
-
-pub fn artwork_set_plan(req: &SetArtwork) -> Result<Planned<ArtworkSetPlan>> {
+/// What setting artwork on tracks would do: the edit [`Edit::SetArtwork`] (see
+/// [`crate::artwork`]), planned as `edit.plan` plans it.
+pub fn artwork_set_plan(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let d = resolve_drive(&req.drive)?;
-    let library = d.library()?;
-    let ids = req.tracks.select_on(&d, &library)?;
-    let (width, height) = Artwork::from_path(&req.image)?.dimensions();
-    let tracks: Vec<TrackRef> = library.tracks_by_id(&ids).into_iter().map(TrackRef::from).collect();
-    let line = format!("set {} as the artwork of {} track(s) on {}", req.image.display(), tracks.len(), d.name());
-    let plan =
-        ArtworkSetPlan { drive: d.name(), root: d.root().into(), image: req.image.clone(), width, height, tracks };
-    Planned::new("art.set", plan, ())
-        .line(line)
-        .touches(Touched::library(&d, true))
-        .touches(Touched::path(&req.image, false, vec![op::Probe::Content(vec![String::new()])]))
-        .reaching_clones(&Ctx::silent())?
-        .guard(None)
-}
-
-impl Operation for ArtworkSetPlan {
-    type Request = ();
-    type Report = artwork::ArtworkReport;
-
-    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<artwork::ArtworkReport> {
-        let art = Artwork::from_path(&planned.plan.image)?;
-        let ids: Vec<u32> = planned.plan.tracks.iter().map(|t| t.id).collect();
-        artwork::set_on_drive(&mut planned.drive(0)?, &ids, &art, ctx)
-    }
+    let set = Edit::SetArtwork { tracks: req.tracks.clone(), image: artwork::ImageSource::Path(req.image.clone()) };
+    editing::planned_edit(
+        "art.set",
+        edit::plan(&d, &[set], &EditOptions::default(), ctx)?,
+        Touched::library(&d, true),
+        ctx,
+    )
 }
 
 /// Plan and set artwork in one go, for callers that don't confirm (see [`artwork_set_plan`]).
-pub fn artwork_set(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<artwork::ArtworkReport> {
-    artwork_set_plan(req)?.apply(None, ctx)
+pub fn artwork_set(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<EditReport> {
+    artwork_set_plan(req, ctx)?.apply(None, ctx)
 }
 
 pub fn artwork_missing(req: &DriveRef) -> Result<Vec<TrackRef>> {
@@ -1932,9 +1896,7 @@ pub fn artwork_unembed_plan(store: &Store, req: &UnembedRequest) -> Result<Plann
     let (mut restored, mut skipped) = (Vec::new(), Vec::new());
     for f in &backup.files {
         match std::fs::metadata(&f.path) {
-            Ok(m) if m.len() == f.size && fsutil::mtime_eq(fsutil::mtime_secs(&m), f.mtime) => {
-                restored.push(f.path.clone())
-            }
+            Ok(m) if f.unchanged(&m) => restored.push(f.path.clone()),
             Ok(_) => skipped.push(Skip::new(f.path.display().to_string(), "changed since the art went in")),
             Err(_) => skipped.push(Skip::new(f.path.display().to_string(), "gone")),
         }
@@ -2073,39 +2035,6 @@ pub fn format_apply(store_root: &Path, req: &FormatApply, ctx: &Ctx<'_>) -> Resu
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// XML
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct ExportXml {
-    pub drive: String,
-    pub output: PathBuf,
-    #[serde(default)]
-    pub location_root: Option<PathBuf>,
-    #[serde(default)]
-    pub skip_analysis: bool,
-    /// Only these playlists and folders, and their tracks.
-    #[serde(default)]
-    pub only: Vec<String>,
-    /// Replace a file already at `output` (refused otherwise).
-    #[serde(default)]
-    pub replace: bool,
-}
-
-pub fn export_xml(req: &ExportXml, ctx: &Ctx<'_>) -> Result<XmlReport> {
-    fsutil::refuse_to_replace(&[&req.output], req.replace)?;
-    let d = resolve_drive(&req.drive)?;
-    let opts = XmlOptions {
-        location_root: req.location_root.clone(),
-        skip_analysis: req.skip_analysis,
-        only: req.only.clone(),
-    };
-    let (text, report) = xml::export(&d, &opts, ctx)?;
-    fsutil::write_atomic(&req.output, text.as_bytes())?;
-    Ok(report)
-}
-
 mod drives;
 mod editing;
 pub use drives::*;
@@ -2150,8 +2079,6 @@ mod snapshots;
 pub use snapshots::*;
 mod collection;
 pub use collection::*;
-mod interop;
-pub use interop::*;
 #[cfg(feature = "account")]
 mod publish;
 #[cfg(feature = "account")]
@@ -2168,3 +2095,5 @@ mod tui;
 pub use tui::*;
 mod sidecar;
 pub use sidecar::*;
+mod settings_file;
+pub use settings_file::*;

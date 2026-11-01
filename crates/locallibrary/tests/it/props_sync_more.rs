@@ -10,6 +10,7 @@ use std::path::Path;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
+use locallibrary::Error;
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::paths;
@@ -77,7 +78,8 @@ fn a_pull_the_store_cant_take_as_it_is_says_how_to_go_on(tc: TestCase) {
 
 /// Which snapshot a push writes to a drive: its own library's newest; for a drive linked to no
 /// library, the only library's, or with several, the one named (else it asks which); none in an
-/// empty store, or by a name the store doesn't have.
+/// empty store, by a name the store doesn't have, from a library without snapshots, or for a
+/// drive linked to a library the store doesn't have.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_push_takes_the_library_it_can(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -109,7 +111,7 @@ fn a_push_takes_the_library_it_can(tc: TestCase) {
     }
     let head = |name: &str| store.find_library(name).unwrap().unwrap().head;
     // A drive pulled into a library pushes that one's newest.
-    let linked = tc.draw(gs::integers::<usize>().max_value(1));
+    let linked = tc.draw(gs::integers::<usize>().max_value(drives.len() - 1));
     let own = resolve(&Device::open_export(&drives[linked]).unwrap(), None).unwrap();
     assert_eq!(Some(own.id), head(&names[linked]));
     for named in [None, Some("Library 0"), Some("library 1"), Some("Nope")] {
@@ -123,6 +125,17 @@ fn a_push_takes_the_library_it_can(tc: TestCase) {
             (Ok(s), None) => panic!("{s:?} picked from two libraries"),
         }
     }
+    // A library nothing was pulled into has nothing to push, and a store without the library a
+    // drive is linked to doesn't pick another for it.
+    let empty = store.create_library(&format!("Empty {}", tc.draw(gs::integers::<u8>()))).unwrap();
+    let e = resolve(&blank, Some(&empty.name)).unwrap_err();
+    assert_eq!(e.to_string(), Error::NotFound(format!("library {:?} has no snapshots", empty.name)).to_string());
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    other.create_library(&names[linked]).unwrap();
+    let d = Device::open_export(&drives[linked]).unwrap();
+    let id = d.state().and_then(|s| s.library_id).unwrap();
+    let e = sync::resolve_push_snapshot(&other, &d, &PushOptions::default()).unwrap_err();
+    assert_eq!(e.to_string(), Error::NotFound(format!("library {id}")).to_string());
 }
 
 /// A sync that can't be made is refused before anything is read or written, whatever its

@@ -1,0 +1,56 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.listShows",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "List upcoming shows, soonest first or nearest first. A show stays upcoming until it ends, or 12 hours after it starts when it has no end. Only shows announced by a current manager of an active project are listed, and every show has coordinates.",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"project": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "Only this project's shows."
+					},
+					"follower": {
+						"type": "string",
+						"format": "did",
+						"description": "Only shows by projects this account follows."
+					},
+					"latE6": { "type": "integer", "minimum": -90000000, "maximum": 90000000 },
+					"lngE6": { "type": "integer", "minimum": -180000000, "maximum": 180000000 },
+					"radiusKm": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 20000,
+						"description": "With latE6 and lngE6, only shows this close."
+					},
+					"sort": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["date", "distance"],
+						"default": "date",
+						"description": "distance needs latE6 and lngE6."
+					},
+					"limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+					"cursor": { "type": "string", "maxLength": 512 }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["shows"],
+					"properties": {
+						"shows": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#showView" }
+						},
+						"cursor": { "type": "string", "maxLength": 512 }
+					}
+				}
+			}
+		}
+	}
+}

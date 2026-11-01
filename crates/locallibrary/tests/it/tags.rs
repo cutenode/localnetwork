@@ -207,7 +207,7 @@ fn edits_both_databases_and_can_be_undone() {
 
     apply(&mut d, add("Situation/Lounge", vec![demos[0]]));
     let by_track = tags::by_track(&d).unwrap();
-    let key = |q: &str| paths::key(&d.library().unwrap().search(q)[0].file_path).to_lowercase();
+    let key = |q: &str| paths::file_key(&d.library().unwrap().search(q)[0].file_path);
     assert_eq!(by_track[&key("Demo Track 1")], ["Genre/Techno", "Situation/Lounge"]);
     assert_eq!(by_track[&key("Demo Track 2")], ["Genre/Techno"]);
     assert_eq!(by_track[&key("NOISE")], ["Genre/Minimal"]);
@@ -474,7 +474,7 @@ fn a_damaged_exportext_is_refused() {
         fs::write(&path, &bytes).unwrap();
         let d = Device::open_export(&root).unwrap();
         let err = tags::read(&d).unwrap_err().to_string();
-        assert!(err.contains(paths::EXPORT_EXT_PDB), "{err}");
+        assert!(err.contains(&paths::EXPORT_EXT_PDB.replace('/', std::path::MAIN_SEPARATOR_STR)), "{err}");
         assert!(tags::plan(&d, &add("Genre/Probe", select(&d, "Demo Track 2"))).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
@@ -787,6 +787,34 @@ fn tag_filters_select_with_the_drives_my_tags() {
     let titles: Vec<&str> = plan.tracks.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(titles.len(), 2, "{titles:?}");
     assert!(!titles.iter().any(|t| t.contains("Demo Track 1")), "{titles:?}");
-    let cues = api::cues_list(&ListCues { drive, tracks: filter("tag:\"Peak Time\"") }).unwrap();
+    let cues = api::cues_list(&ListCues { library: drive.into(), tracks: filter("tag:\"Peak Time\"") }).unwrap();
     assert_eq!(cues.iter().map(|c| c.track.id).collect::<Vec<_>>(), peak);
+}
+
+/// Regression: a OneLibrary category id past exportExt.pdb's `u32` made the next category id
+/// planned for exportExt.pdb one past it too, so the plan looked fine and applying failed with "My
+/// Tag id N doesn't fit". exportExt.pdb gets the smallest free id instead, and plan and apply
+/// agree.
+#[test]
+fn a_onelibrary_category_id_past_u32_still_plans_what_applies() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = both_drive(dir.path());
+    // exportExt.pdb with room for two more categories, and OneLibrary with one numbered past it.
+    let ext_path = root.join(paths::EXPORT_EXT_PDB);
+    let ids: Vec<u32> = ExtDatabase::from_file(&ext_path).unwrap().categories().iter().map(|c| c.id).collect();
+    let mut ed = ExtEditor::from_file(&ext_path).unwrap();
+    for id in &ids[2..] {
+        ed.remove(*id).unwrap();
+    }
+    ed.save(&ext_path).unwrap();
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    one.add_my_tag(i64::from(u32::MAX) + 1, 0, "Venue", true).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let mut d = Device::open_export(&root).unwrap();
+    let tracks = select(&d, "Noise");
+    let plan = tags::plan(&d, &add("Venue/Club", tracks)).unwrap();
+    tags::apply(&plan, &mut d, &Ctx::silent()).unwrap_or_else(|e| panic!("planned, then: {e}"));
+    let ext = ExtDatabase::from_file(&ext_path).unwrap();
+    let venue = ext.categories().into_iter().find(|c| c.name == "Venue").expect("Venue in exportExt.pdb");
+    assert!(!ids[..2].contains(&venue.id), "a free id: {}", venue.id);
 }

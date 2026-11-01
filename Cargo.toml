@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
+members = ["apps/locallibrary", "crates/*", "plugins/*", "vendor/rekordbox-pdb"]
+# Account plugins are a manifest alone, with no crate (see apps/locallibrary/build.rs).
+exclude = ["plugins/accounts"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,6 +10,12 @@ edition = "2024"
 rust-version = "1.91"
 license = "MIT"
 repository = "https://github.com/cutenode/localnetwork"
+
+# Every crate that could go to crates.io has the metadata it needs there (description, license,
+# repository, keywords, categories), so a new one can't be added without it. Only this lint from
+# clippy's `cargo` group: `multiple_crate_versions` would fire on the dependency tree.
+[workspace.lints.clippy]
+cargo_common_metadata = "warn"
 
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
@@ -18,18 +26,19 @@ loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
 loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
+loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
 loclib-transcode = { path = "crates/loclib-transcode", version = "0.1.0" }
 loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
 loclib-waveform = { path = "crates/loclib-waveform", version = "0.1.0" }
 rekordbox-pdb = { path = "vendor/rekordbox-pdb" }
 rekordcrate = { version = "0.3", default-features = false }
-aes = "0.8"
+aes = "0.9.3"
 anyhow = "1"
 # Base64 for data URIs, packed waveforms, PowerShell's -EncodedCommand and Serato's cue tag.
 base64 = "0.22"
 blake3 = "1.8"
-cbc = "0.1"
+cbc = "0.2.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
 # Shell completion (`locallibrary completions`), dynamic: the shell asks the binary, which lists
@@ -75,8 +84,11 @@ schemars = { version = "1.2", default-features = false, features = ["derive", "s
 serde = { version = "1", features = ["derive"] }
 # `float_roundtrip`: an f64 written to the store (a report's coverage, a set's BPM) reads back as
 # the same f64, not one bit off. (Test builds get it from jsonschema anyway; this is for the rest.)
-serde_json = { version = "1", features = ["float_roundtrip"] }
-# Where in a request a bad parameter is (`edits[0].op`), for the RPC sidecar's invalid_params errors.
+# `preserve_order`: JSON objects keep their order (a plugin's params and an analyzer's fields, the
+# sidecar's answers). Here, so every build of every crate writes JSON in one order.
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+# Where in a request a bad parameter is (`edits[0].op`), for invalid_params errors (loclib-plugin's,
+# which the RPC sidecar shares).
 serde_path_to_error = "0.1"
 sha2 = "0.10"
 # Edit distance, for "did you mean" on a mistyped filter field or subcommand.
@@ -93,12 +105,13 @@ walkdir = "2.5"
 # CodSpeed's compatibility layer, which is plain criterion under `cargo bench` and lets
 # locallibrary-bench.yml measure the same benches; keep its version in step with cargo-codspeed's
 # there.
-criterion = { package = "codspeed-criterion-compat", version = "5.0.2", default-features = false, features = ["cargo_bench_support", "rayon"] }
+criterion = { package = "codspeed-criterion-compat", version = "6.0.0", default-features = false, features = ["cargo_bench_support", "rayon"] }
 # Property-based tests (dev only). Pinned: Hegel is in beta and makes breaking changes.
 # `static-engine` links Hegel's engine as an ordinary dependency, so it's in Cargo.lock: without
 # it, hegeltest's build script fetches and builds the engine in a nested, unlocked cargo build.
-hegeltest = { version = "=0.48.1", features = ["static-engine"] }
-# The property tests' JSON Schema validator (dev only), for the RPC contract and the API's schemas.
+hegeltest = { version = "=0.50.1", features = ["static-engine"] }
+# JSON Schema validation: the property tests check the RPC contract and the API's schemas with it,
+# and loclib-plugin checks that a plugin manifest's params and options schemas compile.
 # Without its default features: no fetching schemas over HTTP or from files.
 jsonschema = { version = "0.58.6", default-features = false }
 
@@ -110,6 +123,40 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.ring]
+opt-level = 3
+
+# Hashing a drive's files and decrypting OneLibrary's pages: unoptimised, they took most of the
+# CPU time of a test's write to a drive.
+[profile.dev.package.blake3]
+opt-level = 3
+
+[profile.dev.package.aes]
+opt-level = 3
+
+[profile.dev.package.inout]
+opt-level = 3
+
+[profile.dev.package.hybrid-array]
+opt-level = 3
+
+# What every run of a debug build of the CLI does first: reading its command line (with clap's
+# checks of it) and checking the plugins' manifests, whose JSON Schemas are compiled against the
+# 2020-12 meta-schema (a release build skips that, see `PluginSpec::built_in`). Unoptimised,
+# that was a third of the CPU time of the tests that run the CLI hundreds of times.
+[profile.dev.package.clap_builder]
+opt-level = 3
+
+[profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.referencing]
+opt-level = 3
+
+# Decoding audio, for the tests that match recordings and upgrades by their sound.
+[profile.dev.package.symphonia-core]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-pcm]
 opt-level = 3
 
 [profile.release]

@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { scrypt } from 'node:crypto';
+import { promisify } from 'node:util';
 import { AtpAgent, type AtpSessionData } from '@atproto/api';
 import type { Db } from '../db';
 import type { Logger } from '../logger';
@@ -6,6 +7,8 @@ import type { IdentityResolver } from './identity';
 import { AgentRootClient, type RootRepoClient } from './repo-client';
 
 const SESSION_KEY = 'root_session';
+
+const scryptAsync = promisify<string, string, number, Buffer>(scrypt);
 
 export type RootAccountOptions = {
 	identifier: string;
@@ -17,7 +20,7 @@ export type RootAccountOptions = {
 };
 
 /**
- * The Local Network root account. The app signs in with an app password
+ * The Local Network root account. The app signs in with the account password
  * (legacy auth carries full permissions on the PDS, which space management
  * and writing on behalf of the platform require) and persists the session so
  * restarts do not burn createSession rate limits.
@@ -41,6 +44,16 @@ export class RootAccount {
 		return this.connecting;
 	}
 
+	/**
+	 * The root account's agent with its calls proxied to the Bluesky chat service `serviceDid`. Chat calls need the
+	 * full-access session the root signs in with; an app password without DM access can't make them.
+	 */
+	chat(serviceDid: string): AtpAgent {
+		if (!this.agent) throw new Error('Root account is not connected');
+
+		return this.agent.withProxy('bsky_chat', serviceDid);
+	}
+
 	/** The root account's DID; throws if `connect` has not completed. */
 	get rootDid(): string {
 		if (!this.did) throw new Error('Root account is not connected');
@@ -53,7 +66,9 @@ export class RootAccount {
 		const did = await identity.resolveIdentifier(this.options.identifier);
 		// Bind the stored session to the configured password so changing
 		// ROOT_PASSWORD (e.g. from an app password) forces a fresh sign-in.
-		const fingerprint = createHash('sha256').update(`${did}:${this.options.password}`).digest('hex');
+		// The fingerprint sits in the database, so it's a slow hash: a copy of the
+		// database shouldn't make the root password cheap to guess.
+		const fingerprint = (await scryptAsync(this.options.password, did, 32)).toString('hex');
 		const service = this.options.service ?? (await identity.resolve(did)).pds;
 
 		const agent = new AtpAgent({

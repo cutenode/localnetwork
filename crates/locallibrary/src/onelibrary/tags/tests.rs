@@ -59,3 +59,32 @@ fn id_0_is_refused() {
     assert_eq!(names(&one, 0), [("Genre".into(), 0), ("Zero".into(), 1)]);
     assert_eq!(names(&one, 1), [("Deep".into(), 0)]);
 }
+
+/// Whatever My Tags and links a database holds, adding or removing id 0 is refused as invalid and
+/// leaves every row and link as it was; any other free id is added under a category.
+#[hegel::test(test_cases = 50)]
+fn id_0_is_refused_whatever_the_tags(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut one = OneLibrary::create().unwrap();
+    let categories = tc.draw(gs::integers::<i64>().min_value(1).max_value(3));
+    for c in 1..=categories {
+        one.add_my_tag(c, 0, &format!("Category {c}"), true).unwrap();
+        for t in 0..tc.draw(gs::integers::<i64>().max_value(3)) {
+            let id = c * 100 + t;
+            one.add_my_tag(id, c, &format!("Tag {id}"), false).unwrap();
+            one.link_my_tag(id, &tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(5)).max_size(3)))
+                .unwrap();
+        }
+    }
+    let before = (one.my_tag_rows().unwrap(), one.my_tag_links().unwrap());
+    let category = tc.draw(gs::booleans());
+    let parent = if category { 0 } else { tc.draw(gs::integers::<i64>().min_value(1).max_value(categories)) };
+    let name = tc.draw(gs::text().max_size(8));
+    let e = one.add_my_tag(0, parent, &name, category).unwrap_err();
+    assert_eq!(e.code(), "invalid", "{e}");
+    assert!(e.to_string().contains("id 0 is reserved"), "{e}");
+    assert_eq!(one.remove_my_tag(0).unwrap_err().code(), "invalid");
+    assert_eq!((one.my_tag_rows().unwrap(), one.my_tag_links().unwrap()), before);
+    one.add_my_tag(1000, parent, &name, category).unwrap();
+    assert!(one.my_tag_rows().unwrap().iter().any(|r| r.id == 1000 && r.parent == parent && r.name == name));
+}

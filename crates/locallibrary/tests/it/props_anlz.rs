@@ -176,6 +176,27 @@ fn cues_written_to_dat_and_ext_read_back(tc: TestCase) {
     }
 }
 
+/// The cues the player reads from a written `.DAT` and `.EXT` (or a `.DAT` alone) have the
+/// loops written as active marked active, and nothing else.
+#[hegel::test(test_cases = 300)]
+fn the_player_reads_which_loops_are_active(tc: TestCase) {
+    let (dat, ext) = base_pair(&tc);
+    let cues = cue_list(&tc, false);
+    let active = |cues: &mut dyn Iterator<Item = (Option<u8>, u32, Option<u32>)>| {
+        let mut v: Vec<_> = cues.collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let want = active(&mut cues.iter().filter(|c| c.active_loop).map(|c| (c.hot_cue, c.start_ms, c.end_ms)));
+    let read = match tc.draw(gs::booleans()) {
+        true => anlz::track_cues(Some(&write(&dat, CueFile::Dat, &cues)), Some(&write(&ext, CueFile::Ext, &cues))),
+        false => anlz::track_cues(Some(&write(&dat, CueFile::DatAlone, &cues)), None),
+    };
+    let got = active(&mut read.iter().filter(|c| c.active_loop).map(|c| (c.hot_cue, c.start_ms, c.end_ms)));
+    assert_eq!(got, want, "wrote {}", show(&cues));
+}
+
 /// A `.DAT` without an `.EXT` keeps every cue's position, loop and active flag (it has nowhere
 /// to put names or colours).
 #[hegel::test]
@@ -632,7 +653,7 @@ fn any_analysis_file(tc: &TestCase) -> Vec<u8> {
     match real_files().get(which / 3) {
         Some((dat, ext, ex2)) => [dat, ext, ex2][which % 3].clone(),
         None => {
-            let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
+            let file = tc.draw(gs::sampled_from(&[CueFile::Dat, CueFile::DatAlone, CueFile::Ext]));
             write(&common::synthetic_anlz("/Contents/a.mp3"), file, &cue_list(tc, false))
         }
     }
@@ -737,7 +758,7 @@ fn shifting_survives_damaged_files(tc: TestCase) {
 #[hegel::test(test_cases = 10)]
 fn cue_lists_too_big_for_the_file_are_refused(tc: TestCase) {
     let base = common::synthetic_anlz("/Contents/a.mp3");
-    let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
+    let file = tc.draw(gs::sampled_from(&[CueFile::Dat, CueFile::DatAlone, CueFile::Ext]));
     let over = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     let (cues, why) = if tc.draw(gs::booleans()) {
         (vec![CuePoint::default(); usize::from(u16::MAX) + over], "too many cues")
@@ -804,7 +825,7 @@ fn assemble(file: &[u8], sections: &[Vec<u8>]) -> Vec<u8> {
 /// list is written again, the cues reading back as before.
 #[hegel::test(test_cases = 60)]
 fn foreign_entries_in_cue_lists_are_skipped(tc: TestCase) {
-    let file = [CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(1))];
+    let file = tc.draw(gs::sampled_from(&[CueFile::DatAlone, CueFile::Ext]));
     let written = write(&common::synthetic_anlz("/Contents/a.mp3"), file, &cue_list(&tc, false));
     let tag = tc.draw(gs::arrays::<_, u8, 4>(gs::integers::<u8>()).filter(|t| t != b"PCPT" && t != b"PCP2"));
     let body = tc.draw(gs::binary().max_size(24));

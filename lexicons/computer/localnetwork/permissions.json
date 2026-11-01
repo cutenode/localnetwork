@@ -5,13 +5,14 @@
 		"main": {
 			"type": "permission-set",
 			"title": "Local Network",
-			"detail": "Submit and manage DJ projects, book DJs, keep a private planner, and record an audit trail of your actions.",
+			"detail": "Keep your profile, submit and manage DJ projects, publish press kits and decide who sees them, edit your sets, announce shows, follow DJs, book DJs, keep a private planner, and record an audit trail of your actions.",
+			"description": "did:web:root.invalid stands for the root account: each network's root publishes this set with its own DID in its place, so the shared spaces it grants writes to are that network's only. The computer.localnetwork.epk repo writes and the press kit space under the user's own DID are for press kits made before the root account held them, which the owner's session moves to the root by deleting the old record and space.",
 			"permissions": [
 				{
 					"type": "permission",
 					"resource": "space",
 					"spaceType": "computer.localnetwork.space.audit",
-					"authority": "*",
+					"authority": "did:web:root.invalid",
 					"skey": "main",
 					"collection": ["computer.localnetwork.audit.entry"],
 					"action": ["read_self", "create"]
@@ -20,7 +21,7 @@
 					"type": "permission",
 					"resource": "space",
 					"spaceType": "computer.localnetwork.space.moderation",
-					"authority": "*",
+					"authority": "did:web:root.invalid",
 					"skey": "main",
 					"collection": ["computer.localnetwork.moderation.request"],
 					"action": ["read_self", "create", "update", "delete"]
@@ -29,7 +30,7 @@
 					"type": "permission",
 					"resource": "space",
 					"spaceType": "computer.localnetwork.space.booking",
-					"authority": "*",
+					"authority": "did:web:root.invalid",
 					"collection": [
 						"computer.localnetwork.booking.inquiry",
 						"computer.localnetwork.booking.message",
@@ -45,6 +46,68 @@
 					"collection": ["computer.localnetwork.planner.save", "computer.localnetwork.planner.show"],
 					"action": ["read", "create", "update", "delete"],
 					"manage": ["create", "update"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.epk"],
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.show"],
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.follow"],
+					"action": ["create", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.epk",
+					"collection": ["computer.localnetwork.epk.content", "computer.localnetwork.epk.grant"],
+					"action": ["read", "create", "update", "delete"],
+					"manage": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.backstage",
+					"authority": "did:web:root.invalid",
+					"collection": ["computer.localnetwork.epk.draft"],
+					"action": ["read_self", "create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.epk",
+					"authority": "did:web:root.invalid",
+					"collection": ["computer.localnetwork.epk.request"],
+					"action": ["read_self", "create", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.profile"],
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.dj.set"],
+					"action": ["update"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.performer",
+					"authority": "did:web:root.invalid",
+					"collection": ["computer.localnetwork.epk.draft"],
+					"action": ["read_self", "create", "update", "delete"]
 				}
 			]
 		}

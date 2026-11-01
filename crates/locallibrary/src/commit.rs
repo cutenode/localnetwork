@@ -25,7 +25,7 @@
 //! before it is applied. Sync, push and pack copy whole libraries incrementally with their own
 //! staged copy, which a run that's stopped resumes ([`crate::sync`], [`crate::pack::apply`]).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -43,12 +43,34 @@ use crate::{Error, Result, fsutil, paths};
 
 thread_local! {
     static FAIL_BEFORE_SWAP: Cell<bool> = const { Cell::new(false) };
+    static FAIL_AFTER_SWAP: Cell<bool> = const { Cell::new(false) };
+    static UNDER_BACKUP: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with each write in it that takes no backup of its own noting what it left in backup
+/// `id` (see [`backup::seal`]): a replay's steps, made under the one backup the replay took, so
+/// a replay cut off part way can be undone without forcing it.
+pub(crate) fn under_backup<T>(id: &str, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<String>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNDER_BACKUP.with(|u| *u.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(UNDER_BACKUP.with(|u| u.borrow_mut().replace(id.to_string())));
+    f()
 }
 
 /// For tests: make every commit on this thread fail just before its swap, as a crash or a full
 /// disk would, to check what it leaves behind.
 pub fn fail_before_swap(yes: bool) {
     FAIL_BEFORE_SWAP.with(|f| f.set(yes));
+}
+
+/// For tests: make every commit on this thread fail just after its swap, the drive changed, as a
+/// full disk can while it deletes or records what it did.
+pub fn fail_after_swap(yes: bool) {
+    FAIL_AFTER_SWAP.with(|f| f.set(yes));
 }
 
 /// Hash of a drive's database files, to notice a change between planning and applying.
@@ -63,7 +85,7 @@ pub(crate) fn database_state_at(root: &Path) -> Hash {
     let mut hasher = blake3::Hasher::new();
     for key in paths::DATABASE_FILES {
         hasher.update(key.as_bytes());
-        if let Ok(bytes) = std::fs::read(paths::to_fs(root, key)) {
+        if let Ok(bytes) = fsutil::read(&paths::to_fs(root, key)) {
             hasher.update(&bytes);
         }
     }
@@ -241,7 +263,7 @@ pub(crate) fn swap(steps: Vec<Swap>) -> Result<()> {
                 path
             }
             Swap::Place(tmp, dst) => {
-                tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
+                fsutil::replace(tmp, &dst)?;
                 dst
             }
         };
@@ -340,7 +362,14 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
     }
     done.databases.extend(dbs.iter().map(|s| s.key.rsplit('/').next().unwrap_or_default().to_string()));
     steps.extend(dbs.into_iter().map(|s| Swap::Place(s.tmp, s.dst)));
+    device.swapping();
     swap(steps)?;
+    if FAIL_AFTER_SWAP.with(Cell::get) {
+        return Err(Error::Io {
+            path: device.root().to_path_buf(),
+            source: std::io::Error::other("failed after the swap (test)"),
+        });
+    }
 
     // What nothing references any more.
     if !deletes.is_empty() {
@@ -366,8 +395,8 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
     }
 
     // What the write left, the new state, the journal, and the backups kept.
-    if let Some(id) = &done.backup {
-        backup::seal(device, id)?;
+    if let Some(id) = done.backup.clone().or_else(|| UNDER_BACKUP.with(|u| u.borrow().clone())) {
+        backup::seal(device, &id)?;
     }
     if opts.lineage {
         let library = device.library()?;

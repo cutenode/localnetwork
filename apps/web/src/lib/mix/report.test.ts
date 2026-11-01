@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
+	BLEND_SECS,
 	bandColor,
 	clock,
 	colors,
 	handoff,
+	keyPath,
 	keysPlayed,
 	lanes,
 	niceTicks,
-	parseMixReport,
-	parseMixReportText,
 	phraseAt,
-	phraseColor,
+	phraseBackground,
 	phraseRole,
+	playColor,
+	playSpeed,
 	speed,
 	summarize,
 	tracklist
 } from './report';
+import { parseMixReport, parseMixReportText } from './schema';
 import exported from './fixtures/v2.mix.json' with { type: 'json' };
 import { sampleReport } from './sample';
 
@@ -124,6 +127,15 @@ describe('display helpers', () => {
 		expect(speed(0.99)).toBe('−1.0%');
 	});
 
+	it('gives a ridden pitch fader its slowest and fastest speeds', () => {
+		expect(playSpeed({ tempo: 1.02, speedRange: [1, 1.04] })).toBe('+0.0% to +4.0%');
+		expect(playSpeed({ tempo: 1.02 })).toBe('+2.0%');
+		const report = structuredClone(sampleReport);
+		report.plays[0] = { ...report.plays[0], speedRange: [0.99, 1.03] };
+		const result = parseMixReport(report);
+		expect(result.ok && result.report.plays[0].speedRange).toEqual([0.99, 1.03]);
+	});
+
 	it('summarizes a set', () => {
 		const s = summarize(parsed());
 		expect(s).toMatchObject({ tracks: 5, confident: 4, coverage: 93, gaps: 1, harmonic: { good: 3, known: 4 } });
@@ -138,6 +150,11 @@ describe('display helpers', () => {
 		expect(gap.tempo).toBe('−1.6% tempo');
 		expect(clash.harmony).toEqual({ ok: false, text: 'key clash' });
 		expect(handoff({ from: 0, to: 1, at: 0, overlap: 2 }).how).toBe('quick mix');
+	});
+
+	it('calls a transition a blend from the threshold locallibrary uses', () => {
+		expect(handoff({ from: 0, to: 1, at: 0, overlap: BLEND_SECS }).how).toBe(`${BLEND_SECS}s blend`);
+		expect(handoff({ from: 0, to: 1, at: 0, overlap: BLEND_SECS - 0.1 }).how).toBe('quick mix');
 	});
 
 	it('lays plays out in lanes and lists gaps in order', () => {
@@ -181,10 +198,28 @@ describe('display helpers', () => {
 			'unknown',
 			'unknown'
 		]);
-		expect(['Verse 3', 'Phrase 9', 'toString'].map(phraseColor)).toEqual([
-			colors.phrases.verse,
-			colors.phrases.unknown,
-			colors.phrases.unknown
+		expect(['Verse 3', 'Phrase 9', 'toString'].map(phraseBackground)).toEqual([
+			'bg-phrase-verse',
+			'bg-phrase-unknown',
+			'bg-phrase-unknown'
 		]);
+	});
+});
+
+describe('keyPath and playColor', () => {
+	it('lists the keys heard in order, merging repeats in a row', () => {
+		expect(keyPath(parsed())).toEqual(['8A', '9A', '10A', '3B']);
+		const report = parsed();
+		report.plays[2].playedKey = undefined;
+		report.plays[3].playedKey = '9A';
+		expect(keyPath(report)).toEqual(['8A', '9A', '3B']);
+	});
+
+	it('gives neighbouring plays different colours, none red or green', () => {
+		const used = Array.from({ length: 6 }, (_, i) => playColor(i));
+		expect(new Set(used).size).toBe(6);
+		expect(used).not.toContain(colors.trackColors.red);
+		expect(used).not.toContain(colors.trackColors.green);
+		expect(playColor(6)).toBe(playColor(0));
 	});
 });

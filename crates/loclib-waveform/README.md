@@ -42,6 +42,7 @@ let drop = Cue {
     color: None,
     color_id: 0,
     loop_beats: None,
+    active_loop: false,
 };
 
 let area = Rect::new(0, 0, 40, 4);
@@ -58,8 +59,9 @@ assert_eq!(buf[(10, 0)].symbol(), "A"); // hot cue A, a quarter of the way in
 ```
 
 Every widget takes a `Palette`: the colours it draws in, and functions that turn a colour into
-what the terminal draws (`paint`, and `image` for pictures). `Palette::default()` is for a dark
-terminal in 24-bit colour; give it your own `paint` for a light background or a 256-colour
+what the terminal draws (`paint`, and `image` for pictures). `Palette::of(&theme)` has a
+loclib-model `Theme`'s colours (its waveform gradients, cue and track colours, playhead), and
+`Palette::default()` the default theme's, for a dark terminal in 24-bit colour; give it your own `paint` for a light background or a 256-colour
 terminal, and `plain: true` for NO_COLOR, where coloured cells show in reverse video and
 pictures are left out. `color::{mix, scale, gradient}` is the colour arithmetic the widgets shade
 with.

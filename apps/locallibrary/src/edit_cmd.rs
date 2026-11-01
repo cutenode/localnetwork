@@ -232,27 +232,6 @@ locallibrary playlist add Home Peak --filter \"bpm:126-130 rating:>=4\" --sort -
         #[command(flatten)]
         dry: DryRun,
     },
-    /// Make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or "Artist - Title" lines
-    Import {
-        #[arg(help = LIBRARY_HELP)]
-        drive: String,
-        /// The tracklist: .m3u/.m3u8, .csv, .txt or rekordbox .xml
-        file: std::path::PathBuf,
-        /// The playlist's path, letter case included (made there if missing)
-        #[arg(long)]
-        into: String,
-        /// For rekordbox XML: the playlist to take, by path [default: the whole collection]
-        #[arg(long = "from", value_name = "PLAYLIST")]
-        from: Option<String>,
-        /// Add to the playlist instead of replacing its contents
-        #[arg(long)]
-        append: bool,
-        /// Settle an ambiguous entry: ENTRY=TRACK (numbers as listed; repeatable)
-        #[arg(long = "choose", value_name = "ENTRY=TRACK")]
-        choose: Vec<String>,
-        #[command(flatten)]
-        dry: DryRun,
-    },
     /// Collect the tracks that are in no playlist into one, so players can find them
     Unfiled {
         #[arg(help = LIBRARY_HELP)]
@@ -384,6 +363,12 @@ locallibrary track upgrade Home --from ~/Music/Lossless --remove-old")]
         #[command(flatten)]
         select: SelectArgs,
     },
+    /// Find tracks' details (title, artist, album, year, genre, label, ISRC) with the plugins'
+    /// providers (online), choose, and fill them in
+    #[command(after_help = "Without --replace, only tracks missing one of those are looked up, and only what \
+they're missing is filled in. A candidate alone scoring `locallibrary plugin providers`' auto-pick or more is \
+chosen for you; the others are asked about (or given with --choose).")]
+    Fetch(crate::plugin_cmd::FetchArgs),
     /// Tracks that mix into a track: compatible key, close tempo
     Matches {
         #[arg(help = LIBRARY_HELP)]
@@ -437,6 +422,18 @@ pub struct FieldArgs {
     /// Play count
     #[arg(long)]
     play_count: Option<u16>,
+    /// New album artist (kept with the album, so the track needs one)
+    #[arg(long)]
+    album_artist: Option<String>,
+    /// Tempo, 1-999.99 (the beat grid stays as it is)
+    #[arg(long)]
+    bpm: Option<f64>,
+    /// ISRC, e.g. GBDUW0000059 (empty clears it)
+    #[arg(long)]
+    isrc: Option<String>,
+    /// Release date, YYYY-MM-DD (empty clears it)
+    #[arg(long)]
+    release_date: Option<String>,
 }
 
 impl FieldArgs {
@@ -455,6 +452,10 @@ impl FieldArgs {
             mix_name: self.mix.clone(),
             year: self.year,
             play_count: self.play_count,
+            album_artist: self.album_artist.clone(),
+            bpm: self.bpm,
+            isrc: self.isrc.clone(),
+            release_date: self.release_date.clone(),
             ..Default::default()
         }
     }
@@ -573,14 +574,10 @@ pub(crate) fn confirm_and_apply(
     if !out.json {
         render_plan(&planned);
         output::clones(&planned);
-        // What the plan says besides the edit's own and its clones' (a set's tracks not on the
-        // drive, say).
-        let about_clones = |w: &String| planned.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
-        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w) && !about_clones(w)) {
-            warn(w);
-        }
+        // What the plan says besides the edit's own (a set's tracks not on the drive, say).
+        output::more_warnings(&planned, &planned.plan.warnings);
     }
-    if let Some(o) = out.decide(dry_run, "Make these changes?") {
+    if let Some(o) = out.decide_on(&planned, dry_run, "Make these changes?")? {
         return Ok(out.not_applied(&planned, o));
     }
     let report = planned.apply(None, ctx)?;
@@ -642,10 +639,14 @@ pub(crate) fn render_report(r: &EditReport, drive: &str) {
         output::ok(format!("{drive} has these edits already: nothing written"));
         return;
     }
+    // Cue and artwork edits can write only analysis files and images.
+    let to = match r.databases.is_empty() {
+        true => String::new(),
+        false => format!(" to {}", r.databases.join(" and ")),
+    };
     output::ok(format!(
-        "{} change(s) written to {}{}",
+        "{} change(s) written{to}{}",
         r.changes,
-        r.databases.join(" and "),
         if r.files_deleted > 0 {
             format!("; {} file(s) deleted, {} freed", r.files_deleted, bytes(r.freed_bytes))
         } else {
@@ -679,20 +680,6 @@ pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCo
     };
     let (drive, edits, dry) = match command {
         PlaylistCommand::Ls { drive } => return tree(drive, out),
-        PlaylistCommand::Import { drive, file, into, from, append, choose, dry } => {
-            let mut choices = indexmap::IndexMap::new();
-            for c in choose {
-                let parsed = c.split_once('=').and_then(|(e, t)| {
-                    Some((e.trim().parse::<usize>().ok()?, t.trim().trim_start_matches('#').parse::<u32>().ok()?))
-                });
-                let Some((entry, track)) = parsed.filter(|(e, _)| *e > 0) else {
-                    bail!("--choose takes ENTRY=TRACK, e.g. 3=812")
-                };
-                choices.insert(entry - 1, track);
-            }
-            let req = api::ImportRequest { drive, file, into, playlist: from, append, choices };
-            return import(req, dry.dry_run, out, ctx);
-        }
         PlaylistCommand::New { drive, path, folder, select, dry } => {
             let mut edits = vec![Edit::CreatePlaylist { path: path.clone(), folder }];
             if !select.selector().is_empty() {
@@ -781,7 +768,7 @@ pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCo
     run_edits(drive, edits, dry.dry_run, out, ctx)
 }
 
-pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let command = match (args.command, args.drive) {
         (Some(c), _) => c,
         (None, Some(drive)) => {
@@ -818,19 +805,48 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
             return crate::upgrade_cmd::run(drive, options, dry.dry_run, out, ctx);
         }
         TrackCommand::Show { drive, select } => {
-            let list = api::track_details(&api::TrackDetailsRequest { drive, tracks: selector(&select)? })?;
-            out.emit_paged(&list, |l| {
-                for (i, d) in l.iter().enumerate() {
+            let req = api::TrackDetailsRequest { library: drive.clone().into(), tracks: selector(&select)? };
+            let list = api::track_details(&req)?;
+            // What analyzer plugins worked out for them, and their panels, with each one's details.
+            let ids: Vec<u32> = list.iter().map(|d| d.track.id).collect();
+            let fields = crate::plugin_cmd::fields(&drive, ids.clone(), store_path)?;
+            let panels = crate::plugin_cmd::panels(&drive, &ids, store_path, ctx)?;
+            let shown: Vec<serde_json::Value> = list
+                .iter()
+                .map(|d| {
+                    let mut v = serde_json::to_value(d).expect("serialisable");
+                    if let Some(f) = fields.get(&d.track.id) {
+                        v["fields"] = serde_json::to_value(f).expect("serialisable");
+                    }
+                    if let Some(p) = panels.get(&d.track.id) {
+                        v["panels"] = serde_json::to_value(p).expect("serialisable");
+                    }
+                    v
+                })
+                .collect();
+            let names = crate::plugin_cmd::view::names_on(Some(&drive));
+            out.emit_paged(&shown, |_| {
+                for (i, d) in list.iter().enumerate() {
                     if i > 0 {
                         say!();
                     }
                     crate::render::track_details(d);
+                    if let Some(f) = fields.get(&d.track.id) {
+                        crate::plugin_cmd::show_fields(f);
+                    }
+                    if let Some(p) = panels.get(&d.track.id) {
+                        crate::plugin_cmd::show_panels(p, &names);
+                    }
                 }
             });
             return Ok(ExitCode::SUCCESS);
         }
+        TrackCommand::Fetch(f) => {
+            return crate::plugin_cmd::fetch(loclib_plugin::ProviderKind::Metadata, f, store_path, out, ctx);
+        }
         TrackCommand::Matches { drive, track, limit } => {
-            let list = api::harmonic_matches(&api::MatchesRequest { drive, track, limit: Some(limit) })?;
+            let list =
+                api::harmonic_matches(&api::MatchesRequest { library: drive.into(), track, limit: Some(limit) })?;
             out.emit(&list, |l| {
                 if l.is_empty() {
                     say!("no tracks on the drive mix into that one (its key may be unknown)");
@@ -881,7 +897,7 @@ pub fn smart(args: SmartArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 limit,
                 drives: Vec::new(),
             };
-            rule.validate()?;
+            rule.validate(&crate::plugins::host().map(|p| p.fields()).unwrap_or_default())?;
             let change = match crate::diff_cmd::read_or_empty(store_path, api::smart_list)?.get(&path) {
                 Some(old) => format!("replace the rule for {path:?} ({}) with {filter:?}", old.filter),
                 None => format!("add a rule for {path:?}: {filter:?}"),
@@ -898,14 +914,14 @@ pub fn smart(args: SmartArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             );
         }
         SmartCommand::Rm { path } => {
-            let store = &crate::open_store(store_path)?;
+            let store = &crate::diff_cmd::store_to_read(store_path)?;
             let rule = api::smart_list(store)?.remove(&path)?;
             let change = format!("remove the rule for {:?} (drives keep their playlists)", rule.path);
             let req = api::RemoveSmartPlaylist { path };
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
-            let store = &crate::open_store(store_path)?;
+            let store = &crate::diff_cmd::store_to_read(store_path)?;
             let named = !drives.is_empty();
             let targets = match named {
                 false => crate::each_drive::targets(Some(store))?,
@@ -1076,57 +1092,4 @@ pub fn pack(
             crate::output::hint(format!("undo with: locallibrary undo {:?} (backup {b})", req.target));
         }
     }))
-}
-
-fn import(req: api::ImportRequest, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    use locallibrary::import::Status;
-    let preview = api::import_plan(&req, ctx)?;
-    if !out.json {
-        let r = &preview.report;
-        say!(
-            "{}: {} entr(ies) as {:?}: {} found, {} ambiguous, {} missing",
-            req.file.display(),
-            r.summary.entries,
-            r.format,
-            r.summary.found,
-            r.summary.ambiguous,
-            r.summary.missing
-        );
-        let lib = api::resolve_drive(&req.drive)?.library()?;
-        let name = |id: u32| lib.track(id).map(|t| t.display_name()).unwrap_or_else(|| format!("#{id}"));
-        for (i, m) in r.entries.iter().enumerate() {
-            match &m.status {
-                Status::Found { .. } => {}
-                Status::Ambiguous { candidates } => {
-                    warn(format!("{:>3}. {} could be:", i + 1, m.entry.raw.trim()));
-                    for c in candidates.iter().take(5) {
-                        say!("         #{c}  {}", name(*c));
-                    }
-                }
-                Status::Missing => say!("  {} {:>3}. {}", style("?").yellow(), i + 1, dim(m.entry.raw.trim())),
-            }
-        }
-        if r.summary.ambiguous > 0 {
-            crate::output::hint("Settle ambiguous entries with --choose ENTRY=TRACK; they're left out otherwise.");
-        }
-    }
-    let Some(plan) = &preview.plan.plan else {
-        if !out.json {
-            warn("none of the list's tracks are on the drive");
-        }
-        return Ok(out.not_applied(&preview, Outcome::NothingToDo));
-    };
-    // The playlist holds the list already, as `confirm_and_apply` says of any other edit.
-    if preview.noop {
-        return Ok(out.nothing(&preview, "nothing to change"));
-    }
-    if !out.json {
-        render_plan(plan);
-        output::clones(&preview);
-    }
-    if let Some(o) = out.decide(dry_run, "Make this playlist?") {
-        return Ok(out.not_applied(&preview, o));
-    }
-    let report = preview.apply(None, ctx)?;
-    Ok(out.applied(&preview, &report, Outcome::Applied, || render_report(&report, &req.drive)))
 }

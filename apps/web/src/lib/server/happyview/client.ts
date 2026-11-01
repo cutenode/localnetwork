@@ -1,23 +1,53 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import { z } from 'zod';
-import type { MatchNote } from '#lib/matching.ts';
+import type { MatchBreakdown, MatchNote } from '#lib/matching.ts';
 import { DIRECTORY } from '#lib/nsid.ts';
+import type { Charts, DirectoryDj, DirectoryPlace, DjSetView, SupportedArtist, TrackPlays } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import type { HappyViewScript } from './bundle';
+
+/** The longest search text the directory's queries take, in UTF-8 bytes (their lexicons' maxLength). */
+export const QUERY_BYTES = 100;
 
 /** A published project as the directory serves it (`computer.localnetwork.directory.defs#projectView`). */
 export type DirectoryProject = { uri: string; cid: string; record: JsonObject; distanceM?: number };
 
+/** A listed DJ's profile as the directory serves it (`computer.localnetwork.directory.defs#profileView`). */
+export type DirectoryProfile = {
+	uri: string;
+	cid: string;
+	record: JsonObject;
+	/** The root's listing of it. */
+	listing: string;
+	/** What it was searched by: its performer section's genres, or the ones the DJ plays most. */
+	genres: string[];
+	distanceM?: number;
+};
+
+/** A performer the directory found (`computer.localnetwork.directory.defs#performerView`): a project or a DJ's profile. */
+export type DirectoryPerformer = { project: DirectoryProject } | { profile: DirectoryProfile };
+
+/** A record as the directory indexed it (`computer.localnetwork.directory.defs#recordView`), as its record script kept it. */
+export type DirectoryRecord = { uri: string; cid: string; value: JsonObject };
+
 type Facet = { value: string; count: number };
 
-type Place = { city: string; country: string; count: number };
+/** A show as the directory serves it (`computer.localnetwork.directory.defs#showView`). */
+export type DirectoryShow = {
+	uri: string;
+	cid: string;
+	record: JsonObject;
+	project: DirectoryProject;
+	distanceM?: number;
+};
 
 export type DirectoryMatch = {
 	project: DirectoryProject;
 	score: number;
 	inRange: boolean;
-	breakdown: Record<'genre' | 'distance' | 'budget' | 'capacity' | 'setType' | 'format', number>;
+	breakdown: MatchBreakdown;
 	reasons: MatchNote[];
 	warnings: MatchNote[];
 };
@@ -25,10 +55,28 @@ export type DirectoryMatch = {
 /** What each directory query answers, as its lexicon in lexicons/computer/localnetwork/directory describes it. */
 export type DirectoryOutputs = {
 	searchProjects: { projects: DirectoryProject[]; total: number; cursor?: string };
+	searchPerformers: { performers: DirectoryPerformer[]; total: number; cursor?: string };
 	matchProjects: { matches: DirectoryMatch[] };
-	getProject: { project?: DirectoryProject };
+	getProject: { project?: DirectoryProject; pressKits?: number; upcomingShows?: number };
 	getProjects: { projects: DirectoryProject[] };
-	getStats: { total: number; active: number; unclaimed: number; cityCount: number; genres: Facet[]; cities: Place[] };
+	getStats: {
+		total: number;
+		active: number;
+		unclaimed: number;
+		cityCount: number;
+		genres: Facet[];
+		cities: DirectoryPlace[];
+	};
+	getSets: { sets: DjSetView[] };
+	listSets: { sets: DjSetView[] };
+	listShows: { shows: DirectoryShow[]; cursor?: string };
+	getShows: { shows: DirectoryShow[] };
+	getFollowStatus: { followers: number; follows: string[] };
+	getCharts: Charts;
+	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
+	searchArtists: { artists: SupportedArtist[] };
+	getRecords: { records: DirectoryRecord[] };
+	listRecords: { records: DirectoryRecord[]; cursor?: string };
 };
 
 export type DirectoryStats = DirectoryOutputs['getStats'];
@@ -42,7 +90,11 @@ const storedScripts = z.array(z.object({ id: z.string(), body: z.string() }));
 
 const backfillJob = z.object({ id: z.string(), status: z.string() });
 
-/** The admin permissions `syncHappyView` uses, so HAPPYVIEW_API_KEY needs exactly these. */
+const BACKFILL_POLL_MS = 250;
+
+const BACKFILL_DONE = new Set(['completed', 'failed', 'cancelled']);
+
+/** The admin permissions `syncHappyView` and the re-reads (Backfills, reindex) use, so HAPPYVIEW_API_KEY needs exactly these. */
 export const HAPPYVIEW_PERMISSIONS = [
 	'lexicons:read',
 	'lexicons:create',
@@ -65,8 +117,9 @@ export class HappyViewError extends Error {
 }
 
 /**
- * Talks to the HappyView instance that indexes published projects: directory queries over XRPC,
- * plus the admin calls that keep its lexicons and scripts in step with this app.
+ * Talks to the HappyView instance that indexes published projects, their managers' DJ records, press kits and shows,
+ * follows, and the Bluesky and userinput.app records the site reads: directory queries over XRPC, plus the admin calls
+ * that keep its lexicons and scripts in step with this app.
  */
 export class HappyViewClient {
 	readonly url: string;
@@ -93,6 +146,11 @@ export class HappyViewClient {
 
 		// SAFETY: assertValidXrpcOutput checked the body against the query's lexicon, which DirectoryOutputs mirrors.
 		return lexicons.assertValidXrpcOutput(nsid, await response.json()) as DirectoryOutputs[K];
+	}
+
+	/** Whether this client can make admin calls, which need HAPPYVIEW_API_KEY. */
+	get admin(): boolean {
+		return this.apiKey !== undefined;
 	}
 
 	/** Whether HappyView answers at all, within a couple of seconds. */
@@ -147,6 +205,22 @@ export class HappyViewClient {
 				.parse(await response.json())
 				.find((job) => job.id === id)?.status ?? null
 		);
+	}
+
+	/**
+	 * Polls a backfill job until it's done or `waitMs` passes, and returns its last status (null when HappyView
+	 * doesn't know the job). A job still running at the deadline carries on in HappyView.
+	 */
+	async awaitBackfill(id: string, waitMs: number): Promise<string | null> {
+		const deadline = Date.now() + waitMs;
+		let status = await this.backfillStatus(id);
+
+		while (status && !BACKFILL_DONE.has(status) && Date.now() < deadline) {
+			await sleep(BACKFILL_POLL_MS);
+			status = await this.backfillStatus(id);
+		}
+
+		return status;
 	}
 
 	private async request(path: string, options: { admin?: boolean; body?: object } = {}) {

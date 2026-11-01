@@ -328,15 +328,12 @@ fn diskutil_listings_read_back(tc: TestCase) {
     let sector = tc.draw(gs::sampled_from(vec![512u64, 4096]));
     let (removable, internal, virt, writable) =
         (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-    let scheme = tc.draw(
-        gs::sampled_from(vec![
-            ("FDisk_partition_scheme", Some(Scheme::Mbr)),
-            ("GUID_partition_scheme", Some(Scheme::Gpt)),
-            ("Apple_partition_scheme", Some(Scheme::Apm)),
-            ("Sun_partition_scheme", Some(Scheme::Other)),
-        ])
-        .print_as_debug(),
-    );
+    let scheme = tc.draw(gs::sampled_from(vec![
+        ("FDisk_partition_scheme", Some(Scheme::Mbr)),
+        ("GUID_partition_scheme", Some(Scheme::Gpt)),
+        ("Apple_partition_scheme", Some(Scheme::Apm)),
+        ("Sun_partition_scheme", Some(Scheme::Other)),
+    ]));
     let mut info = json!({
         "DeviceIdentifier": id, "Content": scheme.0, "Size": num(&tc, size), "DeviceBlockSize": num(&tc, sector),
         "Internal": flag(&tc, internal), "WritableMedia": flag(&tc, writable),
@@ -366,7 +363,7 @@ fn diskutil_listings_read_back(tc: TestCase) {
     for i in 1..=tc.draw(gs::integers::<usize>().max_value(3)) {
         let pid = format!("{id}s{i}");
         let psize = tc.draw(gs::integers::<u64>());
-        let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+        let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
         let formatted = tc.draw(gs::booleans());
         let label = if tc.draw(gs::booleans()) { Some(word(&tc)) } else { None };
         let mount = label.as_ref().filter(|_| tc.draw(gs::booleans())).map(|l| format!("/Volumes/{l}"));
@@ -463,7 +460,7 @@ fn diskutil_listings_read_back(tc: TestCase) {
 /// A file system written straight onto a disk without a partition table is its one volume.
 #[hegel::test(test_cases = 100)]
 fn a_disk_without_partitions_is_its_own_volume(tc: TestCase) {
-    let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+    let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let (size, label) = (tc.draw(gs::integers::<u64>()), word(&tc));
     let content = tc.draw(gs::sampled_from(vec!["DOS_FAT_32", "Apple_HFS"]));
     let info = json!({ "DeviceIdentifier": "disk7", "Content": content, "Size": size, "FilesystemType": fs_type,
@@ -589,8 +586,7 @@ fn partitions_name_their_disk(tc: TestCase) {
 fn erase_commands_follow_the_target(tc: TestCase) {
     let (info, listing, parts) = usb_drive();
     let disk = parse_disk(&info, &listing, &parts, &[]);
-    let filesystem =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     let label = filesystem.label(&tc.draw(gs::text().max_size(20)));
     let cluster_size = 1 << tc.draw(gs::integers::<u32>().min_value(9).max_value(17));
     let default_cluster = filesystem == Filesystem::Hfsplus || tc.draw(gs::booleans());
@@ -618,17 +614,14 @@ fn erase_commands_follow_the_target(tc: TestCase) {
 /// has a partition table to show for it.
 #[hegel::test(test_cases = 200)]
 fn partition_schemes_follow_the_disks_content(tc: TestCase) {
-    let content = tc.draw(
-        gs::sampled_from(vec![
-            (None, None),
-            (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
-            (Some("GUID_partition_scheme"), Some(Scheme::Gpt)),
-            (Some("Apple_partition_scheme"), Some(Scheme::Apm)),
-            (Some("Sun_partition_scheme"), Some(Scheme::Other)),
-            (Some("DOS_FAT_32"), Some(Scheme::Other)),
-        ])
-        .print_as_debug(),
-    );
+    let content = tc.draw(gs::sampled_from(vec![
+        (None, None),
+        (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
+        (Some("GUID_partition_scheme"), Some(Scheme::Gpt)),
+        (Some("Apple_partition_scheme"), Some(Scheme::Apm)),
+        (Some("Sun_partition_scheme"), Some(Scheme::Other)),
+        (Some("DOS_FAT_32"), Some(Scheme::Other)),
+    ]));
     let partitions = tc.draw(gs::integers::<usize>().max_value(3));
     let table = tc.draw(gs::booleans()) || partitions > 0;
     let mut info = json!({ "DeviceIdentifier": "disk4", "Size": tc.draw(gs::integers::<u64>()) });
@@ -650,4 +643,401 @@ fn partition_schemes_follow_the_disks_content(tc: TestCase) {
     };
     assert_eq!(d.scheme, want);
     assert_eq!(d.volumes.len(), partitions);
+}
+
+// -----------------------------------------------------------------------------------------
+// Through diskutil: a fake one that answers only what it was told the disks are
+// -----------------------------------------------------------------------------------------
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools::FakeTools;
+
+#[cfg(unix)]
+const PLUTIL: [&str; 6] = ["-convert", "json", "-o", "-", "--", "-"];
+#[cfg(unix)]
+const IOREG_ARGS: [&str; 5] = ["-r", "-c", "IOUSBHostDevice", "-l", "-w0"];
+
+/// A disk as diskutil describes it, to tell a fake diskutil.
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+struct Described {
+    id: String,
+    info: Value,
+    listing: Value,
+    /// `info` of each partition, and whether diskutil answers for it.
+    parts: Vec<(String, Value, bool)>,
+    /// Each APFS container: the partition holding it, its identifier, its `list`, and whether
+    /// diskutil answers for it.
+    containers: Vec<(String, String, Value, bool)>,
+    serial: Option<String>,
+}
+
+#[cfg(unix)]
+#[hegel::test_helper]
+fn described(tc: &TestCase, n: u32) -> Described {
+    let id = format!("disk{n}");
+    let info = json!({
+        "DeviceIdentifier": id, "ParentWholeDisk": id, "Content": "FDisk_partition_scheme", "MediaName": word(tc),
+        "Size": tc.draw(gs::integers::<u64>().min_value(1 << 26).max_value(1 << 41)), "DeviceBlockSize": 512,
+        "Internal": tc.draw(gs::weighted_booleans(0.2)), "RemovableMediaOrExternalDevice": tc.draw(gs::weighted_booleans(0.8)),
+        "VirtualOrPhysical": "Physical", "BusProtocol": "USB", "WritableMedia": true,
+    });
+    let (mut partitions, mut parts, mut containers) = (Vec::new(), Vec::new(), Vec::new());
+    for i in 1..=tc.draw(gs::integers::<u32>().max_value(2)) {
+        let pid = format!("{id}s{i}");
+        let (fs_type, fs_name, _) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
+        let label = word(tc);
+        let size = tc.draw(gs::integers::<u64>().max_value(1 << 40));
+        let mut p = json!({ "DeviceIdentifier": pid, "Content": "Windows_FAT_32", "Size": size, "VolumeName": label,
+                "VolumeUUID": format!("{pid}-uuid") });
+        let mut pinfo = json!({ "DeviceIdentifier": pid, "ParentWholeDisk": id, "FilesystemType": fs_type,
+                "FilesystemName": fs_name, "VolumeName": label, "VolumeAllocationBlockSize": 32768 });
+        if tc.draw(gs::booleans()) {
+            let m = format!("/Volumes/{pid}");
+            p["MountPoint"] = json!(m);
+            pinfo["MountPoint"] = json!(m);
+        }
+        if tc.draw(gs::weighted_booleans(0.25)) {
+            let container = format!("disk{}", 100 + n * 4 + i);
+            pinfo["APFSContainerReference"] = json!(container);
+            let vid = format!("{container}s1");
+            let volumes = json!([{ "DeviceIdentifier": vid, "Size": 1 << 30, "VolumeName": word(tc),
+                    "MountPoint": format!("/Volumes/{vid}"), "VolumeUUID": format!("{vid}-uuid") }]);
+            let c = json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": container, "APFSVolumes": volumes }] });
+            containers.push((pid.clone(), container, c, tc.draw(gs::weighted_booleans(0.9))));
+        }
+        partitions.push(p);
+        parts.push((pid, pinfo, tc.draw(gs::weighted_booleans(0.9))));
+    }
+    let listing = json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": id, "Content": "FDisk_partition_scheme",
+            "Partitions": partitions }] });
+    let serial = tc
+        .draw(gs::weighted_booleans(0.7))
+        .then(|| tc.draw(gs::text().alphabet("0123456789ABCDEF").min_size(1).max_size(12)));
+    Described { id, info, listing, parts, containers, serial }
+}
+
+#[cfg(unix)]
+impl Described {
+    /// What diskutil says about the partitions, as [`parse_disk`] takes it.
+    fn answered_parts(&self) -> FxHashMap<String, Value> {
+        let mut out: FxHashMap<String, Value> =
+            self.parts.iter().filter(|p| p.2).map(|(pid, info, _)| (pid.clone(), info.clone())).collect();
+        for (pid, _, c, answered) in &self.containers {
+            if *answered && out.contains_key(pid) {
+                out.insert(format!("{pid}/apfs"), c.clone());
+            }
+        }
+        out
+    }
+
+    /// The disk, as diskutil's answers about it and its USB device read.
+    fn disk(&self, boot: &[String], usb: bool) -> Disk {
+        let mut d = parse_disk(&self.info, &self.listing, &self.answered_parts(), boot);
+        d.serial = self.serial.clone().filter(|_| usb);
+        d
+    }
+
+    /// Its USB device, as ioreg prints it.
+    fn ioreg(&self) -> String {
+        let n = self.id.trim_start_matches("disk").parse().unwrap();
+        let mut out = String::new();
+        render(&UsbDevice { serial: self.serial.clone(), hub: vec![], disks: vec![n] }, 0, &mut out);
+        out
+    }
+
+    /// Tell `fake` about the disk: by identifier, and each volume diskutil can describe by its
+    /// mount point too (an APFS volume's says which container it's in, the container which
+    /// partition holds it).
+    fn tell(&self, fake: &mut FakeTools) {
+        fake.answer("diskutil", &["info", "-plist", &self.id], &self.info.to_string());
+        fake.answer("diskutil", &["list", "-plist", &self.id], &self.listing.to_string());
+        let parts = self.answered_parts();
+        for (pid, info, answered) in &self.parts {
+            if !answered {
+                fake.refuse("diskutil", &["info", "-plist", pid], &format!("Could not find disk: {pid}"));
+                continue;
+            }
+            fake.answer("diskutil", &["info", "-plist", pid], &info.to_string());
+            if let Some(m) = json::str(info, "MountPoint") {
+                fake.answer("diskutil", &["info", "-plist", &m], &info.to_string());
+            }
+        }
+        for (pid, container, c, _) in &self.containers {
+            if !parts.contains_key(&format!("{pid}/apfs")) {
+                fake.refuse("diskutil", &["list", "-plist", container], &format!("Could not find disk: {container}"));
+                continue;
+            }
+            fake.answer("diskutil", &["list", "-plist", container], &c.to_string());
+            let stores = json!({ "DeviceIdentifier": container, "APFSPhysicalStores": [{ "APFSPhysicalStore": pid }] });
+            fake.answer("diskutil", &["info", "-plist", container], &stores.to_string());
+            let volume = &c["AllDisksAndPartitions"][0]["APFSVolumes"][0];
+            let m = json::str(volume, "MountPoint").unwrap();
+            let vinfo = json!({ "DeviceIdentifier": volume["DeviceIdentifier"], "MountPoint": m,
+                    "ParentWholeDisk": container });
+            fake.answer("diskutil", &["info", "-plist", &m], &vinfo.to_string());
+        }
+    }
+}
+
+/// The running system as `diskutil info /` describes it: on the APFS container in `store`.
+#[cfg(unix)]
+fn root_volume(store: &str) -> String {
+    json!({ "MountPoint": "/", "ParentWholeDisk": "disk1", "APFSPhysicalStores": [{ "APFSPhysicalStore": store }] })
+        .to_string()
+}
+
+/// Listing asks diskutil for the external physical disks and describes each: what comes back is
+/// every listed disk as diskutil's answers about it read (partitions it can't describe left
+/// bare), with its USB device's serial number when ioreg answers, and marked as the system's
+/// when the running system lives on it. Listing only reads: diskutil is asked nothing but `info`
+/// and `list`. A listed disk diskutil then can't describe fails the listing, in its own words.
+#[cfg(unix)]
+#[hegel::test(test_cases = 15)]
+fn the_disks_listed_are_the_ones_diskutil_describes(tc: TestCase) {
+    let numbers: Vec<u32> =
+        tc.draw(gs::vecs(gs::integers::<u32>().min_value(2).max_value(40)).max_size(2).unique(true));
+    let disks: Vec<Described> = numbers.iter().map(|&n| described(&tc, n)).collect();
+    let mut fake = FakeTools::new();
+    fake.echo("plutil", &PLUTIL);
+    let usb = tc.draw(gs::weighted_booleans(0.8));
+    if usb {
+        fake.answer("ioreg", &IOREG_ARGS, &disks.iter().map(Described::ioreg).collect::<Vec<_>>().join("\n"));
+    } else {
+        fake.refuse("ioreg", &IOREG_ARGS, "ioreg: no such class");
+    }
+    // The system runs from an internal disk, or now and then from one of the listed ones.
+    let booted = (!disks.is_empty() && tc.draw(gs::weighted_booleans(0.3)))
+        .then(|| tc.draw(gs::integers::<usize>().max_value(disks.len() - 1)));
+    let store = booted.map_or("disk0s2".to_string(), |i| format!("{}s2", disks[i].id));
+    let boot = if tc.draw(gs::weighted_booleans(0.9)) {
+        fake.answer("diskutil", &["info", "-plist", "/"], &root_volume(&store));
+        vec![whole_of(&store), "disk1".to_string()]
+    } else {
+        fake.refuse("diskutil", &["info", "-plist", "/"], "Could not find disk: /");
+        Vec::new()
+    };
+    let ids: Vec<&str> = disks.iter().map(|d| d.id.as_str()).collect();
+    fake.answer("diskutil", &["list", "-plist", "external", "physical"], &json!({ "WholeDisks": ids }).to_string());
+    // Now and then a disk goes between being listed and being described.
+    let gone = if disks.is_empty() || !tc.draw(gs::weighted_booleans(0.15)) {
+        None
+    } else {
+        Some(tc.draw(gs::integers::<usize>().max_value(disks.len() - 1)))
+    };
+    for (i, d) in disks.iter().enumerate() {
+        if gone == Some(i) {
+            fake.refuse("diskutil", &["info", "-plist", &d.id], &format!("Could not find disk: {}", d.id));
+        } else {
+            d.tell(&mut fake);
+        }
+    }
+
+    let listed = list();
+    for c in fake.calls() {
+        assert!(c.program != "diskutil" || ["info", "list"].contains(&c.args[0].as_str()), "{c:?}");
+    }
+    if let Some(i) = gone {
+        match listed {
+            Err(Error::External { message, .. }) => {
+                assert_eq!(message, format!("Could not find disk: {}", disks[i].id))
+            }
+            other => panic!("{other:?}"),
+        }
+        return;
+    }
+    let listed = listed.unwrap();
+    let want: Vec<Disk> = disks.iter().map(|d| d.disk(&boot, usb)).collect();
+    assert_eq!(serde_json::to_value(&listed).unwrap(), serde_json::to_value(&want).unwrap());
+    if let (Some(i), false) = (booted, boot.is_empty()) {
+        assert!(listed[i].system && listed[i].problem(&[]).is_some());
+    }
+    // On a Mac these are the disks offered for formatting: the external and removable ones.
+    // (Listing again takes as long again, so only for a single disk.)
+    #[cfg(target_os = "macos")]
+    if disks.len() == 1 {
+        let views = crate::format::list(&[]).unwrap();
+        let offered: Vec<&str> = views.iter().map(|v| v.disk.id.as_str()).collect();
+        let external: Vec<&str> = want.iter().filter(|d| d.removable && !d.internal).map(|d| d.id.as_str()).collect();
+        assert_eq!(offered, external);
+        for v in views {
+            assert_eq!((v.identity, v.problem), (v.disk.identity(), v.disk.problem(&[])));
+        }
+    }
+}
+
+/// Every name of a disk finds that disk, as diskutil describes it: its identifier as given, as
+/// a device and as a raw device; each partition diskutil knows; and the mount point of each
+/// volume on it diskutil can describe, an APFS volume's through its container's physical store. A folder inside a
+/// volume is refused as not a volume's root, and a path diskutil knows nothing of as not a
+/// mounted volume.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+fn every_name_of_a_disk_finds_that_disk(tc: TestCase) {
+    let d = described(&tc, tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
+    let mut fake = FakeTools::new();
+    fake.echo("plutil", &PLUTIL);
+    fake.answer("ioreg", &IOREG_ARGS, &d.ioreg());
+    fake.answer("diskutil", &["info", "-plist", "/"], &root_volume("disk0s2"));
+    d.tell(&mut fake);
+    let want = d.disk(&["disk0".into(), "disk1".into()], true);
+    let id = &d.id;
+    let mut names: Vec<String> = vec![id.clone(), format!("/dev/{id}"), format!("/dev/r{id}")];
+    names.extend(d.parts.iter().filter(|p| p.2).map(|p| p.0.clone()));
+    // Each volume diskutil can describe: a partition it can't, it can't find by mount point either.
+    let parts = d.answered_parts();
+    let described = want.volumes.iter().filter(|v| parts.contains_key(&v.id) || !v.id.starts_with(&format!("{id}s")));
+    let mounts: Vec<String> = described.filter_map(|v| v.mount.as_ref()).map(|m| m.display().to_string()).collect();
+    names.extend(mounts.iter().cloned());
+    names.push("/Volumes/elsewhere".into());
+    if let Some(m) = mounts.first() {
+        let inner = format!("{m}/Contents");
+        let holder = json!({ "MountPoint": m, "ParentWholeDisk": id });
+        fake.answer("diskutil", &["info", "-plist", &inner], &holder.to_string());
+        names.push(inner);
+    }
+    let name = tc.draw(gs::sampled_from(names));
+    let found =
+        if name.starts_with("/Volumes/") { by_mount(Path::new(&name)) } else { by_id(&name).map(Option::unwrap) };
+    match found {
+        Ok(disk) => {
+            assert!(!name.ends_with("/Contents") && name != "/Volumes/elsewhere", "{name}");
+            assert_eq!(serde_json::to_value(&disk).unwrap(), serde_json::to_value(&want).unwrap(), "{name}");
+        }
+        Err(Error::Invalid(m)) => {
+            assert!(name.ends_with("/Contents") && m.contains("is not the root of a volume"), "{m}")
+        }
+        Err(Error::NotFound(m)) => {
+            assert!(name == "/Volumes/elsewhere" && m.contains("is not a mounted volume"), "{m}")
+        }
+        Err(e) => panic!("{name}: {e}"),
+    }
+}
+
+/// Formatting is the planned erase, then a fresh look at the disk: the new volume is mounted
+/// where diskutil now says (nowhere when it isn't). When the erase fails, diskutil's own words
+/// come back, and the disk is asked nothing more.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn formatting_erases_then_finds_the_new_volume(tc: TestCase) {
+    let d = described(&tc, tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
+    let disk = d.disk(&[], false);
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
+    let label = filesystem.label(&word(&tc));
+    let cluster_size = filesystem.default_cluster_size(disk.partition_size());
+    let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: true };
+    let erase = commands(&disk, &t).remove(0);
+    let args: Vec<&str> = erase.args.iter().map(String::as_str).collect();
+    let mut fake = FakeTools::new();
+    fake.echo("plutil", &PLUTIL);
+    let fails = tc.draw(gs::weighted_booleans(0.2));
+    let mount = tc.draw(gs::booleans()).then(|| format!("/Volumes/{label}"));
+    if fails {
+        fake.refuse("diskutil", &args, "Error: -69877: Couldn't open device");
+    } else {
+        fake.then_after("diskutil", &args);
+        let pid = format!("{}s1", d.id);
+        let mut part = json!({ "DeviceIdentifier": pid, "Content": "Windows_FAT_32", "Size": disk.partition_size(),
+                "VolumeName": label });
+        if let Some(m) = &mount {
+            part["MountPoint"] = json!(m);
+        }
+        let listing = json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": d.id, "Partitions": [part] }] });
+        fake.answer("diskutil", &["info", "-plist", &d.id], &d.info.to_string());
+        fake.answer("diskutil", &["list", "-plist", &d.id], &listing.to_string());
+        fake.answer("diskutil", &["info", "-plist", &pid], &json!({ "DeviceIdentifier": pid }).to_string());
+    }
+
+    let formatted = format(&disk, &t, &Ctx::silent());
+    let asked: Vec<Cmd> = fake.calls().into_iter().filter(|c| c.program == "diskutil").collect();
+    assert_eq!(asked[0], erase);
+    if fails {
+        assert!(matches!(&formatted, Err(Error::External { message, .. }) if message.contains("Couldn't open device")));
+        assert_eq!(asked.len(), 1);
+        return;
+    }
+    assert_eq!(formatted.unwrap(), mount.map(PathBuf::from));
+    assert!(asked[1..].iter().all(|c| ["info", "list"].contains(&c.args[0].as_str())), "{asked:?}");
+}
+
+/// Applying a plan formats the disk it was made for and no other: diskutil is asked about the
+/// disk again just before the erase, and when what is on it changed since the plan (its volume
+/// relabelled or resized, another disk under its identifier) nothing is erased and the plan is
+/// stale. Otherwise the planned erase runs, and the drive that was on the disk keeps its name and
+/// identity on the new volume.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 15)]
+fn a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
+    use crate::device::Device;
+    use crate::format::{FormatOptions, apply, plan};
+    let mut fake = FakeTools::new();
+    fake.echo("plutil", &PLUTIL);
+    let (old, new) = (fake.dir().join("old"), fake.dir().join("new"));
+    std::fs::create_dir(&old).unwrap();
+    std::fs::create_dir(&new).unwrap();
+    let name = tc.draw(gs::sampled_from(vec!["Main", "Backup", "Club"]));
+    let mut drive = Device::open(&old).unwrap();
+    let identity = drive.adopt(Some(name)).unwrap().id;
+    let (old, new) = (drive.root().to_path_buf(), new.canonicalize().unwrap());
+
+    let id = format!("disk{}", tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
+    let pid = format!("{id}s1");
+    let size = tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40));
+    let info = |size: u64| {
+        json!({ "DeviceIdentifier": id, "ParentWholeDisk": id, "Content": "FDisk_partition_scheme", "MediaName": "Stick",
+                "Size": size, "DeviceBlockSize": 512, "Internal": false, "RemovableMediaOrExternalDevice": true,
+                "VirtualOrPhysical": "Physical", "BusProtocol": "USB", "WritableMedia": true })
+        .to_string()
+    };
+    let listing = |label: &str, size: u64, mount: &Path| {
+        let part = json!({ "DeviceIdentifier": pid, "Content": "Windows_FAT_32", "Size": size, "VolumeName": label,
+                "MountPoint": mount });
+        json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": id, "Content": "FDisk_partition_scheme",
+                "Partitions": [part] }] })
+    };
+    let pinfo = json!({ "DeviceIdentifier": pid, "ParentWholeDisk": id, "FilesystemType": "msdos",
+            "FilesystemName": "MS-DOS FAT32" });
+    let psize = size - (1 << 20);
+    let parts = FxHashMap::from_iter([(pid.clone(), pinfo.clone())]);
+    let disk = parse_disk(&serde_json::from_str(&info(size)).unwrap(), &listing("DNA", psize, &old), &parts, &[]);
+    let opts = FormatOptions {
+        filesystem: Some(tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]))),
+        ..FormatOptions::default()
+    };
+    let planned = plan(disk.clone(), &opts, None, &[], &Ctx::silent()).unwrap();
+    assert_eq!(planned.keeps_name.as_deref(), Some(name));
+
+    // What diskutil says just before the erase.
+    let change = tc.draw(gs::sampled_from(vec!["nothing", "label", "volume size", "disk"]));
+    let label = if change == "label" { "OTHER" } else { "DNA" };
+    let now_psize = if change == "volume size" { psize - 512 } else { psize };
+    fake.answer("diskutil", &["info", "-plist", &id], &info(if change == "disk" { size + 512 } else { size }));
+    fake.answer("diskutil", &["list", "-plist", &id], &listing(label, now_psize, &old).to_string());
+    fake.answer("diskutil", &["info", "-plist", &pid], &pinfo.to_string());
+    let target = Target {
+        filesystem: planned.filesystem,
+        label: planned.label.clone(),
+        cluster_size: planned.cluster_size,
+        default_cluster: true,
+    };
+    let erase = commands(&disk, &target).remove(0);
+    fake.then_after("diskutil", &erase.args.iter().map(String::as_str).collect::<Vec<_>>());
+    // And after it: the new volume, mounted.
+    fake.answer("diskutil", &["info", "-plist", &id], &info(size));
+    fake.answer("diskutil", &["list", "-plist", &id], &listing(&planned.label, psize, &new).to_string());
+    fake.answer("diskutil", &["info", "-plist", &pid], &pinfo.to_string());
+
+    let applied = apply(disk, &planned.identity, &opts, None, &[], &Ctx::silent());
+    let erased = fake.calls().contains(&erase);
+    if change != "nothing" {
+        assert!(matches!(applied, Err(Error::StalePlan(_))), "{change}: {applied:?}");
+        assert!(!erased, "{change}");
+        return;
+    }
+    let report = applied.unwrap();
+    assert!(erased);
+    assert_eq!((report.disk.as_str(), report.label.as_str()), (id.as_str(), planned.label.as_str()));
+    assert_eq!((report.mount.as_deref(), report.drive_name.as_deref()), (Some(new.as_path()), Some(name)));
+    let kept = Device::open(&new).unwrap();
+    assert_eq!((kept.state().unwrap().id, kept.name()), (identity, name.to_string()));
 }

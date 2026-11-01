@@ -1,0 +1,11 @@
+/*
+ * The site's design system: the shared Local Network theme (packages/tokens/theme.css), with the
+ * fonts it names and the form and prose plugins the site's pages use.
+ *
+ * Import after `@import 'tailwindcss'`.
+ */
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/jetbrains-mono';
+@import '../../../../../packages/tokens/theme.css';

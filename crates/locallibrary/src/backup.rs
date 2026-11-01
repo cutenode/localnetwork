@@ -3,16 +3,19 @@
 //! orphan removal, packs, and putting a backup back). They contain the database files plus every
 //! existing file the change overwrites or deletes (artwork images, analysis files, settings
 //! files, removed tracks' files), so restoring one undoes the change (`locallibrary undo`): files
-//! that were added stay on the drive but are no longer referenced. Restoring one also takes the
-//! edits it undoes off the drive's journal (see [`crate::edit::journal`]), so `edits replay`
-//! doesn't make them again.
+//! that were added stay on the drive but are no longer referenced. A backup also carries the
+//! drive's journal of edits (see [`crate::edit::journal`]) and the player name and colour it
+//! remembers (`Carried`), and restoring one puts those back as they were: `edits replay` then
+//! makes again exactly the edits the restored library had, also after an undo is redone. Restoring
+//! a backup an earlier version took, which carries neither, takes the edits it undoes off the
+//! journal instead.
 //!
 //! Once its change is made, a backup notes what the change left in each file putting it back
-//! would replace or remove ([`BackupInfo::after`]). Putting it back is refused, unless forced,
-//! while the drive holds something else there (a rekordbox export, a sync or push, history lists
-//! players recorded): that would be lost with the change ([`choose`]). Putting a backup back takes
-//! a backup of what it replaces first, so an undo can itself be put back (a redo), and `undo`
-//! again steps back to the change before.
+//! would replace or remove ([`BackupInfo::after`]); a replay notes it after each of its steps.
+//! Putting it back is refused, unless forced, while the drive holds something else there (a
+//! rekordbox export, a sync or push, history lists players recorded): that would be lost with
+//! the change ([`choose`]). Putting a backup back takes a backup of what it replaces first, so an
+//! undo can itself be put back (a redo), and `undo` again steps back to the change before.
 //!
 //! Backups are numbered in the order they're made on the drive (computers' clocks differ), and
 //! the newest [`KEEP`] of each kind are kept. Kinds split two ways: backups that hold removed
@@ -31,12 +34,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::commit::{self, Changes, Content, NewFile, Options};
 use crate::device::{Device, LineageOp};
+use crate::edit::journal::{self, JournalEntry};
 use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::{self, Hash};
 use crate::local_time;
 use crate::paths::{self, FileClass};
+use crate::player::DbIdentity;
 use crate::progress::{Ctx, Phase};
 use crate::{Error, Result};
 
@@ -86,6 +91,58 @@ fn write_info(dir: &Path, info: &BackupInfo) -> Result<()> {
     fsutil::write_json_atomic(&dir.join("backup.json"), info)
 }
 
+/// What a backup carries besides the drive's files, in `carried.json` beside `backup.json`: the
+/// player name and colour the drive remembered (see [`crate::player`]). The drive's journal, with
+/// the files its edits staged, is copied below the backup's own state folder, as on a drive. A
+/// backup without it was taken by an earlier version.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Carried {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    player: Option<DbIdentity>,
+}
+
+const CARRIED: &str = "carried.json";
+
+/// Copy into the backup at `dir` what it carries (see [`Carried`]). A journal this build can't
+/// read isn't carried: restoring refuses that drive anyway, as it can't change its journal.
+fn carry(device: &Device, dir: &Path) -> Result<()> {
+    if journal::list(device).is_err() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dir).at(dir)?;
+    journal::copy(device, &Device::open(dir)?)?;
+    let player = device.state().and_then(|s| s.player.clone());
+    fsutil::write_json_atomic(&dir.join(CARRIED), &Carried { player })
+}
+
+fn carried(device: &Device, info: &BackupInfo) -> Result<Option<Carried>> {
+    fsutil::read_json_opt(&dir(device, &info.id).join(CARRIED))
+}
+
+/// The journal `info` carries (`None`: an earlier version took it, without one).
+pub(crate) fn carried_journal(device: &Device, info: &BackupInfo) -> Result<Option<Vec<JournalEntry>>> {
+    match carried(device, info)? {
+        Some(_) => Ok(Some(journal::list(&Device::open(dir(device, &info.id))?)?)),
+        None => Ok(None),
+    }
+}
+
+/// Put back what `info` carries, now that its files are back: the journal and the player name and
+/// colour as the drive had them. For a backup carrying neither, take the edits it undoes off the
+/// journal, and remember the name and colour the drive shows now (`shown`: before).
+fn put_back_carried(device: &mut Device, info: &BackupInfo, shown: Option<DbIdentity>) -> Result<()> {
+    let Some(carried) = carried(device, info)? else {
+        journal::undone(device, info)?;
+        return crate::player::after_undo(device, shown);
+    };
+    journal::copy(&Device::open(dir(device, &info.id))?, device)?;
+    if device.state().and_then(|s| s.player.as_ref()) != carried.player.as_ref() {
+        device.state_mut()?.player = carried.player;
+        device.save_state()?;
+    }
+    Ok(())
+}
+
 /// Copy the database files and `extra` (keys of files the coming change overwrites or deletes)
 /// into `.locallibrary/backups/<id>/`, with their modification times: a track put back must
 /// not look changed to the next sync. `undoes`: the backup the change puts back, if it's an
@@ -118,6 +175,7 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
             files.push(key);
         }
     }
+    carry(device, &dir)?;
     let info = BackupInfo {
         id,
         created,
@@ -131,6 +189,15 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
     };
     write_info(&dir, &info)?;
     Ok(info)
+}
+
+/// Take backup `id` away again, its change having failed before it changed anything: with the
+/// backups folder when that leaves it empty.
+pub(crate) fn discard(device: &Device, id: &str) -> Result<()> {
+    let dir = dir(device, id);
+    std::fs::remove_dir_all(&dir).at(&dir)?;
+    let _ = std::fs::remove_dir(backups_dir(device));
+    Ok(())
 }
 
 /// Space on the drive [`create`] needs for a backup with `extra`, each file rounded up to the
@@ -339,7 +406,7 @@ pub fn restore(device: &mut Device, id: Option<&str>, force: bool) -> Result<Bac
 pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ctx<'_>) -> Result<BackupInfo> {
     let _lock = commit::lock(device, None)?;
     // The journal must be one this build can change, as the edits undone come off it.
-    crate::edit::journal::list(device)?;
+    journal::list(device)?;
     let info = choose(device, id, force)?;
     let dir = backups_dir(device).join(&info.id);
     if !force {
@@ -386,11 +453,12 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
     let mut opts = Options::new(LineageOp::Restore, format!("restore backup {}", info.id))
         .backup(format!("before putting back {}", info.id));
     opts.undoes = Some(info.id.clone());
-    // Read only when the drive remembers a player name, as reading it decrypts OneLibrary.
-    let shown = device.state().and_then(|s| s.player.as_ref()).and_then(|_| crate::player::db_identity(device.root()));
+    // Read only when the drive remembers a player name and the backup doesn't carry it, as
+    // reading it decrypts OneLibrary.
+    let remembers = device.state().is_some_and(|s| s.player.is_some()) && carried(device, &info)?.is_none();
+    let shown = remembers.then(|| crate::player::db_identity(device.root())).flatten();
     commit::commit(device, changes, opts, ctx)?;
-    crate::edit::journal::undone(device, &info)?;
-    crate::player::after_undo(device, shown)?;
+    put_back_carried(device, &info, shown)?;
     Ok(info)
 }
 

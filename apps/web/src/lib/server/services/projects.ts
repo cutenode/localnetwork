@@ -1,9 +1,10 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
+import { MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
-import { COLLECTION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
+import { PROJECT_SHOWS } from '#lib/shows.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -18,8 +19,16 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
-import type { DirectoryProject, DirectoryStats, HappyViewClient } from '../happyview/client';
+import type { Backfills } from '../happyview/backfills';
+import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
+import { awaitIndexed, INDEX_WAIT_MS, IndexedRepo, reindex } from '../happyview/indexed';
+import { MANAGER_COLLECTIONS } from '../happyview/refresh';
+import type { PlyrClient } from '../plyr';
+import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
+import { ManagerSpaces } from './manager-spaces';
+import { withRecordings } from './mix-recordings';
+import { SetService } from './sets';
 
 export type ProjectSearch = {
 	q?: string;
@@ -44,6 +53,35 @@ export type ProjectSearch = {
 };
 
 export type ProjectSearchResult = { items: ProjectView[]; total: number; page: number; pageSize: number };
+
+/**
+ * The page asked for, and the directory params every performer search takes (searchProjects and searchPerformers):
+ * words, place, the filters, sort, and paging.
+ */
+export function searchQuery(params: ProjectSearch) {
+	const page = Math.max(1, params.page ?? 1);
+	const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+
+	const query = {
+		q: params.q && truncateUtf8(params.q, QUERY_BYTES),
+		latE6: params.near && toE6(params.near.lat),
+		lngE6: params.near && toE6(params.near.lng),
+		radiusKm: params.radiusKm && Math.round(params.radiusKm),
+		// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
+		genres: params.genres && normalizeGenres(params.genres, 20),
+		kinds: params.kinds,
+		formats: params.formats,
+		setTypes: params.setTypes,
+		feeTiers: params.feeTiers,
+		country: params.country,
+		unclaimed: params.unclaimed,
+		sort: params.sort,
+		limit: pageSize,
+		cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+	};
+
+	return { page, pageSize, query };
+}
 
 const PROJECT_STATUSES: readonly ProjectStatus[] = ['active', 'hidden', 'archived'];
 
@@ -74,30 +112,8 @@ export function slugify(input: string): string {
 	return slug.length >= 2 ? slug : `project-${slug || 'x'}`;
 }
 
-/** How long `publish` waits for the directory to serve a write before answering without it. */
-const INDEX_WAIT_MS = 5_000;
-
-const INDEX_POLL_MS = 100;
-
 /** The most URIs one getProjects call takes (its lexicon's maxLength). */
 const URIS_PER_LOOKUP = 25;
-
-/** The longest search text the directory takes, in UTF-8 bytes (its lexicon's maxLength). */
-const QUERY_BYTES = 100;
-
-const utf8 = new TextEncoder();
-
-/** `text` cut to whole characters that fit in `bytes` UTF-8 bytes. */
-function truncateUtf8(text: string, bytes: number): string {
-	let out = '';
-
-	for (const char of text) {
-		if (utf8.encode(out + char).length > bytes) break;
-		out += char;
-	}
-
-	return out;
-}
 
 /** What slugify produces, so a route param that can't be a slug skips the lookup. */
 const SLUG = /^[a-z0-9-]{1,64}$/;
@@ -126,11 +142,42 @@ function projectView(rootDid: string, ref: RecordRef & { rkey: string }, record:
  * reads go to the directory queries it serves; private details stay in the industry space.
  */
 export class ProjectService {
+	/** The DJ sets mixes link, which `publish` checks. */
+	readonly sets: SetService;
+	/** The spaces whose members follow each project's managers, which `publish` updates. */
+	private readonly managerSpaces: ManagerSpaces;
+
+	/**
+	 * `backfills` is the app's, which other re-reads of the same accounts share (SetService makes one without it).
+	 * `plyr` finds the records of plyr.fm tracks that mixes link; without it, only recordings already published stay.
+	 */
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
-		private readonly indexWaitMs = INDEX_WAIT_MS
-	) {}
+		private readonly indexWaitMs = INDEX_WAIT_MS,
+		backfills?: Backfills,
+		private readonly plyr?: PlyrClient
+	) {
+		this.sets = new SetService(core, directory, backfills);
+		this.managerSpaces = new ManagerSpaces(core, new IndexedRepo(directory, core.logger, indexWaitMs));
+	}
+
+	/**
+	 * Brings every project's spaces in line with its managers (run at startup and every hour), finishing any sync that
+	 * failed part way. It reads the projects from the root's own repo, since a directory that's behind would undo a
+	 * recent change.
+	 */
+	async reconcileManagerSpaces(): Promise<void> {
+		// The root's own repo decides who's in a thread: a directory that's behind could let a removed manager back in.
+		// ast-grep-ignore: no-direct-pds-read
+		const records = await (await this.core.root()).listRecords(COLLECTION.project);
+
+		for (const { uri, cid, value } of records) {
+			const project = this.toView({ uri, cid, record: value });
+
+			if (project) await this.managerSpaces.sync(project.uri, project.managers);
+		}
+	}
 
 	async indexDetails(projectUri: string, uri: string, cid: string, details: ProjectDetails, updatedAt: string) {
 		const json = JSON.stringify(details);
@@ -151,11 +198,29 @@ export class ProjectService {
 		return row ? parseJson<ProjectDetails>(row.details, {}) : null;
 	}
 
-	async bySlug(slug: string): Promise<ProjectView | null> {
+	/**
+	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
+	 * afterwards, capped at as many as they list.
+	 */
+	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
-		const { project } = await this.directory.query('getProject', { slug });
 
-		return project ? this.toView(project) : null;
+		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+			slug,
+			counts: options.counts
+		});
+
+		const view = project && this.toView(project);
+
+		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+
+		return {
+			...view,
+			counts: {
+				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+			}
+		};
 	}
 
 	async byUri(uri: string): Promise<ProjectView | null> {
@@ -163,6 +228,18 @@ export class ProjectService {
 		const { project } = await this.directory.query('getProject', { uri });
 
 		return project ? this.toView(project) : null;
+	}
+
+	/** A project as the root's own repo has it now, for a read that a directory still indexing a change would get wrong. */
+	async current(uri: string): Promise<ProjectView | null> {
+		const rkey = this.projectRkey(uri);
+
+		if (!rkey) return null;
+		// The root's own repo decides who's in a new thread, as in reconcileManagerSpaces.
+		// ast-grep-ignore: no-direct-pds-read
+		const stored = await (await this.core.root()).getRecord({ collection: COLLECTION.project, rkey });
+
+		return stored && this.toView({ uri: stored.uri, cid: stored.cid, record: stored.value });
 	}
 
 	async byUris(uris: string[]): Promise<Map<string, ProjectView>> {
@@ -179,11 +256,23 @@ export class ProjectService {
 	}
 
 	/** Every project the account manages, in any status, by name. */
-	async managedBy(did: string): Promise<ProjectView[]> {
+	managedBy(did: string): Promise<ProjectView[]> {
+		return this.everyPage({ manager: did, includeInactive: true, sort: 'name' });
+	}
+
+	/** Every account that manages a project, in any status. */
+	async managers(): Promise<string[]> {
+		const projects = await this.everyPage({ includeInactive: true, sort: 'name' });
+
+		return [...new Set(projects.flatMap((project) => project.managers))];
+	}
+
+	/** Every project a search finds, page by page. */
+	private async everyPage(params: Omit<ProjectSearch, 'page' | 'pageSize'>): Promise<ProjectView[]> {
 		const items: ProjectView[] = [];
 
 		for (let page = 1; ; page++) {
-			const result = await this.search({ manager: did, includeInactive: true, sort: 'name', page, pageSize: 60 });
+			const result = await this.search({ ...params, page, pageSize: 60 });
 			items.push(...result.items);
 
 			if (page * result.pageSize >= result.total) return items;
@@ -200,28 +289,13 @@ export class ProjectService {
 	}
 
 	async search(params: ProjectSearch): Promise<ProjectSearchResult> {
-		const page = Math.max(1, params.page ?? 1);
-		const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+		const { page, pageSize, query } = searchQuery(params);
 
 		const output = await this.directory.query('searchProjects', {
-			q: params.q && truncateUtf8(params.q, QUERY_BYTES),
-			latE6: params.near && toE6(params.near.lat),
-			lngE6: params.near && toE6(params.near.lng),
-			radiusKm: params.radiusKm && Math.round(params.radiusKm),
-			// The directory normalizes genres itself. Doing it here keeps the list within the lexicon's limits.
-			genres: params.genres && normalizeGenres(params.genres, 20),
-			kinds: params.kinds,
-			formats: params.formats,
-			setTypes: params.setTypes,
-			feeTiers: params.feeTiers,
-			country: params.country,
+			...query,
 			manager: params.manager,
 			status: params.status,
-			includeInactive: params.includeInactive,
-			unclaimed: params.unclaimed,
-			sort: params.sort,
-			limit: pageSize,
-			cursor: page > 1 ? String((page - 1) * pageSize) : undefined
+			includeInactive: params.includeInactive
 		});
 
 		return { items: this.toViews(output.projects), total: output.total, page, pageSize };
@@ -246,7 +320,13 @@ export class ProjectService {
 			if (!candidate) return [];
 
 			return [
-				{ candidate, score: match.score, reasons: noteTexts(match.reasons), warnings: noteTexts(match.warnings) }
+				{
+					candidate,
+					score: match.score,
+					breakdown: match.breakdown,
+					reasons: noteTexts(match.reasons),
+					warnings: noteTexts(match.warnings)
+				}
 			];
 		});
 	}
@@ -266,9 +346,11 @@ export class ProjectService {
 
 	/**
 	 * Writes a project to the root account's public repo (compare-and-swap on
-	 * the previous CID), optionally updates its private details in the
-	 * industry space, and waits for the directory to serve it. Returns
-	 * field-level changes.
+	 * the previous CID) once the sets its mixes newly link check out and its
+	 * plyr.fm mixes point at their tracks' records (see withRecordings), moves its
+	 * spaces' members along when its managers change, optionally updates its
+	 * private details in the industry space, and waits for the directory to
+	 * serve it. Returns field-level changes.
 	 */
 	async publish(input: {
 		existing?: ProjectView | null;
@@ -284,10 +366,12 @@ export class ProjectService {
 		const now = nowIso();
 		const rkey = existing?.rkey ?? TID.nextStr();
 		const managers = [...new Set(input.managers)].slice(0, 10);
+		await this.sets.assertLinkable(input.profile, existing?.profile, managers);
+		const profile = await withRecordings(input.profile, existing?.profile, managers, this.plyr);
 
 		const record: ProjectRecord = {
-			slug: existing?.slug ?? (await this.uniqueSlug(input.profile.name)),
-			profile: input.profile,
+			slug: existing?.slug ?? (await this.uniqueSlug(profile.name)),
+			profile,
 			managers,
 			status: input.status,
 			revision: (existing?.revision ?? 0) + 1,
@@ -320,6 +404,9 @@ export class ProjectService {
 			{ profile: record.profile, managers: record.managers, status: record.status }
 		);
 
+		if (existing && changes.some((change) => change.field === 'managers'))
+			await this.managerSpaces.sync(ref.uri, managers);
+
 		if (input.details !== undefined) {
 			const before = existing ? await this.details(existing.uri) : null;
 			const details = input.details ?? {};
@@ -342,26 +429,32 @@ export class ProjectService {
 			);
 		}
 
-		await this.awaitIndexed(ref);
+		const indexed = await this.awaitIndexed(ref);
+		const added = managers.filter((did) => !existing?.managers.includes(did));
+
+		// A new manager's older records are read in the background, once HappyView serves the project that lets their
+		// press kits in; until then that re-read would be turned away, so the set picker reads their sets later. Sets go
+		// through the picker's own re-reads, which it waits for. Their Bluesky follows are re-read too, which HappyView
+		// keeps when one of the project's press kits reads follows.
+		if (indexed) {
+			void this.sets.refresh(added);
+
+			for (const collection of [...MANAGER_COLLECTIONS.filter((nsid) => nsid !== COLLECTION.djSet), BSKY_FOLLOW])
+				for (const did of added) void reindex(this.directory, this.core.logger, collection, did);
+		}
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };
 	}
 
-	/**
-	 * Polls the directory until it serves `ref`, so the next page load reads this write. Gives up
-	 * after a few seconds rather than failing: the write happened, and the directory catches up on its own.
-	 */
-	private async awaitIndexed(ref: RecordRef): Promise<void> {
-		const deadline = Date.now() + this.indexWaitMs;
+	/** Waits for the directory to serve `ref`, so the next page load reads this write, and says whether it did. */
+	private async awaitIndexed(ref: RecordRef): Promise<boolean> {
+		const served = async () => (await this.directory.query('getProject', { uri: ref.uri })).project?.cid === ref.cid;
+		const indexed = await awaitIndexed(served, this.indexWaitMs);
 
-		while (Date.now() < deadline) {
-			const served = await this.directory.query('getProject', { uri: ref.uri }).catch(() => null);
+		if (!indexed)
+			this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
 
-			if (served?.project?.cid === ref.cid) return;
-			await sleep(INDEX_POLL_MS);
-		}
-
-		this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
+		return indexed;
 	}
 
 	/** The rkey of one of the root account's project records, or null for any other URI. */
@@ -376,7 +469,7 @@ export class ProjectService {
 	}
 
 	/** The app's view of a directory project, or null (logged) if it isn't a valid project the root published. */
-	private toView({ uri, cid, record, distanceM }: DirectoryProject): ProjectView | null {
+	toView({ uri, cid, record, distanceM }: DirectoryProject): ProjectView | null {
 		const rkey = this.projectRkey(uri);
 
 		if (!rkey) {
@@ -389,7 +482,7 @@ export class ProjectService {
 			assertProjectRecord(record);
 		} catch (error) {
 			if (!(error instanceof RecordValidationError)) throw error;
-			this.core.logger.warn({ err: error, uri }, 'skipping an invalid project record from the directory');
+			this.core.logger.warn({ err: error, uri }, 'skipping an invalid project record');
 
 			return null;
 		}

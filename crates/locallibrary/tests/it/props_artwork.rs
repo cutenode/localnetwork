@@ -17,8 +17,12 @@ use locallibrary::progress::Ctx;
 use locallibrary::{Library, Store, paths};
 
 /// The picture of shade `n`, small so encoding stays quick.
+fn picture(n: u8) -> Vec<u8> {
+    media::png(24, 24, n.wrapping_mul(40))
+}
+
 fn art(n: u8) -> Artwork {
-    Artwork::from_bytes(&media::png(24, 24, n.wrapping_mul(40))).unwrap()
+    Artwork::from_bytes(&picture(n)).unwrap()
 }
 
 /// What players show for a track: the medium image read from the drive.
@@ -40,39 +44,54 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
     let mut d = Device::open_export(&root).unwrap();
     let ids: Vec<u32> = d.library().unwrap().tracks.iter().map(|t| t.id).collect();
     // The model: each track's picture (by shade), and which tracks share each row.
-    let mut picture: FxHashMap<u32, u8> = FxHashMap::default();
+    let mut shows: FxHashMap<u32, u8> = FxHashMap::default();
     let mut row: FxHashMap<u32, usize> = FxHashMap::default();
     let mut rows = 0;
     let mut medium: IndexMap<u8, Vec<u8>> = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(2).max_value(4)) {
-        let mut batch: Vec<u32> = drawn::some(&tc, &ids);
-        if batch.is_empty() {
-            batch.push(ids[tc.draw(gs::integers::<usize>().max_value(ids.len() - 1))]);
-        }
+        let mut batch: Vec<u32> = tc.draw(gs::subsequences(&ids).min_size(1));
         // Often exactly the tracks of one picture, which is then replaced in place.
         if !row.is_empty() && tc.draw(gs::weighted_booleans(0.5)) {
             let mut existing: Vec<usize> = row.values().copied().collect();
             existing.sort_unstable();
             existing.dedup();
-            let r = existing[tc.draw(gs::integers::<usize>().max_value(existing.len() - 1))];
+            let r = tc.draw(gs::sampled_from(existing));
             let users: Vec<u32> = ids.iter().copied().filter(|t| row.get(t) == Some(&r)).collect();
             if !users.is_empty() {
                 batch = users;
             }
         }
         let shade = tc.draw(gs::integers::<u8>().max_value(5));
-        let a = art(shade);
-        medium.entry(shade).or_insert_with(|| a.jpeg(artwork::MEDIUM_SIZE).unwrap());
-        let r = artwork::set_on_drive(&mut d, &batch, &a, &Ctx::silent()).unwrap();
-        assert_eq!(r.tracks_updated, batch.len());
+        medium.entry(shade).or_insert_with(|| art(shade).jpeg(artwork::MEDIUM_SIZE).unwrap());
+        let databases = |d: &Device| {
+            let mut libs = vec![d.library().unwrap()];
+            libs.extend(plus.then(|| common::plus_library(&root)));
+            libs
+        };
+        let before = databases(&d);
+        media::set_artwork(&mut d, &batch, &picture(shade), &Ctx::silent()).unwrap();
 
         let shared = row.get(&batch[0]).copied();
         let in_place = shared.is_some_and(|s| {
             let users: Vec<u32> = ids.iter().copied().filter(|t| row.get(t) == Some(&s)).collect();
             batch.iter().all(|t| row.get(t) == Some(&s)) && users.len() == batch.len()
         });
-        let dbs = if plus { 2 } else { 1 };
-        assert_eq!(r.artwork_rows_added, if in_place { 0 } else { dbs }, "{batch:?} {row:?}");
+        // In each database the batch keeps its row in place, or shares a new one.
+        let files: Vec<String> = batch.iter().map(|t| before[0].track(*t).unwrap().file_path.clone()).collect();
+        for (was, now) in before.iter().zip(databases(&d)) {
+            let rows = |lib: &Library| -> Vec<Option<u32>> {
+                files.iter().map(|f| lib.tracks.iter().find(|t| t.file_path == *f).unwrap().artwork_id).collect()
+            };
+            let (old, new) = (rows(was), rows(&now));
+            match in_place {
+                true => assert_eq!(new, old, "{batch:?} {row:?}"),
+                false => assert!(
+                    new.iter().all(|r| r.is_some() && *r == new[0])
+                        && !was.tracks.iter().any(|t| t.artwork_id == new[0]),
+                    "{batch:?} {row:?}: {old:?} -> {new:?}"
+                ),
+            }
+        }
         if !in_place {
             rows += 1;
             for t in &batch {
@@ -80,15 +99,15 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
             }
         }
         for t in &batch {
-            picture.insert(*t, shade);
+            shows.insert(*t, shade);
         }
 
         let lib = d.library().unwrap();
         for t in &lib.tracks {
-            assert_eq!(shown(&d, &lib, t.id).as_ref(), picture.get(&t.id).map(|s| &medium[s]), "track {}", t.id);
+            assert_eq!(shown(&d, &lib, t.id).as_ref(), shows.get(&t.id).map(|s| &medium[s]), "track {}", t.id);
         }
         let missing: Vec<u32> = artwork::missing(&d, &lib).iter().map(|t| t.id).collect();
-        assert_eq!(missing, ids.iter().copied().filter(|t| !picture.contains_key(t)).collect::<Vec<_>>());
+        assert_eq!(missing, ids.iter().copied().filter(|t| !shows.contains_key(t)).collect::<Vec<_>>());
         // Tracks share a row exactly when the model says they do.
         for a in &lib.tracks {
             for b in &lib.tracks {
@@ -108,7 +127,8 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
 }
 
 /// `art auto` finds the art of tracks that have none, in their audio file or a cover image in
-/// its folder; tracks whose source is the same picture share one row.
+/// its folder; tracks whose source is the same picture share one row. With a OneLibrary that
+/// can't be read, the art goes into export.pdb only, and that's said.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -134,7 +154,7 @@ fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
     let had: Vec<u32> = drawn::some(&tc, &ids).into_iter().take(3).collect();
     if !had.is_empty() {
-        artwork::set_on_drive(&mut d, &had, &art(9), &Ctx::silent()).unwrap();
+        media::set_artwork(&mut d, &had, &picture(9), &Ctx::silent()).unwrap();
     }
     let lib = d.library().unwrap();
     let folder_of = |id: u32| {
@@ -149,8 +169,18 @@ fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     assert_eq!(found, want);
     assert_eq!(plan.found.len() + plan.not_found.len() + had.len(), ids.len());
 
-    let r = artwork::apply_auto(&mut d, &plan, &Ctx::silent()).unwrap();
+    // A OneLibrary that can't be read is left alone, and the art goes into export.pdb, saying so.
+    let broken_plus = tc.draw(gs::booleans());
+    if broken_plus {
+        common::add_onelibrary(&root);
+        std::fs::write(root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+        d = Device::open_export(&root).unwrap();
+    }
+    let warnings = common::Warnings::default();
+    let r = artwork::apply_auto(&mut d, &plan, &warnings.ctx()).unwrap();
     assert_eq!(r.tracks_updated, want.len());
+    let only_pdb = warnings.said().iter().any(|w| w.contains("Only export.pdb will be changed"));
+    assert_eq!(only_pdb, broken_plus && !want.is_empty(), "{:?}", warnings.said());
     let after = d.library().unwrap();
     let missing: Vec<u32> = artwork::missing(&d, &after).iter().map(|t| t.id).collect();
     assert_eq!(missing, plan.not_found.iter().map(|t| t.id).collect::<Vec<_>>());

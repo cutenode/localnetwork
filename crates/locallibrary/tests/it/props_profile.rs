@@ -69,7 +69,7 @@ fn artist() -> impl hegel::PrintableGenerator<String> {
 #[hegel::explicit_test_case(a = "A (feat. B)".to_string())]
 fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
     let a = tc.draw(artist());
-    for credit in profile::artist_credits(&a) {
+    for credit in locallibrary::model::artist_credits(&a) {
         let prefs = ProfilePrefs { hidden_artists: vec![credit.clone()], ..Default::default() };
         assert!(prefs.is_hidden_artist(&a), "hiding {credit:?} doesn't hide {a:?}");
         assert!(!prefs.may_name("whatever", &a));
@@ -80,7 +80,7 @@ fn hiding_a_credited_artist_hides_the_credit(tc: TestCase) {
 #[hegel::test(test_cases = 500)]
 fn credits_are_distinct_names(tc: TestCase) {
     let a = tc.draw(artist());
-    let credits = profile::artist_credits(&a);
+    let credits = locallibrary::model::artist_credits(&a);
     let distinct: BTreeSet<String> = credits.iter().map(|c| normalize(c)).collect();
     assert_eq!(distinct.len(), credits.len(), "{credits:?}");
     assert!(credits.iter().all(|c| !c.is_empty() && c.trim() == c), "{credits:?}");
@@ -122,6 +122,7 @@ fn report(tracks: &[(String, String)], top_artists: &[String]) -> ProfileReport 
         collection: CollectionSection::default(),
         style: None,
         warnings: Vec::new(),
+        cached: Default::default(),
     }
 }
 
@@ -133,7 +134,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
         gs::vecs(gs::tuples!(artist(), gs::sampled_from(vec!["Glue", "Saku", "Apricots"]).map(String::from)))
             .max_size(6),
     );
-    let credits: Vec<String> = tracks.iter().flat_map(|(a, _)| profile::artist_credits(a)).collect();
+    let credits: Vec<String> = tracks.iter().flat_map(|(a, _)| locallibrary::model::artist_credits(a)).collect();
     tc.assume(!credits.is_empty());
     let hidden_artists = tc.draw(gs::vecs(gs::sampled_from(credits.clone())).min_size(1).max_size(2));
     let names: Vec<String> = tracks.iter().map(|(a, t)| format!("{a} - {t}")).collect();
@@ -150,7 +151,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
     let d = profile::document(&report(&tracks, &credits), &prefs);
     let is_hidden_artist = |a: &str| {
         let named: Vec<String> =
-            profile::artist_credits(a).iter().chain([&a.to_string()]).map(|c| normalize(c)).collect();
+            locallibrary::model::artist_credits(a).iter().chain([&a.to_string()]).map(|c| normalize(c)).collect();
         hidden_artists.iter().any(|h| named.contains(&normalize(h)))
     };
     for t in d.signature.iter().flatten() {
@@ -171,7 +172,7 @@ fn sessions_are_never_counted_in_public(tc: TestCase) {
     r.basis = Basis::Sessions;
     r.sets = SetsSection { count: tc.draw(gs::integers::<usize>().max_value(5000)), ..Default::default() };
     r.summary.tags = vec![Tag { id: "rarely_repeats", label: "Rarely repeats tracks".into(), why: String::new() }];
-    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(15));
+    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(15));
     let precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
     let prefs = ProfilePrefs { sections: Some(sections.into_iter().collect()), precision, ..Default::default() };
     let d = profile::document(&r, &prefs);
@@ -194,7 +195,7 @@ fn a_hidden_artist_is_not_named_through_a_semicolon_credit() {
     assert_eq!(d.signature, None);
 }
 
-fn update() -> impl hegel::Generator<PrefsUpdate> {
+fn update() -> impl hegel::PrintableGenerator<PrefsUpdate> {
     hegel::compose!(|tc| {
         let names = || {
             gs::vecs(gs::sampled_from(vec!["Bicep - Glue", "bicep -  glue", "Four Tet - Baby", " ", "X - Y"]))
@@ -204,7 +205,7 @@ fn update() -> impl hegel::Generator<PrefsUpdate> {
         // Undoing what isn't there fails the whole update, so undo rarely.
         let rarely = |v: Vec<String>| if tc.draw(gs::weighted_booleans(0.2)) { v } else { Vec::new() };
         let artists = || gs::vecs(gs::sampled_from(vec!["Bicep", "Four Tet"]).map(String::from)).max_size(1);
-        let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(3);
+        let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(3);
         PrefsUpdate {
             reset: tc.draw(gs::weighted_booleans(0.1)),
             sections: tc.draw(gs::optional(sections())),
@@ -228,7 +229,7 @@ fn update() -> impl hegel::Generator<PrefsUpdate> {
 /// However the preferences got there, a hidden track is never also pinned.
 #[hegel::test(test_cases = 500)]
 fn a_hidden_track_is_never_pinned(tc: TestCase) {
-    let updates = tc.draw(gs::vecs(update().print_as_debug()).max_size(5));
+    let updates = tc.draw(gs::vecs(update()).max_size(5));
     let mut prefs = ProfilePrefs::default();
     for u in &updates {
         let before = prefs.clone();
@@ -255,7 +256,7 @@ fn pinning_a_hidden_track_is_refused() {
 #[hegel::test(test_cases = 500)]
 fn changes_undo(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(3)) {
+    for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let _ = prefs.apply(&u);
     }
     let name = tc.draw(gs::sampled_from(vec!["Bicep - Glue", "Floorplan - Never Grow Old", "Four Tet - Baby"]));
@@ -295,10 +296,10 @@ fn changes_undo(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(2)) {
+    for u in tc.draw(gs::vecs(update()).max_size(2)) {
         let _ = prefs.apply(&u);
     }
-    let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(4);
+    let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(4);
     let (include, exclude) = (tc.draw(sections()), tc.draw(sections()));
     let mut want = prefs.published();
     want.extend(include.iter().copied());
@@ -312,7 +313,7 @@ fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
 /// Every section reads back from its name, upper-cased or with dashes.
 #[hegel::test(test_cases = 100)]
 fn sections_read_back_from_their_names(tc: TestCase) {
-    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()).print_as_debug());
+    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert_eq!(Section::parse(s.name()), Some(s));
     assert_eq!(Section::parse(&format!(" {} ", s.name().to_uppercase().replace('_', "-"))), Some(s));
     assert_eq!(Section::parse(&s.to_string()), Some(s));
@@ -653,10 +654,9 @@ fn saved_preferences_load_back(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut model = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(4)) {
+    for u in tc.draw(gs::vecs(update()).max_size(4)) {
         let mut u = u;
-        u.precision =
-            tc.draw(gs::optional(gs::sampled_from(vec![Precision::Exact, Precision::Rounded]).print_as_debug()));
+        u.precision = tc.draw(gs::optional(gs::sampled_from(vec![Precision::Exact, Precision::Rounded])));
         let aliases = gs::vecs(gs::sampled_from(vec![
             ("dnb", "Jungle"),
             ("DNB ", "Drum & Bass"),
@@ -688,7 +688,7 @@ fn saved_preferences_load_back(tc: TestCase) {
 /// tracks, artists or labels, or describing the collection.
 #[hegel::test(test_cases = 50)]
 fn every_section_says_what_it_reveals(tc: TestCase) {
-    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()).print_as_debug());
+    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert!(!s.title().is_empty() && !s.reveals().is_empty());
     assert_eq!(s.title_in(Basis::Plays), s.title());
     assert_eq!(s.title_in(Basis::Collection), s.title());
@@ -757,7 +757,7 @@ fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(3)) {
+    for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let before = prefs.clone();
         if prefs.apply(&u).is_err() {
             prefs = before;
@@ -796,4 +796,117 @@ fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
         (got, _) => panic!("{u:?}: {got:?}"),
     }
     assert_eq!(prefs, before, "nothing changed");
+}
+
+/// The DJ's own spellings win: a genre whose text means one of their aliases (ignoring case and
+/// spacing, as genres are compared) reads as the first such alias's genre, wherever it is in
+/// the text; every other genre reads as it does without aliases, words that aren't genres stay
+/// out, and no genre is named twice.
+#[hegel::test(test_cases = 300)]
+fn the_djs_own_genre_spellings_win(tc: TestCase) {
+    let parts: Vec<&str> = tc.draw(
+        gs::vecs(gs::sampled_from(vec![
+            "deep house",
+            "Tech-House",
+            "DnB",
+            "minimal",
+            " MINIMAL ",
+            " Deep  House ",
+            "Unknown",
+            "",
+            "techno",
+        ]))
+        .min_size(1)
+        .max_size(5),
+    );
+    let mut raw = parts[0].to_string();
+    for p in &parts[1..] {
+        raw.push(tc.draw(gs::sampled_from(vec!['/', ',', ';', '|'])));
+        raw.push_str(p);
+    }
+    let aliases: IndexMap<String, String> = tc
+        .draw(
+            gs::vecs(gs::tuples!(
+                gs::sampled_from(vec!["minimal", "Deep House", "DEEP HOUSE", "dnb", "techno", "unknown"]),
+                gs::sampled_from(vec!["Minimal / Deep Tech", "House", "Jungle", "Techno (Peak)"])
+            ))
+            .max_size(4),
+        )
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let none = IndexMap::new();
+    let mut want: Vec<String> = Vec::new();
+    for p in &parts {
+        // A part that names no genre without aliases (`Unknown`, nothing) names none with them.
+        let Some(plain) = profile::genres(p, &none).into_iter().next() else { continue };
+        let name = aliases.iter().find(|(k, _)| normalize(k) == normalize(p)).map_or(plain, |(_, v)| v.clone());
+        if !want.iter().any(|g| normalize(g) == normalize(&name)) {
+            want.push(name);
+        }
+    }
+    assert_eq!(profile::genres(&raw, &aliases), want, "{raw:?} {aliases:?}");
+}
+
+/// The collection's cue statistics count each track's cues as its analysis files hold them,
+/// whatever cues the DJ set in hot cue slots A to C or as memory cues: the share of tracks with
+/// a hot cue, a memory cue and a loop, and hot cues per track among those with any.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
+    cue_statistics_after_cue_edits(&tc, 2);
+}
+
+/// The same for hot cues in slots D to H, which a `.EXT` file holds alone.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn cue_statistics_count_hot_cues_past_c(tc: TestCase) {
+    cue_statistics_after_cue_edits(&tc, 7);
+}
+
+/// Set cues (hot cues up to slot `last`, memory cues, loops) on the demo drive's tracks, and
+/// check the profile's cue statistics against the cues the drive lists for each track.
+#[hegel::test_helper]
+fn cue_statistics_after_cue_edits(tc: &TestCase, last: u8) {
+    use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+        let t = &tc.draw(gs::sampled_from(&lib.tracks));
+        let edit = CueEdit::Set(SetCue {
+            hot_cue: tc.draw(gs::optional(gs::integers::<u8>().max_value(last))).map(HotCue),
+            at: CuePosition::Ms(tc.draw(gs::integers::<u32>().max_value(t.duration_secs * 1000 / 2))),
+            snap: false,
+            loop_beats: tc.draw(gs::optional(gs::sampled_from(vec![4.0, 0.5]))),
+            name: None,
+            color: None,
+        });
+        let mut d = Device::open_export(&root).unwrap();
+        if let Ok(plan) = cue_edit::plan(&d, &[t.id], &edit, &Ctx::silent()) {
+            cue_edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+        }
+    }
+    let d = Device::open_export(&root).unwrap();
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let counts: Vec<(usize, usize, usize)> = cue_edit::list(&d, &ids)
+        .unwrap()
+        .iter()
+        .map(|t| {
+            let hot = t.cues.iter().filter(|c| c.hot_cue.is_some()).count();
+            let loops = t.cues.iter().filter(|c| c.end_ms.is_some()).count();
+            let memory = t.cues.iter().filter(|c| c.hot_cue.is_none() && c.end_ms.is_none()).count();
+            (hot, memory, loops)
+        })
+        .collect();
+    let req = ProfileRequest { drives: vec![common::path(&root)], ..Default::default() };
+    let r = api::profile(None, &req, &Ctx::silent()).unwrap().report;
+    let prep = r.prep.expect("the demo drive's tracks are analysed");
+    let n = counts.len();
+    let share = |f: &dyn Fn(&(usize, usize, usize)) -> bool| counts.iter().filter(|c| f(c)).count() as f64 / n as f64;
+    assert_eq!(prep.tracks, n);
+    assert_eq!(prep.hot_cue_share, share(&|c| c.0 > 0), "{counts:?}");
+    assert_eq!(prep.memory_cue_share, share(&|c| c.1 > 0), "{counts:?}");
+    assert_eq!(prep.loop_share, share(&|c| c.2 > 0), "{counts:?}");
+    let with_hot: Vec<usize> = counts.iter().map(|c| c.0).filter(|h| *h > 0).collect();
+    let per = (!with_hot.is_empty()).then(|| with_hot.iter().sum::<usize>() as f64 / with_hot.len() as f64);
+    assert_eq!(prep.hot_cues_per_track, per);
 }

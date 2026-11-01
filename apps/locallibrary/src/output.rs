@@ -3,8 +3,8 @@
 use std::borrow::Cow;
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use console::style;
@@ -161,6 +161,11 @@ impl Output {
     /// Whether to go ahead with a planned change: `None` to go ahead, otherwise what the command
     /// came to (a dry run, or not confirmed).
     pub fn decide(&self, dry_run: bool, question: &str) -> Option<Outcome> {
+        if let Some(w) = STORE_COPY.get()
+            && !STORE_COPY_SAID.swap(true, Ordering::Relaxed)
+        {
+            warn(w);
+        }
         if dry_run {
             return Some(Outcome::DryRun);
         }
@@ -169,6 +174,20 @@ impl Output {
             Answer::No => Some(Outcome::Declined),
             Answer::NotAsked => Some(Outcome::NotConfirmed),
         }
+    }
+
+    /// [`Output::decide`] about `planned`, refused without asking when a plugin's guard the user
+    /// made blocking found something about it (it can't be applied).
+    pub fn decide_on<P, R>(
+        &self,
+        planned: &Planned<P, R>,
+        dry_run: bool,
+        question: &str,
+    ) -> locallibrary::Result<Option<Outcome>> {
+        if !dry_run {
+            planned.unblocked()?;
+        }
+        Ok(self.decide(dry_run, question))
     }
 
     /// A plan that wasn't applied: in `--json` mode, the envelope with `"report": null` and
@@ -300,6 +319,18 @@ static JSON: AtomicBool = AtomicBool::new(false);
 static QUIET: AtomicBool = AtomicBool::new(false);
 static ASCII: AtomicBool = AtomicBool::new(false);
 static ALL: AtomicBool = AtomicBool::new(false);
+/// What every change's plan says once (see [`Output::decide`]) when the store is a copy of
+/// another (see [`store_is_copy`]).
+static STORE_COPY: OnceLock<String> = OnceLock::new();
+static STORE_COPY_SAID: AtomicBool = AtomicBool::new(false);
+
+/// The store this run uses is a copy `store copy` made, which `warning` says (see
+/// [`locallibrary::offsite::written_copy_warning`]): a change's plan says so before it's made.
+pub fn store_is_copy(warning: Option<String>) {
+    if let Some(w) = warning {
+        let _ = STORE_COPY.set(w);
+    }
+}
 
 /// When to colour the output (`--color`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -434,6 +465,15 @@ pub fn summary(lines: &[String], warnings: &[String]) {
     }
 }
 
+/// For a plan shown its own way: the warnings it has besides `shown` (its own, said with it) and
+/// those about its clones (see [`clones`]), such as what a plugin's guard says.
+pub fn more_warnings<P, R>(plan: &Planned<P, R>, shown: &[String]) {
+    let about_clones = |w: &String| plan.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
+    for w in plan.warnings.iter().filter(|w| !shown.contains(w) && !about_clones(w)) {
+        warn(w);
+    }
+}
+
 /// For a plan shown its own way: the library's other clones applying it copies onto, and those
 /// left alone (see `Planned::reaching_clones`).
 pub fn clones<P, R>(plan: &Planned<P, R>) {
@@ -517,6 +557,29 @@ pub fn clip(s: &str, max: usize, ellipsis: &str) -> String {
     format!("{}{ellipsis}", &s[..end])
 }
 
+/// A cell filled from the bottom, an eighth at a time (`▁` to `█`).
+pub const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// A horizontal bar `frac` of `width` cells long, in eighths.
+pub fn bar(frac: f64, width: usize) -> String {
+    let eighths = (frac.clamp(0.0, 1.0) * width as f64 * 8.0).round() as usize;
+    let mut s = "█".repeat(eighths / 8);
+    if !eighths.is_multiple_of(8) {
+        s.push(['▏', '▎', '▍', '▌', '▋', '▊', '▉'][eighths % 8 - 1]);
+    }
+    s
+}
+
+/// A share as a whole percentage: `0.42` is `42%`.
+pub fn pct(x: f64) -> String {
+    format!("{:.0}%", x * 100.0)
+}
+
+/// [`pct`], or `–` when there's no share to give.
+pub fn opt_pct(x: Option<f64>) -> String {
+    x.map_or_else(|| "–".to_string(), pct)
+}
+
 pub fn dim(s: impl std::fmt::Display) -> console::StyledObject<String> {
     style(s.to_string()).dim()
 }
@@ -577,6 +640,7 @@ fn phase_label(p: Phase) -> &'static str {
         Phase::Listen => "Listening",
         Phase::Match => "Matching",
         Phase::Analyze => "Analysing",
+        Phase::Upload => "Uploading",
         _ => "Working",
     }
 }

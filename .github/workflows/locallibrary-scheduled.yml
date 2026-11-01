@@ -2,9 +2,11 @@ name: locallibrary scheduled
 
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
-# combination, Bombadil, mutation testing, fuzzing, the CLI's timings against a week earlier and a
-# release build of every target. Also a weekly RustSec check, which catches advisories published against
-# Cargo.lock between pushes.
+# combination, formatting and ejecting disk images, Bombadil, mutation testing, fuzzing, the Hegel
+# property tests on fresh inputs, the CLI's timings against a week earlier and a release build of
+# every target. A week that changed none of what they test skips them (see the changes job). Also
+# a weekly RustSec check, which catches advisories published against Cargo.lock between pushes, so
+# it runs every week.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -19,6 +21,71 @@ env:
 
 # Pinned the same way as locallibrary-ci.yml.
 jobs:
+  # Whether anything the suites test changed since the last weekly or hand-started run on main that
+  # passed, which every job but advisories and report needs. A run that failed doesn't count, so the
+  # suites run again each week until one passes. Started by hand, everything runs, as it does when
+  # none of the workflow's last 100 runs passed and there's nothing to compare with.
+  # The paths are ci.yml's locallibrary ones, plus what only these suites read: the fuzz targets,
+  # the scripts the Hegel and timing jobs run, dist's configuration and installer for the release
+  # build, and .node-version for Bombadil's specifications.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.readmes == 'true' }}
+      # The disk image tests, on format/ alone: they test nothing else.
+      format: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.format == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            locallibrary:
+              - 'apps/locallibrary/**'
+              - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - 'packages/tokens/**'
+              - 'fuzz/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - 'deny.toml'
+              - 'dist-workspace.toml'
+              - '.cargo/**'
+              - '.config/nextest.toml'
+              - '.node-version'
+              - 'lexicons/**'
+              - 'tools/hegel-coverage.sh'
+              - 'tools/cli-timings.sh'
+              - '.github/actions/install-dist/**'
+              - '.github/workflows/locallibrary-scheduled.yml'
+              - '!**/*.md'
+            readmes:
+              - 'crates/*/README.md'
+            format:
+              - 'crates/locallibrary/src/format/**'
+              - '.github/workflows/locallibrary-scheduled.yml'
+
+  # Every week whatever changed: advisories are published without a commit here.
   advisories:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -27,7 +94,7 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-deny
       - run: cargo deny --locked check advisories
@@ -36,15 +103,21 @@ jobs:
   # with and without the account. No ALSA headers until the last step, which shows the builds
   # without `playback` don't need them; then clippy over every combination of features.
   features:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # nextest's `ci` profile (.config/nextest.toml), as locallibrary-ci.yml runs it: a test that
+      # hangs fails on its own, rather than holding the job until its timeout.
+      NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-hack
       - run: cargo nextest run -p locallibrary --no-default-features --locked --no-fail-fast
@@ -56,8 +129,11 @@ jobs:
 
   # Bombadil explores the TUI and the mix report (property-based UI testing; see
   # apps/locallibrary/bombadil/).
-  # macOS and Linux only: Bombadil has no Windows build.
+  # macOS and Linux only: Bombadil has no Windows build. Its last steps are the disk image tests
+  # on those two systems (see disk-images), here so they don't start runners of their own.
   bombadil:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -72,7 +148,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - run: npm ci
@@ -100,10 +176,51 @@ jobs:
           TIME_LIMIT: 2m
           OUTPUT_PATH: ${{ runner.temp }}/bombadil-report
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bombadil-${{ matrix.os }}
           path: ${{ runner.temp }}/bombadil-*
+      # Even when Bombadil failed: the disk image tests don't use it.
+      - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' }}
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' && runner.os == 'Linux' }}
+        run: sudo apt-get update && sudo apt-get install -y dosfstools exfatprogs
+      - if: ${{ !cancelled() && needs.changes.outputs.format == 'true' }}
+        run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
+        env:
+          LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
+          NEXTEST_PROFILE: ci
+          # losetup, sfdisk and mkfs need root on Linux, so the test binary runs under sudo there.
+          # Only the Linux target reads this.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo --preserve-env
+
+  # format::apply and eject on a real disk: each test creates a small disk image, attaches it
+  # (hdiutil, a loop device, a VHD), formats or ejects it, and detaches it
+  # (crates/locallibrary/src/format/tests/disk_image.rs). Without LOCALLIBRARY_DISK_IMAGE_TESTS they
+  # return at once, so no other run touches a device. macOS and Linux run them at the end of
+  # bombadil; this is Windows, which has no other job here. Windows runners are administrators
+  # already.
+  disk-images:
+    needs: changes
+    if: needs.changes.outputs.format == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      LOCALLIBRARY_DISK_IMAGE_TESTS: "1"
+      # nextest's `ci` profile, as the features job has it.
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run -p locallibrary --lib --locked --no-fail-fast -E 'test(/^format::disk_image::/)'
 
   # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
   # to the code (a function returning a default, a flipped comparison) and runs the package's
@@ -113,15 +230,18 @@ jobs:
   # Only the code changed in the past week: all of it is about 4,800 mutants and 20 runner-hours.
   # A whole crate runs locally with `cargo mutants -p <crate>`.
   mutants:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      # Keep the number of shards in step with the matrix.
-      SHARD: ${{ matrix.shard }}/4
+      # Keep the number of shards in step with the matrix. At 4, a week's diff was about 372
+      # mutants a shard at 13 to 30 s each, past the step's 90 minutes (run 40313079235).
+      SHARD: ${{ matrix.shard }}/8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,13 +250,21 @@ jobs:
           fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-mutants
-      # The crates below the library and the CLI, whose tests are quick enough to run once per
-      # mutant. `--in-place` mutates this checkout rather than a copy of it. A step timeout,
-      # inside the job's, still leaves the partial results to report and upload.
+      # Every workspace package but the library and the CLI (the crates below them, the plugins and
+      # rekordbox-pdb), whose tests are quick enough to run once per mutant, so a new crate or plugin
+      # is in without an edit here. `--in-place` mutates this checkout rather than a copy of it. A
+      # step timeout, inside the job's, still leaves the partial results to report and upload.
       - timeout-minutes: 90
+        env:
+          # Each test process gets at most 2 GiB of data (prlimit as nextest's target runner), so a
+          # mutant that grows an allocation without bound fails its test on an allocation error.
+          # Unlimited, a mutant that made the resampler's weights millions of taps long filled the
+          # runner's 16 GB, and the runner lost its connection with the shard's results unsaved.
+          # Unmutated, every test here runs within 1 GiB, and nextest runs four at a time here.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: prlimit --data=2147483648
         run: |
           base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
           if [ -z "$base" ]; then
@@ -144,11 +272,11 @@ jobs:
             exit 0
           fi
           git diff "$base" HEAD > "$RUNNER_TEMP/week.diff"
+          list=$(set -o pipefail; cargo metadata --no-deps --format-version 1 --locked |
+            jq -r '.packages[].name | select(. != "locallibrary" and . != "locallibrary-cli") | "-p", .')
+          mapfile -t packages <<< "$list"
           status=0
-          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" \
-            -p loclib-analysis -p loclib-equipment -p loclib-interop -p loclib-mixid \
-            -p loclib-model -p loclib-mysettings -p loclib-progress -p loclib-tracklist \
-            -p loclib-transcode -p loclib-waveform -p rekordbox-pdb || status=$?
+          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" "${packages[@]}" || status=$?
           case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
       - if: ${{ !cancelled() && hashFiles('mutants.out/outcomes.json') != '' }}
         run: |
@@ -164,7 +292,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mutants-${{ matrix.shard }}
           path: mutants.out
@@ -176,6 +304,8 @@ jobs:
   # targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
   # crash fails the job and uploads its input.
   fuzz:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -191,7 +321,7 @@ jobs:
       # install-action has no cargo-fuzz of its own. Its cargo-install fallback builds it from
       # crates.io with the lockfile (rust-cache keeps the binary), where the default would have
       # cargo-binstall download one using the job's token.
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-fuzz@0.13.2
           fallback: cargo-install
@@ -217,15 +347,75 @@ jobs:
           path: fuzz/corpus
           key: fuzz-corpus-${{ github.run_id }}
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
 
+  # The Hegel property tests over and over for 40 minutes a shard, each pass on fresh inputs, where
+  # locallibrary-ci.yml replays the same derandomised ones every time. A run keeps going after a
+  # failure to find others, and the failing examples it finds are cached for the next run to try
+  # first; a failure fails the job and prints the line that replays it.
+  hegel:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      # Keep the number of shards in step with the matrix. Hashed, so a test stays in its shard
+      # and with its cached examples.
+      SHARD: hash:${{ matrix.shard }}/4
+      # Over the `ci` profile Hegel picks on CI, which derandomises and has no database.
+      HEGEL_DERANDOMIZE: "false"
+      HEGEL_DATABASE: ${{ github.workspace }}/.hegel
+      HEGEL_STOP_ON_FIRST_FAILURE: "false"
+      # nextest's `ci` profile, as the features job has it: a pass that hangs fails on its own,
+      # and the shard goes on to the next instead of sitting there until the job's timeout.
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # As locallibrary-ci-os.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
+      # picks the tests with.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
+      - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      # As the fuzz corpus is: each run saves under its own key and the next restores the newest.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .hegel
+          key: hegel-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: hegel-${{ matrix.shard }}-
+      # The script prints the filtersets that pick the Hegel tests one per line, each its own
+      # `--filterset` here: one naming every test would outgrow Linux's 128 KiB cap on an argument.
+      - run: |
+          printed=$(tools/hegel-coverage.sh --print-filter)
+          mapfile -t filtersets <<<"$printed"
+          cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m "${filtersets[@]/#/--filterset=}"
+      - if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .hegel
+          key: hegel-${{ matrix.shard }}-${{ github.run_id }}
+
   # How long the release CLI takes to start and to read a real 3,886-track library
   # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this
-  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary.
+  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary. On
+  # main, this commit's timings also go to Bencher (https://bencher.dev/perf/localnetwork), which
+  # keeps their history and raises an alert when a command is slower than the upper 99% bound of a
+  # t-test over its last 64 runs.
   cli-timings:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -237,7 +427,7 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: hyperfine
       # The week-old build first, in the same target directory, so the second build reuses what
@@ -259,12 +449,28 @@ jobs:
           fi
           git checkout --quiet --detach "$GITHUB_SHA"
       - run: cargo build --release --locked -p locallibrary-cli
-      - run: |
+      - id: timings
+        run: |
           if [ -x "$RUNNER_TEMP/old" ]; then
             tools/cli-timings.sh target/release/locallibrary "$RUNNER_TEMP/old"
           else
             tools/cli-timings.sh target/release/locallibrary
           fi
+        env:
+          CLI_TIMINGS_BMF: ${{ runner.temp }}/cli-timings.json
+      # Also when the timings failed against last week's build, so Bencher has every week. Alerts
+      # show on Bencher without failing the job, which the comparison above already does.
+      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
+        uses: bencherdev/bencher@f80847436d7157936b40525db4c2a1064124f04a # v0.6.13
+      - if: ${{ !cancelled() && steps.timings.outcome != 'skipped' && github.ref == 'refs/heads/main' }}
+        run: >-
+          bencher run --branch main --testbed ubuntu-latest --adapter json
+          --file "$RUNNER_TEMP/cli-timings.json"
+          --threshold-measure latency --threshold-test t_test --threshold-max-sample-size 64
+          --threshold-upper-boundary 0.99 --thresholds-reset
+        env:
+          BENCHER_PROJECT: localnetwork
+          BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
 
   # dist's release build of every target, unsigned and without a tag or a GitHub Release, so a
   # change that breaks packaging shows here rather than when a version is tagged. The same jobs as
@@ -272,6 +478,8 @@ jobs:
   # signing and notarization: the matrix comes from `dist plan`, and the global job builds the
   # installers, formula and checksums over every target's archive.
   release-plan:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     outputs:
@@ -281,9 +489,8 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # The dist version locallibrary-release.yml installs (see dist-workspace.toml).
-      - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.33.0/cargo-dist-installer.sh | sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: ./.github/actions/install-dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cargo-dist-cache
           path: ~/.cargo/bin/dist
@@ -307,10 +514,9 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      # The installer for the runner's shell, and the apt packages dist-workspace.toml lists.
-      # Both come from `dist plan` over this checkout's own configuration, with no input from a
-      # pull request (this workflow doesn't run on them).
-      - run: ${{ matrix.install_dist.run }} # zizmor: ignore[template-injection]
+      - uses: ./.github/actions/install-dist
+      # The apt packages dist-workspace.toml lists. They come from `dist plan` over this checkout's
+      # own configuration, with no input from a pull request (this workflow doesn't run on them).
       - if: matrix.packages_install
         run: ${{ matrix.packages_install }} # zizmor: ignore[template-injection]
       # dist only signs the macOS binaries when the CODESIGN_* variables are set, which they
@@ -330,7 +536,7 @@ jobs:
             echo "$MANIFEST"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: artifacts-build-local-${{ join(matrix.targets, '_') }}
           path: ${{ steps.dist.outputs.paths }}
@@ -345,14 +551,32 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cargo-dist-cache
           path: ~/.cargo/bin/
       - run: chmod +x ~/.cargo/bin/dist
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
       - run: dist build --artifacts=global
+
+  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
+  report:
+    needs:
+      [changes, advisories, features, bombadil, disk-images, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: locallibrary
+      details: >-
+        Each job's log is on the run page. Surviving mutants are in the run's summary, one section
+        per mutants shard, with their diffs in the mutants-N artifacts; the CLI's timings are in the
+        summary too. Bombadil's traces are in the bombadil-OS artifacts and a fuzz crash's input in
+        fuzz-artifacts.

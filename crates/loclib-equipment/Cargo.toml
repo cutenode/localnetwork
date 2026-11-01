@@ -11,6 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+loclib-model.workspace = true
 schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
 serde.workspace = true
 thiserror.workspace = true
@@ -22,3 +23,6 @@ schemars = ["dep:schemars"]
 [dev-dependencies]
 hegeltest.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

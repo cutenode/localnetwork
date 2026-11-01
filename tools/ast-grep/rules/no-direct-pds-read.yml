@@ -1,0 +1,51 @@
+# Every atproto record is read through HappyView, never straight from a PDS or Bluesky's AppView,
+# so reads see what the directory indexed and no account's server gets crawled. Writes to a PDS are
+# fine, and so are the reads this doesn't match: space records (the app is their space syncer),
+# DID and handle resolution, OAuth and sessions, and AT Store's LexResolver.
+#
+# The allowlist is `ignores` below, a reason for each, plus an `ast-grep-ignore` comment on the
+# few lines of app code that have to read a PDS, each with its reason above it. clippy.toml bans
+# jacquard's typed requests for the same reads in Rust.
+id: no-direct-pds-read
+language: TypeScript
+severity: error
+message: This reads records straight from a PDS or Bluesky's AppView.
+note: Read through HappyView (IndexedRepo or HappyViewClient in apps/web/src/lib/server/happyview). Approved exceptions are this rule's ignores in tools/ast-grep/rules/no-direct-pds-read.yml, or carry an `ast-grep-ignore` comment saying why.
+ignores:
+  # Integration tests and tooling (the dev network, publish-lexicons.ts) seed, publish and check
+  # records on a PDS directly.
+  - "apps/web/tests/**"
+  - "apps/web/scripts/**"
+rule:
+  any:
+    # A record, repo or blob read, or a Bluesky AppView query, named in a string or URL, or the
+    # AppView's host.
+    - any: [{ kind: string }, { kind: template_string }]
+      regex: 'com\.atproto\.repo\.(getRecord|listRecords|describeRepo)\b|com\.atproto\.sync\.(getRecord|getRepo|listRecords|getBlob)\b|app\.bsky\.\w+\.(get|search|list)[A-Z]|api\.bsky\.app'
+    # @atproto/api's Agent making the same reads.
+    - pattern: $AGENT.com.atproto.repo.$REPO_READ
+    - pattern: $AGENT.com.atproto.sync.$SYNC_READ
+    - pattern: $AGENT.app.bsky
+    # A RepoClient's own-repo reads (IndexedRepo's take the DID and collection as arguments).
+    - pattern: $CLIENT.getRecord({ $$$ })
+    - pattern: $CLIENT.listRecords($COLLECTION)
+constraints:
+  REPO_READ: { regex: '^(getRecord|listRecords|describeRepo)$' }
+  SYNC_READ: { regex: '^(getRecord|getRepo|listRecords|getBlob)$' }
+  # The Agent's own namespaces are matched above, and its space reads aren't matched at all.
+  CLIENT: { not: { regex: '\.com\.atproto\.\w+$' } }
+  COLLECTION: { not: { kind: object } }
+---
+# The same reads made by hand in Rust, as a URL or an NSID in a string.
+id: no-direct-pds-read-rust
+language: Rust
+severity: error
+message: This reads records straight from a PDS or Bluesky's AppView.
+note: Read through HappyView (crates/locallibrary/src/atmosphere/directory.rs). Approved exceptions are this rule's ignores in tools/ast-grep/rules/no-direct-pds-read.yml.
+ignores:
+  # Tests and the mock PDS answer and count these reads, to check none is made.
+  - "**/tests/**"
+  - "**/tests.rs"
+rule:
+  any: [{ kind: string_literal }, { kind: raw_string_literal }]
+  regex: 'com\.atproto\.repo\.(getRecord|listRecords|describeRepo)\b|com\.atproto\.sync\.(getRecord|getRepo|listRecords|getBlob)\b|app\.bsky\.\w+\.(get|search|list)[A-Z]|api\.bsky\.app'

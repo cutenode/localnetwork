@@ -2,40 +2,13 @@ use super::*;
 use crate::mix::{CoverSource, MixInfo, MixWaveform, Span, Transition};
 
 fn report() -> MixReport {
-    let s = |v: &str| v.to_string();
     let track = Track {
-        id: 1,
-        title: s("Demo Track 1"),
-        artist: s("Loopmasters"),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: s("Fm"),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: s("private note"),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 128.0,
+        key: "Fm".into(),
+        comment: "private note".into(),
         duration_secs: 172,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
         rating: 5,
-        color: None,
         play_count: 3,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: s("/Contents/Loopmasters/Demo Track 1.mp3"),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
+        ..loclib_model::test_util::track(1, "Loopmasters", "Demo Track 1", "/Contents/Loopmasters/Demo Track 1.mp3")
     };
     let play = Play {
         track,
@@ -44,6 +17,7 @@ fn report() -> MixReport {
         track_start: 2.0,
         track_end: 130.0,
         tempo: 1.0234567,
+        speed_range: None,
         played_bpm: Some(131.0),
         key_lock: Some(true),
         semitones: 0.0,
@@ -141,6 +115,18 @@ fn hidden_tracks_and_guessed_covers_stay_out() {
     assert!(!json.contains("Demo Track") && !json.contains("White label"), "{json}");
 }
 
+/// A cover given for the recording (`mix --cover`) is shared like an embedded one.
+#[test]
+fn a_given_cover_is_shared() {
+    let dir = tempfile::tempdir().unwrap();
+    let png = dir.path().join("cover.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([200, 40, 90])).save(&png).unwrap();
+    let mut r = report();
+    r.mix.cover = Some(CoverSource::Given(png));
+    let cover = build(&r, None, &ProfilePrefs::default()).mix.cover;
+    assert!(cover.is_some_and(|c| c.starts_with("data:image/jpeg;base64,")));
+}
+
 #[test]
 fn downsampling_keeps_peaks() {
     assert_eq!(downsample(&[1, 9, 2, 3, 8, 4], 3), [9, 3, 8]);
@@ -192,6 +178,7 @@ fn analysis(tc: &TestCase) -> TrackAnalysis {
             color: hot_cue.map(|h| [h, 0, 255]),
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         })
         .collect();
     TrackAnalysis {
@@ -223,6 +210,10 @@ fn exports_count_what_the_report_found(tc: TestCase) {
                 start,
                 end: start + tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0)),
                 tempo: tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16)),
+                speed_range: tc.draw(gs::optional(gs::tuples!(
+                    gs::floats::<f64>().min_value(0.84).max_value(1.0),
+                    gs::floats::<f64>().min_value(1.0).max_value(1.16)
+                ))),
                 presence: tc.draw(gs::vecs(gs::floats::<f32>().min_value(-0.5).max_value(1.5)).max_size(20)),
                 ..base.clone()
             };
@@ -266,7 +257,8 @@ fn exports_count_what_the_report_found(tc: TestCase) {
     let library = Library { tracks: r.plays.iter().map(|p| p.track.clone()).collect(), ..Default::default() };
     let analyses: Vec<TrackAnalysis> = r.plays.iter().map(|_| analysis(&tc)).collect();
     let on_drive = tc.draw(gs::booleans());
-    let drive = on_drive.then_some(Drive { device: &device, library: &library, analyses: Some(&analyses) });
+    let drive =
+        on_drive.then_some(Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None });
     let e = build(&r, drive, &prefs);
 
     assert_eq!(
@@ -283,6 +275,9 @@ fn exports_count_what_the_report_found(tc: TestCase) {
     let hundredth = |a: f64, b: f64| (a - b).abs() <= 0.005 + 1e-9;
     for (x, p) in e.plays.iter().zip(&r.plays) {
         assert!(hundredth(x.start, p.start) && hundredth(x.end, p.end) && (x.tempo - p.tempo).abs() <= 5e-5);
+        let near = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() <= 5e-5 && (a.1 - b.1).abs() <= 5e-5;
+        assert!(x.speed_range.is_some() == p.speed_range.is_some(), "{:?}", p.speed_range);
+        assert!(x.speed_range.zip(p.speed_range).is_none_or(|(a, b)| near(a, b)), "{:?}", p.speed_range);
         let presence: Vec<u8> = p.presence.iter().map(|v| (v.clamp(0.0, 1.0) * 100.0).round() as u8).collect();
         assert_eq!(x.presence, presence);
         let named = may_name(&prefs, &p.track);
@@ -309,8 +304,12 @@ fn exports_count_what_the_report_found(tc: TestCase) {
             .filter(|ph| (1..=a.beats.len()).contains(&(ph.start_beat as usize).max(1)))
             .count();
         let preview = a.preview.as_ref().filter(|w| !w.columns.is_empty());
-        let page =
-            extras(Drive { device: &device, library: &library, analyses: Some(&analyses) }, &r.plays[i], i, false);
+        let page = extras(
+            Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None },
+            &r.plays[i],
+            i,
+            false,
+        );
         if !on_drive {
             assert!(x.track.overview.is_none() && x.track.cues.is_empty() && x.track.phrases.is_empty());
             continue;
@@ -418,7 +417,7 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
             p
         })
         .collect();
-    let drive = Drive { device: &device, library: &library, analyses: None };
+    let drive = Drive { device: &device, library: &library, analyses: None, fields: None };
     let e = build(&r, Some(drive), &prefs);
 
     let thumbnail_side = |url: &str| {
@@ -433,4 +432,27 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
         let shared = !hidden && art.is_some_and(|side| side >= 16);
         assert_eq!(p.track.artwork.as_deref().map(thumbnail_side), shared.then_some(ARTWORK_PX), "{art:?} {hidden}");
     }
+}
+
+/// An export names the mix and each track it may name by their text without the space around
+/// it, and what is only space as untitled; a track the profile hides is "ID" whatever it's called.
+#[hegel::test(test_cases = 100)]
+fn exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
+    let text = || gs::sampled_from(vec!["", " ", "\t\n", "Friday", "  Demo Track 1 ", "日本"]);
+    let mut r = report();
+    r.mix.title = tc.draw(text()).to_string();
+    r.plays[0].track.title = tc.draw(text()).to_string();
+    let hidden = tc.draw(gs::booleans());
+    let mut prefs = ProfilePrefs::default();
+    if hidden {
+        prefs.hidden_artists.push(r.plays[0].track.artist.clone());
+    }
+    let e = build(&r, None, &prefs);
+    let named = |s: &str, untitled: &str| match s.trim() {
+        "" => untitled.to_string(),
+        t => t.to_string(),
+    };
+    assert_eq!(e.mix.title, named(&r.mix.title, "Untitled mix"));
+    let track = if hidden { UNNAMED.to_string() } else { named(&r.plays[0].track.title, "Untitled") };
+    assert_eq!(e.plays[0].track.title, track);
 }

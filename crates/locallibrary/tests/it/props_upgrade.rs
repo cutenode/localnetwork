@@ -1,7 +1,7 @@
 //! Tracks told apart by their sound: drawn lossy tracks (WAVs named `.mp3`, as in
-//! `upgrade.rs`) and a folder of lossless files, some of the same recordings and some of others
-//! as long. Exactly the tracks whose recording is in the folder are upgraded, and the doctor
-//! puts tracks of one recording in one group.
+//! `upgrade.rs`) and a folder of lossless files, some of the same recordings (one or two copies)
+//! and some of others as long. Exactly the tracks whose recording is in the folder are upgraded,
+//! and the doctor puts tracks of one recording in one group.
 
 use crate::common;
 use crate::upgrade::recording;
@@ -16,7 +16,10 @@ use locallibrary::api::{self, UpgradeRequest};
 use locallibrary::check;
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Section};
+use locallibrary::fields::{FieldValue, Role};
+use locallibrary::harmony::Camelot;
 use locallibrary::progress::Ctx;
+use locallibrary::sound;
 use locallibrary::store::Store;
 use locallibrary::upgrade::UpgradeOptions;
 use locallibrary::{paths, pdb, testing};
@@ -43,6 +46,7 @@ fn only_the_same_recording_is_found(tc: TestCase) {
                 duration: SECS as u16,
                 bitrate: 320,
                 sample_rate: 44_100,
+                key: tc.draw(gs::optional(gs::sampled_from(vec!["8A", "9A", "8B", "3A", "C"]))).map(String::from),
                 ..NewTrack::new(format!("Song {n}"), path.clone())
             };
             tracks.insert(common::add_track(&root, track, &recording(*seed, SECS, 44_100, 16, 0)), *seed);
@@ -57,6 +61,10 @@ fn only_the_same_recording_is_found(tc: TestCase) {
         if tc.draw(gs::booleans()) {
             let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000]));
             fs::write(lossless.join(format!("Lossless {i}.wav")), recording(*seed, SECS, rate, 24, 0)).unwrap();
+            // At times a second copy of it: either may be taken, but one of them is.
+            if tc.draw(gs::booleans()) {
+                fs::write(lossless.join(format!("Again {i}.wav")), recording(*seed, SECS, 44_100, 16, 0)).unwrap();
+            }
             found.insert(*seed);
         }
     }
@@ -75,16 +83,30 @@ fn only_the_same_recording_is_found(tc: TestCase) {
     let twice = tracks.values().filter(|s| **s == SEEDS[0]).count() > 1;
     assert_eq!(groups.iter().any(|g| g.reasons.contains(&DuplicateReason::SameRecording)), twice);
 
-    // Analysed, every track is either measured or fails to decode (the placeholder audio); asked
-    // again, the cache answers. The check before a set then has their levels.
+    // With the drawn tracks' levels kept, and at times a key (as an analyzer would have, by their
+    // files), doctor's analysis has exactly them, analysing nothing itself, and the check before a
+    // set has their levels.
+    let lib = d.library().unwrap();
+    let mut keys: IndexMap<u32, Camelot> = IndexMap::new();
+    for t in lib.tracks.iter().filter(|t| tracks.contains_key(&t.id)) {
+        let key = tc.draw(gs::optional(gs::sampled_from(vec!["8A", "9A", "8B", "2B"])));
+        let mut heard = vec![(Role::Loudness, FieldValue::Number(-9.0))];
+        heard.extend(key.map(|k| (Role::Key, FieldValue::String(k.into()))));
+        common::heard(&store, &root, &t.file_path, &heard);
+        keys.extend(key.map(|k| (t.id, Camelot::parse(k).unwrap())));
+    }
     let analyse = DoctorOptions { only: vec![Section::Analysis], ..Default::default() };
     let first = doctor::run(&d, &analyse, &Ctx::silent()).unwrap().analysis.unwrap();
-    let all = d.library().unwrap().tracks.len();
-    assert_eq!(first.analyzed + first.failed.len(), all);
-    assert_eq!(first.analyzed, tracks.len(), "the synthetic recordings decode");
-    assert_eq!(first.decoded, first.analyzed);
-    let again = doctor::run(&d, &analyse, &Ctx::silent()).unwrap().analysis.unwrap();
-    assert_eq!((again.analyzed, again.decoded), (first.analyzed, 0), "from the cache");
+    assert_eq!((first.analyzed, first.decoded, first.failed.len()), (tracks.len(), 0, 0));
+    // How sure each stored key is, from those kept keys alone: a track is doubted exactly when it
+    // has a key and was heard in another, by how far.
+    let doubted = sound::key_confidences(&d, lib.tracks.iter());
+    for t in &lib.tracks {
+        let heard = keys.get(&t.id).copied();
+        let want = heard.and_then(|h| sound::key_confidence(&t.key, h));
+        assert_eq!(doubted.get(&t.id).copied(), want, "{} {:?}", t.key, heard);
+        assert!(heard.is_some() || !doubted.contains_key(&t.id));
+    }
     let checked =
         check::check(&[Device::open_export(&root).unwrap()], Some(&store), &Default::default(), &Ctx::silent())
             .unwrap();

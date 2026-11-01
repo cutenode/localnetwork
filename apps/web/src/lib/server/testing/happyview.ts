@@ -3,6 +3,7 @@ import type { LexiconDoc, LexXrpcParameters } from '@atproto/lexicon';
 import type { JsonValue } from '@atproto/lex-json';
 import { LuaEventMasks, LuaFactory, LuaReturn, type LuaState, LuaType, type LuaWasm } from 'wasmoon';
 import type { JsonRecord } from '../atproto/repo-client';
+import { z } from 'zod';
 import { type HappyViewBundle, happyViewBundle } from '../happyview/bundle';
 
 /**
@@ -35,6 +36,24 @@ const SCHEMA = `CREATE TABLE happyview_records (
 	indexed_at TEXT DEFAULT (datetime('now')),
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`;
+
+/**
+ * The internal tables HappyView 2.16 lets `db.raw` name (its `ALLOWED_INTERNAL_TABLES`); it refuses SQL naming any
+ * other `happyview_*` table, such as its backfill jobs, so a script can't come to depend on one.
+ */
+const READABLE_TABLES = new Set([
+	'happyview_records',
+	'happyview_record_refs',
+	'happyview_labels',
+	'happyview_lexicons',
+	'happyview_jobs',
+	'happyview_spaces',
+	'happyview_space_members',
+	'happyview_space_records',
+	'happyview_space_record_oplog',
+	'happyview_space_notify_registrations',
+	'happyview_space_dids'
+]);
 
 type ScriptErrorType = 'syntax' | 'runtime' | 'timeout' | 'missing_handle';
 
@@ -223,6 +242,9 @@ class Engine {
 		const { lua } = this;
 		const sql = lua.luaL_checklstring(L, 1, null);
 		const values: SQLInputValue[] = [];
+		const internal = sql.match(/\bhappyview_\w+/gi)?.find((table) => !READABLE_TABLES.has(table.toLowerCase()));
+
+		if (internal) throw new Error(`db.raw cannot reference the protected internal HappyView table '${internal}'`);
 
 		// A Lua sequence ends at its first nil, so a nil param ends the list.
 		if (lua.lua_type(L, 2) === LuaType.Table) {
@@ -429,9 +451,14 @@ export type RecordEvent = { did: string; collection: string; rkey: string; cid: 
 /**
  * An in-process HappyView for unit tests. Everything under test is the real bundled Lua; this stands in for
  * HappyView's Rust plumbing only, as of 2.16: param parsing and coercion, the script globals and APIs, record script
- * outcomes, and the instruction limit, over node:sqlite. It doesn't check CIDs, domains, or auth.
+ * outcomes, the instruction limit, the tables `db.raw` may name, and one-account backfills, over node:sqlite. It
+ * doesn't check CIDs, domains, or auth.
  */
 export class FakeHappyView {
+	/** An account's records of a collection as its PDS lists them, for backfills; without it, there are none. */
+	repo?: (did: string, collection: string) => RecordEvent[];
+	/** Backfill jobs' statuses by id, in the order they started. */
+	private readonly jobs = new Map<string, string>();
 	/** Lua instructions the last handle() call used, rounded down to a thousand. The budget is 1,000,000. */
 	instructions = 0;
 	/** Messages scripts passed to `log()`. */
@@ -444,6 +471,10 @@ export class FakeHappyView {
 	constructor(rootDid: string, bundle: HappyViewBundle = happyViewBundle(rootDid)) {
 		this.lexicons = new Map(bundle.lexicons.map((doc) => [doc.id, doc]));
 		this.scripts = new Map(bundle.scripts.map((script) => [script.id, script.body]));
+		// SQLite writes the temporary tables its queries build (materialized CTEs, sorts) to files in $TMPDIR by
+		// default, even for an in-memory database, so the support queries over many sets would wait on the disk
+		// whenever something else is using it. Where they live doesn't change any result or instruction count.
+		this.db.exec('PRAGMA temp_store = MEMORY');
 		this.db.exec(SCHEMA);
 	}
 
@@ -494,10 +525,40 @@ export class FakeHappyView {
 			.run(uri, did, collection, rkey, JSON.stringify(stored), cid, now, now, now);
 	}
 
-	/** Serves `GET /xrpc/<nsid>` from the query's script, the way HappyView does. */
+	/**
+	 * Stores records as they are, without running their record script, for tests that need many records the script
+	 * would keep unchanged and only measure the queries over them.
+	 */
+	seed(records: { did: string; collection: string; rkey: string; cid: string; record: JsonRecord }[]): void {
+		const now = new Date().toISOString();
+
+		const insert = this.db.prepare(
+			`INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, indexed_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		);
+
+		this.db.exec('BEGIN');
+
+		for (const { did, collection, rkey, cid, record } of records)
+			insert.run(`at://${did}/${collection}/${rkey}`, did, collection, rkey, JSON.stringify(record), cid, now, now);
+		this.db.exec('COMMIT');
+	}
+
+	/**
+	 * Serves `GET /xrpc/<nsid>` from the query's script, the way HappyView does, and with `repo`, the backfill admin
+	 * calls.
+	 */
 	readonly fetch: typeof globalThis.fetch = async (input, init) => {
 		const request = new Request(input, init);
 		const url = new URL(request.url);
+
+		if (this.repo && url.pathname === '/admin/backfill' && request.method === 'POST')
+			return Response.json(
+				await this.backfill(z.object({ collection: z.string(), did: z.string() }).parse(await request.json()))
+			);
+
+		if (this.repo && url.pathname === '/admin/backfill/status')
+			return Response.json([...this.jobs].map(([id, status]) => ({ id, status })));
 		const nsid = /^\/xrpc\/([^/]+)$/.exec(url.pathname)?.[1] ?? '';
 		const main = this.lexicons.get(nsid)?.defs.main;
 		const trigger = `xrpc.query:${nsid}`;
@@ -521,6 +582,20 @@ export class FakeHappyView {
 			);
 		}
 	};
+
+	/**
+	 * Re-reads one account's records of `collection` through its record script, then answers the way HappyView does
+	 * once it has queued the job.
+	 */
+	private async backfill({ collection, did }: { collection: string; did: string }) {
+		const id = `job-${this.jobs.size}`;
+		this.jobs.set(id, 'running');
+
+		for (const event of this.repo?.(did, collection) ?? []) await this.ingest(event);
+		this.jobs.set(id, 'completed');
+
+		return { id, status: 'running' };
+	}
 
 	private async execute(trigger: string, globals: Globals): Promise<ScriptResult> {
 		engine ??= new LuaFactory().getLuaModule().then((lua) => new Engine(lua));

@@ -3,13 +3,14 @@
 
 mod drive;
 mod embed;
+mod replay;
 
-use crate::common::{self, media::png, media::wav};
+use crate::common::{self, media::png, media::set_artwork, media::wav};
 
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
-use locallibrary::paths;
 use locallibrary::progress::Ctx;
+use locallibrary::{paths, pdb};
 
 fn dims(path: &std::path::Path) -> (u32, u32) {
     let img = image::open(path).unwrap();
@@ -22,10 +23,15 @@ fn set_artwork_on_drive() {
     let mut d = Device::open_export(common::demo_drive(dir.path(), "A")).unwrap();
     let lib = d.library().unwrap();
     assert_eq!(artwork::missing(&d, &lib).len(), 2);
+    let rows = |d: &Device| {
+        let path = d.path(paths::EXPORT_PDB);
+        pdb::parse_database(std::fs::read(&path).unwrap(), &path).unwrap().artwork.len()
+    };
+    let before = rows(&d);
 
-    let art = Artwork::from_bytes(&png(500, 400, 10)).unwrap();
-    let r = artwork::set_on_drive(&mut d, &[1, 2], &art, &Ctx::silent()).unwrap();
-    assert_eq!((r.tracks_updated, r.artwork_rows_added), (2, 1));
+    let art = png(500, 400, 10);
+    set_artwork(&mut d, &[1, 2], &art, &Ctx::silent()).unwrap();
+    assert_eq!(rows(&d), before + 1);
     let lib = d.library().unwrap();
     assert!(artwork::missing(&d, &lib).is_empty());
     let t = &lib.tracks[0];
@@ -35,18 +41,17 @@ fn set_artwork_on_drive() {
     assert_eq!(dims(&d.path(&artwork::medium_variant(&key))), (240, 240));
 
     // Changing just one track's art gives it its own row; the other keeps the shared one.
-    let art2 = Artwork::from_bytes(&png(300, 300, 200)).unwrap();
-    let r = artwork::set_on_drive(&mut d, &[2], &art2, &Ctx::silent()).unwrap();
-    assert_eq!(r.artwork_rows_added, 1);
+    set_artwork(&mut d, &[2], &png(300, 300, 200), &Ctx::silent()).unwrap();
+    assert_eq!(rows(&d), before + 2);
     let lib = d.library().unwrap();
     assert_ne!(lib.tracks[0].artwork_id, lib.tracks[1].artwork_id);
 
     // Changing it again replaces the files in place.
-    let r = artwork::set_on_drive(&mut d, &[2], &art, &Ctx::silent()).unwrap();
-    assert_eq!(r.artwork_rows_added, 0);
+    set_artwork(&mut d, &[2], &art, &Ctx::silent()).unwrap();
+    assert_eq!(rows(&d), before + 2);
     let preview = artwork::read_from_drive(&d, &d.library().unwrap(), 2).unwrap().unwrap();
     assert!(image::load_from_memory(&preview).is_ok());
-    assert!(artwork::set_on_drive(&mut d, &[99], &art, &Ctx::silent()).is_err());
+    assert!(set_artwork(&mut d, &[99], &art, &Ctx::silent()).is_err());
 }
 
 #[test]
@@ -83,8 +88,7 @@ fn setting_artwork_that_fails_leaves_the_drive_unchanged() {
     std::fs::write(&path, bytes).unwrap();
     let before = common::Before::take(&root);
     let mut d = Device::open_export(&root).unwrap();
-    let art = Artwork::from_bytes(&png(300, 300, 40)).unwrap();
-    artwork::set_on_drive(&mut d, &[1, 2], &art, &Ctx::silent()).unwrap_err();
+    set_artwork(&mut d, &[1, 2], &png(300, 300, 40), &Ctx::silent()).unwrap_err();
     before.untouched(&root).unwrap();
 }
 

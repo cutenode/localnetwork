@@ -1,0 +1,25 @@
+[package]
+name = "locallibrary-plugin-archive"
+description = "locallibrary's Internet Archive plugin: a set's recording uploaded to archive.org as an item, with its tracklist"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+percent-encoding.workspace = true
+quick-xml = { version = "0.42", features = ["serialize"] }
+serde.workspace = true
+serde_json.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true

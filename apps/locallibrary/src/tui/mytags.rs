@@ -48,13 +48,12 @@ impl App {
         self.task("Reading My Tags".into(), move |_| {
             let tags = api::tags_list(&DriveRef { drive })?;
             Ok(Box::new(move |app: &mut App| {
-                let chosen: FxHashSet<String> = tracks.iter().map(|p| paths::key(p).to_lowercase()).collect();
+                let chosen: FxHashSet<String> = tracks.iter().map(|p| paths::file_key(p)).collect();
                 // A new tag first: the list of existing ones can be long.
                 let mut items = vec![Item::new("a new tag…", "Category/Tag")];
                 let mut choices = vec![TagChoice::New];
                 for t in tags.categories.iter().flat_map(|c| &c.tags) {
-                    let on =
-                        t.tracks.iter().filter(|r| chosen.contains(&paths::key(&r.file_path).to_lowercase())).count();
+                    let on = t.tracks.iter().filter(|r| chosen.contains(&paths::file_key(&r.file_path))).count();
                     let detail = format!("{} track{}", t.tracks.len(), if t.tracks.len() == 1 { "" } else { "s" });
                     if on == chosen.len() {
                         items.push(Item::new(format!("take {} off", t.path), detail));

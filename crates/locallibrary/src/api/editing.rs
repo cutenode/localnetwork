@@ -7,13 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use super::{DriveRef, LibraryCache, resolve_drive};
+use super::{DriveRef, LibraryCache, LibraryRef, TagsByTrack, resolve_drive};
 use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
+use crate::fields::{Source, TrackValues};
 use crate::harmony;
-use crate::model::{BpmRange, Track, TrackRef};
+use crate::model::{BpmRange, Library, Track, TrackRef};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::query::{self, Filter, QueryContext, TrackSelector};
@@ -47,9 +48,10 @@ pub fn edit_apply(req: &EditRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
 
 /// An edit plan, as the operation `operation`, for the drive `touched` measured (its library, see
 /// [`Touched::library`], and whatever else the plan was made from), reaching its library's other
-/// clones (see `Planned::reaching_clones`).
+/// clones (see `Planned::reaching_clones`), with what plugins' guards make of it (see
+/// [`crate::plugin::Plugins::guard`]).
 pub(crate) fn planned_edit(
-    operation: &'static str,
+    operation: impl Into<std::borrow::Cow<'static, str>>,
     plan: EditPlan,
     touched: Touched,
     ctx: &Ctx<'_>,
@@ -63,11 +65,7 @@ pub(crate) fn planned_edit(
             bytes(plan.bytes)
         ));
     }
-    let destructive = !plan.tracks_removed.is_empty()
-        || !plan.playlists_deleted.is_empty()
-        || plan.history_removed > 0
-        || !plan.files.is_empty();
-    let (noop, warnings) = (plan.is_noop(), plan.warnings.clone());
+    let (destructive, noop, warnings) = (plan.destructive(), plan.is_noop(), plan.warnings.clone());
     Planned::new(operation, plan, ())
         .summary(summary)
         .warnings(warnings)
@@ -75,7 +73,8 @@ pub(crate) fn planned_edit(
         .noop(noop)
         .touches(touched)
         .reaching_clones(ctx)?
-        .guard(None)
+        .guard(None)?
+        .guarded(|p| p.recorded.clone(), ctx)
 }
 
 impl Operation for EditPlan {
@@ -164,117 +163,6 @@ pub fn edits_clear(req: &ClearEdits) -> Result<ClearedEdits> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Importing tracklists
-// ---------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct ImportRequest {
-    pub drive: String,
-    /// A tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or
-    /// plain "Artist - Title" lines.
-    pub file: std::path::PathBuf,
-    /// The playlist to fill (created if needed).
-    pub into: String,
-    /// For rekordbox XML: which of its playlists, by path (the whole collection otherwise).
-    #[serde(default)]
-    pub playlist: Option<String>,
-    /// Add to the playlist instead of replacing its contents.
-    #[serde(default)]
-    pub append: bool,
-    /// Decisions for ambiguous entries: entry index (in the report) -> track id.
-    #[serde(default)]
-    pub choices: indexmap::IndexMap<usize, u32>,
-}
-
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct ImportPreview {
-    pub report: crate::import::Report,
-    /// `None` when no entry was found.
-    pub plan: Option<EditPlan>,
-}
-
-fn import_edits(req: &ImportRequest, lib: &crate::Library) -> Result<(crate::import::Report, Vec<Edit>)> {
-    use crate::import;
-    let bytes = std::fs::read(&req.file).map_err(|e| Error::Io { path: req.file.clone(), source: e })?;
-    let hint = req.file.file_name().map(|n| n.to_string_lossy().into_owned());
-    let (format, entries) = match &req.playlist {
-        Some(p) => {
-            let lists = import::xml_playlists(&bytes)?;
-            let entries = crate::model::pick(lists, p.trim().trim_matches('/'))
-                .ok_or_else(|| Error::NotFound(format!("playlist {p:?} in {}", req.file.display())))?;
-            (import::Format::RekordboxXml, entries)
-        }
-        None => (import::detect(&bytes, hint.as_deref()), import::parse(&bytes, hint.as_deref())?),
-    };
-    let mut report = import::Report::new(format, import::match_entries(lib, &entries));
-    for (&i, &track) in &req.choices {
-        let m = report.entries.get_mut(i).ok_or_else(|| Error::invalid(format!("no entry {i} in the list")))?;
-        if lib.track(track).is_none() {
-            return Err(Error::NotFound(format!("track #{track}")));
-        }
-        m.status = import::Status::Found { track_id: track, how: import::MatchKind::Chosen };
-    }
-    report.summary = import::Summary::of(&report.entries);
-    // As entries, by file: a set list that played a track twice keeps both.
-    let mut paths: Vec<String> =
-        lib.tracks_by_id(&report.track_ids()).into_iter().map(|t| t.file_path.clone()).collect();
-    if paths.is_empty() {
-        return Ok((report, Vec::new()));
-    }
-    if req.append
-        && let Some(p) = edit::find_exact(lib, &req.into)?
-    {
-        let mut entries: Vec<String> =
-            lib.tracks_by_id(&p.track_ids).into_iter().map(|t| t.file_path.clone()).collect();
-        entries.append(&mut paths);
-        paths = entries;
-    }
-    Ok((report, vec![Edit::SetEntries { playlist: req.into.clone(), paths, create: true }]))
-}
-
-/// Read a tracklist, find its tracks on the drive, and plan the playlist.
-pub fn import_plan(req: &ImportRequest, ctx: &Ctx<'_>) -> Result<Planned<ImportPreview>> {
-    let d = resolve_drive(&req.drive)?;
-    let (report, edits) = import_edits(req, &d.library()?)?;
-    let plan = match edits.is_empty() {
-        true => None,
-        false => Some(edit::plan(&d, &edits, &EditOptions::default(), ctx)?),
-    };
-    let summary = match &plan {
-        Some(p) => p.changes.clone(),
-        None => vec!["none of the list's tracks are on the drive".to_string()],
-    };
-    let warnings = plan.iter().flat_map(|p| p.warnings.iter().cloned()).collect::<Vec<_>>();
-    let noop = plan.as_ref().is_none_or(EditPlan::is_noop);
-    Planned::new("import", ImportPreview { report, plan }, ())
-        .summary(summary)
-        .warnings(warnings)
-        .noop(noop)
-        .touches(Touched::library(&d, true))
-        .touches(Touched::path(&req.file, false, vec![crate::op::Probe::Content(vec![String::new()])]))
-        .reaching_clones(ctx)?
-        .guard(None)
-}
-
-impl Operation for ImportPreview {
-    type Request = ();
-    type Report = EditReport;
-
-    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<EditReport> {
-        let plan = planned
-            .plan
-            .plan
-            .as_ref()
-            .ok_or_else(|| Error::NotFound("none of the list's tracks are on the drive".into()))?;
-        edit::apply(plan, &mut planned.drive(0)?, ctx)
-    }
-}
-
-/// Plan and import in one go, for callers that don't confirm (see [`import_plan`]).
-pub fn import_apply(req: &ImportRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
-    import_plan(req, ctx)?.apply(None, ctx)
-}
-// ---------------------------------------------------------------------------------------------
 // Duplicates and history
 // ---------------------------------------------------------------------------------------------
 
@@ -316,7 +204,7 @@ fn dedupe_edits(d: &Device, req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<(Vec<E
     };
     let groups = doctor::run(d, &opts, ctx)?.duplicates.unwrap_or_default();
     let library = d.library()?;
-    let track = |id: u32| library.track(id).ok_or_else(|| Error::NotFound(format!("track #{id}")));
+    let track = |id: u32| library.track(id).ok_or_else(|| Error::no_track(id));
     let (mut edits, mut warnings) = (Vec::new(), Vec::new());
     for g in groups {
         // Several rows for one file can't be told apart by file: rekordbox's next export fixes those.
@@ -417,7 +305,7 @@ pub fn dedupe_plan(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPla
         )
     });
     // Carried cues are made first, after the plan's one backup; the replacements stay strict.
-    let plan = edit::plan_with_steps(&d, &edits, &EditOptions::default(), ctx)?;
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
     // The analysis files carrying writes and reads: one changed since is another plan.
     let carrying: Vec<String> = edits
         .iter()
@@ -638,7 +526,8 @@ pub fn delete_history_apply(store: Option<&Store>, req: &DeleteHistoryRequest, c
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct TracksQuery {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     /// See [`crate::query`].
     #[serde(default)]
     pub filter: Option<String>,
@@ -669,15 +558,19 @@ pub fn tracks_query(req: &TracksQuery) -> Result<TracksPage> {
 
 /// [`tracks_query`], with the library from `cache`.
 pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<TracksPage> {
-    let (d, cached) = cache.open(&req.drive)?;
-    let lib = &cached.library;
+    tracks_query_with(cache, req, None)
+}
+
+/// [`tracks_query_cached`], with what analyzers worked out read from `fields` for a filter or
+/// sort naming a plugin's field (`sound.bpm:>120`, `-sound.bpm`); without it, those are refused.
+pub fn tracks_query_with(cache: &LibraryCache, req: &TracksQuery, fields: Option<Source<'_>>) -> Result<TracksPage> {
+    let (d, cached, lib) = cache.read(&req.library)?;
     let filter = req.filter.as_deref().map(Filter::parse).transpose()?.unwrap_or_default();
+    let keys = req.sort.as_deref().map(|s| query::parse_sort_with(s, fields.map(|f| f.declared))).transpose()?;
     let tags = if filter.uses_tags() { Some(cached.tags_by_track(&d)?) } else { None };
-    let mut ctx = QueryContext::new(lib);
-    if let Some(t) = &tags {
-        ctx = ctx.with_tags(t);
-    }
-    filter.check(&ctx)?;
+    let sorted_by_field = keys.iter().flatten().any(|k| matches!(k.field, query::SortField::Field(_)));
+    let values = fields.filter(|_| filter.uses_fields() || sorted_by_field).map(|f| TrackValues::read(f, &d, &lib));
+    let ctx = filter_context(&lib, &filter, tags.as_deref(), values.as_ref())?;
     let mut tracks: Vec<&Track> = match &req.playlist {
         Some(p) => {
             let pl = lib.find_playlist(p).ok_or_else(|| Error::NotFound(format!("playlist {p:?}")))?;
@@ -685,13 +578,30 @@ pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<Tr
         }
         None => filter.select(&ctx),
     };
-    if let Some(s) = &req.sort {
-        query::sort_tracks(&mut tracks, &query::parse_sort(s)?);
+    if let Some(keys) = &keys {
+        query::sort_tracks_with(&mut tracks, keys, values.as_ref());
     }
     let total = tracks.len();
     let total_duration_secs = tracks.iter().map(|t| u64::from(t.duration_secs)).sum();
     let tracks = tracks.into_iter().skip(req.offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
     Ok(TracksPage { total, total_duration_secs, tracks })
+}
+
+/// What `filter` matches `library`'s tracks against: the library, its My Tags by lowercase file
+/// key (`tags`, which only a filter that [uses them](Filter::uses_tags) needs), and what
+/// analyzers worked out (`fields`, for one that [uses them](Filter::uses_fields)). Refused as
+/// [`Filter::check`] refuses it.
+pub fn filter_context<'a>(
+    library: &'a Library,
+    filter: &Filter,
+    tags: Option<&'a TagsByTrack>,
+    fields: Option<&'a TrackValues>,
+) -> Result<QueryContext<'a>> {
+    let mut ctx = QueryContext::new(library);
+    ctx.tags = tags;
+    ctx.fields = fields;
+    filter.check(&ctx)?;
+    Ok(ctx)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -704,13 +614,14 @@ pub struct TrackRequest {
 pub fn track_analysis(req: &TrackRequest) -> Result<TrackAnalysis> {
     let d = resolve_drive(&req.drive)?;
     let lib = d.library()?;
-    let t = lib.track(req.track).ok_or_else(|| Error::NotFound(format!("track #{}", req.track)))?;
-    Ok(anlz::load(&d, t))
+    let t = lib.track(req.track).ok_or_else(|| Error::no_track(req.track))?;
+    Ok(super::analysis_of(&d, t))
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct TrackDetailsRequest {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     #[serde(flatten)]
     pub tracks: TrackSelector,
 }
@@ -793,14 +704,13 @@ pub fn track_details(req: &TrackDetailsRequest) -> Result<Vec<TrackDetails>> {
 
 /// [`track_details`], with the library from `cache`.
 pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> Result<Vec<TrackDetails>> {
-    let (d, cached) = cache.open(&req.drive)?;
-    let lib = &cached.library;
+    let (d, cached, lib) = cache.read(&req.library)?;
     let tags = cached.tags_by_track(&d).unwrap_or_default();
     let history = match &req.tracks.history {
         Some(_) => crate::plays::drive_history(&d)?.lists,
         None => Vec::new(),
     };
-    let ctx = QueryContext::new(lib).with_tags(&tags).with_history(&history);
+    let ctx = QueryContext::new(&lib).with_tags(&tags).with_history(&history);
     let ids = req.tracks.select_ordered(&ctx, false)?;
     // Rekordbox's fingerprint; untitled tracks without an artist aren't compared.
     let fingerprint =
@@ -828,11 +738,11 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
                     .filter(|l| !l.is_folder && l.track_ids.contains(&t.id))
                     .map(|l| l.name.clone())
                     .collect(),
-                tags: tags.get(&crate::paths::key(&t.file_path).to_lowercase()).cloned().unwrap_or_default(),
+                tags: tags.get(&crate::paths::file_key(&t.file_path)).cloned().unwrap_or_default(),
                 copies: fingerprint(t)
                     .and_then(|k| recordings.get(&k))
                     .map_or_else(Vec::new, |v| v.iter().filter(|o| o.id != t.id).map(|o| TrackRef::from(*o)).collect()),
-                analysis: AnalysisSummary::of(&anlz::load(&d, t), analysed),
+                analysis: AnalysisSummary::of(&super::analysis_of(&d, t), analysed),
                 track: t.clone(),
             }
         })
@@ -841,7 +751,8 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct MatchesRequest {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     pub track: u32,
     #[serde(default)]
     pub limit: Option<usize>,
@@ -858,6 +769,12 @@ pub struct HarmonicMatch {
     pub tempo_gap: f64,
 }
 
+/// The tracks of `library` that mix into `track` ([`harmony::suggestions`]), at most `limit`, best
+/// first: what `track.matches` and the player list.
+pub fn matches_in(library: &Library, track: &Track, limit: usize) -> Vec<harmony::Suggestion> {
+    harmony::suggestions(library, track, limit)
+}
+
 /// Tracks that mix into a track: a compatible key and a close tempo, best first.
 pub fn harmonic_matches(req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
     harmonic_matches_cached(LibraryCache::none(), req)
@@ -865,10 +782,9 @@ pub fn harmonic_matches(req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
 
 /// [`harmonic_matches`], with the library from `cache`.
 pub fn harmonic_matches_cached(cache: &LibraryCache, req: &MatchesRequest) -> Result<Vec<HarmonicMatch>> {
-    let (_, cached) = cache.open(&req.drive)?;
-    let lib = &cached.library;
-    let t = lib.track(req.track).ok_or_else(|| Error::NotFound(format!("track #{}", req.track)))?;
-    Ok(harmony::suggestions(lib, t, req.limit.unwrap_or(40))
+    let (_, _, lib) = cache.read(&req.library)?;
+    let t = lib.track(req.track).ok_or_else(|| Error::no_track(req.track))?;
+    Ok(matches_in(&lib, t, req.limit.unwrap_or(40))
         .into_iter()
         .map(|s| HarmonicMatch {
             track: s.track,
@@ -1002,13 +918,14 @@ pub fn smart_set(store: &Store, req: &SetSmartPlaylist) -> Result<SmartPlaylists
         });
     }
     let mut all = store.smart_playlists()?;
-    all.set(SmartPlaylist {
+    let rule = SmartPlaylist {
         path: req.path.trim().trim_matches('/').to_string(),
         filter: req.filter.clone(),
         sort: req.sort.clone(),
         limit: req.limit,
         drives,
-    })?;
+    };
+    all.set(rule, &crate::plugin::hosted().map(crate::plugin::Plugins::fields).unwrap_or_default())?;
     store.save_smart_playlists(&all)?;
     Ok(all)
 }

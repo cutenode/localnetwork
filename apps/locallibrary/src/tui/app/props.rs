@@ -4,7 +4,8 @@
 //! for the next run, and playing through the queue as outputs come and go.
 
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
+use locallibrary::query::QueryContext;
 
 use super::testing::*;
 use super::*;
@@ -18,11 +19,7 @@ fn key_of(code: KeyCode, ctrl: bool) -> KeyEvent {
 /// once in every `n` steps, however its draws lean.
 #[hegel::test_helper]
 fn turns(tc: &TestCase, n: u8) -> Vec<u8> {
-    let mut kinds: Vec<u8> = (0..n).collect();
-    for i in (1..kinds.len()).rev() {
-        kinds.swap(i, tc.draw(gs::integers::<usize>().max_value(i)));
-    }
-    kinds
+    tc.draw(gs::permutations((0..n).collect::<Vec<_>>()))
 }
 
 /// The test library's playlists and history over made-up tracks, shown on a drive.
@@ -34,12 +31,8 @@ fn browsing(tc: &TestCase) -> (App, tempfile::TempDir) {
     // The drive's My Tags read, or not yet.
     let l = app.loaded.as_mut().unwrap();
     if tc.draw(gs::booleans()) {
-        let tags = l
-            .library
-            .tracks
-            .iter()
-            .map(|t| (paths::key(&t.file_path).to_lowercase(), vec!["Genre/House".to_string()]))
-            .collect();
+        let tags =
+            l.library.tracks.iter().map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()])).collect();
         l.my_tags = MyTags::Read(Arc::new(tags));
     }
     (app, dir)
@@ -71,7 +64,7 @@ fn the_tree_opens_reveals_and_remembers_any_node(tc: TestCase) {
     let l = app.loaded.as_mut().unwrap();
     let nodes = every_node(l);
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
-        let id = tc.draw(gs::sampled_from(&nodes[..]).print_as_debug());
+        let id = tc.draw(gs::sampled_from(&nodes[..]));
         if tc.draw(gs::booleans()) {
             let before = names(l);
             l.toggle(&id);
@@ -325,7 +318,9 @@ fn quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     if writing.is_some() {
         app.request_quit();
         let tx = app.sender();
-        std::thread::spawn(move || tx.send(Msg::Applied { job: 99, root, result: Err(Error::Cancelled) }));
+        std::thread::spawn(move || {
+            let _ = tx.send(Msg::Applied { job: 99, root, result: Err(Error::Cancelled) });
+        });
         app.finish_write();
         assert!(app.job.is_none() && app.quit, "quits once written");
     }
@@ -360,7 +355,8 @@ fn snapshot(i: usize) -> SnapshotInfo {
 /// another library load, a lookup nobody asked for) changes nothing; the rest is shown or said.
 /// A failing poll of the volumes is said once until one works; the open drive going away marks
 /// what's shown as out of date, said once, and coming back has it read again; a file check lists
-/// the missing files under Problems; My Tags, sets and an offer to replay land on their drive.
+/// the missing files under Problems; My Tags, sets and an offer to replay land on their drive;
+/// the outputs listed land in the list they were listed for, while it's open.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn background_results_land_where_they_belong(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
@@ -368,9 +364,8 @@ fn background_results_land_where_they_belong(tc: TestCase) {
         let l = app.loaded.as_ref().unwrap();
         (l.root().to_path_buf(), l.generation, l.library.tracks.len())
     };
-    // The volumes are polled only when a step asks (the clock would otherwise decide).
-    let later = Instant::now() + Duration::from_secs(3600);
-    app.last_volume_poll = later;
+    // The volumes are polled only when a step asks, and held off again after it, as they start.
+    let later = just_now();
     let (mut failing, mut failures, mut unplugs, mut stale) = (false, 0, 0, false);
     let record = LibraryRecord {
         id: Uuid::nil(),
@@ -379,8 +374,8 @@ fn background_results_land_where_they_belong(tc: TestCase) {
         created: chrono::Utc::now(),
         updated: chrono::Utc::now(),
     };
-    let kinds = turns(&tc, 19);
-    for step in 0..tc.draw(gs::integers::<usize>().min_value(19).max_value(40)) {
+    let kinds = turns(&tc, 20);
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(20).max_value(40)) {
         let ours = tc.draw(gs::booleans());
         let g = if ours { generation } else { generation + 1 };
         let toast = app.toast.clone().map(|t| t.0);
@@ -583,6 +578,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 app.focus = Focus::Tracks;
                 app.view = View::Library;
                 press(&mut app, "\n");
+                output_opened(&mut app);
                 if stale {
                     assert_eq!(last_message(&app), "the drive was unplugged");
                 }
@@ -598,8 +594,35 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 app.handle_msg(Msg::Failed(Work::Drives, "the list fell over".into()));
                 assert!(!app.drives_again && !app.drives_in_flight);
             }
+            19 => {
+                // The outputs (d) listed: for the list open, an older one, or one closed since.
+                app.perform(Act::Outputs, None);
+                let listing = app.deck.outputs.as_ref().and_then(|o| o.listing).unwrap();
+                let open = tc.draw(gs::booleans());
+                if !open {
+                    app.deck.outputs = None;
+                }
+                let r = match tc.draw(gs::booleans()) {
+                    true => Ok((vec!["Phones".to_string()], Some("Phones".to_string()))),
+                    false => Err("no sound server".to_string()),
+                };
+                let ok = r.is_ok();
+                app.handle_msg(Msg::Outputs(if ours { listing } else { listing - 1 }, r));
+                match &app.deck.outputs {
+                    None => assert!(!open, "not opened again"),
+                    Some(o) if ours => {
+                        assert!(o.listing.is_none());
+                        assert_eq!((o.names.len(), o.failed.is_some()), (usize::from(ok), !ok));
+                    }
+                    Some(o) => assert!(o.listing == Some(listing) && o.names.is_empty() && o.failed.is_none()),
+                }
+                let w = tc.draw(gs::integers::<u16>().min_value(1).max_value(160));
+                assert_eq!(super::super::ui::screen(&mut app, w, 30).lines().count(), 30);
+                // Closed, so the keys of the steps after it aren't the list's.
+                app.deck.outputs = None;
+            }
             _ => {
-                let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]).print_as_debug());
+                let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]));
                 let had = app.loaded.as_ref().unwrap().ranks.iter().any(|(f, _)| *f == field);
                 let index = Index { ranks: vec![(field, vec![7; n])], groups: FxHashMap::default() };
                 app.handle_msg(Msg::Indexed(g, Box::new(index)));
@@ -672,7 +695,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
         q.tracks.iter_mut().for_each(|t| *t = format!("{t}.gone"));
     }
     saved.tags_column = tags;
-    app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]).print_as_debug());
+    app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]));
     app.save_state();
     assert_eq!(state::load(&app.store_root).vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
     // Showing a set last time, or not.
@@ -737,7 +760,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
 const PLAY_KEYS: &[&str] =
     &[" ", " ", "n", "n", "p", "x", "s", "r", "S", "A", "c", "f", "\n", "j", "k", "o", "<right>"];
 
-/// Playing a queue of half-second tracks (at two sample rates; some with no audio in them, some
+/// Playing a queue of short tracks (at two sample rates; some with no audio in them, some
 /// whose file has gone) with the player's keys as time passes, while its output goes away (and
 /// space plays on through another), glitches, or a track breaks as it plays; with matches to
 /// queue next full screen, the crate to play, a recorded set played on its own, and the drive let
@@ -758,8 +781,6 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
         }
     }
     app.outputs = super::super::audio::tests::OUTPUTS;
-    // (The drive is a folder of files, which a poll of the volumes would take for unplugged.)
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
     app.deck.output = tc.draw(gs::sampled_from(&[None, Some("Phones"), Some("Old Speakers")][..])).map(String::from);
     let root = app.queue.root.clone();
     // The plays broken on purpose.
@@ -777,7 +798,12 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 }
                 let idle = app.opener_idle();
                 let busy = idle.lock().unwrap();
-                while app.rx.try_recv().is_ok() {}
+                // (What tracks opened says is dropped; an output opening is still wanted.)
+                while let Ok(msg) = app.rx.try_recv() {
+                    if matches!(msg, Msg::Output(..)) {
+                        app.handle_msg(msg);
+                    }
+                }
                 for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
                     press(&mut app, "n");
                 }
@@ -810,7 +836,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // One track at a time or on through the queue, round again or not; the first with
                 // its artwork on the drive.
                 app.deck.single = tc.draw(gs::booleans());
-                app.repeat = tc.draw(gs::sampled_from(&[Repeat::Off, Repeat::All, Repeat::One][..]).print_as_debug());
+                app.repeat = tc.draw(gs::sampled_from(&[Repeat::Off, Repeat::All, Repeat::One][..]));
                 let mut lib = (*app.queue.library).clone();
                 let art = app.queue.root.join("PIONEER/Artwork/1.png");
                 std::fs::create_dir_all(art.parent().unwrap()).unwrap();
@@ -902,7 +928,8 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                     && audible(&up.now.track)
                     && app.is_playing()
                     && !playing.is_some_and(|p| broke.contains(&p));
-                let left = Duration::from_millis(500).saturating_sub(app.position());
+                // (A quarter second at 16 kHz: past its end, the one ahead would play out too.)
+                let left = app.now.as_ref().unwrap().duration.saturating_sub(app.position());
                 let was = format!(
                     "pos {} of {:?}, at {:?}, upcoming queued {}, file {}, repeat {:?}, shuffle {}, opening {}",
                     app.queue.pos,
@@ -949,13 +976,14 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // With no output to open now, the next can't play: it says why, and stops.
                 if was.is_some() && tc.draw(gs::booleans()) {
                     app.outputs = super::super::audio::Outputs {
-                        list: || (Vec::new(), None),
+                        list: || Ok((Vec::new(), None)),
                         open: |_| anyhow::bail!("no outputs"),
                     };
                     // (At the end of the queue, with nothing to go round to, n just stops.)
                     let next = app.queue.pos + 1 < app.queue.order.len() || app.repeat != Repeat::Off;
                     let before = said(&app, "can't play: no outputs");
                     press(&mut app, "n");
+                    output_opened(&mut app);
                     assert!(app.now.is_none() && app.audio.is_none(), "stopped");
                     assert_eq!(said(&app, "can't play: no outputs") > before, next);
                     app.outputs = super::super::audio::tests::OUTPUTS;
@@ -964,6 +992,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // Space plays on through the output there is now, from where it was.
                 if was.is_some() && tc.draw(gs::booleans()) {
                     press(&mut app, " ");
+                    output_opened(&mut app);
                     assert!(app.audio.is_some(), "an output opened again");
                     // Only an output not in the list falls back ("Phones" is there).
                     let fell_back = app.deck.output.as_deref() == Some("Old Speakers");
@@ -1010,20 +1039,19 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 let set = root.join("Contents/1.wav");
                 let mut t = track(9, "DJ", "Set");
                 t.file_path = set.display().to_string();
-                if app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300)))) {
-                    assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
-                    assert!(!app.playing_queue());
-                    // Played to its end (through the output it started on), it stops.
-                    let t = Instant::now();
-                    while app.now.as_ref().is_some_and(|n| n.opening) && t.elapsed() < Duration::from_secs(5) {
-                        app.tick();
-                        std::thread::sleep(Duration::from_millis(1));
-                    }
-                    if fed && files[0].1 > 0 && app.is_playing() && app.now.is_some() {
-                        (&mut out).take(9000).for_each(drop);
-                        app.tick();
-                        assert!(app.now.is_none(), "a set stops at its end");
-                    }
+                app.play_file(&set, t, Duration::from_millis(tc.draw(gs::integers::<u64>().max_value(300))));
+                assert_eq!(app.now.as_ref().map(|n| n.drive.as_str()), Some("recorded set"));
+                assert!(!app.playing_queue());
+                // Played to its end (through the output it started on), it stops.
+                let t = Instant::now();
+                while app.now.as_ref().is_some_and(|n| n.opening) && t.elapsed() < Duration::from_secs(5) {
+                    app.tick();
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                if fed && files[0].1 > 0 && app.is_playing() && app.now.is_some() {
+                    (&mut out).take(9000).for_each(drop);
+                    app.tick();
+                    assert!(app.now.is_none(), "a set stops at its end");
                 }
                 assert_eq!((app.queue.len(), app.queue.pos), (len, pos), "the queue stays, for afterwards");
             }
@@ -1054,6 +1082,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
             10 => {
                 // Full screen, the pick among the matches (clicked twice, or enter) plays next.
                 app.fullscreen = true;
+                // A key or click first catches up with what played (`follow_queue`): a track that
+                // ended since goes on to the next, with matches of its own, so catch up before
+                // giving the playing one its matches.
+                app.tick();
                 if let Some(now) = app.now.as_ref().filter(|n| n.matches.as_ref().is_none_or(|m| m.items.is_empty())) {
                     let items = vec![Mix {
                         index: n - 1,
@@ -1083,6 +1115,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                         r.y + app.next_pick.selected().unwrap_or(0).saturating_sub(app.next_pick.offset()) as u16,
                     );
                     mouse(&mut app, LEFT, at);
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                 }
                 if queued {
@@ -1252,13 +1285,15 @@ fn esc_puts_away_one_thing_at_a_time(tc: TestCase) {
 
 /// The screen redraws at animation rate while anything is under way (a read, a search waiting
 /// for typing to pause, the drives' status being read, a job, a lookup of the selected track's
-/// matches, a track's files being read, a cue's flash) and rests once nothing is.
+/// matches, a track's files being read, the outputs being listed or one opening, a cue's flash) and
+/// rests once
+/// nothing is.
 #[hegel::test(test_cases = 100)]
 fn the_screen_moves_only_while_something_does(tc: TestCase) {
     let (mut app, _dir) = app_with(library());
     wait(&mut app, |a| a.loading.is_none());
     assert!(!app.animating(), "at rest");
-    let conditions: [fn(&mut App, bool); 6] = [
+    let conditions: [fn(&mut App, bool); 8] = [
         |a, on| a.loading = on.then(|| "Reading TEST…".into()),
         |a, on| a.search_due = on.then(|| Instant::now() + Duration::from_secs(60)),
         |a, on| a.status_loading = on,
@@ -1266,6 +1301,10 @@ fn the_screen_moves_only_while_something_does(tc: TestCase) {
         |a, on| a.details_asked = on.then_some((1, 0)),
         // The details shown, with the selected track's not looked up yet.
         |a, on| a.show_details = on,
+        // The outputs being listed (d), or listed.
+        |a, on| a.deck.outputs = Some(super::super::deck::Outputs { listing: on.then_some(1), ..Default::default() }),
+        // An output picked, opening.
+        |a, on| a.deck.opening = on.then_some(1),
     ];
     // Each sets it going on its own.
     for c in &conditions {
@@ -1323,9 +1362,10 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     lib.tracks = any_tracks(&tc, 8);
     let (mut app, _dir) = app_with(lib);
     let l = app.loaded.as_mut().unwrap();
-    let tags: FxHashMap<String, Vec<String>> = (l.library.tracks.iter())
-        .filter(|_| tc.draw(gs::booleans()))
-        .map(|t| (paths::key(&t.file_path).to_lowercase(), vec!["Genre/House".to_string()]))
+    let tags: FxHashMap<String, Vec<String>> = tc
+        .draw(gs::subsequences(&l.library.tracks[..]))
+        .iter()
+        .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
         .collect();
     l.my_tags = MyTags::Reading;
     // In a playlist, or all tracks.
@@ -1337,10 +1377,7 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     for c in query.chars() {
         press(&mut app, &c.to_string());
         if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
-            let code = tc.draw(
-                gs::sampled_from(&[KeyCode::Up, KeyCode::Down, KeyCode::PageUp, KeyCode::PageDown][..])
-                    .print_as_debug(),
-            );
+            let code = tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::Down, KeyCode::PageUp, KeyCode::PageDown][..]));
             app.on_key(key_of(code, false));
             assert!(app.track_state.selected().is_none_or(|s| s < app.visible.len()));
         }
@@ -1450,7 +1487,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
             )
         })
         .collect();
-    let mood = tc.draw(gs::sampled_from(&[Mood::High, Mood::Mid, Mood::Low][..]).print_as_debug());
+    let mood = tc.draw(gs::sampled_from(&[Mood::High, Mood::Mid, Mood::Low][..]));
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Chorus, PhraseKind::Outro];
     let phrases: Vec<Phrase> = (0..tc.draw(gs::integers::<u16>().max_value(4)))
         .map(|i| Phrase { kind: kinds[i as usize], start_beat: 1 + 16 * i, end_beat: 17 + 16 * i, fill_beat: None })
@@ -1671,7 +1708,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 // A view by name; leaving the library puts the search away.
                 app.searching = tc.draw(gs::booleans());
                 app.query = if app.searching { "daft".into() } else { String::new() };
-                let v = tc.draw(gs::sampled_from(&View::ALL[..]).print_as_debug());
+                let v = tc.draw(gs::sampled_from(&View::ALL[..]));
                 app.perform(Act::ShowView(v), None);
                 assert_eq!(app.view, v);
                 if v != View::Library {
@@ -1682,7 +1719,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             0 => {
                 let tabs = a.tabs.clone();
-                let (v, r) = tabs[tc.draw(gs::integers::<usize>().max_value(tabs.len() - 1))];
+                let (v, r) = tc.draw(gs::sampled_from(&tabs[..]));
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.view, v, "the tab clicked");
                 // (The Drives and Snapshots views read what they show from the store, here none.)
@@ -1690,7 +1727,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
             }
             1 => {
                 let cols = a.columns.clone();
-                let (field, r) = cols[tc.draw(gs::integers::<usize>().max_value(cols.len() - 1))];
+                let (field, r) = tc.draw(gs::sampled_from(&cols[..]));
                 let before = app.sort;
                 mouse(&mut app, LEFT, mid(r));
                 assert_eq!(app.sort, browse::click(before, field));
@@ -1702,8 +1739,10 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 mouse(&mut app, LEFT, at);
                 assert_eq!((app.focus, app.track_state.selected()), (Focus::Tracks, Some(offset + k)));
                 if tc.draw(gs::booleans()) {
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                     // Played (no output here, which is said).
+                    output_opened(&mut app);
                     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
                 }
             }
@@ -1719,6 +1758,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                         let l = app.loaded.as_ref().unwrap();
                         (l.tree[offset + k].folder, l.tree.len())
                     };
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                     let l = app.loaded.as_ref().unwrap();
                     if folder {
@@ -1749,7 +1789,8 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 } else {
                     mouse(&mut app, LEFT, (r.x + x, r.y));
                 }
-                let d = app.now.as_ref().unwrap().duration;
+                // (A play that found no output to play through stopped it.)
+                let Some(d) = app.now.as_ref().map(|n| n.duration) else { continue };
                 let want = d.mul_f64((x as f64 + 0.5) / r.width as f64).min(d - Duration::from_millis(250));
                 let at = app.pending_seek.unwrap_or_default();
                 assert!(at.abs_diff(want) < Duration::from_millis(2), "{at:?} for {want:?}");
@@ -2088,5 +2129,249 @@ fn tab_goes_round_the_panes_there_are(tc: TestCase) {
         let was = (app.focus, app.drive_state.selected(), app.history_state.selected());
         app.on_key(if tc.draw(gs::booleans()) { back } else { key_of(KeyCode::Tab, false) });
         assert_eq!((app.view, (app.focus, app.drive_state.selected(), app.history_state.selected())), (view, was));
+    }
+}
+
+/// What the echo plugin's analyzer works out of each track (`echo.bytes`, its file's size), as the
+/// app has read it.
+fn bytes_of(app: &App, i: usize) -> Option<i64> {
+    let l = app.loaded.as_ref().unwrap();
+    let v = l.values()?.get(l.library.tracks[i].id, "echo.bytes")?;
+    match v {
+        locallibrary::fields::FieldValue::Integer(n) => Some(*n),
+        other => panic!("{other:?} isn't a size"),
+    }
+}
+
+/// A plugin's analyzer run from the palette on a drive whose tracks' files are of drawn sizes
+/// (some gone): it says how many it analysed and how many failed. Its field's column, asked for
+/// from the palette before or after, shows after the player's own columns and before tempo, key
+/// and time, with each track's value. Sorted by it either way, the tracks go by their values,
+/// those without one last; a filter naming it keeps exactly the tracks whose value matches. The
+/// column is kept in what's saved for the next run, which shows it again, and once hidden it
+/// isn't.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
+    plugins_once();
+    let drive = plugged();
+    let mut app = app_on(&drive.0);
+    let store = tempfile::tempdir().unwrap();
+    app.store_root = store.path().join("store");
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let sizes: Vec<Option<usize>> = lib
+        .tracks
+        .iter()
+        .map(|_| tc.draw(gs::sampled_from(&[Some(0), Some(1), Some(500), Some(4000), None][..])))
+        .collect();
+    for (t, size) in lib.tracks.iter().zip(&sizes) {
+        let file = drive.0.join(t.file_path.trim_start_matches('/'));
+        match size {
+            Some(n) => std::fs::write(file, "x".repeat(*n)).unwrap(),
+            None => std::fs::remove_file(file).unwrap(),
+        }
+    }
+    let column_first = tc.draw(gs::booleans());
+    if column_first {
+        press(&mut app, ":show the echo.bytes column\n");
+    }
+    press(&mut app, ":analyze the tracks: file\n");
+    wait(&mut app, |a| a.job.is_none());
+    let analyzed = sizes.iter().flatten().count();
+    let failed = sizes.len() - analyzed;
+    let mut said = format!("file size: {analyzed} track{} analyzed, 0 already", if analyzed == 1 { "" } else { "s" });
+    if failed > 0 {
+        said.push_str(&format!(", {failed} failed (! says why)"));
+    }
+    assert_eq!(last_message(&app), said);
+    if !column_first {
+        // Filtered by it before what's worked out is read: nothing matches until it's in, then
+        // what does.
+        press(&mut app, "/echo.bytes:>0");
+        assert_eq!(app.filter_note.as_deref(), Some("reading what analyzers worked out…"));
+        assert!(app.visible.is_empty());
+        wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+        let mut shown = app.visible.clone();
+        shown.sort();
+        let over: Vec<usize> = (0..sizes.len()).filter(|&i| sizes[i].is_some_and(|n| n > 0)).collect();
+        assert_eq!(shown, over);
+        press(&mut app, "\u{1b}");
+        press(&mut app, ":show the echo.bytes column\n");
+    }
+    let name = FieldName::new("echo.bytes");
+    assert_eq!(app.field_columns, [name]);
+    wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+    let want: Vec<Option<i64>> = sizes.iter().map(|s| s.map(|n| n as i64)).collect();
+    assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&app, i)).collect::<Vec<_>>(), want);
+
+    let s = super::super::ui::screen(&mut app, 120, 30);
+    let header = s.lines().find(|l| l.contains("echo.bytes")).unwrap_or_else(|| panic!("no column:\n{s}"));
+    let at = |what: &str| header.find(what).unwrap_or_else(|| panic!("no {what} in {header}"));
+    assert!(at("Artist") < at("echo.bytes") && at("echo.bytes") < at("BPM") && at("BPM") < at("Time"), "{header}");
+    for (t, n) in lib.tracks.iter().zip(&want) {
+        let row = s.lines().find(|l| l.contains(t.title.as_str())).unwrap_or_else(|| panic!("no {:?}:\n{s}", t.title));
+        if let Some(n) = n.filter(|n| *n >= 100) {
+            assert!(row.contains(&n.to_string()), "{row}");
+        }
+    }
+
+    // Sorted by a click on its heading, then again the other way.
+    let heading = spot(&mut app, "echo.bytes");
+    for descending in [false, true] {
+        mouse(&mut app, LEFT, heading);
+        assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((SortField::Field(name), descending)));
+        let order: Vec<Option<i64>> = app.visible.iter().map(|&i| bytes_of(&app, i)).collect();
+        let valued = order.iter().take_while(|v| v.is_some()).count();
+        assert!(order[valued..].iter().all(Option::is_none), "without a value last: {order:?}");
+        let mut sorted = order[..valued].to_vec();
+        sorted.sort_by(|a, b| if descending { b.cmp(a) } else { a.cmp(b) });
+        assert_eq!(order[..valued], sorted[..], "descending {descending}");
+    }
+    let over = tc.draw(gs::sampled_from(&[0i64, 1, 499, 1000][..]));
+    press(&mut app, &format!("/echo.bytes:>{over}"));
+    let mut shown = app.visible.clone();
+    shown.sort();
+    let matching: Vec<usize> = (0..lib.tracks.len()).filter(|&i| want[i].is_some_and(|n| n > over)).collect();
+    assert_eq!((shown, app.filter_error.clone()), (matching, None), "echo.bytes:>{over}");
+    press(&mut app, "\u{1b}");
+
+    // The next run.
+    app.save_state();
+    let saved = state::load(&app.store_root);
+    assert_eq!(saved.field_columns, ["echo.bytes"]);
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.apply_saved(&saved, false);
+    assert_eq!(next.field_columns, [name]);
+    // The drive opened again: its values read for the column at once.
+    let device = Device::open(&drive.0).unwrap();
+    let root = device.root().to_path_buf();
+    next.install(root, Loaded::prepare(device, (*lib).clone()));
+    wait(&mut next, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+    assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&next, i)).collect::<Vec<_>>(), want);
+    press(&mut app, ":hide the echo.bytes column\n");
+    app.save_state();
+    assert!(app.field_columns.is_empty() && state::load(&app.store_root).field_columns.is_empty());
+}
+
+/// Plugins' fields of each kind, as an analyzer declares them.
+const FIELD_KINDS: [(&str, loclib_plugin::FieldType); 5] = {
+    use loclib_plugin::FieldType::*;
+    [("p.count", Integer), ("p.level", Number), ("p.loud", Boolean), ("p.mood", String), ("p.tags", Strings)]
+};
+
+/// A value of the field of the kind `FIELD_KINDS[kind]`, as drawn for a track: often none, now
+/// and then null (worked out, with nothing to show), some the same as others'.
+#[hegel::test_helper]
+fn any_field_value(tc: &TestCase, kind: usize) -> Option<locallibrary::fields::FieldValue> {
+    use locallibrary::fields::FieldValue::*;
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
+        0 | 1 => return None,
+        2 => return Some(Null),
+        _ => {}
+    }
+    let words = &["Deep", "deep", "日本", ""][..];
+    Some(match kind {
+        0 => Integer(tc.draw(gs::sampled_from(&[-3i64, 0, 7, 120][..]))),
+        1 => Number(tc.draw(gs::sampled_from(&[0.5f64, 1.0, 121.456, -2.25][..]))),
+        2 => Boolean(tc.draw(gs::booleans())),
+        3 => String(tc.draw(gs::sampled_from(words)).into()),
+        _ => Strings(tc.draw(gs::vecs(gs::sampled_from(words)).max_size(2)).into_iter().map(Into::into).collect()),
+    })
+}
+
+/// A field's value as its column should show it: a number to two places at most (no zeros
+/// after the point), a switch as yes or no, a list joined, null as a dash.
+fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
+    use locallibrary::fields::FieldValue::*;
+    match v {
+        // A structured value is never a column; drawn, it's as if it were null.
+        Null | Structured(_) => "-".to_string(),
+        Integer(n) => n.to_string(),
+        Number(n) => format!("{n:.2}").trim_end_matches('0').trim_end_matches('.').to_string(),
+        Boolean(b) => if *b { "yes" } else { "no" }.to_string(),
+        String(s) => s.clone(),
+        Strings(all) => all.join(", "),
+    }
+}
+
+/// Plugins' fields of every kind, read for made-up tracks (some without a value), shown as
+/// columns in the order asked for: drawn at any size without a panic, and at full width after the
+/// player's own columns and before tempo, key and time, each row showing its track's value as it
+/// should read (cut at the column's edge). Sorted by one either way with clicks on its heading,
+/// the tracks go by its values as the library orders them, those without one to show (none, or
+/// null) last.
+#[hegel::test(test_cases = 60)]
+fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
+    let mut lib = library();
+    lib.tracks = any_tracks(&tc, 8);
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let (mut app, _dir) = app_with(lib);
+    let mut tracks = FxHashMap::default();
+    for id in ids {
+        let fields: locallibrary::fields::Fields = (0..FIELD_KINDS.len())
+            .filter_map(|k| any_field_value(&tc, k).map(|v| (FIELD_KINDS[k].0.to_string(), v)))
+            .collect();
+        if !fields.is_empty() {
+            tracks.insert(id, fields);
+        }
+    }
+    let declared = FIELD_KINDS.iter().map(|(n, t)| (n.to_string(), *t)).collect();
+    app.loaded.as_mut().unwrap().fields = Fields::Read(Arc::new(TrackValues { declared, tracks }));
+    let order: Vec<FieldName> =
+        tc.draw(gs::subsequences(&FIELD_KINDS[..])).into_iter().map(|(n, _)| FieldName::new(n)).collect();
+    let mut order = order;
+    let n = order.len();
+    order.rotate_left(tc.draw(gs::integers::<usize>().max_value(n)).min(n));
+    for &name in &order {
+        app.toggle_field_column(name);
+    }
+    assert_eq!(app.field_columns, order);
+    let (w, h) = (
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(220)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+    );
+    assert_eq!(super::super::ui::screen(&mut app, w, h).lines().count(), h as usize);
+
+    let s = super::super::ui::screen(&mut app, 220, 40);
+    let rows: Vec<Vec<char>> = s.lines().map(|l| l.chars().collect()).collect();
+    let text = |r: Rect, y: u16| -> std::string::String {
+        rows[y as usize][r.x as usize..(r.x + r.width) as usize].iter().filter(|c| !c.is_whitespace()).collect()
+    };
+    let at = |field: SortField, app: &App| app.areas.columns.iter().find(|(f, _)| *f == field).map(|(_, r)| *r);
+    let heading_x: Vec<u16> = order.iter().map(|&n| at(SortField::Field(n), &app).expect("a column").x).collect();
+    assert!(heading_x.is_sorted(), "in the order asked for");
+    let artist = at(SortField::Artist, &app).unwrap().x;
+    let bpm = at(SortField::Bpm, &app).unwrap().x;
+    assert!(heading_x.iter().all(|&x| artist < x && x < bpm), "between the player's own and tempo");
+    let l = app.loaded.as_ref().unwrap();
+    let values = l.values().unwrap().clone();
+    for &name in &order {
+        let r = at(SortField::Field(name), &app).unwrap();
+        assert_eq!(text(r, r.y), name.as_str().chars().filter(|c| !c.is_whitespace()).collect::<std::string::String>());
+        for (k, &i) in app.visible.iter().enumerate().take(30) {
+            let want = values.get(l.library.tracks[i].id, name.as_str()).map(field_text).unwrap_or_default();
+            let want: std::string::String = want.chars().filter(|c| !c.is_whitespace()).collect();
+            let shown = text(r, r.y + 1 + k as u16);
+            assert!(
+                want.starts_with(&shown) && shown.is_empty() == want.is_empty(),
+                "{name:?}: {shown:?} for {want:?}"
+            );
+        }
+    }
+
+    let Some(&name) = order.first() else { return };
+    let r = at(SortField::Field(name), &app).unwrap();
+    for descending in [false, true] {
+        mouse(&mut app, LEFT, (r.x, r.y));
+        assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((SortField::Field(name), descending)));
+        let l = app.loaded.as_ref().unwrap();
+        let got: Vec<Option<&locallibrary::fields::FieldValue>> =
+            app.visible.iter().map(|&i| values.shown(l.library.tracks[i].id, name.as_str())).collect();
+        let valued = got.iter().take_while(|v| v.is_some()).count();
+        assert!(got[valued..].iter().all(Option::is_none), "without a value to show last");
+        for pair in got[..valued].windows(2) {
+            let ord = locallibrary::query::compare_values(pair[0].unwrap(), pair[1].unwrap());
+            let wrong = if descending { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+            assert_ne!(ord, wrong, "{pair:?}, descending {descending}");
+        }
     }
 }

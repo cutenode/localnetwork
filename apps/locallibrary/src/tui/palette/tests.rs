@@ -153,7 +153,7 @@ fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
 /// other; no two keys share a name.
 #[hegel::test(test_cases = 300)]
 fn keys_are_named_apart(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let codes = [
         KeyCode::Up,
         KeyCode::Down,
@@ -166,8 +166,8 @@ fn keys_are_named_apart(tc: hegel::TestCase) {
     ];
     let any = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => K::Ch(tc.draw(gs::sampled_from(&[' ', 'a', 'A', '1', ':'][..]))),
-        1 => K::Code(tc.draw(gs::sampled_from(&codes[..]).print_as_debug())),
-        2 => K::Shift(tc.draw(gs::sampled_from(&codes[..]).print_as_debug())),
+        1 => K::Code(tc.draw(gs::sampled_from(&codes[..]))),
+        2 => K::Shift(tc.draw(gs::sampled_from(&codes[..]))),
         3 => K::Ctrl(tc.draw(gs::sampled_from(&['c', 'q', 'u'][..]))),
         _ => K::Digits('1', tc.draw(gs::sampled_from(&['5', '8'][..]))),
     };
@@ -223,6 +223,10 @@ fn a_choice_from_a_list_is_done_to_its_drive(tc: hegel::TestCase) {
         p.state.select(Some(i));
         key(&mut app, KeyCode::Enter);
     } else {
+        // Scrolled to it first, as a list longer than the menu has rows is before its row's
+        // clicked.
+        let Some(Modal::Pick(p)) = &mut app.modal else { unreachable!() };
+        p.state.select(Some(i));
         super::super::ui::screen(&mut app, 120, 40);
         let r = app.areas.menu;
         if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {

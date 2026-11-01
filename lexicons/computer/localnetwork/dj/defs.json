@@ -1,14 +1,31 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.dj.defs",
-	"description": "Definitions DJ records share: tracks, keys, the people a DJ plays with, shares and counts.",
+	"description": "Definitions DJ records share: tracks (with their artists and how each came in), keys, the people a DJ plays with, shares and counts.",
 	"defs": {
 		"track": {
 			"type": "object",
-			"description": "One track: named (a title, usually an artist), or unidentified. isrc and recordingMbId are named as in teal.fm's records, so readers can map them.",
+			"description": "One track: named (a title, usually an artist), or unidentified. isrc, recordingMbId, releaseName, releaseMbId and artists are named and shaped as in teal.fm's records, so readers can map them.",
 			"properties": {
 				"title": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
-				"artist": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+				"artist": {
+					"type": "string",
+					"maxLength": 3000,
+					"maxGraphemes": 300,
+					"description": "The artist credit as the track is tagged: one line, however many artists it names."
+				},
+				"artists": {
+					"type": "array",
+					"maxLength": 32,
+					"description": "The artists the credit names, one by one in its order, when the writer can tell them apart.",
+					"items": { "type": "ref", "ref": "#artist" }
+				},
+				"releaseName": {
+					"type": "string",
+					"maxLength": 2560,
+					"maxGraphemes": 256,
+					"description": "The release (album, EP or single) it's from."
+				},
 				"isrc": {
 					"type": "string",
 					"minLength": 12,
@@ -17,8 +34,13 @@
 				},
 				"recordingMbId": {
 					"type": "string",
-					"maxLength": 36,
-					"description": "MusicBrainz recording ID"
+					"maxLength": 64,
+					"description": "The MusicBrainz recording ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
+				},
+				"releaseMbId": {
+					"type": "string",
+					"maxLength": 64,
+					"description": "The MusicBrainz release ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
 				},
 				"bpmCentis": {
 					"type": "integer",
@@ -34,9 +56,66 @@
 					"minimum": 0,
 					"description": "When it starts, in seconds from the start of the set or mix it's in (known from a recording)."
 				},
+				"transitionIn": {
+					"type": "ref",
+					"ref": "#transition",
+					"description": "How it was brought in over the track before it. Absent on the first track, and when unknown."
+				},
 				"unidentified": {
 					"type": "boolean",
 					"description": "Not named: the DJ chose not to say what it is (an unreleased promo, an edit), so only its place is published."
+				}
+			}
+		},
+		"artist": {
+			"type": "object",
+			"description": "One artist a track credits, shaped as teal.fm's artist.",
+			"required": ["artistName"],
+			"properties": {
+				"artistName": { "type": "string", "minLength": 1, "maxLength": 2560, "maxGraphemes": 256 },
+				"artistMbId": {
+					"type": "string",
+					"maxLength": 64,
+					"description": "The MusicBrainz artist ID: a lowercase, hyphenated UUID, as teal.fm writes it. Early records may have it as mbid:<uuid>."
+				}
+			}
+		},
+		"transition": {
+			"type": "object",
+			"description": "How a track was brought in over the one before it, named and shaped as skaists' performance transition (technique, durationMs), with what a recording also tells: how the keys and tempo moved. Absent means unknown, not a cut.",
+			"required": ["technique"],
+			"properties": {
+				"technique": {
+					"type": "string",
+					"maxLength": 32,
+					"description": "How it was mixed in. unknown: the writer heard the change but can't tell how it was made.",
+					"knownValues": [
+						"blend",
+						"cut",
+						"loopRoll",
+						"echoOut",
+						"spinback",
+						"filterSweep",
+						"drop",
+						"acapellaOver",
+						"unknown"
+					]
+				},
+				"durationMs": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 600000,
+					"description": "How long both tracks were heard together, in milliseconds."
+				},
+				"harmony": {
+					"type": "string",
+					"maxLength": 32,
+					"description": "How the keys heard relate on the Camelot wheel (after any pitch change from the tempo). sameKey: the same key. adjacent: one step round the wheel. relative: the same number, minor to major or back. energyBoost: two steps up, or a semitone up. clash: none of those.",
+					"knownValues": ["sameKey", "adjacent", "relative", "energyBoost", "clash"]
+				},
+				"tempoChangePermille": {
+					"type": "integer",
+					"description": "How much the tempo played changed, in tenths of a percent (25 is 2.5% faster, -10 is 1% slower)."
 				}
 			}
 		},

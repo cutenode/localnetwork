@@ -21,7 +21,7 @@ fn friday() -> Set {
 }
 
 fn text(set: &Set, format: SetFormat) -> String {
-    render(set, format, None).unwrap().text
+    render(set, format, &ProfilePrefs::default(), None).unwrap().text
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn public_formats_hide_unnamed_tracks() {
         text(&s, SetFormat::Text),
         "01. Floorplan - Never Grow Old\n02. ID - ID\n03. Daft Punk - Around the World\n"
     );
-    let r = render(&s, SetFormat::Mixcloud, None).unwrap();
+    let r = render(&s, SetFormat::Mixcloud, &ProfilePrefs::default(), None).unwrap();
     assert_eq!(
         r.text,
         "Floorplan - Never Grow Old - 00:00:04\nID - ID - 00:05:12\nDaft Punk - Around the World - 01:02:05\n"
@@ -72,6 +72,57 @@ fn csv_names_every_track_and_marks_the_unnamed() {
 }
 
 #[test]
+fn public_formats_hide_tracks_the_profile_hides() {
+    let s = friday();
+    let prefs = ProfilePrefs { hidden: vec!["Daft Punk - Around the World".into()], ..ProfilePrefs::default() };
+    let hidden = |f: SetFormat| render(&s, f, &prefs, None).unwrap().text;
+    assert_eq!(hidden(SetFormat::Text), "01. Floorplan - Never Grow Old\n02. ID - ID\n03. ID - ID\n");
+    assert_eq!(hidden(SetFormat::Mixcloud).lines().nth(2), Some("ID - ID - 01:02:05"));
+    assert_eq!(hidden(SetFormat::Tracklists).lines().nth(2), Some("[1:02:05] ID - ID"));
+    assert_eq!(hidden(SetFormat::Youtube).lines().nth(2), Some("1:02:05 ID - ID"));
+    assert!(
+        hidden(SetFormat::Cue)
+            .ends_with("TRACK 03 AUDIO\n    TITLE \"ID\"\n    PERFORMER \"ID\"\n    INDEX 01 62:05:00\n")
+    );
+    // CSV is the DJ's own: it names every track, and marks only what the set marks.
+    assert_eq!(hidden(SetFormat::Csv), text(&s, SetFormat::Csv));
+}
+
+/// Podcasting 2.0 chapters: the set's name, and a chapter for each track with a start time, in
+/// the order they play, not naming what a published tracklist doesn't. Tracks without one are left
+/// out, saying so.
+#[test]
+fn chapters_are_podcasting_json() {
+    let mut s = friday();
+    s.tracks[0].start_seconds = None;
+    s.tracks.swap(1, 2);
+    let r = render(&s, SetFormat::Chapters, &ProfilePrefs::default(), None).unwrap();
+    assert_eq!(
+        r.text,
+        r#"{
+  "version": "1.2.0",
+  "title": "Friday",
+  "chapters": [
+    {
+      "startTime": 312,
+      "title": "ID - ID"
+    },
+    {
+      "startTime": 3725,
+      "title": "Daft Punk - Around the World"
+    }
+  ]
+}
+"#
+    );
+    assert_eq!((r.tracks, r.warnings.as_slice()), (2, &["track 1 has no start time, so no chapter".to_string()][..]));
+    let empty = set("3m2abcdefgh22", "2026-10-03", None);
+    let r = render(&empty, SetFormat::Chapters, &ProfilePrefs::default(), None).unwrap();
+    assert_eq!(r.text, "{\n  \"version\": \"1.2.0\",\n  \"title\": \"2026-10-03\",\n  \"chapters\": []\n}\n");
+    assert_eq!((r.tracks, r.warnings.len()), (0, 0));
+}
+
+#[test]
 fn m3u8_lists_the_tracks_on_the_drive() {
     let lib = Library {
         tracks: vec![
@@ -81,7 +132,7 @@ fn m3u8_lists_the_tracks_on_the_drive() {
         ..Default::default()
     };
     let locator = Locator { style: PathStyle::Drive, drive_root: "/Volumes/USB".into(), base: "/x".into() };
-    let r = render(&friday(), SetFormat::M3u8, Some((&lib, &locator))).unwrap();
+    let r = render(&friday(), SetFormat::M3u8, &ProfilePrefs::default(), Some((&lib, &locator))).unwrap();
     assert_eq!(
         r.text,
         "#EXTM3U\n#PLAYLIST:Friday\n#EXTINF:300,Floorplan - Never Grow Old\n/Contents/f.mp3\n\
@@ -89,7 +140,7 @@ fn m3u8_lists_the_tracks_on_the_drive() {
     );
     assert_eq!(r.tracks, 2);
     assert_eq!(r.warnings, ["2. Someone, Other feat. X - Secret isn't on the drive: left out"]);
-    assert!(render(&friday(), SetFormat::M3u8, None).is_err());
+    assert!(render(&friday(), SetFormat::M3u8, &ProfilePrefs::default(), None).is_err());
 }
 
 #[test]
@@ -97,12 +148,12 @@ fn timed_formats_need_every_start() {
     let mut s = friday();
     s.tracks[1].start_seconds = None;
     for format in [SetFormat::Cue, SetFormat::Youtube] {
-        let err = render(&s, format, None).unwrap_err().to_string();
+        let err = render(&s, format, &ProfilePrefs::default(), None).unwrap_err().to_string();
         assert!(err.starts_with("track 2 (Someone, Other feat. X - Secret) has no start time"), "{err}");
     }
     let mut s = friday();
     s.recording = None;
-    let err = render(&s, SetFormat::Cue, None).unwrap_err().to_string();
+    let err = render(&s, SetFormat::Cue, &ProfilePrefs::default(), None).unwrap_err().to_string();
     assert_eq!(err, "a CUE sheet indexes the recording: attach it to the set first");
 }
 
@@ -111,17 +162,17 @@ fn youtube_rules_are_warned_about() {
     let mut s = friday();
     s.tracks[2].start_seconds = Some(100);
     s.tracks[1].start_seconds = Some(105);
-    let r = render(&s, SetFormat::Youtube, None).unwrap();
+    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
     assert_eq!(r.warnings, ["track 3 (0:01:40) doesn't start after track 2 (0:01:45)"]);
     s.tracks.pop();
-    let r = render(&s, SetFormat::Youtube, None).unwrap();
+    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
     assert_eq!(r.text.lines().next(), Some("00:00 Floorplan - Never Grow Old"));
     assert_eq!(r.warnings, ["YouTube needs at least 3 chapters; this has 2"]);
     s.tracks[1].start_seconds = Some(9);
-    let r = render(&s, SetFormat::Youtube, None).unwrap();
+    let r = render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap();
     assert_eq!(r.warnings[1], "chapter 1 is 9 seconds long; YouTube needs 10");
     s.tracks[1].start_seconds = Some(10);
-    assert_eq!(render(&s, SetFormat::Youtube, None).unwrap().warnings.len(), 1);
+    assert_eq!(render(&s, SetFormat::Youtube, &ProfilePrefs::default(), None).unwrap().warnings.len(), 1);
 }
 
 /// A set of 5-minute tracks by these artists, from these releases.
@@ -232,12 +283,36 @@ fn some_set(tc: &TestCase, timed: bool) -> Set {
     s
 }
 
-/// As a published tracklist names it: `ID - ID` for an unnamed track, else its name on one
-/// line.
-fn published(e: &SetEntry) -> String {
-    match e.unnamed {
-        true => "ID - ID".into(),
-        false => e.name().replace(|c: char| c.is_control(), " "),
+/// A profile hiding, or not, Floorplan however it's spelt, B wherever they're credited, and one
+/// track by its name.
+#[hegel::test_helper]
+fn some_prefs(tc: &TestCase) -> ProfilePrefs {
+    let some = |names: &[&str]| -> Vec<String> {
+        names.iter().filter(|_| tc.draw(gs::booleans())).map(|n| n.to_string()).collect()
+    };
+    ProfilePrefs {
+        hidden_artists: some(&["Floorplan", "B"]),
+        hidden: some(&["Someone, Other - Never Grow Old"]),
+        ..ProfilePrefs::default()
+    }
+}
+
+/// Whether a published tracklist names `e`: not when it's unnamed, or `prefs` (from
+/// [`some_prefs`]) hides it.
+fn named(e: &SetEntry, prefs: &ProfilePrefs) -> bool {
+    let artist = |a: &str| prefs.hidden_artists.iter().any(|h| h == a);
+    let hidden = (artist("Floorplan") && e.artist.eq_ignore_ascii_case("floorplan"))
+        || (artist("B") && e.artist == "A feat. B")
+        || (!prefs.hidden.is_empty() && e.name() == "Someone, Other - Never Grow Old");
+    !e.unnamed && !hidden
+}
+
+/// As a published tracklist names it: `ID - ID` for a track it doesn't name, else its name on
+/// one line.
+fn published(e: &SetEntry, prefs: &ProfilePrefs) -> String {
+    match named(e, prefs) {
+        true => e.name().replace(|c: char| c.is_control(), " "),
+        false => "ID - ID".into(),
     }
 }
 
@@ -248,12 +323,15 @@ fn clock_of(secs: u32) -> String {
 /// Every format lists every track in set order: text numbered, Mixcloud and 1001Tracklists
 /// with the times they have, CSV naming every track (read back as written); YouTube and CUE
 /// need every track's start (CUE the recording too), refuse naming the first track without
-/// one, and warn about tracks that don't start after the one before.
+/// one, and warn about tracks that don't start after the one before. The formats for publishing
+/// name no track the set marks unnamed or the profile hides. An M3U8 needs a drive.
 #[hegel::test(test_cases = 300)]
 fn every_format_lists_every_track_in_order(tc: TestCase) {
     let s = some_set(&tc, tc.draw(gs::booleans()));
+    let prefs = some_prefs(&tc);
+    let published = |e: &SetEntry| published(e, &prefs);
     let lines = |f: SetFormat| -> Vec<String> {
-        let r = render(&s, f, None).unwrap();
+        let r = render(&s, f, &prefs, None).unwrap();
         assert_eq!(r.tracks, s.tracks.len());
         r.text.lines().map(String::from).collect()
     };
@@ -271,7 +349,11 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
         s.tracks.iter().map(|e| timed(e, &|t| format!("[{}] {}", clock_of(t), published(e)))).collect();
     assert_eq!(lines(SetFormat::Tracklists), want);
 
-    let csv = render(&s, SetFormat::Csv, None).unwrap().text;
+    // An M3U8 lists files on a drive, so with none named it's refused for that.
+    let e = render(&s, SetFormat::M3u8, &prefs, None).unwrap_err();
+    assert_eq!(e.to_string(), "an M3U8 lists files on a drive: name the drive");
+
+    let csv = render(&s, SetFormat::Csv, &prefs, None).unwrap().text;
     let rows: Vec<Vec<String>> = crate::import::read_table(&csv, ',', true)
         .into_iter()
         .map(|r| r.fields.iter().map(|f| f.trim_end_matches('\r').to_string()).collect())
@@ -310,7 +392,7 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
             s.tracks[i].name()
         )
     };
-    match (missing, render(&s, SetFormat::Youtube, None)) {
+    match (missing, render(&s, SetFormat::Youtube, &prefs, None)) {
         (Some(i), Err(e)) => assert_eq!(e.to_string(), refused("YouTube", i)),
         (None, Ok(r)) => {
             let mut chapters = starts.clone();
@@ -343,7 +425,7 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
         }
         (missing, got) => panic!("track {missing:?} has no start, and YouTube gave {got:?}"),
     }
-    match (&s.recording, missing, render(&s, SetFormat::Cue, None)) {
+    match (&s.recording, missing, render(&s, SetFormat::Cue, &prefs, None)) {
         (None, _, Err(e)) => {
             assert_eq!(e.to_string(), "a CUE sheet indexes the recording: attach it to the set first")
         }
@@ -358,6 +440,16 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
             assert_eq!(r.text.lines().nth(1).unwrap(), format!("FILE \"{name}\" {kind}"));
             let tracks: Vec<&str> = r.text.lines().filter(|l| l.starts_with("  TRACK ")).collect();
             assert_eq!(tracks.len(), s.tracks.len());
+            let titles: Vec<&str> = r.text.lines().filter_map(|l| l.strip_prefix("    TITLE ")).collect();
+            let want: Vec<String> = s
+                .tracks
+                .iter()
+                .map(|e| match named(e, &prefs) {
+                    true => format!("\"{}\"", e.title.replace('"', "'")),
+                    false => "\"ID\"".into(),
+                })
+                .collect();
+            assert_eq!(titles, want);
             let indexes: Vec<u32> = r
                 .text
                 .lines()
@@ -462,7 +554,7 @@ fn m3u8_lists_the_tracks_found_on_the_drive(tc: TestCase) {
         })
         .collect();
     let locator = Locator { style: PathStyle::Drive, drive_root: "/Volumes/USB".into(), base: "/x".into() };
-    let r = render(&s, SetFormat::M3u8, Some((&lib, &locator))).unwrap();
+    let r = render(&s, SetFormat::M3u8, &ProfilePrefs::default(), Some((&lib, &locator))).unwrap();
     let found: Vec<String> =
         files.iter().flatten().filter(|&&n| n <= 4).map(|n| format!("/Contents/{n}.mp3")).collect();
     let listed: Vec<&str> = r.text.lines().filter(|l| !l.starts_with('#')).collect();

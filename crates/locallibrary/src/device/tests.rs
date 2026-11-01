@@ -173,7 +173,6 @@ fn the_lineage_keeps_the_newest_states_once_in_a_row(tc: hegel::TestCase) {
 /// and copied nothing; anything else is refused, saying what was cut off and what finishes it.
 #[hegel::test(test_cases = 200)]
 fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let ops = vec![
         LineageOp::Sync,
@@ -189,12 +188,14 @@ fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
         LineageOp::Repair,
         LineageOp::Edit,
     ];
-    let first = tc.draw(gs::sampled_from(ops.clone()).print_as_debug());
-    let next = tc.draw(gs::sampled_from(ops).print_as_debug());
+    let first = tc.draw(gs::sampled_from(ops.clone()));
+    let next = tc.draw(gs::sampled_from(ops));
     let backup = tc.draw(gs::booleans()).then(|| "20261011T120000Z".to_string());
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();
-    assert!(format!("{d:?}").contains(&dir.path().display().to_string()));
+    // The root as Debug shows a path (on Windows its backslashes are escaped).
+    let root = format!("{:?}", dunce_canonicalize(dir.path()));
+    assert!(format!("{d:?}").contains(root.trim_matches('"')), "{d:?}");
     d.begin(first, "the first", backup.clone()).unwrap();
     let copies = |op| matches!(op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack | LineageOp::Export);
     let allowed = copies(next) || next == LineageOp::Restore || (backup.is_none() && !copies(first));
@@ -456,4 +457,35 @@ fn a_scan_takes_more_tracks() {
     let keys = |t: &FileTree| t.entries.keys().cloned().collect::<Vec<_>>();
     assert_eq!(keys(&tree), keys(&d.scan(Some(&both), &Ctx::silent()).unwrap()));
     assert_eq!(tree.resolve("music/ONE.mp3").map(|e| e.size), Some(13));
+}
+
+/// A scan that finds no file changed leaves the hash cache as it was; one after a database
+/// changes rewrites it.
+#[test]
+fn a_scan_rewrites_the_hash_cache_only_when_a_file_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let write = |key: &str, bytes: &[u8]| {
+        let p = root.join(key);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, bytes).unwrap();
+        filetime::set_file_mtime(&p, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    };
+    write(paths::EXPORT_PDB, b"pdb");
+    write("PIONEER/USBANLZ/P000/00000001/ANLZ0000.DAT", b"anlz");
+    let mut d = Device::open(root).unwrap();
+    d.adopt(Some("T")).unwrap();
+    let index = d.state_dir().join("index.json");
+    let written = || {
+        let modified = std::fs::metadata(&index).unwrap().modified().unwrap();
+        (modified, std::fs::read(&index).unwrap())
+    };
+    let first = d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint;
+    let before = written();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written() == before, "rewrote the cache with nothing changed");
+    write(paths::EXPORT_PDB, b"pdb, edited");
+    assert_ne!(d.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint, first);
+    assert!(written().1 != before.1, "kept the cache of the old database");
 }

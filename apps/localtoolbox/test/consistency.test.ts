@@ -27,8 +27,20 @@ const appCss = read('src/app.css');
 describe('manifest.json', () => {
 	it('is a Manifest V3 extension with only the permissions the README lists', () => {
 		expect(manifest.manifest_version).toBe(3);
-		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads']);
-		expect(manifest.background).toBeUndefined();
+		expect(manifest.permissions).toEqual(['activeTab', 'clipboardWrite', 'storage', 'downloads', 'offscreen']);
+		// The one worker: it walks a gate for the page's Download button (background.ts).
+		expect(manifest.background).toEqual({ service_worker: 'background.js', type: 'module' });
+	});
+
+	// The page walks a link to a gate whose walk always ends in a file rather
+	// than following it (content.ts saveGate). A classic script cannot import
+	// the registry, so it keeps its own list of hosts, held to the sites here.
+	it('lets the page walk exactly the sites whose walk ends in a file', () => {
+		const walked = SITES.flatMap((site) => (site.yields === 'file' ? [...site.hosts, ...(site.aliases ?? [])] : []));
+
+		const declared = /const WALKED_HOSTS = new Set\((\[[^\]]*\])\)/.exec(read('content.ts'))![1];
+
+		expect(JSON.parse(declared.replace(/'/g, '"')).sort()).toEqual(walked.sort());
 	});
 
 	// The Downloader reads gate pages from the panel, so every site it knows
@@ -160,25 +172,28 @@ describe('the tools', () => {
 		for (const id of ids) expect(exists(`src/tools/${id}/Panel.svelte`), id).toBe(true);
 	});
 
-	it('gives each tool a name, a description, an icon and its own colour', () => {
+	it('gives each tool a name, a description, an icon and its own tone', () => {
 		for (const id of ids) {
 			const entry = registry.slice(registry.indexOf(`id: '${id}'`));
 			const upTo = entry.slice(0, entry.indexOf('},'));
 			expect(upTo, `${id} name`).toMatch(/name: '[^']+'/);
 			expect(upTo, `${id} description`).toMatch(/description: '[^']+\.'/);
 			expect(upTo, `${id} icon`).toMatch(/icon: \w+/);
-			expect(upTo, `${id} brand`).toMatch(/brand: 'oklch\([^']+\)'/);
+			expect(upTo, `${id} tone`).toMatch(/tone: 'bg-[a-z]+-[a-z]+'/);
 		}
 	});
 
-	it('paints the popup in the open tool’s colour, and derives the rest from it', () => {
-		expect(registry).toContain("documentElement.style.setProperty('--brand'");
+	it('draws each tool’s tone from the DJ-data colours, and nothing else from it', () => {
+		const dataColors = read('../../packages/tokens/data-colors.css');
 
-		for (const derived of ['--primary', '--ring']) {
-			expect(appCss, derived).toContain(derived);
+		for (const [, colour] of registry.matchAll(/tone: 'bg-([a-z]+-[a-z]+)'/g)) {
+			expect(dataColors, colour).toContain(`--color-${colour}:`);
 		}
 
-		expect(appCss).toMatch(/--primary: color-mix\(in oklch, var\(--brand\)/);
+		// The Local Network design system has no brand accent: buttons, focus and
+		// headers look the same in every tool.
+		expect(appCss).not.toContain('--brand');
+		expect(appCss).toContain("@import '../../../packages/tokens/theme.css';");
 	});
 });
 
@@ -527,9 +542,9 @@ describe('stylesheets', () => {
 		}
 	});
 
-	it('drives dark mode from a class, which the theme store sets', () => {
-		expect(appCss).toContain('@custom-variant dark (&:is(.dark *));');
-		expect(read('src/lib/theme.svelte.ts')).toContain("classList.toggle('dark'");
+	it('drives the light theme from a class, which the theme store sets', () => {
+		expect(read('../../packages/tokens/theme.css')).toContain('&:where(.light)');
+		expect(read('src/lib/theme.svelte.ts')).toContain("classList.toggle('light'");
 	});
 });
 

@@ -1,5 +1,7 @@
 /** View models shared between server and browser code. */
 
+import type { Capability, SpaceKind } from './capabilities.ts';
+
 export type BlobRefJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
 export type Location = {
@@ -12,6 +14,9 @@ export type Location = {
 
 export type ProjectLink = { kind: string; url: string; label?: string };
 
+/** A `com.atproto.repo.strongRef`: a record and the version of it that was meant. */
+export type StrongRef = { uri: string; cid: string };
+
 export type ProjectMix = {
 	title: string;
 	url: string;
@@ -19,7 +24,64 @@ export type ProjectMix = {
 	year?: number;
 	/** A locallibrary mix report (see `#lib/mix/report.ts`). */
 	tracklist?: BlobRefJson;
+	/** The manager's `computer.localnetwork.dj.set` this mix records. */
+	set?: StrongRef;
+	/** The manager's `fm.plyr.track` the mix plays from, when `url` is that track on plyr.fm (see services/mix-recordings.ts). */
+	recording?: StrongRef;
 };
+
+/** A DJ's set as the directory serves it (`computer.localnetwork.directory.defs#setView`). */
+export type DjSetView = StrongRef & {
+	title?: string;
+	/** YYYY-MM-DD */
+	date: string;
+	kind?: string;
+	venue?: string;
+	location?: { country: string; name?: string; locality?: string; region?: string };
+	trackCount: number;
+};
+
+/** A city with sets, and how many (`computer.localnetwork.directory.defs#place`). */
+export type DirectoryPlace = { city: string; country: string; count: number };
+
+/** An artist a track credits (`#artistCredit`). `mbid` is a bare lowercase UUID. */
+export type ArtistCredit = { name: string; mbid?: string };
+
+/** An artist whose tracks the directory's DJs played, with their supports (`#supportedArtist`). */
+export type SupportedArtist = ArtistCredit & { supports: number; djCount: number };
+
+/** A track the directory's DJs played, and how many of them did (`#supportedTrack`). */
+export type SupportedTrack = {
+	id: string;
+	title: string;
+	artist?: string;
+	artists: ArtistCredit[];
+	recordingMbId?: string;
+	isrc?: string;
+	supports: number;
+};
+
+/** One time a DJ (the set's author) played a track (`#play`). */
+export type TrackPlay = { did: string; set: DjSetView; startSeconds?: number };
+
+/** A track and every time it was played (`#trackPlays`). */
+export type TrackPlays = { track: SupportedTrack; plays: TrackPlay[] };
+
+/** A DJ and the active projects they manage (`#djView`). */
+export type DirectoryDj = { did: string; projects: { slug: string; name: string }[] };
+
+/** What an artist's page shows: their supports, their tracks' plays, and the DJs by DID. No `artist` when no set credits them. */
+export type ArtistSupports = {
+	artist?: SupportedArtist;
+	tracks: TrackPlays[];
+	djs: Record<string, AccountView & DirectoryDj>;
+};
+
+/** The charts: the most supported tracks and artists, and the cities with sets. */
+export type Charts = { tracks: SupportedTrack[]; artists: SupportedArtist[]; places: DirectoryPlace[] };
+
+/** One fee level (`#fee`): its tier counts for budget matching; amounts are whole currency units. */
+export type ProjectFee = { tier: string; label?: string; currency?: string; minAmount?: number; maxAmount?: number };
 
 export type ProjectProfile = {
 	name: string;
@@ -35,13 +97,72 @@ export type ProjectProfile = {
 	setLength?: { minMinutes?: number; maxMinutes?: number };
 	activeSince?: number;
 	capacity?: { min?: number; max?: number };
-	fee?: { tier: string; currency?: string; minAmount?: number; maxAmount?: number };
+	fees?: ProjectFee[];
+	/** Deprecated: the one fee level of records written before `fees`. Read both through `feeLevels`. */
+	fee?: ProjectFee;
 	links?: ProjectLink[];
 	mixes?: ProjectMix[];
 	highlights?: string[];
 	lookingFor?: string;
 	avatar?: BlobRefJson;
 };
+
+/** Who a profile is (`computer.localnetwork.section.defs#basics`). */
+export type BasicsSection = {
+	name: string;
+	avatar?: BlobRefJson;
+	bio?: string;
+	pronouns?: string;
+	location?: Location;
+	links?: ProjectLink[];
+};
+
+/** What promoters need to book a performer (`#performer`), with the project profile's field names, all optional. */
+export type PerformerSection = Partial<
+	Pick<
+		ProjectProfile,
+		| 'tagline'
+		| 'genres'
+		| 'formats'
+		| 'setTypes'
+		| 'setLength'
+		| 'capacity'
+		| 'fees'
+		| 'travel'
+		| 'mixes'
+		| 'highlights'
+		| 'lookingFor'
+		| 'activeSince'
+	>
+>;
+
+/** Where a promoter books (`#promoter`). */
+export type PromoterSection = { cities?: Location[] };
+
+/** A person's profile (`computer.localnetwork.profile`). A section is on when it's present, even empty. */
+export type ProfileRecord = {
+	basics: BasicsSection;
+	performer?: PerformerSection;
+	promoter?: PromoterSection;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A person's profile as the site shows it, read from what the directory indexed. */
+export type ProfileView = {
+	did: string;
+	uri: string;
+	cid: string;
+	record: ProfileRecord;
+	/** The avatar through this site's `/media`, or null without one. */
+	avatarUrl: string | null;
+};
+
+/** A DJ Find DJs lists: their profile, handle, the genres they were found by, and how far they are from the place searched. */
+export type ListedDj = { profile: ProfileView; handle: string | null; genres: string[]; distanceKm?: number };
+
+/** One Find DJs result: a published project, or a listed DJ. */
+export type PerformerResult = { kind: 'project'; project: ProjectView } | { kind: 'dj'; dj: ListedDj };
 
 export type ProjectDetails = {
 	bookingEmail?: string;
@@ -50,6 +171,9 @@ export type ProjectDetails = {
 	techRider?: string;
 	hospitality?: string;
 };
+
+/** A fee level's row in the project form, as the text its inputs hold. */
+export type FeeFormRow = Record<'label' | 'tier' | 'currency' | 'minAmount' | 'maxAmount', string>;
 
 /**
  * The project form's fields by input name, for filling the form back in: a saved profile from
@@ -77,18 +201,29 @@ export type ProjectFormValues = ProjectDetails & {
 	activeSince?: number | string;
 	capacityMin?: number | string;
 	capacityMax?: number | string;
-	feeTier?: string;
-	feeCurrency?: string;
-	feeMin?: number | string;
-	feeMax?: number | string;
+	fees?: FeeFormRow[];
 	links?: ProjectLink[];
 	mixes?: ProjectMix[];
 	highlights?: string;
 	lookingFor?: string;
+	/** A promoter's cities, one row each (the profile form's promoter section). */
+	cities?: CityFormRow[];
 	message?: string;
 	/** Fields only some forms have, like the admin form's `managers`, echo back as text too. */
-	[field: string]: string | number | boolean | string[] | ProjectLink[] | ProjectMix[] | undefined;
+	[field: string]:
+		| string
+		| number
+		| boolean
+		| string[]
+		| ProjectLink[]
+		| ProjectMix[]
+		| FeeFormRow[]
+		| CityFormRow[]
+		| undefined;
 };
+
+/** A city row in the profile form, as the text its inputs hold. */
+export type CityFormRow = { city: string; region: string; country: string };
 
 export type ProjectStatus = 'active' | 'hidden' | 'archived';
 
@@ -118,11 +253,50 @@ export type ProjectView = {
 	updatedAt: string;
 	avatarUrl: string | null;
 	distanceKm?: number | null;
+	/** Only from a lookup that asked for them (ProjectService.bySlug with `counts`). */
+	counts?: ProjectCounts;
 };
+
+/**
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
+ * lists stream in so their placeholders hold that much room.
+ */
+export type ProjectCounts = { pressKits: number; upcomingShows: number };
 
 export type AccountView = { did: string; handle: string | null };
 
-export type RequestKind = 'create' | 'claim' | 'update';
+/**
+ * A show (`computer.localnetwork.show`): a copy of the calendar event a manager announced, tied to the project. Its
+ * times carry the venue's UTC offset, so their first 16 characters read as the venue's clock.
+ */
+export type ShowRecord = {
+	project: string;
+	event: StrongRef;
+	name: string;
+	startsAt: string;
+	endsAt?: string;
+	venue?: string;
+	location: Location;
+	status?: string;
+	tickets?: string;
+	createdAt: string;
+};
+
+/** A show as pages list it, with its project. `did` and `rkey` are the announcing manager's repo and its key. */
+export type ShowView = {
+	uri: string;
+	cid: string;
+	did: string;
+	rkey: string;
+	record: ShowRecord;
+	project: ProjectView;
+	distanceKm?: number;
+};
+
+/** A project's follower count, and whether the viewer is one of them. */
+export type FollowState = { followers: number; following: boolean };
+
+export type RequestKind = 'create' | 'claim' | 'update' | 'list';
 
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';
 
@@ -135,6 +309,8 @@ export type RequestRecord = {
 	profile?: ProjectProfile;
 	details?: ProjectDetails;
 	claim?: ClaimEvidence;
+	/** For a list request: the profile to list, and the version it was asked for with. */
+	listing?: { subject: string; cid?: string };
 	message?: string;
 	onBehalfOf?: string;
 	withdrawnAt?: string;
@@ -160,6 +336,34 @@ export type RequestView = {
 };
 
 export type StaffRole = 'admin' | 'moderator';
+
+/** A staff role. `bootstrap` ones come from `ADMIN_DIDS` and have no record. */
+export type StaffMember = {
+	did: string;
+	handle: string | null;
+	role: StaffRole;
+	grantedBy: string | null;
+	note: string | null;
+	createdAt: string | null;
+	bootstrap: boolean;
+};
+
+/** A Bluesky verification (`app.bsky.graph.verification`) the root account issued: who, under what handle and name. */
+export type IssuedVerification = {
+	uri: string;
+	cid: string;
+	rkey: string;
+	subject: string;
+	handle: string;
+	displayName: string;
+	createdAt: string;
+};
+
+/** An account's handle, when it points back to the account, and its Bluesky display name, as they are now. */
+export type LiveIdentity = { handle: string | null; displayName: string | null };
+
+/** Where an account stands with the root's verifications. `outdated` ones no longer match, so apps don't show them. */
+export type VerificationStatus = 'verified' | 'outdated' | 'unverified';
 
 export type Viewer = {
 	did: string;
@@ -209,6 +413,45 @@ export type BookingEventView = {
 	show?: ShowDetails;
 };
 
+/** What an inbox item is about, which its icon shows. Email and DM opt-ins choose among these too. */
+export type NotificationTopic = 'bookings' | 'guests' | 'waitlist' | 'events';
+
+/** Where the inbox is also sent, when someone opts in. */
+export type NotificationChannel = 'email' | 'dm';
+
+/** Why a channel stopped sending, which the settings page explains. */
+export type PausedReason =
+	| 'address_rejected'
+	| 'email_unconfirmed'
+	| 'email_unverified'
+	/** Bluesky chat won't deliver the root's DMs to them: they don't follow it, or allow no DMs. */
+	| 'dm_not_allowed';
+
+/**
+ * Whether the root account can DM someone on Bluesky now: yes, not until they change their chat settings or follow
+ * it, or unknown because Bluesky chat didn't answer.
+ */
+export type DmAvailability = 'ok' | 'not_allowed' | 'unavailable';
+
+/** One person's setting for a channel, as the settings page shows it. */
+export type ChannelView = {
+	status: 'active' | 'paused';
+	pausedReason: PausedReason | null;
+	address: string | null;
+	topics: NotificationTopic[];
+};
+
+/** One item in someone's inbox, rendered from what happened. `topic` is null for a kind this version doesn't know. */
+export type NotificationView = {
+	id: string;
+	topic: NotificationTopic | null;
+	title: string;
+	body?: string;
+	href: string;
+	occurredAt: string;
+	read: boolean;
+};
+
 export type PlannerSaveView = { rkey: string; project: string; note?: string; createdAt: string };
 
 export type PlannerShowView = {
@@ -218,3 +461,32 @@ export type PlannerShowView = {
 	createdAt: string;
 	updatedAt?: string;
 };
+
+/** Someone in a performer's, party's or venue's space. */
+export type SpacePerson = AccountView & {
+	role: string;
+	capabilities: Capability[];
+	hidden: boolean;
+	via: string;
+	addedBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+/** A performer's, party's or venue's space, as the staff console lists them. */
+export type SharedSpaceSummary = {
+	uri: string;
+	kind: SpaceKind;
+	skey: string;
+	listed: boolean;
+	/** How many people are in it, hidden ones included. */
+	people: number;
+	createdBy: AccountView;
+	createdAt: string;
+};
+
+/** An invite to a space nobody has answered yet. */
+export type PendingInvite = AccountView & { role: string; createdAt: string; expiresAt: string | null };
+
+/** A request to join a space waiting on an answer. */
+export type JoinRequestView = AccountView & { message: string | null; createdAt: string };

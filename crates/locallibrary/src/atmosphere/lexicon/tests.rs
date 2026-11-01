@@ -10,7 +10,7 @@ use crate::settings::{Category, SCHEMA};
 
 /// Every definition reachable from `v`, checked for what [`check`] understands.
 fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
-    let known = ["record", "object", "ref", "union", "string", "integer", "boolean", "array", "unknown"];
+    let known = ["record", "object", "ref", "union", "string", "integer", "boolean", "array", "blob", "unknown"];
     let ty = v["type"].as_str().unwrap_or_default();
     if !known.contains(&ty) {
         problems.push(format!("{nsid} {at}: type {ty:?}"));
@@ -82,7 +82,7 @@ fn every_lexicon_parses_and_its_refs_resolve() {
         assert!(nsid.starts_with(group), "{nsid}");
         let main = &document(nsid).unwrap()["defs"]["main"];
         assert_eq!(main["type"], "record", "{nsid}");
-        let key = if nsid == SET { "tid" } else { "literal:self" };
+        let key = if [SET, RECORDING].contains(&nsid) { "tid" } else { "literal:self" };
         assert_eq!(main["key"], key, "{nsid}");
     }
     // Every file in the folders locallibrary owns is one of the documents. The rest of the
@@ -104,7 +104,7 @@ fn every_lexicon_parses_and_its_refs_resolve() {
     }
     let documents = DOCUMENTS.iter().map(|(nsid, _)| path(nsid)).filter(|p| ours.iter().any(|d| p.starts_with(d)));
     assert_eq!(found, documents.collect());
-    assert_eq!(found.len(), 4, "settings, and the DJ profile, set and defs");
+    assert_eq!(found.len(), 5, "settings, and the DJ profile, set, recording and defs");
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn nullable_fields_closed_enums_and_unknowns_are_checked() {
     checked(json!({ "note": null, "mood": "dark", "extra": { "any": 1 } })).unwrap();
     assert_eq!(checked(json!({ "mood": "grey" })).unwrap_err(), "mood can't be \"grey\"");
     assert_eq!(checked(json!({ "extra": 1 })).unwrap_err(), "extra should be an object");
-    assert!(checked(json!({ "blob": {} })).unwrap_err().contains("doesn't know the Lexicon type \"blob\""));
+    assert_eq!(checked(json!({ "blob": {} })).unwrap_err(), "blob isn't a blob");
     // Only the fields named nullable may be null.
     assert_eq!(checked(json!({ "mood": null })).unwrap_err(), "mood should be text");
 
@@ -314,12 +314,15 @@ fn bound(tc: &hegel::TestCase, max: i64) -> Option<i64> {
 }
 
 /// Text fits a string schema exactly when its length in bytes is within `minLength` and
-/// `maxLength`, its length in characters within `maxGraphemes` and it's one of `enum` (when
+/// `maxLength`, its length in graphemes within `maxGraphemes` and it's one of `enum` (when
 /// there is one), and the first of those it breaks is the one the error names.
 #[hegel::test(test_cases = 400)]
-fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
+fn text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
     let words = vec!["dark", "light", "dämmerung", "夜"];
-    let s: String = tc.draw(hegel::one_of!(gs::sampled_from(words.clone()).map(String::from), gs::text().max_size(12)));
+    // Accents, ZWJ and regional indicators, so graphemes of several code points come up often.
+    let clusters = gs::text().alphabet("e\u{301}\u{200d}👩🇬🇧").max_size(12);
+    let s: String =
+        tc.draw(hegel::one_of!(gs::sampled_from(words.clone()).map(String::from), gs::text().max_size(12), clusters));
     let (min, max, graphemes) = (bound(&tc, 12), bound(&tc, 40), bound(&tc, 12));
     let closed = tc.draw(gs::booleans());
     let mut schema = json!({ "type": "string" });
@@ -331,16 +334,28 @@ fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
     if closed {
         schema["enum"] = json!(words);
     }
-    let (bytes, chars) = (s.len() as i64, s.chars().count() as i64);
+    let (bytes, count) = (s.len() as i64, s.graphemes(true).count() as i64);
     let bytes_fit = min.is_none_or(|m| bytes >= m) && max.is_none_or(|m| bytes <= m);
-    let chars_fit = graphemes.is_none_or(|m| chars <= m);
+    let graphemes_fit = graphemes.is_none_or(|m| count <= m);
     let listed = !closed || words.contains(&s.as_str());
     match check(SET, &schema, &json!(s), "x") {
-        Ok(()) => assert!(bytes_fit && chars_fit && listed, "{s:?} passed {schema}"),
+        Ok(()) => assert!(bytes_fit && graphemes_fit && listed, "{s:?} passed {schema}"),
         Err(e) if !bytes_fit => assert_eq!(e, format!("x is {bytes} bytes long, outside what the Lexicon allows")),
-        Err(e) if !chars_fit => assert_eq!(e, format!("x is longer than {} characters", graphemes.unwrap())),
+        Err(e) if !graphemes_fit => assert_eq!(e, format!("x is longer than {} graphemes", graphemes.unwrap())),
         Err(e) => assert_eq!((listed, e), (false, format!("x can't be {s:?}"))),
     }
+}
+
+/// `maxGraphemes` counts what a reader sees as one character, so a flag, a family emoji and a
+/// letter with a combining accent are one each, though they're 9 code points between them.
+#[test]
+fn max_graphemes_counts_clusters_not_code_points() {
+    let schema = json!({ "type": "string", "maxGraphemes": 3 });
+    let checked = |s: &str| check(SET, &schema, &json!(s), "name");
+    let three = "🇬🇧👩\u{200d}👩\u{200d}👧e\u{301}";
+    assert_eq!(three.chars().count(), 9);
+    checked(three).unwrap();
+    assert_eq!(checked(&format!("{three}!")).unwrap_err(), "name is longer than 3 graphemes");
 }
 
 /// A number fits an integer schema exactly when it's a whole number (the AT Protocol has no
@@ -348,12 +363,12 @@ fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 400)]
 fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
     let v: Value = tc.draw(hegel::one_of!(
-        gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from).print_as_debug(),
-        gs::integers::<i64>().map(Value::from).print_as_debug(),
-        gs::integers::<u64>().min_value(i64::MAX as u64 + 1).map(Value::from).print_as_debug(),
-        gs::floats::<f64>().allow_nan(false).allow_infinity(false).map(Value::from).print_as_debug(),
-        gs::text().max_size(3).map(Value::from).print_as_debug(),
-        gs::booleans().map(Value::from).print_as_debug(),
+        gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from),
+        gs::integers::<i64>().map(Value::from),
+        gs::integers::<u64>().min_value(i64::MAX as u64 + 1).map(Value::from),
+        gs::floats::<f64>().allow_nan(false).allow_infinity(false).map(Value::from),
+        gs::text().max_size(3).map(Value::from),
+        gs::booleans().map(Value::from),
     ));
     let bound = || gs::optional(gs::integers::<i64>().min_value(-50).max_value(50));
     let (min, max) = (tc.draw(bound()), tc.draw(bound()));
@@ -454,15 +469,12 @@ fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) 
         "#link".to_string(),
         format!("{SET}#source"),
     ])));
-    let fields = tc.draw(
-        gs::sampled_from(vec![
-            json!({}),
-            json!({ "uri": "https://station.example/" }),
-            json!({ "country": "GB" }),
-            json!({ "uri": "station dot example" }),
-        ])
-        .print_as_debug(),
-    );
+    let fields = tc.draw(gs::sampled_from(vec![
+        json!({}),
+        json!({ "uri": "https://station.example/" }),
+        json!({ "country": "GB" }),
+        json!({ "uri": "station dot example" }),
+    ]));
     let mut value = fields.clone();
     if let Some(ty) = &ty {
         value["$type"] = json!(ty);
@@ -527,27 +539,59 @@ fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
 /// type or string format the check doesn't know is an error, whatever the value.
 #[hegel::test(test_cases = 200)]
 fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
-    let v: Value = tc.draw(
-        gs::sampled_from(vec![
-            json!(true),
-            json!(false),
-            json!(0),
-            json!("true"),
-            Value::Null,
-            json!([]),
-            json!({}),
-            json!({ "a": 1 }),
-        ])
-        .print_as_debug(),
-    );
+    let v: Value = tc.draw(gs::sampled_from(vec![
+        json!(true),
+        json!(false),
+        json!(0),
+        json!("true"),
+        Value::Null,
+        json!([]),
+        json!({}),
+        json!({ "a": 1 }),
+    ]));
     let boolean = check(SET, &json!({ "type": "boolean" }), &v, "b");
     assert_eq!(boolean, if v.is_boolean() { Ok(()) } else { Err("b should be true or false".into()) });
     let unknown = check(SET, &json!({ "type": "unknown" }), &v, "u");
     assert_eq!(unknown, if v.is_object() { Ok(()) } else { Err("u should be an object".into()) });
-    let ty = tc.draw(gs::sampled_from(vec!["blob", "bytes", "cid-link", "token", "float"]));
+    let ty = tc.draw(gs::sampled_from(vec!["bytes", "cid-link", "token", "float"]));
     let err = check(SET, &json!({ "type": ty }), &v, "x").unwrap_err();
     assert_eq!(err, format!("x: the check doesn't know the Lexicon type {ty:?}"));
-    let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "cid"]));
+    let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "record-key"]));
     let err = check(SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s").unwrap_err();
     assert_eq!(err, format!("s: the check doesn't know the format {format:?}"));
+}
+
+/// A CID as the AT Protocol writes one (a dag-cbor record's).
+const CID: &str = "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a";
+
+/// A CID is checked as one, and a blob (a file a record links to) for its shape, its media type
+/// and its size.
+#[test]
+fn cids_and_blobs_are_checked() {
+    let cid = json!({ "type": "string", "format": "cid" });
+    check(SET, &cid, &json!(CID), "c").unwrap();
+    assert_eq!(check(SET, &cid, &json!("bafy-not-one"), "c").unwrap_err(), "c isn't a CID: \"bafy-not-one\"");
+
+    let schema = json!({ "type": "blob", "accept": ["image/*", "application/json"], "maxSize": 1000 });
+    let blob =
+        |mime: &str, size: i64| json!({ "$type": "blob", "ref": { "$link": CID }, "mimeType": mime, "size": size });
+    check(SET, &schema, &blob("image/png", 1000), "b").unwrap();
+    check(SET, &schema, &blob("application/json", 1), "b").unwrap();
+    check(SET, &json!({ "type": "blob" }), &blob("video/mp4", 1 << 30), "b").unwrap();
+    assert_eq!(
+        check(SET, &schema, &blob("video/mp4", 10), "b").unwrap_err(),
+        "b is video/mp4, which the Lexicon doesn't take"
+    );
+    assert_eq!(
+        check(SET, &schema, &blob("image/png", 1001), "b").unwrap_err(),
+        "b is 1001 bytes, more than the Lexicon takes"
+    );
+    for broken in ["$type", "ref", "mimeType", "size"] {
+        let mut b = blob("image/png", 10);
+        b.as_object_mut().unwrap().remove(broken);
+        assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob", "{broken}");
+    }
+    let mut b = blob("image/png", 10);
+    b["ref"]["$link"] = "bafy-not-one".into();
+    assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob");
 }

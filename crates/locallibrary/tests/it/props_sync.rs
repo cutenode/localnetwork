@@ -338,7 +338,7 @@ const USER_FILES: &[&str] = &["notes.txt", "Music/mine.mp3", "Music/Old/set.wav"
 impl Copies {
     fn new(tc: &TestCase, cfg: Config) -> Copies {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = locallibrary::device::dunce_canonicalize(dir.path());
         let main = main_drive(&root, tc.draw(gs::booleans()));
         let b = root.join("B");
         fs::create_dir_all(&b).unwrap();
@@ -596,7 +596,7 @@ impl Copies {
             .filter(|k| paths::classify(k) == Some(FileClass::Analysis))
             .collect();
         tc.assume(!files.is_empty());
-        let key = &files[tc.draw(gs::integers::<usize>().max_value(files.len() - 1))];
+        let key = &tc.draw(gs::sampled_from(&files));
         self.counter += 1;
         let mut bytes = fs::read(paths::to_fs(&self.drives[0], key)).unwrap();
         bytes.extend(format!("reanalysed {}", self.counter).bytes());
@@ -615,7 +615,7 @@ impl Copies {
             true => self.outside.iter().cloned().collect(),
             false => USER_FILES.iter().map(|k| k.to_string()).collect(),
         };
-        let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))].clone();
+        let key = tc.draw(gs::sampled_from(&keys));
         tc.assume(!self.references(d, &key));
         let mut bytes = b"the DJ's own ".to_vec();
         bytes.extend(tc.draw(gs::vecs(gs::integers::<u8>()).max_size(32)));
@@ -629,7 +629,7 @@ impl Copies {
         let d = tc.draw(gs::integers::<usize>().max_value(self.drives.len() - 1));
         let keys: Vec<String> = self.user[d].keys().cloned().collect();
         tc.assume(!keys.is_empty());
-        let key = &keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+        let key = &tc.draw(gs::sampled_from(&keys));
         fs::remove_file(paths::to_fs(&self.drives[d], key)).unwrap();
         self.user[d].shift_remove(key);
     }
@@ -801,7 +801,7 @@ impl Progress for CancelOnFirstCopy {
 fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOptions, then: impl Fn(&Path, &Path)) {
     for n in 0.. {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = locallibrary::device::dunce_canonicalize(dir.path());
         // A copy keeps OneLibrary's database, and so its cached key derivation.
         let main = root.join("Main");
         copy_tree(template, &main);
@@ -840,7 +840,7 @@ fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOpti
 #[test]
 fn a_delete_first_sync_left_unfinished_never_leaves_a_library_missing_its_audio() {
     let dir = tempfile::tempdir().unwrap();
-    let main = main_drive(&dir.path().canonicalize().unwrap(), false);
+    let main = main_drive(&locallibrary::device::dunce_canonicalize(dir.path()), false);
     let opts = SyncOptions { delete_first: true, ..SyncOptions::default() };
     sync_onto_another_library_cancelled_anywhere(&main, &opts, |main, c| {
         let cancel = CancelToken::new();
@@ -859,7 +859,7 @@ fn a_delete_first_sync_left_unfinished_never_leaves_a_library_missing_its_audio(
 #[test]
 fn a_database_the_source_lacks_goes_before_the_audio_it_uses() {
     let dir = tempfile::tempdir().unwrap();
-    let main = main_drive(&dir.path().canonicalize().unwrap(), true);
+    let main = main_drive(&locallibrary::device::dunce_canonicalize(dir.path()), true);
     for key in [paths::EXPORT_PDB, paths::EXPORT_EXT_PDB] {
         let _ = fs::remove_file(main.join(key));
     }
@@ -915,14 +915,14 @@ fn packed_tracks(lib: &Library, selection: &[String], history: bool) -> BTreeSet
     if history {
         ids.extend(lib.history.iter().flat_map(|h| h.track_ids.iter().copied()));
     }
-    ids.into_iter().map(|id| paths::key(&lib.track(id).unwrap().file_path).to_lowercase()).collect()
+    ids.into_iter().map(|id| paths::file_key(&lib.track(id).unwrap().file_path)).collect()
 }
 
 /// A history list as players record it: name and tracks by file.
 type Recorded = (String, Vec<String>);
 
 fn recorded(list: &plays::HistoryList) -> Recorded {
-    (list.name.clone(), list.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect())
+    (list.name.clone(), list.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -937,7 +937,7 @@ struct PackConfig {
 /// with exports and sets in between and runs stopped at any checkpoint.
 fn run_packs(tc: TestCase, cfg: PackConfig) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = pack_source(&root, tc.draw(gs::booleans()));
     let club = if tc.draw(gs::booleans()) {
         let club = common::demo_drive(&root, "Club");
@@ -953,7 +953,7 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
     fs::create_dir_all(&scratch).unwrap();
     let store = Store::open_or_init(root.join("store")).unwrap();
     let mut user = Files::new();
-    for key in USER_FILES.iter().filter(|_| tc.draw(gs::booleans())) {
+    for key in tc.draw(gs::subsequences(USER_FILES)) {
         let bytes = format!("the DJ's own {key}").into_bytes();
         write(&paths::to_fs(&club, key), &bytes);
         user.insert(key.to_string(), bytes);
@@ -994,11 +994,12 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
             sets = plays::drive_history(&d).unwrap().lists.iter().map(recorded).chain(sets).collect();
             tc.note(&format!("a set: {name}"));
         }
-        let mut selection: Vec<String> =
-            SELECTIONS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect();
-        if selection.is_empty() && packed.is_none() {
-            selection.push(SELECTIONS[0].to_string());
-        }
+        // The first pack names at least one playlist.
+        let selection: Vec<String> = tc
+            .draw(gs::subsequences(SELECTIONS).min_size(usize::from(packed.is_none())))
+            .into_iter()
+            .map(str::to_string)
+            .collect();
         let opts = PackOptions {
             playlists: selection.clone(),
             history: tc.draw(gs::booleans()),
@@ -1061,7 +1062,7 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
         let src_lib = src.library().unwrap();
         let d = Device::open_export(&club).unwrap();
         let lib = d.library().unwrap();
-        let tracks: BTreeSet<String> = lib.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+        let tracks: BTreeSet<String> = lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
         assert_eq!(tracks, packed_tracks(&src_lib, &chosen, history), "packed {chosen:?}");
         let main_files = fold(common::library_files(&main));
         let club_files = fold(common::library_files(&club));
@@ -1137,7 +1138,7 @@ fn an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
 /// checkpoint, then undone.
 fn run_merge(tc: TestCase, outside: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = main_drive(&root, tc.draw(gs::booleans()));
     let guest = common::demo_drive(&root, "Guest");
     let mut candidates: Vec<String> = USER_FILES.iter().map(|k| k.to_string()).collect();
@@ -1149,10 +1150,10 @@ fn run_merge(tc: TestCase, outside: bool) {
         }
     }
     let mut user = Files::new();
-    for key in candidates.iter().filter(|_| tc.draw(gs::booleans())) {
+    for key in tc.draw(gs::subsequences(&candidates)) {
         let bytes = format!("the DJ's own {key}").into_bytes();
-        write(&paths::to_fs(&main, key), &bytes);
-        user.insert(key.clone(), bytes);
+        write(&paths::to_fs(&main, &key), &bytes);
+        user.insert(key, bytes);
     }
     let stop = match draw_stop(&tc, false) {
         Stop::Cancel(k) => Stop::Cancel(k),

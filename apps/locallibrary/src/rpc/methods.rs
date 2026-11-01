@@ -12,7 +12,9 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use locallibrary::edit::EditPlan;
 use locallibrary::op::{AnyPlanned, Operation, Planned};
+use locallibrary::plugin::OpPlanned;
 use locallibrary::progress::{Ctx, Event, Phase};
 use locallibrary::{Store, api};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -64,6 +66,9 @@ pub struct Call<'a> {
     pub root: &'a Path,
     pub plans: &'a Plans,
     pub ctx: &'a Ctx<'a>,
+    /// Sends the notification `method` (`serve`) about this request, as `{id, event}`.
+    #[cfg(feature = "peers")]
+    pub notify: &'a dyn Fn(&str, Value),
 }
 
 impl Call<'_> {
@@ -75,6 +80,12 @@ impl Call<'_> {
     /// The store, made if there's none yet; `None` if that fails.
     fn store_opt(&self) -> Option<Store> {
         Store::open_or_init(self.root).ok()
+    }
+
+    /// The store, for a read about it or a change to what it holds already: with none,
+    /// `not_found` (none is made).
+    fn to_read(&self) -> Result<Store, RpcError> {
+        Ok(Store::open(self.root)?)
     }
 
     /// The store if there is one (read-only methods never make one).
@@ -248,16 +259,36 @@ impl Method {
     }
 }
 
-/// The plan an `.apply` applies, and what applying it returns.
-trait PlanOf {
+/// What a `*.plan` answers: a plan, kept for its `.apply`, and what applying it returns.
+trait PlanAnswer: JsonSchema + 'static {
     type Report: JsonSchema;
+    /// The answer, kept as `method`'s plan when it is one.
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError>;
 }
 
-impl<P: Operation> PlanOf for Planned<P, P::Request>
+impl<P: Operation> PlanAnswer for Planned<P, P::Request>
 where
     P::Report: JsonSchema,
+    Planned<P, P::Request>: AnyPlanned + JsonSchema + 'static,
 {
     type Report = P::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        plans.keep(method, self)
+    }
+}
+
+/// A plugin's operation may ask a question first (`{"choose": ...}`), which keeps nothing: the
+/// caller plans it again with the param set.
+impl PlanAnswer for OpPlanned {
+    type Report = <Planned<EditPlan> as PlanAnswer>::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        match self {
+            OpPlanned::Plan(plan) => plan.keep(plans, method),
+            asked @ OpPlanned::Choose { .. } => ok(asked),
+        }
+    }
 }
 
 /// Every method, by name and alias.
@@ -299,16 +330,16 @@ impl Registry {
         self.add(Method::new(name, Kind::Immediate, schema::<P>, schema::<R>, Some(run)))
     }
 
-    /// `<op>.plan`: the plan is kept for `<op>.apply {plan_id}`.
+    /// `<op>.plan`: the plan is kept for `<op>.apply {plan_id}` (see [`PlanAnswer`]).
     fn plan<P, Pl, F>(&mut self, name: &'static str, f: F) -> &mut Method
     where
         P: DeserializeOwned + JsonSchema,
-        Pl: AnyPlanned + PlanOf + JsonSchema + 'static,
+        Pl: PlanAnswer,
         F: Fn(&Call<'_>, P) -> Result<Pl, RpcError> + Send + Sync + 'static,
     {
-        let run: Run = Box::new(move |c, v| c.plans.keep(f(c, params(v)?)?));
+        let run: Run = Box::new(move |c, v| f(c, params(v)?)?.keep(c.plans, name));
         let m = self.add(Method::new(name, Kind::Plan, schema::<P>, schema::<Pl>, Some(run)));
-        m.applies = Some(schema::<<Pl as PlanOf>::Report>);
+        m.applies = Some(schema::<<Pl as PlanAnswer>::Report>);
         m.operation = name.strip_suffix(".plan");
         m
     }
@@ -328,17 +359,17 @@ impl Registry {
             let operation = registry().get(name).and_then(|m| m.operation).unwrap_or(operation);
             // The store first: a plan taken out is only put back by a refusal below.
             let store = c.plan_store(store)?;
-            let (made, plan) = c.plans.take(id, operation)?;
+            let (made, plan) = c.plans.take(name, id, operation)?;
             // Refused before anything was written (a changed or archive drive, or one in use), the
             // plan stays, to be applied again (with `overwrite_archive`, say).
             if let Err(e) = plan.check(store.as_ref()) {
-                c.plans.put_back(made, plan);
+                c.plans.put_back(name, made, plan);
                 return Err(e.into());
             }
             match plan.apply_json(store.as_ref(), c.ctx) {
                 Ok(report) => ok(report),
                 Err(e @ locallibrary::Error::Locked(_)) if plan.check(store.as_ref()).is_ok() => {
-                    c.plans.put_back(made, plan);
+                    c.plans.put_back(name, made, plan);
                     Err(e.into())
                 }
                 Err(e) => Err(RpcError::from(e).plan_used()),
@@ -482,8 +513,18 @@ fn build() -> Registry {
     r.read("drive.library", |_, req| Ok(api::drive_library_cached(&LIBRARIES, &req)?)).quick();
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
-    r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.query", |c, req| {
+        let fields = crate::plugins::installed(c.existing()?);
+        Ok(api::tracks_query_with(&LIBRARIES, &req, Some(fields.source()))?)
+    })
+    .quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
+    r.read("track.fields", |c, req| {
+        // Plugins that were refused have nothing to show either.
+        let installed = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+        Ok(api::track_fields_of(&LIBRARIES, c.existing()?.as_ref(), &req, &installed)?)
+    });
     r.read("track.show", |_, req| Ok(api::track_details_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.matches", |_, req| Ok(api::harmonic_matches_cached(&LIBRARIES, &req)?)).quick();
 
@@ -531,41 +572,56 @@ fn build() -> Registry {
         .destructive();
     r.plan("pull.plan", |c, req| Ok(api::pull_plan(c.root, &req, c.ctx)?)).long();
     r.apply("pull.apply", Optional, |c, req| Ok(api::pull(&c.store()?, &req, c.ctx)?)).alias("pull").long();
-    r.plan("push.plan", |c, req| Ok(api::push_plan(&c.store()?, &req, c.ctx)?)).long().destructive();
-    r.apply("push.apply", Required, |c, req| Ok(api::push_apply(&c.store()?, &req, c.ctx)?)).long().destructive();
+    r.plan("push.plan", |c, req| Ok(api::push_plan(&c.to_read()?, &req, c.ctx)?)).long().destructive();
+    r.apply("push.apply", Required, |c, req| Ok(api::push_apply(&c.to_read()?, &req, c.ctx)?)).long().destructive();
     r.plan("merge.plan", |c, req| Ok(api::merge_plan(&req, c.ctx)?)).long();
     r.apply("merge.apply", PlanStore::None, |c, req| Ok(api::merge_apply(&req, c.ctx)?)).long();
-    r.plan("clean.plan", |c, req| Ok(api::clean_plan(&req, c.ctx)?)).long().destructive();
-    r.apply("clean.apply", PlanStore::None, |c, req| Ok(api::clean_apply(&req, c.ctx)?)).long().destructive();
     r.plan("convert.plan", |c, req| Ok(api::convert_plan(&req, c.ctx)?)).long().destructive();
     r.apply("convert.apply", PlanStore::None, |c, req| Ok(api::convert_apply(&req, c.ctx)?)).long().destructive();
 
     // The store.
-    r.read("store.info", |c, _: NoParams| Ok(api::store_info(&Store::open(c.root)?)?)).quick();
-    r.read("store.history", |c, req| Ok(api::history(&Store::open(c.root)?, &req)?)).quick();
-    r.plan("store.gc.plan", |c, _: NoParams| Ok(api::store_gc_plan(&c.store()?)?)).long().destructive();
+    r.read("store.info", |c, _: NoParams| Ok(api::store_info(&c.to_read()?)?)).quick();
+    r.read("store.history", |c, req| Ok(api::history(&c.to_read()?, &req)?)).quick();
+    r.plan("store.gc.plan", |c, _: NoParams| Ok(api::store_gc_plan(&c.to_read()?)?)).long().destructive();
     r.apply("store.gc.apply", Required, |c, req: api::GcRequest| {
-        let s = c.store()?;
+        let s = c.to_read()?;
         let _lock = s.lock()?;
         Ok(s.gc(req.dry_run)?)
     })
     .alias("store.gc")
     .long()
     .destructive();
-    r.read("store.verify", |c, _: NoParams| Ok(Store::open(c.root)?.verify(c.ctx)?)).long();
-    r.plan("store.prune.plan", |c, req| Ok(api::store_prune_plan(&c.store()?, &req, c.ctx)?)).long().destructive();
-    r.apply("store.prune.apply", Required, |c, req| Ok(api::store_prune(&c.store()?, &req, c.ctx)?))
+    r.read("store.verify", |c, _: NoParams| Ok(c.to_read()?.verify(c.ctx)?)).long();
+    r.plan("store.prune.plan", |c, req| Ok(api::store_prune_plan(&c.to_read()?, &req, c.ctx)?)).long().destructive();
+    r.apply("store.prune.apply", Required, |c, req| Ok(api::store_prune(&c.to_read()?, &req, c.ctx)?))
         .alias("store.prune")
         .long()
         .destructive();
-    r.immediate("store.copy", |c, req| Ok(api::store_copy(&c.store()?, &req, c.ctx)?))
+    r.immediate("store.copy", |c, req| Ok(api::store_copy(&c.to_read()?, &req, c.ctx)?))
         .long()
         .destructive()
         .writes_to("path");
     r.read("store.copies", |c, _: NoParams| c.or_empty(api::store_copies)).quick();
-    r.immediate("snapshot.label", |c, req| Ok(api::snapshot_label(&c.store()?, &req)?));
+    r.immediate("snapshot.label", |c, req| Ok(api::snapshot_label(&c.to_read()?, &req)?));
+    r.read("snapshot.library", |c, req| Ok(api::snapshot_library(&c.to_read()?, &req)?));
     r.read("library.list", |c, _: NoParams| c.or_empty(api::libraries_list)).quick();
-    r.immediate("library.rename", |c, req| Ok(api::library_rename(&c.store()?, &req)?));
+    // Fetching snapshots from another computer's store, as `store serve` and `store fetch` do:
+    // serving runs until it's cancelled, telling what happens in `serve` notifications.
+    #[cfg(feature = "peers")]
+    {
+        use locallibrary::peers;
+        r.read("store.serve", |c, req: peers::ServeOptions| {
+            let told = |e: &peers::ServeEvent| (c.notify)("serve", serde_json::json!(e));
+            Ok(peers::serve(&c.to_read()?, &req, c.ctx, &mut |e| told(e))?)
+        })
+        .long();
+        r.immediate("store.fetch", |c, req: peers::FetchRequest| {
+            Ok(peers::fetch(&c.store()?, &req.code.parse()?, &req.options, c.ctx)?)
+        })
+        .long()
+        .keeps_cache();
+    }
+    r.immediate("library.rename", |c, req| Ok(api::library_rename(&c.to_read()?, &req)?));
 
     // Editing a drive's library.
     r.plan("edit.plan", |c, req| Ok(api::edit_plan(&req, c.ctx)?)).destructive();
@@ -579,11 +635,11 @@ fn build() -> Registry {
         .destructive();
     r.read("smart.list", |c, _: NoParams| c.or_empty(api::smart_list)).quick();
     r.immediate("smart.set", |c, req| Ok(api::smart_set(&c.store()?, &req)?));
-    r.immediate("smart.remove", |c, req| Ok(api::smart_remove(&c.store()?, &req)?)).destructive();
-    r.plan("smart.write.plan", |c, req| Ok(api::smart_apply_plan(&c.store()?, &req, c.ctx)?))
+    r.immediate("smart.remove", |c, req| Ok(api::smart_remove(&c.to_read()?, &req)?)).destructive();
+    r.plan("smart.write.plan", |c, req| Ok(api::smart_apply_plan(&c.to_read()?, &req, c.ctx)?))
         .alias("smart.apply.plan")
         .destructive();
-    r.apply("smart.write.apply", Required, |c, req| Ok(api::smart_apply(&c.store()?, &req, c.ctx)?))
+    r.apply("smart.write.apply", Required, |c, req| Ok(api::smart_apply(&c.to_read()?, &req, c.ctx)?))
         .alias("smart.apply")
         .destructive();
     r.plan("dedupe.plan", |c, req| Ok(api::dedupe_plan(&req, c.ctx)?)).destructive();
@@ -598,8 +654,6 @@ fn build() -> Registry {
         Ok(api::delete_history_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
     .destructive();
-    r.plan("import.plan", |c, req| Ok(api::import_plan(&req, c.ctx)?));
-    r.apply("import.apply", PlanStore::None, |c, req| Ok(api::import_apply(&req, c.ctx)?));
     r.plan("pack.plan", |c, req| Ok(api::pack_plan(&req, c.ctx)?)).long().destructive();
     r.apply("pack.apply", Optional, |c, req| Ok(api::pack_apply(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
@@ -634,12 +688,16 @@ fn build() -> Registry {
     r.apply("settings.import.apply", Required, |c, req| Ok(api::settings_import(&c.store()?, &req)?))
         .alias("settings.import")
         .destructive();
+    r.read("settings.export", |c, _: NoParams| c.or_empty(api::settings_export)).quick();
+    r.plan("settings.import_file.plan", |c, req| Ok(api::settings_import_file_plan(&c.store()?, &req)?)).destructive();
+    r.apply("settings.import_file.apply", Required, |c, req| Ok(api::settings_import_file(&c.store()?, &req)?))
+        .destructive();
 
     // Cover art.
     r.read("art.missing", |_, req| Ok(api::artwork_missing(&req)?)).quick();
     r.read("art.get", |_, req| Ok(api::artwork_get_cached(&LIBRARIES, &req)?)).quick();
     r.read("art.path", |_, req| Ok(api::artwork_path(&LIBRARIES, &req)?)).quick();
-    r.plan("art.set.plan", |_, req| Ok(api::artwork_set_plan(&req)?)).destructive();
+    r.plan("art.set.plan", |c, req| Ok(api::artwork_set_plan(&req, c.ctx)?)).destructive();
     r.apply("art.set.apply", PlanStore::None, |c, req| Ok(api::artwork_set(&req, c.ctx)?))
         .alias("art.set")
         .destructive();
@@ -650,22 +708,25 @@ fn build() -> Registry {
         .alias("art.embed")
         .destructive()
         .writes_to("files");
-    r.plan("art.unembed.plan", |c, req| Ok(api::artwork_unembed_plan(&c.store()?, &req)?)).destructive();
+    r.plan("art.unembed.plan", |c, req| Ok(api::artwork_unembed_plan(&c.to_read()?, &req)?)).destructive();
     r.apply("art.unembed.apply", Required, |c, req| {
-        let s = c.store()?;
+        let s = c.to_read()?;
         Ok(api::artwork_unembed_plan(&s, &req)?.apply(Some(&s), c.ctx)?)
     })
     .alias("art.unembed")
     .destructive();
 
     // Exports, health and history.
-    r.immediate("xml.export", |c, req| Ok(api::export_xml(&req, c.ctx)?)).long().keeps_cache().writes_to("output");
     r.immediate("export", |c, req| Ok(api::export_playlist(c.existing()?.as_ref(), &req, c.ctx)?))
         .long()
         .keeps_cache()
         .writes_to("output");
     r.read("diff", |c, req| Ok(api::diff(c.existing()?.as_ref(), &req)?));
-    r.read("doctor", |c, req| Ok(api::doctor(&req, c.ctx)?)).long();
+    r.read("doctor", |c, req: api::DoctorRequest| {
+        let store = req.options.wants(locallibrary::doctor::Section::Analysis).then(|| c.store()).transpose()?;
+        Ok(crate::plugins::roles::doctor(&req, store.as_ref(), c.ctx)?)
+    })
+    .long();
     r.plan("doctor.orphans.plan", |c, req| Ok(api::doctor_orphans_plan(&req, c.ctx)?)).long().destructive();
     r.apply("doctor.orphans.apply", PlanStore::None, |c, req| Ok(api::doctor_orphans_apply(&req, c.ctx)?))
         .long()
@@ -673,13 +734,13 @@ fn build() -> Registry {
     r.read("check", |c, req| Ok(api::check(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("analysis.bench", |c, req| Ok(api::analysis_bench(&req, c.ctx)?)).long();
     r.read("plays.history", |_, req| Ok(api::drive_history(&req)?)).quick();
-    r.read("plays.archive", |c, req| Ok(api::history_archive(&Store::open(c.root)?, &req, c.ctx)?)).long();
+    r.read("plays.archive", |c, req| Ok(api::history_archive(&c.to_read()?, &req, c.ctx)?)).long();
     r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing()?.as_ref(), &req)?));
     r.read("players.models", |_, _: NoParams| Ok(api::player_models()));
     r.read("players.show", |c, _: NoParams| c.or_empty(api::players_show));
-    r.plan("players.set.plan", |c, req| Ok(api::players_set_plan(&c.store()?, &req)?));
+    r.plan("players.set.plan", |c, req| Ok(api::players_set_plan(c.existing()?.as_ref(), &req)?));
     r.apply("players.set.apply", Required, |c, req| Ok(api::players_set(&c.store()?, &req)?)).alias("players.set");
-    r.plan("players.clear.plan", |c, req| Ok(api::players_clear_plan(&c.store()?, &req)?));
+    r.plan("players.clear.plan", |c, req| Ok(api::players_clear_plan(c.existing()?.as_ref(), &req)?));
     r.apply("players.clear.apply", Required, |c, req| Ok(api::players_clear(&c.store()?, &req)?))
         .alias("players.clear");
 
@@ -718,6 +779,9 @@ fn build() -> Registry {
         })
         .long()
         .destructive();
+        r.immediate("sets.lookup", |c, req| Ok(crate::plugins::roles::set_lookup(c.root, &req, c.ctx)?))
+            .long()
+            .keeps_cache();
         r.plan("sets.publish.plan", |c, req| Ok(api::set_publish_plan(c.root, &req)?)).destructive();
         r.apply("sets.publish.apply", PlanStore::None, |c, req| Ok(api::set_publish_apply(c.root, &req)?))
             .destructive();
@@ -734,14 +798,14 @@ fn build() -> Registry {
 
     // Sets, in the store's `sets.json` (written at once), and the sessions they're made from.
     r.read("sets.list", |c, req| c.or_empty(|s| api::sets_list(s, &req))).quick();
-    r.read("sets.get", |c, req| Ok(api::set_get(&Store::open(c.root)?, &req)?)).quick();
+    r.read("sets.get", |c, req| Ok(api::set_get(&c.to_read()?, &req)?)).quick();
     r.immediate("sets.new", |c, req| Ok(api::set_new(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sets.edit", |c, req| Ok(api::set_edit(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
-    r.immediate("sets.delete", |c, req| Ok(api::set_delete(&c.store()?, &req)?)).destructive().keeps_cache();
-    r.immediate("sets.export", |c, req| Ok(api::set_export(&c.store()?, &req)?)).keeps_cache().writes_to("output");
+    r.immediate("sets.delete", |c, req| Ok(api::set_delete(&c.to_read()?, &req)?)).destructive().keeps_cache();
+    r.immediate("sets.export", |c, req| Ok(api::set_export(&c.to_read()?, &req)?)).keeps_cache().writes_to("output");
     r.read("sets.played", |c, req| c.or_empty(|s| api::track_plays(s, &req))).quick();
-    r.plan("sets.playlist.plan", |c, req| Ok(api::set_playlist_plan(&c.store()?, &req, c.ctx)?));
-    r.apply("sets.playlist.apply", PlanStore::None, |c, req| Ok(api::set_playlist_apply(&c.store()?, &req, c.ctx)?));
+    r.plan("sets.playlist.plan", |c, req| Ok(api::set_playlist_plan(&c.to_read()?, &req, c.ctx)?));
+    r.apply("sets.playlist.apply", PlanStore::None, |c, req| Ok(api::set_playlist_apply(&c.to_read()?, &req, c.ctx)?));
     r.read("sets.suggest", |c, req| Ok(api::sets_suggest(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("sessions.list", |c, req| Ok(api::sessions(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.immediate("sessions.dismiss", |c, req| Ok(api::sessions_dismiss(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
@@ -759,7 +823,12 @@ fn build() -> Registry {
         .writes_to("output");
     r.read("mix.reports.list", |c, _: NoParams| Ok(api::mix_reports_list(c.root)?)).quick();
     r.read("mix.reports.get", |c, req| Ok(api::mix_report_get(c.root, &req)?));
-    r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
+    r.immediate("mix.reports.html", |c, req| {
+        let store = c.store()?;
+        let shown = crate::plugins::shown_fields(Some(store.clone()));
+        Ok(api::mix_report_html(&store, &req, Some(&shown))?)
+    })
+    .keeps_cache();
 
     // Every drive you own.
     r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing()?.as_ref(), &req, c.ctx)?)).long();
@@ -767,13 +836,13 @@ fn build() -> Registry {
     r.plan("drive.rename.plan", |_, req| Ok(api::drive_rename_plan(&req)?));
     r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?))
         .alias("drive.rename");
-    r.immediate("drive.forget", |c, req| Ok(api::drive_forget(&c.store()?, &req)?)).destructive();
-    r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.store()?, &req)?));
-    r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.store()?, &req)?));
-    r.read("drive.log", |c, req| Ok(api::drive_log(&Store::open(c.root)?, &req)?)).quick();
+    r.immediate("drive.forget", |c, req| Ok(api::drive_forget(&c.to_read()?, &req)?)).destructive();
+    r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.to_read()?, &req)?));
+    r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.to_read()?, &req)?));
+    r.read("drive.log", |c, req| Ok(api::drive_log(&c.to_read()?, &req)?)).quick();
     r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing()?.as_ref(), &req, c.ctx)?)).long();
-    r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.store()?, &req)?)).destructive();
-    r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.store()?, &req, c.ctx)?))
+    r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.to_read()?, &req)?)).destructive();
+    r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.to_read()?, &req, c.ctx)?))
         .alias("drive.adopt_as")
         .destructive();
     r.plan("drive.reidentify.plan", |c, req| Ok(api::drive_reidentify_plan(c.store_opt().as_ref(), &req)?))
@@ -781,19 +850,19 @@ fn build() -> Registry {
     r.apply("drive.reidentify.apply", Optional, |c, req| Ok(api::drive_reidentify(c.store_opt().as_ref(), &req)?))
         .alias("drive.reidentify")
         .destructive();
-    r.read("drive.groups", |c, _: NoParams| c.or_empty(api::drive_sets)).alias("drive.sets").quick();
+    r.read("drive.groups", |c, _: NoParams| Ok(api::drive_sets(c.existing()?.as_ref())?)).alias("drive.sets").quick();
     r.plan("drive.eject.plan", |c, req| Ok(api::drive_eject_plan(Some(c.root), &req)?)).operation("eject");
     r.apply("drive.eject.apply", Optional, |c, req| Ok(api::drive_eject(c.store_opt().as_ref(), &req)?))
         .operation("eject")
         .alias("drive.eject");
-    r.read("drive.verify", |c, req| Ok(api::drive_verify(c.store_opt().as_ref(), &req, c.ctx)?)).long();
+    r.read("drive.verify", |c, req| Ok(api::drive_verify(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.immediate("drive.repair", |c, req| Ok(api::drive_repair(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
         .destructive();
     // With `repair`, the drive is unmounted and damaged files may be truncated or removed.
-    r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.store_opt().as_ref(), &req)?)).long().destructive();
+    r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.existing()?.as_ref(), &req)?)).long().destructive();
     r.read("drive.space", |c, req| Ok(api::drive_space(c.existing()?.as_ref(), &req, c.ctx)?)).long();
-    r.plan("drive.contact.plan", |_, req| Ok(api::drive_contact_plan(&req)?));
+    r.plan("drive.contact.plan", |c, req| Ok(api::drive_contact_plan(&req, c.ctx)?));
     r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?))
         .alias("drive.contact");
     r.read("player.show", |_, req| Ok(api::player_show(&req)?)).quick();
@@ -845,11 +914,9 @@ fn build() -> Registry {
     })
     .long()
     .destructive();
-    r.plan("interop.plan", |c, req| Ok(api::interop_plan(&req, c.ctx)?)).long().destructive().writes_to("output");
-    r.apply("interop.apply", PlanStore::None, |c, req| Ok(api::interop_apply(&req, c.ctx)?))
-        .long()
-        .destructive()
-        .writes_to("output");
+
+    // Plugins.
+    plugins::register(&mut r);
 
     // For the sidecar's own tests only (`LOCALLIBRARY_RPC_TEST=1`, not listed).
     r.read("$/test.wait", |c, req: Wait| {
@@ -874,6 +941,8 @@ fn build() -> Registry {
 
     r.finish()
 }
+
+mod plugins;
 
 #[cfg(test)]
 mod tests;

@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use indexmap::IndexMap;
 use locallibrary::api::{self, JobPlan, StepKind};
 use locallibrary::device::Device;
@@ -69,18 +69,15 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
     let unreadable = tc.draw(gs::weighted_booleans(0.2));
     let sync = tc.draw(gs::booleans());
     let skip = tc.draw(
-        gs::vecs(
-            gs::sampled_from(vec![
-                StepKind::Clean,
-                StepKind::Replay,
-                StepKind::Smart,
-                StepKind::Player,
-                StepKind::Settings,
-                StepKind::Pull,
-                StepKind::Sync,
-            ])
-            .print_as_debug(),
-        )
+        gs::vecs(gs::sampled_from(vec![
+            StepKind::Clean,
+            StepKind::Replay,
+            StepKind::Smart,
+            StepKind::Player,
+            StepKind::Settings,
+            StepKind::Pull,
+            StepKind::Sync,
+        ]))
         .max_size(3)
         .unique(true),
     );
@@ -143,11 +140,11 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
         std::fs::write(&journal, "\"not a journal\"").unwrap();
     }
 
-    let req = api::RefreshRequest { drive: Some(path(&main)), skip: skip.clone(), sync };
+    let req = api::RefreshRequest { drive: Some(path(&main)), skip: skip.clone(), sync, ..Default::default() };
     let skipped = |k: StepKind| skip.contains(&k);
     let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
     let mut want = Vec::new();
-    let clean = if skipped(StepKind::Clean) { "skipped" } else { "no demo samples on the drive" };
+    let clean = if skipped(StepKind::Clean) { "skipped" } else { "the demos plugin isn't there" };
     assert_eq!(reason(&plan, StepKind::Clean), Some(clean));
     // The recorded edits (the playlist, the rule's playlist) are lost to an export.
     match () {

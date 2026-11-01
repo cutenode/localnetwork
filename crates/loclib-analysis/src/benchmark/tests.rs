@@ -1,6 +1,7 @@
 use super::*;
 use hegel::Generator;
 use hegel::generators as gs;
+use loclib_model::test_util::keys;
 
 fn key(s: &str) -> Camelot {
     Camelot::parse(s).unwrap()
@@ -52,16 +53,11 @@ fn keys_score_as_mirex_does() {
     assert_eq!(credits, [1.0, 0.5, 0.3, 0.2, 0.0, 0.0]);
 }
 
-fn any_key(tc: &hegel::TestCase) -> Camelot {
-    let (number, major) = tc.draw(gs::tuples!(gs::integers::<u8>().min_value(1).max_value(12), gs::booleans()));
-    Camelot { number, major }
-}
-
 /// A weighted key score is between 0 and 1, 1 only for the right key, and the same whichever
 /// of the two keys is the reference.
 #[hegel::test(test_cases = 300)]
 fn key_scores_are_bounded_and_symmetric(tc: hegel::TestCase) {
-    let (a, b) = (any_key(&tc), any_key(&tc));
+    let (a, b) = (tc.draw(keys()), tc.draw(keys()));
     let credit = KeyOutcome::of(a, Some(b)).credit();
     assert!((0.0..=1.0).contains(&credit));
     assert_eq!(credit == 1.0, a == b);
@@ -125,7 +121,7 @@ fn spelled(key: Camelot) -> String {
 /// error on line 1.
 #[hegel::test(test_cases = 300)]
 fn annotations_read_back_what_was_written(tc: hegel::TestCase) {
-    let key = any_key(&tc);
+    let key = tc.draw(keys());
     let pad = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(vec!["", " ", "\n", "\t \n"]));
     assert_eq!(parse_key(&format!("{}{}{}", pad(&tc), spelled(key), pad(&tc))).unwrap(), key);
     let bpm = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1e6));
@@ -146,7 +142,7 @@ fn the_mtg_table_reads_back_its_rows(tc: hegel::TestCase) {
     let rows: Vec<MtgKey> = (0..n)
         .map(|i| MtgKey {
             id: format!("{}", 1000 + i),
-            keys: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| any_key(&tc)).collect(),
+            keys: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| tc.draw(keys())).collect(),
             confidence: tc.draw(gs::integers::<u8>().max_value(2)),
         })
         .collect();
@@ -180,8 +176,8 @@ fn key_reports_add_up(tc: hegel::TestCase) {
         .map(|i| Row {
             analyzer: tc.draw(gs::sampled_from(vec!["a", "b", "c"])).to_string(),
             track: i.to_string(),
-            reference: any_key(&tc),
-            estimate: tc.draw(gs::booleans()).then(|| any_key(&tc)),
+            reference: tc.draw(keys()),
+            estimate: tc.draw(gs::optional(keys())),
         })
         .collect();
     let reports = score::<KeyOutcome>(rows.clone());
@@ -215,7 +211,7 @@ fn key_reports_add_up(tc: hegel::TestCase) {
 /// scores 0 for every outcome.
 #[hegel::test(test_cases = 200)]
 fn unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
-    let key = any_key(&tc);
+    let key = tc.draw(keys());
     let tonic = TONICS[key.pitch() as usize];
     let blanks = tc.draw(gs::integers::<usize>().max_value(3));
     let row = tc.draw(gs::sampled_from(vec!["both modes", "a word", "no key", "not a key"]));
@@ -243,8 +239,8 @@ fn unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
     let garbage = tc.draw(gs::sampled_from(vec!["", "H minor", "minor", "C sharp"]));
     assert!(matches!(parse_key(garbage), Err(Error::Annotation { line: 1, message }) if message.contains(garbage)));
     assert!(score::<KeyOutcome>(Vec::new()).is_empty());
-    let outcome = tc.draw(gs::sampled_from(KeyOutcome::ALL.to_vec()).print_as_debug());
+    let outcome = tc.draw(gs::sampled_from(KeyOutcome::ALL.to_vec()));
     assert_eq!(Report::<KeyOutcome>::new().percent(outcome), 0.0);
-    let tempo = tc.draw(gs::sampled_from(TempoOutcome::ALL.to_vec()).print_as_debug());
+    let tempo = tc.draw(gs::sampled_from(TempoOutcome::ALL.to_vec()));
     assert_eq!(Report::<TempoOutcome>::new().percent(tempo), 0.0);
 }

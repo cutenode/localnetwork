@@ -1,21 +1,24 @@
-//! Writing a set out: text, Mixcloud, CUE, YouTube chapters, 1001Tracklists, CSV and M3U8, with
-//! the checks each needs.
+//! Writing a set out: text, Mixcloud, CUE, YouTube chapters, 1001Tracklists, Podcasting 2.0
+//! chapters, CSV and M3U8, with the checks each needs.
 //!
-//! Every format but CSV and M3U8 is for publishing, and names a track marked unnamed `ID - ID`,
-//! as tracklists write a track nobody's named. CSV and M3U8 are for the DJ: they name every
-//! track, and CSV says which are unnamed in its last column. M3U8 only lists the files.
+//! Every format but CSV and M3U8 is for publishing, and names a track marked unnamed or hidden by
+//! the DJ's profile `ID - ID` (see [`SetEntry::may_name`]), as tracklists write a track nobody's
+//! named. CSV and M3U8 are for the DJ: they name every track, and CSV says which the set marks
+//! unnamed in its last column. M3U8 only lists the files.
 
+use loclib_model::audio::Format;
 use rustc_hash::FxHashMap;
 use std::fmt::Write as _;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use super::{Set, SetEntry};
+use super::{Set, SetEntry, chapters};
 use crate::export::{Locator, csv_line, numbered, one_line};
 use crate::mix::export::UNNAMED;
-use crate::model::{Library, Track, normalize};
-use crate::profile::artist_credits;
+use crate::model::{Library, Track, artist_credits, normalize};
+use crate::profile::ProfilePrefs;
 use crate::{Error, Result};
 
 /// How a set is written out.
@@ -34,6 +37,8 @@ pub enum SetFormat {
     /// paste format, so this is the cue-time style tracklists are usually written in.
     #[serde(rename = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps: a chapter for each track with a start time.
+    Chapters,
     /// `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`.
     Csv,
     /// A playlist of the tracks on a drive.
@@ -49,32 +54,43 @@ pub(crate) struct Rendered {
     pub warnings: Vec<String>,
 }
 
-/// `set` as `format`. An M3U8 lists the set's tracks found on a drive: its library, and where
-/// the file goes.
-pub(crate) fn render(set: &Set, format: SetFormat, drive: Option<(&Library, &Locator)>) -> Result<Rendered> {
+/// `set` as `format`, naming in a format for publishing only the tracks `prefs`, the DJ's
+/// profile, lets it. An M3U8 lists the set's tracks found on a drive: its library, and where the
+/// file goes.
+pub(crate) fn render(
+    set: &Set,
+    format: SetFormat,
+    prefs: &ProfilePrefs,
+    drive: Option<(&Library, &Locator)>,
+) -> Result<Rendered> {
     let tracks = set.tracks.len();
     let lines = |line: &dyn Fn(&SetEntry) -> String| set.tracks.iter().map(|e| line(e) + "\n").collect::<String>();
     let (text, warnings) = match format {
-        SetFormat::Text => (numbered(set.tracks.iter().map(public_name)), Vec::new()),
+        SetFormat::Text => (numbered(set.tracks.iter().map(|e| public_name(e, prefs))), Vec::new()),
         SetFormat::Mixcloud => (
             lines(&|e| match e.start_seconds {
                 Some(s) => {
                     let (h, m, s) = hms(s);
-                    format!("{} - {h:02}:{m:02}:{s:02}", public_name(e))
+                    format!("{} - {h:02}:{m:02}:{s:02}", public_name(e, prefs))
                 }
-                None => public_name(e),
+                None => public_name(e, prefs),
             }),
             mixcloud_check(set),
         ),
-        SetFormat::Cue => cue(set)?,
-        SetFormat::Youtube => youtube(set)?,
+        SetFormat::Cue => cue(set, prefs)?,
+        SetFormat::Youtube => youtube(set, prefs)?,
         SetFormat::Tracklists => (
             lines(&|e| match e.start_seconds {
-                Some(s) => format!("[{}] {}", clock(s), public_name(e)),
-                None => public_name(e),
+                Some(s) => format!("[{}] {}", clock(s), public_name(e, prefs)),
+                None => public_name(e, prefs),
             }),
             Vec::new(),
         ),
+        SetFormat::Chapters => {
+            let (chapters, notes) = chapters::chapters(set, None, |_, e| public_name(e, prefs));
+            let text = chapters_json(&set.heading(), &chapters);
+            return Ok(Rendered { text, tracks: chapters.len(), warnings: notes });
+        }
         SetFormat::Csv => (csv(set), Vec::new()),
         SetFormat::M3u8 => {
             let (library, locator) =
@@ -90,7 +106,7 @@ pub(crate) fn render(set: &Set, format: SetFormat, drive: Option<(&Library, &Loc
 /// The set's tracks found in `library` by file, and a warning for each that isn't there.
 pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, Vec<String>) {
     let by_file: FxHashMap<String, &Track> =
-        library.tracks.iter().map(|t| (crate::plays::file_key(&t.file_path), t)).collect();
+        library.tracks.iter().map(|t| (crate::paths::file_key(&t.file_path), t)).collect();
     let (mut found, mut missing) = (Vec::new(), Vec::new());
     for (i, e) in set.tracks.iter().enumerate() {
         match e.file_key().and_then(|k| by_file.get(&k)) {
@@ -102,10 +118,15 @@ pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, 
 }
 
 /// What a published tracklist calls `e`.
-fn public_name(e: &SetEntry) -> String {
-    match e.unnamed {
-        true => format!("{UNNAMED} - {UNNAMED}"),
-        false => one_line(&e.name()),
+fn public_name(e: &SetEntry, prefs: &ProfilePrefs) -> String {
+    shown_name(e, e.may_name(prefs))
+}
+
+/// `e`'s name on one line, or `ID - ID` when it mustn't be `named`.
+pub(crate) fn shown_name(e: &SetEntry, named: bool) -> String {
+    match named {
+        true => one_line(&e.name()),
+        false => format!("{UNNAMED} - {UNNAMED}"),
     }
 }
 
@@ -114,7 +135,7 @@ fn hms(secs: u32) -> (u32, u32, u32) {
 }
 
 /// `H:MM:SS`.
-fn clock(secs: u32) -> String {
+pub(super) fn clock(secs: u32) -> String {
     let (h, m, s) = hms(secs);
     format!("{h}:{m:02}:{s:02}")
 }
@@ -149,7 +170,7 @@ fn out_of_order(starts: &[u32]) -> Vec<String> {
 }
 
 /// A CUE sheet indexing the recording. Starts are whole seconds, so frames (75 a second) are 0.
-fn cue(set: &Set) -> Result<(String, Vec<String>)> {
+fn cue(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
     let file = set
         .recording
         .as_ref()
@@ -158,16 +179,16 @@ fn cue(set: &Set) -> Result<(String, Vec<String>)> {
         .ok_or_else(|| Error::invalid("a CUE sheet indexes the recording: attach it to the set first"))?;
     let starts = starts(set, "a CUE sheet")?;
     let quoted = |s: &str| format!("\"{}\"", one_line(s).replace('"', "'"));
-    let kind = match file.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase()).as_deref() {
-        Some("mp3") => "MP3",
-        Some("aif" | "aiff") => "AIFF",
+    let kind = match Format::from_name(&file) {
+        Some(Format::Mp3) => "MP3",
+        Some(Format::Aiff) => "AIFF",
         _ => "WAVE",
     };
     let mut out = format!("TITLE {}\nFILE {} {kind}\n", quoted(&set.heading()), quoted(&file));
     for (i, (e, start)) in set.tracks.iter().zip(&starts).enumerate() {
-        let (title, artist) = match e.unnamed {
-            true => (UNNAMED, UNNAMED),
-            false => (e.title.as_str(), e.artist.as_str()),
+        let (title, artist) = match e.may_name(prefs) {
+            true => (e.title.as_str(), e.artist.as_str()),
+            false => (UNNAMED, UNNAMED),
         };
         let _ = writeln!(out, "  TRACK {:02} AUDIO\n    TITLE {}", i + 1, quoted(title));
         if !artist.is_empty() {
@@ -180,7 +201,7 @@ fn cue(set: &Set) -> Result<(String, Vec<String>)> {
 
 /// YouTube chapters: the first at 00:00 (YouTube insists), with a warning for each of its other
 /// rules broken (at least three, in order, each 10 seconds or longer).
-fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
+fn youtube(set: &Set, prefs: &ProfilePrefs) -> Result<(String, Vec<String>)> {
     let mut starts = starts(set, "YouTube")?;
     if let Some(first) = starts.first_mut() {
         *first = 0;
@@ -191,7 +212,7 @@ fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
             (0, m, s) => format!("{m:02}:{s:02}"),
             _ => clock(start),
         };
-        let _ = writeln!(out, "{at} {}", public_name(e));
+        let _ = writeln!(out, "{at} {}", public_name(e, prefs));
     }
     let mut warnings = Vec::new();
     if starts.len() < 3 {
@@ -204,7 +225,15 @@ fn youtube(set: &Set) -> Result<(String, Vec<String>)> {
     Ok((out, warnings))
 }
 
-/// CSV for the DJ: every track named, `yes` in the last column for those published unnamed.
+/// `chapters` as Podcasting 2.0 JSON chapters, version 1.2.0
+/// (<https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/chapters/jsonChapters.md>),
+/// titled `title`.
+fn chapters_json(title: &str, chapters: &[chapters::Chapter]) -> String {
+    let chapters: Vec<_> = chapters.iter().map(|c| json!({ "startTime": c.start, "title": c.title })).collect();
+    format!("{:#}\n", json!({ "version": "1.2.0", "title": title, "chapters": chapters }))
+}
+
+/// CSV for the DJ: every track named, `yes` in the last column for those the set marks unnamed.
 fn csv(set: &Set) -> String {
     let mut out = String::new();
     csv_line(

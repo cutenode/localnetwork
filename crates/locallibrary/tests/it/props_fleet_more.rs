@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role, Standing};
@@ -76,7 +76,7 @@ fn drives_stand_where_their_state_is_in_the_librarys_history(tc: TestCase) {
 
     // Checks are logged on the drive they were of.
     let ids: Vec<Uuid> = ["A", "B", "C"].iter().map(|n| known.iter().find(|k| k.name == *n).unwrap().id).collect();
-    let check = tc.draw(gs::sampled_from(vec![Check::Scrub, Check::FileSystem]).print_as_debug());
+    let check = tc.draw(gs::sampled_from(vec![Check::Scrub, Check::FileSystem]));
     let ok = tc.draw(gs::booleans());
     fleet::record_check(&store, ids[1], check, ok, "checked").unwrap();
     let log = fleet::known(&store, &[], false).unwrap().into_iter().find(|k| k.id == ids[1]).unwrap().log;
@@ -87,7 +87,7 @@ fn drives_stand_where_their_state_is_in_the_librarys_history(tc: TestCase) {
     assert!(entry.0.is_some_and(|e| e.ok == ok && e.summary == "checked") && entry.1.is_none());
 
     // One primary a library: a second makes the first a backup.
-    let (first, second) = (ids[tc.draw(gs::integers::<usize>().max_value(2))], ids[0]);
+    let (first, second) = (tc.draw(gs::sampled_from(&ids)), ids[0]);
     fleet::set_role(&store, first, Some(Role::Primary)).unwrap();
     fleet::set_role(&store, second, Some(Role::Primary)).unwrap();
     let roles = fleet::known(&store, &[], false).unwrap();
@@ -150,4 +150,45 @@ fn identities_go_back_only_where_they_belong(tc: TestCase) {
     let blank = Device::open(common::blank(dir.path(), "Blank")).unwrap();
     let found = fleet::recognise(&store, &blank, &Ctx::silent()).unwrap();
     assert!(found.snapshot.is_none() && found.drive_by_content.is_none());
+}
+
+/// Every change to a drive the registry doesn't have is refused as not found, naming it (a
+/// role, retiring, forgetting it by name), or passes it by (the logbook's notes); either way the
+/// registry is as it was. A drive with no identity of its own can't be given a new one.
+#[hegel::test(test_cases = 20, suppress_health_check = [HealthCheck::TooSlow])]
+fn changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    // Now and then the registry holds another drive, which nothing here may touch.
+    if tc.draw(gs::booleans()) {
+        let mut d = Device::open(common::blank(dir.path(), "Other")).unwrap();
+        d.adopt(Some("Other")).unwrap();
+        sync::register_drive(&store, &d, None).unwrap();
+    }
+    let registry = || serde_json::to_value(store.drives().unwrap()).unwrap();
+    let before = registry();
+    let id = Uuid::from_u128(tc.draw(gs::integers::<u128>()));
+    let role = tc.draw(gs::sampled_from(vec![Some(Role::Primary), Some(Role::Backup), Some(Role::Archive), None]));
+    let not_found = |e: locallibrary::Error| {
+        assert!(matches!(e, locallibrary::Error::NotFound(_)), "{e}");
+        assert!(e.to_string().contains(&id.to_string()), "{e}");
+    };
+    not_found(fleet::set_role(&store, id, role).unwrap_err());
+    not_found(fleet::retire(&store, id, tc.draw(gs::booleans())).unwrap_err());
+    let name = tc.draw(gs::sampled_from(vec!["Main", "Club USB", ""]));
+    let err = fleet::forget(&store, name).unwrap_err();
+    assert!(matches!(err, locallibrary::Error::NotFound(_)) && err.to_string().contains(&format!("{name:?}")), "{err}");
+    let summary = tc.draw(gs::text().max_size(12));
+    fleet::record_check(&store, id, Check::FileSystem, tc.draw(gs::booleans()), summary.as_str()).unwrap();
+    fleet::record_problem(&store, id, "damaged_files", summary.as_str()).unwrap();
+    fleet::record_eject(&store, id).unwrap();
+    assert!(!fleet::update(&store, id, |r| r.log.writes += 1).unwrap());
+    assert_eq!(registry(), before);
+
+    let mut blank = Device::open(common::blank(dir.path(), "Blank")).unwrap();
+    let err =
+        fleet::reidentify(Some(&store), &mut blank, tc.draw(gs::optional(gs::sampled_from(vec!["Copy"])))).unwrap_err();
+    assert!(err.to_string().contains("has no identity yet"), "{err}");
+    assert!(blank.id().is_none());
+    assert_eq!(registry(), before);
 }

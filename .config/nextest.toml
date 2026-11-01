@@ -1,5 +1,47 @@
+# CI's runs (NEXTEST_PROFILE=ci in the workflows). It inherits from the default profile, and the
+# default profile's overrides below win over its settings, so the plugin tests keep their tighter
+# limits and the ordering and tests that run alone stay as they are.
+[profile.ci]
+# A test that hangs fails after ten minutes, where it would otherwise hold its job until the job's
+# timeout and leave no record of which test it was. The slowest tests on CI, the CLI properties,
+# take up to 168s (the Hegel coverage job on Linux) and 149s (a Windows shard); unsharded on a
+# laptop with CI=true, Hegel's properties took up to 343s.
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# Every test's time and result, for the workflows to upload: target/nextest/ci/junit.xml, under
+# `cargo coverage` and from an archive too.
+[profile.ci.junit]
+path = "junit.xml"
+
 # The CLI properties that run the binary hundreds of times take minutes each: started first, they
 # run beside the rest instead of after it, so they don't set the length of the run.
 [[profile.default.overrides]]
 filter = 'test(/^props_cli_(changes|human)::/)'
 priority = 100
+
+# The plugin protocol's tests talk over pipes: a broken peer would leave one waiting forever for a
+# message, so it fails after a minute instead.
+[[profile.default.overrides]]
+filter = 'package(loclib-plugin)'
+slow-timeout = { period = "30s", terminate-after = 2 }
+
+# Under some mutants the plugins' own tests don't finish (coverart's, five mutants in one run),
+# and each such mutant held its mutants shard for cargo-mutants' whole timeout (152s), running the
+# shard out of time. The slowest, the sound plugin's `fields_are_what_doctor_reports`, takes up to
+# 45s (the mutants baseline and the Hegel coverage job, on Linux), so these fail after a minute and
+# a half.
+[[profile.default.overrides]]
+filter = 'package(/^locallibrary-plugin-/)'
+slow-timeout = { period = "30s", terminate-after = 3 }
+
+# A plugin test waits on a plugin process: one that never answers fails after two minutes instead
+# of holding the job until its timeout.
+[[profile.default.overrides]]
+filter = 'test(/(^|::)plugins?(::|_|$)/)'
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# These hold work to a wall-clock budget: run beside the rest, they share the CPU with every other
+# test (Hegel's above all) and can miss it on a slow runner, so each runs alone.
+[[profile.default.overrides]]
+filter = 'test(/::(a_big_library_stays_quick|ordering_a_long_set_stays_quick|large_libraries_stay_fast|shifting_moves_grid_cues_and_waveforms|long_playlists_are_selected_in_one_pass)$/)'
+threads-required = "num-cpus"

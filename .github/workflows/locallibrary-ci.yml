@@ -1,105 +1,388 @@
 name: locallibrary CI
 
-# Pull requests and pushes to main that touch the Rust workspace run the quick checks. The slow
-# suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
-# release build) and a weekly advisory check are in locallibrary-scheduled.yml, and the benchmarks
-# in locallibrary-bench.yml. Changes to Markdown alone skip CI, except the crates' READMEs, which are
-# their crate docs and doctests. (A later pattern wins.)
+# The quick checks of the Rust workspace, which ci.yml calls when a pull request, merge queue group
+# or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os,
+# which ci.yml runs for each merge queue group (and on pull requests with the `all-os` label). The
+# slow suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
+# release build) and a weekly advisory check are in locallibrary-scheduled.yml, and
+# locallibrary-cache.yml keeps other-os's caches on main.
 on:
-  push:
-    branches: [main]
-    paths: &paths
-      - "apps/locallibrary/**"
-      - "crates/**"
-      - "vendor/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "clippy.toml"
-      - "deny.toml"
-      - ".cargo/**"
-      - "lexicons/**"
-      - ".github/workflows/locallibrary-*.yml"
-      - "!**.md"
-      - "crates/*/README.md"
-  pull_request:
-    paths: *paths
+  workflow_call:
+    inputs:
+      linux:
+        description: Whether to run the Linux jobs.
+        type: boolean
+        required: true
+      docs:
+        description: Whether only the crates' docs changed (ci.yml's locallibrary_readmes paths), so lint runs the doctests and the docs.
+        type: boolean
+        required: true
+      cache:
+        description: Whether to run the jobs that save main's caches, for a push to main that changed what they're keyed on (rust_cache).
+        type: boolean
+        required: true
+      deny:
+        description: Whether what cargo-deny reads changed (locallibrary_deny).
+        type: boolean
+        required: true
+      dist:
+        description: Whether a pull request changed what `dist plan` reads (locallibrary_dist).
+        type: boolean
+        required: true
+      other-os:
+        description: Whether to run other-os, on macOS and Windows.
+        type: boolean
+        required: true
+      semver:
+        description: Whether a pull request changed the loclib-* crates' code (ci.yml's locallibrary_semver paths).
+        type: boolean
+        required: true
 
 permissions:
   contents: read
 
-# A new push to a pull request cancels the run for the push before it.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # nextest's `ci` profile (.config/nextest.toml): a time limit for every test, and a JUnit file
+  # of their times that the test, hegel and other-os jobs upload.
+  NEXTEST_PROFILE: ci
 
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
 # install` with no arguments installs it, with clippy and rustfmt.
 jobs:
+  # fmt, clippy, the doctests and the docs, which build the same crates, in one job. A change to the
+  # crates' READMEs alone (`docs`) runs only the doctests and the docs. A pull request that changes
+  # what `dist plan` reads gets the plan here too (`dist`), in place of a runner of its own in
+  # locallibrary-release.yml.
+  lint:
+    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # dist reads the workspace through cargo too.
+      - run: rustup toolchain install
+      # Only main saves its caches, which pull requests restore. A cache saved by each pull request
+      # would push main's out of the repo's 10 GB.
+      - if: inputs.linux || inputs.docs || inputs.cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: inputs.linux || inputs.cache
+        run: cargo fmt --all --check
+      # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
+      # passes clippy without ALSA's headers, so this runs before they're installed.
+      # locallibrary-scheduled.yml runs its tests and every other combination.
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
+      # The TUI's audio output goes through ALSA on Linux.
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # nextest doesn't run doctests.
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: cargo test --doc --workspace --locked
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      # As locallibrary-release.yml's plan job runs it for a tag: it checks dist-workspace.toml and
+      # the manifests.
+      - if: inputs.dist
+        uses: ./.github/actions/install-dist
+      - if: inputs.dist
+        run: dist plan --output-format=json > "$RUNNER_TEMP/plan-dist-manifest.json"
+      # dist releases every package with a binary that doesn't opt out, so a new one would
+      # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
+      - if: inputs.dist
+        name: Check only locallibrary-cli is released
+        run: |
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+            exit 1
+          fi
+
+  # Build, then test in 3 shards, then coverage, with the Hegel coverage beside the shards. The
+  # build job compiles the tests once, instrumented for coverage, into a nextest archive that the
+  # shards run, and the coverage job merges the shards' profiles and fails below the thresholds in
+  # .cargo/config.toml. On a push to main that changed what the caches are keyed on (`cache`), it
+  # only builds, for its cache.
+  build:
+    if: inputs.linux || inputs.cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests
+          path: tests.tar.zst
+          retention-days: 1
+
   test:
+    needs: build
+    if: inputs.linux
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Keep the number of shards in step with the matrix.
+      SHARD: ${{ matrix.shard }}/3
+      # The tests start processes by the thousand, and cargo-llvm-cov's default writes a profile for
+      # each (18 GB in all on macOS). With no `%p` they add to a pool of 4 files per binary instead
+      # (78 MB), named for the shard so the coverage job can hold every shard's.
+      LLVM_PROFILE_FILE_NAME: shard${{ matrix.shard }}-%4m.profraw
+      # The sqlcipher CLI checks that SQLCipher itself reads what locallibrary encrypts; this makes
+      # those tests fail when they can't find it, where they'd otherwise skip the check.
+      LOCALLIBRARY_REQUIRE_SQLCIPHER: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The TUI's audio output goes through ALSA on Linux. The sqlcipher CLI checks that SQLCipher
-      # itself reads what locallibrary encrypts; LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests
-      # fail when they can't find it, where they'd otherwise skip the check (as on Windows).
-      - if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
-          echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      - if: runner.os == 'macOS'
-        run: |
-          brew install sqlcipher
-          echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest,cargo-llvm-cov
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - if: runner.os != 'Linux'
-        run: cargo nextest run --workspace --locked --no-fail-fast
-      # Linux runs the same tests under coverage, failing below the thresholds in
-      # .cargo/config.toml.
-      - if: runner.os == 'Linux'
-        run: |
-          rustup component add llvm-tools-preview
-          cargo coverage
-      # nextest doesn't run doctests.
-      - run: cargo test --doc --workspace --locked
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+      # cargo-llvm-cov unpacks the archive into target/llvm-cov-target, which has to exist.
+      - run: |
+          mkdir -p target/llvm-cov-target
+          cargo coverage --archive-file tests.tar.zst --partition "count:$SHARD" --no-report
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: profiles-${{ matrix.shard }}
+          path: target/llvm-cov-target/*.profraw
+          retention-days: 1
+      # Every test's time and result (the ci profile in .config/nextest.toml), also when one failed.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ matrix.shard }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
-  # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
-  # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
-  # other combination.
-  features:
+  # The Hegel property tests alone, under coverage and held to the same thresholds
+  # (tools/hegel-coverage.sh): the properties have to reach what the whole suite does. They run
+  # from the archive the shards use, beside the shards, and the coverage job puts their totals next
+  # to the whole suite's.
+  hegel:
+    name: Hegel coverage
+    needs: build
+    if: inputs.linux
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
+    env:
+      # A pool of profiles per binary, as the shards keep (see the test job).
+      LLVM_PROFILE_FILE_NAME: hegel-%4m.profraw
+      LOCALLIBRARY_REQUIRE_SQLCIPHER: 1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      # As the shards have them, and rg, which the script picks the tests with.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+      - run: |
+          mkdir -p target/llvm-cov-target
+          tools/hegel-coverage.sh --archive-file tests.tar.zst --json --summary-only --output-path target/coverage-hegel.json
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hegel-coverage
+          path: target/coverage-hegel.json
+          if-no-files-found: ignore
+          retention-days: 1
+      # As the test job's.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-hegel
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  coverage:
+    needs: [test, hegel]
+    # It reports on the shards whether or not the Hegel run passed, which fails the run on its own.
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # nextest lists the tests by running each binary, which links ALSA.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: profiles-*
+          merge-multiple: true
+          path: target/llvm-cov-target
+      # Runs no tests: it unpacks the archive for the binaries and reports on the shards' profiles,
+      # which --no-clean keeps. Its totals go to JSON for the summary below, in place of the
+      # per-file table.
+      - run: >-
+          cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
+          --json --summary-only --output-path target/coverage.json
+      # Into target/hegel/, from the hegel job; missing when it stopped early, and the summary leaves its row out.
+      - if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hegel-coverage
+          path: target/hegel
+      # To the run's summary, and for the report job to put on the pull request.
+      - if: ${{ !cancelled() }}
+        name: Coverage summary
+        run: |
+          totals() {
+            if [ -f "$2" ]; then
+              jq -r --arg tests "$1" '.data[0].totals | "| \($tests) | \([.lines, .functions, .regions]
+                | map("\(.percent * 100 | round / 100)% (\(.covered)/\(.count))") | join(" | ")) |"' "$2"
+            fi
+          }
+          {
+            echo "## Rust coverage"
+            echo
+            echo "From [run $GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Both are held to the thresholds in .cargo/config.toml."
+            echo
+            echo "| Tests | Lines | Functions | Regions |"
+            echo "| --- | ---: | ---: | ---: |"
+            totals All target/coverage.json
+            totals "Hegel property tests alone" target/hegel/coverage-hegel.json
+          } | tee coverage.md >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rust-coverage
+          path: coverage.md
+          if-no-files-found: ignore
+
+  # clippy, the doctests and the tests on macOS and Windows, in one job each: no coverage (Linux's
+  # holds the thresholds) and no shards, so each OS takes one of the plan's runners, where it used
+  # to take six. fmt doesn't depend on the OS, so only Linux runs it. Each OS is a matrix leg of
+  # its own, so one that can't get a runner (#88 waited for a macOS runner GitHub never gave it)
+  # holds up only itself. Only main saves the caches, from locallibrary-cache.yml's nightly run of
+  # this job.
+  other-os:
+    if: inputs.other-os
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Windows took 15 minutes to build and 7 to 13 for each of its three shards in run 41157262485, with
+    # a warm cache and coverage on; one job without coverage still needs room for a cold cache.
+    timeout-minutes: 90
+    env:
+      LOCALLIBRARY_REQUIRE_SQLCIPHER: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # Keyed by name rather than by the calling job, which differs between ci.yml and
+      # locallibrary-cache.yml. The key has the host's target in it, so each OS keeps its own.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
+        with:
+          shared-key: other-os
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The tests' temporary folders go on a Dev Drive: on the runner's C: drive, Defender scans
+      # every file they make and each flush takes milliseconds, which made the tests that write
+      # files run several times longer than on macOS or Linux. Defender's performance mode only
+      # applies to a trusted Dev Drive, and the runner is thrown away after the job.
+      - if: runner.os == 'Windows'
+        uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        with:
+          drive-size: 10GB
+          trusted-dev-drive: true
+          env-mapping: |
+            TMP,{{ DEV_DRIVE }}
+            TEMP,{{ DEV_DRIVE }}
+      # Performance mode still scans what the tests write there, late: a scan holding a file the
+      # tests just wrote fails the rename over it ("Access is denied", os error 5), a failure no
+      # replay repeats. So the drive is left out of real-time scanning. Some runners start with
+      # Defender's service stopped, where Add-MpPreference fails with 0x800106ba; then nothing
+      # scans the drive and there's nothing to leave out.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ((Get-Service WinDefend -ErrorAction SilentlyContinue).Status -ne 'Running') {
+            echo "::notice title=Defender::Defender's service isn't running, so the Dev Drive needs no exclusion."
+            exit 0
+          }
+          Add-MpPreference -ExclusionPath "$env:DEV_DRIVE\"
+      # The sqlcipher CLI, for the tests that check SQLCipher reads what locallibrary encrypts (see
+      # the test job). Windows takes it from the runner's MSYS2, which isn't on PATH.
+      - if: runner.os == 'macOS'
+        run: brew install sqlcipher
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed --noprogressbar mingw-w64-ucrt-x86_64-sqlcipher
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+      # Windows runners run as an administrator, and locallibrary starts no plugin from an elevated
+      # process; debug builds take this to mean it isn't, so the tests can start theirs.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --doc --workspace --locked
+      - run: cargo nextest run --workspace --locked
+      # As the test job's.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ runner.os }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The oldest Rust the workspace supports: `rust-version` in Cargo.toml (keep the two in step).
   # Only the library and the CLI, what `cargo install` builds (with their default features): the
   # tests' dev-dependencies may need a newer Rust.
   msrv:
+    if: inputs.linux || inputs.cache
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -111,27 +394,16 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install 1.91 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo +1.91 check --workspace --locked
 
-  docs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      RUSTDOCFLAGS: -D warnings
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - run: cargo doc --workspace --no-deps --locked
-
-  # RustSec advisories, banned crates and where crates come from (see deny.toml).
-  # locallibrary-scheduled.yml also checks advisories weekly, for ones published between pushes.
+  # RustSec advisories, banned crates and where crates come from (see deny.toml), when what it reads
+  # changed. locallibrary-scheduled.yml also checks advisories weekly, for ones published between
+  # pushes.
   deny:
+    if: inputs.deny
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -139,7 +411,108 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-deny
       - run: cargo deny --locked check advisories bans licenses sources
+
+  # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
+  # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the
+  # next version, not a gate: what broke goes to the run's summary and a warning, and the job
+  # can't fail the call.
+  semver:
+    if: inputs.semver
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The merge commit and its first parent, the base branch the pull request merges into.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - run: rustup toolchain install
+      # No rust-cache: only main saves caches, and this job never runs there. cargo-semver-checks
+      # builds each crate, and its baseline, in a target directory of its own anyway.
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-semver-checks
+      - name: Check the loclib-* crates against the base branch
+        run: |
+          base=$(git rev-parse HEAD^1)
+          crates=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[].name | select(startswith("loclib-"))')
+          breaking=()
+          errors=()
+          for crate in $crates; do
+            out="$RUNNER_TEMP/$crate.txt"
+            if cargo semver-checks --package "$crate" --baseline-rev "$base" --color never > "$out" 2>&1; then
+              continue
+            fi
+            cat "$out"
+            # Breaking changes end the output with "Summary semver requires new major version" (or
+            # minor). Anything else, such as a crate the base doesn't have yet, couldn't be checked.
+            if grep -q 'semver requires new' "$out"; then
+              breaking+=("$crate")
+              echo "::warning title=Breaking change::$crate's public API has breaking changes (see the run's summary)"
+            else
+              errors+=("$crate")
+              echo "::warning title=Semver check failed::cargo-semver-checks couldn't check $crate (see the run's summary)"
+            fi
+          done
+          {
+            echo "## Semver checks against ${base:0:7}"
+            echo
+            if [ ${#breaking[@]} -eq 0 ] && [ ${#errors[@]} -eq 0 ]; then
+              echo "No breaking changes in the loclib-* crates."
+            fi
+            if [ ${#breaking[@]} -gt 0 ]; then
+              echo "Breaking changes in: ${breaking[*]}"
+              echo
+            fi
+            if [ ${#errors[@]} -gt 0 ]; then
+              echo "Couldn't check: ${errors[*]}"
+              echo
+            fi
+            for crate in "${breaking[@]}" "${errors[@]}"; do
+              echo "<details><summary><code>$crate</code></summary>"
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/$crate.txt"
+              echo '```'
+              echo
+              echo "</details>"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The coverage summary from the coverage job on the pull request, in one comment each push
+  # updates, when the coverage job ran. A fork's pull request gets a read-only token, so its summary
+  # stays in the run's. It can't fail the call, so a comment that can't post never holds up a merge.
+  report:
+    name: Coverage report
+    needs: coverage
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.coverage.result != 'skipped' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # For the local action.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Into rust-coverage/, by name: a pattern that matches one artifact unpacks it where the
+      # workflow runs. Missing when the coverage job stopped before its summary; then there's
+      # nothing to post.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: rust-coverage
+          path: rust-coverage
+      - if: hashFiles('rust-coverage/coverage.md') != ''
+        uses: ./.github/actions/pr-comment
+        with:
+          marker: <!-- locallibrary-ci coverage -->
+          section: coverage
+          body-path: rust-coverage/coverage.md

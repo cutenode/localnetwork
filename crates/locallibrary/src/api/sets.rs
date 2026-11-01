@@ -15,6 +15,7 @@ use crate::mix::index::Cache;
 use crate::mix::{Identifier, MixReport, Options, report};
 use crate::model::Library;
 use crate::op::{Planned, Touched};
+use crate::profile::ProfilePrefs;
 use crate::progress::Ctx;
 use crate::query::TrackSelector;
 pub use crate::sets::edit::SetFields;
@@ -79,6 +80,7 @@ pub fn set_new(store: &Store, req: &NewSet, ctx: &Ctx<'_>) -> Result<SetChange> 
     set.sessions = from.iter().map(|s| s.id.clone()).collect();
     set.tracks = built.tracks;
     set.recording = recording.map(|(r, id)| Recording { path: r.mix.path, report: Some(id) });
+    build::read_musicbrainz(store, &mut set.tracks, &super::mounted_exports());
     // Read again: gathering sessions and identifying a recording take a while.
     let mut book = SetBook::load(store)?;
     book.sets.push(set.clone());
@@ -186,6 +188,7 @@ pub fn set_edit(store: &Store, req: &EditSet, ctx: &Ctx<'_>) -> Result<SetChange
         notes.extend(built.notes);
         set.recording = Some(Recording { path: r.mix.path, report: Some(id) });
     }
+    build::read_musicbrainz(store, &mut set.tracks, &super::mounted_exports());
     set.updated_at = Utc::now();
     // Read again: gathering sessions and identifying a recording take a while.
     let mut book = SetBook::load(store)?;
@@ -281,10 +284,14 @@ pub fn set_get(store: &Store, req: &SetRef) -> Result<Set> {
     Ok(find(&SetBook::load(store)?, req)?.clone())
 }
 
-/// Delete a set (its sessions and recording stay). Returns what was deleted.
+/// Delete a set (its sessions and recording stay), and its record and its recording's from the
+/// signed-in account when they're published there. Returns what was deleted.
 pub fn set_delete(store: &Store, req: &SetRef) -> Result<Set> {
     let mut book = SetBook::load(store)?;
     let set = find(&book, req)?.clone();
+    // The record first: once the set is gone, nothing here says what to take off the account.
+    #[cfg(feature = "account")]
+    super::publish::set_unpublish(store.root(), &set.id)?;
     book.sets.retain(|s| s.id != set.id);
     book.save(store)?;
     Ok(set)
@@ -348,7 +355,8 @@ pub struct SetExportReport {
 }
 
 /// Write a set out for publishing (text, Mixcloud, CUE, YouTube chapters, 1001Tracklists; a track
-/// marked unnamed is `ID - ID` there) or for the DJ (CSV, and M3U8 of the tracks on a drive).
+/// marked unnamed or hidden by the profile is `ID - ID` there) or for the DJ (CSV, and M3U8 of the
+/// tracks on a drive).
 pub fn set_export(store: &Store, req: &SetExport) -> Result<SetExportReport> {
     let book = SetBook::load(store)?;
     let set = book.find(&req.set)?;
@@ -366,7 +374,7 @@ pub fn set_export(store: &Store, req: &SetExport) -> Result<SetExportReport> {
         }
         _ => None,
     };
-    let out = export::render(set, req.format, drive)?;
+    let out = export::render(set, req.format, &ProfilePrefs::load(store)?, drive)?;
     if let Some(path) = &req.output {
         fsutil::write_output(path, out.text.as_bytes(), req.replace)?;
     }

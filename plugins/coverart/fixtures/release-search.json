@@ -1,0 +1,180 @@
+{
+ "created": "2026-10-13T20:42:22.360Z",
+ "count": 8,
+ "offset": 0,
+ "releases": [
+  {
+   "id": "7e567033-10f8-40d8-835e-67a8ad8865e9",
+   "score": 100,
+   "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+   "count": 1,
+   "title": "Bicep",
+   "status": "Official",
+   "artist-credit": [
+    {
+     "name": "Bicep",
+     "artist": {
+      "id": "10e8f0df-90f9-4957-aedd-c4e0d187e3a8",
+      "name": "Bicep",
+      "sort-name": "Bicep"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "6f34e134-49d5-4e56-b3e0-4fe6b9900380",
+    "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "title": "Bicep",
+    "primary-type": "Album"
+   },
+   "date": "2017-09-01",
+   "country": "NL",
+   "label-info": [
+    {
+     "catalog-number": "ZEN242",
+     "label": {
+      "id": "dc940013-b8a8-4362-a465-291026c04b42",
+      "name": "Ninja Tune"
+     }
+    }
+   ],
+   "track-count": 12
+  },
+  {
+   "id": "c43a3d4d-1b57-4194-a470-e8e27bd449c6",
+   "score": 100,
+   "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+   "count": 1,
+   "title": "Bicep",
+   "status": "Official",
+   "artist-credit": [
+    {
+     "name": "Bicep",
+     "artist": {
+      "id": "10e8f0df-90f9-4957-aedd-c4e0d187e3a8",
+      "name": "Bicep",
+      "sort-name": "Bicep"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "6f34e134-49d5-4e56-b3e0-4fe6b9900380",
+    "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "title": "Bicep",
+    "primary-type": "Album"
+   },
+   "date": "2017-09-01",
+   "country": "XW",
+   "label-info": [
+    {
+     "label": {
+      "id": "dc940013-b8a8-4362-a465-291026c04b42",
+      "name": "Ninja Tune"
+     }
+    }
+   ],
+   "track-count": 12
+  },
+  {
+   "id": "f713ed72-83d1-401f-84a0-b83bf29dc570",
+   "score": 92,
+   "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+   "count": 1,
+   "title": "RA.1000 Bicep",
+   "status": "Official",
+   "artist-credit": [
+    {
+     "name": "Bicep",
+     "artist": {
+      "id": "10e8f0df-90f9-4957-aedd-c4e0d187e3a8",
+      "name": "Bicep",
+      "sort-name": "Bicep"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "f31a113e-4047-4ec2-860d-5df9a9fa5d68",
+    "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "title": "RA.1000: Bicep",
+    "primary-type": "Album",
+    "secondary-types": [
+     "DJ-mix"
+    ],
+    "secondary-type-ids": [
+     "0d47f47a-3fe5-3d69-ac9d-d566c23968bf"
+    ]
+   },
+   "track-count": 18
+  },
+  {
+   "id": "37e5cea9-298c-491f-a9d4-5b6a649ba7f2",
+   "score": 86,
+   "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+   "count": 1,
+   "title": "RA.1000: Bicep",
+   "status": "Official",
+   "artist-credit": [
+    {
+     "name": "Bicep",
+     "artist": {
+      "id": "10e8f0df-90f9-4957-aedd-c4e0d187e3a8",
+      "name": "Bicep",
+      "sort-name": "Bicep"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "f31a113e-4047-4ec2-860d-5df9a9fa5d68",
+    "type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "title": "RA.1000: Bicep",
+    "primary-type": "Album",
+    "secondary-types": [
+     "DJ-mix"
+    ],
+    "secondary-type-ids": [
+     "0d47f47a-3fe5-3d69-ac9d-d566c23968bf"
+    ]
+   },
+   "date": "2025-08-13",
+   "country": "XW",
+   "track-count": 1
+  },
+  {
+   "id": "2cf47b53-5e31-4e9b-82ee-1c88341ee61f",
+   "score": 78,
+   "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+   "count": 1,
+   "title": "Bicep Presents Throne of Blood",
+   "status": "Official",
+   "artist-credit": [
+    {
+     "name": "Bicep",
+     "artist": {
+      "id": "10e8f0df-90f9-4957-aedd-c4e0d187e3a8",
+      "name": "Bicep",
+      "sort-name": "Bicep"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "a3ce4211-faac-4d07-bc13-3457b65d938a",
+    "type-id": "dd2a21e1-0c00-3729-a7a0-de60b84eb5d1",
+    "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+    "title": "Bicep Presents Throne of Blood",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ],
+    "secondary-type-ids": [
+     "dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"
+    ]
+   },
+   "date": "2012-07-09",
+   "country": "US",
+   "track-count": 13
+  }
+ ]
+}

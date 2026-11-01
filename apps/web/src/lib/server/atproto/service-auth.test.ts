@@ -1,16 +1,8 @@
 import { Secp256k1Keypair } from '@atproto/crypto';
 import type { JsonObject } from '@atproto/lex-json';
 import { describe, expect, it } from 'vitest';
+import { serviceJwt } from '../testing/service-jwt';
 import { ServiceAuthError, verifyServiceJwt } from './service-auth';
-
-const b64 = (value: JsonObject) => Buffer.from(JSON.stringify(value)).toString('base64url');
-
-async function makeJwt(keypair: Secp256k1Keypair, payload: JsonObject, header: JsonObject = {}) {
-	const input = `${b64({ alg: 'ES256K', typ: 'JWT', ...header })}.${b64(payload)}`;
-	const signature = await keypair.sign(new TextEncoder().encode(input));
-
-	return `Bearer ${input}.${Buffer.from(signature).toString('base64url')}`;
-}
 
 describe('verifyServiceJwt', () => {
 	const audience = 'did:web:localnetwork.computer#localnetwork_syncer';
@@ -19,7 +11,7 @@ describe('verifyServiceJwt', () => {
 
 	it('accepts a valid token and strips the issuer fragment', async () => {
 		const key = await Secp256k1Keypair.create();
-		const jwt = await makeJwt(key, { iss: 'did:plc:authority#atproto_space_host', aud: audience, lxm, exp: now + 60 });
+		const jwt = await serviceJwt(key, { iss: 'did:plc:authority#atproto_pds', aud: audience, lxm, exp: now + 60 });
 		const payload = await verifyServiceJwt(jwt, { audience, lxm, getSigningKey: async () => key.did() });
 		expect(payload.iss).toBe('did:plc:authority');
 	});
@@ -27,7 +19,7 @@ describe('verifyServiceJwt', () => {
 	it('retries with a refreshed key when the cached one is stale', async () => {
 		const stale = await Secp256k1Keypair.create();
 		const fresh = await Secp256k1Keypair.create();
-		const jwt = await makeJwt(fresh, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
+		const jwt = await serviceJwt(fresh, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
 		const calls: boolean[] = [];
 		await verifyServiceJwt(jwt, {
 			audience,
@@ -62,12 +54,12 @@ describe('verifyServiceJwt', () => {
 		];
 
 		for (const [payload, header, message] of cases) {
-			await expect(verifyServiceJwt(await makeJwt(key, payload, header), opts)).rejects.toThrow(
+			await expect(verifyServiceJwt(await serviceJwt(key, payload, header), opts)).rejects.toThrow(
 				new RegExp(message, 'i')
 			);
 		}
 
-		const forged = await makeJwt(other, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
+		const forged = await serviceJwt(other, { iss: 'did:plc:a', aud: audience, lxm, exp: now + 60 });
 		await expect(verifyServiceJwt(forged, opts)).rejects.toBeInstanceOf(ServiceAuthError);
 	});
 });

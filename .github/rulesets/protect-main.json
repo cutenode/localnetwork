@@ -1,0 +1,73 @@
+{
+	"name": "Protect Main",
+	"target": "branch",
+	"enforcement": "active",
+	"conditions": {
+		"ref_name": {
+			"exclude": [],
+			"include": ["~DEFAULT_BRANCH"]
+		}
+	},
+	"rules": [
+		{
+			"type": "deletion"
+		},
+		{
+			"type": "non_fast_forward"
+		},
+		{
+			"type": "pull_request",
+			"parameters": {
+				"allowed_merge_methods": ["merge"],
+				"dismiss_stale_reviews_on_push": true,
+				"dismissal_restriction": {
+					"allowed_actors": [],
+					"enabled": false
+				},
+				"require_code_owner_review": true,
+				"require_extra_approval_for_unattributed_changes": false,
+				"require_last_push_approval": true,
+				"required_approving_review_count": 1,
+				"required_review_thread_resolution": false,
+				"required_reviewers": []
+			}
+		},
+		{
+			"type": "merge_queue",
+			"parameters": {
+				"check_response_timeout_minutes": 120,
+				"grouping_strategy": "ALLGREEN",
+				"max_entries_to_build": 2,
+				"max_entries_to_merge": 5,
+				"merge_method": "MERGE",
+				"min_entries_to_merge": 1,
+				"min_entries_to_merge_wait_minutes": 5
+			}
+		},
+		{
+			"type": "code_scanning",
+			"parameters": {
+				"code_scanning_tools": [
+					{
+						"tool": "CodeQL",
+						"security_alerts_threshold": "high_or_higher",
+						"alerts_threshold": "errors"
+					}
+				]
+			}
+		},
+		{
+			"type": "required_status_checks",
+			"parameters": {
+				"strict_required_status_checks_policy": false,
+				"do_not_enforce_on_create": false,
+				"required_status_checks": [
+					{
+						"context": "CI passed"
+					}
+				]
+			}
+		}
+	],
+	"bypass_actors": []
+}

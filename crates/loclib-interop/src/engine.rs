@@ -51,21 +51,6 @@ fn unix_date(s: &str) -> Option<i64> {
     Some(d.and_hms_opt(0, 0, 0)?.and_utc().timestamp())
 }
 
-/// `to` relative to the folder `from`, `/`-separated; `None` when they share no root (another
-/// Windows drive).
-fn relative(from: &Path, to: &Path) -> Option<String> {
-    use std::path::Component;
-    let a: Vec<Component> = from.components().collect();
-    let b: Vec<Component> = to.components().collect();
-    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    if common == 0 {
-        return None;
-    }
-    let ups = (common..a.len()).map(|_| "..".to_string());
-    let downs = b[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned());
-    Some(ups.chain(downs).collect::<Vec<_>>().join("/"))
-}
-
 fn sql(e: rusqlite::Error) -> Error {
     Error::Invalid(format!("building the Engine Library: {e}"))
 }
@@ -112,7 +97,7 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
             PathStyle::Drive => Ok(format!("../{key}")),
             PathStyle::Relative => {
                 let audio = src.audio(t);
-                relative(&library_dir, &audio).ok_or_else(|| {
+                paths::relative(&library_dir, &audio).ok_or_else(|| {
                     Error::Invalid(format!(
                         "{} and {} are on different drives; give paths relative to the drive and copy Engine Library to the drive",
                         library_dir.display(),
@@ -222,7 +207,8 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
     });
     export.notes.push(
         "Beat grids, cues, loops and waveforms aren't written (Engine keeps them in its own encoded form): Engine \
-         analyses the tracks when it first reads them. Artwork, colours and history lists aren't carried."
+         analyses the tracks when it first reads them. Artwork and colours aren't carried, and history lists go only \
+         as playlists (`with_history`)."
             .into(),
     );
     if repeats > 0 {

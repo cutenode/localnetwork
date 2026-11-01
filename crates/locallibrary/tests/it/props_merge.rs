@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
 use locallibrary::progress::Ctx;
@@ -43,7 +43,7 @@ fn contains_all(big: &[String], small: &[String]) -> bool {
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn merging_loses_nothing_and_undoes_exactly(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let (main, _) = drawn::drive(&tc, &root, "Main");
     if tc.draw(gs::weighted_booleans(0.3)) {
         common::add_onelibrary(&main);
@@ -72,13 +72,12 @@ fn merging_loses_nothing_and_undoes_exactly(tc: TestCase) {
     let src_lib = src.library().unwrap();
     let names: Vec<String> =
         src_lib.playlists.iter().filter(|p| !p.is_folder).map(|p| src_lib.playlist_path(p.id)).collect();
-    let mode = tc
-        .draw(gs::sampled_from(vec![PlaylistMode::Folder, PlaylistMode::ByName, PlaylistMode::None]).print_as_debug());
+    let mode = tc.draw(gs::sampled_from(vec![PlaylistMode::Folder, PlaylistMode::ByName, PlaylistMode::None]));
     let opts = MergeOptions {
         playlists: mode,
         folder_name: tc.draw(gs::optional(gs::sampled_from(vec!["From Guest", "Ünï"]))).map(Into::into),
         only_playlists: drawn::some(&tc, &names),
-        match_mode: tc.draw(gs::sampled_from(vec![MatchMode::Metadata, MatchMode::Path]).print_as_debug()),
+        match_mode: tc.draw(gs::sampled_from(vec![MatchMode::Metadata, MatchMode::Path])),
         history: tc.draw(gs::booleans()),
     };
 

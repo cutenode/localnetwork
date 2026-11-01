@@ -1,5 +1,8 @@
 //! What's worked out from tracks' audio, cached on the computer: fingerprints
-//! ([`crate::mix::index`]) and tempo, key and loudness estimates ([`crate::sound`]).
+//! ([`crate::mix::index`]), and what plugins' analyzers work out ([`crate::fields`]). Values
+//! worked out from other files use it too, keyed by what's in them ([`Cache::key_of`]): the
+//! history lists of a snapshot's databases ([`crate::plays`]) and the profile's reads of
+//! tracks' analysis files ([`crate::profile`]).
 //!
 //! Decoding a library's audio takes minutes for a few thousand tracks, so each result is kept in
 //! a small file per audio file, keyed by the file's name, size and modification time (the same
@@ -36,6 +39,11 @@ pub trait Kind {
     fn encode(value: &Self::Value) -> Vec<u8>;
     /// `None` for bytes it can't read (a file cut short), which count as not cached.
     fn decode(bytes: &[u8]) -> Option<Self::Value>;
+    /// The [`Kind::VERSION`] that wrote a value, from its first bytes (at most 8), for `store gc`
+    /// to remove the values of older ones: `None` when the bytes don't say.
+    fn written_by(_head: &[u8]) -> Option<u32> {
+        None
+    }
 }
 
 /// One kind of result on disk, one small file per audio file.
@@ -86,6 +94,14 @@ impl<K: Kind> Cache<K> {
         Some(h.finalize().to_hex()[..32].to_string())
     }
 
+    /// Key for a value worked out from something whose contents `content` names (a stored
+    /// object's hash, the hashes of a snapshot's databases) rather than an audio file on a drive.
+    pub fn key_of(content: &str) -> String {
+        let mut h = blake3::Hasher::new();
+        h.update(format!("{}\u{1f}{content}", K::VERSION).as_bytes());
+        h.finalize().to_hex()[..32].to_string()
+    }
+
     pub(crate) fn file(&self, key: &str, ext: &str) -> PathBuf {
         self.root.join(&key[..2]).join(format!("{key}.{ext}"))
     }
@@ -110,17 +126,35 @@ impl<K: Kind> Cache<K> {
         fsutil::write_deferred(&self.file(key, "err"), format!("{}\n{error}", env!("CARGO_PKG_VERSION")).as_bytes())
     }
 
-    /// What's cached for each of `tracks` whose audio is on the drive, by track id. Nothing is
-    /// decoded.
-    pub fn cached<'t>(&self, device: &Device, tracks: impl IntoIterator<Item = &'t Track>) -> FxHashMap<u32, K::Value> {
-        tracks
-            .into_iter()
-            .filter_map(|t| {
-                let file = device.checked_path(&paths::key(&t.file_path)).ok()?;
-                Some((t.id, self.get(&Self::key(&file)?)?))
+    /// Values an older [`Kind::VERSION`] wrote, which nothing reads any more: their keys hold
+    /// the version, so the new one's values are in other files.
+    pub(crate) fn older(&self) -> Vec<PathBuf> {
+        let dirs = fs::read_dir(&self.root).into_iter().flatten().flatten().map(|e| e.path()).filter(|d| d.is_dir());
+        let files = dirs.flat_map(|d| fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()));
+        let mut older: Vec<PathBuf> = files
+            .filter(|f| f.extension().is_some_and(|e| e == K::EXT))
+            .filter(|f| {
+                let mut head = [0u8; 8];
+                let n = fs::File::open(f).and_then(|mut file| std::io::Read::read(&mut file, &mut head)).unwrap_or(0);
+                K::written_by(&head[..n]).is_some_and(|v| v < K::VERSION)
             })
-            .collect()
+            .collect();
+        older.sort();
+        older
     }
+}
+
+/// Caches in `store` nothing reads any more, for `store gc` to remove: the tempo, key and
+/// loudness analyses core kept itself (`analysis/`) before the sound plugin's fields replaced
+/// them, fields kept in an earlier layout (see [`crate::fields::FieldStore::unread`]), and
+/// fingerprints, recordings heard and indexes older versions made (see
+/// [`crate::mix::index::older`]). Folders and files.
+pub(crate) fn unread(store: &Store) -> Vec<PathBuf> {
+    let mut unread = crate::fields::FieldStore::in_store(store).unread();
+    unread.push(store.root().join(CACHE_DIR).join("analysis"));
+    unread.retain(|d| d.is_dir());
+    unread.extend(crate::mix::index::older(&Cache::in_store(store)));
+    unread
 }
 
 crate::schema::labelled_tuple! {

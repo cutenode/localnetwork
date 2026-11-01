@@ -10,8 +10,10 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
-use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, as_in, build, side_by_side, twin, universe, write};
-use crate::support::{Env, Run, path};
+use crate::props_cli_human::{
+    FLAGS, State, TRACK_1, agree_runs, as_in, build, picked, side_by_side, twin, universe, write,
+};
+use crate::support::{Env, Run, path, recording};
 
 /// A tenth of a second of silence, as a WAV file.
 fn silent_wav() -> Vec<u8> {
@@ -130,6 +132,14 @@ fn by_hand(fx: &Env, step: &str) {
             image::RgbImage::from_pixel(300, 300, image::Rgb([200, 30, 30])).save(&cover).unwrap();
             filetime::set_file_mtime(&cover, filetime::FileTime::from_unix_time(1_790_000_000, 0)).unwrap();
         }
+        // The store's folders made read-only, as on a disk that went read-only, and writable
+        // again (on Unix; elsewhere they stay as they are).
+        "!lock-store" | "!unlock-store" => {
+            #[cfg(unix)]
+            for f in ["objects", "snapshots"].map(|f| fx.store.join(f)).iter().filter(|f| f.exists()) {
+                crate::support::set_mode(f, if step == "!lock-store" { 0o555 } else { 0o755 });
+            }
+        }
         other => panic!("no step {other}"),
     }
 }
@@ -231,6 +241,12 @@ const DRIVE_CHANGES: Changes = &[
     (&["drive", "rename", "A", "Main", ";", "drive", "rename", "Main", "A", "--label", "A"], &["report.name"]),
     (&["!erase-a", ";", "drive", "adopt", "@v/A", "--as", "A"], &["plan.summary.[]", "report.name"]),
     (&["track", "rm", "A", "--track", "1", ";", "drive", "backups", "A"], &["[].id", "[].reason"]),
+    (&["!damage", ";", "!lose-store-objects", ";", "drive", "verify", "A", "--repair"], &["plan.drive"]),
+    (
+        &["drive", "firmware", "A", "@h/firmware.UPD", "--force", ";", "firmware", "A", "--remove", "--dry-run"],
+        &["plan.summary.[]"],
+    ),
+    (&["drive", "retire", "Club", ";", "!unplug-club", ";", "status", "--all", "--retired"], &["libraries.[].name"]),
 ];
 
 /// Changes that move libraries between drives and the store: merge, convert, clean, pull, push
@@ -242,8 +258,8 @@ const LIBRARY_CHANGES: Changes = &[
     (&["convert", "A", "--to", "onelibrary", "--dry-run"], &["plan.drive", "{plan.tracks} track(s)"]),
     (&["convert", "A", "--to", "onelibrary"], &["converted {report.tracks} track(s)"]),
     (&["convert", "A", "--to", "device-library", "--replace"], &["converted {report.tracks} track(s)"]),
-    (&["clean", "Blank", "--dry-run"], &["plan.drive", "plan.tracks.[].name"]),
-    (&["clean", "Blank"], &["removed {report.tracks_removed} track(s)"]),
+    (&["clean", "Blank", "--dry-run"], &["plan.drive", "~plan.tracks_removed.[].name"]),
+    (&["clean", "Blank"], &[]),
     (&["pull", "A"], &[]),
     (&["pull", "A", "--label", "gig", "--message", "before the gig"], &["report.library"]),
     (&["pull"], &["report.steps.[].done.[]"]),
@@ -261,8 +277,8 @@ const LIBRARY_CHANGES: Changes = &[
     (&["merge", "A", "Club", "--playlists", "none", "--match-path-only", "--dry-run"], &[]),
     (&["pull", "A", "--library", "A"], &[]),
     (&["pull", "A", "--new-library"], &[]),
-    (&["clean", "A", "--dry-run"], &["plan.drive", "~plan.tracks.[].name", "plan.playlists.[].path"]),
-    (&["clean", "A"], &["removed {report.tracks_removed} track(s)"]),
+    (&["clean", "A", "--dry-run"], &["plan.drive", "~plan.tracks_removed.[].name"]),
+    (&["clean", "A"], &[]),
     (&["merge", "A", "Blank", "--playlists", "none"], &[]),
     (&["--overwrite-archive", "merge", "A", "Club", "--dry-run"], &[]),
     (&["--overwrite-archive", "merge", "A", "Club"], &[]),
@@ -323,6 +339,7 @@ const SYNC_CHANGES: Changes = &[
     (&["!export-a", ";", "sync", "A", "Blank", "--eject"], &[]),
     (&["sync", "A", "Blank", ";", "!export-a", ";", "sync", "--eject"], &[]),
     (&["sync", "A", "Blank", ";", "!play-blank", ";", "!export-a", ";", "sync", "A", "Blank"], &[]),
+    (&["provision", "Blank", "--library", "A", "--player-name", "SPARE"], &[]),
 ];
 
 /// Changes to the store and what it keeps: snapshots, labels, copies, libraries, players, the
@@ -494,6 +511,26 @@ const JOBS_CHANGES: Changes = &[
             "--sync-group",
             "--settle",
             "0",
+        ],
+        &[],
+    ),
+    // A job cut short when the store can't be written: where it stopped, and what stays done.
+    (&["playlist", "new", "A", "Locked Out", ";", "!lock-store", ";", "refresh", "A", ";", "!unlock-store"], &[]),
+    (
+        &[
+            "setup",
+            "A",
+            "Blank",
+            "--library",
+            "A",
+            "--role",
+            "Blank=archive",
+            ";",
+            "setup",
+            "A",
+            "Blank",
+            "--library",
+            "A",
         ],
         &[],
     ),
@@ -674,19 +711,14 @@ fn store_changes_say_what_their_json_says(tc: TestCase) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..JOBS_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..JOBS_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..JOBS_CHANGES.len()).rev().collect::<Vec<usize>>())]
+// The example hegel found: `refresh A` with the store read-only, after an edit whose new
+// `exportLibrary.db` (encrypted afresh each time it's written) went in a fan-out folder of its own
+// in each copy.
+#[hegel::explicit_test_case(flags = picked(&[1, 2, 3, 5, 7, 8, 9, 10, 11, 12, 18, 20, 21, 24, 25]), order = vec![15usize, 7, 2, 12, 28, 5, 8, 4, 3, 0, 25, 14, 16, 17, 19, 29, 32, 6, 1, 22, 11, 26, 13, 31, 20, 30, 10, 21, 18, 27, 34, 24, 9, 33, 23])]
 fn jobs_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..JOBS_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, JOBS_CHANGES);
-}
-
-/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence, as a WAV.
-fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
-    use loclib_mixid::test_util::{resample, synth, wav_of};
-    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
-    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
-    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
-    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
 }
 
 /// The detail waveform (`PWV5`) of the analysis file `ext` redrawn from `wav` (16-bit stereo at

@@ -4,26 +4,32 @@
 //! Tracks are matched to annotations by the start of their file name, up to the first dot:
 //! GiantSteps names its previews `<id>.LOFI.mp3` and its annotations `<id>.LOFI.key` (or lists
 //! `<id>` in the MTG dataset's table), and rekordbox keeps a file's name when it exports it.
+//!
+//! The audio is analysed with loclib-analysis itself, every run: the benchmark scores it as it is
+//! now, and keeps nothing.
 
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use loclib_analysis::benchmark::{self, Report, Row, TempoOutcome};
+use loclib_analysis::{Estimate, Want};
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{Analyses, Cache, KeyOutcome};
-use crate::audio_cache::{self, Audio};
+use super::KeyOutcome;
 use crate::harmony::Camelot;
 use crate::model::Library;
 use crate::progress::{Ctx, Phase};
-use crate::{Error, Result};
+use crate::{Error, Result, probe};
 
 /// The name rekordbox's stored values are scored under.
 pub const REKORDBOX: &str = "rekordbox";
 /// The name loclib-analysis's estimates are scored under: the analyzer it runs.
 pub const ESTIMATE: &str = "stratum-dsp";
+
+/// What the benchmark scores: no loudness.
+const TEMPO_AND_KEY: Want = Want { estimate: true, loudness: false, waveform: false };
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct BenchOptions {
@@ -95,13 +101,8 @@ fn key_annotations(path: &Path) -> Result<FxHashMap<String, Camelot>> {
 }
 
 /// Score the drive's stored values (`library`, when given) and the analyses of the audio (in
-/// `opts.audio`, or the drive's tracks on `device`) against the annotations.
-pub fn bench(
-    opts: &BenchOptions,
-    drive: Option<(&crate::Device, &Library)>,
-    cache: &Cache,
-    ctx: &Ctx<'_>,
-) -> Result<BenchReport> {
+/// `opts.audio`, or the drive's tracks on `device` whose audio is there) against the annotations.
+pub fn bench(opts: &BenchOptions, drive: Option<(&crate::Device, &Library)>, ctx: &Ctx<'_>) -> Result<BenchReport> {
     let keys = opts.keys.as_deref().map(key_annotations).transpose()?.unwrap_or_default();
     let tempos = match &opts.tempos {
         Some(dir) => annotations(dir, "bpm", benchmark::parse_tempo)?,
@@ -126,27 +127,31 @@ pub fn bench(
         (None, Some((device, _))) => stored
             .iter()
             .filter_map(|(id, t)| Some((id.clone(), device.checked_path(&crate::paths::key(&t.file_path)).ok()?)))
+            .filter(|(_, path)| path.is_file())
             .collect(),
         (None, None) => return Err(Error::invalid("give a drive or a folder of audio to score")),
     };
     let audio: Vec<(String, PathBuf)> = audio.into_iter().filter(|(id, _)| annotated.contains(id)).collect();
-    let files: Vec<Audio> = audio
-        .iter()
-        .enumerate()
-        .map(|(i, (_, path))| Audio { id: i as u32, path: path.clone(), name: path.display().to_string(), bytes: 0 })
-        .collect();
-    let run = audio_cache::for_files::<Analyses>(&files, cache, Phase::Analyze, super::analyze_file, ctx)?;
-    let estimates: FxHashMap<&String, &loclib_analysis::Estimate> =
-        run.done.iter().filter_map(|d| Some((&audio[d.id as usize].0, d.value.estimate.as_ref()?))).collect();
+    let analysed = probe::parallel(
+        &audio,
+        Phase::Analyze,
+        |(_, path)| (path.display().to_string(), 0),
+        // Guarded: a decoder panicking on one file is that file's error.
+        |(_, path)| probe::guarded(path, || Ok(loclib_analysis::analyze(path, TEMPO_AND_KEY, ctx)?)),
+        ctx,
+    )?;
+    let mut estimates: FxHashMap<&String, Estimate> = FxHashMap::default();
+    let mut failed = Vec::new();
+    for ((id, path), analysis) in audio.iter().zip(analysed) {
+        match analysis {
+            Ok(a) => estimates.extend(a.estimate.map(|e| (id, e))),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => failed.push((path.display().to_string(), e.to_string())),
+        }
+    }
     // Tracks the analysis had audio for (it may have failed on some): those whose file is missing
     // are left out of its scores rather than counted as its misses.
-    let scored: FxHashSet<&String> = run
-        .done
-        .iter()
-        .map(|d| d.id)
-        .chain(run.failed.iter().map(|(id, _)| *id))
-        .map(|i| &audio[i as usize].0)
-        .collect();
+    let scored: FxHashSet<&String> = audio.iter().map(|(id, _)| id).collect();
 
     // Rows in the annotations' id order, so reports list misses the same way every run.
     let mut ids: Vec<&String> = annotated.iter().copied().collect();
@@ -163,7 +168,7 @@ pub fn bench(
         if let Some(reference) = keys.get(&id) {
             let estimate = match rekordbox {
                 true => Camelot::parse(&stored[&id].key),
-                false => estimates.get(&id).map(|e| e.key),
+                false => estimates.get(&id).and_then(|e| e.key),
             };
             key_rows.push(Row { analyzer: analyzer.clone(), track: id.clone(), reference: *reference, estimate });
         }
@@ -181,7 +186,7 @@ pub fn bench(
         accuracy2: tempos.iter().map(|(a, r)| (a.clone(), r.accuracy2())).collect(),
         tempos,
         unmatched: annotated.iter().filter(|id| !has_audio(id)).count(),
-        failed: run.failed.into_iter().map(|(i, e)| (audio[i as usize].1.display().to_string(), e)).collect(),
+        failed,
     })
 }
 

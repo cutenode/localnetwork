@@ -1,5 +1,7 @@
-# A pull request a month for each ecosystem, every update in one, leaving out releases less than
-# a week old so a compromised release has time to be caught and pulled first.
+# One pull request a month for every ecosystem together (the `dependencies` multi-ecosystem
+# group, which each entry joins with `patterns: ["*"]`), leaving out releases less than a week old
+# so a compromised release has time to be caught and pulled first. CI runs for one pull request a
+# month, where one per ecosystem made it four.
 #
 # The workflows pin actions to commits; this keeps the pins current. locallibrary-release.yml's
 # pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
@@ -8,34 +10,58 @@
 # Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm: the lockfiles only, the
 # semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
 # pins) and package.json are changed by hand.
+#
+# Docker: the digest apps/web/Dockerfile pins its base image to. The tag names only Node's major
+# version, which follows .node-version and is changed by hand. Dependabot has no security updates
+# for Docker, so there's no security group.
+#
+# Security updates don't wait for the month or the cooldown: they come as soon as an advisory is
+# published, grouped into one pull request per ecosystem by the `*-security` groups. The
+# multi-ecosystem group only covers version updates.
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: monthly
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
     cooldown:
       default-days: 7
     groups:
-      actions:
+      actions-security:
+        applies-to: security-updates
         patterns: ["*"]
   - package-ecosystem: cargo
     directories: ["/", "/fuzz"]
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
     cooldown:
       default-days: 7
     versioning-strategy: lockfile-only
     groups:
-      cargo:
+      cargo-security:
+        applies-to: security-updates
         patterns: ["*"]
   - package-ecosystem: npm
     directory: /
-    schedule:
-      interval: monthly
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
     cooldown:
       default-days: 7
     versioning-strategy: lockfile-only
     groups:
-      npm:
+      npm-security:
+        applies-to: security-updates
         patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /apps/web
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

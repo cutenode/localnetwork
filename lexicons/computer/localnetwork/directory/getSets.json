@@ -1,0 +1,30 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getSets",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Get sets by URI, in the order asked for. Sets the directory doesn't have, and ones by accounts that don't manage a published project, are left out.",
+			"parameters": {
+				"type": "params",
+				"required": ["uris"],
+				"properties": {
+					"uris": { "type": "array", "maxLength": 25, "items": { "type": "string", "format": "at-uri" } }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["sets"],
+					"properties": {
+						"sets": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#setView" }
+						}
+					}
+				}
+			}
+		}
+	}
+}

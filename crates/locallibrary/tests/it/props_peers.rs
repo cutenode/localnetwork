@@ -125,8 +125,7 @@ fn a_fetch_copies_what_the_other_store_has_and_this_one_lacks(tc: TestCase) {
     let home = libs.iter().find(|l| l.name == "Home").unwrap();
     let latest = home.head.unwrap();
     let first = *snaps[&home.id].iter().find(|h| **h != latest).unwrap();
-    let here =
-        tc.draw(gs::sampled_from(vec![Here::AsFetched, Here::Behind, Here::Ahead, Here::Diverged]).print_as_debug());
+    let here = tc.draw(gs::sampled_from(vec![Here::AsFetched, Here::Behind, Here::Ahead, Here::Diverged]));
     let mut earlier = pick(&tc);
     // Changed here since: fetched before, then.
     if here != Here::AsFetched && !earlier.iter().any(|l| l.id == home.id) {
@@ -252,7 +251,7 @@ fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
     }
     files.sort();
     files.dedup();
-    let (hash, size) = tc.draw(gs::sampled_from(files).print_as_debug());
+    let (hash, size) = tc.draw(gs::sampled_from(files));
     let object = broken.object_path(&hash);
     let missing = size == 0 || tc.draw(gs::booleans());
     match missing {
@@ -299,4 +298,44 @@ fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
     let count = |kind: &str| events.iter().filter(|e| serde_json::to_value(e).unwrap()["event"] == kind).count();
     assert_eq!((count("ready"), count("refused"), count("connected")), (1, 1, 3), "{events:?}");
     assert_eq!((count("done"), report.peers), (3, 3));
+}
+
+/// A library fetched under a name this store already gives a library of its own (in any case,
+/// or with the numbers a free name gets) is added under the first free one, `Home 2`, `Home 3`...,
+/// and the fetch says what it was called there; one whose name is free keeps it and says
+/// nothing more. The store's own libraries stay as they were.
+#[hegel::test(test_cases = 2)]
+fn a_library_fetched_under_a_name_taken_here_gets_a_free_one(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let laptop = laptop_in(dir.path());
+    let served = serve(&laptop);
+    let studio = Store::open_or_init(dir.path().join("studio")).unwrap();
+    let mine: Vec<&str> = tc.draw(
+        gs::vecs(gs::sampled_from(vec!["Home", "HOME", "home 2", "Club", "Home 3", "Studio"])).max_size(3).unique(true),
+    );
+    for name in &mine {
+        // Names here differ ignoring case too: the store refuses a second `home`.
+        let _ = studio.create_library(name);
+    }
+    let own = studio.libraries().unwrap();
+    let r = fetch(&studio, &served.code, &[], false).unwrap();
+    let taken = |name: &str| own.iter().any(|l| l.name.eq_ignore_ascii_case(name));
+    let mut used: Vec<String> = own.iter().map(|l| l.name.to_lowercase()).collect();
+    for got in &r.libraries {
+        let remote = laptop.library_by_id(got.id).unwrap().unwrap();
+        let free = (1..)
+            .map(|n| if n == 1 { remote.name.clone() } else { format!("{} {n}", remote.name) })
+            .find(|n| !used.contains(&n.to_lowercase()))
+            .unwrap();
+        used.push(free.to_lowercase());
+        assert_eq!(got.outcome, LibraryOutcome::Added);
+        assert_eq!(got.name, free, "{mine:?}");
+        assert_eq!(got.was, taken(&remote.name).then(|| remote.name.clone()), "{mine:?}");
+        assert_eq!(studio.library_by_id(got.id).unwrap().unwrap().name, free);
+    }
+    for l in &own {
+        let now = studio.library_by_id(l.id).unwrap().unwrap();
+        assert_eq!((now.name.as_str(), now.head), (l.name.as_str(), l.head));
+    }
+    served.stop(1);
 }

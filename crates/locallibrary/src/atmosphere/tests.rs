@@ -2,6 +2,9 @@ use jacquard_oauth::authstore::ClientAuthStore;
 
 use super::*;
 
+#[path = "../../tests/support/mock_pds.rs"]
+pub(crate) mod mock_pds;
+
 /// jacquard's message can leave out why (a request's "storage error"): a refused sign-in
 /// says its causes too, each once.
 #[test]
@@ -79,9 +82,8 @@ fn hosted_metadata_is_a_native_public_client() {
     assert_eq!(m["client_uri"], "https://locallibrary.example");
     assert_eq!(
         m["scope"],
-        "atproto repo:computer.localnetwork.dj.profile?action=create&action=update \
-             repo:computer.localnetwork.dj.set?action=create&action=update \
-             repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
+        "atproto blob:audio/* include:computer.localnetwork.locallibraryPublishing \
+         repo:app.userinput.discussion?action=create"
     );
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
 }
@@ -90,19 +92,37 @@ fn hosted_metadata_is_a_native_public_client() {
 fn the_published_document_allows_publishing() {
     let doc = client_metadata(CLIENT_ID, &[]).unwrap();
     assert_eq!(check_document(&doc, CLIENT_ID, &publish_scopes()), Ok(()));
-    let publish: Vec<String> =
-        lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
+    // Sets and their recordings may be deleted too (`sets delete`), which a server writes as the
+    // bare `repo:<nsid>`.
+    let deletes = |c: &str| [lexicon::SET, lexicon::RECORDING].contains(&c);
+    let mut publish: Vec<String> = lexicon::COLLECTIONS
+        .iter()
+        .map(|&c| if deletes(c) { format!("repo:{c}") } else { format!("repo:{c}?action=create&action=update") })
+        .collect();
+    publish.push(format!("rpc:{}", directory::REQUEST_INDEX));
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
-    // Each is a scope jacquard understands, written the way it writes them back.
+    // The server grants the permission set's scopes in its place: these, each one jacquard
+    // understands, written the way it writes them back (the `rpc` one without its `aud=*`).
+    let granted = mock_pds::granted(&publish_scopes());
+    assert!(granted.contains(&"rpc:computer.localnetwork.directory.requestIndex?aud=*".to_string()), "{granted:?}");
+    let mut written: Vec<String> = scopes(&granted).unwrap().iter().map(|s| s.to_string()).collect();
+    let mut want = [&PUBLISH_SCOPES[..], &["atproto", UPLOAD_SCOPE]].concat();
+    written.sort();
+    want.sort();
+    assert_eq!(written, want);
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
-    // Creating and replacing, and nothing more: not deleting.
-    let granted = scopes(&publish_scopes()).unwrap();
+    // Creating and replacing, and nothing more: deleting only sets and their recordings.
+    let granted = scopes(&granted).unwrap();
     for c in lexicon::COLLECTIONS {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
-        assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
+        assert_eq!(granted.grants(&Scope::repo_delete(c).unwrap()), deletes(c), "{c}");
     }
+    assert!(!granted.grants(&Scope::repo_create("app.example.thing").unwrap()));
+    // A service token for asking the directory to read them again, and for no other method.
+    assert!(granted.grants(&Scope::rpc(directory::REQUEST_INDEX).unwrap()));
+    assert!(!granted.grants(&Scope::rpc("com.atproto.server.createAccount").unwrap()));
 }
 
 pub(crate) fn signed_in_with(scopes: &[&str]) -> AccountInfo {
@@ -125,10 +145,14 @@ fn writing_a_record_needs_its_scope() {
     let settings = lexicon::SETTINGS;
     let needed = Some(format!("repo:{settings}?action=create&action=update"));
     assert_eq!(missing_scope(&signed_in_with(&["atproto"]), settings), needed);
-    let all = publish_scopes();
+    let all = mock_pds::granted(&publish_scopes());
     let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    // The set's name grants nothing by itself: only what the server granted in its place.
+    let asked = publish_scopes();
+    let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
     for c in lexicon::COLLECTIONS {
         assert_eq!(missing_scope(&signed_in_with(&all), c), None, "{c}");
+        assert!(missing_scope(&signed_in_with(&asked), c).is_some(), "{c}");
     }
     // Creating isn't enough: publishing again replaces the record.
     let create_only = format!("repo:{settings}?action=create");
@@ -217,15 +241,7 @@ fn a_saved_session_keeps_its_secrets_apart_and_signing_out_removes_it() {
     assert!(!root.join(store::SECRETS_FILE).exists());
 }
 
-/// Keychain items go to an in-memory keychain in this test binary, never the computer's.
-pub(crate) fn mock_keychain() {
-    static MOCK: std::sync::Once = std::sync::Once::new();
-    MOCK.call_once(|| {
-        // keyring sets the system's keychain as the default the first time it's used.
-        let _ = keyring::Entry::store_status();
-        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
-    });
-}
+pub(crate) use crate::keychain::tests::mock_keychain;
 
 /// The mock keychain's next answer for `did`'s item in the store at `root` is an error.
 pub(crate) fn keychain_fails(root: &Path, did: &str) {
@@ -295,7 +311,7 @@ fn waiting_at(root: &Path, state: &str, authserver: &str, public_only: bool) -> 
         },
     };
     block_on(ClientAuthStore::save_auth_req_info(&store, &request)).unwrap();
-    let (listener, redirect) = callback::bind().unwrap();
+    let (listener, redirect) = callback::bind(0).unwrap();
     let config = client_config(&Client::Loopback, &redirect, scopes(&[]).unwrap()).unwrap();
     let pending = Pending {
         oauth: oauth(store, config, public_only).unwrap(),
@@ -604,8 +620,8 @@ fn sessions_last_until_they_have_to_be_renewed() {
     assert!(missing_scope(&signed_in_with(&["atproto", "transition:generic"]), "not an nsid").is_none());
     assert_eq!(missing_scope(&info, "not an nsid").as_deref(), Some("repo:not an nsid?action=create&action=update"));
     // Scopes the document lists anyway aren't listed twice.
-    let doc = client_metadata(CLIENT_ID, &["atproto".into(), PUBLISH_SCOPES[0].into()]).unwrap();
-    assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), 1 + PUBLISH_SCOPES.len());
+    let doc = client_metadata(CLIENT_ID, &[publish_scopes(), vec![REPORT_SCOPE.into()]].concat()).unwrap();
+    assert_eq!(doc["scope"], client_metadata(CLIENT_ID, &[]).unwrap()["scope"]);
     let doc = client_metadata(CLIENT_ID, &["repo:app.example.thing".into()]).unwrap();
     assert!(doc["scope"].as_str().unwrap().split(' ').any(|s| s == "repo:app.example.thing"));
 }
@@ -632,28 +648,24 @@ fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
     if other_id {
         doc["client_id"] = "https://other.example/oauth-client-metadata.json".into();
     }
-    let kind = tc.draw(
-        gs::sampled_from(vec![serde_json::json!("native"), serde_json::json!("web"), serde_json::Value::Null])
-            .print_as_debug(),
-    );
+    let kind =
+        tc.draw(gs::sampled_from(vec![serde_json::json!("native"), serde_json::json!("web"), serde_json::Value::Null]));
     doc["application_type"] = kind.clone();
-    let redirects = tc.draw(
-        gs::sampled_from(vec![
-            serde_json::json!(["http://127.0.0.1/callback"]),
-            serde_json::json!(["http://127.0.0.1:8080/callback", "http://127.0.0.1/callback"]),
-            serde_json::json!(["https://example.com/callback"]),
-            serde_json::json!([]),
-            serde_json::Value::Null,
-        ])
-        .print_as_debug(),
-    );
+    let redirects = tc.draw(gs::sampled_from(vec![
+        serde_json::json!(["http://127.0.0.1/callback"]),
+        serde_json::json!(["http://127.0.0.1:8080/callback", "http://127.0.0.1/callback"]),
+        serde_json::json!(["https://example.com/callback"]),
+        serde_json::json!([]),
+        serde_json::Value::Null,
+    ]));
     doc["redirect_uris"] = redirects.clone();
     let mut allowed: Vec<String> = doc["scope"].as_str().unwrap().split(' ').map(String::from).collect();
     if let Some(i) = tc.draw(gs::optional(gs::integers::<usize>().max_value(allowed.len() - 1))) {
         allowed.remove(i);
         doc["scope"] = allowed.join(" ").into();
     }
-    let pool = vec!["atproto", "transition:generic", "repo:app.example.thing", PUBLISH_SCOPES[0], PUBLISH_SCOPES[2]];
+    let include = format!("include:{PUBLISH_SET}").leak();
+    let pool = vec!["atproto", "transition:generic", "repo:app.example.thing", include, PUBLISH_SCOPES[2]];
     let requested: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(pool)).max_size(4)).into_iter().map(String::from).collect();
 
@@ -680,6 +692,7 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
         ("transition:generic", true),
         ("repo:app.example.thing", true),
         (PUBLISH_SCOPES[0], true),
+        (format!("include:{PUBLISH_SET}").leak(), true),
         ("foo:bar", false),
         ("repo:app.example.thing?action=publish", false),
     ];
@@ -708,7 +721,8 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
 fn clients_are_introduced_as_they_should_be(tc: TestCase) {
     let port = tc.draw(gs::integers::<u16>().min_value(1));
     let redirect = format!("http://127.0.0.1:{port}{CALLBACK_PATH}");
-    let extra = tc.draw(gs::optional(gs::sampled_from(vec!["transition:generic", PUBLISH_SCOPES[1]])));
+    let include: &str = format!("include:{PUBLISH_SET}").leak();
+    let extra = tc.draw(gs::optional(gs::sampled_from(vec!["transition:generic", include])));
     let asked: Vec<String> = ["atproto"].into_iter().chain(extra).map(String::from).collect();
     let c = client_config(&Client::Loopback, &redirect, scopes(&asked).unwrap()).unwrap();
     let id = c.client_id.as_str();
@@ -913,21 +927,17 @@ enum Says {
 /// account named.
 #[hegel::test(test_cases = 40)]
 fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let says = tc.draw(
-        gs::sampled_from(vec![
-            Says::Handle,
-            Says::NoHandle,
-            Says::Unauthorized,
-            Says::TokenRefused,
-            Says::Expired,
-            Says::Refused,
-            Says::Unreachable,
-            Says::Down,
-        ])
-        .print_as_debug(),
-    );
+    let says = tc.draw(gs::sampled_from(vec![
+        Says::Handle,
+        Says::NoHandle,
+        Says::Unauthorized,
+        Says::TokenRefused,
+        Says::Expired,
+        Says::Refused,
+        Says::Unreachable,
+        Says::Down,
+    ]));
     let revocation: Option<u16> = tc.draw(gs::optional(gs::sampled_from(vec![200u16, 204, 500])));
     let known = tc.draw(gs::optional(gs::sampled_from(vec!["before.example.com".to_string()])));
 
@@ -1043,4 +1053,73 @@ fn only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
     assert!(err.contains(said), "{query}: {err}");
     assert_eq!(status(dir.path()).unwrap(), None, "nobody signed in");
     assert!(!cancel_login(&id), "finished either way");
+}
+
+/// A saved account whose DID or redirect address isn't one any more (the file was edited, or
+/// damaged) can't be used, whatever it says instead: checking it says which is no good (the
+/// address first), before anything is sent; signing out still removes it, revoking nothing.
+#[hegel::test(test_cases = 30)]
+fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
+    // Anything not starting `did:` isn't a DID, nor is `did:` with no method or identifier.
+    let did: Option<String> = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec!["", "did:", "did:plc:", "did:plc", "plc:abc", " did:plc:abc"]).map(String::from),
+        gs::text().max_size(16).filter(|s: &String| !s.starts_with("did:"))
+    )));
+    let redirect: Option<&str> = tc.draw(gs::optional(gs::sampled_from(vec!["", "not a url", "http://[::1", "%%"])));
+    tc.assume(did.is_some() || redirect.is_some());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    crate::store::Store::open_or_init(root).unwrap();
+    save_session(root, "did:plc:abc", &server, "atproto transition:generic");
+    let mut file = AccountFile::load(root).unwrap();
+    let account = file.account.as_mut().unwrap();
+    if let Some(d) = &did {
+        account.info.did = d.clone();
+    }
+    if let Some(r) = redirect {
+        account.redirect_uri = r.to_string();
+    }
+    file.save(root).unwrap();
+
+    let err = check(root, &Ctx::silent()).unwrap_err();
+    let text = err.to_string();
+    match redirect {
+        Some(r) => {
+            assert_eq!(err.code(), "invalid", "{text}");
+            assert!(text.starts_with(&format!("{r:?} isn't a URL")), "{text}");
+        }
+        None => {
+            assert_eq!(err.code(), "account", "{text}");
+            assert!(text.starts_with("stored DID: "), "{did:?}: {text}");
+        }
+    }
+    assert!(listener.accept().is_err(), "nothing was sent");
+    let kept = did.clone().unwrap_or_else(|| "did:plc:abc".into());
+    assert_eq!(status(root).unwrap().map(|i| i.did), Some(kept), "kept until signing out");
+    let out = logout(root).unwrap();
+    assert!(out.account.is_some() && !out.revoked, "{out:?}");
+    assert_eq!(status(root).unwrap(), None);
+}
+
+#[test]
+fn signing_in_again_keeps_what_the_session_may_do() {
+    let report = || REPORT_SCOPE.to_string();
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto"])), ["atproto"]);
+    let publishing = mock_pds::granted(&publish_scopes());
+    let publishing: Vec<&str> = publishing.iter().map(String::as_str).collect();
+    assert_eq!(kept_scopes(&signed_in_with(&publishing)), publish_scopes());
+    // Granted before the set covered recordings, it still publishes.
+    let older: Vec<&str> = publishing.iter().copied().filter(|s| !s.contains(lexicon::RECORDING)).collect();
+    assert_eq!(kept_scopes(&signed_in_with(&older)), publish_scopes());
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), ["atproto".to_string(), report()]);
+    let both = [&publishing[..], &[REPORT_SCOPE]].concat();
+    assert_eq!(kept_scopes(&signed_in_with(&both)), [publish_scopes(), vec![report()]].concat());
+    // locallibrary's document allows a sign-in that keeps them all.
+    let doc = client_metadata(CLIENT_ID, &[]).unwrap();
+    assert_eq!(check_document(&doc, CLIENT_ID, &kept_scopes(&signed_in_with(&both))), Ok(()));
+    // Only a bug report asks for its scope: signing in and publishing don't.
+    assert!(!publish_scopes().contains(&report()) && !DEFAULT_SCOPES.contains(&REPORT_SCOPE));
 }

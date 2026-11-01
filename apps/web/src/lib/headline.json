@@ -1,0 +1,18 @@
+{
+	"$schema": "./headline.schema.json",
+	"verbs": [
+		"Find",
+		"Discover",
+		"Dig up",
+		"Uncover",
+		"Meet",
+		"Catch",
+		"Go see",
+		"Hear",
+		"Dance to",
+		"Follow",
+		"Support",
+		"Hype up"
+	],
+	"nouns": ["DJ", "resident", "opener", "headliner", "selector", "b2b duo", "crew", "collective"]
+}

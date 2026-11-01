@@ -41,8 +41,7 @@ fn moves_and_inserts_read_as_written(tc: TestCase) {
 fn marks_say_what_sets_an_entry_apart(tc: TestCase) {
     let mut e: SetEntry = serde_json::from_value(json!({"title": "T", "artist": "A", "origin": "session"})).unwrap();
     e.unnamed = tc.draw(gs::booleans());
-    e.origin = [EntryOrigin::Session, EntryOrigin::Added, EntryOrigin::Recording]
-        [tc.draw(gs::integers::<usize>().max_value(2))];
+    e.origin = tc.draw(gs::sampled_from(&[EntryOrigin::Session, EntryOrigin::Added, EntryOrigin::Recording][..]));
     let m = marks(&e);
     assert_eq!(m.contains("unnamed"), e.unnamed, "{m:?}");
     assert_eq!(m.contains("added"), e.origin == EntryOrigin::Added, "{m:?}");
@@ -61,4 +60,38 @@ fn marks_say_what_sets_an_entry_apart(tc: TestCase) {
         })
         .collect();
     played("Title", &found);
+}
+
+/// Positions (`3`, `1-2`, `1-2,30`, with spaces around any number) read as every position they
+/// name, in the order written. A part that isn't a number or a range of them is refused quoting
+/// the whole list, and a range that runs backwards is refused quoting the range.
+#[hegel::test(test_cases = 200)]
+fn positions_read_as_every_one_they_name(tc: TestCase) {
+    let pad = |tc: &TestCase| tc.draw(gs::sampled_from(&["", " "][..]));
+    let (mut parts, mut want) = (Vec::new(), Vec::new());
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+        let from = tc.draw(gs::integers::<usize>().max_value(40));
+        let span = tc.draw(gs::integers::<usize>().max_value(3));
+        let (before, after) = (pad(&tc), pad(&tc));
+        parts.push(match span {
+            0 => format!("{before}{from}{after}"),
+            _ => format!("{before}{from}{after}-{before}{}{after}", from + span),
+        });
+        want.extend(from..=from + span);
+    }
+    let list = parts.join(",");
+    assert_eq!(positions(&list).map(|p| p.0), Ok(want), "{list:?}");
+
+    let at = tc.draw(gs::integers::<usize>().max_value(parts.len() - 1));
+    let backwards = tc.draw(gs::booleans());
+    parts[at] = match backwards {
+        true => "9-3".to_string(),
+        false => tc.draw(gs::sampled_from(&["x", "", "4-", "-4", "2x", "1-2-3", "one-2"][..])).to_string(),
+    };
+    let list = parts.join(",");
+    let Err(refused) = positions(&list) else { panic!("{list:?} read") };
+    match backwards {
+        true => assert_eq!(refused, "\"9-3\" runs backwards: give it like 1-2"),
+        false => assert!(refused.starts_with(&format!("{list:?} isn't a list of positions")), "{refused}"),
+    }
 }

@@ -80,7 +80,7 @@ pub fn export_playlist(store: Option<&Store>, req: &ExportPlaylist, ctx: &Ctx<'_
             vec![Selection { name: list.path.clone(), file, tracks: list.tracks.iter().collect::<Vec<&Track>>() }]
         }
         None => {
-            library = crate::convert::combined_library(&d)?;
+            library = crate::convert::export_library(&d)?;
             export::select(&library, req.playlist.as_deref(), req.split, &d.name())?
         }
     };

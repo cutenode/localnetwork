@@ -15,6 +15,31 @@ pub use crate::files::copy_dir;
 
 pub const PDB: &str = "PIONEER/rekordbox/export.pdb";
 
+/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence, as a WAV.
+pub fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
+    use loclib_mixid::test_util::{resample, synth, wav_of};
+    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
+    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
+    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
+    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
+}
+
+/// loclib-plugin's echo plugin, which the plugin host's test plugin is, with its export format
+/// renamed: `m3u` is one of locallibrary's.
+#[cfg(debug_assertions)]
+pub fn echo_plugin() -> String {
+    const ECHO: &str = include_str!("../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
+    ECHO.replace("format = \"m3u\"", "format = \"echo-m3u\"")
+}
+
+/// A JPEG, of `side` pixels square.
+pub fn jpeg(side: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 128]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
+    out.into_inner()
+}
+
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")
@@ -37,7 +62,10 @@ pub fn demo_drive(dir: &Path, name: &str) -> PathBuf {
     for t in &Database::from_file(root.join(PDB)).unwrap().tracks {
         let p = root.join(t.file_path().trim_start_matches('/'));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
+        std::fs::write(&p, format!("audio {}", t.title()).repeat(100)).unwrap();
+        // From long before any pull, as a drive's audio is: a snapshot taken within FAT's 2 s of
+        // a file's mtime can't tell damage from a rewrite since.
+        filetime::set_file_mtime(&p, filetime::FileTime::from_unix_time(1_790_000_000, 0)).unwrap();
     }
     root
 }
@@ -104,6 +132,10 @@ pub struct Env {
     ascii: bool,
     /// The commands get a home folder of their own ([`Env::home`]).
     own_home: bool,
+    /// The plugins the commands have besides locallibrary's (see [`Env::plugins`]).
+    plugins: Vec<PathBuf>,
+    /// Where the commands find Local Network's directory and website ([`Env::with_directory`]).
+    directory: Option<String>,
 }
 
 impl Env {
@@ -113,14 +145,22 @@ impl Env {
         let root = dunce_canonicalize(dir.path());
         let volumes = root.join("volumes");
         std::fs::create_dir(&volumes).unwrap();
-        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false }
+        Env {
+            _dir: dir,
+            volumes,
+            store: root.join("store"),
+            ascii: false,
+            own_home: false,
+            plugins: Vec::new(),
+            directory: None,
+        }
     }
 
     /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
     /// adopted; Blank, [`blank_drive`]) and a store, made once and written out for each test case
     /// of a property test; and a home folder of the commands' own with a cover image in it
-    /// (`cover.png`), so nothing of the person running the tests (rekordbox's settings and
-    /// collection) is read.
+    /// (`cover.png`) and a file `settings export` wrote (`settings.json`), so nothing of the
+    /// person running the tests (rekordbox's settings and collection) is read.
     pub fn from_template() -> Env {
         static TEMPLATE: OnceLock<Template> = OnceLock::new();
         let template = TEMPLATE.get_or_init(|| {
@@ -134,6 +174,13 @@ impl Env {
         template.write(env.volumes.parent().unwrap());
         std::fs::create_dir(env.outside("home")).unwrap();
         image::RgbImage::new(8, 8).save(env.home("cover.png")).unwrap();
+        let settings = json!({
+            "version": 1,
+            "my_settings": { "base": { "quantize": "off" } },
+            "player": { "theme": "themes.night" },
+            "plugins": { "sound": { "keys.analyze": "a" } }
+        });
+        std::fs::write(env.home("settings.json"), settings.to_string()).unwrap();
         env
     }
 
@@ -180,8 +227,38 @@ impl Env {
         root
     }
 
+    /// The commands have these plugins too: manifests the plugin host's test plugin serves
+    /// (`LOCALLIBRARY_TEST_PLUGINS`), written beside the drives. Only in builds with debug
+    /// assertions, which serve it.
+    #[cfg(debug_assertions)]
+    pub fn plugins(&mut self, manifests: &[&str]) {
+        self.plugins = manifests
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let file = self.outside(&format!("plugin-{i}.toml"));
+                std::fs::write(&file, m).unwrap();
+                file
+            })
+            .collect();
+    }
+
+    /// The commands find Local Network's directory and website at `url` (a pretend data server,
+    /// which stands in for both), not nowhere.
+    #[cfg(feature = "account")]
+    pub fn with_directory(mut self, url: &str) -> Env {
+        self.directory = Some(url.to_string());
+        self
+    }
+
     pub fn command(&self) -> Command {
         let mut c = crate::locallibrary(&self.store, &[&self.volumes]);
+        if let Some(url) = &self.directory {
+            c.env("LOCALLIBRARY_HAPPYVIEW_URL", url).env("LOCALLIBRARY_WEBSITE_URL", url);
+        }
+        if !self.plugins.is_empty() {
+            c.env("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(&self.plugins).unwrap());
+        }
         if self.ascii {
             c.arg("--ascii");
         }
@@ -219,6 +296,20 @@ impl Env {
     /// stdout of a run that succeeds.
     pub fn ok(&self, args: &[&str]) -> String {
         self.exits(0, args)
+    }
+
+    /// `args` run with a terminal for stdin, on which `typed` was typed ahead (stdout and stderr
+    /// piped, so it isn't a terminal for output).
+    #[cfg(all(unix, feature = "account"))]
+    pub fn typed_ahead(&self, args: &[&str], typed: &str) -> Run {
+        let (mut keyboard, stdin) = terminal();
+        keyboard.write_all(typed.as_bytes()).unwrap();
+        let out = self.command().args(args).stdin(Stdio::from(stdin)).output().unwrap();
+        Run {
+            out: String::from_utf8(out.stdout).unwrap(),
+            err: String::from_utf8(out.stderr).unwrap(),
+            code: out.status.code().unwrap(),
+        }
     }
 
     /// `--json` output of a run that succeeds.
@@ -262,6 +353,8 @@ pub struct Rpc {
     child: Child,
     stdin: Option<ChildStdin>,
     lines: Lines<BufReader<ChildStdout>>,
+    /// The `event` notifications [`Rpc::call`] read past, for [`Rpc::event`].
+    events: Vec<Value>,
 }
 
 impl Rpc {
@@ -269,7 +362,13 @@ impl Rpc {
         let mut child = command.arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let stdin = child.stdin.take();
         let lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        Rpc { child, stdin, lines }
+        Rpc { child, stdin, lines, events: Vec::new() }
+    }
+
+    /// For signalling it, which only Unix tests do.
+    #[cfg(all(unix, debug_assertions))]
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     /// The response to request `id` (events and other responses before it are skipped). With
@@ -284,6 +383,23 @@ impl Rpc {
             let v: Value = serde_json::from_str(&self.lines.next().expect("a response").unwrap()).unwrap();
             if v["id"] == id {
                 return v;
+            }
+            if v["method"] == "event" {
+                self.events.push(v["params"].clone());
+            }
+        }
+    }
+
+    /// The params of the first `event` notification `wanted`, read past already or still to
+    /// come (the others are dropped).
+    pub fn event(&mut self, wanted: impl Fn(&Value) -> bool) -> Value {
+        if let Some(i) = self.events.iter().position(&wanted) {
+            return self.events.remove(i);
+        }
+        loop {
+            let v: Value = serde_json::from_str(&self.lines.next().expect("an event").unwrap()).unwrap();
+            if v["method"] == "event" && wanted(&v["params"]) {
+                return v["params"].clone();
             }
         }
     }
@@ -302,6 +418,8 @@ pub fn end(child: &mut Child, grace: std::time::Duration) {
 
 /// A child process ended (and waited for) when it's dropped, so a test that fails or is stopped
 /// part way leaves nothing of it running.
+// Only props_cli_asked, which is Unix-only, uses it so far.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub struct Running(pub Child);
 
 impl Drop for Running {
@@ -344,6 +462,39 @@ pub fn terminal() -> (std::fs::File, std::os::fd::OwnedFd) {
     unsafe { (std::fs::File::from_raw_fd(ours), std::os::fd::OwnedFd::from_raw_fd(theirs)) }
 }
 
+/// `command` run with its stdout a terminal of its own (of `size`, if given): how it exited, and
+/// what the terminal was shown.
+#[cfg(unix)]
+pub fn shown_in_a_terminal(command: &mut Command, size: Option<libc::winsize>) -> (std::process::ExitStatus, String) {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    // Written after everything the command wrote, once it has exited.
+    const END: &[u8] = b"<the command has exited>";
+    let (mut screen, stdout) = terminal();
+    if let Some(size) = size {
+        // SAFETY: TIOCSWINSZ only reads the size given, for a terminal this opened.
+        assert_eq!(unsafe { libc::ioctl(stdout.as_raw_fd(), libc::TIOCSWINSZ, &size) }, 0);
+    }
+    // Reading to the end of the terminal would lose output: on macOS, the last close of a terminal
+    // drops what hasn't been read yet, and the command's exit can come before its last write is
+    // read. So the terminal stays open here, and reading stops at a mark written after the command
+    // (and its pager) have exited.
+    let mut ours = std::fs::File::from(stdout.try_clone().unwrap());
+    let mut child = command.stdout(Stdio::from(stdout)).spawn().unwrap();
+    let exited = std::thread::spawn(move || {
+        let status = child.wait().unwrap();
+        ours.write_all(END).unwrap();
+        status
+    });
+    let (mut shown, mut buf) = (Vec::new(), [0; 4096]);
+    while !shown.ends_with(END) {
+        let n = screen.read(&mut buf).unwrap();
+        shown.extend_from_slice(&buf[..n]);
+    }
+    shown.truncate(shown.len() - END.len());
+    (exited.join().unwrap(), String::from_utf8_lossy(&shown).into_owned())
+}
+
 /// Sets `path`'s permission bits.
 #[cfg(unix)]
 pub fn set_mode(path: &Path, mode: u32) {
@@ -375,13 +526,10 @@ pub mod account {
     pub use crate::session::DID;
     use crate::session::{session_json, sign_in_as};
 
-    /// Permission to publish locallibrary's records.
-    pub const PUBLISHING: [&str; 4] = [
-        "atproto",
-        "repo:computer.localnetwork.locallibrary.settings",
-        "repo:computer.localnetwork.dj.profile",
-        "repo:computer.localnetwork.dj.set",
-    ];
+    /// What a sign-in that allows publishing asks for: locallibrary's permission set, and to upload
+    /// audio files.
+    pub const PUBLISHING: [&str; 3] =
+        ["atproto", "include:computer.localnetwork.locallibraryPublishing", "blob:audio/*"];
 
     /// A P-256 key made for these tests: it signs nothing but proofs sent to the pretend server.
     pub fn test_key() -> Value {
@@ -394,23 +542,25 @@ pub mod account {
         })
     }
 
-    /// Sign `DID` (@dj.example.com) in at `pds` with [`test_key`], allowing `scopes`, with the
-    /// store at `store`, in place of whoever was (signing in over an account kept in the keychain
-    /// would remove its keychain entry). `info` replaces what the account's details say (when to
+    /// Sign `DID` (@dj.example.com) in at `pds` with [`test_key`], asking for `scopes` and granted
+    /// them as a server grants them ([`crate::mock_pds::granted`]), with the store at `store`, in
+    /// place of whoever was (signing in over an account kept in the keychain would remove its
+    /// keychain entry). `info` replaces what the account's details say (when to
     /// sign in again, the client, where the session is kept).
     pub fn sign_in(store: &Path, pds: &str, scopes: &[&str], info: Value) {
         let _ = std::fs::remove_file(store.join(ACCOUNT_FILE));
+        let granted = crate::mock_pds::granted(scopes);
         let mut session =
-            session_json(DID, "s1", pds, &scopes.join(" "), Some("refresh-1"), "2099-01-01T00:00:00.000Z");
+            session_json(DID, "s1", pds, &granted.join(" "), Some("refresh-1"), "2099-01-01T00:00:00.000Z");
         session["dpop_key"] = test_key();
         sign_in_as(store, session);
         let mut file = AccountFile::load(store).unwrap();
         let account = file.account.as_mut().unwrap();
         account.requested_scopes = scopes.iter().map(|s| s.to_string()).collect();
         let mut details = serde_json::to_value(&account.info).unwrap();
+        // The granted scopes stay as locallibrary saved them from the session: as jacquard writes them.
         let said = json!({
             "handle": "dj.example.com",
-            "scopes": scopes,
             "signed_in_at": "2026-10-05T00:00:00Z",
             "sign_in_again_by": "2099-01-01T00:00:00Z",
             "access_expires_at": null,

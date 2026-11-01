@@ -1,45 +1,43 @@
 <script lang="ts">
 	let { status }: { status: string } = $props();
 
-	const waiting = 'bg-ansi-yellow text-ansi-black';
+	// Subtle fills by meaning; each text colour stays above 4.5:1 on its own fill over any surface.
+	const good = 'bg-good/15 text-good';
 
-	const pushback = 'bg-ansi-brown text-ansi-white';
+	const warning = 'bg-warning/15 text-warning';
 
-	const good = 'bg-ansi-green text-ansi-black';
+	const critical = 'bg-critical/15 text-critical';
 
-	const bad = 'bg-ansi-red text-ansi-white';
+	const info = 'bg-link/15 text-link';
 
-	const inactive = 'bg-ansi-dark text-ansi-white';
-
-	const info = 'bg-ansi-cyan text-ansi-black';
+	const neutral = 'bg-well text-fg-muted';
 
 	const styles = new Map(
 		Object.entries({
-			pending: waiting,
-			changes_requested: pushback,
 			approved: good,
-			rejected: bad,
-			withdrawn: inactive,
 			active: good,
-			hidden: waiting,
-			archived: inactive,
-			open: info,
-			negotiating: 'bg-ansi-magenta text-ansi-white',
 			confirmed: good,
-			declined: bad,
-			cancelled: inactive,
 			success: good,
-			failure: bad,
-			denied: pushback,
-			written: info,
 			verified: good,
-			failed: bad,
-			self: inactive,
-			unsupported: inactive
+			listed: good,
+			pending: warning,
+			hidden: warning,
+			negotiating: warning,
+			changes_requested: warning,
+			denied: warning,
+			outdated: warning,
+			rejected: critical,
+			declined: critical,
+			failure: critical,
+			failed: critical,
+			open: info,
+			written: info
 		})
 	);
 
-	const labels = new Map(Object.entries({ changes_requested: 'changes requested', self: 'root is actor', unsupported: 'no spaces support' }));
+	const labels = new Map(Object.entries({ changes_requested: 'Changes requested', self: 'Root is actor', unsupported: 'No spaces support', outdated: 'Out of date', unverified: 'Not verified' }));
+
+	const label = $derived(labels.get(status) ?? status.charAt(0).toUpperCase() + status.slice(1));
 </script>
 
-<span class="pill {styles.get(status) ?? inactive}">{labels.get(status) ?? status}</span>
+<span class="pill {styles.get(status) ?? neutral}">{label}</span>

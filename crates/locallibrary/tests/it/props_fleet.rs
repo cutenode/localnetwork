@@ -8,7 +8,7 @@ use crate::common;
 use indexmap::IndexMap;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role};
@@ -75,7 +75,7 @@ fn the_registry_matches_the_model(tc: TestCase) {
     }
 
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(12)) {
-        let i = tc.draw(gs::integers::<usize>().max_value(2));
+        let i = tc.draw(gs::integers::<usize>().max_value(ids.len() - 1));
         let id = ids[i];
         match tc.draw(gs::integers::<u8>().max_value(7)) {
             0 => {
@@ -99,7 +99,7 @@ fn the_registry_matches_the_model(tc: TestCase) {
                     Some(Role::Archive),
                     None,
                 ];
-                let role = tc.draw(gs::sampled_from(roles).print_as_debug());
+                let role = tc.draw(gs::sampled_from(roles));
                 let r = fleet::set_role(&store, id, role);
                 match model[&id].registered {
                     false => assert!(r.is_err()),

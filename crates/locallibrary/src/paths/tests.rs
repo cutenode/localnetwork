@@ -52,6 +52,21 @@ fn what_players_and_rekordbox_keep_for_a_drive_stays_with_it() {
     assert_eq!(classify("PIONEER/LOGS/x"), Some(FileClass::Other));
 }
 
+/// OS clutter is told by its name in any letter case, as the drives' file systems ignore it
+/// (Windows writes `$Recycle.Bin`), with what `drive tidy` removes it as.
+#[test]
+fn clutter_is_told_in_any_case() {
+    for name in ["$Recycle.Bin", "THUMBS.DB", "Desktop.ini", ".ds_store", "system volume information"] {
+        assert!(is_ignored_name(name), "{name}");
+    }
+    assert!(!is_ignored_name("Desktop") && !is_ignored_name("Thumbs.db.mp3"));
+    assert_eq!(classify("Contents/A/thumbs.db"), None);
+    assert_eq!(clutter_kind("$Recycle.Bin"), Some(TidyKind::Trash));
+    assert_eq!(clutter_kind(".SPOTLIGHT-V100"), Some(TidyKind::Spotlight));
+    assert_eq!(clutter_kind("desktop.ini"), None);
+    assert_eq!(clutter_kind(SYSTEM_VOLUME_INFORMATION), None);
+}
+
 #[test]
 fn unsafe_keys() {
     for bad in [
@@ -79,7 +94,6 @@ fn unsafe_keys() {
 /// profile's, and anything under OS clutter or locallibrary's own folder isn't managed.
 #[hegel::test(test_cases = 300)]
 fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let shout = |s: &str, tc: &hegel::TestCase| -> String {
         s.chars()
@@ -102,7 +116,7 @@ fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
         ("other/x", Some(FileClass::Other)),
         ("README.TXT", Some(FileClass::Other)),
     ];
-    let (rest, want) = tc.draw(gs::sampled_from(rows.to_vec()).print_as_debug());
+    let (rest, want) = tc.draw(gs::sampled_from(rows.to_vec()));
     // The case-sensitive folders (rekordbox's own, USBANLZ...) are written as rekordbox writes them.
     let (dir, name) = rest.split_once('/').unwrap_or(("", rest));
     let fixed_dir = matches!(dir, "rekordbox" | "USBANLZ" | "Artwork" | "DeviceLibBackup" | "extracted" | "other");

@@ -14,7 +14,8 @@ fn the_identifier_is_built_once_and_waiting_for_it_can_be_cancelled() {
     let cached = CachedLibrary {
         root: dir.path().into(),
         stamp: LibraryStamp::of(dir.path()),
-        library: Library::default(),
+        library: Arc::default(),
+        combined: Mutex::default(),
         tags: Mutex::default(),
         tags_by_track: Mutex::default(),
         identifier: Mutex::default(),
@@ -65,7 +66,8 @@ fn requests_waiting_for_the_identifier_share_one_build(tc: hegel::TestCase) {
     let cached = CachedLibrary {
         root: dir.path().into(),
         stamp: LibraryStamp::of(dir.path()),
-        library: Library::default(),
+        library: Arc::default(),
+        combined: Mutex::default(),
         tags: Mutex::default(),
         tags_by_track: Mutex::default(),
         identifier: Mutex::default(),

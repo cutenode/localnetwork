@@ -4,15 +4,19 @@ import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { type HappyView, startHappyView } from '../../scripts/lib/happyview.ts';
+import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
-import { grantsAll } from '../../src/lib/server/atproto/oauth.ts';
+import { grantsPublicRecords, grantsSpaces, type OptionalScope } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
-import { type App, createApp } from '../../src/lib/server/app.ts';
+import { type App, createApp, type CreateAppOptions } from '../../src/lib/server/app.ts';
 import { loadConfig } from '../../src/lib/server/config.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
 import type { Viewer } from '../../src/lib/types.ts';
 
 export type TestUser = { did: string; handle: string; client: RepoClient; agent: AtpAgent };
+
+/** What a test sign-in asks for besides the app's own sign-in: other scopes `requested` instead, or `extra` ones too. */
+type ScopeRequest = { requested?: string; optional?: OptionalScope; state?: string };
 
 /**
  * A real atproto network: in-process, a PLC directory and an alpha PDS with
@@ -32,7 +36,10 @@ export class TestNetwork {
 		readonly app: App
 	) {}
 
-	static async create(names: string[], options: { admins?: string[]; oauth?: string[] } = {}): Promise<TestNetwork> {
+	static async create(
+		names: string[],
+		options: { admins?: string[]; oauth?: string[]; listingSources?: CreateAppOptions['listingSources'] } = {}
+	): Promise<TestNetwork> {
 		const plc = await TestPlc.create({});
 		const pds = await TestPds.create({ didPlcUrl: plc.url, inviteRequired: false });
 		mockNetworkUtilities([pds]);
@@ -50,6 +57,13 @@ export class TestNetwork {
 		// declarations it needs to grant the app's OAuth scopes.
 		pds.ctx.cfg.lexicon.didAuthority = asDid(root.data.did);
 		await publishLexicons(rootAgent);
+
+		const { data: userinputSpace } = await rootAgent.com.atproto.repo.createRecord({
+			repo: root.data.did,
+			collection: USERINPUT.space,
+			record: { $type: USERINPUT.space, name: 'Local Network', createdAt: new Date().toISOString() }
+		});
+
 		const users = new Map<string, TestUser>();
 
 		for (const name of names) {
@@ -75,14 +89,16 @@ export class TestNetwork {
 			ADMIN_DIDS: (options.admins ?? []).map((name) => users.get(name)!.did).join(','),
 			SYNC_NOTIFY: 'false',
 			GEOCODER: 'none',
-			AUDIT_MAX_ATTEMPTS: '3'
+			AUDIT_MAX_ATTEMPTS: '3',
+			USERINPUT_SPACE: userinputSpace.uri
 		});
 
 		const app = await createApp({
 			config,
 			logger: silentLogger,
 			userClient: async (did) => [...users.values()].find((user) => user.did === did)?.client ?? null,
-			background: false
+			background: false,
+			listingSources: options.listingSources
 		});
 
 		const net = new TestNetwork(plc, pds, happyView, root.data.did, users, app);
@@ -99,13 +115,27 @@ export class TestNetwork {
 
 	/**
 	 * Signs a user in through the app's OAuth client and records the login like the callback does.
-	 * `approve` narrows what they consent to, as the PDS lets people do. Returns the granted scope.
+	 * `approve` narrows what they consent to, as the PDS lets people do. `requested` asks for other scopes
+	 * than the app's first choice, like the fallback for a PDS without spaces, and `optional` asks for one
+	 * of the optional scopes too, as opting in does. Returns the granted scope.
 	 */
-	async signInWithOAuth(name: string, approve?: string): Promise<string> {
-		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve);
+	async signInWithOAuth(name: string, approve?: string, scopes: ScopeRequest = {}): Promise<string> {
+		const user = this.user(name);
+		const api = await authorizationScreen(this.app, user, `${name}-password`, scopes);
+		// Consent answers with the redirect back to the app's callback.
+		const { url } = z.object({ url: z.string() }).parse(await api('/consent', { did: user.did, scope: approve }));
+		const { scope } = await this.app.oauth.callback(new URL(url).searchParams);
+		user.client = (await this.app.oauth.repoClient(user.did))!;
 		await this.recordLogin(name, scope);
 
 		return scope;
+	}
+
+	/** Has a user turn down an authorization at their PDS, returning where it sends them back to on the app. */
+	async declineOAuth(name: string, scopes: ScopeRequest = {}): Promise<URL> {
+		const api = await authorizationScreen(this.app, this.user(name), `${name}-password`, scopes);
+
+		return new URL(z.object({ url: z.string() }).parse(await api('/reject', {})).url);
 	}
 
 	private recordLogin(name: string, grantedScope: string): Promise<void> {
@@ -116,7 +146,8 @@ export class TestNetwork {
 			handle: user.handle,
 			pdsUrl: this.pds.url,
 			grantedScope,
-			spacesCapable: grantsAll(grantedScope, this.app.oauth.scopes.full, user.did)
+			spacesCapable: grantsSpaces(grantedScope, user.did, this.rootDid),
+			publicWrites: grantsPublicRecords(grantedScope, user.did, this.rootDid)
 		});
 	}
 
@@ -155,12 +186,19 @@ export class TestNetwork {
 }
 
 /**
- * Signs a user in through the app's OAuth client by calling the PDS's sign-in and consent API the
- * way its authorization page does in a browser, then swaps their client for the OAuth session.
- * Returns the granted scope.
+ * Starts an authorization through the app's OAuth client and signs the user in at the PDS by calling the API its
+ * authorization page calls in a browser. Returns that API, for answering the consent screen.
  */
-async function signInWithOAuth(app: App, user: TestUser, password: string, approve?: string): Promise<string> {
-	const page = await app.oauth.authorize(user.handle, '{}');
+async function authorizationScreen(
+	app: App,
+	user: TestUser,
+	password: string,
+	{ requested, optional, state = '{}' }: ScopeRequest = {}
+): Promise<(endpoint: string, body: JsonObject) => Promise<JsonValue>> {
+	const page = requested
+		? await app.oauth.client.authorize(user.handle, { scope: requested, state })
+		: await app.oauth.authorize(user.handle, state, { account: await app.accounts.get(user.did), optional });
+
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);
 	const cookies = new Map([['csrf-token', csrf]]);
@@ -211,10 +249,6 @@ async function signInWithOAuth(app: App, user: TestUser, password: string, appro
 	};
 
 	await api('/sign-in', { locale: 'en', username: user.handle, password, remember: true });
-	// Consent answers with the redirect back to the app's callback.
-	const { url } = z.object({ url: z.string() }).parse(await api('/consent', { did: user.did, scope: approve }));
-	const { scope } = await app.oauth.callback(new URL(url).searchParams);
-	user.client = (await app.oauth.repoClient(user.did))!;
 
-	return scope;
+	return api;
 }

@@ -1,18 +1,23 @@
 import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
-import { cidForLex } from '@atproto/lex-cbor';
-import { type JsonValue, jsonToLex } from '@atproto/lex-json';
-import type {
-	BlobJson,
-	JsonRecord,
-	RecordRef,
-	RootRepoClient,
-	SimpleSpaceConfig,
-	StoredRecord
+import {
+	type BlobJson,
+	type JsonRecord,
+	type RecordRef,
+	recordCid,
+	type RepoWrite,
+	type RootRepoClient,
+	type SimpleSpaceConfig,
+	type StoredRecord
 } from '../atproto/repo-client';
 import type { RecordEvent } from './happyview';
 
-const cidOf = async (value: JsonValue): Promise<string> => (await cidForLex(jsonToLex(value))).toString();
+/** The most writes a PDS takes in one applyWrites, to a repo or a space (MAX_WRITES in @atproto/pds). */
+const MAX_WRITES = 200;
+
+const assertBatchSize = (writes: RepoWrite[]) => {
+	if (writes.length > MAX_WRITES) throw new XRPCError(400, 'InvalidRequest', `Too many writes. Max: ${MAX_WRITES}`);
+};
 
 /**
  * An in-memory stand-in for a network of PDSes, shared by every fake client
@@ -27,8 +32,11 @@ export class FakeNetwork {
 		string,
 		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
 	>();
-	readonly blobs = new Map<string, Uint8Array>();
-	failures = new Map<string, number>();
+	/** Each blob, by CID, with the type its uploader gave, which a PDS serves it as. */
+	readonly blobs = new Map<string, { bytes: Uint8Array; mimeType: string }>();
+	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
+	readonly blobHolders = new Map<string, Set<string>>();
+	failures = new Map<string, { count: number; error: XRPCError }>();
 	/** Called after every public-repo write, the way HappyView's Jetstream consumer hears of it. */
 	onRecord: (event: RecordEvent) => Promise<void> = async () => {};
 
@@ -36,9 +44,18 @@ export class FakeNetwork {
 		return new FakeRootClient(did, this);
 	}
 
-	/** Make the next `count` writes by `did` fail. */
-	failWrites(did: string, count = 1): void {
-		this.failures.set(did, count);
+	/** Make the next `count` writes by `did` fail, with `error` (a PDS that's down, by default). */
+	failWrites(did: string, count = 1, error = new XRPCError(502, 'UpstreamFailure')): void {
+		this.failures.set(did, { count, error });
+	}
+
+	/** An account's public records of `collection`, as HappyView reads them in a backfill. */
+	listed(did: string, collection: string): RecordEvent[] {
+		return this.records
+			.entries()
+			.filter(([key]) => key.startsWith(`${did}|${collection}|`))
+			.map(([, { uri, cid, value }]) => ({ did, collection, rkey: uri.split('/').at(-1)!, cid, record: value }))
+			.toArray();
 	}
 
 	spaceRecordsIn(space: string, repo?: string): StoredRecord[] {
@@ -49,12 +66,34 @@ export class FakeNetwork {
 			.toArray();
 	}
 
-	maybeFail(did: string): void {
-		const remaining = this.failures.get(did) ?? 0;
+	/** Throws BlobNotFound, as a PDS does, when `record` references a blob `did` doesn't hold. */
+	assertBlobsHeld(did: string, record: JsonRecord): void {
+		// Blob refs are the only `$link`s in the records these tests write.
+		const missing = JSON.stringify(record)
+			.matchAll(/"\$link":"([^"]+)"/g)
+			.map(([, cid]) => cid)
+			.find((cid) => !this.blobHolders.get(cid)?.has(did));
 
-		if (remaining > 0) {
-			this.failures.set(did, remaining - 1);
-			throw new XRPCError(502, 'UpstreamFailure');
+		if (missing) throw new XRPCError(400, 'BlobNotFound', `Could not find blob: ${missing}`);
+	}
+
+	/** Throws, as a PDS does, when a member-list space doesn't let `did` write. */
+	assertCanWrite(did: string, space: string): void {
+		const found = this.spaces.get(space);
+
+		if (!found || found.writePolicy.$type !== 'com.atproto.simplespace.defs#memberListPolicy') return;
+
+		if (space.startsWith(`at://${did}/`) || found.members.get(did)?.write) return;
+
+		throw new XRPCError(403, 'Forbidden', `${did} can't write to ${space}`);
+	}
+
+	maybeFail(did: string): void {
+		const failure = this.failures.get(did);
+
+		if (failure && failure.count > 0) {
+			failure.count -= 1;
+			throw failure.error;
 		}
 	}
 }
@@ -99,8 +138,10 @@ export class FakeRootClient implements RootRepoClient {
 		rkey: string,
 		record: JsonRecord
 	): Promise<RecordRef> {
+		this.net.assertBlobsHeld(this.did, record);
+		this.net.assertCanWrite(this.did, space);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;
-		const cid = await cidOf(record);
+		const cid = await recordCid(record);
 		this.net.spaceRecords.set(key, { uri, cid, value: structuredClone(record) });
 
 		return { uri, cid };
@@ -109,6 +150,41 @@ export class FakeRootClient implements RootRepoClient {
 	async deleteSpaceRecord(input: { space: string; collection: string; rkey: string }): Promise<void> {
 		this.net.maybeFail(this.did);
 		this.net.spaceRecords.delete(`${input.space}|${this.did}|${input.collection}|${input.rkey}`);
+	}
+
+	/** Fails as a whole before writing anything, as the PDS does, checking each write against the ones before it. */
+	async applySpaceWrites(space: string, writes: RepoWrite[]): Promise<void> {
+		this.net.maybeFail(this.did);
+		assertBatchSize(writes);
+		this.net.assertCanWrite(this.did, space);
+
+		if (space.startsWith(`at://${this.did}/`) && !this.net.spaces.has(space))
+			throw new XRPCError(400, 'SpaceNotFound', `${space} doesn't exist`);
+
+		const key = (write: RepoWrite) => `${space}|${this.did}|${write.collection}|${write.rkey}`;
+
+		const present = new Set(
+			this.net.spaceRecords.keys().filter((stored) => stored.startsWith(`${space}|${this.did}|`))
+		);
+
+		for (const write of writes) {
+			const exists = present.has(key(write));
+
+			if (write.action === 'create' && exists) throw new XRPCError(400, 'RecordAlreadyExists', key(write));
+
+			if (write.action !== 'create' && !exists) throw new XRPCError(400, 'RecordNotFound', key(write));
+
+			if (write.action === 'delete') present.delete(key(write));
+			else {
+				this.net.assertBlobsHeld(this.did, write.record);
+				present.add(key(write));
+			}
+		}
+
+		for (const write of writes) {
+			if (write.action === 'delete') this.net.spaceRecords.delete(key(write));
+			else await this.writeSpace(key(write), space, write.collection, write.rkey, write.record);
+		}
 	}
 
 	async getSpaceRecord(input: { space: string; repo: string; collection: string; rkey: string }) {
@@ -134,8 +210,9 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
-		const cid = await cidOf({ bytes: Buffer.from(bytes).toString('base64') });
-		this.net.blobs.set(cid, bytes);
+		const cid = await recordCid({ bytes: Buffer.from(bytes).toString('base64') });
+		this.net.blobs.set(cid, { bytes, mimeType });
+		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };
 	}
@@ -176,15 +253,32 @@ export class FakeRootClient implements RootRepoClient {
 		if (input.appAccess) found.appAccess = input.appAccess;
 	}
 
-	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
-		const found = this.net.spaces.get(input.space);
+	/** The space, if this account owns it; a PDS lets only the owner manage a space. */
+	private owned(space: string) {
+		const found = this.net.spaces.get(space);
 
 		if (!found) throw new XRPCError(404, 'SpaceNotFound');
-		found.members.set(input.did, { read: input.read, write: input.write });
+
+		if (!space.startsWith(`at://${this.did}/`)) throw new XRPCError(403, 'Forbidden');
+
+		return found;
+	}
+
+	async deleteSpace(space: string): Promise<void> {
+		this.owned(space);
+		this.net.spaces.delete(space);
+
+		for (const key of this.net.spaceRecords.keys()) if (key.startsWith(`${space}|`)) this.net.spaceRecords.delete(key);
+	}
+
+	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
+		this.net.maybeFail(this.did);
+		this.owned(input.space).members.set(input.did, { read: input.read, write: input.write });
 	}
 
 	async removeMember(input: { space: string; did: string }): Promise<void> {
-		this.net.spaces.get(input.space)?.members.delete(input.did);
+		this.net.maybeFail(this.did);
+		this.owned(input.space).members.delete(input.did);
 	}
 
 	async listMembers(space: string) {
@@ -197,6 +291,17 @@ export class FakeRootClient implements RootRepoClient {
 		return 'fake-delegation-token';
 	}
 
+	async listRecords(collection: string): Promise<StoredRecord[]> {
+		const prefix = `${this.did}|${collection}|`;
+
+		return this.net.records
+			.entries()
+			.filter(([key]) => key.startsWith(prefix))
+			.map(([, value]) => value)
+			.toArray();
+	}
+
+	/** The spaces of a type this account created or holds records in, as a PDS lists them. */
 	async listSpaces(spaceType: string): Promise<string[]> {
 		const spaces = new Set<string>();
 
@@ -205,6 +310,9 @@ export class FakeRootClient implements RootRepoClient {
 
 			if (repo === this.did && space.includes(`/space/${spaceType}/`)) spaces.add(space);
 		}
+
+		for (const space of this.net.spaces.keys())
+			if (space.startsWith(`at://${this.did}/space/${spaceType}/`)) spaces.add(space);
 
 		return [...spaces];
 	}
@@ -216,6 +324,7 @@ export class FakeRootClient implements RootRepoClient {
 		swapRecord?: string | null;
 	}): Promise<RecordRef> {
 		this.net.maybeFail(this.did);
+		this.net.assertBlobsHeld(this.did, input.record);
 		const key = `${this.did}|${input.collection}|${input.rkey}`;
 		const existing = this.net.records.get(key);
 
@@ -224,7 +333,7 @@ export class FakeRootClient implements RootRepoClient {
 		}
 
 		const uri = `at://${this.did}/${input.collection}/${input.rkey}`;
-		const cid = await cidOf(input.record);
+		const cid = await recordCid(input.record);
 		this.net.records.set(key, { uri, cid, value: structuredClone(input.record) });
 		await this.net.onRecord({
 			did: this.did,
@@ -237,11 +346,35 @@ export class FakeRootClient implements RootRepoClient {
 		return { uri, cid };
 	}
 
+	createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef> {
+		return this.putRecord({ ...input, rkey: TID.nextStr(), swapRecord: null });
+	}
+
 	async getRecord(input: { collection: string; rkey: string }) {
 		return this.net.records.get(`${this.did}|${input.collection}|${input.rkey}`) ?? null;
 	}
 
+	/** Fails as a whole before writing anything, as the PDS does. */
+	async applyWrites(writes: RepoWrite[]): Promise<void> {
+		this.net.maybeFail(this.did);
+		assertBatchSize(writes);
+
+		for (const write of writes) {
+			const key = `${this.did}|${write.collection}|${write.rkey}`;
+
+			if (write.action !== 'delete' && this.net.records.has(key) !== (write.action === 'update'))
+				throw new XRPCError(400, 'InvalidRequest', `${write.action} of ${key}`);
+		}
+
+		for (const write of writes) {
+			if (write.action === 'delete') await this.deleteRecord(write);
+			else await this.putRecord(write);
+		}
+	}
+
 	async deleteRecord(input: { collection: string; rkey: string }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.net.records.delete(`${this.did}|${input.collection}|${input.rkey}`);
+		await this.net.onRecord({ did: this.did, collection: input.collection, rkey: input.rkey, cid: '', record: null });
 	}
 }

@@ -9,8 +9,10 @@ use std::path::Path;
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
 use locallibrary::paths;
+use locallibrary::plugin::Fix;
 use locallibrary::progress::Ctx;
 use locallibrary::sync::{self, SyncOptions};
+use loclib_plugin::{DriveAction, HostAction};
 
 fn check(roots: &[&Path]) -> CheckReport {
     let devices: Vec<Device> = roots.iter().map(|r| Device::open(r).unwrap()).collect();
@@ -39,6 +41,10 @@ fn every_drive_is_compared_with_the_first() {
     assert_eq!(level, Level::Problem);
     assert_eq!(message, "newer than A (1 track(s) and 0 playlist(s) differ); sync the drives");
     assert_eq!(item(&r, "Other", "same_library"), (Level::Problem, "holds a different library from A".into()));
+    // A sync fixes the newer drive; nothing syncs another library.
+    let fix = |drive: &str| r.items.iter().find(|i| i.drive == drive && i.check == "same_library").unwrap().fix.clone();
+    assert_eq!(fix("B"), Some(Fix::Host(HostAction::Sync(DriveAction { drive: "B".into() }))));
+    assert_eq!(fix("Other"), None);
 
     common::export_new_track(a.root(), "New", "On A");
     let (level, message) = item(&check(&[a.root(), b.root()]), "B", "same_library");
@@ -62,7 +68,7 @@ fn onelibrary_alone_or_unreadable_is_said() {
     let only = common::bigger_drive(dir.path(), "Only");
     common::onelibrary_only(&only);
     let (level, message) = item(&check(&[&only]), "Only", "databases");
-    assert_eq!((level, message.as_str()), (Level::Ok, "OneLibrary only (older players need export.pdb)"));
+    assert_eq!((level, message.as_str()), (Level::Info, "OneLibrary only (older players need export.pdb)"));
 
     let broken = common::bigger_drive(dir.path(), "Broken");
     common::add_onelibrary(&broken);
@@ -72,6 +78,8 @@ fn onelibrary_alone_or_unreadable_is_said() {
     assert!(message.starts_with("OneLibrary can't be read: "), "{message}");
 }
 
+/// Artwork gone from the drive is a warning naming `art auto`, and `art fetch` only when the app
+/// runs a plugin that finds cover art: here none is.
 #[test]
 fn artwork_missing_on_the_drive_is_a_warning() {
     let dir = tempfile::tempdir().unwrap();
@@ -86,16 +94,17 @@ fn artwork_missing_on_the_drive_is_a_warning() {
         "1 track(s) have no artwork image: {track}; `locallibrary art auto \"A\"` fills in art their files embed"
     );
     assert_eq!(message, want);
+    // Nothing fetches it: no plugin finds cover art.
+    assert!(check(&[&root]).items.iter().all(|i| i.fix.is_none()));
 }
 
 /// A file FAT32 can't hold is a warning while no drive in the check is FAT32. The file is sparse,
 /// so it takes no space.
-#[cfg(unix)]
 #[test]
 fn a_file_of_4_gb_is_a_warning() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
-    fs::File::create(root.join("Contents/long mix.wav")).unwrap().set_len(1 << 32).unwrap();
+    locallibrary::testing::sparse(&root.join("Contents/long mix.wav"), 1 << 32).unwrap();
     let (level, message) = item(&check(&[&root]), "A", "large_files");
     assert_eq!(level, Level::Warning);
     assert_eq!(message, "1 file(s) of 4 GB or more won't fit on a FAT32 drive: Contents/long mix.wav");

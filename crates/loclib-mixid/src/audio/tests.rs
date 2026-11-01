@@ -135,6 +135,30 @@ fn resampling_keeps_length_and_level(tc: TestCase) {
     }
 }
 
+/// Each output is the kernel at its exact position, to the bit: every input within the kernel's
+/// half-width, weighed by the table entry nearest its distance (ties away from 0), summed in
+/// order. The same rate passes the input through.
+#[hegel::test(test_cases = 40)]
+fn each_output_is_the_kernel_at_its_position(tc: TestCase) {
+    let (from, to) = (rate(&tc), rate(&tc));
+    let x: Vec<f32> = tc.draw(gs::vecs(gs::floats::<f32>().min_value(-1.0).max_value(1.0)).max_size(2000));
+    let r = Resampler::new(from, to);
+    let (unit, half, table, n) = (r.unit, r.half, &r.table, x.len() as u64);
+    let at = |pos: u64| {
+        let lo = pos.saturating_sub(half).div_ceil(unit);
+        let hi = ((pos + half) / unit).min(n - 1);
+        (lo..=hi).fold(0.0f32, |acc, i| {
+            let k = ((2 * (i * unit).abs_diff(pos) * PHASES as u64 + unit) / (2 * unit)) as usize;
+            acc + x[i as usize] * table[k.min(table.len() - 1)]
+        })
+    };
+    let model: Vec<f32> = match from == to {
+        true => x.clone(),
+        false => (0..).map(|o| o * r.step).take_while(|&pos| pos < n * unit).map(at).collect(),
+    };
+    assert!(crate::test_util::resample(&x, from, to) == model, "{from} Hz to {to} Hz");
+}
+
 /// A WAV of any rate, depth and length decodes to its samples exactly, at its own rate and
 /// to mono at it, and says how long it is; a sink that has heard enough stops the decode a
 /// packet or so later.
@@ -178,6 +202,63 @@ fn wavs_decode_to_their_samples(tc: TestCase) {
     .unwrap();
     assert!(got >= enough.min(samples.len()) && got < enough + 8192, "{got} for {enough}");
     assert!(start.duration_secs * rate as f64 <= got as f64 + 0.5);
+}
+
+/// An AIFF decodes to the frames its COMM chunk counts, exactly, at its own rate and to mono,
+/// whether a chunk (an ID3 tag) follows them or the file ends with them. symphonia reads 8 bytes
+/// past the samples: noise from the chunk after them, and when none follows, a length that calls
+/// the file cut short wherever its samples end within 8 bytes of a whole number of 1152-frame
+/// packets (1151 or 1152 frames of 16-bit stereo).
+#[hegel::test(test_cases = 40)]
+#[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1151usize, tagged = false)]
+#[hegel::explicit_test_case(channels = 1u16, bits = 24u16, frames = 2304usize, tagged = false)]
+#[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1000usize, tagged = true)]
+fn aiffs_decode_to_their_frames(tc: TestCase) {
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
+    let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
+    let frames = tc.draw(gs::integers::<usize>().max_value(2400));
+    let tagged = tc.draw(gs::booleans());
+    let (width, half) = (usize::from(bits / 8), 1i64 << (bits - 1));
+    let samples: Vec<i32> =
+        (0..frames * usize::from(channels)).map(|i| ((i as i64 * 7_919) % (2 * half) - half) as i32).collect();
+    let data: Vec<u8> = samples.iter().flat_map(|s| s.to_be_bytes()[4 - width..].to_vec()).collect();
+    let mut chunks = [
+        b"COMM".as_slice(),
+        &18u32.to_be_bytes(),
+        &channels.to_be_bytes(),
+        &(frames as u32).to_be_bytes(),
+        &bits.to_be_bytes(),
+        // 44.1 kHz as an 80-bit extended float.
+        &[0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0],
+        b"SSND",
+        &(data.len() as u32 + 8).to_be_bytes(),
+        &[0; 8],
+        &data,
+    ]
+    .concat();
+    if data.len() % 2 == 1 {
+        chunks.push(0);
+    }
+    if tagged {
+        chunks.extend_from_slice(b"ID3 \0\0\0\x0aID3\x03\0\0\0\0\0\0");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.aiff");
+    std::fs::write(&path, [b"FORM".as_slice(), &(chunks.len() as u32 + 4).to_be_bytes(), b"AIFF", &chunks].concat())
+        .unwrap();
+
+    let mut heard = Vec::new();
+    let format = decode_native(&path, Damaged::Fail, &Ctx::silent(), |s: &[i32], r, c| -> Result<_> {
+        assert_eq!((r, c), (44_100, usize::from(channels)));
+        heard.extend(s.iter().map(|v| v >> (32 - bits)));
+        Ok(ControlFlow::Continue(()))
+    })
+    .unwrap();
+    assert_eq!(heard, samples);
+    assert_eq!(format.duration_secs, frames as f64 / 44_100.0);
+    let mut mono = 0;
+    decode(&path, 44_100, &Ctx::silent(), &mut |s| mono += s.len()).unwrap();
+    assert_eq!(mono, frames);
 }
 
 /// A format is told by the file's last extension alone, in any case: not by the rest of its
@@ -258,7 +339,7 @@ fn a_sinks_error_stops_the_decode(tc: TestCase) {
     let path = dir.path().join("x.wav");
     std::fs::write(&path, crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i % 900))).unwrap();
     let fail = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames) + 1));
-    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let mut calls = 0;
     let result = decode_native(&path, damaged, &Ctx::silent(), |_: &[i16], _, _| -> Result<_> {
         calls += 1;
@@ -324,7 +405,7 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     let path = dir.path().join("long.wav");
     std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
     let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames)));
-    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let ctx = Ctx::silent();
     let mut heard = 0;
     let result = decode_native(&path, damaged, &ctx, |_: &[i16], _, _| -> Result<_> {
@@ -341,4 +422,88 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     } else {
         assert!(result.is_ok() && heard == packets(frames), "{result:?} after {heard}");
     }
+}
+
+/// [`aiff_frames`] reads the frame count from the COMM chunk wherever it is among the chunks
+/// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
+/// it and a file that isn't there have none.
+#[hegel::test(test_cases = 200)]
+fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<u32>());
+    let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
+    let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
+    for len in tc.draw(gs::vecs(gs::integers::<u32>().max_value(9)).max_size(4)) {
+        bytes.extend_from_slice(b"FVER");
+        bytes.extend_from_slice(&len.to_be_bytes());
+        bytes.extend(std::iter::repeat_n(0x55, (len + len % 2) as usize));
+    }
+    let comm_end = bytes.len() + 14;
+    bytes.extend_from_slice(b"COMM");
+    bytes.extend_from_slice(&18u32.to_be_bytes());
+    bytes.extend_from_slice(&2u16.to_be_bytes());
+    bytes.extend_from_slice(&frames.to_be_bytes());
+    bytes.extend_from_slice(&[0, 16, 0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.aiff");
+    let cut = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
+    std::fs::write(&path, &bytes[..cut]).unwrap();
+    let found = aiff_frames(&path);
+    assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
+    assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
+}
+
+/// A WAV saying any rate at all decodes at it, to mono at the fingerprints' rate too, when it's
+/// at most [`MAX_RATE`]; above it (a crafted header, which resampling would take memory in
+/// proportion to) every way of decoding refuses it as that file's error.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(rate = 4_294_967_291u32, frames = 32usize)]
+#[hegel::explicit_test_case(rate = 768_001u32, frames = 32usize)]
+#[hegel::explicit_test_case(rate = 767_999u32, frames = 32usize)]
+fn rates_past_the_highest_are_refused(tc: TestCase) {
+    let rate = tc.draw(gs::integers::<u32>().min_value(1));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.wav");
+    std::fs::write(&path, crate::test_util::wav_of(rate, 16, (0..frames as i32).map(|i| i * 99))).unwrap();
+    let ctx = Ctx::silent();
+    let results = [
+        decode_native(&path, Damaged::Fail, &ctx, |_: &[f32], _, _| -> Result<_> { Ok(ControlFlow::Continue(())) }),
+        decode(&path, crate::fingerprint::RATE, &ctx, &mut |_| {}),
+    ];
+    for result in results {
+        match result {
+            Ok(format) if rate <= MAX_RATE => assert_eq!(format.sample_rate, rate),
+            Err(Error::Parse { path: at, message }) if rate > MAX_RATE => {
+                assert!(at == path && message.contains("768 kHz"), "{message}")
+            }
+            result => panic!("{rate} Hz: {result:?}"),
+        }
+    }
+}
+
+/// Between any two rates up to [`MAX_RATE`] (to one a decode asks for), the weights a resampler
+/// keeps stay under [`CACHED_WEIGHTS`] however much it's fed, and its output is the same to the
+/// bit as one that keeps none.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(from = 767_999u32, to = 11_025u32, chunk = 4096usize)]
+#[hegel::explicit_test_case(from = 1u32, to = 768_000u32, chunk = 1usize)]
+fn the_weight_cache_is_bounded_and_changes_nothing(tc: TestCase) {
+    let from = tc.draw(gs::integers::<u32>().min_value(1).max_value(MAX_RATE));
+    let to = tc.draw(gs::integers::<u32>().min_value(8_000).max_value(MAX_RATE));
+    let chunk = tc.draw(gs::integers::<usize>().min_value(1).max_value(4096));
+    // About 20,000 outputs, whatever the rates.
+    let n = (20_000 * u64::from(from) / u64::from(to)).clamp(1, 100_000) as usize;
+    let x: Vec<f32> = (0..n).map(|i| ((i * 7_919) % 2_001) as f32 / 1_000.0 - 1.0).collect();
+    let (mut cached, mut fresh) = (Resampler::new(from, to), Resampler::new(from, to));
+    fresh.phases.clear();
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    for c in x.chunks(chunk) {
+        cached.push(c, &mut |s| a.extend_from_slice(s));
+        fresh.push(c, &mut |s| b.extend_from_slice(s));
+    }
+    cached.finish(&mut |s| a.extend_from_slice(s));
+    fresh.finish(&mut |s| b.extend_from_slice(s));
+    let kept: usize = cached.phases.iter().map(Vec::len).sum();
+    assert!(kept as u64 <= CACHED_WEIGHTS, "{from} Hz to {to} Hz keeps {kept} weights");
+    assert!(a == b, "{from} Hz to {to} Hz");
 }

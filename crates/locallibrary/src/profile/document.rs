@@ -10,12 +10,12 @@
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, SecondsFormat, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{Basis, ProfileReport, artist_credits, credited_artists};
-use crate::model::normalize;
+use super::{Basis, ProfileReport, credited_artists};
+use crate::model::{artist_credits, normalize};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
@@ -395,6 +395,7 @@ pub enum Count {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileDocument {
     pub version: u32,
+    #[serde(serialize_with = "serialize_timestamp")]
     pub generated_at: DateTime<Utc>,
     pub precision: Precision,
     /// `plays`, `sessions` or `collection` (see [`Basis`]).
@@ -812,3 +813,14 @@ pub fn camel(key: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+/// A time as records carry it: UTC, to the millisecond.
+pub fn timestamp(t: DateTime<Utc>) -> String {
+    t.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// [`timestamp`] for serde: chrono's own format drops trailing zeros, so its length follows the
+/// clock (3, 6 or 9 digits of a second).
+fn serialize_timestamp<S: serde::Serializer>(t: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&timestamp(*t))
+}

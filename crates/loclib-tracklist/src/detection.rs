@@ -1,5 +1,6 @@
 //! Which format a tracklist is, and the files its lines name.
 
+use loclib_model::audio;
 use percent_encoding::percent_decode_str;
 
 use crate::Format;
@@ -45,9 +46,6 @@ pub(crate) fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     s.get(..prefix.len()).filter(|p| p.eq_ignore_ascii_case(prefix)).map(|_| &s[prefix.len()..])
 }
 
-const AUDIO_EXTENSIONS: &[&str] =
-    &["mp3", "wav", "wave", "aif", "aiff", "flac", "m4a", "mp4", "aac", "alac", "ogg", "opus", "wma"];
-
 /// Whether a line of a plain list is a file rather than "Artist - Title".
 pub(crate) fn looks_like_path(s: &str) -> bool {
     let lower = s.trim().to_ascii_lowercase();
@@ -56,8 +54,7 @@ pub(crate) fn looks_like_path(s: &str) -> bool {
     lower.starts_with("file:")
         || drive
         || lower.starts_with("\\\\")
-        || ((lower.contains('/') || lower.contains('\\'))
-            && lower.rsplit_once('.').is_some_and(|(_, e)| AUDIO_EXTENSIONS.contains(&e)))
+        || ((lower.contains('/') || lower.contains('\\')) && audio::Format::from_name(&lower).is_some())
 }
 
 /// The local path a playlist line or `Location` names: `file://` URLs decoded (including

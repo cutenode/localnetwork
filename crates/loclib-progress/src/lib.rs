@@ -1,11 +1,15 @@
 #![doc = include_str!("../README.md")]
 
+mod coalesce;
+
+pub use coalesce::{Coalesced, Flusher, Report};
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -27,9 +31,11 @@ pub enum Phase {
     Match,
     /// Decoding library tracks to estimate their tempo, key and loudness.
     Analyze,
+    /// Sending files to a server (a set's recording, by a plugin's `net/fetch`).
+    Upload,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "event", rename_all = "snake_case")]
 #[non_exhaustive]

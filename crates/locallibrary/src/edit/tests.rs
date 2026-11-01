@@ -30,10 +30,15 @@ fn empty_drive() -> (tempfile::TempDir, Device) {
 }
 
 fn run(edit: Edit) -> Result<Library> {
+    run_on(lib(), edit)
+}
+
+/// [`run`] on the library `start`.
+fn run_on(start: Library, edit: Edit) -> Result<Library> {
     let (_dir, device) = empty_drive();
     let extra = DriveContext::default();
     let r = Resolver::new(&device, &extra, false, Ctx::silent());
-    let mut model = ModelDb { lib: lib(), pdb: None };
+    let mut model = ModelDb { lib: start, pdb: None };
     let (ops, _, _) = r.resolve(&edit, &model.lib)?;
     for op in &ops {
         apply_op(&mut model, op, true, "test", &mut Vec::new())?;
@@ -73,7 +78,10 @@ fn playlist_edits_on_the_model() {
     let r = Resolver::new(&device, &extra, false, Ctx::silent());
     let (ops, _, _) =
         r.resolve(&Edit::DeletePlaylist { playlist: "Sets".into(), with_tracks: true }, &with_history).unwrap();
-    assert!(ops.contains(&Op::DeleteTracks { tracks: vec!["contents/2.mp3".into(), "contents/3.mp3".into()] }));
+    assert!(ops.contains(&Op::DeleteTracks {
+        tracks: vec!["contents/2.mp3".into(), "contents/3.mp3".into()],
+        elsewhere: Vec::new()
+    }));
 
     let add = |ids: Vec<u32>, position| Edit::AddTracks {
         playlist: "Sets/Fri".into(),
@@ -576,7 +584,8 @@ fn verification_names_the_first_difference_it_finds(tc: hegel::TestCase) {
     let want = match kind {
         0 => None,
         1 => {
-            actual.tracks[tc.draw(gs::integers::<usize>().max_value(5))].title.push_str(" (edit)");
+            let last = actual.tracks.len() - 1;
+            actual.tracks[tc.draw(gs::integers::<usize>().max_value(last))].title.push_str(" (edit)");
             Some("track ")
         }
         2 => {
@@ -679,7 +688,7 @@ fn playlists_nest_no_deeper_than_a_drive_reads_and_moves_make_no_namesakes(tc: h
 fn a_fill_takes_exactly_its_path_or_says_which_ones_it_could_mean(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let mut start = lib();
-    let folders: Vec<&str> = ["GIGS", "Gigs", "gIGS"].into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let folders: Vec<&str> = tc.draw(gs::subsequences(&["GIGS", "Gigs", "gIGS"]));
     for (i, name) in folders.iter().enumerate() {
         let id = 10 + 2 * u32::try_from(i).unwrap();
         start.playlists.push(Playlist {
@@ -739,7 +748,7 @@ fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
         .map(|_| match start.history.is_empty() || tc.draw(gs::weighted_booleans(0.3)) {
             true => HistoryList { name: "HISTORY 009".into(), tracks: files(&[1]) },
             false => {
-                let h = &start.history[tc.draw(gs::integers::<usize>().max_value(start.history.len() - 1))];
+                let h = &tc.draw(gs::sampled_from(&start.history));
                 HistoryList { name: h.name.clone(), tracks: files(&h.track_ids) }
             }
         })
@@ -773,6 +782,7 @@ fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
 /// A track is pointed only at an audio file on the drive that no other track has, and only when
 /// no other track shares its own file (the databases' edits find it by its file).
 #[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(shared = false, id = 1u32, path = "/contents/NEW.mp3")]
 fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (dir, device) = empty_drive();
@@ -810,7 +820,9 @@ fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     match got {
         Ok((ops, _, _)) => {
             assert!((on_drive || own) && !(shared && id == 1), "pointed {id} at {path}");
-            assert_eq!(ops.len(), 1);
+            // At the file as the drive spells it, whatever case it was given in.
+            let want = if on_drive { "/Contents/new.mp3" } else { path };
+            assert!(matches!(ops.as_slice(), [Op::SetPath { path: p, .. }] if p == want), "{ops:?}");
         }
         Err(e) => {
             let why = e.to_string();
@@ -870,7 +882,7 @@ fn ops_naming_what_a_database_lacks_are_refused_or_skipped(tc: hegel::TestCase) 
         Op::SetEntries { node: name(), tracks: Vec::new(), before: None },
         Op::SetEntries { node: vec!["Loose".into()], tracks: vec![track()], before: None },
         Op::SetFields { tracks: vec![track()], fields },
-        Op::DeleteTracks { tracks: vec![track()] },
+        Op::DeleteTracks { tracks: vec![track()], elsewhere: Vec::new() },
         Op::Repoint { from: track(), to: "contents/1.mp3".into() },
         Op::SetPath { track: track(), path: "/Contents/9.mp3".into(), file: None, shift_ms: 0 },
         Op::DeleteHistory { lists: vec![(name()[0].clone(), 0)] },
@@ -937,14 +949,6 @@ fn edits_naming_no_playlist_position_or_track_are_refused(tc: hegel::TestCase) {
             "select exactly one track",
         ),
         (Edit::MovePlaylist { playlist: "Loose".into(), into: None, position: Some(0) }, "positions start at 1"),
-        // Made with their own commands.
-        (
-            Edit::Cues {
-                tracks: vec!["/Contents/1.mp3".into()],
-                change: crate::cue_edit::CueChange::Delete(crate::cue_edit::CueRef::All),
-            },
-            "made with `tags` and `cues`",
-        ),
     ];
     for (edit, why) in cases {
         let err = run(edit.clone()).unwrap_err();
@@ -985,4 +989,192 @@ fn removing_tracks_takes_exactly_the_entries_named(tc: hegel::TestCase) {
     assert_eq!(recorded.is_empty(), want == old, "{recorded:?}");
     let (again, _) = resolve_all(&start, &recorded, false).unwrap();
     assert_eq!(entries(&again, "Sets/Fri"), want);
+}
+
+/// Whether `s` is an ISRC, told by each character's place: two letters, three letters or
+/// digits, seven digits.
+fn isrc_model(s: &str) -> bool {
+    s.chars().count() == 12
+        && s.chars().enumerate().all(|(i, c)| match i {
+            0 | 1 => c.is_ascii_uppercase(),
+            2..=4 => c.is_ascii_uppercase() || c.is_ascii_digit(),
+            _ => c.is_ascii_digit(),
+        })
+}
+
+/// A track edit setting a BPM, an ISRC, a release date or an album artist is refused, saying
+/// which, exactly when the BPM is outside 1 to 999.99, the ISRC or date (given) isn't one written
+/// out in full, or an album artist would be left on a track without an album; one that's taken
+/// gives every selected track the BPM to hundredths, the ISRC and date as given, and the album
+/// artist only with an album.
+#[hegel::test(test_cases = 300)]
+#[hegel::explicit_test_case(bpm = Some(999.994f64), isrc = Some("GB1A30000059".to_string()), date = Some("2019-05-01".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
+#[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = Some("2019-02-29".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
+#[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = Some("0000-01-1".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32])]
+#[hegel::explicit_test_case(bpm = None::<f64>, isrc = Some("GBDUW000005".to_string()), date = None::<String>, album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
+#[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = None::<String>, album = Some(" ".to_string()), album_artist = Some("Bicep".to_string()), ids = vec![2u32])]
+fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let bpm = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec![0.0, 0.999, 1.0, 999.99, 999.994, 999.996, 1000.0, f64::NAN, -1.0]),
+        gs::floats::<f64>().min_value(-10.0).max_value(1100.0)
+    )));
+    let isrc = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec!["", "GBDUW0000059", "GB1A30000059", "gbduw0000059", "GBDUW000005", "GBDUW00000590"])
+            .map(String::from),
+        gs::from_regex("[A-Z0-9a]{2}[A-Z0-9-]{3}[0-9A]{6,8}").fullmatch(true),
+        gs::text().max_size(13)
+    )));
+    let date = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec!["", "2019-05-01", "2019-5-1", "2019-02-29", "2020-02-29", "20190501", "2019-13-01"])
+            .map(String::from),
+        gs::from_regex("[0-9]{2,5}-[0-9]{1,3}-[0-9]{1,3}").fullmatch(true),
+        gs::text().max_size(11)
+    )));
+    let album = tc.draw(gs::optional(gs::sampled_from(vec!["", " ", "Isles"]).map(String::from)));
+    let album_artist = tc.draw(gs::optional(gs::sampled_from(vec!["", " ", "Bicep"]).map(String::from)));
+    let ids: Vec<u32> =
+        tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(5)).min_size(1).max_size(3).unique(true));
+    // Tracks 2 and 4 have an album already.
+    let mut start = lib();
+    for t in start.tracks.iter_mut().filter(|t| t.id % 2 == 0) {
+        t.album = "Rise".into();
+        t.album_artist = "Four Tet".into();
+    }
+    let fields = TrackFields {
+        bpm,
+        isrc: isrc.clone(),
+        release_date: date.clone(),
+        album: album.clone(),
+        album_artist: album_artist.clone(),
+        ..Default::default()
+    };
+    let edit = Edit::EditTracks { tracks: TrackSelector { ids: ids.clone(), ..Default::default() }, fields };
+    let got = run_on(start.clone(), edit);
+
+    let full_date =
+        |d: &str| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok_and(|x| x.format("%Y-%m-%d").to_string() == d);
+    let blank = |s: &Option<String>| s.as_deref().is_none_or(|s| s.trim().is_empty());
+    let albumless = ids.iter().any(|id| match &album {
+        Some(a) => a.trim().is_empty(),
+        None => id % 2 == 1,
+    });
+    let refusal = if bpm.is_none() && isrc.is_none() && date.is_none() && album.is_none() && album_artist.is_none() {
+        Some("give at least one field")
+    } else if bpm.is_some_and(|b| !(1.0..=999.99).contains(&b)) {
+        Some("BPM goes from 1 to 999.99")
+    } else if isrc.as_deref().is_some_and(|i| !i.is_empty() && !isrc_model(i)) {
+        Some("isn't an ISRC")
+    } else if date.as_deref().is_some_and(|d| !d.is_empty() && !full_date(d)) {
+        Some("isn't a release date (YYYY-MM-DD)")
+    } else if !blank(&album_artist) && albumless {
+        Some("has no album to keep an album artist with")
+    } else {
+        None
+    };
+    let after = match (refusal, got) {
+        (Some(why), Err(e)) => return assert!(e.to_string().contains(why), "{why}: {e}"),
+        (None, Ok(after)) => after,
+        (why, got) => panic!("expected {why:?}: {got:?}"),
+    };
+    for (t, was) in after.tracks.iter().zip(&start.tracks) {
+        if !ids.contains(&t.id) {
+            assert_eq!(t, was);
+            continue;
+        }
+        assert_eq!(t.bpm, bpm.map_or(was.bpm, |b| (b * 100.0).round() / 100.0));
+        assert_eq!(t.isrc, isrc.clone().unwrap_or_else(|| was.isrc.clone()));
+        assert_eq!(t.release_date, date.clone().unwrap_or_else(|| was.release_date.clone()));
+        let name = |v: &Option<String>, was: &str| match v {
+            Some(v) if v.trim().is_empty() => String::new(),
+            Some(v) => v.clone(),
+            None => was.to_string(),
+        };
+        assert_eq!(t.album, name(&album, &was.album));
+        let artist =
+            if t.album.is_empty() && album.is_some() { String::new() } else { name(&album_artist, &was.album_artist) };
+        assert_eq!(t.album_artist, artist);
+    }
+}
+
+/// An edit setting the fields of tracks named by id, as imports and analyses make one for each
+/// track: at times one with no album to keep an album artist with, or an id no track has.
+#[hegel::test_helper]
+fn draw_fields_edit(tc: &hegel::TestCase) -> Edit {
+    use hegel::generators as gs;
+    let ids = tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(9)).min_size(1).max_size(3));
+    let fields = TrackFields {
+        key: tc.draw(gs::optional(gs::sampled_from(vec!["8A", "11B", " "]))).map(String::from),
+        bpm: tc.draw(gs::optional(gs::sampled_from(vec![120.0, 128.5]))),
+        title: tc.draw(gs::optional(gs::sampled_from(vec!["T1", "New"]))).map(String::from),
+        album_artist: tc.draw(gs::optional(gs::sampled_from(vec!["", "Bicep"]))).map(String::from),
+        rating: tc.draw(gs::optional(gs::integers::<u8>().max_value(6))),
+        ..Default::default()
+    };
+    Edit::EditTracks { tracks: TrackSelector { ids, ..Default::default() }, fields }
+}
+
+/// What planning `edits` one by one makes, each result as text, and the model after, edits that
+/// set only fields made on the tracks they name (`indexed`) or on the whole library.
+fn plan_each(start: &Library, edits: &[Edit], indexed: bool) -> (Vec<String>, Library, Vec<String>) {
+    let (_dir, device) = empty_drive();
+    let extra = DriveContext::default();
+    let r = Resolver::new(&device, &extra, false, Ctx::silent());
+    let mut model = ModelDb { lib: start.clone(), pdb: None };
+    let (mut index, mut warnings) = (None, Vec::new());
+    let made = edits
+        .iter()
+        .map(|edit| {
+            let made = match indexed {
+                true => track_index::plan_edit_indexed(&r, &mut model, &mut index, edit, &mut warnings),
+                false => plan_edit(&r, &mut model, edit, &mut warnings),
+            };
+            format!("{:?} {:?}", made.map_err(|e| e.to_string()), r.notes.take())
+        })
+        .collect();
+    (made, model.lib, warnings)
+}
+
+/// Edits that set only fields, planned on the tracks they name, make what planning them on the
+/// whole library made: the same ops, descriptions, recorded edits, refusals and model, among
+/// other edits, with tracks sharing a file or an id. And so do their ops on the other database.
+#[hegel::test(test_cases = 300)]
+fn edits_to_fields_plan_alike_on_the_tracks_they_name(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut start = drawn_lib(&tc);
+    if tc.draw(gs::booleans()) {
+        start.tracks.push(track(8, "B", "Same file", "/Contents/2.mp3"));
+    }
+    if tc.draw(gs::booleans()) {
+        start.tracks.insert(1, track(3, "C", "Same id", "/Contents/other.mp3"));
+    }
+    let edits: Vec<Edit> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)))
+        .map(|_| if tc.draw(gs::weighted_booleans(0.7)) { draw_fields_edit(&tc) } else { draw_model_edit(&tc) })
+        .collect();
+    let whole = plan_each(&start, &edits, false);
+    assert_eq!(plan_each(&start, &edits, true), whole);
+
+    // Their ops, on a database that may lack some tracks.
+    let (_dir, device) = empty_drive();
+    let extra = DriveContext::default();
+    let r = Resolver::new(&device, &extra, false, Ctx::silent());
+    let mut model = ModelDb { lib: start.clone(), pdb: None };
+    let ops: Vec<Op> = edits
+        .iter()
+        .filter_map(|e| plan_edit(&r, &mut model, e, &mut Vec::new()).ok())
+        .flat_map(|(ops, _, _)| ops)
+        .collect();
+    let mut other = start.clone();
+    let lacking = tc.draw(gs::integers::<u32>().min_value(1).max_value(9));
+    other.tracks.retain(|t| t.id != lacking);
+    let (mut a, mut b) = (ModelDb { lib: other.clone(), pdb: None }, ModelDb { lib: other, pdb: None });
+    let (mut index, mut warn_a, mut warn_b) = (None, Vec::new(), Vec::new());
+    for op in &ops {
+        let made_a = apply_op(&mut a, op, false, "other", &mut warn_a).map_err(|e| e.to_string());
+        let made_b = track_index::apply_op_indexed(&mut b, &mut index, op, false, "other", &mut warn_b)
+            .map_err(|e| e.to_string());
+        assert_eq!(made_b, made_a, "{op:?}");
+    }
+    assert_eq!((b.lib, warn_b), (a.lib, warn_a));
 }

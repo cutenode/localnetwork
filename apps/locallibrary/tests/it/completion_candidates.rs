@@ -1,7 +1,6 @@
 //! What Tab offers for each kind of argument (`COMPLETE=fish locallibrary -- ...`): what's on
 //! the mounted drives, what's in the store, and what locallibrary itself knows.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 use crate::support::{Env, play};
@@ -85,7 +84,11 @@ fn what_locallibrary_knows_completes() {
 fn the_script_runs_the_binary_the_shell_found() {
     let env = Env::new();
     let script = |c: &mut Command| String::from_utf8(c.args(["completions", "bash"]).output().unwrap().stdout).unwrap();
-    let exe = PathBuf::from(env!("CARGO_BIN_EXE_locallibrary"));
+    // Looked up when the test runs, not built in, so it holds when nextest runs the tests from an
+    // archive somewhere else.
+    let exe = assert_cmd::cargo::cargo_bin("locallibrary");
+    // The script quotes the path for its shell, which escapes a Windows path's backslashes.
+    #[cfg(unix)]
     assert!(script(&mut env.command()).contains(exe.to_str().unwrap()));
     let mut by_name = Command::new("locallibrary");
     by_name

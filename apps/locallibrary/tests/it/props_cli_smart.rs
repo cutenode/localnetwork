@@ -1,8 +1,8 @@
 //! `smart apply` given no drive: the drives it writes are those a rule is for.
 
+use hegel::HealthCheck;
 use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck};
 use serde_json::Value;
 
 use crate::support::Env;
@@ -17,7 +17,7 @@ use crate::support::Env;
 #[hegel::explicit_test_case(only_a = vec![false, true])]
 fn smart_apply_writes_the_drives_a_rule_is_for(tc: TestCase) {
     let fx = Env::from_template();
-    let only_a: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).max_size(3).print_as_debug());
+    let only_a: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).max_size(3));
     for (i, &a) in only_a.iter().enumerate() {
         let path = format!("Smart/Rule {i}");
         let mut args = vec!["--yes", "smart", "add", &path, "--filter", "bpm:>=0"];

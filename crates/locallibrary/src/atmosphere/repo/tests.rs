@@ -1,5 +1,3 @@
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -39,86 +37,10 @@ fn a_session_without_permission_to_publish_is_stopped_before_the_server() {
 }
 
 #[test]
-fn reading_from_a_server_that_isnt_there_says_so() {
-    let err = get_record("http://127.0.0.1:9", "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("couldn't reach 127.0.0.1:9"), "{err}");
+fn a_did_is_taken_as_it_is_and_what_isnt_a_handle_isnt_looked_up() {
+    let found = resolve(" @did:plc:abc ").unwrap();
+    assert_eq!((found.did.as_str(), found.handle), ("did:plc:abc", None));
     assert!(resolve("not a handle").unwrap_err().to_string().contains("not a handle"));
-}
-
-/// A server on 127.0.0.1 that answers each connection with the next of `answers`, and the
-/// number of connections it got.
-fn server(answers: Vec<Vec<u8>>) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let got = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counted = got.clone();
-    std::thread::spawn(move || {
-        for (conn, answer) in listener.incoming().zip(answers) {
-            let mut conn = conn.unwrap();
-            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let mut reader = BufReader::new(conn.try_clone().unwrap());
-            let mut line = String::new();
-            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
-                line.clear();
-            }
-            let _ = conn.write_all(&answer);
-        }
-    });
-    (url, got)
-}
-
-fn answer(head: &str, body: &[u8]) -> Vec<u8> {
-    let mut out =
-        format!("HTTP/1.1 {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).into_bytes();
-    out.extend_from_slice(body);
-    out
-}
-
-#[test]
-fn someone_elses_server_is_read_with_care() {
-    // A redirect to plain http, or to this computer, isn't followed.
-    let (elsewhere, reached) = server(vec![answer("200 OK", b"{}")]);
-    let (pds, _) = server(vec![answer(&format!("302 Found\r\nlocation: {elsewhere}/x"), b"")]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("isn't an https address"), "{err}");
-    let (pds, _) = server(vec![answer("302 Found\r\nlocation: https://127.0.0.1:9/x", b"")]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("on this computer or its local network"), "{err}");
-    assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0);
-
-    // An answer that doesn't stop isn't read whole.
-    let (pds, _) = server(vec![answer("200 OK", &vec![b' '; net::MAX_BODY + 1])]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("the answer is over 1 MB"), "{err}");
-
-    // What it says goes to a terminal: no escape sequences.
-    let record = json!({
-        "uri": "at://did:plc:abc/x/self\u{1b}]0;owned\u{7}",
-        "cid": "bafy\u{1b}[2J",
-        "value": { "version": 1 },
-    });
-    let refusal = json!({ "error": "Nope\u{1b}[2J", "message": "really\u{1b}]52;c;Zm9v\u{7}" });
-    let (pds, _) = server(vec![
-        answer("200 OK", record.to_string().as_bytes()),
-        answer("400 Bad Request", refusal.to_string().as_bytes()),
-    ]);
-    let fetched = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap().unwrap();
-    assert!(!fetched.uri.chars().chain(fetched.cid.unwrap().chars()).any(char::is_control), "{}", fetched.uri);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(!err.chars().any(char::is_control) && err.contains("Nope [2J: really ]52;c;Zm9v "), "{err:?}");
-}
-
-/// A refusal to give a record says what it can: its error, else the status.
-#[test]
-fn a_refusal_to_read_says_its_error_or_status() {
-    let (pds, _) = server(vec![
-        answer("400 Bad Request", br#"{"error":"RepoDeactivated"}"#),
-        answer("502 Bad Gateway", b"<html>"),
-    ]);
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(RepoDeactivated)"), "{err}");
-    let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(502 Bad Gateway)"), "{err}");
 }
 
 /// However the account's server refuses a write, the error says what to do about it: sign
@@ -132,7 +54,7 @@ fn a_refused_write_says_how_to_go_on() {
     let pds = crate::atmosphere::tests::serving(move |_, _| answering.lock().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
     crate::store::Store::open_or_init(dir.path()).unwrap();
-    let scopes = crate::atmosphere::publish_scopes().join(" ");
+    let scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
     crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", &pds, &scopes);
     let record = crate::publish::settings_record(&[("quantize".into(), "off".into())].into(), chrono::Utc::now());
     let write = |status: u16, headers: &str, body: Value| {
@@ -170,12 +92,18 @@ fn a_missing_scope_names_what_couldnt_be_published() {
     assert!(said("app.example.thing").contains("publish records;"));
 }
 
-type Answer = (u16, String, Value);
+/// A blob as a data server answers an upload.
+pub(crate) fn blob() -> Value {
+    let cid = "bafkreibme22gw2h7y2h7tg2fhqotaqjucnbc24deqo72b6mkl2egezxhvy";
+    json!({ "$type": "blob", "ref": { "$link": cid }, "mimeType": "audio/mp4", "size": 1000 })
+}
+
+pub(crate) type Answer = (u16, String, Value);
 /// A server's base URL, what it answers every request with, and how many requests it got.
-type Shared = (String, Arc<Mutex<Answer>>, Arc<AtomicUsize>);
+pub(crate) type Shared = (String, Arc<Mutex<Answer>>, Arc<AtomicUsize>);
 
 /// One server for all of a test's cases (a server per case would leave a thread behind each).
-fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
+pub(crate) fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
     server.get_or_init(|| {
         let next = Arc::new(Mutex::new((200, String::new(), json!({}))));
         let got = Arc::new(AtomicUsize::new(0));
@@ -189,7 +117,7 @@ fn shared(server: &'static OnceLock<Shared>) -> &'static Shared {
 }
 
 /// Short text, sometimes one of `words`.
-fn word(words: Vec<&'static str>) -> impl hegel::PrintableGenerator<String> {
+pub(crate) fn word(words: Vec<&'static str>) -> impl hegel::PrintableGenerator<String> {
     hegel::one_of!(gs::sampled_from(words).map(String::from), gs::text().max_size(8))
 }
 
@@ -265,66 +193,16 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
     }
 }
 
-/// Whatever a server answers a read with, what's read is what it said: the record (its URI and
-/// CID on one line, or the URI asked for when it gives none) when it answers with one, nothing
-/// when it says RecordNotFound, and otherwise an error on one line giving its error and
-/// message, or its status.
-#[hegel::test(test_cases = 3)]
-#[hegel::explicit_test_case(status = 500u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = None::<String>)]
-#[hegel::explicit_test_case(status = 400u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = Some("gone".to_string()))]
-#[hegel::explicit_test_case(status = 502u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = None::<String>, message = None::<String>)]
-fn a_read_gives_what_the_server_answered(tc: hegel::TestCase) {
-    static SERVER: OnceLock<Shared> = OnceLock::new();
-    let (pds, next, _) = shared(&SERVER);
-    let status = tc.draw(gs::sampled_from(vec![200u16, 400, 404, 500, 502]));
-    let uri = tc.draw(gs::optional(word(vec!["at://did:plc:abc/x/self\u{1b}]0;owned\u{7}"])));
-    let cid = tc.draw(gs::optional(word(vec!["bafy\u{1b}[2J"])));
-    let values = vec![json!({ "$type": lexicon::SETTINGS, "n": 1 }), json!("x"), json!([]), Value::Null, json!(1)];
-    let value: Option<Value> = tc.draw(gs::optional(gs::sampled_from(values).print_as_debug()));
-    let said = || gs::optional(word(vec!["RecordNotFound", "RepoDeactivated", "Nope\u{1b}[2J"]));
-    let error = tc.draw(said());
-    let message = tc.draw(said());
-    let mut body = serde_json::Map::new();
-    for (field, v) in [("uri", uri.map(Value::from)), ("cid", cid.map(Value::from)), ("value", value)] {
-        body.extend(v.map(|v| (field.to_string(), v)));
-    }
-    for (field, v) in [("error", error), ("message", message)] {
-        body.extend(v.map(|v| (field.to_string(), Value::from(v))));
-    }
-    let body = Value::Object(body);
-    *next.lock().unwrap() = (status, String::new(), body.clone());
-
-    let asked = at_uri("did:plc:abc", lexicon::SETTINGS, "self");
-    let is_record = status == 200 && body["value"].is_object();
-    match get_record(pds, "did:plc:abc", lexicon::SETTINGS, "self") {
-        Ok(Some(f)) => {
-            assert!(is_record, "{body}");
-            assert_eq!(f.value, body["value"]);
-            assert_eq!(f.uri, body["uri"].as_str().map_or(asked, one_line));
-            assert_eq!(f.cid, body["cid"].as_str().map(one_line));
-        }
-        Ok(None) => assert!(!is_record && body["error"] == "RecordNotFound", "{body}"),
-        Err(e) => {
-            assert!(!is_record && body["error"] != "RecordNotFound", "{body}");
-            let why = match (body["error"].as_str(), body["message"].as_str()) {
-                (Some(e), Some(m)) => format!("{e}: {m}"),
-                (Some(e), None) => e.to_string(),
-                _ => reqwest::StatusCode::from_u16(status).unwrap().to_string(),
-            };
-            assert_eq!(e.code(), "account");
-            assert_eq!(e.to_string(), one_line(&format!("{} couldn't give {asked} ({why})", host(pds))));
-        }
-    }
-}
-
 /// A write that can't go anywhere stops here, with nothing sent: a record that doesn't fit its
 /// Lexicon, nobody signed in, another account signed in than the one the write was for, or a
-/// session that may not write that kind of record, checked in that order. Any other write goes
-/// to the server.
+/// session that may not write that kind of record, or a record key no repository takes, checked
+/// in that order. Any other write goes to the server.
 #[hegel::test(test_cases = 8)]
-#[hegel::explicit_test_case(collection = lexicon::SETTINGS, fits = true, scopes = "atproto".to_string(), signed_in = Some("did:plc:abc"), unreachable = false)]
-#[hegel::explicit_test_case(collection = lexicon::PROFILE, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:other"), unreachable = false)]
-#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true)]
+#[hegel::explicit_test_case(collection = lexicon::SETTINGS, fits = true, scopes = "atproto".to_string(), signed_in = Some("did:plc:abc"), unreachable = false, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::PROFILE, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:other"), unreachable = false, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "a b")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" "), signed_in = Some("did:plc:abc"), unreachable = false, rkey = "self")]
 fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, got) = shared(&SERVER);
@@ -337,6 +215,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
         lexicon::PROFILE => {
             json!({ "$type": collection, "generatedAt": "2026-10-04T09:30:00.000Z", "precision": "exact", "basis": "plays" })
         }
+        lexicon::RECORDING => crate::publish::recording::record(blob(), 3600, chrono::Utc::now()),
         _ => {
             json!({ "$type": collection, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z" })
         }
@@ -345,7 +224,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     if !fits {
         record["mood"] = "dark".into();
     }
-    let all = crate::atmosphere::publish_scopes().join(" ");
+    let all = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
     let one = |c: &str| format!("atproto repo:{c}?action=create&action=update");
     let scopes: String = tc.draw(gs::sampled_from(vec![
         "atproto".to_string(),
@@ -357,6 +236,8 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     let signed_in = tc.draw(gs::optional(gs::sampled_from(vec!["did:plc:abc", "did:plc:other"])));
     // Now and then the account's server is one that refuses connections.
     let unreachable: bool = tc.draw(gs::weighted_booleans(0.2));
+    // Now and then a record key no repository takes.
+    let rkey = tc.draw(gs::sampled_from(vec!["self", "self", "a b", ".."]));
     let dir = tempfile::tempdir().unwrap();
     if let Some(did) = signed_in {
         crate::store::Store::open_or_init(dir.path()).unwrap();
@@ -365,8 +246,13 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     }
 
     let before = got.load(Ordering::SeqCst);
-    let err = put_record(dir.path(), "did:plc:abc", collection, "self", &record, None).unwrap_err();
-    let may_write = scopes.contains("transition:generic") || scopes.contains(&format!("repo:{collection}?"));
+    let err = put_record(dir.path(), "did:plc:abc", collection, rkey, &record, None).unwrap_err();
+    // A bare `repo:<nsid>` allows every action, as the granted publishing scopes have it for sets
+    // and recordings.
+    let repo = format!("repo:{collection}");
+    let may_write = scopes
+        .split(' ')
+        .any(|s| s == "transition:generic" || s == repo || s == format!("{repo}?action=create&action=update"));
     let sent = got.load(Ordering::SeqCst) > before;
     match signed_in {
         _ if !fits => assert_eq!(err.code(), "invalid", "{err}"),
@@ -375,6 +261,10 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
             assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)), "{err}")
         }
         Some(_) if !may_write => assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}"),
+        Some(_) if rkey != "self" => {
+            assert_eq!(err.code(), "invalid", "{err}");
+            assert!(err.to_string().starts_with(&format!("the {} record: ", lexicon::short_name(collection))), "{err}");
+        }
         Some(_) if unreachable => assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"), "{err}"),
         Some(_) => {
             assert!(sent, "{err}");
@@ -441,7 +331,7 @@ fn a_refused_write_says_how_to_go_on_whatever_the_server_says(tc: hegel::TestCas
         dir.path(),
         "did:plc:abc",
         pds,
-        &crate::atmosphere::publish_scopes().join(" "),
+        &crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" "),
     );
     let record = crate::publish::settings_record(&[("sync".into(), "on".into())].into(), chrono::Utc::now());
     let err = put_record(dir.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();

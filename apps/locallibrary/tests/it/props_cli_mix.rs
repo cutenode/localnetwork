@@ -31,7 +31,8 @@ fn is_play(line: &str) -> bool {
 }
 
 /// Drive A's tracks, each a drawn sound (two may be the same) or no audio, fingerprinted ahead of
-/// time, then found in a recording of some of them and sounds the drive doesn't have.
+/// time, then found in a recording of some of them and sounds the drive doesn't have (each
+/// printed as a gap in the tracklist when it's long enough to be one).
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
     let fx = Env::from_template();
@@ -100,7 +101,11 @@ fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
                         .map(|(i, _)| i as u64 + 1),
                 );
             }
-            _ => recording.extend(synth(25.0, UNKNOWN)),
+            // Long enough or not to be told as a stretch the library doesn't have (30 s).
+            _ => {
+                let unknown_secs = tc.draw(gs::integers::<u32>().min_value(20).max_value(40));
+                recording.extend(synth(f64::from(unknown_secs), UNKNOWN));
+            }
         }
     }
     if recording.is_empty() {
@@ -190,6 +195,58 @@ fn a_recorded_mix_prints_the_tracklist_its_json_has(tc: TestCase) {
                 "{out}"
             );
         }
+    }
+}
+
+/// `--open` opens each report page written (in the store's reports folder unless `--html` says
+/// where) with the system's opener; when the opener fails, the run still succeeds and says which
+/// page it couldn't open.
+#[cfg(unix)]
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(twice = false, html = false, opener_works = false)]
+fn reports_are_opened_where_they_are_written(tc: TestCase) {
+    let fx = Env::from_template();
+    let sound = wav(&synth(30.0, SEEDS[0]));
+    std::fs::write(fx.volumes.join("A/Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3"), &sound).unwrap();
+    let twice = tc.draw(gs::booleans());
+    let recordings: Vec<std::path::PathBuf> =
+        (0..1 + usize::from(twice)).map(|i| fx.home(&format!("set {i}.wav"))).collect();
+    for r in &recordings {
+        std::fs::write(r, &sound).unwrap();
+    }
+    // The system's opener (`open` on macOS, `xdg-open` elsewhere): one that notes what it's
+    // given, and fails or not.
+    let opener_works = tc.draw(gs::booleans());
+    let (bin, opened) = (fx.home("bin"), fx.home("opened"));
+    std::fs::create_dir_all(&bin).unwrap();
+    let script =
+        format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\nexit {}\n", opened.display(), u8::from(!opener_works));
+    for name in ["open", "xdg-open"] {
+        std::fs::write(bin.join(name), &script).unwrap();
+        crate::support::set_mode(&bin.join(name), 0o755);
+    }
+    let mut args: Vec<&str> = recordings.iter().map(|r| path(r)).collect();
+    args.splice(0..0, ["mix"]);
+    args.extend(["--drive", "A", "--open"]);
+    let html = tc.draw(gs::booleans());
+    let pages = fx.home("pages/");
+    if html {
+        args.extend(["--html", path(&pages)]);
+    }
+    let out = fx.command().env("PATH", &bin).args(&args).output().unwrap();
+    let (stdout, stderr) = (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap());
+    assert_eq!(out.status.code(), Some(0), "{stdout}\n{stderr}");
+    let opened: Vec<String> = std::fs::read_to_string(&opened).unwrap().lines().map(String::from).collect();
+    assert_eq!(opened.len(), recordings.len(), "{opened:?}");
+    let folder = if html { pages.clone() } else { fx.store.join("reports") };
+    for page in &opened {
+        let page = std::path::Path::new(page);
+        assert!(page.extension().is_some_and(|e| e == "html") && page.is_file(), "{page:?}");
+        assert!(
+            page.starts_with(&folder) || page.starts_with(folder.canonicalize().unwrap()),
+            "{page:?} not in {folder:?}"
+        );
+        assert_eq!(stdout.contains(&format!("couldn't open {}", page.display())), !opener_works, "{stdout}");
     }
 }
 

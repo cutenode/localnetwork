@@ -18,15 +18,73 @@ listening to your library the way the players see it:
   `b`, to sort by title, artist, album, genre, BPM, key (round the Camelot wheel), rating, time,
   date added or play count; click again to reverse, a third time for no sort.
 - **Track details** (`i`): everything rekordbox knows about the selected track (comment, label,
-  remixer, mix, date added, plays, format, size), the playlists it's in, and the tracks that
-  **mix into** it, which you can play or tag from there.
+  remixer, mix, date added, plays, format, size), the playlists it's in, plugins' panels (what
+  each shows about the track, asked for once the selection settles on it: "loading…" until it
+  answers, and what went wrong in the messages when it fails), and the tracks that **mix into**
+  it, which you can play or tag from there.
 - **Crate** (`t`): a CDJ's TAG LIST, called the crate here so it isn't taken for My Tags. Collect
   tracks while browsing (`a` adds the marked or selected ones; `m` marks), reorder them, play the
   crate, save it to the drive as a playlist, or pack it onto another drive for a set.
 - **Commands** (`:`): every action by name, with its key; type a few of its letters (in order:
   `fsp` finds "fill the smart playlists") and enter. It also has the commands with no key of their
-  own: pull, check, set prep, sync, pack, restore, replay, export, xml, smart, smart apply, smart
-  new and eject.
+  own: pull, check, set prep, sync, pack, restore, replay, export, smart, smart apply, smart new
+  and eject.
+- **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
+  them, and where the plugin offers them: at the end of a drive's `e` menu in the Drives view, and
+  of the actions menu (`e`) for those that work on tracks or a playlist. One that takes params
+  asks for them in a form first (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice,
+  `enter` to run; lists take commas, a secret shows as dots), a param the plugin fills from what's
+  selected starting as the marked or selected tracks, the playlist or the drive. It runs on the
+  drive open, with the marked or selected tracks and the playlist selected, in the background
+  (`esc` stops it). What a command answers shows in a panel (a list's rows as they come, when the
+  plugin sends them so), or as a message when it's a line; an operation's
+  plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
+  takes it back. A question one asks first (which track an entry is) is a list to pick from
+  (`space` marks items when it takes several, `enter` takes them, `esc` stops the run). An
+  operation, or a command of a plugin that reads the drive, needs a drive open (a folder opened
+  by path too, which the plugin can read only while it runs on it). What plugins log goes to the
+  messages (`!`). See
+  [Plugins](plugins.md).
+- **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
+  analyzer over the drive's tracks in the background, those not analysed already. "show the
+  sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
+  it found nothing to show; shown as its analyzer says, in bytes or as a meter, say), sorted by a click on its header like any column, and the search box
+  filters by it: `sound.bpm:>120`. Sorted by it, a playlist is sorted on the drive by it too
+  (`s` in the actions menu). "write keys and BPMs to the tracks: …" writes what an
+  analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
+  like any edit.
+- **Checks**: a drive's check (in its `e` menu) shows what plugins' checks found too, and a fix
+  one gives is in the palette until the next check ("fix on DRIVE: …"), planned and confirmed
+  like any plugin's operation. What a guard says about changes is among the warnings when they're
+  confirmed, and a blocking one that found something stops them. "check settings…" in the palette
+  says which checks run, which guards stop changes, and how long a check has (as `plugin checks`
+  does).
+- **Imports**: "import …" in the palette (or a drive's `e` menu) reads a file with a plugin's
+  importer (a form asks for the file and the format's options), then shows what it adds to the
+  drive's tracks and the sessions it keeps, with how many tracks it couldn't find, confirmed like
+  any edit.
+- **Providers**: "fetch cover art…" and "fetch track details…" in the actions menu (`e`) and the
+  palette ask the plugins' providers about the marked or selected tracks (a form says which
+  provider, or all, and whether over what they have). A track's candidate scoring high enough
+  alone is chosen for you, and for each other track you pick one from a list (or none); then the
+  changes are confirmed like any edit. "provider settings…" in the palette sets how high (as
+  `plugin providers --auto-pick` does).
+- **Library sources**: "build from …" in the palette (or a drive's `e` menu) builds the drive
+  plugged in from a plugin's library source: a form asks which folders it may read files in
+  (`~/Music` to begin with, several split by commas), whether to replace a library the drive
+  holds, and for the source's options; the plan says what it read and left out, and is confirmed
+  like any change.
+- **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
+  the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
+  to its default. A secret is never filled in: typed, it's kept in the system's keychain; left
+  empty, it stays as it was. A plugin's services are switches there too: turned on, they run
+  while the player does.
+- **What plugins tell you**: a message, and when a plugin suggests one of its operations (on a
+  drive plugged in, say), "review: …" in the palette plans it, confirmed like any edit; when it
+  suggests fetching from its providers, exporting in its format or running its analyzer, "review:
+  …" opens that form (or asks first, for an analyzer) filled in, as if you'd started it, saying
+  which drive and how many tracks (a mix's export is refused: the player doesn't export mixes).
+  What `watch` kept while the player was closed is offered as it opens.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you
@@ -125,8 +183,11 @@ listening to your library the way the players see it:
   document and `w` writes it. The bar at the top shows your [Atmosphere account](account.md): `L`
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
-  M3U8, CSV or text, and "xml" writes rekordbox XML of the drive (just the marked playlists when
-  some are), asking where first.
+  M3U8, CSV or text, asking where first. A plugin's format ("export for traktor…", or "export for
+  rekordbox…" for rekordbox XML, in a drive's `e` menu too) asks where and for the format's options in a form, then shows what it would write (each
+  file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
+  overwrites files there already; it takes the marked playlists too. A set's format ("export the
+  set for …") writes out the set open in Browse › Sets.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
   MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer. A
@@ -134,13 +195,15 @@ listening to your library the way the players see it:
   recordings opened are remembered; `del` forgets one, or the folder it was found in. The view draws
   the set's 3-band waveform with each track's lane under it (shaded by how clearly it's heard, so
   blends and EQ swaps show), the tempo played, the keys on the way, and the tracklist with every
-  handoff: blend, cut or gap, key move and tempo change. The selected track's own waveform, cues and
-  phrases show the stretch that was played. `enter` or `space` plays the set in the player, and the
-  timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on the timeline
-  seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set as data for
-  [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
+  handoff: blend, quick mix or gap, key move and tempo change. The selected track's own waveform,
+  cues and phrases show the stretch that was played. `enter` or `space` plays the set in the
+  player, and the timeline and tracklist follow along; `n`/`p` jump between its tracks, a click on
+  the timeline seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set
+  as data for [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
-Colours are made for a dark terminal. For a light one, set `LOCALLIBRARY_THEME=light`; terminals
+Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
+"default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a
+light one, set `LOCALLIBRARY_THEME=light`; terminals
 that set `COLORFGBG` (rxvt, Konsole and others) are recognised without it, and
 `LOCALLIBRARY_THEME=dark` overrides them. With [`NO_COLOR`](https://no-color.org) set, the player
 draws no colours: the selection is in reverse video, the focused pane has a heavy border, keys
@@ -174,7 +237,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | `l` | loop here / exit the loop (`(` `)`: halve / double it) |
 | `+` `-` | volume (`=` `_` too) |
 | `d` | the output to play through |
-| `:` | commands: every action by name, and those with no key |
+| `:` | commands: every action by name, those with no key, and plugins' commands |
 | `s` `r` | shuffle / repeat (off, all, one) |
 | `S` | autoplay off (single play: stop after each track) / on |
 | `A` | auto cue: start tracks at their first memory cue or beat |

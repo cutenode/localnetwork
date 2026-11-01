@@ -30,7 +30,7 @@ use crate::progress::Ctx;
 use crate::{Error, Result};
 
 /// How far (ms) a memory cue may be from the position given to find it.
-const FIND_TOLERANCE_MS: u32 = 100;
+pub(crate) const FIND_TOLERANCE_MS: u32 = 100;
 
 /// A hot cue slot, A-H (written as its letter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
@@ -134,6 +134,9 @@ pub struct UpdateCue {
 #[derive(Debug, Clone)]
 pub enum CueEdit {
     Set(SetCue),
+    /// Set these in turn, each as [`CueEdit::Set`] sets one, after the ones before it: what an
+    /// import adds to a track, as one edit.
+    SetMany(Vec<SetCue>),
     Update(UpdateCue),
     Delete(CueRef),
     /// Replace the tracks' cues with a copy of this track's (an id from [`Device::library`]).
@@ -156,10 +159,17 @@ pub enum CueEdit {
 #[serde(rename_all = "snake_case")]
 pub enum CueChange {
     Set(SetCue),
+    /// Several cues set in turn, each as `set` sets one (what an import adds to a track).
+    SetMany(Vec<SetCue>),
     Update(UpdateCue),
     Delete(CueRef),
-    Copy { from: String },
-    Carry { from: String, shift_ms: i32 },
+    Copy {
+        from: String,
+    },
+    Carry {
+        from: String,
+        shift_ms: i32,
+    },
 }
 
 impl CueChange {
@@ -167,6 +177,7 @@ impl CueChange {
         let file = |id: u32| library.track(id).map(|t| t.file_path.clone()).unwrap_or_default();
         match edit {
             CueEdit::Set(s) => CueChange::Set(s.clone()),
+            CueEdit::SetMany(cues) => CueChange::SetMany(cues.clone()),
             CueEdit::Update(u) => CueChange::Update(u.clone()),
             CueEdit::Delete(r) => CueChange::Delete(r.clone()),
             CueEdit::Copy { from } => CueChange::Copy { from: file(*from) },
@@ -181,6 +192,7 @@ impl CueChange {
             CueChange::Set(SetCue { at, .. }) => {
                 format!("set a {} on {tracks} track(s)", describe(&CueRef::Memory(*at)))
             }
+            CueChange::SetMany(cues) => format!("set {} cue(s) on {tracks} track(s)", cues.len()),
             CueChange::Update(u) => format!("rename or recolour {} on {tracks} track(s)", describe(&u.cue)),
             CueChange::Delete(r) => format!("delete {} on {tracks} track(s)", describe(r)),
             CueChange::Copy { from } => format!("copy the cues of {from} to {tracks} track(s)"),
@@ -194,9 +206,9 @@ impl CueChange {
 /// The analysis files (keys) that hold the cues of the tracks of `library` at `files` (device
 /// paths): what editing them may rewrite, for a backup.
 pub(crate) fn analysis_files(device: &Device, library: &Library, files: &[String]) -> Vec<String> {
-    let wanted: rustc_hash::FxHashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
+    let wanted: rustc_hash::FxHashSet<String> = files.iter().map(|f| paths::file_key(f)).collect();
     let mut out = Vec::new();
-    for t in library.tracks.iter().filter(|t| wanted.contains(&paths::key(&t.file_path).to_lowercase())) {
+    for t in library.tracks.iter().filter(|t| wanted.contains(&paths::file_key(&t.file_path))) {
         let dat = paths::key(&t.analyze_path);
         if t.analyze_path.is_empty() || !paths::is_safe_key(&dat) || paths::classify(&dat) != Some(FileClass::Analysis)
         {
@@ -253,7 +265,7 @@ pub struct CuePlan {
     pub warnings: Vec<String>,
     /// The edit as the journal records it.
     #[serde(skip)]
-    recorded: Option<crate::edit::Edit>,
+    pub(crate) recorded: Option<crate::edit::Edit>,
 }
 
 impl CuePlan {
@@ -427,12 +439,17 @@ struct Loaded {
 
 /// `.../ANLZ0000.DAT` -> `.../ANLZ0000.EXT`.
 fn ext_key(dat: &str) -> Option<String> {
-    let stem =
-        dat.len().checked_sub(4).filter(|&i| dat.is_char_boundary(i) && dat[i..].eq_ignore_ascii_case(".DAT"))?;
-    Some(format!("{}.EXT", &dat[..stem]))
+    sibling_key(dat, "EXT")
 }
 
-fn read_optional(device: &Device, key: &str) -> Result<Option<Vec<u8>>> {
+/// `.../ANLZ0000.DAT` -> `.../ANLZ0000.<ext>`.
+pub(crate) fn sibling_key(dat: &str, ext: &str) -> Option<String> {
+    let stem =
+        dat.len().checked_sub(4).filter(|&i| dat.is_char_boundary(i) && dat[i..].eq_ignore_ascii_case(".DAT"))?;
+    Some(format!("{}.{ext}", &dat[..stem]))
+}
+
+pub(crate) fn read_optional(device: &Device, key: &str) -> Result<Option<Vec<u8>>> {
     let p = device.checked_path(key)?;
     match std::fs::read(&p) {
         Ok(b) => Ok(Some(b)),
@@ -474,7 +491,7 @@ fn load(device: &Device, t: &Track) -> Result<Loaded> {
 
 /// OneLibrary's track ids by audio file.
 fn plus_ids(lib: &crate::model::Library) -> FxHashMap<String, u32> {
-    lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect()
+    lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect()
 }
 
 /// List tracks' cues (ids from [`Device::library`]).
@@ -485,11 +502,11 @@ pub fn list(device: &Device, track_ids: &[u32]) -> Result<Vec<TrackCues>> {
 /// [`list`], with the drive's library read already.
 pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<Vec<TrackCues>> {
     let mut warnings = Vec::new();
-    let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
+    let plus = crate::onelibrary::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
     let mut out = Vec::new();
     for id in track_ids {
-        let t = library.track(*id).ok_or_else(|| Error::NotFound(format!("track #{id}")))?;
+        let t = library.track(*id).ok_or_else(|| Error::no_track(*id))?;
         let mut track_warnings = warnings.clone();
         let (cues, beats) = match load(device, t) {
             Ok(l) => (l.cues, l.beats),
@@ -499,7 +516,7 @@ pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<
             }
         };
         let onelibrary_cues = match (&plus, &by_path) {
-            (Some((_, one)), Some(ids)) => match ids.get(&paths::key(&t.file_path).to_lowercase()) {
+            (Some((_, one)), Some(ids)) => match ids.get(&paths::file_key(&t.file_path)) {
                 Some(cid) => Some(one.cue_rows(*cid)?.len()),
                 None => None,
             },
@@ -628,9 +645,13 @@ fn find(drafts: &[Draft], r: &CueRef, beats: &[Beat], t: &Track) -> Result<Vec<u
     Ok(found)
 }
 
+/// Sets `s` among `drafts`, or says why it can't, leaving them as they were.
 fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result<()> {
     if s.hot_cue.is_some_and(|h| h.0 >= HotCue::COUNT) {
         return Err(Error::invalid("hot cues are A-H"));
+    }
+    if s.name.as_ref().is_some_and(|n| n.len() > anlz::MAX_COMMENT) {
+        return Err(Error::invalid(format!("a cue's name is {} bytes at most", anlz::MAX_COMMENT)));
     }
     let (start, beat) = resolve(s.at, s.snap, beats)?;
     check_in_track(t, start)?;
@@ -648,13 +669,13 @@ fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result
         Some(_) => drafts.iter().position(|d| d.cue.hot_cue == slot),
         None => drafts.iter().position(|d| d.cue.hot_cue.is_none() && d.cue.start_ms.abs_diff(start) <= 1),
     };
-    let i = existing.unwrap_or_else(|| {
-        let rgb = if slot.is_some() { DEFAULT_HOT_CUE_RGB } else { [0; 3] };
-        let cue = CuePoint { hot_cue: slot, color_rgb: rgb, ..Default::default() };
-        drafts.push(Draft { cue, origin: None, source: None });
-        drafts.len() - 1
-    });
-    let c = &mut drafts[i].cue;
+    let mut c = match existing {
+        Some(i) => drafts[i].cue.clone(),
+        None => {
+            let rgb = if slot.is_some() { DEFAULT_HOT_CUE_RGB } else { [0; 3] };
+            CuePoint { hot_cue: slot, color_rgb: rgb, ..Default::default() }
+        }
+    };
     c.start_ms = start;
     c.end_ms = end;
     c.loop_beats = loop_beats;
@@ -663,9 +684,40 @@ fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result
         c.comment = n.clone();
     }
     if let Some(color) = &s.color {
-        set_color(c, color)?;
+        set_color(&mut c, color)?;
+    }
+    match existing {
+        Some(i) => drafts[i].cue = c,
+        None => drafts.push(Draft { cue: c, origin: None, source: None }),
     }
     Ok(())
+}
+
+/// A track's cues as its analysis files hold them, to check cues to set on it before an edit
+/// sets them ([`CueChange::SetMany`]): each is set here as the edit would, after those before it.
+pub(crate) struct Drafts<'a> {
+    track: &'a Track,
+    beats: Vec<Beat>,
+    drafts: Vec<Draft>,
+}
+
+impl<'a> Drafts<'a> {
+    /// `track`'s on `device`, failing when it can't hold cues (rekordbox hasn't analysed it).
+    pub(crate) fn of(device: &Device, track: &'a Track) -> Result<Drafts<'a>> {
+        let loaded = load(device, track)?;
+        let drafts = loaded.cues.into_iter().map(|cue| Draft { cue, origin: None, source: None }).collect();
+        Ok(Drafts { track, beats: loaded.beats, drafts })
+    }
+
+    /// Each cue's hot cue slot, when it's one, and where it starts.
+    pub(crate) fn there(&self) -> Vec<(Option<HotCue>, u32)> {
+        self.drafts.iter().map(|d| (d.cue.hot_cue.map(HotCue), d.cue.start_ms)).collect()
+    }
+
+    /// Sets `s` as the edit would, or says why it can't (the cues left as they were).
+    pub(crate) fn set(&mut self, s: &SetCue) -> Result<()> {
+        set(&mut self.drafts, self.track, &self.beats, s)
+    }
 }
 
 /// The cues a track has after `edit`.
@@ -674,6 +726,11 @@ fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -
         loaded.cues.iter().enumerate().map(|(i, c)| Draft { cue: c.clone(), origin: Some(i), source: None }).collect();
     match edit {
         CueEdit::Set(s) => set(&mut drafts, t, &loaded.beats, s)?,
+        CueEdit::SetMany(cues) => {
+            for s in cues {
+                set(&mut drafts, t, &loaded.beats, s)?;
+            }
+        }
         CueEdit::Update(u) => {
             for i in find(&drafts, &u.cue, &loaded.beats, t)? {
                 if let Some(n) = &u.name {
@@ -843,11 +900,11 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         return Err(Error::invalid(format!("{} tracks selected; pick one", track_ids.len())));
     }
     let library = device.library()?;
-    let track = |id: u32| library.track(id).ok_or_else(|| Error::NotFound(format!("track #{id}")));
+    let track = |id: u32| library.track(id).ok_or_else(|| Error::no_track(id));
     let mut warnings = Vec::new();
-    let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
+    let plus = crate::onelibrary::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
-    let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::key(&t.file_path).to_lowercase()).copied());
+    let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::file_key(&t.file_path)).copied());
 
     let source = match edit {
         CueEdit::Copy { from } | CueEdit::Carry { from, .. } => {
@@ -1011,40 +1068,41 @@ pub fn apply(plan: &CuePlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<CueRe
     apply_locked(plan, device, Some((&recorded, &changes)), ctx)
 }
 
-/// Replay a recorded edit, under the backup the replay made (see [`crate::edit::apply`]). One
-/// that no longer applies is skipped with a warning; an error is a failure while writing.
-pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, ctx: &Ctx<'_>) -> Result<Replayed> {
+/// Make an edit of a plan's, under the backup the plan made (see [`crate::edit::apply`]).
+/// Replaying (not `strict`), one that no longer applies is skipped with a warning; an error is a
+/// failure while writing.
+pub(crate) fn replay(
+    device: &mut Device,
+    files: &[String],
+    change: &CueChange,
+    strict: bool,
+    ctx: &Ctx<'_>,
+) -> Result<Replayed> {
     let mut out = Replayed::default();
-    let skip = |e: &dyn std::fmt::Display| {
-        format!("skipped an edit that no longer applies ({}): {e}", change.describe(files.len()))
-    };
+    let described = change.describe(files.len());
     let library = device.library()?;
-    let by_key: FxHashMap<String, u32> =
-        library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
-    let id = |f: &str| by_key.get(&paths::key(f).to_lowercase()).copied();
+    let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
+    let id = |f: &str| by_key.get(&paths::file_key(f)).copied();
     let ids: Vec<u32> = files.iter().filter_map(|f| id(f)).collect();
     if let Some(example) = files.iter().find(|f| id(f).is_none()) {
-        out.tracks_gone(files.len() - ids.len(), example, &change.describe(files.len()));
+        out.tracks_gone(strict, files.len() - ids.len(), example, &described)?;
     }
     let edit = match change {
         CueChange::Set(s) => CueEdit::Set(s.clone()),
+        CueChange::SetMany(cues) => CueEdit::SetMany(cues.clone()),
         CueChange::Update(u) => CueEdit::Update(u.clone()),
         CueChange::Delete(r) => CueEdit::Delete(r.clone()),
         CueChange::Copy { from } | CueChange::Carry { from, .. } => match (id(from), change) {
             (Some(from), CueChange::Carry { shift_ms, .. }) => CueEdit::Carry { from, shift_ms: *shift_ms },
             (Some(from), _) => CueEdit::Copy { from },
             (None, _) => {
-                out.warnings.push(skip(&format!("{from} isn't on the drive any more")));
-                return Ok(out);
+                return out.skipped(strict, &described, Error::NotFound(format!("no track at {from}")));
             }
         },
     };
     let plan = match plan(device, &ids, &edit, ctx) {
         Ok(plan) => plan,
-        Err(e) => {
-            out.warnings.push(skip(&e));
-            return Ok(out);
-        }
+        Err(e) => return out.skipped(strict, &described, e),
     };
     out.warnings.extend(plan.warnings.iter().cloned());
     if !plan.is_noop() {

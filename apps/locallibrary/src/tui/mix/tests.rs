@@ -1,4 +1,5 @@
 use locallibrary::mix::{Alternate, MixInfo, Span as Gap};
+use locallibrary::tokens::bands::{HIGH, LOW, MID};
 
 use super::super::app::View;
 use super::super::app::testing::*;
@@ -18,6 +19,7 @@ fn play(i: usize, start: f64, end: f64, key: &str, bpm: f64) -> Play {
         track_start: 10.0,
         track_end: 10.0 + (end - start),
         tempo: bpm / 124.0,
+        speed_range: None,
         played_bpm: Some(bpm),
         key_lock: Some(i.is_multiple_of(2)),
         semitones: 0.0,
@@ -257,10 +259,14 @@ fn layered_wave_cells() {
 fn typed_and_dropped_paths() {
     assert_eq!(typed_path("  '/Volumes/DNA/set one.wav' "), PathBuf::from("/Volumes/DNA/set one.wav"));
     assert_eq!(typed_path("\"/a b.wav\""), PathBuf::from("/a b.wav"));
+    #[cfg(unix)]
     assert_eq!(typed_path("/Volumes/DNA/set\\ one.wav"), PathBuf::from("/Volumes/DNA/set one.wav"));
-    if let Some(home) = std::env::var_os("HOME") {
-        assert_eq!(typed_path("~/x.wav"), PathBuf::from(home).join("x.wav"));
-    }
+    #[cfg(windows)]
+    assert_eq!(typed_path(r"C:\Sets\set one.wav"), PathBuf::from(r"C:\Sets\set one.wav"));
+    let home = std::env::home_dir().unwrap();
+    assert_eq!(typed_path("~/x.wav"), home.join("x.wav"));
+    #[cfg(windows)]
+    assert_eq!(typed_path(r"~\x.wav"), home.join("x.wav"));
 }
 
 #[test]
@@ -762,7 +768,7 @@ fn only_phrases_that_end_after_they_start_are_drawn() {
     let spans: Vec<(f64, f64)> = phrase_spans(&a, 10_000.0).into_iter().map(|s| (s.0, s.1)).collect();
     assert_eq!(spans, [(1000.0, 3000.0)]);
 }
-/// A cut, a plain gap, a track pitched without key lock and one with no key, alternates on
+/// A quick mix, a plain gap, a track pitched without key lock and one with no key, alternates on
 /// the drive, a cover: each is drawn as the set's report says it.
 #[test]
 fn every_kind_of_handoff_and_track_is_drawn() {
@@ -795,7 +801,7 @@ fn every_kind_of_handoff_and_track_is_drawn() {
 
     let screen = render(&mut t, &quiet(), 160, 60);
     for said in [
-        "↓ cut",
+        "↓ quick mix",
         "1:15 gap",
         "pitched -1.0 semitones",
         "Hessle Audio · Techno",
@@ -982,6 +988,8 @@ fn says_how_far(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: 
 
 /// A path typed or dropped into the terminal reads as itself: in quotes, with backslashes before
 /// what the shell would take, or as typed; `~/` is the home folder.
+// Only a Unix shell escapes with backslashes: on Windows they're the path's own.
+#[cfg(unix)]
 #[hegel::test(test_cases = 300)]
 fn a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -1015,10 +1023,7 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
     let plays: Vec<(f64, f64)> = app.mix.report().unwrap().plays.iter().map(|p| (p.start, p.end)).collect();
     let mut zoom = 1;
     // Each kind of step in turn, in an order drawn for the case.
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(7).max_value(21)) {
         let loaded = set_loaded(&app);
         let pos = at(&app);
@@ -1096,8 +1101,10 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
 }
 
 /// Saving a set's data or its report needs a set open, and the drive it was matched against at
-/// its root: without that drive it says why; with it, the data is written into the store.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+/// its root: without that drive it says why; with it, the data is written into the store, unless
+/// the store can't be opened, its profile choices can't be read or the file can't be written,
+/// which it says instead.
+#[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
@@ -1129,16 +1136,39 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
         }
     }
     let matched = drive.is_dir() && matches!(&app.mix.opened, Some(Ok(o)) if o.report.drive_id.is_none());
-    if report && matched {
+    // What can be in the store's way: nothing, a file where the store goes, profile choices that
+    // aren't JSON, a file where the reports folder goes.
+    let store = dir.path().join("store");
+    let in_way = tc.draw(gs::integers::<u8>().max_value(3));
+    match in_way {
+        0 => {}
+        1 => std::fs::write(&store, "not a store").unwrap(),
+        _ => {
+            Store::open_or_init(&store).unwrap();
+            let (file, what) = if in_way == 2 { ("profile.json", "{ not json") } else { ("reports", "not a folder") };
+            std::fs::write(store.join(file), what).unwrap();
+        }
+    }
+    if report && matched && in_way == 0 {
         // (Written, it would open in the browser.)
         return;
     }
     press(&mut app, key);
     let (start, end) = if report { ("writing ", ".html…") } else { ("saving ", ".mix.json…") };
     assert!(last_message(&app).starts_with(start) && last_message(&app).ends_with(end), "{}", last_message(&app));
-    wait(&mut app, |a| !last_message(a).starts_with(start));
+    // (Not the line going once it's been read: a slow write can outlast it.)
+    wait(&mut app, |a| !last_message(a).starts_with(start) && !last_message(a).is_empty());
     let said = last_message(&app);
     match (matched, drive.is_dir()) {
+        (true, _) if in_way > 0 => {
+            assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{said}");
+            let blamed = match in_way {
+                1 => store.display().to_string(),
+                2 => "profile.json".into(),
+                _ => "reports".into(),
+            };
+            assert!(said.contains(&blamed), "{said}");
+        }
         (true, _) => {
             assert!(said.starts_with("wrote ") && said.ends_with("(attach it to the mix on Local Network)"), "{said}")
         }
@@ -1148,8 +1178,8 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
 }
 
 /// The selected play is drawn as the set's report says it went, whatever that was: how it came in
-/// and went out (a blend, a cut, a gap) and the tempo then, its label and genre, played with key
-/// lock or pitched, its jumps, how sure the match is, the other tracks on the drive it may be,
+/// and went out (a blend, a quick mix, a gap) and the tempo then, its label and genre, played with
+/// key lock or pitched, its jumps, how sure the match is, the other tracks on the drive it may be,
 /// whether its key is known; with its waveform, cues and phrases from the drive, and the set's
 /// cover beside the title.
 #[hegel::test(test_cases = 60)]
@@ -1210,8 +1240,8 @@ fn a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
     let screen = render(&mut t, &Context { playhead, ..quiet() }, 160, 60);
     let mut want: Vec<String> = Vec::new();
     want.push(match overlap {
-        o if o >= 1.0 => format!("{} blend", secs(o)),
-        o if o > -1.0 => "cut".into(),
+        o if o >= locallibrary::mix::BLEND_SECS => format!("{} blend", secs(o)),
+        o if o > -1.0 => "quick mix".into(),
         o => format!("{} gap", secs(-o)),
     });
     match p.key_lock {
@@ -1277,10 +1307,7 @@ fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
         o.audio = audio.then(|| set.clone());
     }
     app.mix.set_recent(&[set.clone(), other.clone()]);
-    let mut turns: Vec<u8> = (0..9).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..9).collect::<Vec<_>>()));
     for step in 0..tc.draw(gs::integers::<usize>().min_value(9).max_value(18)) {
         screen(&mut app, 160, 48);
         app.mix.input = None;
@@ -1404,7 +1431,6 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     std::fs::create_dir_all(&drive).unwrap();
     let mut app = App::with_library(&drive, library());
     app.view = View::Mixes;
-    hold_volume_polls(&mut app);
     let own = wav_at(&dir.path().join("own.wav"));
     app.mix.set_recent(std::slice::from_ref(&own));
     screen(&mut app, 120, 30);
@@ -1413,10 +1439,7 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     for i in 0..n {
         assert!(s.contains(&format!("REC00{i}.wav")) && s.contains("0:00 · DNA"), "{s}");
     }
-    let mut turns: Vec<u8> = (0..7).collect();
-    for k in (1..turns.len()).rev() {
-        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
-    }
+    let turns: Vec<u8> = tc.draw(gs::permutations((0..7).collect::<Vec<_>>()));
     for turn in turns {
         app.view = View::Mixes;
         match turn {
@@ -1485,4 +1508,22 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
             }
         }
     }
+}
+
+/// A track the pitch fader was ridden through shows the slowest speed over the fastest in the
+/// tracklist, and both in its details, where one played at a steady speed shows that speed.
+#[test]
+fn a_ridden_pitch_fader_shows_both_speeds() {
+    let mut t = tab();
+    if let Some(Ok(o)) = &mut t.opened {
+        o.report.plays[1].speed_range = Some((1.0, 1.04));
+    }
+    let screen = render(&mut t, &quiet(), 160, 60);
+    let lines: Vec<&str> = screen.lines().collect();
+    let row = lines.iter().position(|l| l.contains("Signal Path") && l.contains("+0.0%")).expect("its row");
+    assert!(lines[row + 1].contains("→+4.0%"), "{screen}");
+    assert!(screen.contains("126.0 BPM (+0.0% to +4.0% from 124.0)"), "{screen}");
+    t.rows.select(Some(0));
+    let screen = render(&mut t, &quiet(), 160, 60);
+    assert!(screen.contains("126.0 BPM (+1.6% from 124.0)") && !screen.contains("+1.6% to"), "{screen}");
 }

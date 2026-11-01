@@ -1,0 +1,71 @@
+name: localtoolbox bug
+description: Something the localtoolbox Chrome extension got wrong
+labels: ["bug", "localtoolbox"]
+type: Bug
+body:
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which part?
+      options:
+        - SoundCloud playlist to text
+        - Manager
+        - third-party downloader
+        - artists
+        - Session queue
+        - Settings, or saving and restoring
+        - What it paints on the SoundCloud page
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you were doing, on which page, and what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: A link to the page it happened on helps most. For the third-party downloader, the link it was working through.
+      placeholder: |
+        1. Open https://soundcloud.com/...
+        2. Open the Manager and press add
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: errors
+    attributes:
+      label: Errors
+      description: |
+        Anything red in the panel's console (right-click the panel, Inspect) or under **Errors** on the extension's card in `chrome://extensions`.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The number on the extension's card in `chrome://extensions`. Add the commit you built from (`git rev-parse --short HEAD`).
+      placeholder: 2.11.0 (be03543)
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 141, macOS 26.1
+    validations:
+      required: true

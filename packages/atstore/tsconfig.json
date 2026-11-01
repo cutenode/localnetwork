@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"lib": ["ESNext", "DOM"],
+		"types": ["node"],
+		"strict": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"erasableSyntaxOnly": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"]
+}

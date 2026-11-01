@@ -23,9 +23,10 @@ const names = () => menuButtons().map((b) => b.querySelector('span > span')!.tex
 
 const heading = () => document.querySelector('h1')!.textContent.trim();
 
-const brand = () => document.documentElement.style.getPropertyValue('--brand');
+const toolTone = (id: string) => TOOLS.find((tool) => tool.id === id)!.tone;
 
-const toolBrand = (id: string) => TOOLS.find((tool) => tool.id === id)!.brand;
+/** Whether the header's tile wears a tool's tone. */
+const wears = (id: string) => document.querySelector(`header .${toolTone(id)}`) !== null;
 
 // Last in the header, whatever else is in it: the queue button sits in front
 // of the theme toggle, and panels put their own actions there too.
@@ -36,14 +37,14 @@ beforeEach(() => {
 });
 
 describe('the tool menu', () => {
-	it('lists every tool with its description and its own colour', async () => {
+	it('lists every tool with its description and its own tone', async () => {
 		await mountApp();
 		expect(names()).toEqual(['SoundCloud playlist to text', 'Manager', 'third-party downloader', 'artists']);
 
-		for (const button of menuButtons()) {
+		for (const [index, button] of menuButtons().entries()) {
 			expect(button.type).toBe('button');
 			expect(button.textContent).toMatch(/\w.*\./);
-			expect(button.style.getPropertyValue('--brand')).toMatch(/^oklch\(/);
+			expect(button.querySelector(`.${TOOLS[index].tone}`)).not.toBe(null);
 		}
 
 		// The two SoundCloud page tools both read a playlist, likes or track page.
@@ -52,19 +53,18 @@ describe('the tool menu', () => {
 		}
 	});
 
-	it('opens a tool, paints the popup in its colour, and comes back', async () => {
+	it('opens a tool, wears its tone in the header, and comes back', async () => {
 		await mountApp();
-		const menuBrand = brand();
 		expect(heading()).toBe('localtoolbox');
+		expect(wears('manager')).toBe(false);
 
 		await click(menuButtons()[1]);
 		expect(heading()).toBe('Manager');
-		expect(brand()).not.toBe(menuBrand);
-		expect(brand()).toMatch(/^oklch\(/);
+		expect(wears('manager')).toBe(true);
 
 		await click(document.querySelector('[aria-label="back to all tools"]'));
 		expect(heading()).toBe('localtoolbox');
-		expect(brand()).toBe(menuBrand);
+		expect(wears('manager')).toBe(false);
 	});
 
 	it('opens each of the tools', async () => {
@@ -100,7 +100,7 @@ describe('where the popup was left', () => {
 
 		await reopen();
 		expect(heading()).toBe('Manager');
-		expect(brand()).toBe(toolBrand('manager'));
+		expect(wears('manager')).toBe(true);
 	});
 
 	it('opens on the menu again once the way back has been taken', async () => {
@@ -148,7 +148,7 @@ describe('opening a tool that is not there yet', () => {
 		clickNow(menuButtons()[1]);
 
 		expect(ghostHeading()).toBe('Manager');
-		expect(brand()).toBe(toolBrand('manager'));
+		expect(wears('manager')).toBe(true);
 		expect(text()).toMatch(/opening…/);
 
 		// Waiting for a chunk is exactly when someone changes their mind.
@@ -189,7 +189,7 @@ describe('opening a tool that is not there yet', () => {
 		await mountApp();
 		expect(ghostHeading()).toBe('third-party downloader');
 		expect(heading()).toBe('third-party downloader');
-		expect(brand()).toBe(toolBrand('third-party-downloads'));
+		expect(wears('third-party-downloads')).toBe(true);
 	});
 
 	// The queue behind the count in that header is another round trip, and it
@@ -281,7 +281,7 @@ describe('opening a tool that is not there yet', () => {
 // ("handing the batch to another tool").
 
 describe('the theme', () => {
-	const isDark = () => document.documentElement.classList.contains('dark');
+	const isDark = () => !document.documentElement.classList.contains('light');
 
 	it('follows the browser until it is told otherwise, then cycles', async () => {
 		await mountApp();

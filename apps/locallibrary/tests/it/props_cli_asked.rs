@@ -92,6 +92,25 @@ const NAMES: &[&str] = &["", "Home", "My library", "Club"];
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], answers = vec![1u8; 40])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], answers = vec![2u8; 40])]
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], answers = vec![3u8; 40])]
+// Club retired, taken and the contact details written: Club is kept as it is.
+#[hegel::explicit_test_case(
+    flags = (0..FLAGS).map(|i| [0, 9].contains(&i)).collect::<Vec<_>>(),
+    answers = (0..40u8).map(|i| u8::from(i == 8)).collect::<Vec<_>>()
+)]
+// Club and its twin in Club2, both named Club, each taken and given a role: they're one drive,
+// with the role given last.
+#[hegel::explicit_test_case(
+    flags = (0..FLAGS).map(|i| [11, 24].contains(&i)).collect::<Vec<_>>(),
+    answers = [vec![0u8, 0, 1, 0, 0, 0, 0, 0, 0, 2], vec![0; 30]].concat()
+)]
+// Club and its twin: only the twin, in Club2, is taken, and only it gets the contact details.
+#[hegel::explicit_test_case(
+    flags = (0..FLAGS).map(|i| [8, 11, 24].contains(&i)).collect::<Vec<_>>(),
+    answers = vec![
+        0u8, 0, 127, 59, 0, 109, 0, 0, 209, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 143, 116, 0, 0, 0, 192, 111, 0, 3, 103, 77,
+        175, 201, 169, 128, 173, 232, 222, 154, 0, 0,
+    ]
+)]
 fn setup_does_what_it_was_told(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let answers = tc.draw(gs::vecs(gs::integers::<u8>()).min_size(40).max_size(40));
@@ -110,9 +129,15 @@ fn setup_does_what_it_was_told(tc: TestCase) {
     }
     let mut next = answers.into_iter().skip(1);
     let mut pick = move |n: usize| usize::from(next.next().unwrap_or(0)) % n;
-    // The model: drives said to be copies, in the order asked; the library; the primary's place
-    // among them; the roles; whether the library was started.
+    // The model: drives said to be copies, in the order asked, and the place each was asked in;
+    // the library; the primary's place among them; the roles; whether the library was started.
     let (mut taken, mut library, mut primary) = (Vec::<String>::new(), None::<String>, 0usize);
+    let (mut asked, mut taken_at) = (0usize, Vec::<usize>::new());
+    // Each "Is ... a copy" question, and the drive name it's about.
+    let mut questions = Vec::<(String, String)>::new();
+    // A drive that shares its name with another is asked about with its folder, which is left
+    // out of the name here.
+    let in_volumes = format!(" ({}", fx.volumes.display());
     let (mut roles, mut saved, mut players, mut contact) = (Vec::<(String, String)>::new(), None, None, None);
     let mut contact_given = None::<String>;
     let mut models_given = None::<String>;
@@ -121,12 +146,16 @@ fn setup_does_what_it_was_told(tc: TestCase) {
         let q = q.trim_start_matches("? ").trim_end();
         let yes = |n: usize| if n == 0 { "y" } else { "n" };
         let a: String = if let Some(rest) = q.strip_prefix("Is ") {
-            let drive = rest.split(" a copy of your library?").next().unwrap().to_string();
+            let drive = rest.split(" a copy of your library?").next().unwrap();
+            let drive = drive.split(&in_volumes).next().unwrap().to_string();
+            questions.push((drive.clone(), q.to_string()));
             let a = ["y", "n", ""][pick(3)];
             let took = a == "y" || (a.is_empty() && default_of(q) == Some("Y/n"));
             if took {
                 taken.push(drive);
+                taken_at.push(asked);
             }
+            asked += 1;
             a.into()
         } else if q.starts_with("Name for your library") {
             let a = NAMES[pick(NAMES.len())];
@@ -145,7 +174,8 @@ fn setup_does_what_it_was_told(tc: TestCase) {
                 }
             }
         } else if let Some(rest) = q.strip_prefix("Role for ") {
-            let drive = rest.split(" (backup").next().unwrap().to_string();
+            let drive = rest.split(" (backup").next().unwrap();
+            let drive = drive.split(&in_volumes).next().unwrap().to_string();
             let a = ["", "backup", "set", "archive", "bogus"][pick(5)];
             if a != "bogus" {
                 let role = if a.is_empty() { default_of(q).unwrap().to_string() } else { a.to_string() };
@@ -195,21 +225,48 @@ fn setup_does_what_it_was_told(tc: TestCase) {
     let names: Vec<&str> = libraries.as_array().unwrap().iter().filter_map(|l| l["name"].as_str()).collect();
     assert!(names.contains(&library.as_str()), "no library {library:?}: {names:?}\n{said}");
     let drives = fx.json(&["drive", "list", "--retired"]);
-    let role_of = |name: &str| -> Option<Value> {
-        drives.as_array().unwrap().iter().find(|d| d["name"] == name).map(|d| d["role"].clone())
-    };
+    let record = |name: &str| drives.as_array().unwrap().iter().find(|d| d["name"] == name);
+    let role_of = |name: &str| record(name).map(|d| d["role"].clone());
     if let Some(p) = taken.get(primary).filter(|_| roles.iter().all(|(d, _)| d != &taken[primary])) {
         assert_eq!(role_of(p), Some(Value::from("primary")), "{p}\n{said}");
     }
-    for (d, role) in &roles {
+    for (i, (d, role)) in roles.iter().enumerate() {
+        // Twins (Club and its copy in Club2) are one drive, with one record: the role given last
+        // is the one it has.
+        if roles[i + 1..].iter().any(|(later, _)| later == d) {
+            continue;
+        }
         assert_eq!(role_of(d), Some(Value::from(role.as_str())), "{d}\n{said}");
     }
     if let (Some(m), Some(true)) = (&models_given, players) {
         assert_eq!(fx.json(&["players"])["default"], serde_json::json!([m]), "{said}");
     }
+    // Archive and retired drives are kept as they are; the others get the contact details. Two
+    // drives can share a name (Club and its twin, in Club2), so each answer is about the folder
+    // listed in its place: setup lists the drives mounted, then asks about each in that order.
+    let listed: Vec<String> = run
+        .out
+        .lines()
+        .skip_while(|l| !l.ends_with("rekordbox drive(s) mounted"))
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| l.split("  ").filter(|p| !p.is_empty()).nth(1))
+        .filter_map(|root| Some(std::path::Path::new(root).file_name()?.to_string_lossy().into_owned()))
+        .collect();
+    // Where two drives share a name, each question says which folder it's about.
+    for (at, (name, q)) in questions.iter().enumerate() {
+        if questions.iter().filter(|(n, _)| n == name).count() > 1 {
+            let folder = fx.volumes.join(&listed[at]);
+            assert!(q.contains(&format!("({})", folder.display())), "{q}\n{said}");
+        }
+    }
     if let (Some(c), Some(yes)) = (&contact_given, contact) {
-        let found = std::fs::read_to_string(fx.volumes.join(&taken[0]).join("IF FOUND.txt")).unwrap_or_default();
-        assert_eq!(found.contains(c.as_str()), yes, "{said}");
+        for (d, at) in taken.iter().zip(&taken_at) {
+            let kept = record(d).is_some_and(|r| r["role"] == "archive" || !r["log"]["retired"].is_null());
+            let folder = fx.volumes.join(&listed[*at]);
+            let found = std::fs::read_to_string(folder.join("IF FOUND.txt")).unwrap_or_default();
+            assert_eq!(found.contains(c.as_str()), yes && !kept, "{d} in {}\n{said}", folder.display());
+        }
     }
 }
 
@@ -347,6 +404,7 @@ fn watch_stops_at_ctrl_c(tc: TestCase) {
 /// fetch says the same with and without `--json`, a dry run copies nothing, and the other store
 /// then has the libraries the first has (up to date when fetched again). The server says who
 /// connected and what they took.
+#[cfg(feature = "peers")]
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(json = false, only = false)]
 #[hegel::explicit_test_case(json = true, only = true)]

@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
+use loclib_mixid::audio::aiff_frames;
 use loclib_mixid::test_util::wav_of;
 use loclib_progress::CancelToken;
 use lofty::config::WriteOptions;
@@ -40,12 +41,7 @@ fn decode(path: &Path) -> Decoded {
         Ok(ControlFlow::Continue(()))
     })
     .unwrap();
-    let mut out = Decoded { rate: format.sample_rate, channels: usize::from(format.channels), samples };
-    // As `transcode` reads AIFF, past symphonia's misreading of SSND's length.
-    if let Some(frames) = aiff_frames(path) {
-        out.samples.truncate(frames as usize * out.channels);
-    }
-    out
+    Decoded { rate: format.sample_rate, channels: usize::from(format.channels), samples }
 }
 
 /// Tones between the octaves, so no lag but 0 lines them all up, at `rate` for `secs`.
@@ -397,7 +393,6 @@ fn a_damaged_frame_fails_the_copy() {
 /// is the copy again. A source under a frame at the recipe's rate is refused.
 #[hegel::test(test_cases = 30)]
 fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let rates = vec![44_100, 48_000, 88_200, 96_000];
     // Masters come at twice and four times those too.
@@ -425,10 +420,10 @@ fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
     }
     let containers = Container::ALL.to_vec();
     let r = Recipe {
-        container: tc.draw(gs::sampled_from(containers.clone()).print_as_debug()),
+        container: tc.draw(gs::sampled_from(containers.clone())),
         sample_rate: tc.draw(gs::sampled_from(rates)),
         bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
-        dither: tc.draw(gs::sampled_from(vec![Dither::None, Dither::Tpdf]).print_as_debug()),
+        dither: tc.draw(gs::sampled_from(vec![Dither::None, Dither::Tpdf])),
     };
     assert!(r.to_string().starts_with(r.container.extension()) && r.to_string().ends_with("-v1"), "{r}");
     let copy = dir.path().join(format!("copy.{}", r.container.extension()));
@@ -473,7 +468,7 @@ fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
         }
     }
     // Again, changing only the container: the copy's samples exactly.
-    let again = Recipe { container: tc.draw(gs::sampled_from(containers).print_as_debug()), dither: Dither::None, ..r };
+    let again = Recipe { container: tc.draw(gs::sampled_from(containers)), dither: Dither::None, ..r };
     let second = dir.path().join(format!("again.{}", again.container.extension()));
     transcode_quietly(&copy, &again, &second).unwrap();
     assert_eq!(decode(&second).samples, back.samples, "{r} then {again}");
@@ -593,7 +588,6 @@ fn copied(events: &[Event]) -> Vec<u64> {
 /// frame, and its size is its header and samples.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn long_copies_report_progress_as_they_go(tc: TestCase) {
-    use hegel::Generator;
     const MIB: u64 = 1 << 20;
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
     let bits = tc.draw(gs::sampled_from(vec![24u16, 32]));
@@ -606,7 +600,7 @@ fn long_copies_report_progress_as_they_go(tc: TestCase) {
     std::fs::write(&source, wav_of_channels(rate, bits, channels, &noise(frames * usize::from(channels), bits)))
         .unwrap();
     let r = Recipe {
-        container: tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]).print_as_debug()),
+        container: tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav])),
         sample_rate: rate,
         bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
         dither: Dither::None,
@@ -658,40 +652,12 @@ fn copies_dont_need_the_length_in_the_header(tc: TestCase) {
     }
 }
 
-/// [`aiff_frames`] reads the frame count from the COMM chunk wherever it is among the chunks
-/// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
-/// it and a file that isn't there have none.
-#[hegel::test(test_cases = 200)]
-fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
-    let frames = tc.draw(gs::integers::<u32>());
-    let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
-    let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
-    for len in tc.draw(gs::vecs(gs::integers::<u32>().max_value(9)).max_size(4)) {
-        bytes.extend_from_slice(b"FVER");
-        bytes.extend_from_slice(&len.to_be_bytes());
-        bytes.extend(std::iter::repeat_n(0x55, (len + len % 2) as usize));
-    }
-    let comm_end = bytes.len() + 14;
-    bytes.extend_from_slice(b"COMM");
-    bytes.extend_from_slice(&18u32.to_be_bytes());
-    bytes.extend_from_slice(&2u16.to_be_bytes());
-    bytes.extend_from_slice(&frames.to_be_bytes());
-    bytes.extend_from_slice(&[0, 16, 0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0]);
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("x.aiff");
-    let cut = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
-    std::fs::write(&path, &bytes[..cut]).unwrap();
-    let found = aiff_frames(&path);
-    assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
-    assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
-}
-
 /// A source lofty can't tell the format of by its name (symphonia goes by its content) is
 /// copied all the same, sample for sample, without its tags and with a warning saying so;
 /// one it can is copied with them, and no warning.
 #[hegel::test(test_cases = 20)]
+#[hegel::explicit_test_case(name = "master.bin", frames = 1151usize, container = Container::Aiff)]
 fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
-    use hegel::Generator;
     let name = tc.draw(gs::sampled_from(vec!["master.wav", "master.bin", "master", "master.wav.part"]));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
     let dir = tempfile::tempdir().unwrap();
@@ -702,7 +668,8 @@ fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
     tag.save_to_path(&wav, WriteOptions::default()).unwrap();
     let source = dir.path().join(name);
     std::fs::rename(&wav, &source).unwrap();
-    let r = recipe(tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()), 44_100, 16, Dither::None);
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
+    let r = recipe(container, 44_100, 16, Dither::None);
     let out = dir.path().join(format!("copy.{}", r.container.extension()));
     let recorder = Recorder::default();
     transcode(&source, &r, &out, &Ctx::new(&recorder, CancelToken::new())).unwrap();

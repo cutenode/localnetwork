@@ -145,6 +145,7 @@ fn the_registry_says_how_far_behind_each_drive_is() {
 
 /// Times print on this computer's calendar, whatever day it is in UTC, and `--json` keeps UTC.
 #[test]
+#[cfg_attr(windows, ignore = "chrono reads TZ only on Unix; Windows takes the zone from its settings")]
 fn times_print_in_the_local_time_zone() {
     use chrono::Timelike;
     // A zone whose date isn't UTC's for at least the next hour: 12 hours behind before 11:00 UTC,
@@ -213,6 +214,25 @@ fn drives_of_one_library_make_a_group_that_syncs_together() {
     assert!(out.contains("Archive (archive or retired: not synced)"), "{out}");
     let out = env.ok(&["status"]);
     assert!(line(&out, "  Archive  ").contains("archive"), "{out}");
+
+    // With no store, the mounted drives are still grouped by the library each holds: unnamed,
+    // and with no roles (the store keeps those), the archive among them. Nothing makes a store.
+    let store = env.store.clone();
+    let kept = env.outside("store kept");
+    std::fs::rename(&store, &kept).unwrap();
+    let out = env.ok(&["drive", "groups"]);
+    assert!(out.starts_with("an unnamed library ("), "{out}");
+    for d in [&main, &backup, &archive] {
+        assert!(line(&out, path(d)).ends_with(path(d)), "{out}");
+    }
+    let v = env.json(&["drive", "groups"]);
+    assert_eq!(
+        (v[0]["library"].clone(), v[0]["members"].as_array().map(Vec::len)),
+        (serde_json::Value::Null, Some(3)),
+        "{v}"
+    );
+    assert!(!store.exists(), "a read makes no store");
+    std::fs::rename(&kept, &store).unwrap();
 
     // The group syncs from its newest drive, leaving the archive out; ejecting a folder fails
     // without failing the sync. (Backup is unplugged for the edit, which would reach it too.)

@@ -1,0 +1,33 @@
+# A response whose content type comes from data, like a stored blob's mimeType, serves whatever
+# type its writer chose from the site's origin, and an SVG or HTML one can run script there. A PDS
+# doesn't hold blobs to their lexicon's accept list, so the type can't be trusted. Stored images go
+# through imageResponse (apps/web/src/lib/server/images.ts), which serves only the lexicon's types,
+# sandboxed, and recordings through audioResponse (apps/web/src/lib/server/audio.ts), which serves
+# only the recording lexicon's. Tests are left out, since their fakes stand in for other servers.
+id: stored-type-response
+language: TypeScript
+severity: error
+message: This response's content type comes from data, not a literal.
+note: Serve stored images with imageResponse in apps/web/src/lib/server/images.ts, and recordings with audioResponse in apps/web/src/lib/server/audio.ts, which allow only their lexicon's types and lock them down.
+files:
+  - "apps/web/src/**"
+ignores:
+  - "apps/web/src/lib/server/images.ts"
+  - "apps/web/src/lib/server/audio.ts"
+  - "apps/web/src/lib/server/testing/**"
+  - "**/*.test.ts"
+rule:
+  any:
+    # `'content-type': type` in a headers object.
+    - kind: pair
+      all:
+        - has: { field: key, regex: "^['\"](?i:content-type)['\"]$" }
+        - has: { field: value, not: { kind: string } }
+    # `headers.set('content-type', type)`, and `append`.
+    - pattern: $HEADERS.$SET($NAME, $TYPE)
+    # A Blob body's type, which a Response sends as its content type.
+    - pattern: 'new Blob($PARTS, { type: $TYPE })'
+constraints:
+  SET: { regex: "^(set|append)$" }
+  NAME: { regex: "^['\"](?i:content-type)['\"]$" }
+  TYPE: { not: { kind: string } }

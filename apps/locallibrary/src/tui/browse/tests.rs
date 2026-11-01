@@ -1,4 +1,3 @@
-use hegel::generators::Generator;
 use locallibrary::sets::{EntryOrigin, SetEntry};
 
 use super::super::app::testing::{library, set, track};
@@ -278,7 +277,7 @@ fn any_playlists(tc: &hegel::TestCase) -> Vec<Playlist> {
     (1..=n)
         .map(|id| Playlist {
             id,
-            parent_id: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>().max_value(n + 1))),
+            parent_id: tc.draw(gs::optional(gs::integers::<u32>().max_value(n + 1))),
             name: format!("P{id}"),
             is_folder: tc.draw(gs::booleans()),
             sort_order: tc.draw(gs::integers::<u32>().max_value(3)),
@@ -355,7 +354,7 @@ fn sorting_orders_by_rank_and_keeps_ties(tc: hegel::TestCase) {
         k = cycle(k);
     }
     assert_eq!(seen, SORT_FIELDS);
-    let field = SORT_FIELDS[tc.draw(gs::integers::<usize>().max_value(SORT_FIELDS.len() - 1))];
+    let field = tc.draw(gs::sampled_from(&SORT_FIELDS[..]));
     let first = click(cycle(None).filter(|k| k.field != field), field);
     assert_eq!(first.map(|k| (k.field, k.descending)), Some((field, first_descending(field))));
     let second = click(first, field);
@@ -392,7 +391,7 @@ fn every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
     let n = lib.tracks.len();
-    let c = tc.draw(gs::sampled_from(&Category::ALL[..8]).print_as_debug());
+    let c = tc.draw(gs::sampled_from(&Category::ALL[..8]));
     let gs = groups(&lib, c, &by_id(&lib), &Problems::default(), None, &[]);
     let mut seen: Vec<usize> = gs.iter().flat_map(|g| g.tracks.clone()).collect();
     seen.sort_unstable();
@@ -465,15 +464,15 @@ fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
     const TAGS: [&str; 3] = ["Genre/House", "Mood/Dark", "Genre/Acid"];
     let mut tags: FxHashMap<String, Vec<String>> = FxHashMap::default();
     for t in &lib.tracks {
-        let mine: Vec<String> = TAGS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect();
-        tags.insert(paths::key(&t.file_path).to_lowercase(), mine);
+        let mine: Vec<String> = tc.draw(gs::subsequences(&TAGS[..])).iter().map(|s| s.to_string()).collect();
+        tags.insert(paths::file_key(&t.file_path), mine);
     }
     let read = tc.draw(gs::booleans());
     let g = groups(&lib, Category::MyTags, &ids, &Problems::default(), read.then_some(&tags), &[]);
     let want: Vec<(String, Vec<usize>)> = (TAGS.iter().copied().collect::<std::collections::BTreeSet<_>>().into_iter())
         .filter(|_| read)
         .map(|tag| {
-            let has = |t: &Track| tags[&paths::key(&t.file_path).to_lowercase()].iter().any(|x| x == tag);
+            let has = |t: &Track| tags[&paths::file_key(&t.file_path)].iter().any(|x| x == tag);
             (tag.to_string(), (0..lib.tracks.len()).filter(|&i| has(&lib.tracks[i])).collect::<Vec<_>>())
         })
         .filter(|(_, v)| !v.is_empty())
@@ -522,7 +521,8 @@ fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
     }
 
     let (copy_of, copies) = duplicates(&lib);
-    let missing = tc.draw(gs::booleans()).then(|| lib.tracks.iter().map(|_| tc.draw(gs::booleans())).collect());
+    let len = lib.tracks.len();
+    let missing = tc.draw(gs::optional(gs::vecs(gs::booleans()).min_size(len).max_size(len)));
     let problems = Problems { missing, copy_of, copies };
     let g = groups(&lib, Category::Problems, &ids, &problems, None, &[]);
     let of = |key: &str| g.iter().find(|g| g.key == key).map(|g| g.tracks.clone()).unwrap_or_default();
@@ -583,7 +583,7 @@ fn browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
 fn any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
-    let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug());
+    let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]));
     let k = SortKey { field, descending: tc.draw(gs::booleans()) };
     let mut refs: Vec<&Track> = lib.tracks.iter().collect();
     locallibrary::query::sort_tracks(&mut refs, &[k]);

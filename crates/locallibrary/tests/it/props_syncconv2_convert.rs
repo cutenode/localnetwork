@@ -19,11 +19,7 @@ use locallibrary::device::Device;
 use locallibrary::edit::Edit;
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::{Error, Library, paths, pdb, tags};
-
-fn fold(s: &str) -> String {
-    paths::key(s).to_lowercase()
-}
+use locallibrary::{Library, paths, pdb, tags};
 
 /// The twelve-track drive (or rekordbox's two-track demo export) `name` in `dir`, made once and
 /// written out for each case, which is quicker than making it.
@@ -123,37 +119,42 @@ fn images_come_across_once_each_with(tc: &TestCase, way: Way) {
     let there: IndexMap<String, String> = source
         .tracks
         .iter()
-        .filter_map(|t| t.artwork_path.as_ref().map(|a| (fold(&t.file_path), a.clone())))
+        .filter_map(|t| t.artwork_path.as_ref().map(|a| (paths::file_key(&t.file_path), a.clone())))
         .filter(|(_, a)| file(&root, a).is_file())
         .collect();
 
     let opts = ConvertOptions { to, replace: matches!(way, Way::RebuildingOneLibrary) };
     let (plan, report, _) = convert(&root, &opts);
-    let distinct: std::collections::BTreeSet<String> = there.values().map(|a| fold(a)).collect();
+    let distinct: std::collections::BTreeSet<String> = there.values().map(|a| paths::file_key(a)).collect();
     assert_eq!(plan.artwork, distinct.len());
     let warned = plan.warnings.iter().any(|w| w.starts_with("1 artwork image(s) the tracks point at are missing"));
     assert_eq!(warned, gone, "{:?}", plan.warnings);
 
     let after = made(&root, to);
     let by_file: IndexMap<String, Option<String>> =
-        after.tracks.iter().map(|t| (fold(&t.file_path), t.artwork_path.clone())).collect();
+        after.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.artwork_path.clone())).collect();
     let mut copies: IndexMap<String, String> = IndexMap::new();
     for t in &source.tracks {
-        let got = by_file[&fold(&t.file_path)].clone();
+        let got = by_file[&paths::file_key(&t.file_path)].clone();
         let kept = old.as_ref().and_then(|o| {
-            let own = o.tracks.iter().find(|x| fold(&x.file_path) == fold(&t.file_path))?.artwork_path.clone()?;
+            let own = o
+                .tracks
+                .iter()
+                .find(|x| paths::file_key(&x.file_path) == paths::file_key(&t.file_path))?
+                .artwork_path
+                .clone()?;
             file(&root, &own).is_file().then_some(own)
         });
-        match (there.get(&fold(&t.file_path)), kept) {
+        match (there.get(&paths::file_key(&t.file_path)), kept) {
             // A rebuilt OneLibrary keeps the image it had.
             (_, Some(own)) => assert_eq!(got.as_deref(), Some(own.as_str()), "{}", t.file_path),
             (None, None) => assert_eq!(got, None, "{} had no image on the drive", t.file_path),
             (Some(src), None) => {
                 let got = got.unwrap_or_else(|| panic!("{} lost its image", t.file_path));
                 assert!(file(&root, &got).is_file(), "{got}");
-                assert_ne!(fold(&got), fold(src), "under the new database's name");
+                assert_ne!(paths::file_key(&got), paths::file_key(src), "under the new database's name");
                 // One copy per picture, its smaller variant beside it when the drive had one.
-                let prev = copies.insert(fold(src), got.clone());
+                let prev = copies.insert(paths::file_key(src), got.clone());
                 assert!(prev.as_ref().is_none_or(|p| *p == got), "{src} copied twice: {prev:?} and {got}");
                 let medium = |p: &str| paths::to_fs(&root, &medium_variant(&paths::key(p))).is_file();
                 assert_eq!(medium(&got), medium(src), "{got}'s smaller variant");
@@ -273,7 +274,8 @@ fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: Con
             }
             // Links to tracks the new export.pdb won't list go, and the plan says how many: all of
             // them when there's no export.pdb to follow them from, else those of the track lost.
-            let lost = |id: &u32| removed.as_deref().is_some_and(|f| fold(&pdb_files[id]) == fold(f));
+            let lost =
+                |id: &u32| removed.as_deref().is_some_and(|f| paths::file_key(&pdb_files[id]) == paths::file_key(f));
             let dropped = match (opts.to, plus) {
                 (Target::DeviceLibrary, false) => tagged.len(),
                 (Target::DeviceLibrary, true) if opts.replace => tagged.iter().filter(|id| lost(id)).count(),
@@ -290,7 +292,8 @@ fn my_tags_go_where_export_ext_lets_them_with(tc: &TestCase, ext: Ext, opts: Con
         Target::OneLibrary => pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap(),
         Target::DeviceLibrary => common::plus_library(&root),
     };
-    let files = |l: &Library| l.tracks.iter().map(|t| fold(&t.file_path)).collect::<std::collections::BTreeSet<_>>();
+    let files =
+        |l: &Library| l.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect::<std::collections::BTreeSet<_>>();
     assert!(files(&after).is_superset(&files(&source)), "every track comes across");
 }
 
@@ -344,25 +347,28 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     assert_eq!(err.code(), "stale_plan", "{err}");
     before.untouched(&root).unwrap();
 
-    // Artwork bigger than the drive (a sparse file: it takes no room itself).
-    let root = drive(dir.path(), "Big", false);
-    common::media::set_art(&root, &[1]);
-    let art = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().track(1).unwrap().artwork_path.clone().unwrap();
-    let free = locallibrary::fsutil::available_space(&root).unwrap();
-    fs::File::options().write(true).open(file(&root, &art)).unwrap().set_len(2 * free + (1 << 30)).unwrap();
-    let mut d = Device::open_export(&root).unwrap();
-    let plan = convert::plan(&d, &to, &ctx).unwrap();
-    assert!(!plan.fits, "{plan:?}");
-    let full = format!("needs about {} bytes but only {} are free", plan.needed_bytes, plan.free_space.unwrap());
-    assert!(plan.warnings.contains(&full), "{:?}", plan.warnings);
-    let err = convert::apply(&plan, &mut d, &to, &ctx).unwrap_err();
-    assert!(matches!(err, Error::NoSpace { needed, .. } if needed == plan.needed_bytes), "{err}");
-    assert!(!d.has_library_plus());
+    {
+        // Artwork bigger than the drive (a sparse file: it takes no room itself).
+        let root = drive(dir.path(), "Big", false);
+        common::media::set_art(&root, &[1]);
+        let art =
+            pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().track(1).unwrap().artwork_path.clone().unwrap();
+        let free = locallibrary::fsutil::available_space(&root).unwrap();
+        locallibrary::testing::sparse(&file(&root, &art), 2 * free + (1 << 30)).unwrap();
+        let mut d = Device::open_export(&root).unwrap();
+        let plan = convert::plan(&d, &to, &ctx).unwrap();
+        assert!(!plan.fits, "{plan:?}");
+        let full = format!("needs about {} bytes but only {} are free", plan.needed_bytes, plan.free_space.unwrap());
+        assert!(plan.warnings.contains(&full), "{:?}", plan.warnings);
+        let err = convert::apply(&plan, &mut d, &to, &ctx).unwrap_err();
+        assert!(matches!(err, locallibrary::Error::NoSpace { needed, .. } if needed == plan.needed_bytes), "{err}");
+        assert!(!d.has_library_plus());
+    }
 
     // Analysis files that can't be read (rekordbox's demo export's are real ones).
     let root = drive(dir.path(), "Garbled", true);
     let lib = common::library(&root);
-    let garbled: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|_| tc.draw(gs::booleans())).collect();
+    let garbled: Vec<u32> = tc.draw(gs::subsequences(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
     for id in &garbled {
         let dat = file(&root, &lib.track(*id).unwrap().analyze_path);
         for f in [dat.clone(), dat.with_extension("EXT")] {
@@ -399,6 +405,11 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     for name in &names {
         one.create_playlist(name, 0, false).unwrap();
     }
+    let lists: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|n| format!("HISTORY 9{n}")).collect();
+    for list in &lists {
+        one.create_history(list, 0, false).unwrap();
+    }
     let banks = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     for n in 0..banks {
         one.create_hot_cue_bank_list(&format!("Drops {n}"), 0, false).unwrap();
@@ -413,6 +424,7 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     }
     assert_eq!(dropped.contains(&format!(", +{} more", names.len().saturating_sub(5))), names.len() > 5, "{dropped}");
     assert!(dropped.ends_with(&format!("; entries only it has in {both}")), "{both}: {dropped}");
+    assert_eq!(dropped.contains(&format!("the history list(s) {}", lists.join(", "))), !lists.is_empty(), "{dropped}");
     assert!(
         plan.warnings.contains(&format!("its {banks} hot cue bank list(s) go too (export.pdb has none)")),
         "{:?}",

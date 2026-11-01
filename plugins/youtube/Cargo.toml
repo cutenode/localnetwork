@@ -1,0 +1,23 @@
+[package]
+name = "locallibrary-plugin-youtube"
+description = "locallibrary's YouTube plugin: a set's recording uploaded to YouTube as a video, its tracklist as chapters"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+tempfile.workspace = true
+url = "2.5"

@@ -47,8 +47,8 @@ fn rules_match_the_model(tc: TestCase) {
                 drives: if tc.draw(gs::booleans()) { vec![drive] } else { vec![] },
             };
             let valid = !key(path).is_empty() && filter_ok && sort != Some("nonsense:");
-            assert_eq!(rule.validate().is_ok(), valid, "{rule:?}");
-            assert_eq!(rules.set(rule).is_ok(), valid);
+            assert_eq!(rule.validate(&Default::default()).is_ok(), valid, "{rule:?}");
+            assert_eq!(rules.set(rule, &Default::default()).is_ok(), valid);
             if valid {
                 match model.iter_mut().find(|(k, _)| *k == key(path)) {
                     Some(slot) => slot.1 = filter.into(),
@@ -93,13 +93,16 @@ fn a_rules_playlist_holds_what_it_selects(tc: TestCase) {
         let sort = tc.draw(gs::sampled_from(&SORTS[..3]));
         let limit = tc.draw(gs::optional(gs::integers::<usize>().min_value(1).max_value(5)));
         rules
-            .set(SmartPlaylist {
-                path: path.into(),
-                filter: filter.into(),
-                sort: sort.map(Into::into),
-                limit,
-                drives: vec![],
-            })
+            .set(
+                SmartPlaylist {
+                    path: path.into(),
+                    filter: filter.into(),
+                    sort: sort.map(Into::into),
+                    limit,
+                    drives: vec![],
+                },
+                &Default::default(),
+            )
             .unwrap();
     }
     let edits = rules.edits_for(&[]);

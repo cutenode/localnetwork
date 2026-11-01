@@ -271,3 +271,186 @@ fn history_lists_are_selected_by_exact_name_first() {
     assert_eq!(history("history 001").unwrap(), [2]);
     assert!(history("History 001").is_err(), "two match ignoring case");
 }
+
+/// What analyzers worked out for the test library: `sound.bpm` (a number) for the first two
+/// tracks, `sound.key` (text) for all three, `sound.vocal` (a switch) and `sound.moods` (a list)
+/// for the first; `sound.beats` (whole numbers) is declared but none has it.
+fn values() -> TrackValues {
+    let declared = [
+        ("sound.bpm", FieldType::Number),
+        ("sound.beats", FieldType::Integer),
+        ("sound.key", FieldType::String),
+        ("sound.vocal", FieldType::Boolean),
+        ("sound.moods", FieldType::Strings),
+    ];
+    let declared = declared.into_iter().map(|(n, t)| (n.to_string(), t)).collect();
+    let fields = |pairs: Vec<(&str, FieldValue)>| pairs.into_iter().map(|(n, v)| (n.to_string(), v)).collect();
+    let tracks = [
+        (
+            1,
+            fields(vec![
+                ("sound.bpm", FieldValue::Number(121.04)),
+                ("sound.key", FieldValue::String("8A".into())),
+                ("sound.vocal", FieldValue::Boolean(true)),
+                ("sound.moods", FieldValue::Strings(vec!["deep house".into(), "warm".into()])),
+            ]),
+        ),
+        (2, fields(vec![("sound.bpm", FieldValue::Number(127.6)), ("sound.key", FieldValue::String("11A".into()))])),
+        (3, fields(vec![("sound.key", FieldValue::String("1A".into()))])),
+    ];
+    TrackValues { declared, tracks: tracks.into_iter().collect() }
+}
+
+/// The tracks a filter naming plugins' fields selects, with [`values`].
+fn ids_with_values(f: &str) -> Result<Vec<u32>> {
+    let (lib, values) = (lib(), values());
+    let ctx = QueryContext { fields: Some(&values), ..QueryContext::new(&lib) };
+    let filter = Filter::parse(f)?;
+    filter.check(&ctx)?;
+    Ok(filter.select(&ctx).iter().map(|t| t.id).collect())
+}
+
+/// A plugin's field matches its values: numbers by condition (an exact one to the precision
+/// typed), text by whole words, a switch by true or false, a list by any of it; a track without
+/// a value matches nothing, and negated, everything.
+#[test]
+fn plugins_fields_filter_by_their_values() {
+    let ids = |f: &str| ids_with_values(f).unwrap();
+    assert_eq!(ids("sound.bpm:>120"), [1, 2]);
+    assert_eq!(ids("sound.bpm:>=125"), [2]);
+    assert_eq!(ids("sound.bpm:120-122"), [1]);
+    assert_eq!(ids("sound.bpm:121"), [1], "121.04 is 121");
+    assert_eq!(ids("sound.bpm:128"), [2], "127.6 is 128");
+    assert_eq!(ids("sound.bpm:121.0"), [1]);
+    assert_eq!(ids("sound.bpm:127.6"), [2], "to the tenth typed");
+    assert!(ids("sound.bpm:121.1").is_empty(), "121.04 isn't 121.1");
+    assert_eq!(ids("-sound.bpm:>120"), [3], "no value: not matched, so negated it is");
+    assert_eq!(ids("sound.key:8A"), [1]);
+    assert_eq!(ids("sound.key:1a"), [3], "a whole word: not 11A");
+    assert_eq!(ids("sound.key:1A|11A"), [2, 3]);
+    assert_eq!(ids("Sound.Key:8a"), [1], "case doesn't matter");
+    assert_eq!(ids("sound.vocal:true"), [1]);
+    assert_eq!(ids("sound.vocal:no"), Vec::<u32>::new());
+    assert_eq!(ids("sound.moods:deep"), [1]);
+    assert_eq!(ids("sound.moods:warm"), [1]);
+    assert!(ids("sound.moods:dee").is_empty(), "words, not parts of them");
+    assert!(ids("sound.beats:>0").is_empty(), "declared, but none has it");
+    assert_eq!(ids("sound.bpm:>120 sound.key:8A"), [1]);
+    // Quoted, a dotted word before a colon is text.
+    assert!(ids("\"sound.bpm:>120\"").is_empty());
+}
+
+/// A plugin's field no analyzer declares, a value its type can't hold, nothing after the colon,
+/// and a filter naming one with nothing analyzers worked out are refused, never matched.
+#[test]
+fn plugins_fields_are_refused_when_they_cant_be_answered() {
+    let refused = |f: &str| ids_with_values(f).unwrap_err().to_string();
+    assert!(refused("sound.bpmm:>120").contains("did you mean sound.bpm?"), "{}", refused("sound.bpmm:>120"));
+    assert!(refused("other.bpm:1").contains("there's no field \"other.bpm\""), "{}", refused("other.bpm:1"));
+    assert!(refused("sound.bpm:fast").contains("it's a number"), "{}", refused("sound.bpm:fast"));
+    assert!(refused("sound.beats:x").contains("it's a number"));
+    assert!(refused("sound.vocal:maybe").contains("true or false"));
+    assert!(refused("sound.bpm:").contains("nothing after the colon"));
+    assert!(refused("sound.key:|").contains("nothing to look for"));
+    let lib = lib();
+    let f = Filter::parse("sound.bpm:>120").unwrap();
+    assert!(f.uses_fields() && !Filter::parse("bpm:>120").unwrap().uses_fields());
+    let said = f.check(&QueryContext::new(&lib)).unwrap_err().to_string();
+    assert!(said.contains("a sound.bpm: term needs what analyzers worked out"), "{said}");
+}
+
+/// A value worked out with nothing to show (null) matches no comparison, so negated every one,
+/// and sorts with the tracks without a value: last.
+#[test]
+fn a_null_value_matches_nothing_and_sorts_last() {
+    let lib = lib();
+    let mut values = values();
+    values.tracks.get_mut(&3).unwrap().insert("sound.bpm".into(), FieldValue::Null);
+    let ctx = QueryContext { fields: Some(&values), ..QueryContext::new(&lib) };
+    let ids = |f: &str| Filter::parse(f).unwrap().select(&ctx).iter().map(|t| t.id).collect::<Vec<_>>();
+    assert_eq!(ids("sound.bpm:>0"), [1, 2]);
+    assert_eq!(ids("-sound.bpm:>0"), [3]);
+    let keys = parse_sort_with("sound.bpm", Some(&values.declared)).unwrap();
+    let mut sorted: Vec<&Track> = lib.tracks.iter().rev().collect();
+    sort_tracks_with(&mut sorted, &keys, Some(&values));
+    assert_eq!(sorted.iter().map(|t| t.id).collect::<Vec<_>>(), [1, 2, 3]);
+}
+
+/// A sort names a plugin's field where its values are given, and its declared fields: by value,
+/// either way, tracks without one last; elsewhere it's refused.
+#[test]
+fn plugins_fields_sort_with_their_values() {
+    let (lib, values) = (lib(), values());
+    let sorted = |s: &str| {
+        let keys = parse_sort_with(s, Some(&values.declared)).unwrap();
+        let mut v: Vec<&Track> = lib.tracks.iter().rev().collect();
+        sort_tracks_with(&mut v, &keys, Some(&values));
+        v.iter().map(|t| t.id).collect::<Vec<_>>()
+    };
+    assert_eq!(sorted("sound.bpm"), [1, 2, 3]);
+    assert_eq!(sorted("-sound.bpm"), [2, 1, 3], "the track without one stays last");
+    assert_eq!(sorted("sound.key"), [2, 3, 1], "text: 11a, 1a, 8a");
+    assert_eq!(sorted("sound.beats,title"), [1, 2, 3], "none has it: the next key orders them");
+    let keys = parse_sort_with("-sound.bpm", Some(&values.declared)).unwrap();
+    assert_eq!(keys, [SortKey { field: SortField::Field(FieldName::new("sound.bpm")), descending: true }]);
+    let mut none: Vec<&Track> = lib.tracks.iter().rev().collect();
+    sort_tracks(&mut none, &keys);
+    assert_eq!(none.iter().map(|t| t.id).collect::<Vec<_>>(), [3, 2, 1], "without values: as it was");
+    let said = parse_sort_with("sound.bpmm", Some(&values.declared)).unwrap_err().to_string();
+    assert!(said.contains("did you mean sound.bpm?"), "{said}");
+    let said = parse_sort("sound.bpm").unwrap_err().to_string();
+    assert!(said.contains("a plugin's field sorts track listings only"), "{said}");
+    // Kept in a saved sort by its name, and read back as the same.
+    let json = serde_json::to_string(&keys[0]).unwrap();
+    assert_eq!(json, r#"{"field":{"field":"sound.bpm"},"descending":true}"#);
+    assert_eq!(serde_json::from_str::<SortKey>(&json).unwrap(), keys[0]);
+}
+
+/// Values compare by number, then by text; a missing value isn't compared here.
+#[test]
+fn field_values_compare_numbers_then_text() {
+    use std::cmp::Ordering::*;
+    let (n, i, s) = (FieldValue::Number, FieldValue::Integer, |x: &str| FieldValue::String(x.into()));
+    assert_eq!(compare_values(&n(9.5), &i(10)), Less);
+    assert_eq!(compare_values(&i(10), &n(9.5)), Greater);
+    assert_eq!(compare_values(&s("b"), &s("A")), Greater);
+    assert_eq!(compare_values(&FieldValue::Boolean(false), &FieldValue::Boolean(true)), Less);
+    assert_eq!(compare_values(&FieldValue::Strings(vec!["a".into()]), &FieldValue::Strings(vec![])), Greater);
+}
+
+/// Any values, some tracks without one: `sound.bpm:>T` selects exactly the tracks whose value is
+/// above `T`, negated the rest; sorted by it either way, the tracks with one come in order and
+/// those without last.
+#[hegel::test(test_cases = 200)]
+fn a_plugins_number_filters_and_sorts_as_its_values_say(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let lib = lib();
+    let mut values = values();
+    values.tracks.clear();
+    for t in &lib.tracks {
+        if tc.draw(gs::booleans()) {
+            let v = tc.draw(gs::sampled_from(&[60.0, 119.99, 120.0, 120.5, 128.0, 174.0][..]));
+            values.tracks.insert(t.id, [("sound.bpm".to_string(), FieldValue::Number(v))].into_iter().collect());
+        }
+    }
+    let over = tc.draw(gs::sampled_from(&[0.0, 120.0, 120.25, 200.0][..]));
+    let value = |id: u32| match values.get(id, "sound.bpm") {
+        Some(FieldValue::Number(v)) => Some(*v),
+        _ => None,
+    };
+    let ctx = QueryContext { fields: Some(&values), ..QueryContext::new(&lib) };
+    let selected = |f: &str| Filter::parse(f).unwrap().select(&ctx).iter().map(|t| t.id).collect::<Vec<_>>();
+    let above: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|&id| value(id).is_some_and(|v| v > over)).collect();
+    let rest: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|id| !above.contains(id)).collect();
+    assert_eq!(selected(&format!("sound.bpm:>{over}")), above);
+    assert_eq!(selected(&format!("-sound.bpm:>{over}")), rest);
+    let descending = tc.draw(gs::booleans());
+    let keys = [SortKey { field: SortField::Field(FieldName::new("sound.bpm")), descending }];
+    let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
+    sort_tracks_with(&mut sorted, &keys, Some(&values));
+    let got: Vec<Option<f64>> = sorted.iter().map(|t| value(t.id)).collect();
+    let with = got.iter().take_while(|v| v.is_some()).count();
+    assert!(got[with..].iter().all(Option::is_none), "{got:?}");
+    let ordered = got[..with].windows(2).all(|w| if descending { w[0] >= w[1] } else { w[0] <= w[1] });
+    assert!(ordered, "{got:?}");
+}

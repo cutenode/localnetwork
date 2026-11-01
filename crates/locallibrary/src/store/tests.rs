@@ -222,6 +222,91 @@ fn gc_removes_what_cut_off_imports_left() {
     assert_eq!(store.gc(true).unwrap().removed_objects, 0);
 }
 
+/// Caches no version reads any more go too, counted as files nothing uses: core's own analyses,
+/// and fields kept by their plugin's version. Fingerprints and fields kept by their analyzer's
+/// version stay.
+#[test]
+fn gc_removes_caches_nothing_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let cache = store.root().join("cache");
+    let file = |path: &str, bytes: &[u8]| {
+        let p = cache.join(path);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, bytes).unwrap();
+        p
+    };
+    let unread = [
+        file("analysis/ab/abcdef.json", b"{}"),
+        file("analysis/cd/cdef01.err", b"0.1\nno"),
+        file("fields/sound/0.1.0/tempo-key-loudness/ab/abcdef.json", b"{\"bpm\":1}"),
+    ];
+    let kept = [
+        file("fields/sound/tempo-key-loudness/3/ab/abcdef.json", b"{\"bpm\":1}"),
+        file("fields/echo/size/1/ab/abcdef.json", b"{}"),
+        file("fingerprints/ab/abcdef.fp", b"print"),
+    ];
+    let plan = store.gc(true).unwrap();
+    assert_eq!((plan.removed_objects, plan.freed_bytes), (3, 17));
+    assert!(unread.iter().all(|p| p.exists()), "a plan removes nothing");
+    let _lock = store.lock().unwrap();
+    assert_eq!(store.gc(false).unwrap().removed_objects, 3);
+    assert!(!cache.join("analysis").exists() && !cache.join("fields/sound/0.1.0").exists());
+    assert!(kept.iter().all(|p| p.exists()));
+    assert_eq!(store.gc(true).unwrap().removed_objects, 0);
+}
+
+/// A store whose folders went read-only says so of the store, whichever file or folder in it was
+/// being made (a new object's fan-out folder, a snapshot's temp file); a drive's file that can't
+/// be read is still said of that file.
+#[cfg(unix)]
+#[test]
+fn a_store_that_cant_be_written_says_so_of_the_store() {
+    use std::os::unix::fs::PermissionsExt;
+    let set_mode = |p: &Path, mode| fs::set_permissions(p, fs::Permissions::from_mode(mode)).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let src = dir.path().join("a.bin");
+    fs::write(&src, b"abc").unwrap();
+    let (h, _) = store.import_file(&src, None, &Ctx::silent()).unwrap();
+    let lib = store.create_library("Main").unwrap();
+    let fresh = (0u8..).map(|i| vec![i]).find(|b| !store.object_path(&Hash::of(b)).parent().unwrap().exists()).unwrap();
+    let folders = ["objects", "snapshots"].map(|f| store.root().join(f));
+    folders.iter().for_each(|f| set_mode(f, 0o555));
+    // Root writes anyway.
+    if fs::write(store.root().join("objects/probe"), "").is_ok() {
+        return;
+    }
+    // Not the temp file it tried either, whose name is new each time.
+    let said = |e: Error| match e {
+        Error::Io { path, source } if !source.to_string().contains("at path") => (path, source.kind()),
+        e => panic!("{e}"),
+    };
+    let denied = (store.root().to_path_buf(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(said(store.import_bytes(&fresh).unwrap_err()), denied);
+    fs::write(&src, &fresh).unwrap();
+    assert_eq!(said(store.import_file(&src, None, &Ctx::silent()).unwrap_err()), denied);
+    let entry = FileEntry { path: "Contents/a.mp3".into(), size: 3, mtime: 0, class: FileClass::Audio, hash: Some(h) };
+    let snapshot = Snapshot {
+        id: Hash::of(b""),
+        library_id: lib.id,
+        parents: vec![],
+        created: Utc::now(),
+        message: None,
+        source: None,
+        fingerprint: Hash::of(b"one"),
+        summary: LibrarySummary::default(),
+        lineage: vec![],
+        files: vec![entry],
+    };
+    assert_eq!(said(store.save_snapshot(snapshot).unwrap_err()), denied);
+    set_mode(&src, 0o000);
+    let unreadable = said(store.import_file(&src, None, &Ctx::silent()).unwrap_err());
+    set_mode(&src, 0o644);
+    folders.iter().for_each(|f| set_mode(f, 0o755));
+    assert_eq!(unreadable, (src, std::io::ErrorKind::PermissionDenied));
+}
+
 #[test]
 fn refuses_to_init_over_unrelated_directory() {
     let dir = tempfile::tempdir().unwrap();

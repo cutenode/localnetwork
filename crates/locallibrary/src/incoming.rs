@@ -4,11 +4,13 @@
 
 use std::path::{Path, PathBuf};
 
+use loclib_model::audio::Format;
+
 use crate::commit::NewFile;
 use crate::device::Device;
 use crate::edit::{self, EditPlan, EditReport};
 use crate::progress::Ctx;
-use crate::{Error, Result, doctor, fsutil, paths};
+use crate::{Error, Result, fsutil, paths};
 
 /// An audio file in a folder (see [`audio_files`]).
 pub(crate) struct Found {
@@ -18,9 +20,9 @@ pub(crate) struct Found {
     pub size: u64,
 }
 
-/// The audio files in `folder` and below it. OS clutter, locallibrary's own folders (a drive's
-/// backups hold audio too) and the files of `device`'s own library are left out: a folder that
-/// is (or holds) the drive offers only what its library doesn't use.
+/// The audio files players list in `folder` and below it. OS clutter, locallibrary's own folders
+/// (a drive's backups hold audio too) and the files of `device`'s own library are left out: a
+/// folder that is (or holds) the drive offers only what its library doesn't use.
 pub(crate) fn audio_files(folder: &Path, device: &Device, ctx: &Ctx<'_>) -> Result<Vec<Found>> {
     if !folder.is_dir() {
         return Err(Error::NotFound(format!("folder {}", folder.display())));
@@ -33,10 +35,7 @@ pub(crate) fn audio_files(folder: &Path, device: &Device, ctx: &Ctx<'_>) -> Resu
         ctx.check()?;
         let Ok(entry) = entry else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
-        let audio = name
-            .rsplit_once('.')
-            .is_some_and(|(_, ext)| doctor::AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()));
-        if !entry.file_type().is_file() || !audio {
+        if !entry.file_type().is_file() || Format::for_players(&name).is_none() {
             continue;
         }
         let in_library = |rel: &Path| paths::classify(&paths::key(&rel.to_string_lossy())).is_some();

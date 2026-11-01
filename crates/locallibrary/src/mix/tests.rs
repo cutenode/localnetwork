@@ -45,6 +45,37 @@ fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
     assert_eq!(r.plays.iter().map(|p| p.track.id).collect::<Vec<_>>(), [1, 2]);
 }
 
+/// A track the pitch fader was ridden through (+0% for 45 s, then +4%, pitch and all) gives the
+/// slowest and fastest speeds it was played at; one played at +2% throughout gives none.
+#[test]
+fn a_ridden_pitch_fader_gives_the_speeds_it_went_between() {
+    use crate::mix::fingerprint::RATE;
+    use crate::probe::tests::wav_of;
+    use loclib_mixid::test_util::{resample, synth};
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir_all(root.join("Contents")).unwrap();
+    let (a, b) = (synth(90.0, 7919), synth(90.0, 3 * 7919));
+    let at = |x: &[f32], speed: f64| resample(x, (f64::from(RATE) * speed).round() as u32, RATE);
+    let half = a.len() / 2;
+    let set = [at(&a[..half], 1.0), at(&a[half..], 1.04), at(&b, 1.02)].concat();
+    let pcm = |x: &[f32]| wav_of(RATE, 16, x.iter().map(|s| (s * 12_000.0) as i32));
+    for (name, x) in [("a.wav", &a), ("b.wav", &b)] {
+        std::fs::write(root.join("Contents").join(name), pcm(x)).unwrap();
+    }
+    std::fs::write(dir.path().join("set.wav"), pcm(&set)).unwrap();
+    let tracks = vec![track(1, "A", "One", "/Contents/a.wav"), track(2, "B", "Two", "/Contents/b.wav")];
+    let library = Arc::new(Library { tracks, ..Default::default() });
+    let device = Device::open(&root).unwrap();
+    let id = Identifier::with_library(&device, library, &Cache::new(dir.path().join("cache")), &Ctx::silent()).unwrap();
+    let r = id.identify(&dir.path().join("set.wav"), &Options { tempo_range: 0.08 }, &Ctx::silent()).unwrap();
+    let plays: Vec<(u32, Option<(f64, f64)>)> = r.plays.iter().map(|p| (p.track.id, p.speed_range)).collect();
+    let [(1, Some((slowest, fastest))), (2, None)] = plays[..] else { panic!("{plays:?}") };
+    assert!((slowest - 1.0).abs() < 0.002 && (fastest - 1.04).abs() < 0.002, "{plays:?}");
+    assert!((slowest..=fastest).contains(&r.plays[0].tempo), "{plays:?}");
+}
+
 #[test]
 fn recorder_tags_are_not_a_title() {
     let mut info = MixInfo {
@@ -204,6 +235,7 @@ fn plays_hear_the_key_moved_by_the_speed() {
         report: IndexReport::default(),
         index: LibraryIndex::build(vec![(1, print()), (2, print())]),
         slots: FxHashMap::default(),
+        cache: Default::default(),
     };
     let semitone_up = 2f64.powf(1.0 / 12.0);
     let found = |slot, key_lock| Found {
@@ -269,43 +301,22 @@ fn transitions_say_how_keys_and_tempos_move() {
     assert_eq!(t.iter().map(|t| (t.from, t.to)).collect::<Vec<_>>(), [(0, 1), (1, 2), (2, 3)]);
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
+use loclib_model::test_util::keys;
 
-#[hegel::test_helper]
-fn camelot(tc: &TestCase) -> Camelot {
-    Camelot { number: tc.draw(gs::integers::<u8>().min_value(1).max_value(12)), major: tc.draw(gs::booleans()) }
-}
-
-/// The mix's waveform has a column every quarter second for each series, scaled so its
-/// loudest column is full height; louder is never drawn lower, and the same mix at another
-/// level draws the same, give or take rounding.
-#[hegel::test(test_cases = 200)]
-fn the_mix_waveform_is_scaled_to_its_loudest(tc: TestCase) {
-    let level = || hegel::one_of!(gs::just(0.0f32), gs::floats::<f32>().min_value(1e-3).max_value(1.0));
+/// The mix's waveform has a column every quarter second: loclib-mixid's columns of its levels
+/// at that rate (whose pooling and scaling its tests cover).
+#[hegel::test(test_cases = 50)]
+fn the_mix_waveform_has_a_column_every_quarter_second(tc: TestCase) {
+    let level = || gs::floats::<f32>().min_value(0.0).max_value(1.0);
     let frames: Vec<(f32, [f32; 3])> =
         tc.draw(gs::vecs(gs::tuples!(level(), gs::arrays::<_, _, 3>(level()))).max_size(400));
     let levels: Vec<FrameLevels> = frames.iter().map(|&(peak, bands)| FrameLevels { peak, bands }).collect();
     let w = waveform(&levels);
-    let columns = (levels.len() as f64 / (FRAMES_PER_SEC / WAVEFORM_RATE)).ceil() as usize;
-    assert_eq!(w.columns_per_sec, WAVEFORM_RATE);
-    for (name, series, of) in [
-        ("peak", &w.peak, levels.iter().map(|l| l.peak).collect::<Vec<_>>()),
-        ("low", &w.low, levels.iter().map(|l| l.bands[0]).collect()),
-        ("mid", &w.mid, levels.iter().map(|l| l.bands[1]).collect()),
-        ("high", &w.high, levels.iter().map(|l| l.bands[2]).collect()),
-    ] {
-        assert_eq!(series.len(), columns, "{name}");
-        let loudest = of.iter().copied().fold(0.0f32, f32::max);
-        assert_eq!(series.iter().copied().max().unwrap_or(0), if loudest > 0.0 { 255 } else { 0 }, "{name}");
-    }
-    let c = tc.draw(gs::floats::<f32>().min_value(0.01).max_value(100.0));
-    let scaled: Vec<FrameLevels> =
-        levels.iter().map(|l| FrameLevels { peak: l.peak * c, bands: l.bands.map(|b| b * c) }).collect();
-    let v = waveform(&scaled);
-    for (a, b) in [(&w.peak, &v.peak), (&w.low, &v.low), (&w.mid, &v.mid), (&w.high, &v.high)] {
-        assert!(a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 1), "{a:?} at {c}x is {b:?}");
-    }
+    let c = fingerprint::columns(&levels, 4.0);
+    assert_eq!(w.columns_per_sec, 4.0);
+    assert_eq!((w.peak, [w.low, w.mid, w.high]), (c.peak, c.bands));
 }
 
 /// One transition between each play and the next: when the next comes in, how long both
@@ -317,11 +328,10 @@ fn transitions_follow_the_plays(tc: TestCase) {
     let plays: Vec<Play> = (0..n)
         .map(|i| {
             let start = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0));
-            let key = tc.draw(gs::optional(gs::just(()))).map(|_| camelot(&tc).code());
             Play {
                 start,
                 end: start + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(600.0)),
-                played_key: key,
+                played_key: tc.draw(gs::optional(keys().map(Camelot::code))),
                 played_bpm: tc.draw(gs::optional(gs::floats::<f64>().min_value(60.0).max_value(200.0))),
                 ..report::tests::play(track(i as u32, "A", "One", "/Contents/one.wav"))
             }
@@ -359,7 +369,7 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
     let tracks: Vec<Track> = (0..n)
         .map(|i| {
             let mut t = track(i as u32 + 1, "A", &format!("Track {i}"), &format!("/Contents/{i}.wav"));
-            t.key = if tc.draw(gs::weighted_booleans(0.8)) { camelot(&tc).note() } else { String::new() };
+            t.key = if tc.draw(gs::weighted_booleans(0.8)) { tc.draw(keys()).note() } else { String::new() };
             t.bpm = tc.draw(hegel::one_of!(gs::just(0.0), gs::floats::<f64>().min_value(60.0).max_value(180.0)));
             t
         })
@@ -372,6 +382,7 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
         report: IndexReport::default(),
         index: LibraryIndex::build(tracks.iter().map(|t| (t.id, print())).collect()),
         slots: FxHashMap::default(),
+        cache: Default::default(),
     };
     let slot = tc.draw(gs::integers::<u32>().max_value(n as u32 + 1));
     let tempo = tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16));
@@ -393,7 +404,13 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
         jumps: 0,
         alternates: tc
             .draw(gs::vecs(gs::tuples!(gs::integers::<u32>().max_value(n as u32 + 1), gs::booleans())).max_size(3)),
-        fits: Vec::new(),
+        fits: tc
+            .draw(
+                gs::vecs(gs::tuples!(gs::floats::<f64>().min_value(0.84).max_value(1.16), gs::booleans())).max_size(4),
+            )
+            .into_iter()
+            .map(|(ratio, measured)| matcher::Fit { ratio, intercept: 0.0, start: 0.0, end: 1.0, measured })
+            .collect(),
     };
     let Some(p) = id.play(&f) else { return assert!(slot as usize >= n) };
     let t = &tracks[slot as usize];
@@ -413,6 +430,18 @@ fn plays_carry_the_track_at_its_speed(tc: TestCase) {
     }
     let named: Vec<(u32, bool)> = f.alternates.iter().filter(|a| (a.0 as usize) < n).map(|a| (a.0 + 1, a.1)).collect();
     assert_eq!(p.alternates.iter().map(|a| (a.track_id, a.same_audio)).collect::<Vec<_>>(), named);
+    // The speeds a ridden pitch fader went between: of measured lines only, and only when they
+    // differ by a ride's worth.
+    let measured: Vec<f64> = f.fits.iter().filter(|f| f.measured).map(|f| f.ratio).collect();
+    match p.speed_range {
+        None => {
+            assert!(measured.iter().all(|r| measured.iter().all(|s| (r - s).abs() < matcher::RIDE)), "{measured:?}")
+        }
+        Some((slowest, fastest)) => {
+            assert!(fastest - slowest >= matcher::RIDE && measured.contains(&slowest) && measured.contains(&fastest));
+            assert!(measured.iter().all(|r| (slowest..=fastest).contains(r)), "{measured:?}");
+        }
+    }
 }
 
 /// Tags describe the mix, but a Pioneer DJ recorder's (`REC046`, `PIONEER DJ REC`, its
@@ -512,7 +541,7 @@ fn a_set_on_a_drive_is_identified_as_its_tracks(tc: TestCase) {
         let path = format!("/Contents/{i}.wav");
         std::fs::write(root.join(&path[1..]), pcm(x)).unwrap();
         let mut t = track(i as u32 + 1, "A", &format!("Track {i}"), &path);
-        t.key = camelot(&tc).code();
+        t.key = tc.draw(keys()).code();
         tracks.push(t);
     }
     // A file the decoder can't read, and a recorded set too long to be a track: neither is
@@ -685,6 +714,7 @@ fn recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
             );
         }
         None => assert!(!embedded && guess.is_none(), "{guess:?}"),
+        Some(CoverSource::Given(p)) => panic!("only `mix --cover` gives a cover: {p:?}"),
     }
 }
 
@@ -736,4 +766,86 @@ fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
     assert!(r.plays.is_empty() && r.transitions.is_empty(), "{:?}", r.plays);
     assert_eq!(r.mix.duration_secs, 0.0);
     assert_eq!(r.coverage, 0.0);
+}
+
+/// A mix's cover reads back as the picture embedded in the recording, or as the bytes of the
+/// image beside it; with that gone, reading it says so (not found in the recording, or the
+/// file named), and only an embedded cover is one to share.
+#[hegel::test(test_cases = 20)]
+fn a_cover_reads_back_while_it_is_there(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    recording(&set);
+    let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(64));
+    let png = dir.path().join("set.png");
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 7])).save(&png).unwrap();
+    let embedded = tc.draw(gs::booleans());
+    let there = tc.draw(gs::booleans());
+    let cover = if embedded {
+        if there {
+            crate::artwork::embed_in_file(&set, &crate::artwork::Artwork::from_path(&png).unwrap()).unwrap();
+        }
+        CoverSource::Embedded(set.clone())
+    } else {
+        if !there {
+            std::fs::remove_file(&png).unwrap();
+        }
+        CoverSource::File(png.clone())
+    };
+    let info = MixInfo { cover: Some(cover.clone()), ..listen(&set, &Ctx::silent()).unwrap().0 };
+    match (cover.read(), embedded, there) {
+        (Ok(bytes), true, true) => {
+            assert_eq!(image::load_from_memory(&bytes).unwrap().width(), side.max(crate::artwork::THUMB_SIZE));
+            assert_eq!(info.shared_cover(), Some(bytes));
+        }
+        (Ok(bytes), false, true) => {
+            assert_eq!(bytes, std::fs::read(&png).unwrap());
+            assert_eq!(info.shared_cover(), None);
+        }
+        (Err(Error::NotFound(m)), true, false) => {
+            assert!(m.contains(&set.display().to_string()), "{m}");
+            assert_eq!(info.shared_cover(), None);
+        }
+        (Err(Error::Io { path, .. }), false, false) => assert_eq!(path, png),
+        (other, ..) => panic!("embedded {embedded}, there {there}: {other:?}"),
+    }
+}
+
+/// A mix of only silence, with nothing in the library to hear in it, is unidentified from its
+/// start to its end once that's half a minute or more, and has no gap marked when it's shorter.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
+    use super::aup::tests::{Xml, project};
+    let secs = tc.draw(gs::sampled_from(vec![5i64, 29, 31, 40]));
+    let rate = 8_000i64;
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(1);
+    // A negative block id is that many samples of silence.
+    x.start("project").double("rate", rate as f64).start("wavetrack");
+    x.clip(0.0, secs * rate, &[(0, -secs * rate)]).end("waveclip").end("wavetrack").end("project");
+    let path = project(dir.path(), "project", Some(&x), &[]);
+    let device = Device::open(dir.path()).unwrap();
+    let cache = Cache::new(dir.path().join("cache"));
+    let id = Identifier::with_library(&device, Arc::new(Library::default()), &cache, &Ctx::silent()).unwrap();
+    let r = id.identify(&path, &Options::default(), &Ctx::silent()).unwrap();
+    assert!(r.plays.is_empty(), "{:?}", r.plays);
+    assert_eq!(r.mix.duration_secs, secs as f64);
+    let gaps: Vec<(f64, f64)> = r.unidentified.iter().map(|s| (s.start, s.end)).collect();
+    let want = if secs >= 30 { vec![(0.0, secs as f64)] } else { Vec::new() };
+    assert_eq!(gaps, want);
+}
+
+/// The website reads the blend threshold from packages/tokens/mix.json; the player, the HTML
+/// report and published sets use [`BLEND_SECS`]. A packaged crate has no repository around it.
+#[test]
+fn blends_are_called_as_the_website_calls_them() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/tokens/mix.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        eprintln!("skipped: {} isn't here", path.display());
+        return;
+    };
+    let terms: serde_json::Value = serde_json::from_str(&text).expect("mix.json is JSON");
+    assert_eq!(terms["blendSecs"].as_f64(), Some(BLEND_SECS));
+    let at = |overlap| Transition { from: 0, to: 1, at: 0.0, overlap, harmony: None, tempo_change: None };
+    assert!(at(BLEND_SECS).is_blend() && !at(BLEND_SECS - 0.1).is_blend());
 }

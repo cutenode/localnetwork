@@ -51,6 +51,30 @@ fn a_plan_is_refused_once_what_it_touches_changes() {
     assert!(matches!(planned.check(None), Err(Error::StalePlan(_))));
 }
 
+/// A folder on this computer that wasn't there when planned (one an export makes) is as planned
+/// while it still isn't; there now, or gone once it was, the plan is stale.
+#[test]
+fn a_folder_missing_when_planned_is_unchanged_while_it_stays_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let new = dir.path().join("new/dir");
+    let planned = Planned::new("test", Plan { tracks: 1, warnings: Vec::new() }, ()).touches(Touched::path(
+        &new,
+        true,
+        vec![Probe::Stamp(vec!["list.m3u".into()])],
+    ));
+    assert!(planned.check(None).is_ok());
+    std::fs::create_dir_all(&new).unwrap();
+    let said = planned.check(None).unwrap_err().to_string();
+    assert!(said.contains("is there now since the plan was made"), "{said}");
+    let there = Planned::new("test", Plan { tracks: 1, warnings: Vec::new() }, ()).touches(Touched::path(
+        &new,
+        true,
+        vec![Probe::Stamp(vec!["list.m3u".into()])],
+    ));
+    std::fs::remove_dir(&new).unwrap();
+    assert!(there.check(None).unwrap_err().to_string().contains("is gone since the plan was made"));
+}
+
 /// Writes its drive's database before it first locks the drive (`true`: as another write
 /// slipping in after the check would), and between two locks (as its own next write does).
 struct Writes;

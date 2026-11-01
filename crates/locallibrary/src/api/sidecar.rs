@@ -3,13 +3,14 @@
 //! sidecar's contract (`rpc.describe`) describes them the same way.
 
 use chrono::{DateTime, Utc};
+use loclib_plugin::code;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::WatchAction;
-use crate::error::{Action, Reason};
-use crate::progress::{Event, Scope};
+use crate::Error;
+use crate::error::{Action, Detail, Reason};
 use crate::watch::{MountedDrive, WatchEvent};
 
 /// A JSON-RPC request's id: a string or a number. Only describes ids in the schema: they're
@@ -176,6 +177,63 @@ pub struct DescribeRequest {
     pub method: Option<String>,
 }
 
+/// A request that failed, as the sidecar answers it: `error`'s code and message, and its `data`
+/// (see [`RpcFailure::data`]). The plugin host reads the reads it makes for plugins as these too.
+#[derive(Debug, Clone)]
+pub struct RpcFailure {
+    pub code: i64,
+    pub message: String,
+    pub kind: &'static str,
+    /// Its reason, the values it's about and what would resolve it (see [`Error::detail`]).
+    // Boxed: it's most of the failure's size, which every `Result` carrying one would be.
+    pub detail: Box<Detail>,
+}
+
+impl From<Error> for RpcFailure {
+    fn from(e: Error) -> Self {
+        RpcFailure { code: code::FAILED, kind: e.code(), message: e.to_string(), detail: Box::new(e.detail()) }
+    }
+}
+
+impl RpcFailure {
+    pub fn new(code: i64, kind: &'static str, message: impl Into<String>) -> RpcFailure {
+        RpcFailure { code, kind, message: message.into(), detail: Box::default() }
+    }
+
+    pub fn method_not_found(method: &str) -> RpcFailure {
+        RpcFailure::new(code::METHOD_NOT_FOUND, "method_not_found", format!("unknown method {method:?}"))
+    }
+
+    /// Makes the actions that send the request again (`method` absent) calls to `method` with
+    /// `params` and theirs.
+    pub fn resolve(mut self, method: &str, params: &Value) -> RpcFailure {
+        for a in self.detail.actions.iter_mut().filter(|a| a.method.is_none()) {
+            let mut all = params.as_object().cloned().unwrap_or_default();
+            all.extend(std::mem::take(&mut a.params));
+            a.method = Some(method.to_string());
+            a.params = all;
+        }
+        self
+    }
+
+    /// The error of applying a plan by id that's used up: sending the request again can't help,
+    /// so actions that would are dropped.
+    pub fn plan_used(mut self) -> RpcFailure {
+        self.detail.actions.retain(|a| a.method.is_some());
+        self
+    }
+
+    /// `error.data`.
+    pub fn data(&self) -> ErrorData {
+        ErrorData {
+            kind: self.kind.to_string(),
+            reason: self.detail.reason,
+            fields: self.detail.fields.clone(),
+            actions: self.detail.actions.clone(),
+        }
+    }
+}
+
 /// An error response's `error.data`: what a front end can act on without reading the message.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ErrorData {
@@ -200,53 +258,21 @@ pub struct ProgressParams {
     pub event: ProgressEvent,
 }
 
-/// What happened, which drive and step it's about, and (for a coalesced `item`) how many files
-/// it stands for.
+/// A `serve` notification's parameters: what `store.serve` is doing.
+#[cfg(feature = "peers")]
 #[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct ProgressEvent {
-    #[serde(flatten)]
-    pub event: Progressed,
-    #[serde(flatten)]
-    pub scope: Scope,
-    /// How many files an `item` stands for, when more than one (count `items ?? 1`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<u64>,
+pub struct ServeParams {
+    /// The `store.serve` request it's about.
+    #[schemars(with = "Option<RequestId>")]
+    pub id: Value,
+    pub event: crate::peers::ServeEvent,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-#[serde(untagged)]
-pub enum Progressed {
-    Event(Event),
-    /// A step begins (`step` says which).
-    Step(StepStarted),
-}
-
-/// `{"event": "step"}`.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct StepStarted {
-    pub event: StepTag,
-}
-
-impl StepStarted {
-    pub fn new() -> StepStarted {
-        StepStarted { event: StepTag::Step }
-    }
-}
-
-impl Default for StepStarted {
-    fn default() -> Self {
-        StepStarted::new()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
-pub enum StepTag {
-    #[serde(rename = "step")]
-    Step,
-}
+// The plugin protocol's: a plugin sends the same events.
+pub use loclib_plugin::{ProgressEvent, Progressed, StepInfo, StepStarted, StepTag};
 
 /// An `event` notification's parameters: drives and the store (after `events.subscribe`),
-/// requests starting and finishing, and what `watch.start` does.
+/// requests starting and finishing, what `watch.start` does, and what plugins tell the user.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -254,6 +280,20 @@ pub enum Notice {
     Watch(WatchEvent),
     Job(JobEvent),
     Watched(WatchAction),
+    Plugin(PluginEvent),
+}
+
+/// What a plugin did.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(tag = "event")]
+#[non_exhaustive]
+pub enum PluginEvent {
+    /// It tells the user something (`host/notify`), and may suggest one of its operations, which
+    /// a front end offers to plan (`plugins.op.plan`), or one of the host's actions on its own
+    /// contributions, which a front end offers to start as the user would: never planned or
+    /// applied unless the user chooses to.
+    #[serde(rename = "plugin.notice")]
+    Notice(crate::plugin::PluginNotice),
 }
 
 /// A request starting or finishing.

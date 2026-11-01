@@ -8,7 +8,9 @@ fn steps_are_parsed_by_their_ids() {
     assert!(StepKind::ALL.iter().all(|k| StepKind::parse(k.id()).ok() == Some(*k)));
     let err = StepKind::parse("dance").unwrap_err().to_string();
     assert!(
-        err.contains("unknown step \"dance\" (clean, replay, smart, player, settings, pull, sync, check, eject)"),
+        err.contains(
+            "unknown step \"dance\" (clean, replay, smart, player, settings, operations, pull, sync, check, eject)"
+        ),
         "{err}"
     );
 }
@@ -106,13 +108,10 @@ impl AnyPlanned for Fake {
 /// steps that run (by title when they say nothing more) with every step's warnings.
 #[hegel::test(test_cases = 200)]
 fn a_job_runs_its_steps_until_one_fails(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let goes = || {
-        gs::sampled_from(vec![Goes::Done, Goes::Stale, Goes::Later, Goes::Fails, Goes::Partly, Goes::Cancelled])
-            .print_as_debug()
-    };
-    let kinds = tc.draw(gs::vecs(gs::sampled_from(StepKind::ALL.to_vec()).print_as_debug()).max_size(4).unique(true));
+    let goes =
+        || gs::sampled_from(vec![Goes::Done, Goes::Stale, Goes::Later, Goes::Fails, Goes::Partly, Goes::Cancelled]);
+    let kinds = tc.draw(gs::vecs(gs::sampled_from(StepKind::ALL.to_vec())).max_size(4).unique(true));
     let mut steps = Vec::new();
     let mut model: Vec<(StepKind, Vec<Goes>, Vec<String>)> = Vec::new();
     for (s, kind) in kinds.iter().enumerate() {
@@ -224,6 +223,126 @@ fn a_job_runs_its_steps_until_one_fails(tc: hegel::TestCase) {
     assert_eq!(planned.summary, lines);
     assert_eq!(planned.warnings, model.iter().flat_map(|m| m.2.clone()).collect::<Vec<_>>());
     assert_eq!(planned.noop, running.is_empty());
+}
+
+/// A pretend operation on files in a folder: its plan touches `touches` (by content), and
+/// applying it writes `writes`. `outside` is written just before it's applied, as a rekordbox
+/// export landing mid-job would be.
+struct OnDisk {
+    summary: Vec<String>,
+    drives: Vec<Touched>,
+    writes: Option<PathBuf>,
+    outside: Option<PathBuf>,
+}
+
+impl OnDisk {
+    fn plan(dir: &Path, line: &str, touches: &[&str], writes: Option<&str>, outside: Option<&str>) -> OnDisk {
+        let keys = touches.iter().map(|k| k.to_string()).collect();
+        OnDisk {
+            summary: vec![line.to_string()],
+            drives: vec![Touched::path(dir, true, vec![op::Probe::Content(keys)])],
+            writes: writes.map(|f| dir.join(f)),
+            outside: outside.map(|f| dir.join(f)),
+        }
+    }
+}
+
+impl AnyPlanned for OnDisk {
+    fn id(&self) -> &str {
+        "on-disk"
+    }
+    fn operation(&self) -> &'static str {
+        "on-disk"
+    }
+    fn summary(&self) -> &[String] {
+        &self.summary
+    }
+    fn warnings(&self) -> &[String] {
+        &[]
+    }
+    fn destructive(&self) -> bool {
+        false
+    }
+    fn is_noop(&self) -> bool {
+        false
+    }
+    fn drives(&self) -> &[Touched] {
+        &self.drives
+    }
+    fn planned_at(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now()
+    }
+    fn to_json(&self) -> Value {
+        serde_json::json!({ "summary": self.summary })
+    }
+    fn check(&self, _: Option<&Store>) -> Result<()> {
+        Ok(())
+    }
+    fn apply_json(&self, _: Option<&Store>, _: &Ctx<'_>) -> Result<Value> {
+        if let Some(f) = &self.outside {
+            std::fs::write(f, "exported by rekordbox").unwrap();
+        }
+        if let Some(t) = self.drives.iter().find(|t| t.changed()) {
+            return Err(Error::stale(&t.name, "changed"));
+        }
+        if let Some(f) = &self.writes {
+            std::fs::write(f, "written by the job").unwrap();
+        }
+        Ok(serde_json::json!({ "done": self.summary }))
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Regression: a job planned again any step refused as stale, so a rekordbox export that landed
+/// mid-job was planned over and applied without being confirmed. A step is planned again only
+/// when the job's own earlier steps changed what it touches; any other change stops the job
+/// with the stale plan, whether it lands before the job starts, between steps, or along with
+/// the job's own write.
+#[test]
+fn a_job_plans_again_only_over_its_own_writes() {
+    /// What the later step's plan touches, written from outside before the job, written from
+    /// outside as the later step applies, and whether the job goes through.
+    type Case = (&'static [&'static str], Option<&'static str>, Option<&'static str>, bool);
+    let cases: [Case; 4] = [
+        (&["a"], None, None, true),
+        (&["a"], None, Some("a"), false),
+        (&["a", "b"], Some("b"), None, false),
+        (&["b"], None, Some("b"), false),
+    ];
+    for (touches, before, during, goes) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), "as exported").unwrap();
+        let mut first = JobStep::new(StepKind::Clean);
+        let plan = OnDisk::plan(dir.path(), "wrote a", &["a"], Some("a"), None);
+        first.op(Box::new(plan), Box::new(|_, _| unreachable!("the first step isn't stale")));
+        let mut later = JobStep::new(StepKind::Replay);
+        let plan = OnDisk::plan(dir.path(), "replayed", touches, None, during);
+        let again_dir = dir.path().to_path_buf();
+        let again: Replan = Box::new(move |_, _| {
+            Ok(Box::new(OnDisk::plan(&again_dir, "replayed again", &[], None, None)) as Box<dyn AnyPlanned>)
+        });
+        later.op(Box::new(plan), again);
+        let plan = JobPlan::new(Vec::new(), vec![first, later], std::iter::empty::<&Device>());
+        if let Some(f) = before {
+            std::fs::write(dir.path().join(f), "exported before the job").unwrap();
+        }
+        let report = run_job(&plan, None, &Ctx::silent()).unwrap();
+        let case = format!("touches {touches:?}, before {before:?}, during {during:?}");
+        assert_eq!(report.steps[0].done, ["wrote a"], "{case}");
+        match goes {
+            true => {
+                assert!(report.stopped.is_none(), "{case}: {:?}", report.stopped);
+                assert_eq!(report.steps[1].done, ["replayed again"], "{case}");
+            }
+            false => {
+                let stopped = report.stopped.as_ref().unwrap_or_else(|| panic!("{case}: went on"));
+                assert_eq!((stopped.step.as_str(), stopped.kind), ("replay", "stale_plan"), "{case}");
+                assert_eq!(report.steps.len(), 1, "{case}");
+            }
+        }
+    }
 }
 
 /// Ejecting drives one at a time says, for each ejected before the first that fails, whether it

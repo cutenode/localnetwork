@@ -10,29 +10,45 @@ use crate::session::{DID, session_json, sign_in_as};
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::atmosphere::directory::Fetched;
 use locallibrary::atmosphere::lexicon::{self, ADDRESS, PROFILE, SET, SETTINGS};
-use locallibrary::atmosphere::repo::{self, Fetched};
+use locallibrary::atmosphere::repo;
 use locallibrary::atmosphere::{self, AccountInfo, Client, Storage};
 use locallibrary::error::Reason;
-use locallibrary::harmony::Camelot;
+use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Role};
+use locallibrary::plugin::Analyzed;
 use locallibrary::profile::{
     self, ArcShape, Basis, Count, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets,
     DocShare, DocTempo, DocTrack, Precision, PrefsUpdate, ProfileDocument, Section,
 };
 use locallibrary::progress::Ctx;
 use locallibrary::publish;
-use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
+use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::settings::{self, Category, SCHEMA, SettingDef};
 use locallibrary::store::Store;
+use loclib_model::test_util::keys;
+use loclib_plugin::StrongRef;
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation;
+use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
+/// A record's CID.
+const CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
+
+/// A pretend data server, which Local Network's directory and website are at too for this test.
+fn network() -> MockPds {
+    let pds = MockPds::start();
+    locallibrary::testing::directory_on_this_thread(Some(pds.url.clone()));
+    pds
+}
 
 /// Sign `DID` in on this computer (the session in files, not the keychain) with a session for
 /// `pds` that was granted `scopes`.
@@ -40,14 +56,27 @@ fn sign_in(root: &Path, pds: &str, scopes: &str) {
     sign_in_as(root, session_json(DID, "s1", pds, scopes, Some("refresh-1"), "2099-01-01T00:00:00.000Z"));
 }
 
+/// What a sign-in that allows publishing is granted.
 fn publishing() -> String {
-    atmosphere::publish_scopes().join(" ")
+    crate::mock_pds::granted(&atmosphere::publish_scopes()).join(" ")
 }
 
 /// `v` without the fields that only say when.
 fn timeless(mut v: Value) -> Value {
     if let Some(m) = v.as_object_mut() {
         for f in ["updatedAt", "generatedAt", "createdAt"] {
+            m.remove(f);
+        }
+    }
+    v
+}
+
+/// `v` as a record says it, whether as written or as the directory keeps it: without the fields
+/// that only say when, its `$type`, or the fields the directory adds to a set.
+fn as_said(v: Value) -> Value {
+    let mut v = timeless(v);
+    if let Some(m) = v.as_object_mut() {
+        for f in ["$type", "trackCount", "namedTracks"] {
             m.remove(f);
         }
     }
@@ -65,16 +94,15 @@ fn group(def: &SettingDef) -> &'static str {
 /// Any time from 1970 to 2100, to the nanosecond (records keep milliseconds).
 #[hegel::test_helper]
 fn time(tc: &TestCase) -> DateTime<Utc> {
-    let secs = tc.draw(gs::integers::<i64>().min_value(0).max_value(4_102_444_800));
-    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
-    DateTime::from_timestamp(secs, nanos).unwrap()
+    let last = DateTime::from_timestamp(4_102_444_800, 999_999_999).unwrap();
+    tc.draw(gs::default::<DateTime<Utc>>().min_value(DateTime::UNIX_EPOCH.naive_utc()).max_value(last.naive_utc()))
 }
 
 /// A setting and one of its values.
 #[hegel::test_helper]
 fn setting(tc: &TestCase) -> (&'static SettingDef, &'static str) {
-    let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-    let choice = def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))].id;
+    let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+    let choice = tc.draw(gs::sampled_from(def.choices)).id;
     (def, choice)
 }
 
@@ -183,11 +211,7 @@ fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
             let field = publish::camel(def.key);
             let (field, value, meant) = match tc.draw(gs::integers::<u8>().max_value(5)) {
                 0 => (field, json!("sideways"), None),
-                1 => (
-                    field,
-                    tc.draw(gs::sampled_from(vec![json!(1), json!(true), Value::Null, json!(["on"])]).print_as_debug()),
-                    None,
-                ),
+                1 => (field, tc.draw(gs::sampled_from(vec![json!(1), json!(true), Value::Null, json!(["on"])])), None),
                 2 => {
                     let odd = format!("new{}", tc.draw(gs::text().max_size(6)));
                     tc.assume(settings::find(&publish::snake(&odd)).is_none());
@@ -201,16 +225,14 @@ fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
         }
         record.insert(name.into(), Value::Object(fields));
     }
-    let updated =
-        tc.draw(gs::optional(gs::sampled_from(vec![json!("2026-10-05T12:00:00.000Z"), json!(7)]).print_as_debug()));
+    let updated = tc.draw(gs::optional(gs::sampled_from(vec![json!("2026-10-05T12:00:00.000Z"), json!(7)])));
     if let Some(u) = &updated {
         record.insert("updatedAt".into(), u.clone());
     }
     if tc.draw(gs::booleans()) {
         record.insert("version".into(), json!(2));
     }
-    let ty =
-        tc.draw(gs::sampled_from(vec![json!(SETTINGS), json!(SETTINGS), json!(PROFILE), Value::Null]).print_as_debug());
+    let ty = tc.draw(gs::sampled_from(vec![json!(SETTINGS), json!(SETTINGS), json!(PROFILE), Value::Null]));
     if !ty.is_null() {
         record.insert("$type".into(), ty.clone());
     }
@@ -290,16 +312,13 @@ fn document(tc: &TestCase) -> ProfileDocument {
         let names: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(12)).max_size(10));
         names.into_iter().map(|name| DocShare { name, share: x() }).collect::<Vec<_>>()
     };
-    let key = || {
-        let n = tc.draw(gs::integers::<u8>().min_value(1).max_value(12));
-        Camelot { number: n, major: tc.draw(gs::booleans()) }.code()
-    };
+    let key = || tc.draw(keys()).code();
     let opt = |v: f64| some().then_some(v);
     ProfileDocument {
         version: profile::DOCUMENT_VERSION,
         generated_at: time(tc),
         precision: if some() { Precision::Exact } else { Precision::Rounded },
-        basis: tc.draw(gs::sampled_from(vec![Basis::Plays, Basis::Sessions, Basis::Collection]).print_as_debug()),
+        basis: tc.draw(gs::sampled_from(vec![Basis::Plays, Basis::Sessions, Basis::Collection])),
         headline: tc.draw(gs::optional(gs::text().max_size(120))),
         tags: tc.draw(gs::vecs(gs::text().max_size(60)).max_size(20)),
         sets: some().then(|| DocSets {
@@ -309,10 +328,12 @@ fn document(tc: &TestCase) -> ProfileDocument {
         }),
         tempo: some().then(|| DocTempo { low: tempo(), high: tempo(), median: tempo() }),
         arc: some().then(|| DocArc {
-            shape: tc.draw(
-                gs::sampled_from(vec![ArcShape::Builds, ArcShape::Steady, ArcShape::WindsDown, ArcShape::Varies])
-                    .print_as_debug(),
-            ),
+            shape: tc.draw(gs::sampled_from(vec![
+                ArcShape::Builds,
+                ArcShape::Steady,
+                ArcShape::WindsDown,
+                ArcShape::Varies,
+            ])),
             builds: x(),
             steady: x(),
             winds_down: x(),
@@ -343,13 +364,11 @@ fn document(tc: &TestCase) -> ProfileDocument {
         prep: some().then(|| DocPrep { hot_cues: x(), memory_cues: x(), loops: x() }),
         collection: some().then(|| DocCollection { tracks: count(tc), playlists: count(tc) }),
         style: some().then(|| {
-            profile::STYLE_SETTINGS
-                .iter()
-                .filter(|_| some())
+            tc.draw(gs::subsequences(&profile::STYLE_SETTINGS))
+                .into_iter()
                 .map(|k| {
                     let def = settings::find(k).unwrap();
-                    let c = tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1));
-                    (publish::camel(k), def.choices[c].id.to_string())
+                    (publish::camel(k), tc.draw(gs::sampled_from(def.choices)).id.to_string())
                 })
                 .collect()
         }),
@@ -468,7 +487,8 @@ const ISRCS: [(&str, Option<&str>); 6] = [
 const KEYS: [(&str, Option<&str>); 6] =
     [("", None), ("Am", Some("8A")), ("8A", Some("8A")), ("C", Some("8B")), ("12b", Some("12B")), ("H#", None)];
 
-/// What a set says that must never go out: notes, the recording, sessions, files and tags.
+/// What a set says that must never go out: notes, the recording, sessions, files, the label and
+/// the genre.
 const PRIVATE: &str = "PRIVATE";
 
 /// A set's track `i` (with `may_break`, now and then with a title too long for a record), and
@@ -492,7 +512,11 @@ fn entry(tc: &TestCase, i: usize, may_break: bool) -> (SetEntry, Option<&'static
             gs::sampled_from(vec!["", "Bicep", "Four Tet", "Overmono"]).map(String::from),
             gs::text().max_size(10)
         )),
-        album: format!("{PRIVATE}-ALBUM"),
+        album: tc.draw(hegel::one_of!(
+            gs::sampled_from(vec!["", " Isles ", "Selected Ambient Works 85-92"]).map(String::from),
+            gs::text().max_size(10),
+            gs::just("a".repeat(257))
+        )),
         label: format!("{PRIVATE}-LABEL"),
         genre: format!("{PRIVATE}-GENRE"),
         isrc: isrc.into(),
@@ -502,10 +526,13 @@ fn entry(tc: &TestCase, i: usize, may_break: bool) -> (SetEntry, Option<&'static
         duration_secs: 300,
         file: Some(format!("/Contents/{PRIVATE}-FILE-{i}.mp3")),
         start_seconds: tc.draw(gs::optional(gs::integers::<u32>())),
+        musicbrainz: MusicBrainzIds {
+            recording: tc.draw(gs::optional(gs::integers::<u128>())).map(Uuid::from_u128),
+            release: tc.draw(gs::optional(gs::integers::<u128>())).map(Uuid::from_u128),
+            artists: tc.draw(gs::vecs(gs::integers::<u128>()).max_size(3)).into_iter().map(Uuid::from_u128).collect(),
+        },
         unnamed: tc.draw(gs::weighted_booleans(0.2)),
-        origin: tc.draw(
-            gs::sampled_from(vec![EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added]).print_as_debug(),
-        ),
+        origin: tc.draw(gs::sampled_from(vec![EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added])),
         session: Some(format!("{PRIVATE}SESSION")),
     };
     (e, isrc_out, key_out)
@@ -561,6 +588,22 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
             gs::from_regex("[a-z0-9-]{1,12}").fullmatch(true).map(|s| format!("https://www.mixcloud.com/dj/{s}/")),
         ))
     };
+    // The link's name goes out only with the link.
+    let link_name = if link.is_some() && breaks("the link's name") {
+        Some("n".repeat(65))
+    } else {
+        tc.draw(gs::optional(gs::text().max_size(64)))
+    };
+    let recording_record = if breaks("the recording's record") {
+        Some(tc.draw(gs::sampled_from(vec![
+            StrongRef { uri: "https://plyr.fm/track/1".into(), cid: CID.into() },
+            StrongRef { uri: repo::at_uri("did:plc:dj", "fm.plyr.track", "3m4n5o6p7q8r9"), cid: "bafy".into() },
+        ])))
+    } else {
+        tc.draw(gs::optional(
+            tid().map(|k| StrongRef { uri: repo::at_uri("did:plc:dj", "fm.plyr.track", &k), cid: CID.into() }),
+        ))
+    };
     let n = tc.draw(gs::integers::<usize>().max_value(6));
     let (mut tracks, mut out) = (Vec::new(), Vec::new());
     for i in 0..n {
@@ -572,10 +615,11 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
     let set = Set {
         id: tc.draw(tid()),
         title,
-        date: NaiveDate::from_num_days_from_ce_opt(
-            tc.draw(gs::integers::<i32>().min_value(730_000).max_value(740_000)),
-        )
-        .unwrap(),
+        date: tc.draw(
+            gs::default::<NaiveDate>()
+                .min_value(NaiveDate::from_num_days_from_ce_opt(730_000).unwrap())
+                .max_value(NaiveDate::from_num_days_from_ce_opt(740_000).unwrap()),
+        ),
         kind,
         venue,
         city: tc.draw(gs::optional(gs::text().max_size(12))),
@@ -583,6 +627,8 @@ fn set(tc: &TestCase, may_break: bool) -> (Set, Vec<Named>, Vec<&'static str>) {
         event,
         with,
         link,
+        link_name,
+        recording_record,
         recording: tc.draw(gs::booleans()).then(|| Recording {
             path: format!("/Users/dj/{PRIVATE}-REC.wav").into(),
             report: Some(format!("{PRIVATE}-REPORT")),
@@ -630,7 +676,15 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         })
         .collect();
     assert_eq!(r.get("playedWith"), (!with.is_empty()).then(|| json!(with)).as_ref());
-    assert_eq!(r.get("links"), trimmed(&set.link).map(|l| json!([{ "uri": l }])).as_ref());
+    let link = |uri| match trimmed(&set.link_name) {
+        Some(name) => json!([{ "uri": uri, "name": name }]),
+        None => json!([{ "uri": uri }]),
+    };
+    assert_eq!(r.get("links"), trimmed(&set.link).map(link).as_ref());
+    assert_eq!(
+        r.get("recording"),
+        set.recording_record.as_ref().map(|rec| json!({ "uri": rec.uri, "cid": rec.cid })).as_ref()
+    );
     let sources: Vec<Value> =
         [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
             .into_iter()
@@ -656,6 +710,30 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         assert_eq!(t.get("isrc").and_then(Value::as_str), *isrc);
         assert_eq!(t.get("key").and_then(Value::as_str), *key);
         assert_eq!(t.get("startSeconds"), start.as_ref());
+        let release = text(&e.album).filter(|a| a.as_str().is_some_and(|a| a.chars().count() <= 256));
+        assert_eq!(t.get("releaseName").cloned(), release);
+        let mbid = |id: Option<Uuid>| id.map(|id| Value::from(id.to_string()));
+        assert_eq!(t.get("recordingMbId").cloned(), mbid(e.musicbrainz.recording));
+        assert_eq!(t.get("releaseMbId").cloned(), mbid(e.musicbrainz.release));
+        // Artists one by one, as the profile counts them, when the credit names more than one or
+        // the tags identify its one; their IDs only when the tags have one for each.
+        let (names, ids) = (locallibrary::model::artist_credits(&e.artist), &e.musicbrainz.artists);
+        let paired = ids.len() == names.len();
+        match t.get("artists") {
+            None => assert!(names.len() < 2 && !(paired && names.len() == 1), "{names:?} {ids:?}"),
+            Some(artists) => {
+                let want: Vec<Value> = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| match paired {
+                        true => json!({ "artistName": n, "artistMbId": ids[i].to_string() }),
+                        false => json!({ "artistName": n }),
+                    })
+                    .collect();
+                assert_eq!(artists, &json!(want));
+            }
+        }
+        assert!(t.get("transitionIn").is_none(), "no recording's report");
         match t.get("bpmCentis") {
             None => assert!(!e.bpm.is_finite() || e.bpm <= 0.0, "{}", e.bpm),
             Some(c) => {
@@ -671,7 +749,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
     }
     let text = r.to_string();
     assert!(!text.contains(PRIVATE), "{text}");
-    for field in ["updatedAt", "unnamed", "origin", "notes", "recording", "sessions"] {
+    for field in ["updatedAt", "unnamed", "origin", "notes", "path", "report", "sessions", "musicbrainz"] {
         assert!(!text.contains(&format!("\"{field}\"")), "{field}: {text}");
     }
 }
@@ -679,7 +757,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
 /// Whatever the set, its record says where and when it was played and its tracks in order, with
 /// the ones marked unnamed or hidden saying only where they start, and nothing private; it
 /// survives JSON, and fits the set Lexicon exactly when the set holds nothing the Lexicon can't
-/// (a title over 100 characters, a partner's DID that isn't one, more than 20 partners...).
+/// (a title over 100 graphemes, a partner's DID that isn't one, more than 20 partners...).
 #[hegel::test(test_cases = 300)]
 fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
     let (s, names, mut broken) = set(&tc, true);
@@ -689,11 +767,11 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
         .collect();
     // A title too long breaks the record only when the track is named in it.
     let named = |i: usize, e: &SetEntry| !e.unnamed && !hidden.contains(&(i + 1));
-    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.chars().count() > 300) {
+    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.graphemes(true).count() > 300) {
         broken.push("a track's title");
     }
     let now = time(&tc);
-    let r = publish::set_record(&s, &hidden, now);
+    let r = publish::set_record(&s, &hidden, None, now);
     assert_set_record(&r, &s, &names, &hidden);
     assert_eq!(r["createdAt"], publish::timestamp(now));
     assert_eq!(serde_json::from_str::<Value>(&r.to_string()).unwrap(), r);
@@ -707,10 +785,10 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
 #[hegel::test(test_cases = 300)]
 fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
-    let mut r = publish::set_record(&s, &BTreeSet::new(), time(&tc));
+    let mut r = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let n = s.tracks.len();
     let track = || tc.draw(gs::integers::<usize>().max_value(n.max(1) - 1));
-    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(16)) {
+    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(18)) {
         0 => {
             let f = tc.draw(gs::sampled_from(vec!["date", "tracks", "createdAt"]));
             r.as_object_mut().unwrap().remove(f);
@@ -722,34 +800,29 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             Some(format!("{f} isn't in the Lexicon"))
         }
         2 => {
-            r["$type"] = tc.draw(
-                gs::sampled_from(vec![json!(PROFILE), json!(SETTINGS), json!("app.example.set"), json!(1)])
-                    .print_as_debug(),
-            );
+            r["$type"] =
+                tc.draw(gs::sampled_from(vec![json!(PROFILE), json!(SETTINGS), json!("app.example.set"), json!(1)]));
             Some(format!("its $type isn't {SET}"))
         }
         3 => {
-            r = tc.draw(gs::sampled_from(vec![json!([]), json!("set"), Value::Null]).print_as_debug());
+            r = tc.draw(gs::sampled_from(vec![json!([]), json!("set"), Value::Null]));
             Some("it isn't an object".into())
         }
         4 => {
             r["title"] = "x".repeat(tc.draw(gs::integers::<usize>().min_value(101).max_value(300))).into();
-            Some("title is longer than 100 characters".into())
+            Some("title is longer than 100 graphemes".into())
         }
         5 if n > 0 => {
             let i = track();
-            let (field, value, why) = tc.draw(
-                gs::sampled_from(vec![
-                    ("bpmCentis", json!(12500.5), "should be a whole number"),
-                    ("bpmCentis", json!(-1), "is -1, outside"),
-                    ("startSeconds", json!("0:00"), "should be a whole number"),
-                    ("unidentified", json!("yes"), "should be true or false"),
-                    ("key", json!("10AB"), "is 4 bytes long"),
-                    ("isrc", json!("GB"), "is 2 bytes long"),
-                    ("title", json!(["Glue"]), "should be text"),
-                ])
-                .print_as_debug(),
-            );
+            let (field, value, why) = tc.draw(gs::sampled_from(vec![
+                ("bpmCentis", json!(12500.5), "should be a whole number"),
+                ("bpmCentis", json!(-1), "is -1, outside"),
+                ("startSeconds", json!("0:00"), "should be a whole number"),
+                ("unidentified", json!("yes"), "should be true or false"),
+                ("key", json!("10AB"), "is 4 bytes long"),
+                ("isrc", json!("GB"), "is 2 bytes long"),
+                ("title", json!(["Glue"]), "should be text"),
+            ]));
             r["tracks"][i][field] = value;
             Some(format!("tracks[{i}].{field} {why}"))
         }
@@ -792,8 +865,23 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             None
         }
         15 if n > 0 => {
-            r["tracks"][track()]["recordingMbId"] = "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
+            // As locallibrary writes it, or as early records have it.
+            let prefix = tc.draw(gs::sampled_from(vec!["", "mbid:"]));
+            r["tracks"][track()]["recordingMbId"] = format!("{prefix}c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b").into();
             None
+        }
+        16 if n > 0 => {
+            let i = track();
+            r["tracks"][i]["recordingMbId"] = 1.into();
+            Some(format!("tracks[{i}].recordingMbId should be text"))
+        }
+        17 => {
+            let (uri, cid, why) = tc.draw(gs::sampled_from(vec![
+                ("https://plyr.fm/track/1", CID, "recording.uri isn't an at:// URI"),
+                ("at://did:plc:dj/fm.plyr.track/3m4n5o6p7q8r9", "bafy", "recording.cid isn't a CID"),
+            ]));
+            r["recording"] = json!({ "uri": uri, "cid": cid });
+            Some(why.into())
         }
         _ => {
             let f = tc.draw(gs::sampled_from(vec![
@@ -804,6 +892,7 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
                 "event",
                 "playedWith",
                 "links",
+                "recording",
                 "sources",
             ]));
             r.as_object_mut().unwrap().remove(f);
@@ -832,7 +921,7 @@ fn scope_sets() -> Vec<(Vec<String>, bool)> {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     vec![
         (s(&["atproto"]), false),
-        (atmosphere::publish_scopes(), true),
+        (crate::mock_pds::granted(&atmosphere::publish_scopes()), true),
         (s(&["atproto", "transition:generic"]), true),
         (s(&["atproto", "repo:*"]), true),
         (s(&["atproto", &format!("repo:{SETTINGS}?action=create&action=update")]), false),
@@ -856,15 +945,16 @@ fn account_with(scopes: Vec<String>) -> AccountInfo {
     }
 }
 
-/// A plan for a set over what's published in its place: signed out, it can only be looked at;
-/// signed in, it keeps when the published record says it was first published (when that's a
-/// time), changes something exactly when the record differs in more than its times, and says
+/// A plan for a set over what's published in its place (as written, or as the directory keeps
+/// it): signed out, it can only be looked at; signed in, it keeps when the published record says
+/// it was first published (when that's a time), changes something exactly when the record differs
+/// in more than its times and what the directory adds or leaves out, and says
 /// which scope the session lacks. Applying a plan that changes nothing writes nothing and says
 /// what's there; one the session can't write, or with nobody signed in, stops with nothing sent.
 #[hegel::test(test_cases = 100)]
 fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
-    let record = publish::set_record(&s, &BTreeSet::new(), time(&tc));
+    let record = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let (scopes, may_write) = tc.draw(gs::sampled_from(scope_sets()));
     let signed_in = tc.draw(gs::booleans());
     let account = signed_in.then(|| account_with(scopes));
@@ -876,9 +966,15 @@ fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: Tes
         2 => value["createdAt"] = json!(1_700_000_000),
         _ => drop(value.as_object_mut().unwrap().remove("createdAt")),
     }
+    if tc.draw(gs::booleans()) {
+        let set = value.as_object_mut().unwrap();
+        set.remove("$type");
+        set.insert("trackCount".into(), s.tracks.len().into());
+        set.insert("namedTracks".into(), json!([]));
+    }
     let current = tc.draw(gs::booleans()).then(|| Fetched {
         uri: uri.clone(),
-        cid: tc.draw(gs::optional(gs::just("bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string()))),
+        cid: "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm".to_string(),
         value: value.clone(),
     });
     let plan = publish::plan_over(account.clone(), SET, &s.id, record.clone(), current.clone()).unwrap();
@@ -887,7 +983,7 @@ fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: Tes
     if signed_in && let Some(created) = current.as_ref().map(|c| &c.value["createdAt"]).filter(|c| c.is_string()) {
         want["createdAt"] = created.clone();
     }
-    let changed = !signed_in || current.as_ref().is_none_or(|c| timeless(c.value.clone()) != timeless(record.clone()));
+    let changed = !signed_in || current.as_ref().is_none_or(|c| as_said(c.value.clone()) != as_said(record.clone()));
     assert_eq!(plan.record, want);
     assert_eq!(plan.changed, changed);
     assert_eq!(plan.uri, signed_in.then_some(uri));
@@ -984,9 +1080,11 @@ fn step(tc: &TestCase, kind: u8) -> Step {
         1 => Step::Publish,
         2 => Step::Elsewhere(elsewhere()),
         3 => Step::Overtaken(elsewhere()),
-        4 => Step::Refused(tc.draw(
-            gs::sampled_from(vec![Writes::RefuseScope, Writes::RefuseToken, Writes::RefuseRecord]).print_as_debug(),
-        )),
+        4 => Step::Refused(tc.draw(gs::sampled_from(vec![
+            Writes::RefuseScope,
+            Writes::RefuseToken,
+            Writes::RefuseRecord,
+        ]))),
         5 => Step::NewNonce,
         _ => Step::Unpermitted,
     }
@@ -1041,7 +1139,7 @@ impl Model {
             let published = result.unwrap();
             let (stored, cid) = pds.record(DID, SETTINGS, "self").unwrap();
             assert!(published.written);
-            assert_eq!(published.cid.as_deref(), Some(cid.as_str()));
+            assert_eq!(published.cid, cid);
             assert_eq!(timeless(stored.clone()), timeless(plan.record.clone()));
             if !at_once {
                 assert_eq!(stored, plan.record, "exactly the record planned");
@@ -1078,7 +1176,7 @@ impl Model {
 /// `settings_publish_apply` agree.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, &publishing());
@@ -1154,15 +1252,16 @@ fn publishing_my_settings_converges_on_the_model(tc: TestCase) {
     }
 }
 
-/// Importing someone's published My Settings (the signed-in account's own, or anyone's on a
-/// server named) adds them to the profile's base (theirs winning) or, asked to, replaces the base
-/// with them; the plan lists exactly the values that change, says it's a no-op when none do and
-/// destructive when one already set changes, warns about a few of the settings it skips, and
-/// applying it (or importing in one go) leaves the base as the model says. Nobody to import from,
-/// a server that isn't https, or nothing published, and there's nothing to import.
+/// Importing someone's published My Settings (the signed-in account's own, or anyone's, as Local
+/// Network's directory has them) adds them to the profile's base (theirs winning) or, asked to,
+/// replaces the base with them; the plan lists exactly the values that change, says it's a no-op
+/// when none do and destructive when one already set changes, warns about a few of the settings it
+/// skips (and that the directory couldn't be asked to read your own again, when the session may
+/// not), and applying it (or importing in one go) leaves the base as the model says. Nobody to
+/// import from, or nothing published, and there's nothing to import.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     assert_eq!(api::settings_publish_plan(&root).unwrap_err().reason(), Some(Reason::EmptyProfile));
@@ -1182,23 +1281,24 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     // Settings this version doesn't know: a few say enough, so some at and past the 20 shown.
     let unknown = tc.draw(gs::sampled_from(vec![0usize, 3, 20, 21, 25]));
     let replace = tc.draw(gs::booleans());
-    // Nobody signed in or named, or a server that isn't https: nothing to import from.
-    let refused = |from: Option<&str>, pds: Option<&str>| {
-        let req = ImportPublishedSettings { from: from.map(String::from), pds: pds.map(String::from), replace };
+    // Nobody signed in or named: nothing to import from.
+    let refused = |from: Option<&str>| {
+        let req = ImportPublishedSettings { from: from.map(String::from), replace };
         api::settings_import_published_plan(&root, &req).unwrap_err()
     };
-    assert_eq!(refused(None, None).reason(), Some(Reason::NotSignedIn));
-    assert!(refused(Some(DID), Some("http://10.0.0.1")).to_string().contains("https://"));
-    assert_eq!(refused(Some("not a handle!"), None).code(), "not_found");
-    // Whose: the signed-in account's own, or someone named with their server.
-    let (from, server) = match tc.draw(gs::booleans()) {
+    assert_eq!(refused(None).reason(), Some(Reason::NotSignedIn));
+    assert_eq!(refused(Some("not a handle!")).code(), "not_found");
+    // Whose: the signed-in account's own (with a session that may have the directory read it
+    // again, or not), or someone named.
+    let (from, cant_ask) = match tc.draw(gs::booleans()) {
         true => {
-            sign_in(&root, &pds.url, "atproto");
-            (None, None)
+            let may_ask = tc.draw(gs::booleans());
+            sign_in(&root, &pds.url, &if may_ask { publishing() } else { "atproto".into() });
+            (None, !may_ask)
         }
-        false => (Some(format!(" @{DID} ")), Some(pds.url.clone())),
+        false => (Some(format!(" @{DID} ")), false),
     };
-    let req = ImportPublishedSettings { from, pds: server, replace };
+    let req = ImportPublishedSettings { from, replace };
     if tc.draw(gs::weighted_booleans(0.1)) {
         assert_eq!(api::settings_import_published_plan(&root, &req).unwrap_err().code(), "not_found");
         return;
@@ -1222,7 +1322,8 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     assert_eq!(planned, changes);
     assert_eq!(plan.published.values.clone().into_iter().collect::<IndexMap<_, _>>(), published);
     assert_eq!(plan.published.skipped.len(), unknown);
-    assert_eq!(plan.warnings.len(), unknown.min(20) + usize::from(unknown > 20), "{:?}", plan.warnings);
+    let asking = usize::from(cant_ask);
+    assert_eq!(plan.warnings.len(), unknown.min(20) + usize::from(unknown > 20) + asking, "{:?}", plan.warnings);
     assert_eq!((plan.noop, plan.destructive), (changes.is_empty(), changes.iter().any(|c| c.1.is_some())));
     assert_eq!((plan.from.did.as_str(), plan.uri.clone()), (DID, repo::at_uri(DID, SETTINGS, "self")));
     let profile = match tc.draw(gs::booleans()) {
@@ -1232,9 +1333,8 @@ fn importing_my_settings_adds_to_the_base_or_replaces_it(tc: TestCase) {
     assert_eq!(profile.base.into_iter().collect::<IndexMap<_, _>>(), after);
 }
 
-/// The key `plays publish` gave a history list, and when it first published it.
+/// The key `plays publish` gave a history list.
 const OLD_KEY: &str = "3lzzzzzzzzz22";
-const FIRST_OUT: &str = "2026-10-04T09:30:00.000Z";
 
 /// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
 fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
@@ -1249,13 +1349,13 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// A set published from the store is the record `set_record` makes for it, with the tracks the
 /// set marks unnamed, the request hides and the profile hides left unidentified, and notes saying
 /// which and why; a track that isn't there can't be hidden. Signed in, it goes out under the
-/// set's id, or under the key `plays publish` gave its history list (which becomes its id, with
-/// when that first went out); publishing it again unchanged writes nothing, and once it's edited
+/// set's id, or under the key `plays publish` gave its history list (which becomes its id);
+/// publishing it again unchanged writes nothing, and once it's edited
 /// replaces exactly what was read, keeping when it first went out. Signed out, it can only be
 /// looked at.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     let signed_in = tc.draw(gs::weighted_booleans(0.8));
@@ -1275,12 +1375,6 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     };
     // A set from a history list `plays publish` published takes over its key.
     let legacy = signed_in && tc.draw(gs::weighted_booleans(0.7));
-    // Its old record may be gone since; the key is still the set's to take.
-    let old_record = legacy && tc.draw(gs::weighted_booleans(0.75));
-    if old_record {
-        let old = json!({ "$type": publish::PLAYS_PUBLISH_COLLECTION, "date": "2026-10-03", "tracks": [], "createdAt": FIRST_OUT });
-        pds.put(DID, publish::PLAYS_PUBLISH_COLLECTION, OLD_KEY, old);
-    }
     if legacy {
         let session = s.sessions[0].clone();
         std::fs::write(root.join(publish::SET_KEYS_FILE), json!({ DID: { session: OLD_KEY } }).to_string()).unwrap();
@@ -1309,7 +1403,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     }
     let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
     assert_set_record(&plan.record, &s, &names, &hidden);
-    assert_eq!(timeless(plan.record.clone()), timeless(publish::set_record(&s, &hidden, Utc::now())));
+    assert_eq!(timeless(plan.record.clone()), timeless(publish::set_record(&s, &hidden, None, Utc::now())));
     let mut notes: Vec<String> = [
         unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
         unnamed_note(&asked, "hidden as asked"),
@@ -1327,13 +1421,6 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
             "takes the key `plays publish` gave session {}; the set's id becomes {OLD_KEY}",
             &s.sessions[0][..8]
         ));
-    }
-    if old_record {
-        notes.push(format!(
-            "what `plays publish` published stays in {}: publishing can't remove it",
-            publish::PLAYS_PUBLISH_COLLECTION
-        ));
-        assert_eq!(plan.record["createdAt"], FIRST_OUT, "first published by plays publish");
     }
     assert_eq!(plan.notes, notes);
     assert_eq!(plan.rkey, key);
@@ -1375,7 +1462,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
 /// writes nothing.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_published_profile_is_the_documents_record(tc: TestCase) {
-    let pds = MockPds::start();
+    let pds = network();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, &publishing());
@@ -1386,7 +1473,7 @@ fn the_published_profile_is_the_documents_record(tc: TestCase) {
         common::add_history(&drive, &format!("HISTORY 00{}", n + 1), &tracks.into_iter().collect::<Vec<_>>());
     }
     let store = Store::open(&root).unwrap();
-    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(15));
+    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(15));
     api::profile_prefs_update(&store, &PrefsUpdate { sections: Some(sections), ..Default::default() }).unwrap();
     let req = ProfileRequest { drives: vec![drive.display().to_string()], ..Default::default() };
     let plan = api::profile_publish_plan(&root, &req, &Ctx::silent()).unwrap();
@@ -1398,4 +1485,286 @@ fn the_published_profile_is_the_documents_record(tc: TestCase) {
     assert_eq!(pds.record(DID, PROFILE, "self").unwrap().0, plan.record);
     let again = api::profile_publish_apply(&root, &req, &Ctx::silent()).unwrap();
     assert!(!again.written);
+}
+
+/// What a pretend analyzer answers for a drive track's MusicBrainz recording: an ID, nothing
+/// (worked out: null), or a failure.
+#[derive(Debug, Clone, Copy)]
+enum Heard {
+    Id(u128),
+    Nothing,
+    Fails,
+}
+
+/// Looking up a set's MusicBrainz IDs runs the analyzer once on exactly the tracks the record
+/// names that have no IDs, by their ids on the mounted drive holding their files (again, over
+/// what it kept, for those it kept values of another ISRC for), and counts those no mounted drive
+/// holds; it keeps what the analyzer found in the set, leaving every other track as it was, so a
+/// second lookup asks only about the tracks it found nothing for. An analyzer failing on a track,
+/// or on the whole drive (a warning), counts it as failed. A set publishing refuses, or the
+/// `recording` role turned off, looks up nothing.
+#[hegel::test(test_cases = 30, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_lookup_asks_about_the_tracks_the_record_names(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::open_or_init(&root).unwrap();
+    let volumes = common::isolate(dir.path(), Some(&root));
+    let drive = common::bigger_drive(&volumes, "Main");
+    let library = common::library(&drive);
+    let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
+    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
+    let fields = FieldStore::in_store(&store);
+    let audio = |i: usize| locallibrary::paths::to_fs(&drive, &locallibrary::paths::key(&library.tracks[i].file_path));
+    // What the analyzer keeps: the recording, and the ISRC it was looked up by.
+    let keep = |i: usize, recording: FieldValue, isrc: Option<String>| {
+        let isrc = isrc.map_or(FieldValue::Null, FieldValue::String);
+        let kept = [("recording".to_string(), recording), ("isrc".into(), isrc)].into_iter().collect();
+        fields.put(&audio(i), &analyzer, &kept).unwrap();
+    };
+    let heard: Vec<Heard> = (0..library.tracks.len())
+        .map(|_| match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => Heard::Id(tc.draw(gs::integers::<u128>())),
+            1 => Heard::Nothing,
+            _ => Heard::Fails,
+        })
+        .collect();
+    // Values kept from before, of another ISRC than the track has now: stale.
+    let stale: Vec<bool> = (0..library.tracks.len()).map(|_| tc.draw(gs::weighted_booleans(0.3))).collect();
+    for i in (0..library.tracks.len()).filter(|&i| stale[i]) {
+        keep(i, FieldValue::String(Uuid::from_u128(7).to_string()), Some("USRC17607840".into()));
+    }
+    let drive_fails = tc.draw(gs::weighted_booleans(0.15));
+    let n = tc.draw(gs::integers::<usize>().max_value(10));
+    let mut tracks = Vec::new();
+    for i in 0..n {
+        let mut e = match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => SetEntry::added(&format!("Someone - Dubplate {i}")),
+            1 => {
+                let gone = tc.draw(gs::integers::<u8>().max_value(2));
+                SetEntry { file: Some(format!("/Contents/gone/{gone}.mp3")), ..SetEntry::added("Gone - Away") }
+            }
+            _ => {
+                let t = &library.tracks[tc.draw(gs::integers::<usize>().max_value(library.tracks.len() - 1))];
+                SetEntry::from_track(t, EntryOrigin::Added, None)
+            }
+        };
+        e.unnamed = tc.draw(gs::weighted_booleans(0.2));
+        if tc.draw(gs::weighted_booleans(0.2)) {
+            e.musicbrainz.recording = Some(Uuid::from_u128(u128::MAX - i as u128));
+        }
+        tracks.push(e);
+    }
+    if let Some(e) = tracks.first().filter(|_| tc.draw(gs::weighted_booleans(0.3))) {
+        api::profile_prefs_update(&store, &PrefsUpdate { hide: vec![e.name().to_lowercase()], ..Default::default() })
+            .unwrap();
+    }
+    let mut hide: Vec<usize> = (1..=n).filter(|_| tc.draw(gs::weighted_booleans(0.2))).collect();
+    let refused = tc.draw(gs::weighted_booleans(0.1));
+    if refused {
+        hide.push(n + 1);
+    }
+    let off = tc.draw(gs::weighted_booleans(0.1));
+    if off {
+        locallibrary::fields::roles::turn_off(&store, Role::Recording).unwrap();
+    }
+    let set = Set {
+        id: "3m2abcdefgh22".into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        tracks: tracks.clone(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    SetBook { sets: vec![set], ..Default::default() }.save(&store).unwrap();
+    let req = SetPublishRequest { set: "last".into(), hide };
+
+    let asked: std::cell::RefCell<Vec<(Vec<u32>, bool)>> = Default::default();
+    let analyze = |_: &locallibrary::Device, ids: &[u32], again: bool| {
+        asked.borrow_mut().push((ids.to_vec(), again));
+        if drive_fails {
+            return Err(locallibrary::Error::Invalid("the plugin stopped".into()));
+        }
+        let mut done = Analyzed::default();
+        for id in ids {
+            let i = library.tracks.iter().position(|t| t.id == *id).unwrap();
+            let recording = match heard[i] {
+                Heard::Fails => {
+                    let track = locallibrary::model::TrackRef::from(&library.tracks[i]);
+                    done.failures.push(locallibrary::audio_cache::TrackFailure { track, error: "no".into() });
+                    done.failed += 1;
+                    continue;
+                }
+                Heard::Id(n) => FieldValue::String(Uuid::from_u128(n).to_string()),
+                Heard::Nothing => FieldValue::Null,
+            };
+            keep(i, recording, locallibrary::model::isrc(&library.tracks[i].isrc));
+            done.analyzed += 1;
+        }
+        Ok(done)
+    };
+    let warnings = common::Warnings::default();
+    let looked = api::set_lookup(&root, &req, analyze, &warnings.ctx());
+    if refused || off {
+        assert_eq!(looked.map_err(|e| e.code()), if refused { Err("invalid") } else { Ok(api::SetLookup::default()) });
+        assert!(asked.take().is_empty(), "nothing asked");
+        locallibrary::testing::roles_on_this_thread(None);
+        return;
+    }
+    let looked = looked.unwrap();
+
+    // What the record names decides what's asked.
+    let record = api::set_publish_plan(&root, &req).unwrap().record.clone();
+    let named = |i: usize| record["tracks"][i]["unidentified"] != true;
+    let held: IndexMap<String, usize> =
+        library.tracks.iter().enumerate().map(|(i, t)| (locallibrary::paths::file_key(&t.file_path), i)).collect();
+    let mut wanted: Vec<String> = Vec::new();
+    for (_, e) in tracks.iter().enumerate().filter(|(i, e)| named(*i) && e.musicbrainz.is_empty()) {
+        if let Some(k) = e.file_key().filter(|k| !wanted.contains(k)) {
+            wanted.push(k);
+        }
+    }
+    let on_drive: Vec<usize> = wanted.iter().filter_map(|k| held.get(k).copied()).collect();
+    let ids_of = |of: &[usize]| of.iter().map(|&i| library.tracks[i].id).collect::<Vec<u32>>();
+    let calls = |of: &[usize]| {
+        let (redo, fresh): (Vec<usize>, Vec<usize>) = of.iter().partition(|&&i| stale[i]);
+        [(ids_of(&fresh), false), (ids_of(&redo), true)]
+            .into_iter()
+            .filter(|(ids, _)| !ids.is_empty())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(asked.take(), calls(&on_drive));
+    let found: Vec<usize> =
+        on_drive.iter().copied().filter(|&i| !drive_fails && matches!(heard[i], Heard::Id(_))).collect();
+    let failed = on_drive.iter().filter(|&&i| drive_fails || matches!(heard[i], Heard::Fails)).count();
+    let unmounted = wanted.len() - on_drive.len();
+    assert_eq!(looked, api::SetLookup { asked: on_drive.len(), found: found.len(), failed, unmounted });
+    let drive_warnings = if drive_fails {
+        [false, true].iter().filter(|&&r| on_drive.iter().any(|&i| stale[i] == r)).count()
+    } else {
+        0
+    };
+    assert_eq!(warnings.said().len(), drive_warnings, "{:?}", warnings.said());
+    let after = SetBook::load(&store).unwrap().sets.remove(0).tracks;
+    for (i, (before, now)) in tracks.iter().zip(&after).enumerate() {
+        let filled = before.file_key().filter(|k| wanted.contains(k)).and_then(|k| held.get(&k).copied());
+        let musicbrainz = match filled.filter(|j| before.musicbrainz.is_empty() && found.contains(j)) {
+            Some(j) => {
+                let Heard::Id(n) = heard[j] else { unreachable!("found") };
+                MusicBrainzIds { recording: Some(Uuid::from_u128(n)), ..Default::default() }
+            }
+            None => before.musicbrainz.clone(),
+        };
+        assert_eq!(now, &SetEntry { musicbrainz, ..before.clone() }, "track {}", i + 1);
+    }
+
+    // Found once, kept: only the rest are asked about again, and what it worked out failing
+    // over stale values is still stale.
+    api::set_lookup(&root, &req, analyze, &Ctx::silent()).unwrap();
+    let still_stale = |i: &usize| stale[*i] && (drive_fails || matches!(heard[*i], Heard::Fails));
+    let rest: Vec<usize> = on_drive.iter().copied().filter(|i| !found.contains(i)).collect();
+    let (redo, fresh): (Vec<usize>, Vec<usize>) = rest.iter().partition(|i| still_stale(i));
+    let again: Vec<(Vec<u32>, bool)> =
+        [(ids_of(&fresh), false), (ids_of(&redo), true)].into_iter().filter(|(ids, _)| !ids.is_empty()).collect();
+    assert_eq!(asked.take(), again);
+    locallibrary::testing::roles_on_this_thread(None);
+}
+
+/// Where a drive track's file is, for [`a_track_is_read_back_from_the_drive_it_was_analysed_on`]:
+/// on both drives, only on the one whose library reads, only on the one whose library doesn't,
+/// or on neither.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Held {
+    Both,
+    Readable,
+    Unreadable,
+    Nowhere,
+}
+
+/// With a plugged-in drive whose library can't be read (a warning) before one whose library can,
+/// each track is analysed on the drive that lists it and read back from that drive, though the
+/// other holds a file at the same path (another one, as a copy changed since is); a file only the
+/// unreadable drive holds isn't missing, and only a file on neither drive is.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_track_is_read_back_from_the_drive_it_was_analysed_on(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let store = Store::open_or_init(&root).unwrap();
+    let volumes = common::isolate(dir.path(), Some(&root));
+    // Drives are taken in the order of their paths: the unreadable one first.
+    let readable = common::bigger_drive(&volumes, "B-Main");
+    let unreadable = volumes.join("A-Broken");
+    common::copy_dir(&readable, &unreadable);
+    std::fs::write(unreadable.join(locallibrary::paths::EXPORT_PDB), b"not a database").unwrap();
+    let library = common::library(&readable);
+    let analyzer = Analyzer { plugin: "mb".into(), analyzer: "ids".into(), version: "1".into() };
+    let field = |r: Role| (r, vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }]);
+    locallibrary::testing::roles_on_this_thread(Some(MusicBrainzIds::ROLES.map(field).into_iter().collect()));
+    let file = |drive: &Path, i: usize| {
+        locallibrary::paths::to_fs(drive, &locallibrary::paths::key(&library.tracks[i].file_path))
+    };
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(library.tracks.len()));
+    let mut held = Vec::new();
+    for i in 0..n {
+        let h = tc.draw(gs::sampled_from(vec![Held::Both, Held::Readable, Held::Unreadable, Held::Nowhere]));
+        match h {
+            // Another file at the same path: kept values are another file's.
+            Held::Both => std::fs::write(file(&unreadable, i), b"changed since it was copied").unwrap(),
+            Held::Readable => std::fs::remove_file(file(&unreadable, i)).unwrap(),
+            Held::Unreadable => std::fs::remove_file(file(&readable, i)).unwrap(),
+            Held::Nowhere => {
+                for d in [&readable, &unreadable] {
+                    std::fs::remove_file(file(d, i)).unwrap();
+                }
+            }
+        }
+        held.push(h);
+    }
+    let tracks: Vec<SetEntry> =
+        library.tracks[..n].iter().map(|t| SetEntry::from_track(t, EntryOrigin::Added, None)).collect();
+    let set = Set {
+        id: "3m2abcdefgh22".into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        tracks: tracks.clone(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    SetBook { sets: vec![set], ..Default::default() }.save(&store).unwrap();
+    let fields = FieldStore::in_store(&store);
+    let asked: std::cell::RefCell<Vec<(PathBuf, Vec<u32>)>> = Default::default();
+    let analyze = |d: &locallibrary::Device, ids: &[u32], _again: bool| {
+        asked.borrow_mut().push((d.root().to_path_buf(), ids.to_vec()));
+        for id in ids {
+            let i = library.tracks.iter().position(|t| t.id == *id).unwrap();
+            let recording = FieldValue::String(Uuid::from_u128(i as u128 + 1).to_string());
+            let audio = d.checked_path(&locallibrary::paths::key(&library.tracks[i].file_path)).unwrap();
+            fields.put(&audio, &analyzer, &[("recording".to_string(), recording)].into_iter().collect()).unwrap();
+        }
+        Ok(Analyzed { analyzed: ids.len(), ..Analyzed::default() })
+    };
+    let warnings = common::Warnings::default();
+    let req = SetPublishRequest { set: "last".into(), hide: Vec::new() };
+    let looked = api::set_lookup(&root, &req, analyze, &warnings.ctx()).unwrap();
+
+    let on_readable: Vec<usize> = (0..n).filter(|&i| matches!(held[i], Held::Both | Held::Readable)).collect();
+    let ids: Vec<u32> = on_readable.iter().map(|&i| library.tracks[i].id).collect();
+    let calls = asked.take();
+    assert_eq!(
+        calls.iter().map(|(_, ids)| ids.clone()).collect::<Vec<_>>(),
+        [ids].into_iter().filter(|i| !i.is_empty()).collect::<Vec<_>>()
+    );
+    let readable_root = locallibrary::device::dunce_canonicalize(&readable);
+    assert!(calls.iter().all(|(d, _)| locallibrary::device::dunce_canonicalize(d) == readable_root), "{calls:?}");
+    let unmounted = held.iter().filter(|h| **h == Held::Nowhere).count();
+    let found = on_readable.len();
+    assert_eq!(looked, api::SetLookup { asked: found, found, failed: 0, unmounted });
+    let said = warnings.said();
+    assert!(said.len() == 1 && said[0].contains("couldn't read A-Broken's library"), "{said:?}");
+    let after = SetBook::load(&store).unwrap().sets.remove(0).tracks;
+    for (i, e) in after.iter().enumerate() {
+        let want = on_readable.contains(&i).then(|| Uuid::from_u128(i as u128 + 1));
+        assert_eq!(e.musicbrainz.recording, want, "track {} ({:?})", i + 1, held[i]);
+    }
+    locallibrary::testing::roles_on_this_thread(None);
 }

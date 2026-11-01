@@ -18,48 +18,16 @@ use super::super::audio::Audio;
 use super::super::audio::tests::wav;
 use super::super::edits::{Job, Modal};
 use super::super::ui::screen;
-use super::{App, NowPlaying, View};
+use super::{App, Msg, NowPlaying, View};
 
 // Copying a folder with its files' modification times, as the library's and the CLI's tests do.
 #[path = "../../../../../crates/locallibrary/tests/support/files.rs"]
 mod files;
 pub use files::{Template, copy_dir};
 
+/// A track at `/Contents/<id>.mp3` with no BPM (0): the player's tests set the tempos they show.
 pub fn track(id: u32, artist: &str, title: &str) -> Track {
-    Track {
-        id,
-        title: title.into(),
-        artist: artist.into(),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: String::new(),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: String::new(),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 0.0,
-        duration_secs: 300,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
-        rating: 0,
-        color: None,
-        play_count: 0,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1000,
-        file_path: format!("/Contents/{id}.mp3"),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
-    }
+    Track { bpm: 0.0, ..loclib_model::test_util::track(id, artist, title, &format!("/Contents/{id}.mp3")) }
 }
 
 /// Four tracks (two of them the same recording), a folder with a playlist, and a history list.
@@ -120,10 +88,16 @@ pub fn set(id: &str, date: &str, title: Option<&str>, venue: Option<&str>, track
 /// The demo export from the library's fixtures, with placeholder audio, as the drive `DEMO` in a
 /// temporary folder.
 pub fn demo_drive() -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = demo_drive_in(dir.path(), "DEMO");
+    (dir, root)
+}
+
+/// [`demo_drive`], as the drive `name` in `dir`.
+pub fn demo_drive_in(dir: &Path, name: &str) -> PathBuf {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks");
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("DEMO");
+    let root = dir.join(name);
     copy_dir(&fixture, &root);
     let device = Device::open_export(&root).unwrap();
     for t in device.library().unwrap().tracks {
@@ -131,13 +105,21 @@ pub fn demo_drive() -> (TempDir, PathBuf) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, "audio".repeat(100)).unwrap();
     }
-    let root = device.root().to_path_buf();
-    (dir, root)
+    device.root().to_path_buf()
 }
 
 /// A hot cue (`hot`: 0 is A), or a memory cue, at `start_ms`; a loop when it has an end.
 pub fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>) -> Cue {
-    Cue { hot_cue: hot, start_ms, end_ms, comment: String::new(), color: None, color_id: 0, loop_beats: None }
+    Cue {
+        hot_cue: hot,
+        start_ms,
+        end_ms,
+        comment: String::new(),
+        color: None,
+        color_id: 0,
+        loop_beats: None,
+        active_loop: false,
+    }
 }
 
 /// A grid at `bpm` from `first_ms`, `n` beats long.
@@ -213,6 +195,7 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         drive: "TEST".into(),
         root,
         analysis,
+        from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
         phrases: Vec::new(),
@@ -292,6 +275,12 @@ pub fn press(app: &mut App, keys: &str) {
     }
 }
 
+/// A dialog, the outputs list, the help or the log is open: drawn over the screen, it covers the
+/// header and footer when it doesn't fit between them.
+pub fn overlay(app: &App) -> bool {
+    app.help || app.show_log || app.modal.is_some() || app.deck.outputs.is_some()
+}
+
 /// A key that isn't typed, such as an arrow or page down.
 pub fn key(app: &mut App, code: KeyCode) {
     app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
@@ -301,6 +290,13 @@ pub const LEFT: MouseEventKind = MouseEventKind::Down(MouseButton::Left);
 
 pub fn mouse(app: &mut App, kind: MouseEventKind, (column, row): (u16, u16)) {
     app.on_mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE });
+}
+
+/// The next click comes as soon after the last as a double click's does, however long the test
+/// took between them (a loaded machine, a draw over Hegel's pipe): a double click is two within
+/// 400 ms by the clock.
+pub fn quick_again(app: &mut App) {
+    app.last_click = app.last_click.take().map(|(_, row)| (Instant::now(), row));
 }
 
 /// Where `text` is drawn on a 120 by 30 screen, as the column and row to point at.
@@ -328,6 +324,7 @@ pub fn point(app: &mut App, kind: MouseEventKind, text: &str) {
 }
 
 /// Run the app's background work until `done` (failing after a minute).
+#[track_caller]
 pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
     let t = Instant::now();
     while !done(app) && t.elapsed() < Duration::from_secs(60) {
@@ -337,7 +334,82 @@ pub fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
         }
         app.tick();
     }
+    if !done(app) {
+        // Hegel keeps a failure's panic message to itself when its replays pass, so where it
+        // waited is written out first.
+        let (job, modal) = (app.job.is_some(), app.modal.is_some());
+        eprintln!(
+            "wait at {} gave up after 60 s (job running: {job}, modal open: {modal})",
+            std::panic::Location::caller()
+        );
+    }
     assert!(done(app), "timed out; last message: {:?}", last_message(app));
+}
+
+/// Wait for the outputs list open now to have its devices (listed in the background), and only
+/// that: whatever else the background sends (a track opening, say) is left for later, so a test
+/// can pick an output while a track still opens.
+#[track_caller]
+pub fn outputs_listed(app: &mut App) {
+    let listing = |app: &App| app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_some());
+    handle_only(app, listing, |msg| matches!(msg, Msg::Outputs(..)));
+    assert!(app.deck.outputs.as_ref().is_some_and(|o| o.listing.is_none()), "no outputs listed");
+}
+
+/// A gate for a slow output in a test (a Bluetooth or AirPlay device): each test has its own.
+pub type Gate = (std::sync::Mutex<bool>, std::sync::Condvar);
+
+/// The test outputs' `name`, opened once `gate` is let open (see [`let_open`]), else (after 5 s)
+/// not: a player that waits for it fails rather than hangs.
+pub fn open_when_let(gate: &Gate, name: Option<&str>) -> anyhow::Result<Audio> {
+    let (open, cv) = gate;
+    let wait = cv.wait_timeout_while(open.lock().unwrap(), Duration::from_secs(5), |open| !*open);
+    if !*wait.unwrap().0 {
+        anyhow::bail!("never let open");
+    }
+    (super::super::audio::tests::OUTPUTS.open)(name)
+}
+
+pub fn let_open(gate: &Gate) {
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+}
+
+/// Wait for the output asked for to open (in the background), and only that, as
+/// [`outputs_listed`] does.
+#[track_caller]
+pub fn output_opened(app: &mut App) {
+    handle_only(app, |app| app.deck.opening.is_some(), |msg| matches!(msg, Msg::Output(..)));
+    assert!(app.deck.opening.is_none(), "the output picked didn't open");
+}
+
+/// Handle the background's `wanted` messages while `pending`, leaving the rest for later.
+fn handle_only(app: &mut App, pending: impl Fn(&App) -> bool, wanted: impl Fn(&Msg) -> bool) {
+    let (t, mut later) = (Instant::now(), Vec::new());
+    while pending(app) && t.elapsed() < Duration::from_secs(60) {
+        match app.rx.recv_timeout(Duration::from_millis(5)) {
+            Ok(msg) if wanted(&msg) => app.handle_msg(msg),
+            Ok(msg) => later.push(msg),
+            Err(_) => {}
+        }
+    }
+    for msg in later {
+        app.sender().send(msg).unwrap();
+    }
+}
+
+/// Handle the app's background messages until the store's sets are read. Opening a drive starts
+/// a read of the sets in the store the app has then: a test that points the app at another store
+/// waits for that read first, or it can land after the other store's and leave no sets.
+pub fn read_sets(app: &mut App) {
+    loop {
+        let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
+        let sets = matches!(msg, Msg::Sets(..));
+        app.handle_msg(msg);
+        if sets {
+            return;
+        }
+    }
 }
 
 /// The message the footer shows now ("" for none).
@@ -345,27 +417,53 @@ pub fn last_message(app: &App) -> &str {
     app.toast.as_ref().map_or("", |t| t.0.as_str())
 }
 
+/// A time that reads as just now however long the test runs after it (a loaded machine can
+/// stall one for seconds between two lines): an hour ahead, its `elapsed()` is zero.
+pub fn just_now() -> Instant {
+    Instant::now() + Duration::from_secs(3600)
+}
+
+/// The confirmation up now, as right as it appeared: it ignores keys however long the test
+/// took since.
+pub fn just_shown(app: &mut App) {
+    let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation") };
+    c.shown = just_now();
+}
+
 /// The confirmation up now, once planned, as the plan's operation and first summary line.
-pub fn confirming(app: &mut App) -> (&'static str, String) {
+#[track_caller]
+pub fn confirming(app: &mut App) -> (String, String) {
     wait(app, |a| a.job.is_none());
     match &app.modal {
-        Some(Modal::Confirm(c)) => (c.plan.operation(), c.plan.summary().first().cloned().unwrap_or_default()),
+        Some(Modal::Confirm(c)) => (c.plan.operation().into(), c.plan.summary().first().cloned().unwrap_or_default()),
         _ => panic!("no confirmation: {}", last_message(app)),
     }
 }
 
 /// Wait for the confirmation, and let it take keys (it ignores them right as it appears).
+#[track_caller]
 pub fn settle(app: &mut App) {
     wait(app, |a| a.job.is_none());
     let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation: {:?}", app.toast) };
-    c.shown -= Duration::from_secs(1);
+    c.shown = Instant::now() - Duration::from_secs(1);
 }
 
-/// Say yes to the confirmation, and wait for the write and the reads after it.
-pub fn say_yes(app: &mut App) {
+/// Say yes to the confirmation, and wait for the write and the reads after it. See [`written`].
+#[track_caller]
+pub fn say_yes(app: &mut App) -> String {
     settle(app);
     press(app, "y");
+    written(app)
+}
+
+/// Wait for the write under way and the reads after it, answering what the write said as it
+/// finished: the reads can take longer than its message stays on screen.
+#[track_caller]
+pub fn written(app: &mut App) -> String {
+    wait(app, |a| a.job.is_none());
+    let said = last_message(app).to_owned();
     wait(app, |a| a.job.is_none() && a.loading.is_none());
+    said
 }
 
 /// Values made-up tracks' fields take, each with ties: some the same but for case or spacing,
@@ -383,29 +481,36 @@ const ADDED: &[&str] = &["2026-09-30", "2026-09-01", "2025-01-02", "", "2026", "
 /// groups: now and then the same recording twice.
 #[hegel::test_helper]
 pub fn any_tracks(tc: &hegel::TestCase, max: usize) -> Vec<Track> {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(max as u32));
     (1..=n)
         .map(|id| {
-            let mut t = track(id, tc.draw(gs::sampled_from(ARTISTS)), tc.draw(gs::sampled_from(TITLES)));
-            t.album = tc.draw(gs::sampled_from(ALBUMS)).into();
-            t.genre = tc.draw(gs::sampled_from(GENRES)).into();
-            t.label = tc.draw(gs::sampled_from(LABELS)).into();
-            t.key = tc.draw(gs::sampled_from(KEYS)).into();
-            t.bpm = tc.draw(gs::sampled_from(BPMS));
-            t.date_added = tc.draw(gs::sampled_from(ADDED)).into();
-            t.rating = tc.draw(gs::integers::<u8>().max_value(6));
-            t.color = tc
-                .draw(gs::booleans())
-                .then(|| tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug()));
-            t.year = tc.draw(gs::sampled_from(&[0u16, 1997, 2014][..]));
-            t.play_count = tc.draw(gs::integers::<u16>().max_value(3));
-            t.bitrate = tc.draw(gs::sampled_from(&[0u32, 256, 320, 1411][..]));
-            t.duration_secs = tc.draw(gs::sampled_from(&[300u32, 420][..]));
-            t.comment = tc.draw(gs::sampled_from(&["", "Peak", "warm-up"][..])).into();
-            t
+            tc.draw(
+                loclib_model::test_util::tracks_like(track(id, "", ""))
+                    .artist(strings_from(ARTISTS))
+                    .title(strings_from(TITLES))
+                    .album(strings_from(ALBUMS))
+                    .genre(strings_from(GENRES))
+                    .label(strings_from(LABELS))
+                    .key(strings_from(KEYS))
+                    .bpm(gs::sampled_from(BPMS))
+                    .date_added(strings_from(ADDED))
+                    .rating(gs::integers::<u8>().max_value(6))
+                    .color(gs::optional(gs::sampled_from(&super::super::browse::COLOURS[..])))
+                    .year(gs::sampled_from(&[0u16, 1997, 2014][..]))
+                    .play_count(gs::integers::<u16>().max_value(3))
+                    .bitrate(gs::sampled_from(&[0u32, 256, 320, 1411][..]))
+                    .duration_secs(gs::sampled_from(&[300u32, 420][..]))
+                    .comment(strings_from(&["", "Peak", "warm-up"])),
+            )
         })
         .collect()
+}
+
+/// Any of `values`, as a `String` field of [`loclib_model::test_util::tracks_like`]'s.
+pub fn strings_from(values: &'static [&'static str]) -> impl hegel::generators::PrintableGenerator<String> {
+    use hegel::generators::{self as gs, Generator};
+    gs::sampled_from(values).map(String::from)
 }
 
 /// Every column the library sorts by.
@@ -469,8 +574,119 @@ impl locallibrary::op::AnyPlanned for Plan {
     }
 }
 
-/// Poll the volumes only when a test asks: a test's drive is a folder of files, which a poll
-/// (once a second, as the background is waited for) takes for an unplugged drive.
-pub fn hold_volume_polls(app: &mut App) {
-    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
+/// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format
+/// renamed (`m3u` is locallibrary's), its `echo` command taking a param of each kind the player's
+/// form fills in, besides the test plugin's `log` and `context`, its `playlist` operation
+/// `tracks` from the selection too (which it leaves be), and a setting of each kind beside its
+/// greeting.
+const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
+
+/// The plugins with the echo plugin among them, for this test: its manifest written in `dir` and
+/// named by `LOCALLIBRARY_TEST_PLUGINS`, which the host reads once, as it's first used. Call it
+/// before anything opens the palette or a menu.
+pub fn echo_plugin(dir: &Path) {
+    let params = r#"params = { type = "object", required = ["name"], properties = { name = { type = "string", minLength = 2, description = "Who to greet" }, times = { type = "integer" }, loud = { type = "boolean" }, mood = { type = "string", enum = ["calm", "wild"] }, file = { type = "string", x-path = true }, tags = { type = "array", items = { type = "string" } }, log = { type = "string" }, context = { type = "boolean" } } }"#;
+    let operation = r#"params = { type = "object", properties = { name = { type = "string" }, tracks = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" } }, required = ["name"] }"#;
+    let manifest = ECHO
+        .replace("format = \"m3u\"", "format = \"echo-m3u\"")
+        .replacen("params = { type = \"object\" }", params, 1)
+        .replace(
+            r#"params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }"#,
+            operation,
+        );
+    // Settings of each kind the player's form fills in, besides its greeting.
+    let settings = r#"
+[[contributes.settings]]
+key = "speed"
+title = "How fast"
+type = "number"
+default = 1.5
+
+[[contributes.settings]]
+key = "loud"
+title = "Shout"
+type = "boolean"
+
+[[contributes.settings]]
+key = "mood"
+title = "Mood"
+type = "enum"
+choices = ["calm", "wild"]
+default = "calm"
+"#;
+    let file = dir.join("echo.toml");
+    std::fs::write(&file, manifest + settings).unwrap();
+    // SAFETY: nextest runs each test in a process of its own, and this runs before the test
+    // starts a thread.
+    unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
+}
+
+/// The echo plugin [`echo_plugin`] wrote in `dir` given an account, Echo Cloud (`main`), whose
+/// sign-in page is on this computer, which only tests' plugin hosts reach: signing in fails
+/// before anything is opened. Its secrets are kept in files.
+pub fn echo_account(dir: &Path) {
+    let file = dir.join("echo.toml");
+    let manifest = std::fs::read_to_string(&file).unwrap();
+    // First in the list, whatever a test granted after it.
+    let granted = "capabilities = [";
+    assert!(manifest.contains(granted));
+    let account = r#"
+[[contributes.accounts]]
+id = "main"
+title = "Echo Cloud"
+authorize_url = "http://127.0.0.1:9/authorize"
+token_url = "http://127.0.0.1:9/token"
+client_id = "echo"
+"#;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "#, 1) + account;
+    std::fs::write(&file, manifest).unwrap();
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
+}
+
+/// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
+/// given by its name among those (the echo plugin's exporter reads the drive). Call it before the
+/// app starts.
+pub fn mounted(dir: &Path) {
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}
+
+/// The folder a property test's drives are mounted in, with the echo plugin's manifest beside
+/// them: set up as the first case starts, for every case after it (the host reads its plugins
+/// once a process, and the environment is best set before any thread runs).
+pub fn plugins_once() -> &'static Path {
+    plugins_once_with(|manifest| manifest)
+}
+
+/// [`plugins_once`], the echo plugin's manifest changed by `change` for this test's process (the
+/// first call sets it up).
+pub fn plugins_once_with(change: fn(String) -> String) -> &'static Path {
+    static DIR: std::sync::OnceLock<TempDir> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap();
+        echo_plugin(dir.path());
+        let file = dir.path().join("echo.toml");
+        std::fs::write(&file, change(std::fs::read_to_string(&file).unwrap())).unwrap();
+        echo_account(dir.path());
+        mounted(dir.path());
+        dir
+    })
+    .path()
+}
+
+/// A demo drive plugged in (see [`plugins_once`]) for one case, named for it alone, and taken out
+/// again when it's dropped.
+pub struct Plugged(pub PathBuf);
+
+pub fn plugged() -> Plugged {
+    static CASES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CASES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    Plugged(demo_drive_in(plugins_once(), &format!("DEMO{n}")))
+}
+
+impl Drop for Plugged {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }

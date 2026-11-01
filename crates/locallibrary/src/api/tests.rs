@@ -234,3 +234,199 @@ fn disks_stay_hidden_while_drives_are(tc: hegel::TestCase) {
     hidden(format_apply(store.root(), &confirmed, &Ctx::silent()).unwrap_err());
     crate::testing::volumes_on_this_thread(None);
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// A drive on a disk of its own, adopted and in the store: a store with it, and the drive.
+#[cfg(unix)]
+fn drive_on_a_disk(fake: &mut fake_tools::FakeTools, store_on_it: bool) -> (Store, Device) {
+    std::fs::create_dir(fake.dir().join("DNA")).unwrap();
+    let mut d = Device::open(fake.dir().join("DNA")).unwrap();
+    d.adopt(Some("DNA")).unwrap();
+    let store_root = if store_on_it { d.root().join("store") } else { fake.dir().join("store") };
+    let store = Store::open_or_init(store_root).unwrap();
+    sync::register_drive(&store, &d, None).unwrap();
+    (store, d)
+}
+
+/// A drive's file system check, through the API, runs the platform's steps for its volume and
+/// goes in the drive's logbook in the store: the verdict as the last file-system check, and
+/// errors found as a problem too.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn a_drives_file_system_check_goes_in_its_logbook(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let (store, d) = drive_on_a_disk(&mut fake, false);
+    let (volume, fs) = fake.volume_at(d.root(), "vfat", true);
+    let repair = tc.draw(gs::booleans());
+    let steps = crate::fscheck::steps(d.root(), Some(&volume), Some(&fs), repair).unwrap();
+    let consistent = tc.draw(gs::booleans());
+    for (i, c) in [steps.unmount.as_ref(), Some(&steps.check), steps.mount.as_ref()].into_iter().flatten().enumerate() {
+        let args: Vec<&str> = c.args.iter().map(String::as_str).collect();
+        match (i, consistent) {
+            (_, true) | (0, false) if c != &steps.check => fake.answer(&c.program, &args, ""),
+            (_, true) => fake.answer(&c.program, &args, "File system check exit code is 0."),
+            _ => fake.refuse(&c.program, &args, "File system check exit code is 8."),
+        }
+    }
+
+    let req = FsCheckRequest { drive: d.root().display().to_string(), repair };
+    let report = drive_fs_check(Some(&store), &req).unwrap();
+    assert_eq!(report.ok, consistent);
+    let log = store.drives().unwrap().shift_remove(&d.id().unwrap()).unwrap().log;
+    let last = log.last_fs_check.unwrap();
+    assert_eq!((last.ok, last.summary.as_str()), (consistent, report.summary().as_str()));
+    let problems: Vec<(&str, &str)> = log.problems.iter().map(|p| (p.kind.as_str(), p.detail.as_str())).collect();
+    let summary = report.summary();
+    assert_eq!(problems, if consistent { vec![] } else { vec![("fs_errors", summary.as_str())] });
+}
+
+/// Ejecting a drive, through the API, plans the platform's commands for its root and applies
+/// them, counting a clean eject in the drive's logbook; a drive whose disk holds the store is
+/// refused before anything runs, as unmounting it would take the store away.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn ejecting_a_drive_is_planned_applied_and_counted(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let store_on_it = tc.draw(gs::weighted_booleans(0.3));
+    let (store, d) = drive_on_a_disk(&mut fake, store_on_it);
+    fake.volume_at(d.root(), "vfat", true);
+    let cmds = crate::eject::commands(d.root()).unwrap();
+    for c in &cmds {
+        fake.answer(&c.program, &c.args.iter().map(String::as_str).collect::<Vec<_>>(), "");
+    }
+    // By path: by name, a drive is looked for among the system's mounted volumes.
+    let drives = vec![d.root().display().to_string()];
+    let before = fake.calls().len();
+
+    let planned = drive_eject_plan(Some(store.root()), &EjectDrives { drives: drives.clone() });
+    let ejects = || store.drives().unwrap().shift_remove(&d.id().unwrap()).unwrap().log.clean_ejects;
+    if store_on_it {
+        assert!(matches!(&planned, Err(Error::Invalid(m)) if m.contains("which holds")), "{planned:?}");
+        let ran = fake.calls().split_off(before);
+        assert!(ran.iter().all(|c| !cmds.contains(c)), "{ran:?}");
+        assert_eq!(ejects(), 0);
+        return;
+    }
+    let planned = planned.unwrap();
+    let shown: Vec<String> = cmds.iter().map(|c| c.display()).collect();
+    assert_eq!(planned.plan.drives[0].commands, shown);
+    assert_eq!(planned.summary, ["eject DNA: unmount it and power it off"]);
+    let reports = if tc.draw(gs::booleans()) {
+        planned.apply(Some(&store), &Ctx::silent()).unwrap()
+    } else {
+        drive_eject(Some(&store), &EjectDrives { drives }).unwrap()
+    };
+    assert_eq!(reports.iter().map(|r| r.commands.clone()).collect::<Vec<_>>(), [shown]);
+    assert_eq!(ejects(), 1);
+}
+
+/// A drive's disk is formatted through the API as planned, the plan made by the drive's path:
+/// the planned erase runs, and the drive keeps its name and identity on the new volume.
+/// Confirmed with another identity, nothing is erased.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 10)]
+fn a_drives_disk_is_formatted_as_planned_through_the_api(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let (store, d) = drive_on_a_disk(&mut fake, false);
+    fake.volume_at(d.root(), "vfat", true);
+    let drive = d.root().display().to_string();
+    let req = FormatRequest { drive: drive.clone(), options: FormatOptions::default() };
+    let planned = format_plan(store.root(), &req, &Ctx::silent()).unwrap();
+    assert_eq!(planned.plan.keeps_name.as_deref(), Some("DNA"));
+    let erase = ["eraseDisk", "MS-DOS FAT32", planned.plan.label.as_str(), "MBR", "disk4"];
+    fake.then_after("diskutil", &erase);
+    // The new volume, mounted somewhere else.
+    let new = fake.dir().join("NEW");
+    std::fs::create_dir(&new).unwrap();
+    let new = device::dunce_canonicalize(&new);
+    let listing = serde_json::json!({ "AllDisksAndPartitions": [{ "DeviceIdentifier": "disk4", "Partitions": [
+            { "DeviceIdentifier": "disk4s1", "Size": 63_000_000_000u64, "MountPoint": new }] }] });
+    let info = serde_json::json!({ "DeviceIdentifier": "disk4", "Size": 64_000_000_000u64, "MediaName": "Ultra Fit" });
+    fake.answer("diskutil", &["list", "-plist", "disk4"], &listing.to_string());
+    fake.answer("diskutil", &["info", "-plist", "disk4"], &info.to_string());
+    fake.answer("diskutil", &["info", "-plist", "disk4s1"], "{}");
+
+    let confirmed = tc.draw(gs::weighted_booleans(0.8));
+    let identity = if confirmed { planned.plan.identity.clone() } else { format!("{}0", planned.plan.identity) };
+    let applied = match tc.draw(gs::booleans()) {
+        true if confirmed => planned.apply(Some(&store), &Ctx::silent()),
+        _ => format_apply(
+            store.root(),
+            &FormatApply { drive, identity, options: FormatOptions::default() },
+            &Ctx::silent(),
+        ),
+    };
+    let erased = fake.calls().iter().any(|c| c.args.first().is_some_and(|a| a == "eraseDisk"));
+    if !confirmed {
+        assert!(matches!(applied, Err(Error::StalePlan(_))), "{applied:?}");
+        assert!(!erased);
+        return;
+    }
+    let report = applied.unwrap();
+    assert!(erased);
+    assert_eq!((report.mount.as_deref(), report.drive_name.as_deref()), (Some(new.as_path()), Some("DNA")));
+    assert_eq!(Device::open(&new).unwrap().id(), d.id());
+}
+
+/// The disks offered for formatting are the system's external ones, each with why it can't be
+/// formatted: the one holding the store can't, saying so.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 6)]
+fn the_disk_holding_the_store_is_listed_as_not_to_be_formatted(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let store_on_it = tc.draw(gs::booleans());
+    let (store, d) = drive_on_a_disk(&mut fake, store_on_it);
+    fake.volume_at(d.root(), "vfat", true);
+    let external = serde_json::json!({ "WholeDisks": ["disk4"] }).to_string();
+    fake.answer("diskutil", &["list", "-plist", "external", "physical"], &external);
+
+    let listed = list_disks(store.root()).unwrap();
+    assert_eq!(listed.iter().map(|v| v.disk.id.as_str()).collect::<Vec<_>>(), ["disk4"]);
+    let holds = format!("it holds {}", store.root().display());
+    assert_eq!(listed[0].problem, store_on_it.then_some(holds));
+}
+
+/// Regression: `provision --format` showed each of the format's warnings twice, in the format's
+/// plan and again in its own.
+#[test]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the sample disk isn't there"
+)]
+fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
+    crate::format::THREAD_OS.with(|o| o.set(Some("linux")));
+    let format = plan_format(store.root(), crate::format::tests::sample_disk(), &req, &Ctx::silent());
+    crate::format::THREAD_OS.with(|o| o.set(None));
+    let untested = "formatting hasn't been tested on Linux yet; check the result";
+    // Copied from a drive, as the store has no library to write.
+    let main = dir.path().join("Main");
+    std::fs::create_dir(&main).unwrap();
+    let req = ProvisionRequest {
+        target: "disk4".into(),
+        like: Some(main.display().to_string()),
+        library: None,
+        name: None,
+        format: true,
+        format_options: FormatOptions::default(),
+        role: None,
+        player_name: None,
+        player_colour: None,
+        settings: false,
+        verify: false,
+        eject: false,
+    };
+    let plan = drives::plan_provision(&store, &req, Some(format.unwrap())).unwrap();
+    let once = |w: &[String]| w.iter().filter(|w| *w == untested).count() == 1;
+    assert!(once(&plan.format.as_ref().unwrap().warnings), "{:?}", plan.format);
+    assert!(plan.plan.warnings.is_empty(), "its own: {:?}", plan.plan.warnings);
+    assert!(once(&plan.warnings), "every warning, once: {:?}", plan.warnings);
+}

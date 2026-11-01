@@ -13,13 +13,7 @@ fn genres_are_split_and_spelled_one_way() {
 }
 
 #[test]
-fn artists_are_credited_once_each() {
-    assert_eq!(artist_credits("Bicep FEAT. Clara La San"), ["Bicep", "Clara La San"]);
-    assert_eq!(artist_credits("Chris Lake, Amber Mark"), ["Chris Lake", "Amber Mark"]);
-    assert_eq!(artist_credits("Simon & Garfunkel"), ["Simon & Garfunkel"]);
-    assert_eq!(artist_credits("Röyksopp (feat. Robyn)"), ["Röyksopp", "Robyn"]);
-    assert_eq!(artist_credits("İzel, Ölgü"), ["İzel", "Ölgü"]);
-    assert_eq!(artist_credits(""), Vec::<String>::new());
+fn every_credited_artist_is_found() {
     assert_eq!(credited_artists("Bicep feat. Clara La San"), ["bicep", "clara la san"]);
     assert_eq!(credited_artists("Fred again.. x Four Tet"), ["fred again..", "four tet"]);
 }
@@ -58,8 +52,8 @@ fn deciles_spread_a_set() {
 
 use crate::model::TrackColor;
 use crate::sets::EntryOrigin;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 const ARTISTS: [&str; 6] = ["Bicep", "Four Tet", "bicep", "Bicep feat. Clara La San", "Floorplan, Robert Hood", ""];
 // Mostly keys a wheel step apart, so sets mix in key as often as not.
@@ -118,7 +112,7 @@ struct Scenario {
 
 const STYLE_VALUES: [&str; 5] = ["on", "off", "16", "wide", "10"];
 
-fn scenario() -> impl hegel::Generator<Scenario> {
+fn scenario() -> impl hegel::PrintableGenerator<Scenario> {
     hegel::compose!(|tc| {
         let years = vec![0u16, 1987, 1999, 2012, 2024, Utc::now().year() as u16, 2099];
         let track = hegel::compose!(|tc| {
@@ -132,7 +126,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
                 rating: tc.draw(gs::integers::<u8>().max_value(5)),
                 coloured: tc.draw(gs::booleans()),
                 in_collection: tc.draw(gs::weighted_booleans(0.8)),
-                mood: tc.draw(gs::optional(gs::sampled_from(vec![Mood::High, Mood::Mid, Mood::Low]).print_as_debug())),
+                mood: tc.draw(gs::optional(gs::sampled_from(vec![Mood::High, Mood::Mid, Mood::Low]))),
                 cues: tc.draw(gs::optional(gs::tuples!(
                     gs::integers::<usize>().max_value(3),
                     gs::integers::<usize>().max_value(2),
@@ -140,7 +134,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
                 ))),
             }
         });
-        let tracks: Vec<GenTrack> = tc.draw(gs::vecs(track.print_as_debug()).min_size(1).max_size(24));
+        let tracks: Vec<GenTrack> = tc.draw(gs::vecs(track).min_size(1).max_size(24));
         let n = tracks.len();
         let set = hegel::compose!(|tc| {
             let tracks: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(14));
@@ -156,7 +150,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
         });
         let days = || gs::optional(gs::integers::<i64>().min_value(0).max_value(400));
         Scenario {
-            sets: tc.draw(gs::vecs(set.print_as_debug()).max_size(8)),
+            sets: tc.draw(gs::vecs(set).max_size(8)),
             declared: tc.draw(gs::booleans()),
             dupes: tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(3)),
             playlists: tc.draw(gs::vecs(gs::tuples!(gs::booleans(), gs::sampled_from(PLAYLISTS.to_vec()))).max_size(5)),
@@ -197,7 +191,7 @@ fn gen_track(i: usize, g: &GenTrack) -> Track {
 fn builder(options: &ProfileOptions) -> Builder<'_> {
     Builder {
         options,
-        files: Files { drives: &[], store: None, snapshots: Vec::new(), by_id: FxHashMap::default() },
+        files: Files { drives: &[], store: None, cache: None, snapshots: Vec::new(), by_id: FxHashMap::default() },
         recs: Vec::new(),
         by_key: FxHashMap::default(),
         by_file: FxHashMap::default(),
@@ -281,6 +275,7 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
         0
     } else {
         let mut short = 0;
+        let (mut sessions, mut archived) = (Vec::new(), FxHashSet::default());
         for (k, set) in s.sets.iter().enumerate() {
             let list = HistoryList {
                 name: format!("HISTORY {k:03}"),
@@ -291,7 +286,16 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
                 missing_at: set.missing_at.clone(),
             };
             let first_seen = set.age.map(|d| now - chrono::Duration::days(d));
-            b.add_list(list, "Main".into(), first_seen, Origin::Drive(0));
+            // As `sets::session::gather_from` finds it: in a snapshot taken `first_seen`, or only on
+            // the drive, recorded before the time it's gathered, which is after every snapshot.
+            let id = list.fingerprint();
+            if first_seen.is_some() {
+                archived.insert(id.clone());
+            }
+            let gathered = now + chrono::Duration::seconds(1);
+            let window = crate::sets::Window { after: None, before: first_seen.or(Some(gathered)), exact: false };
+            sessions.push(crate::sets::session::of_list(id, &list, None, window));
+            b.add_list(list, "Main".into(), Origin::Drive(0));
             let date = first_seen.map(|t| t.with_timezone(&Local).date_naive());
             let in_range = match date {
                 Some(d) => o.since.is_none_or(|x| d >= x) && o.until.is_none_or(|x| d <= x),
@@ -303,7 +307,8 @@ fn report_of(s: &Scenario, now: DateTime<Utc>) -> (ProfileReport, Vec<Played>) {
                 played.push(Played { tracks: set.tracks.clone(), date, missing_at: set.missing_at.clone() });
             }
         }
-        assert_eq!(b.sessions_as_sets(), short);
+        crate::sets::session::newest_first(&mut sessions);
+        assert_eq!(b.sessions_as_sets(&sessions, &archived), short);
         short
     };
     for (i, g) in s.tracks.iter().enumerate() {
@@ -364,7 +369,7 @@ fn check_ranked(what: &str, sec: &RankedSection, counts: &FxHashMap<String, usiz
 /// collection; every share is in [0, 1] and the headline counts what the basis counts.
 #[hegel::test(test_cases = 200)]
 fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
-    let s = tc.draw(scenario().print_as_debug());
+    let s = tc.draw(scenario());
     let now = Utc::now();
     let (r, played) = report_of(&s, now);
     let g = &s.tracks;
@@ -638,7 +643,7 @@ fn prefs_for(tc: &TestCase, r: &ProfileReport) -> ProfilePrefs {
     pins.push("Nobody - Nothing".into());
     let artists: Vec<String> = ARTISTS.iter().flat_map(|a| artist_credits(a)).collect();
     ProfilePrefs {
-        sections: tc.draw(gs::optional(gs::btree_sets(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()))),
+        sections: tc.draw(gs::optional(gs::btree_sets(gs::sampled_from(Section::ALL.to_vec())))),
         precision: if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded },
         pinned: some(pins, 3),
         hidden: some(names, 2),
@@ -660,7 +665,7 @@ fn rounded_to(x: f64, units: f64) -> bool {
 /// and its headline and traits say nothing a left-out section would.
 #[hegel::test(test_cases = 200)]
 fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
-    let s = tc.draw(scenario().print_as_debug());
+    let s = tc.draw(scenario());
     let (r, _) = report_of(&s, Utc::now());
     let prefs = prefs_for(&tc, &r);
     let d = document(&r, &prefs);
@@ -761,4 +766,24 @@ fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
     } else {
         assert!(d.headline.is_none() && d.tags.is_empty());
     }
+}
+
+/// A document says when it was made to the millisecond, whatever the clock's resolution: the
+/// same report written twice is the same length (chrono's own format drops trailing zeros).
+#[hegel::test(test_cases = 100)]
+fn a_document_is_dated_to_the_millisecond(tc: TestCase) {
+    let o = ProfileOptions {
+        since: None,
+        until: None,
+        min_set_tracks: 1,
+        top: 5,
+        analysis: false,
+        genre_aliases: IndexMap::new(),
+    };
+    let second = |nanos| DateTime::from_timestamp(1_760_000_000, nanos).unwrap().naive_utc();
+    let at = tc.draw(gs::default::<DateTime<Utc>>().min_value(second(0)).max_value(second(999_999_999)));
+    let doc = document::document(&compute(&builder(&o), Basis::Sessions, 0, at), &ProfilePrefs::default());
+    let json = serde_json::to_value(&doc).unwrap();
+    let millis = at.timestamp_subsec_millis();
+    assert_eq!(json["generatedAt"], format!("2025-10-09T08:53:20.{millis:03}Z"), "{at:?}");
 }

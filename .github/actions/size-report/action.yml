@@ -1,0 +1,50 @@
+name: Size report
+description: >-
+  A table of what this run measured (a JSON object of names and sizes in bytes, from its
+  `artifact`) beside the same from main's latest push run that has one, written to the run's
+  summary and to `output` for the pull request comment. Needs `actions: read`.
+
+inputs:
+  sizes:
+    description: This run's sizes.json.
+    required: true
+  artifact:
+    description: The artifact sizes.json is uploaded in, which main's runs keep too.
+    required: true
+  output:
+    description: Where to write the Markdown.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: main
+      uses: ./.github/actions/main-artifact
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/main-sizes
+    - shell: bash
+      env:
+        SIZES: ${{ inputs.sizes }}
+        OUTPUT: ${{ inputs.output }}
+        MAIN: ${{ steps.main.outputs.found == 'true' && format('{0}/main-sizes/sizes.json', runner.temp) || '/dev/null' }}
+        MAIN_URL: ${{ steps.main.outputs.run-url }}
+      run: |
+        jq -rn --slurpfile now "$SIZES" --slurpfile main "$MAIN" --arg url "$MAIN_URL" '
+          def size: if fabs < 1024 then "\(.) B" else "\(. / 1024 * 10 | round / 10) KiB" end;
+          def plus: if . > 0 then "+" else "" end;
+          def change($was): (. - $was) as $d
+            | "\($d | plus)\($d | size)"
+              + if $was > 0 then " (\($d | plus)\($d / $was * 1000 | round / 10)%)" else "" end;
+          $main[0] as $base
+          | "### Size",
+            "",
+            "\(if $base then "Compared with [main](\($url))" else "Nothing from main to compare with yet" end). KiB are 1,024 bytes.",
+            "",
+            if $base then "| | This pull request | main | Change |", "| --- | ---: | ---: | ---: |"
+            else "| | This pull request |", "| --- | ---: |" end,
+            ($now[0] | to_entries[] | ($base[.key]?) as $was | "| \(.key) | \(.value | size) |" + (
+              if $base == null then ""
+              elif $was == null then " | new |"
+              else " \($was | size) | \(.value | change($was)) |" end))
+        ' | tee "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"

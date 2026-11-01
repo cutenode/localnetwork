@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
@@ -336,6 +336,9 @@ pub struct VerifyArgs {
     /// Another mounted drive with the same library, for good copies (repeatable)
     #[arg(long = "against", value_name = "DRIVE", add = DriveOnly)]
     against: Vec<String>,
+    /// A copy of the store at a plugin's destination, for good copies the store lacks
+    #[arg(long, value_name = "PLUGIN:DESTINATION")]
+    from: Option<String>,
     /// Rewrite what's damaged or missing
     #[arg(long)]
     repair: bool,
@@ -571,7 +574,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Forget { drive } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let req = DriveRef { drive };
             let rec = api::drive_find(&store, &req)?;
             let change = format!("forget {} ({}): it's registered again the next time it's synced", rec.name, rec.id);
@@ -585,7 +588,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         DriveCommand::Role { drive, role } => {
             let role = (!role.eq_ignore_ascii_case("none")).then_some(role);
             let parsed = role.as_deref().map(Role::parse).transpose()?;
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let rec = api::drive_to_change(&store, &DriveRef { drive: drive.clone() })?;
             let change = match parsed {
                 Some(r) => format!("make {} ({}) {}", rec.name, rec.id, role_drive(r)),
@@ -602,7 +605,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             );
         }
         DriveCommand::Retire { drive, undo } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let rec = api::drive_to_change(&store, &DriveRef { drive: drive.clone() })?;
             let change = match undo {
                 true => format!("put {} ({}) back in use", rec.name, rec.id),
@@ -725,11 +728,11 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             return Ok(out.applied(&plan, &r, Outcome::Applied, || show(&r)));
         }
         DriveCommand::Contact { drive, contact, playlist, dry_run } => {
-            let plan = api::drive_contact_plan(&api::SetContact { drive, contact, playlist })?;
+            let plan = api::drive_contact_plan(&api::SetContact { drive, contact, playlist }, ctx)?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);
             }
-            if let Some(o) = out.decide(dry_run, "Write it?") {
+            if let Some(o) = out.decide_on(&plan, dry_run, "Write it?")? {
                 return Ok(out.not_applied(&plan, o));
             }
             let r = plan.apply(None, ctx)?;
@@ -743,13 +746,15 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Groups => {
-            let groups = crate::diff_cmd::read_or_empty(store_path, api::drive_sets)?;
+            // With no store, still the mounted drives grouped by the library each holds, unnamed.
+            let groups = api::drive_sets(crate::diff_cmd::existing_store(store_path)?.as_ref())?;
             out.emit(&groups, |groups| {
                 if groups.is_empty() {
                     say!("No mounted drives are linked to a library.");
                 }
                 for s in groups {
-                    heading(s.library.as_deref().unwrap_or("?"));
+                    let unnamed = || s.library_id.map_or("?".into(), |id| format!("an unnamed library ({id})"));
+                    heading(&s.library.clone().unwrap_or_else(unnamed));
                     for m in &s.members {
                         let primary = if Some(m) == s.primary.as_ref() { " (primary)" } else { "" };
                         say!("  {}{primary}", m.display());
@@ -786,7 +791,7 @@ fn info(drive: Option<String>, out: Output) -> Result<ExitCode> {
 fn adopt(a: AdoptArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let AdoptArgs { drive, name, known, dry_run } = a;
     if let Some(known) = known {
-        let store = open_store(store_path)?;
+        let store = crate::diff_cmd::store_to_read(store_path)?;
         let plan = api::drive_adopt_as_plan(&store, &api::AdoptAs { drive, known })?;
         if !out.json {
             output::summary(&plan.summary, &plan.warnings);
@@ -838,7 +843,7 @@ fn store_root(store: &Option<PathBuf>) -> Result<PathBuf> {
     if let Some(uid) = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok())
         && someone_elses(&root, uid)
     {
-        bail!(
+        anyhow::bail!(
             "under sudo the default store is {}, which isn't yours: pass --store with your store's folder",
             root.display()
         );
@@ -942,12 +947,22 @@ fn eject(a: EjectArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
 }
 
 fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let VerifyArgs { drive, snapshot, against, repair, all } = a;
+    let VerifyArgs { drive, snapshot, against, from, repair, all } = a;
     let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "verify")?;
     output::show_all(all);
-    let store = open_store(store_path).ok();
+    // The check is recorded in the store only if there is one.
+    let store = crate::diff_cmd::existing_store(store_path)?;
+    // Its good copies are fetched into the store.
+    let dest = match (&from, &store) {
+        (None, _) => None,
+        (Some(spec), Some(store)) => Some(crate::plugins::host()?.store_destination(spec, Some(store))?),
+        (Some(_), None) => return Err(crate::jobs_cmd::usage("--from needs the store, and there's none yet")),
+    };
     let req = api::VerifyRequest { drive: drive.clone(), snapshot, against: against.clone() };
-    let report = api::drive_verify(store.as_ref(), &req, ctx)?;
+    let mut report = api::drive_verify(store.as_ref(), &req, ctx)?;
+    if let Some(dest) = &dest {
+        locallibrary::scrub::offer(&mut report, dest, ctx)?;
+    }
     if !out.json {
         scrub_report(&report);
     }
@@ -960,7 +975,7 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     let fixable = report.problems().filter(|p| p.repair.is_some()).count();
     if fixable == 0 {
         warn(
-            "no known-good copy of the damaged files is available (pull the drive regularly, or pass --against another drive)",
+            "no known-good copy of the damaged files is available (pull the drive regularly, or pass --against another drive, or --from a copy of the store)",
         );
         return Ok(out.not_applied(&report, found));
     }
@@ -968,6 +983,9 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
         return Ok(out.not_applied(&report, o));
     }
     let problems: Vec<_> = report.problems().cloned().collect();
+    if let (Some(dest), Some(store)) = (&dest, &store) {
+        locallibrary::scrub::fetch(store, dest, &problems, ctx)?;
+    }
     let r = api::drive_repair(store.as_ref(), &api::RepairRequest { drive, problems, against }, ctx)?;
     let failed = !r.failed.is_empty();
     // Files still wrong after being rewritten: problems found, not fixed.
@@ -996,7 +1014,7 @@ fn fsck(a: FsckArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCo
     {
         return Ok(out.not_applied(&serde_json::Value::Null, o));
     }
-    let store = open_store(store_path).ok();
+    let store = crate::diff_cmd::existing_store(store_path)?;
     let r = api::drive_fs_check(store.as_ref(), &api::FsCheckRequest { drive, repair })?;
     let outcome = if r.ok { Outcome::Applied } else { Outcome::Problems };
     // Checking is a report; repairing changes the drive.
@@ -1058,7 +1076,8 @@ fn tidy(a: TidyArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         return Ok(out.not_applied(&plan, o));
     }
     let r = plan.apply(None, ctx)?;
-    Ok(out.applied(&plan, &r, Outcome::Applied, || {
+    let outcome = if r.failed.is_empty() { Outcome::Applied } else { Outcome::Partial };
+    Ok(out.applied(&plan, &r, outcome, || {
         ok(format!("removed {} file(s), {}", r.removed, bytes(r.bytes)));
         for f in &r.failed {
             warn(format!("{}: {}", f.path, f.error));
@@ -1202,10 +1221,7 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
     } = a;
     // Under sudo, never one made now: it would belong to root.
     let store = match std::env::var_os("SUDO_UID") {
-        Some(_) => {
-            let root = store_root(store_path)?;
-            Store::open(&root).with_context(|| format!("opening store at {}", root.display()))?
-        }
+        Some(_) => crate::open_store_with(&Some(store_root(store_path)?), Store::open)?,
         None => open_store(store_path)?,
     };
     let req = api::ProvisionRequest {
@@ -1231,7 +1247,8 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
         for (i, s) in plan.steps.iter().enumerate() {
             say!("  {}. {s}", i + 1);
         }
-        for w in &plan.warnings {
+        // Its own: the format plan above showed the format's.
+        for w in &plan.plan.warnings {
             warn(w);
         }
     }
@@ -1288,7 +1305,8 @@ fn standing(s: &Standing) -> String {
     match s {
         Standing::UpToDate => style("up to date").green().to_string(),
         Standing::Behind { snapshots, held } => {
-            style(format!("{snapshots} snapshot(s) behind (held {held})")).yellow().to_string()
+            let held = held.as_ref().map(|h| format!(" (held {h})")).unwrap_or_default();
+            style(format!("{snapshots} snapshot(s) behind{held}")).yellow().to_string()
         }
         Standing::Unsaved => style("had changes not in the store").yellow().to_string(),
         Standing::Unknown => dim("not linked to a library").to_string(),
@@ -1460,6 +1478,9 @@ pub fn scrub_report(r: &ScrubReport) {
         Some(locallibrary::scrub::RepairSource::Drive { name, .. }) => {
             dim(format!(" (good copy on {name})")).to_string()
         }
+        Some(locallibrary::scrub::RepairSource::Destination { plugin, destination }) => {
+            dim(format!(" (good copy at {plugin}:{destination})")).to_string()
+        }
         None => String::new(),
     };
     let n = output::cap(20);
@@ -1578,7 +1599,7 @@ pub fn sync_set(
     let mut libraries: Vec<String> = match library {
         Some(l) => vec![l],
         None => {
-            let sets = api::drive_sets(&store)?.into_iter().filter(|s| s.members.len() >= 2);
+            let sets = api::drive_sets(Some(&store))?.into_iter().filter(|s| s.members.len() >= 2);
             sets.filter_map(|s| s.library).collect()
         }
     };

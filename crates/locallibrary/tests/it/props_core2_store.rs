@@ -24,7 +24,7 @@ use rekordbox_pdb::PdbEditor;
 
 /// A library's track files, comparable across databases.
 fn files(lib: &Library) -> BTreeSet<String> {
-    lib.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect()
+    lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect()
 }
 
 /// Pull the drive at `root` into `store`: the snapshot made.

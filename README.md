@@ -8,38 +8,52 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 | [locallibrary](apps/locallibrary) | A command line tool and terminal player that keeps rekordbox USB drives in sync, backed up and edited                  | Rust                      |
 | [localtoolbox](apps/localtoolbox) | A Chrome extension for digging on SoundCloud: track lists, download links, artists' socials, and a queue to batch them | Svelte, Manifest V3       |
 
+The website and locallibrary read every atproto record through Local Network's [HappyView](https://happyview.dev) AppView, never straight from an account's PDS or from Bluesky's AppView, and write to the PDS. The exceptions are the website's space sync, blobs (until HappyView serves them), identity and sign-in, and dev tooling and tests. ast-grep's [`no-direct-pds-read`](tools/ast-grep/rules/no-direct-pds-read.yml) rule lists them and fails any other read, and `clippy.toml` bans jacquard's typed requests for the same reads.
+
 ## Layout
 
 ```
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
-lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
+lexicons/             Every tool's lexicons (computer.localnetwork.*), and copies of others' they use (its README)
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
-packages/tokens/      Shared colours for DJ data
+plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each
+packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
+packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
 ```
 
 The repo root is both the pnpm workspace and the Cargo workspace, so commands run from here.
 
-`packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn: waveform bands, phrase kinds, cue defaults, track colours, good, warning and critical, and the playhead. The website imports it, and `crates/loclib-model/src/tokens.rs` is generated from it for the player and the HTML report (`LOCALLIBRARY_BLESS=1 cargo test -p loclib-model --test tokens` regenerates it).
+`packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn: waveform bands, phrase kinds, cue defaults, track colours, good, warning and critical, and the playhead. `packages/tokens/theme.css` is the Local Network design system (surfaces, type, the shared classes) that the website and localtoolbox both import, and `data-colors.css` beside it is generated from `colors.json`. The website imports it, and `crates/loclib-model/src/tokens.rs` is generated from it for the player and the HTML report (`LOCALLIBRARY_BLESS=1 cargo test -p loclib-model --test tokens` regenerates it).
 
 ## Working on it
 
+The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](https://pnpm.io/installation). [fnm](https://github.com/Schniz/fnm) picks up `.node-version` for you: run `fnm install`, then `fnm use`, or set up its shell hook (`eval "$(fnm env --use-on-cd)"`) to switch on `cd`. The website's local network needs Docker (or OrbStack) running.
+
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
-pnpm dev                     # the website (see apps/web/README.md for its .env) and the extension's watch build
+pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
+pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary
 cargo test --workspace --locked
 ```
 
-The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change. The slow suites (mutation testing, fuzzing, the website in every browser, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows.
+The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, Lighthouse on every page of the website against its history, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
 
-## Adding a tool
+## Contributing
 
-A new tool goes in `apps/<tool>`, with shared code in `crates/` (Rust) or `packages/` (TypeScript). Records only it writes live under its own lexicon group, `computer.localnetwork.<tool>.*`; records other tools read too go in a shared group named for what they are, like `computer.localnetwork.dj.*` for DJ sets and profiles. Binaries and crates follow the same names as the rest: `local<thing>` for a tool, `loclib-*` for a Rust library.
+Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull request.
 
-Its page on the website, `localnetwork.computer/tools/<tool>`, is one file in `apps/web/src/lib/tools/`, listed in that folder's `index.ts`. The page shows the tool's `README.md` and `docs/*.md` as its guides, and the website's Docker build picks them up from `apps/<tool>/` as they are.
+## Adding a tool or plugin
+
+[Adding an app or plugin](.github/NEW_PROJECT.md) covers the whole stack (development, tests, CI, production and releases) and every place a new app or locallibrary plugin is registered.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

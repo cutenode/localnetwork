@@ -6,14 +6,23 @@ phrases). It was split out of [locallibrary](https://github.com/cutenode/localne
 reads and writes these from rekordbox USB exports, so the fields follow what rekordbox keeps.
 
 - `model`: `Library`, `Track`, `Playlist` and `TrackColor`, finding playlists by path, searching
-  tracks, `LibraryDiff` between two exports of one library, and `untangle` for a playlist tree read
-  from a damaged file.
+  tracks, the part of a library an export of some playlists writes, numbering tracks only
+  OneLibrary has for files (`ONELIBRARY_ONLY`), `LibraryDiff` between two exports of one library,
+  `untangle` for a playlist tree read from a damaged file, `artist_credits`, the artists a
+  credit names, one by one (as a published set lists them), and `isrc`, a tag as an ISRC.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).
 - `analysis`: `TrackAnalysis` and its parts, and rekordbox's hot cue palette.
+- `audio`: the audio format a file's extension names (`audio::Format`), and which extensions DJ
+  players list.
+- `finding`: `Finding`, one thing a check found about a library (its `Level`, the tracks,
+  playlist and files it's about), as locallibrary's checks and plugins' report them.
 - `paths`: the normalised path keys tracks are matched by, finding them below a folder, names
   made safe for FAT32 and exFAT, and `PathStyle` (how an export writes paths).
+- `theme`: `Theme`, every colour DJ data and a player's chrome are drawn in, the shared ones
+  (`tokens`, from the repository's packages/tokens) by default, and the names a theme sets them
+  by (`theme::TOKENS`: `cues.hot`, `ui.accent`, `waveform.spectrum`...).
 - `labelled_tuple!`: a struct that serialises as a JSON array but names its elements in its
   schema.
 
@@ -63,7 +72,8 @@ assert!(diff.changed_playlists.is_empty());
 ## Features
 
 - `schemars`: JSON Schema (`schemars::JsonSchema`) for the serialisable types.
-- `test-util`: `test_util::track`, a ready-made track for tests. Not a stable API.
+- `test-util`: `test_util::track`, a ready-made track for tests, and Hegel generators of tracks
+  (`tracks_like`), libraries (`libraries`) and Camelot keys (`keys`). Not a stable API.
 
 ## What it doesn't do
 

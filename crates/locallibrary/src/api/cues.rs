@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use super::{TrackSelector, resolve_drive};
+use super::{LibraryCache, LibraryRef, TrackSelector, resolve_drive};
 use crate::cue_edit::{self, CueEdit, CuePlan, CueRef, CueReport, SetCue, TrackCues, UpdateCue};
 use crate::device::Device;
 use crate::op::{Operation, Planned, Probe, Touched};
@@ -14,15 +14,14 @@ use crate::{Error, Result};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ListCues {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     #[serde(flatten)]
     pub tracks: TrackSelector,
 }
 
 pub fn cues_list(req: &ListCues) -> Result<Vec<TrackCues>> {
-    let d = resolve_drive(&req.drive)?;
-    let ids = req.tracks.select_on(&d, &d.library()?)?;
-    cue_edit::list(&d, &ids)
+    super::cues_list_cached(LibraryCache::none(), req)
 }
 
 /// What to do to the selected tracks' cues, tagged by `op`:
@@ -68,7 +67,7 @@ fn edit_of(req: &EditCues) -> Result<(Device, Vec<u32>, CueEdit)> {
     Ok((d, ids, edit))
 }
 
-/// What a cue edit would change on the selected tracks.
+/// What a cue edit would change on the selected tracks, with what plugins' guards make of it.
 pub fn cues_plan(req: &EditCues, ctx: &Ctx<'_>) -> Result<Planned<CuePlan>> {
     let (d, ids, edit) = edit_of(req)?;
     let plan = cue_edit::plan(&d, &ids, &edit, ctx)?;
@@ -87,7 +86,8 @@ pub fn cues_plan(req: &EditCues, ctx: &Ctx<'_>) -> Result<Planned<CuePlan>> {
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Content(files)]))
         .reaching_clones(ctx)?
-        .guard(None)
+        .guard(None)?
+        .guarded(|p| p.recorded.iter().cloned().collect(), ctx)
 }
 
 impl Operation for CuePlan {

@@ -154,10 +154,11 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
     let mut s = Sidecar::start(&fx);
     let mut m = Model::default();
     let a = path(&fx.volumes.join("A")).to_string();
-    let contract: Value = serde_json::from_slice(
-        &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json")).unwrap(),
-    )
-    .unwrap();
+    // This build's own contract: docs/rpc describes the default build, whose account methods a
+    // build without the account doesn't have.
+    let dir = fx.outside("contract");
+    fx.ok(&["rpc", "--emit-schema", path(&dir)]);
+    let contract: Value = serde_json::from_slice(&std::fs::read(dir.join("schema.json")).unwrap()).unwrap();
     let methods: Vec<&str> =
         contract["methods"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
     let mut names = 0;
@@ -263,10 +264,8 @@ fn the_sidecar_keeps_plans_subscriptions_and_watches_as_modelled(tc: TestCase) {
                 // A kept plan, one applied already, one of the other kind, or none at all.
                 let kept: Vec<(String, &str)> = m.plans.iter().map(|(k, v)| (k.clone(), *v)).collect();
                 let (id, op) = match tc.draw(gs::integers::<u8>().max_value(2)) {
-                    0 if !kept.is_empty() => kept[tc.draw(gs::integers::<usize>().max_value(kept.len() - 1))].clone(),
-                    1 if !m.used.is_empty() => {
-                        (m.used[tc.draw(gs::integers::<usize>().max_value(m.used.len() - 1))].clone(), "edit")
-                    }
+                    0 if !kept.is_empty() => tc.draw(gs::sampled_from(&kept[..])),
+                    1 if !m.used.is_empty() => (tc.draw(gs::sampled_from(&m.used[..])), "edit"),
                     _ => ("no-such-plan".to_string(), "edit"),
                 };
                 let apply_as =
@@ -541,7 +540,7 @@ fn a_waiting_request_cancelled_answers_at_once(tc: TestCase) {
         std::thread::sleep(Duration::from_millis(20));
     }
     // The first runs; the others wait for the worker.
-    let waiting = &ids[tc.draw(gs::integers::<usize>().min_value(1).max_value(n - 1))];
+    let waiting = &tc.draw(gs::sampled_from(&ids[1..]));
     let v = s.call("$/cancel", json!({ "id": waiting }));
     assert_eq!(v["result"]["cancelled"], true, "{v}");
     let a = s.answer(waiting);
@@ -577,7 +576,7 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
         let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
             true => m["name"].as_str().unwrap(),
-            false => aliases[tc.draw(gs::integers::<usize>().max_value(aliases.len() - 1))],
+            false => tc.draw(gs::sampled_from(&aliases[..])),
         };
         // Up to three tries, for parameters the method takes (drawn ones may not quite fit).
         for _ in 0..3 {
@@ -616,8 +615,9 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
 /// The account and publishing over the sidecar, signed in to a pretend data server (or not):
 /// the account's status, a check with its server, and its client document answer in their
 /// contract's shapes; each record planned is applied by its plan's id (or straight from the
-/// request) and is then on the server as planned, once; signing in to no account is refused,
-/// and a sign-in that was never begun is nothing to finish or cancel; signed out, it's gone.
+/// request) and is then on the server as planned, once, and the settings published import back
+/// either way too; signing in to no account is refused, and a sign-in that was never begun is
+/// nothing to finish or cancel; signed out, it's gone.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
@@ -626,13 +626,10 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     use crate::support::account::{DID, PUBLISHING, sign_in};
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
-    let fx = Env::from_template();
+    let fx = Env::from_template().with_directory(&pds.url);
     let signed_in = tc.draw(gs::booleans());
     if signed_in {
-        let scopes: Vec<String> = std::iter::once("atproto".to_string())
-            .chain(PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")))
-            .collect();
-        sign_in(&fx.store, &pds.url, &scopes.iter().map(String::as_str).collect::<Vec<_>>(), json!({}));
+        sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
     }
     fx.ok(&["--yes", "settings", "set", "quantize=off"]);
     fx.ok(&["--yes", "sets", "new", "--from", "HISTORY 001", "--title", "Friday", "--date", "2026-10-03"]);
@@ -698,12 +695,16 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
             assert_eq!(again["error"]["data"]["kind"], "stale_plan", "{again}");
         }
     }
-    // What's published comes back from the account.
-    let import = s.call("settings.import_published.plan", json!({ "pds": pds.url, "from": DID }));
+    // What's published comes back from Local Network's directory.
+    let import = s.call("settings.import_published.plan", json!({ "from": DID }));
     shaped("settings.import_published.plan", &import);
     if signed_in {
-        let id = &import["result"]["plan_id"];
-        let applied = s.call("settings.import_published.apply", json!({ "plan_id": id }));
+        let request = match tc.draw(gs::booleans()) {
+            true => json!({ "plan_id": import["result"]["plan_id"] }),
+            false => json!({ "from": DID }),
+        };
+        let applied = s.call("settings.import_published.apply", request);
+        shaped("settings.import_published.apply", &applied);
         assert!(applied["error"].is_null(), "{applied}");
     }
     let out = s.call("account.logout", json!({}));

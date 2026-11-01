@@ -3,27 +3,30 @@
 //!
 //! Each type is a Lexicon document in the repo's `lexicons/`, in the folder its NSID names.
 //! [`SETTINGS`] (My Settings, one per account) is locallibrary's own, under the authority
-//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account) and
-//! [`SET`] (a set, one per set) are shared by Local Network's tools, under the authority
-//! `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. Documents they refer
-//! to that others maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`]
-//! (where a set was played).
+//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account), [`SET`]
+//! (a set, one per set) and [`RECORDING`] (a set's recording) are shared by Local Network's tools,
+//! under the authority `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. The documents others
+//! maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`], Lexicon
+//! Community's, where a set was played; [`DISCUSSION`], userinput.app's record type, which a bug
+//! report is; and [`STRONG_REF`] (a record's at:// URI and CID), which it uses.
 //!
 //! [`validate`] checks a record against its document before it's written. It's strict, so a field
 //! the document doesn't define is an error, and it follows the AT Protocol's data model, which has
 //! no fractional numbers. It covers the parts of Lexicon these documents use: objects, refs (within
-//! a document and to another one), unions, strings, integers, booleans and arrays, and the string
-//! formats `datetime`, `at-uri`, `did` and `uri`. The AT Protocol library's parsers check DIDs and
-//! at:// URIs and chrono checks times; a `uri` only gets the light check the protocol's reference
-//! implementation gives one (a scheme, then no spaces).
+//! a document and to another one), unions, strings, integers, booleans, arrays and blobs, and the
+//! string formats `datetime`, `at-uri`, `did`, `cid` and `uri`. The AT Protocol library's parsers
+//! check DIDs, at:// URIs and CIDs and chrono checks times; a `uri` only gets the light check the
+//! protocol's reference implementation gives one (a scheme, then no spaces).
 
 use rustc_hash::FxHashMap;
 use std::sync::LazyLock;
 
 use jacquard_common::SmolStr;
 use jacquard_common::types::aturi::AtUri;
+use jacquard_common::types::cid::Cid;
 use jacquard_common::types::did::validate_did;
 use serde_json::Value;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{Error, Result};
 
@@ -33,21 +36,31 @@ pub const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
 pub const PROFILE: &str = "computer.localnetwork.dj.profile";
 /// A set: where and when it was played, and its tracklist (record key: a TID).
 pub const SET: &str = "computer.localnetwork.dj.set";
+/// A set's recording, uploaded to the account (record key: the set's).
+pub const RECORDING: &str = "computer.localnetwork.dj.recording";
 /// What [`PROFILE`] and [`SET`] share (tracks, keys, partners, shares, counts). Not a record type.
 pub const DEFS: &str = "computer.localnetwork.dj.defs";
 /// A street address, from Lexicon Community: where a set was played. Not a record type.
 pub const ADDRESS: &str = "community.lexicon.location.address";
+/// A bug report (or any feedback) posted to a space on userinput.app (record key: a TID).
+pub const DISCUSSION: &str = "app.userinput.discussion";
+/// A record's at:// URI and CID, from the AT Protocol: the space a discussion is posted to. Not a
+/// record type.
+pub const STRONG_REF: &str = "com.atproto.repo.strongRef";
 
-/// Every record type locallibrary writes.
-pub const COLLECTIONS: [&str; 3] = [SETTINGS, PROFILE, SET];
+/// Every record type locallibrary publishes.
+pub const COLLECTIONS: [&str; 4] = [SETTINGS, PROFILE, SET, RECORDING];
 
-/// The Lexicon documents, by NSID: the ones locallibrary writes and the ones they refer to.
-pub const DOCUMENTS: [(&str, &str); 5] = [
+/// The Lexicon documents locallibrary writes records of, by NSID, and the ones they share.
+pub const DOCUMENTS: [(&str, &str); 8] = [
     (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
     (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
     (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
+    (RECORDING, include_str!("../../../../lexicons/computer/localnetwork/dj/recording.json")),
     (DEFS, include_str!("../../../../lexicons/computer/localnetwork/dj/defs.json")),
     (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
+    (DISCUSSION, include_str!("../../../../lexicons/app/userinput/discussion.json")),
+    (STRONG_REF, include_str!("../../../../lexicons/com/atproto/repo/strongRef.json")),
 ];
 
 static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
@@ -57,9 +70,15 @@ static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
         .collect()
 });
 
-/// The Lexicon document for `nsid`, if it's one of [`DOCUMENTS`].
+/// The Lexicon document for `nsid`, one of [`DOCUMENTS`].
 pub fn document(nsid: &str) -> Option<&'static Value> {
     PARSED.get(nsid)
+}
+
+/// The definition `name` in the document `doc`. `r` is the ref that named it, and `path` where in
+/// the record it was met.
+fn resolve(doc: &str, name: &str, r: &str, path: &str) -> std::result::Result<&'static Value, String> {
+    def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))
 }
 
 /// The last part of an NSID: `settings` for [`SETTINGS`].
@@ -124,7 +143,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
         "ref" => {
             let r = schema["ref"].as_str().unwrap_or_default();
             let (doc, name) = target(nsid, r);
-            let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
+            let found = resolve(doc, name, r, path)?;
             check(doc, found, v, path)
         }
         // A union's value names its type in `$type`: `nsid` for a document's main definition,
@@ -145,7 +164,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 };
             };
             let (doc, name) = target(nsid, r);
-            let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
+            let found = resolve(doc, name, r, path)?;
             let mut rest = fields.clone();
             rest.remove("$type");
             check(doc, found, &Value::Object(rest), path)
@@ -176,10 +195,12 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             if num("maxLength").is_some_and(|m| bytes > m) || num("minLength").is_some_and(|m| bytes < m) {
                 return Err(format!("{} is {bytes} bytes long, outside what the Lexicon allows", what(path)));
             }
-            // Characters, which are never fewer than graphemes: text within the limit in
-            // characters is within it in graphemes.
-            if num("maxGraphemes").is_some_and(|m| s.chars().count() as i64 > m) {
-                return Err(format!("{} is longer than {} characters", what(path), num("maxGraphemes").unwrap_or(0)));
+            // Lexicon counts extended grapheme clusters, what a reader sees as one character: a
+            // flag or an emoji joined with ZWJ is one, though it's several code points.
+            if let Some(max) = num("maxGraphemes")
+                && s.graphemes(true).count() as i64 > max
+            {
+                return Err(format!("{} is longer than {max} graphemes", what(path)));
             }
             if let Some(allowed) = schema["enum"].as_array()
                 && !allowed.iter().any(|a| a == s)
@@ -191,6 +212,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 "datetime" => (chrono::DateTime::parse_from_rfc3339(s).is_ok(), "a date and time"),
                 "at-uri" => (AtUri::<SmolStr>::new_owned(s).is_ok(), "an at:// URI"),
                 "did" => (validate_did(s).is_ok(), "a DID"),
+                "cid" => (Cid::str(s).is_valid(), "a CID"),
                 "uri" => (is_uri(s), "a URI"),
                 other => return Err(format!("{}: the check doesn't know the format {other:?}", what(path))),
             };
@@ -216,6 +238,25 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             }
             for (i, x) in items.iter().enumerate() {
                 check(nsid, &schema["items"], x, &format!("{}[{i}]", what(path)))?;
+            }
+            Ok(())
+        }
+        // A file the record links to: its media type, its size, and the CID of its bytes.
+        "blob" => {
+            let mime = v["mimeType"].as_str().unwrap_or_default();
+            let size = v["size"].as_i64();
+            let linked = v["ref"]["$link"].as_str().is_some_and(|l| Cid::str(l).is_valid());
+            let Some(size) = size.filter(|_| v["$type"] == "blob" && linked && !mime.is_empty()) else {
+                return Err(format!("{} isn't a blob", what(path)));
+            };
+            let takes = |a: &str| {
+                a == "*/*" || a == mime || a.strip_suffix("/*").is_some_and(|t| mime.split('/').next() == Some(t))
+            };
+            if schema["accept"].as_array().is_some_and(|a| !a.iter().filter_map(Value::as_str).any(takes)) {
+                return Err(format!("{} is {mime}, which the Lexicon doesn't take", what(path)));
+            }
+            if num("maxSize").is_some_and(|m| size > m) {
+                return Err(format!("{} is {size} bytes, more than the Lexicon takes", what(path)));
             }
             Ok(())
         }

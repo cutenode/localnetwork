@@ -131,10 +131,6 @@ fn playlists(lib: &Library) -> IndexMap<PlaylistKey<'_>, (String, Option<Vec<&Tr
     out
 }
 
-fn file_key(t: &Track) -> String {
-    paths::key(&t.file_path).to_lowercase()
-}
-
 /// Whether `path` is `filter` or below it (case-insensitive; folders end in `/`).
 fn within(path: &str, filter: &str) -> bool {
     let (p, f) = (path.to_lowercase(), filter.trim_matches('/').to_lowercase());
@@ -192,8 +188,8 @@ pub fn between(left: &Library, right: &Library, labels: (&str, &str), playlist: 
 
 /// How the entries of one playlist changed, or `None` if they didn't.
 fn entries_diff(path: &str, left: &[&Track], right: &[&Track]) -> Option<PlaylistChanges> {
-    let lk: Vec<String> = left.iter().map(|t| file_key(t)).collect();
-    let rk: Vec<String> = right.iter().map(|t| file_key(t)).collect();
+    let lk: Vec<String> = left.iter().map(|t| paths::file_key(&t.file_path)).collect();
+    let rk: Vec<String> = right.iter().map(|t| paths::file_key(&t.file_path)).collect();
     if lk == rk {
         return None;
     }

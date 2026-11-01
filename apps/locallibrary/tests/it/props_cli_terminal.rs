@@ -4,9 +4,7 @@
 //! the listing printed, and a question asked in a terminal is answered by what's typed.
 
 use std::collections::BTreeSet;
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -53,6 +51,8 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
     if tc.draw(gs::booleans()) {
         fx.ok(&["--yes", "sets", "new", "--title", "Friday", "--date", "2026-10-03"]);
     }
+    // A library named unlike any drive.
+    fx.ok(&["pull", "Club", "--library", "Clubland", "--new-library"]);
 
     // Naming the drive narrows playlists, tags and lists to its own.
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
@@ -84,6 +84,11 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
             }
         }
     }
+    // Naming none offers every mounted library's.
+    let everywhere = values(&offered(&fx, &["tracks", "--playlist"]));
+    let each: BTreeSet<String> =
+        ["A", "Club"].iter().flat_map(|d| values(&offered(&fx, &["playlist", "add", d]))).collect();
+    assert_eq!(everywhere, each);
     let tab = offered(&fx, &["plays", "export", drive]);
     let history = fx.json(&["plays", "lists", drive]);
     let listed: BTreeSet<String> =
@@ -128,18 +133,23 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
     let tab = offered(&fx, &["sync"]);
     let a = tab.iter().find(|(v, _)| v == "A").unwrap_or_else(|| panic!("{tab:?}"));
     assert_eq!(a.1 == "not mounted" || a.1 == "library", gone, "{tab:?}");
+    assert!(tab.contains(&("Clubland".into(), "library".into())), "{tab:?}");
 }
 
 /// The man pages: the top-level page printed is the one `--json` holds, and written to a folder,
-/// there's a page for every command, the top-level one among them.
+/// there's a page for every command, the top-level one among them; a folder they can't be written
+/// to is an error that names it.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(nested = false, json = true, file_in_the_way = true)]
+#[hegel::explicit_test_case(nested = true, json = false, file_in_the_way = false)]
 fn man_pages_are_written_or_printed(tc: TestCase) {
     let fx = Env::from_template();
     let printed = fx.ok(&["man"]);
     let v = fx.json(&["man"]);
     assert_eq!(v["page"].as_str(), Some(printed.as_str()));
     assert!(printed.starts_with(".ie"), "{}", &printed[..80.min(printed.len())]);
-    let dir = fx.home(if tc.draw(gs::booleans()) { "man" } else { "share/man/man1" });
+    let nested = tc.draw(gs::booleans());
+    let dir = fx.home(if nested { "share/man/man1" } else { "man" });
     let json = tc.draw(gs::booleans());
     let r = fx.run(&[if json { "--json" } else { "--quiet" }, "man", "-o", path(&dir)]);
     assert_eq!(r.code, 0, "{}", r.err);
@@ -151,6 +161,28 @@ fn man_pages_are_written_or_printed(tc: TestCase) {
         true => assert_eq!(serde_json::from_str::<Value>(&r.out).unwrap()["report"]["written"], path(&dir)),
         false => assert!(r.out.contains(&format!("wrote the man pages to {}", dir.display())), "{}", r.out),
     }
+
+    // A folder that can't be made (a file is where it would go), or a page that can't be written
+    // (a folder is where it would go), is an error naming the folder, whatever else was written.
+    let file_in_the_way = tc.draw(gs::booleans());
+    let blocked = match file_in_the_way {
+        true => {
+            std::fs::write(fx.home("in the way"), "a file").unwrap();
+            fx.home("in the way/man")
+        }
+        false => {
+            std::fs::create_dir_all(fx.home("taken/locallibrary.1")).unwrap();
+            fx.home("taken")
+        }
+    };
+    let r = fx.run(&[if json { "--json" } else { "--quiet" }, "man", "-o", path(&blocked)]);
+    assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
+    let said = match json {
+        true => serde_json::from_str::<Value>(&r.out).unwrap()["error"]["message"].as_str().unwrap().to_string(),
+        false => r.err,
+    };
+    let what = if file_in_the_way { "making" } else { "writing to" };
+    assert!(said.contains(&format!("{what} {}", blocked.display())), "{said}");
 }
 
 /// For any shell, the script printed is the one `--json` holds; the dynamic one has the shell run
@@ -170,11 +202,14 @@ fn completion_scripts_run_the_binary_found(tc: TestCase) {
         (v["script"].as_str(), v["shell"].as_str(), v["static"].as_bool()),
         (Some(script.as_str()), Some(shell), Some(fixed))
     );
-    let exe = PathBuf::from(env!("CARGO_BIN_EXE_locallibrary"));
+    // Looked up when the test runs, as in completion_candidates.
+    let exe = assert_cmd::cargo::cargo_bin("locallibrary");
     if fixed {
         assert!(!script.contains("COMPLETE"), "a static script doesn't ask the binary");
         return;
     }
+    // The script quotes the path for its shell, which escapes a Windows path's backslashes.
+    #[cfg(unix)]
     assert!(script.contains(exe.to_str().unwrap()), "{script}");
     let mut by_name = Command::new("locallibrary");
     by_name
@@ -211,7 +246,9 @@ fn plain(s: &str) -> String {
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_paged_listing_is_the_listing(tc: TestCase) {
-    use crate::support::terminal;
+    use std::process::Stdio;
+
+    use crate::support::shown_in_a_terminal;
     let fx = Env::from_template();
     let listing = tc.draw(gs::sampled_from(
         &[
@@ -228,7 +265,6 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
     let to_file = format!("printf %s \"$LESS\" > '{}'; cat > '{}'", less.display(), paged.display());
     let how = tc.draw(gs::integers::<u8>().max_value(3));
     let user_less = tc.draw(gs::booleans());
-    let (mut screen_end, stdout) = terminal();
     let mut c = fx.command();
     c.env_remove("LESS");
     if user_less {
@@ -240,12 +276,9 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
         2 => c.env("PAGER", "cat"),
         _ => c.env("PAGER", " "),
     };
-    let mut child = c.args(listing).stdout(Stdio::from(stdout)).stderr(Stdio::null()).spawn().unwrap();
-    drop(c);
-    let mut screen = Vec::new();
-    let _ = screen_end.read_to_end(&mut screen);
-    assert!(child.wait().unwrap().success());
-    let screen = plain(&String::from_utf8_lossy(&screen));
+    let (status, screen) = shown_in_a_terminal(c.args(listing).stderr(Stdio::null()), None);
+    assert!(status.success());
+    let screen = plain(&screen);
     if how == 0 {
         assert_eq!(plain(&std::fs::read_to_string(&paged).unwrap()), piped, "{listing:?}");
         assert_eq!(std::fs::read_to_string(&less).unwrap(), if user_less { "S" } else { "FRX" });
@@ -256,11 +289,51 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
     }
 }
 
+/// The top-level help in a terminal of any width lists the commands it lists piped, word for
+/// word, each description wrapped to the terminal (at most 100 columns), but never narrower than
+/// 30 columns.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(columns = 40u16)]
+#[hegel::explicit_test_case(columns = 160u16)]
+fn help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
+    use std::process::Stdio;
+
+    use crate::support::shown_in_a_terminal;
+    let fx = Env::from_template();
+    let columns = tc.draw(gs::integers::<u16>().min_value(20).max_value(200));
+    let size = libc::winsize { ws_row: 40, ws_col: columns, ws_xpixel: 0, ws_ypixel: 0 };
+    let (status, screen) = shown_in_a_terminal(fx.command().arg("--help").stderr(Stdio::null()), Some(size));
+    assert!(status.success());
+    // The command list: from the usage line to the options.
+    let commands = |help: &str| -> Vec<String> {
+        help.lines()
+            .skip_while(|l| !l.starts_with("Usage:"))
+            .skip(1)
+            .take_while(|l| *l != "Options:")
+            .map(String::from)
+            .collect()
+    };
+    let (shown, piped) = (commands(&plain(&screen)), commands(&fx.ok(&["--help"])));
+    let words =
+        |lines: &[String]| lines.iter().flat_map(|l| l.split_whitespace().map(String::from)).collect::<Vec<_>>();
+    assert_eq!(words(&shown), words(&piped), "{shown:#?}");
+    // Where the descriptions start: a wrapped one's next line is indented that far.
+    let indent = piped.iter().filter(|l| l.starts_with("   ")).map(|l| l.len() - l.trim_start().len()).min().unwrap();
+    let fits = usize::from(columns).min(100).max(indent + 30);
+    for line in &shown {
+        assert!(line.chars().count() <= fits, "{line:?} is wider than {fits} ({columns} columns)");
+    }
+}
+
 /// A change asked about in a terminal: typing yes makes it, anything else declines it (exit
 /// status 3) and leaves the drive as it was.
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_question_is_answered_by_what_is_typed(tc: TestCase) {
+    use std::io::Write;
+    use std::process::Stdio;
+
     use crate::support::terminal;
     let fx = Env::from_template();
     let answer = tc.draw(gs::sampled_from(&["y", "yes", "Y", "n", "", "nope"][..]));
@@ -327,7 +400,7 @@ fn the_night_before_job_is_said_to_have_moved(tc: TestCase) {
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn colour_is_what_color_says(tc: TestCase) {
     let fx = Env::from_template();
-    let listings: [&[&str]; 14] = [
+    let listings: &[&[&str]] = &[
         &["profile", "sections"],
         &["profile", "Club"],
         &["profile", "prefs"],
@@ -341,19 +414,26 @@ fn colour_is_what_color_says(tc: TestCase) {
         &["plays", "stats", "Club"],
         &["players", "models"],
         &["undo", "--list"],
+        #[cfg(feature = "account")]
         &["account"],
     ];
+    // `profile` says when it was built, to the minute, so runs either side of a minute's turn
+    // differ there: that's left out.
+    #[cfg(unix)]
+    let unstamped =
+        |s: &str| s.lines().map(|l| l.split_once(" built ").map_or(l, |(head, _)| head)).collect::<Vec<_>>().join("\n");
     let mut coloured_any = false;
-    for listing in tc.draw(gs::permutations(&listings[..])) {
+    for listing in tc.draw(gs::permutations(listings)) {
         let ascii: &[&str] = if tc.draw(gs::booleans()) { &["--ascii"] } else { &[] };
-        let piped = fx.ok(&[ascii, listing].concat());
+        #[cfg(unix)]
+        let piped = unstamped(&fx.ok(&[ascii, listing].concat()));
         for when in tc.draw(gs::permutations(vec!["always", "never", "auto"])) {
             let coloured = fx.ok(&[ascii, &["--color", when], listing].concat());
             // Only `always` colours (a listing with nothing styled has no colour to show).
             assert!(when == "always" || !coloured.contains("\u{1b}["), "{listing:?} {when}: {coloured:?}");
             coloured_any |= coloured.contains("\u{1b}[");
             #[cfg(unix)]
-            assert_eq!(plain(&coloured), piped, "{listing:?} {when}");
+            assert_eq!(unstamped(&plain(&coloured)), piped, "{listing:?} {when}");
         }
     }
     assert!(coloured_any);

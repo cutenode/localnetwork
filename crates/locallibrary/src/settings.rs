@@ -27,6 +27,8 @@ use crate::fsutil;
 use crate::paths;
 use crate::{Error, Result};
 
+pub mod transfer;
+
 /// [`loclib_mysettings::validate`], failing with locallibrary's [`Error`]: an unknown key's
 /// carries the action that lists the settings.
 pub fn validate(key: &str, value: &str) -> Result<(&'static SettingDef, &'static Choice)> {
@@ -35,7 +37,7 @@ pub fn validate(key: &str, value: &str) -> Result<(&'static SettingDef, &'static
 
 /// Read one settings file. A damaged file's error names its path.
 pub fn read_blob(file: SettingsFile, path: &Path) -> Result<SettingsBlob> {
-    let bytes = std::fs::read(path).at(path)?;
+    let bytes = fsutil::read(path).at(path)?;
     SettingsBlob::parse(file, bytes).map_err(|e| match e {
         loclib_mysettings::Error::Parse { message, .. } => Error::parse(path, message),
         e => e.into(),

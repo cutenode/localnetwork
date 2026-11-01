@@ -180,27 +180,22 @@ fn ps_array(tc: &TestCase, items: Vec<Value>) -> Value {
     }
 }
 
-/// What [`LIST_SCRIPT`] prints reads as the disks in it, field for field: a USB, SD or MMC
-/// bus makes a disk removable, a virtual one is a virtual disk, partitions are volumes with a
-/// drive letter as their mount point, and a cluster size of 0 is none.
-#[hegel::test(test_cases = 300)]
-fn get_disk_listings_read_back(tc: TestCase) {
+/// What [`LIST_SCRIPT`] prints about some disks, and the disks it should read as.
+#[hegel::test_helper]
+fn get_disk(tc: &TestCase) -> (String, Vec<Disk>) {
     let mut listed = Vec::new();
     let mut want = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
         let number = tc.draw(gs::integers::<u32>().max_value(20));
         let bus = tc.draw(gs::sampled_from(vec!["USB", "SD", "MMC", "SATA", "NVMe", "File Backed Virtual", "Virtual"]));
         let (boot, system, ro) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-        let style = tc.draw(
-            gs::sampled_from(vec![
-                (Some("MBR"), Some(Scheme::Mbr)),
-                (Some("GPT"), Some(Scheme::Gpt)),
-                (Some("RAW"), None),
-                (None, None),
-                (Some("Unknown"), Some(Scheme::Other)),
-            ])
-            .print_as_debug(),
-        );
+        let style = tc.draw(gs::sampled_from(vec![
+            (Some("MBR"), Some(Scheme::Mbr)),
+            (Some("GPT"), Some(Scheme::Gpt)),
+            (Some("RAW"), None),
+            (None, None),
+            (Some("Unknown"), Some(Scheme::Other)),
+        ]));
         let (size, sector) = (tc.draw(gs::integers::<u64>()), tc.draw(gs::sampled_from(vec![512u64, 4096])));
         let name = tc.draw(gs::sampled_from(vec!["SanDisk Ultra", "Msft Virtual Disk", ""]));
         let serial = tc.draw(gs::sampled_from(vec!["4C530001", "", " 000819 "]));
@@ -208,7 +203,7 @@ fn get_disk_listings_read_back(tc: TestCase) {
         let mut volumes = Vec::new();
         for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
             let pn = tc.draw(gs::integers::<u32>().max_value(8));
-            let (fs, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+            let (fs, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
             let letter = tc.draw(gs::sampled_from(vec!["E", "g", "", "\u{0}"]));
             let cluster = tc.draw(gs::sampled_from(vec![None, Some(0u64), Some(4096), Some(131072)]));
             let psize = tc.draw(gs::integers::<u64>());
@@ -229,7 +224,7 @@ fn get_disk_listings_read_back(tc: TestCase) {
         }
         listed.push(json!({ "Number": number, "FriendlyName": name, "SerialNumber": serial, "Size": size,
                 "LogicalSectorSize": sector, "BusType": bus, "IsBoot": boot, "IsSystem": system, "IsReadOnly": ro,
-                "PartitionStyle": style.0, "Partitions": ps_array(&tc, parts) }));
+                "PartitionStyle": style.0, "Partitions": ps_array(tc, parts) }));
         let removable = matches!(bus, "USB" | "SD" | "MMC");
         let virtual_disk = bus.contains("Virtual");
         want.push(Disk {
@@ -249,7 +244,15 @@ fn get_disk_listings_read_back(tc: TestCase) {
             volumes,
         });
     }
-    let text = format!("{}\r\n", serde_json::to_string(&ps_array(&tc, listed)).unwrap());
+    (format!("{}\r\n", serde_json::to_string(&ps_array(tc, listed)).unwrap()), want)
+}
+
+/// What [`LIST_SCRIPT`] prints reads as the disks in it, field for field: a USB, SD or MMC
+/// bus makes a disk removable, a virtual one is a virtual disk, partitions are volumes with a
+/// drive letter as their mount point, and a cluster size of 0 is none.
+#[hegel::test(test_cases = 300)]
+fn get_disk_listings_read_back(tc: TestCase) {
+    let (text, want) = get_disk(&tc);
     let got = parse_disks(&text).unwrap();
     assert_eq!(serde_json::to_value(&got).unwrap(), serde_json::to_value(&want).unwrap());
     let cut = tc.draw(gs::integers::<usize>().max_value(text.trim_end().len().saturating_sub(1)));
@@ -312,7 +315,7 @@ fn partition_scripts_follow_the_plan(tc: TestCase) {
         size: tc.draw(gs::integers::<u64>()),
         ..parse_disk(&json!({ "Number": number, "BusType": "USB" }))
     };
-    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
     let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é").max_size(12)));
     let cluster_size = 1 << tc.draw(gs::integers::<u32>().min_value(9).max_value(15));
     let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: tc.draw(gs::booleans()) };
@@ -361,8 +364,7 @@ fn paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
         Err(Error::Invalid(m)) => assert!(m.starts_with(&Path::new(&path).display().to_string()), "{m}"),
         other => panic!("{path:?}: {:?}", other.map(|d| d.id)),
     }
-    let fs =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let fs = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     assert_eq!(supports(fs).is_err(), fs == Filesystem::Hfsplus);
     if let Err(e) = supports(fs) {
         assert_eq!(e.code(), "invalid");
@@ -373,5 +375,135 @@ fn paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
         let letter = tc.draw(gs::sampled_from(('A'..='Z').collect::<Vec<char>>()));
         let e = write_fat32(letter, &layout, "REKORDBOX", &Ctx::silent()).unwrap_err();
         assert_eq!(e.code(), "invalid", "{e}");
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Through PowerShell: a fake one that answers only the scripts it was told about
+// -----------------------------------------------------------------------------------------
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools::FakeTools;
+
+/// Tell `fake` how PowerShell answers `script`: with `out`, or failing with `err`.
+#[cfg(unix)]
+fn ps_says(fake: &mut FakeTools, script: &str, reply: Result<&str, &str>) {
+    let cmd = powershell(script);
+    let args: Vec<&str> = cmd.args.iter().map(String::as_str).collect();
+    match reply {
+        Ok(out) => fake.answer("powershell", &args, out),
+        Err(err) => fake.refuse("powershell", &args, err),
+    }
+}
+
+/// Every question about disks runs the one Get-Disk script: the listing is what it prints, a
+/// disk number finds the first disk under that number and a drive root the disk with a volume
+/// at that letter (in either case), and nothing else is found. When PowerShell fails, prints something that
+/// isn't the listing, or isn't there, every question fails saying so.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn disks_are_what_get_disk_prints(tc: TestCase) {
+    let (text, want) = get_disk(&tc);
+    let mut fake = FakeTools::new();
+    let how = tc.draw(gs::sampled_from(vec!["prints", "prints", "fails", "garbles", "missing"]));
+    match how {
+        "prints" => ps_says(&mut fake, LIST_SCRIPT, Ok(&text)),
+        "fails" => ps_says(&mut fake, LIST_SCRIPT, Err("Get-Disk : Access denied")),
+        "garbles" => ps_says(&mut fake, LIST_SCRIPT, Ok("Get-Disk : The term is not recognized")),
+        _ => {}
+    }
+    let asked = tc.draw(gs::integers::<u32>().max_value(21));
+    let at = tc.draw(gs::sampled_from(vec!['E', 'G', 'Z']));
+    let (listed, by_number, by_letter) =
+        (list(), by_id(&format!(r"\\.\PhysicalDrive{asked}")), by_mount(Path::new(&format!("{at}:\\"))));
+    match how {
+        "prints" => {
+            let ids = |d: &[Disk]| serde_json::to_value(d).unwrap();
+            assert_eq!(ids(&listed.unwrap()), ids(&want));
+            let id = format!("PhysicalDrive{asked}");
+            assert_eq!(by_number.unwrap().map(|d| d.id), want.iter().find(|d| d.id == id).map(|d| d.id.clone()));
+            // Drive letters are the same letter in either case.
+            let root = format!("{at}:\\");
+            let at_root = |v: &Volume| v.mount.as_ref().is_some_and(|m| m.to_string_lossy().to_uppercase() == root);
+            let holder = want.iter().find(|d| d.volumes.iter().any(at_root));
+            match (by_letter, holder) {
+                (Ok(d), Some(h)) => assert_eq!(d.id, h.id),
+                (Err(Error::NotFound(m)), None) => assert!(m.starts_with("the disk holding"), "{m}"),
+                (got, want) => panic!("{:?} for {:?}", got.map(|d| d.id), want.map(|d| &d.id)),
+            }
+        }
+        "fails" => {
+            for e in [listed.map(drop), by_number.map(drop), by_letter.map(drop)] {
+                assert!(matches!(&e, Err(Error::External { message, .. }) if message == "Get-Disk : Access denied"));
+            }
+        }
+        "garbles" => {
+            for e in [listed.map(drop), by_number.map(drop), by_letter.map(drop)] {
+                assert!(matches!(&e, Err(Error::Parse { .. })), "{e:?}");
+            }
+        }
+        _ => {
+            for e in [listed.map(drop), by_number.map(drop), by_letter.map(drop)] {
+                assert!(matches!(&e, Err(Error::External { message, .. }) if message == "not found"), "{e:?}");
+            }
+        }
+    }
+}
+
+/// Formatting needs write access to the disk, then runs the partitioning script once: the new
+/// volume is at the drive letter it printed (FAT32, written over it, only on Windows itself). A
+/// script that fails, prints no letter, or prints something else stops there, saying which.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+fn formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut fake = FakeTools::new();
+    let device = fake.dir().join("PhysicalDrive3");
+    std::fs::write(&device, "").unwrap();
+    let writable = tc.draw(gs::weighted_booleans(0.85));
+    if !writable {
+        std::fs::set_permissions(&device, std::fs::Permissions::from_mode(0o444)).unwrap();
+    }
+    let disk = Disk {
+        device: device.display().to_string(),
+        serial: Some("4C530001".into()),
+        size: tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40)),
+        ..parse_disk(&json!({ "Number": 3, "BusType": "USB" }))
+    };
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
+    let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é").max_size(12)));
+    let cluster_size = filesystem.default_cluster_size(disk.partition_size());
+    let t = Target { filesystem, label, cluster_size, default_cluster: true };
+    let letter = tc.draw(gs::sampled_from(vec!["F", "k", "", "\u{0}"]));
+    let printed = json!({ "DriveLetter": letter, "Offset": 1048576, "Size": disk.partition_size() }).to_string();
+    let how = tc.draw(gs::sampled_from(vec!["prints", "prints", "fails", "garbles"]));
+    match how {
+        "prints" => ps_says(&mut fake, &partition_script(&disk, &t), Ok(&printed)),
+        "fails" => ps_says(&mut fake, &partition_script(&disk, &t), Err("this is not the disk that was planned")),
+        _ => ps_says(&mut fake, &partition_script(&disk, &t), Ok("Clear-Disk : Access denied")),
+    }
+
+    let formatted = format(&disk, &t, &Ctx::silent());
+    let ran = fake.calls();
+    if !writable {
+        assert!(matches!(&formatted, Err(Error::Permission(m)) if m.contains(&disk.device)), "{formatted:?}");
+        assert!(ran.is_empty());
+        return;
+    }
+    assert_eq!(ran, [powershell(&partition_script(&disk, &t))]);
+    let drive = letter.chars().next().filter(char::is_ascii_alphabetic);
+    match (how, formatted) {
+        ("prints", Ok(root)) => {
+            assert_eq!(filesystem, Filesystem::Exfat);
+            assert_eq!(root, drive.map(|l| PathBuf::from(format!("{l}:\\"))));
+        }
+        // Outside Windows the FAT32 writer refuses.
+        ("prints", Err(e)) if drive.is_some() => {
+            assert!(filesystem == Filesystem::Fat32 && e.code() == "invalid", "{e}")
+        }
+        ("prints", Err(Error::External { message, .. })) => assert_eq!(message, "no drive letter"),
+        ("fails", Err(Error::External { message, .. })) => assert_eq!(message, "this is not the disk that was planned"),
+        ("garbles", Err(Error::Parse { .. })) => {}
+        (how, other) => panic!("{how}: {other:?}"),
     }
 }

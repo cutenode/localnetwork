@@ -23,8 +23,12 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 		if (project.status === 'active') setHeaders({ 'cache-control': 'public, max-age=300' });
 
 		return {
-			project: { slug: project.slug, name: project.profile.name },
-			mix: { title: mix.title, url: mix.url },
+			project: { slug: project.slug, name: project.profile.name, avatarUrl: project.avatarUrl, status: project.status },
+			mix: { title: mix.title, url: mix.url, set: mix.set },
+			// Streamed, so the report shows while the directory looks up the set.
+			sets: mix.set ? app.sets.linked([mix.set]) : undefined,
+			// What the player plays, streamed too: the mix's or its linked set's recording may be asked of plyr.fm.
+			source: app.recordings.forMix(mix),
 			n,
 			report
 		};

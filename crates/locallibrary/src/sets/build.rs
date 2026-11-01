@@ -8,10 +8,15 @@
 //! it doesn't hear are pointed out (likely previews).
 
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{EntryOrigin, Session, SetEntry};
+use super::{EntryOrigin, MusicBrainzIds, Session, SetEntry};
+use crate::device::Device;
+use crate::fields::roles;
+use crate::hash::Hash;
 use crate::mix::{MixReport, Play};
+use crate::paths::FileClass;
+use crate::store::Store;
 
 /// A tracklist, and what's worth telling the DJ about it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -70,7 +75,7 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
     let mut out = Tracklist::default();
     for (i, p) in plays.into_iter().enumerate() {
         let mut e = SetEntry::from_track(&p.track, EntryOrigin::Recording, None);
-        e.start_seconds = Some(p.start.max(0.0).floor() as u32);
+        e.start_seconds = Some(p.start_second());
         if p.is_tentative() {
             out.notes.push(format!(
                 "{}. {}: a tentative match ({:.0}%), check it",
@@ -80,6 +85,50 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
             ));
         }
         out.tracks.push(e);
+    }
+    out
+}
+
+/// Fill in the MusicBrainz IDs of the `tracks` that have none yet from their files, on the first
+/// of `drives` that holds each: the file's tags first, and what they lack from the analyzers
+/// chosen for [`MusicBrainzIds::ROLES`] (`sets publish` runs them), as they kept it in `store`
+/// for the file, when it was worked out for the track as the set has it. A file no drive holds is
+/// read from the store's copy ([`kept_audio`]): its tags only, since analyzers keep what they
+/// worked out by the file on a drive. rekordbox keeps no MusicBrainz IDs, so only files have them.
+pub(crate) fn read_musicbrainz<'e>(
+    store: &Store,
+    tracks: impl IntoIterator<Item = &'e mut SetEntry>,
+    drives: &[Device],
+) {
+    let roles = roles::reader(store, &MusicBrainzIds::ROLES);
+    let mut kept = None;
+    for e in tracks.into_iter().filter(|e| e.musicbrainz.is_empty()) {
+        let Some(key) = e.file.as_deref().map(crate::paths::key) else { continue };
+        let Some(path) = drives.iter().filter_map(|d| d.checked_path(&key).ok()).find(|p| p.is_file()) else {
+            let kept = kept.get_or_insert_with(|| kept_audio(store));
+            if let Some(h) = kept.get(&crate::paths::fold(&key)) {
+                e.musicbrainz = MusicBrainzIds::read(&store.object_path(h));
+            }
+            continue;
+        };
+        let heard = roles.as_ref().map(|read| MusicBrainzIds::from_roles(&read(&path), e)).unwrap_or_default();
+        e.musicbrainz = MusicBrainzIds::read(&path).or(heard);
+    }
+}
+
+/// The audio files the store keeps, by folded key ([`crate::paths::fold`], as drives compare
+/// paths): the hash of its copy, as each library's latest snapshot has it. A path in several
+/// libraries is the one changed most recently's.
+fn kept_audio(store: &Store) -> FxHashMap<String, Hash> {
+    let mut libraries = store.libraries().unwrap_or_default();
+    libraries.sort_by_key(|l| std::cmp::Reverse(l.updated));
+    let mut out = FxHashMap::default();
+    for snapshot in libraries.iter().filter_map(|l| store.load_snapshot(&l.head?).ok()) {
+        for f in snapshot.files.into_iter().filter(|f| f.class == FileClass::Audio) {
+            if let Some(h) = f.hash {
+                out.entry(crate::paths::fold(&f.path)).or_insert(h);
+            }
+        }
     }
     out
 }

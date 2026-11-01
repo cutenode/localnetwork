@@ -394,3 +394,106 @@ fn pull_plans_start_a_store_and_folders_are_not_ejected(tc: TestCase) {
     let by_track = api::tags_by_track(&DriveRef { drive: path(&root) }).unwrap();
     assert_eq!(by_track, locallibrary::tags::by_track(&Device::open(&root).unwrap()).unwrap());
 }
+
+/// How Main stands to the store it was saved in, when its pull is planned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Standing {
+    /// As saved.
+    Unchanged,
+    /// rekordbox exported to it since.
+    Changed,
+    /// A copy of it was saved since, with a track exported to the copy.
+    Older,
+    /// That, and a track exported to Main too.
+    Diverged,
+    /// Not Main: a drive holding the demo export that was never pulled.
+    Unlinked,
+}
+
+/// A pull planned for Main as it stands to the store (as saved, changed since, older than a copy
+/// saved since, or diverged from it; or a drive never pulled), into its own library, a library
+/// named that the store hasn't got (refused unless starting it is asked for, as pulling refuses
+/// it), or the default: the plan says which library and whether it's new, how the drive and
+/// the library's latest snapshot compare, and warns of a pull that will be refused; applied, it
+/// pulls as planned (nothing new for a drive saved already) or is refused as warned.
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(standing = Standing::Diverged, library = None::<&str>, new_library = false)]
+#[hegel::explicit_test_case(standing = Standing::Unlinked, library = None::<&str>, new_library = false)]
+fn a_pull_plan_says_what_pulling_does(tc: TestCase) {
+    let standing = tc.draw(gs::sampled_from(vec![
+        Standing::Unchanged,
+        Standing::Changed,
+        Standing::Older,
+        Standing::Diverged,
+        Standing::Unlinked,
+    ]));
+    let library = tc.draw(gs::sampled_from(vec![None, Some("main"), Some("Nope")]));
+    let new_library = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = crate::props_api_drives::saved_copy(dir.path());
+    let ctx = Ctx::silent();
+    if matches!(standing, Standing::Older | Standing::Diverged) {
+        let copy = main.with_file_name("Copy");
+        crate::props_api_drives::saved_demo().1.write(&copy);
+        crate::props_api_jobs::own_identity(&store, &mut Device::open(&copy).unwrap(), "Copy");
+        common::export_new_track(&copy, "Artist", "At the club");
+        api::pull(&store, &PullRequest { drive: path(&copy), ..Default::default() }, &ctx).unwrap();
+    }
+    if matches!(standing, Standing::Changed | Standing::Diverged) {
+        common::export_new_track(&main, "Artist", "At home");
+    }
+    let (drive, name) = match standing {
+        Standing::Unlinked => (common::demo_drive(main.parent().unwrap(), "Fresh"), "Fresh"),
+        _ => (main.clone(), "Main"),
+    };
+    // A drive never pulled into Main isn't compared with it: only its own library or a new one.
+    let library = library.filter(|l| standing != Standing::Unlinked || *l != "main");
+    let req = PullRequest { drive: path(&drive), library: library.map(Into::into), new_library, ..Default::default() };
+    let plan = api::pull_plan(store.root(), &req, &ctx);
+    if library == Some("Nope") && !new_library {
+        let want = "library \"Nope\" in the store; pull with new_library to start it";
+        assert!(matches!(&plan, Err(Error::NotFound(m)) if m == want), "{:?}", plan.map(|p| p.noop));
+        assert!(api::pull(&store, &req, &ctx).is_err(), "pulling refuses it too");
+        return;
+    }
+    let plan = plan.unwrap();
+    let starts = library == Some("Nope") || standing == Standing::Unlinked;
+    let into = match (library, standing) {
+        (Some("Nope"), _) => "Nope",
+        (_, Standing::Unlinked) => "Fresh",
+        _ => "Main",
+    };
+    assert_eq!((plan.plan.library.as_str(), plan.plan.new_library), (into, starts));
+    let relation = match standing {
+        _ if starts => None,
+        Standing::Unchanged => Some(Relation::Identical),
+        Standing::Changed => Some(Relation::RightNewer),
+        Standing::Older => Some(Relation::LeftNewer),
+        _ => Some(Relation::Diverged),
+    };
+    assert_eq!(plan.plan.relation, relation);
+    assert_eq!(plan.noop, relation == Some(Relation::Identical));
+    let summary = match relation {
+        None => format!("save {name} in the store, starting the library {into}"),
+        Some(Relation::Identical) => format!("{name} is saved in the store already ({into})"),
+        Some(Relation::RightNewer) => format!("save {name}'s new changes as a snapshot of {into}"),
+        Some(_) => format!("save {name} as a snapshot of {into}"),
+    };
+    assert_eq!(plan.summary, [summary]);
+    let warned = |what: &str| plan.warnings.iter().any(|w| w.contains(what));
+    assert_eq!(warned("holds a newer state"), relation == Some(Relation::LeftNewer), "{:?}", plan.warnings);
+    assert_eq!(warned("both changed since"), relation == Some(Relation::Diverged), "{:?}", plan.warnings);
+
+    let pulled = plan.apply(Some(&store), &ctx);
+    match relation {
+        Some(Relation::LeftNewer | Relation::Diverged) => {
+            assert!(matches!(&pulled, Err(e) if e.code() == "conflict"), "{:?}", pulled.map(|r| r.up_to_date))
+        }
+        _ => {
+            let report = pulled.unwrap();
+            assert_eq!((report.library.as_str(), report.up_to_date), (into, relation == Some(Relation::Identical)));
+            let again = api::pull_plan(store.root(), &PullRequest { drive: path(&drive), ..Default::default() }, &ctx);
+            assert!(again.unwrap().noop, "saved now");
+        }
+    }
+}

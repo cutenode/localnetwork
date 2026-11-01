@@ -26,6 +26,7 @@ fn bench(c: &mut Criterion) {
                 color: Some([0x30, 0x5a, 0xff]),
                 color_id: 0,
                 loop_beats: None,
+                active_loop: false,
             })
             .collect(),
         ..Default::default()

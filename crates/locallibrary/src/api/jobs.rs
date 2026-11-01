@@ -6,15 +6,17 @@
 //! runs, made by the same `*_plan` functions the single commands use, so one confirmation covers
 //! them all. Applying runs the steps in order, each operation through its own apply and so
 //! through the shared write routine. An operation whose drive an earlier step changed is planned
-//! again on the drive as that step left it; the steps that only make sense after the others (the
-//! pull and the sync) are planned as they run. The first step that fails stops the job, and the
-//! report says what was done ([`JobReport::stopped`]).
+//! again on the drive as that step left it, but only when nothing else changed it since: an
+//! outside write (a rekordbox export mid-job) stops the job with the stale plan. The steps that
+//! only make sense after the others (the pull and the sync) are planned as they run. The first
+//! step that fails stops the job, and the report says what was done ([`JobReport::stopped`]).
 
 use std::collections::BTreeSet;
 
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
+use loclib_plugin::Context;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,9 +24,9 @@ use uuid::Uuid;
 
 use super::autopull::{PullNext, new_history, pull_next, save_order};
 use super::{
-    CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError, SyncRequest,
-    check, clean_plan, drive_eject, edits_replay_plan, known_drives, player_set_plan, registry, resolve_drive,
-    settings_apply_plan, smart_fill_plan, sync_plan,
+    CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError,
+    SyncManyRequest, SyncRequest, check, drive_eject, edits_replay_plan, known_drives, mounted_exports,
+    player_set_plan, registry, resolve_drive, settings_apply_plan, smart_fill_plan, sync_plan,
 };
 use crate::check::{CheckOptions, CheckReport};
 use crate::device::Device;
@@ -33,6 +35,7 @@ use crate::edit::{self, Edit, EditOptions};
 use crate::eject::EjectReport;
 use crate::error::{Action, Reason};
 use crate::fleet::{self, Role};
+use crate::hash::Hash;
 use crate::local_time;
 use crate::op::{self, AnyPlanned, CloneTarget, Operation, Planned, Touched};
 use crate::progress::{Ctx, Steps};
@@ -59,6 +62,8 @@ pub enum StepKind {
     Player,
     /// Write My Settings (`settings apply`).
     Settings,
+    /// Run plugins' operations (`locallibrary PLUGIN OPERATION`).
+    Operations,
     /// Save drives in the store (`pull`).
     Pull,
     /// Copy the newest library onto the other drives (`sync`).
@@ -70,12 +75,13 @@ pub enum StepKind {
 }
 
 impl StepKind {
-    pub const ALL: [StepKind; 9] = [
+    pub const ALL: [StepKind; 10] = [
         StepKind::Clean,
         StepKind::Replay,
         StepKind::Smart,
         StepKind::Player,
         StepKind::Settings,
+        StepKind::Operations,
         StepKind::Pull,
         StepKind::Sync,
         StepKind::Check,
@@ -90,6 +96,7 @@ impl StepKind {
             StepKind::Smart => "smart",
             StepKind::Player => "player",
             StepKind::Settings => "settings",
+            StepKind::Operations => "operations",
             StepKind::Pull => "pull",
             StepKind::Sync => "sync",
             StepKind::Check => "check",
@@ -112,6 +119,7 @@ impl StepKind {
             StepKind::Smart => "Fill the rule-based playlists",
             StepKind::Player => "Put back the name and colour players show",
             StepKind::Settings => "Write My Settings",
+            StepKind::Operations => "Run the plugins' operations",
             StepKind::Pull => "Save the drive in the store",
             StepKind::Sync => "Copy the newest library onto the other drives",
             StepKind::Check => "Check the drives for the players",
@@ -357,12 +365,15 @@ fn run_job(plan: &JobPlan, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<JobRe
     let steps = Steps::new(ctx, plan.running().map(|s| s.step.id()).collect());
     let ctx = &steps.ctx();
     let mut report = JobReport::default();
+    let mut left = Left::new(plan);
     for step in plan.running() {
         steps.begin(step.step.id());
         let mut done = StepReport { step: step.step, done: Vec::new(), warnings: Vec::new(), reports: Vec::new() };
         let mut outcome = Ok(true);
         for w in &step.work {
-            outcome = plan.same_drives().and_then(|()| run_work(w, step, store, &mut done, &mut report, ctx));
+            left.before();
+            outcome = plan.same_drives().and_then(|()| run_work(w, step, store, &mut done, &mut report, &left, ctx));
+            left.after(w);
             if !matches!(outcome, Ok(true)) {
                 break;
             }
@@ -389,6 +400,62 @@ fn run_job(plan: &JobPlan, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<JobRe
     Ok(report)
 }
 
+/// What the job's own work left on what its plans made up front touch, measured around each
+/// piece of work, so a plan refused as stale is planned again only when the job itself made it
+/// so. A change from anywhere else (a rekordbox export mid-job) stops the job, as it would stop
+/// a single apply.
+struct Left<'p> {
+    /// The plans still to apply, with the states of what each touches as the job last left them
+    /// (`None` once something other than the job changed them).
+    plans: Vec<(&'p dyn AnyPlanned, Option<Vec<Hash>>)>,
+}
+
+impl<'p> Left<'p> {
+    fn new(plan: &'p JobPlan) -> Left<'p> {
+        let plans = plan
+            .running()
+            .flat_map(|s| &s.work)
+            .filter_map(|w| match w {
+                Work::Op { plan: Some(p), .. } => Some(p.as_ref()),
+                _ => None,
+            })
+            .map(|p| (p, Some(p.drives().iter().map(Touched::planned_state).collect())))
+            .collect();
+        Left { plans }
+    }
+
+    fn measure(plan: &dyn AnyPlanned) -> Vec<Hash> {
+        plan.drives().iter().map(Touched::measured).collect()
+    }
+
+    /// Before a piece of work: whatever changed since the job last looked, it didn't change.
+    fn before(&mut self) {
+        for (p, left) in &mut self.plans {
+            if left.as_ref().is_some_and(|l| *l != Self::measure(*p)) {
+                *left = None;
+            }
+        }
+    }
+
+    /// After `w`: what it left, for the plans still to apply.
+    fn after(&mut self, w: &Work) {
+        if let Work::Op { plan: Some(done), .. } = w {
+            self.plans.retain(|(p, _)| !std::ptr::addr_eq(*p, done.as_ref()));
+        }
+        for (p, left) in &mut self.plans {
+            if left.is_some() {
+                *left = Some(Self::measure(*p));
+            }
+        }
+    }
+
+    /// Whether everything `plan` touches is as the job's own work left it.
+    fn ours(&self, plan: &dyn AnyPlanned) -> bool {
+        let left = self.plans.iter().find(|(p, _)| std::ptr::addr_eq(*p, plan)).and_then(|(_, l)| l.as_ref());
+        left.is_some_and(|l| *l == Self::measure(plan))
+    }
+}
+
 /// Run one piece of a step. `Ok(false)` stops the job there (the check found problems).
 fn run_work(
     w: &Work,
@@ -396,12 +463,16 @@ fn run_work(
     store: Option<&Store>,
     done: &mut StepReport,
     report: &mut JobReport,
+    left: &Left<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<bool> {
     match w {
         Work::Op { plan: Some(plan), again } => match apply_op(plan.as_ref(), step, store, done, ctx) {
-            // An earlier step changed the drive: the same operation, on the drive as it is now.
-            Err(Error::StalePlan(_)) => apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?,
+            // An earlier step of this job changed the drive: the same operation, on the drive as
+            // that step left it.
+            Err(Error::StalePlan(_)) if left.ours(plan.as_ref()) => {
+                apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?
+            }
             r => r?,
         },
         Work::Op { plan: None, again } => apply_op(again(store, ctx)?.as_ref(), step, store, done, ctx)?,
@@ -635,8 +706,27 @@ struct Blocked {
     warning: String,
 }
 
+/// [`sync_again`] onto several targets at once, written in parallel as `sync --many` writes them
+/// (see [`super::sync_many_plan`]): refused if `source` isn't the newest of the drives by then.
+fn sync_many_again(source: PathBuf, targets: Vec<PathBuf>) -> Replan {
+    replan(move |_, ctx| {
+        let drives = std::iter::once(&source).chain(&targets).map(|p| p.display().to_string()).collect();
+        let p = super::many_planned("sync.many", &SyncManyRequest { drives, ..Default::default() }, ctx)?;
+        if p.plan.source != source {
+            return Err(Error::Conflict(format!(
+                "{} looks newer than {} now; plan again",
+                p.source_name,
+                source.display()
+            )));
+        }
+        Ok(p)
+    })
+}
+
 /// The sync step: `source` onto each of `others`, when `source` is the newest of them. `after`
 /// says an earlier step changes `source`, so even a target that matches it now gets a copy.
+/// Several targets are written at once, unless one came back from a set: that pair's sync saves
+/// the players' changes in the store first, which a sync onto several drives doesn't.
 fn sync_step(
     source: &Device,
     others: &[&Device],
@@ -646,6 +736,7 @@ fn sync_step(
     let mut step = JobStep::new(StepKind::Sync);
     let name = source.name();
     let mut matching = Vec::new();
+    let (mut copied, mut back_from_set) = (Vec::new(), false);
     for o in others {
         let p = match sync_plan(&pair(source.root(), o.root()), ctx) {
             Ok(p) => p,
@@ -676,7 +767,16 @@ fn sync_step(
             step.warn(w.clone());
         }
         step.plans.push(p.to_json());
-        step.work.push(Work::Op { plan: None, again: sync_again(source.root().into(), o.root().into()) });
+        back_from_set |= p.plan.after_set.is_some();
+        copied.push(o.root().to_path_buf());
+    }
+    match copied.len() {
+        2.. if !back_from_set => {
+            step.work.push(Work::Op { plan: None, again: sync_many_again(source.root().into(), copied) })
+        }
+        _ => step
+            .work
+            .extend(copied.into_iter().map(|o| Work::Op { plan: None, again: sync_again(source.root().into(), o) })),
     }
     if !matching.is_empty() && !step.work.is_empty() {
         let verb = if matching.len() == 1 { "matches" } else { "match" };
@@ -696,19 +796,56 @@ pub struct RefreshRequest {
     /// The drive rekordbox exported to [default: see [`refresh_drive`]].
     #[serde(default)]
     pub drive: Option<String>,
-    /// Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `pull`, `sync`).
+    /// Steps to leave out (`clean`, `replay`, `smart`, `player`, `settings`, `operations`, `pull`,
+    /// `sync`).
     #[serde(default)]
     pub skip: Vec<StepKind>,
     /// Then copy the drive onto the other mounted drives of its library, when it's the newest.
     #[serde(default)]
     pub sync: bool,
+    /// Plugins' operations to run on the drive after the steps that put it right, in this order,
+    /// before it's saved.
+    #[serde(default)]
+    pub operations: Vec<OperationStep>,
 }
+
+/// A plugin's operation a job runs.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct OperationStep {
+    /// `<plugin>.<operation>`, as `plugins.describe` lists them.
+    pub operation: String,
+    /// As the operation's `params` schema says; `null` is none. One filled from the selection
+    /// that isn't given is the drive refreshed, if that's what it takes.
+    #[serde(default)]
+    pub params: Value,
+}
+
+impl OperationStep {
+    /// Planning it on the drive at `spec`, by the plugins the app hosts (see
+    /// [`crate::plugin::set_hosted`]). A question it asks is refused: a job can't ask it.
+    fn again(&self, spec: &str) -> Result<Replan> {
+        let named = |o: &str| Error::invalid(format!("an operation is named PLUGIN.OPERATION, not {o:?}"));
+        let (plugin, operation) = self.operation.split_once('.').ok_or_else(|| named(&self.operation))?;
+        let (plugin, operation) = (plugin.to_string(), operation.to_string());
+        let (params, spec) = (self.params.clone(), spec.to_string());
+        Ok(replan(move |store, ctx| {
+            let plugins = crate::plugin::hosted().ok_or_else(|| Error::NotFound(format!("plugin {plugin:?}")))?;
+            let context = Context { drive: Some(spec.clone()), ..Context::default() };
+            plugins.plan_op(&plugin, &operation, params.clone(), context, store, ctx)?.plan()
+        }))
+    }
+}
+
+/// The plugin whose `clean` operation removes rekordbox's demo samples, the refresh's first step.
+const DEMOS: &str = "demos";
 
 /// What refreshing a drive after a rekordbox export would do, step by step, each only when
 /// needed: remove rekordbox's demo samples, make the recorded edits again (playlists, tracks,
 /// My Tags, cues), fill the rule-based playlists, put back the name and colour players show
-/// (as `drive player` last set them), write My Settings, save the drive in the store, and (with
-/// `sync`) copy it onto the other mounted drives of its library.
+/// (as `drive player` last set them), write My Settings, run the plugins' operations asked for,
+/// save the drive in the store, and (with `sync`) copy it onto the other mounted drives of its
+/// library. An operation that can't be planned (its plugin or the operation is missing, it
+/// refuses the params, it asks a question) fails the plan, the error naming it (`operation`).
 pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Result<Planned<JobPlan>> {
     let d = match &req.drive {
         Some(spec) => resolve_drive(spec)?,
@@ -726,14 +863,20 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
     };
     let mut steps = Vec::new();
 
-    // rekordbox's demo samples, which come back with every export.
+    // rekordbox's demo samples, which come back with every export: the demos plugin's `clean`,
+    // run as any operation a refresh is asked for.
     let mut s = JobStep::new(StepKind::Clean);
-    if !skipped(StepKind::Clean) {
-        let dr = drive_ref.clone();
-        let again = replan(move |_, ctx| clean_plan(&dr(), ctx));
-        s.op(again(Some(store), ctx)?, again);
-    }
-    steps.push(s.unless_runs(if skipped(StepKind::Clean) { "skipped" } else { "no demo samples on the drive" }));
+    let demos = crate::plugin::hosted().is_some_and(|p| p.manifest(DEMOS).is_ok());
+    let s = match demos {
+        _ if skipped(StepKind::Clean) => s.idle("skipped"),
+        false => s.idle(format!("the {DEMOS} plugin isn't there")),
+        true => {
+            let again = OperationStep { operation: format!("{DEMOS}.clean"), params: Value::Null }.again(&spec)?;
+            s.op(again(Some(store), ctx)?, again);
+            s.unless_runs("no demo samples on the drive")
+        }
+    };
+    steps.push(s);
 
     // The edits the export replaced.
     let mut s = JobStep::new(StepKind::Replay);
@@ -825,6 +968,19 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
     };
     steps.push(s);
 
+    // Plugins' operations, in the order asked for.
+    if !req.operations.is_empty() {
+        let mut s = JobStep::new(StepKind::Operations);
+        if !skipped(StepKind::Operations) {
+            for o in &req.operations {
+                let named = |e: Error| e.with("operation", &o.operation);
+                let again = o.again(&spec).map_err(named)?;
+                s.op(again(Some(store), ctx).map_err(named)?, again);
+            }
+        }
+        steps.push(s.unless_runs(if skipped(StepKind::Operations) { "skipped" } else { "they change nothing" }));
+    }
+
     // Save it.
     let writes = steps.iter().any(|s| s.runs);
     let s = if skipped(StepKind::Pull) {
@@ -849,7 +1005,7 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
         } else {
             let lib = d.state().and_then(|s| s.library_id);
             let mounted = known_drives(false);
-            let set = fleet::sets(store, &mounted)?.into_iter().find(|s| lib.is_some() && s.library_id == lib);
+            let set = fleet::sets(Some(store), &mounted)?.into_iter().find(|s| lib.is_some() && s.library_id == lib);
             others = set
                 .map(|s| s.members)
                 .unwrap_or_default()
@@ -890,15 +1046,13 @@ pub fn refresh_apply(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resu
     refresh_plan(store, req, ctx)?.apply(Some(store), ctx)
 }
 
-/// Whether making the recorded edits again would change something. My Tag and cue edits can't
-/// be told apart from their effect without making them, so they count once rekordbox exported
-/// to the drive after them.
+/// Whether making the recorded edits again would change something. My Tag, cue and artwork edits
+/// can't be told apart from their effect without making them, so they count once rekordbox
+/// exported to the drive after them.
 fn edits_lost(d: &Device, entries: &[JournalEntry], ctx: &Ctx<'_>) -> bool {
-    let (tags_and_cues, rest): (Vec<Edit>, Vec<Edit>) = entries
-        .iter()
-        .flat_map(|e| e.edits.iter().cloned())
-        .partition(|e| matches!(e, Edit::MyTag(_) | Edit::Cues { .. }));
-    if !tags_and_cues.is_empty() && exported_since(d, entries) {
+    let (steps, rest): (Vec<Edit>, Vec<Edit>) =
+        entries.iter().flat_map(|e| e.edits.iter().cloned()).partition(Edit::is_step);
+    if !steps.is_empty() && exported_since(d, entries) {
         return true;
     }
     !rest.is_empty()
@@ -1139,10 +1293,6 @@ pub struct DriveCandidate {
     pub library: Option<String>,
 }
 
-fn mounted_exports() -> Vec<Device> {
-    known_drives(false).into_iter().filter(Device::has_export).collect()
-}
-
 fn candidates_of(store: Option<&Store>, devices: &[Device]) -> Vec<DriveCandidate> {
     let registry = store.and_then(|s| s.drives().ok()).unwrap_or_default();
     let libraries: FxHashMap<Uuid, String> =
@@ -1253,7 +1403,7 @@ pub(crate) fn clones_of(lead: &Device, touched: &[&Path], ctx: &Ctx<'_>) -> Resu
     let (Some(library), Some(store)) = (lead.state().and_then(|s| s.library_id), registry()) else {
         return Ok(clones);
     };
-    let set = fleet::sets(&store, &known_drives(false))?
+    let set = fleet::sets(Some(&store), &known_drives(false))?
         .into_iter()
         .find(|s| s.library_id == Some(library) && s.members.iter().any(|m| m == lead.root()));
     let others = set.map(|s| s.members).unwrap_or_default().into_iter().filter(|m| !touched.contains(&m.as_path()));
@@ -1322,7 +1472,7 @@ pub(crate) fn copy_onto_clones(lead: &Path, clones: &[&CloneTarget], store: Opti
 pub fn libraries_once(specs: Vec<String>) -> Result<Vec<String>> {
     let Some(store) = registry() else { return Ok(specs) };
     let devices: Vec<Device> = specs.iter().map(|s| resolve_drive(s)).collect::<Result<_>>()?;
-    let sets = fleet::sets(&store, &known_drives(false))?;
+    let sets = fleet::sets(Some(&store), &known_drives(false))?;
     let set_of = |d: &Device| sets.iter().position(|s| s.members.iter().any(|m| m == d.root()));
     let mut taken = Vec::new();
     let mut out = Vec::new();
@@ -1372,7 +1522,7 @@ pub fn library_reads(store: Option<&Store>) -> Vec<DriveCandidate> {
     let store = store.or(owned.as_ref());
     let mounted = mounted_exports();
     let candidates = candidates_of(store, &mounted);
-    let sets = store.and_then(|s| fleet::sets(s, &mounted).ok()).unwrap_or_default();
+    let sets = store.and_then(|s| fleet::sets(Some(s), &mounted).ok()).unwrap_or_default();
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for c in &candidates {
@@ -1433,7 +1583,7 @@ pub fn drive_group(store: Option<&Store>, library: Option<&str>) -> Result<Drive
         return Err(Error::NotFound("a mounted rekordbox drive (plug one in, or give its mount path)".into()));
     }
     let sets = match store {
-        Some(s) => fleet::sets(s, &mounted)?,
+        Some(s) => fleet::sets(Some(s), &mounted)?,
         None => Vec::new(),
     };
     let set = match library {

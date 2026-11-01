@@ -2,8 +2,10 @@
 
 A multi-purpose Chrome extension for DJs, part of [Local Network](../../README.md). Clicking the toolbar icon opens a small
 menu of tools; picking one opens that tool's own panel, which the arrow in
-its header leads back out of. Light and dark follow the browser unless the
-button in the menu's header says otherwise.
+its header leads back out of. It looks like the [website](../web): the same
+dark ink surfaces, white type, Instrument Sans and JetBrains Mono, from the
+shared theme in `packages/tokens/theme.css`. Light and dark follow the
+browser unless the button in the menu's header says otherwise.
 
 The header of every view — the menu and each tool — also carries the
 **session queue**: the tracks picked out while working through a page, held
@@ -25,12 +27,15 @@ which shops the Manager's search badges point at (see
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
-options; a failed row that wants one opens this sheet. Its last section is not a setting at all: everything the
+options; a failed row that wants one opens this sheet. One section is not a setting at all: everything the
 extension has saved — the marks, the looked-up details, the Manager's list,
 the session queue and every panel option — goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
-it (see [Saving and restoring it all](#saving-and-restoring-it-all)). Only one
-sheet is up at a time.
+it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
+**about**, says which version this is (and the commit it was built from), and
+its **report a bug** link opens GitHub's bug form in a tab with the version,
+the browser and the tool you were in already filled in. Only one sheet is up
+at a time.
 
 Current tools:
 
@@ -65,7 +70,9 @@ Current tools:
   queue, from a tab on one of those sites, or from pasted text, and works
   through them one after another. Not every site ends in a file, and it says
   which: a link that resolves to somewhere to go rather than something to save
-  says so and offers to open it.
+  says so and offers to open it. A Hypeddit, Droploud or Pump Your Sound link
+  is also walked and saved straight from the SoundCloud page, when its
+  Download button there is pressed.
 - **artists** — keeps a **list of artists**: the uploaders behind the tracks
   you add, from the page in front, from the Manager's list or from the session
   queue, and asks SoundCloud about each one for their public profile and their
@@ -96,7 +103,8 @@ new files up when you hit reload on the extension's card.
 ## Structure
 
 All of it is TypeScript. The popup is a [Svelte](https://svelte.dev) app,
-styled with Tailwind CSS and built with Vite into ES modules (`assets/*.mjs` in
+styled with Tailwind CSS on the Local Network theme (`packages/tokens/theme.css`,
+which the website uses too) and built with Vite into ES modules (`assets/*.mjs` in
 `dist/`, which Chrome serves as JavaScript); its components come from
 [shadcn-svelte](https://shadcn-svelte.com), which copies them into the project
 rather than pulling them from a package, so they can be read and changed like
@@ -124,10 +132,14 @@ src/
   manifest.json        extension manifest (under src/, so this folder is not
                        loadable as an extension — it names files the build makes)
   popup.html           the page the toolbar icon opens; main.ts mounts App
-  app.css              the design tokens, and the Tailwind/shadcn setup
+  background.ts        the background worker: saves a gate the page's Download
+                       button was pressed on (see "Walking a gate from the page")
+  offscreen.html, offscreen.ts  the page that worker walks the gate in
+  app.css              the shared Local Network theme and fonts, plus what only
+                       the popup needs (its width, `field`, `icon-btn`)
   App.svelte           the shell: the tool menu, and whichever tool is open
   lib/                 what the panels share
-    tools.ts           the registry: one entry per tool (name, icon, colour, and
+    tools.ts           the registry: one entry per tool (name, icon, tone, and
                        how to load its panel and start what that panel waits on)
     types.d.ts         the shapes that cross a module boundary — a track at each
                        hop, the page's messages, what is kept — for both sides
@@ -144,11 +156,13 @@ src/
     search-sites.svelte.ts  which of those badges are switched on, set in the
                        settings sheet and read by the Manager panel
     settings-sheet.ts  fetches the settings sheet's chunk
+    bug-report.ts      the settings sheet's report a bug link: GitHub's bug
+                       form, with the version, browser and open tool filled in
     source.ts          which of the two a panel is reading: the page, or the queue
     components/        PanelShell, PanelGhost, TrackRow, FilterBar, SourcePicker,
                        QueueButton and SettingsButton (in every header),
                        QueueSheet and SettingsSheet (over every view), …
-    components/StateTransfer.svelte  the settings sheet's last section: the
+    components/StateTransfer.svelte  the settings sheet's backup section: the
                        whole saved state out to a JSON file and back
     details.svelte.ts  how many tracks have been looked up, for the count that
                        section shows beside the marks and the list
@@ -214,7 +228,7 @@ it. So what it does before it can draw is the whole of how it feels, and it
 is kept to as little as possible.
 
 **Each tool's panel is its own chunk.** The bundle the popup boots from is
-the shell: the menu, the registry's names and colours, the stores, the ghost.
+the shell: the menu, the registry's names and tones, the stores, the ghost.
 The four panels and the component library under them — every one of which is
 bigger than the shell — are fetched when a tool is opened, and at most once
 each however often it is opened and closed. The tool menu has no tooltip on
@@ -233,7 +247,7 @@ extension, read from disk.
 **The route is known synchronously.** Which tool was open lives in
 `chrome.storage.session`, which is a round trip away, and the popup used to
 draw nothing at all until it came back. It is mirrored into `localStorage`
-too, which is not: the colour is painted, the header drawn, the panel's chunk
+too, which is not: the header is drawn, the panel's chunk
 fetched and the page read started on the first turn, before anything has been
 awaited. The mirror cannot know when a browsing session ended, so the session
 is still what settles it — that is what corrects the first opening of a new
@@ -242,8 +256,8 @@ session to the menu.
 **A ghost stands in for the panel** until its chunk has arrived and the
 session has been read (panels restore their own place as they mount, so
 mounting one before the session is back would lose it). The ghost is the
-tool's real header — its name, its icon, its colour, a back arrow that works
-— over a shape where the body will be.
+tool's real header (its name, its icon, its tone, a back arrow that works)
+over a shape where the body will be.
 
 **The page read starts before the panel exists.** Reading a SoundCloud page
 is a round trip to the browser process for the tab and another to the content
@@ -353,7 +367,7 @@ page than the one it was left on.
    `onback`, and wraps its content in `PanelShell`, which draws the header,
    the way back, and the scrolling body.
 2. Register it in `TOOLS` in `src/lib/tools.ts`: id, name, description, a
-   [Lucide](https://lucide.dev) icon, an `oklch()` colour, and a `load` that
+   [Lucide](https://lucide.dev) icon, a `tone`, and a `load` that
    imports the panel — `() => import('../tools/<id>/Panel.svelte')`, which is
    what makes it a chunk of its own. If the panel opens by waiting on
    something slow, give the entry a `warm` that starts it (`warmPage` for a
@@ -373,12 +387,13 @@ to `host_permissions` in `src/manifest.json` — without which every fetch it
 makes is blocked. A test in `test/consistency.test.ts` checks those three
 agree.
 
-The colour is the only thing a panel says about its own look. It is written
-onto `<html>` as `--brand` while the tool is open, and `app.css` derives the
-rest from it — the primary buttons, the focus ring, the wash behind the
-header, the icon tile — so the tools read as rooms in one house. The queue
-sheet declares no colour of its own: it wears whichever one is already
-painted, because it is not a room but something you open where you stand.
+The tone is the only thing a panel says about its own look: a `bg-*` class
+for one of the DJ-data colours in `packages/tokens/colors.json`, which is
+the background of the tool's icon tile (`ToolTile`), the way the website puts
+a DJ's monogram on a track colour. The Local Network theme has no brand
+accent, so the buttons, the focus ring and the headers are the same in every
+tool. The sheets have no tone at all: their tiles are plain, because they are
+not tools but something you open where you stand.
 
 Panels reach the shared state through `$lib`: `downloaded` (the marks, a
 reactive mirror of `downloaded-store.ts`), `queue` (the session queue),
@@ -537,7 +552,11 @@ test/
   queue-sheet.test.ts    the session queue's sheet and the button that opens it:
                          marking, taking out, clearing, handing a batch on
   settings-sheet.test.ts the settings sheet: what the page obeys, what the
-                         Downloader asks for, the search badges, title case
+                         Downloader asks for, the search badges, title case,
+                         the report a bug link
+  background.test.ts     the worker behind the page's Download button: the file
+                         saved, or the gate opened, one walk at a time
+  offscreen.test.ts      the page it walks a gate in: which links, which settings
   saved-state.test.ts    the settings sheet's backup section: what it exports,
                          what it says about a file before importing it, and the
                          difference adding and replacing make
@@ -704,8 +723,10 @@ content, since the page type comes from the content.
 
 Permissions: `activeTab` (to read the active tab's URL when you click the
 icon), `clipboardWrite` (for the Copy button), `storage` (the Manager tool's own
-list of tracks and its set of downloaded ones; see that tool), and `downloads` (the third-party
-downloader saves the files it unlocks). The host patterns are the content
+list of tracks and its set of downloaded ones; see that tool), `downloads` (the third-party
+downloader saves the files it unlocks), and `offscreen` (the page the background
+worker walks a gate in when the page's Download button is pressed on one; see
+[Walking a gate from the page](#walking-a-gate-from-the-page)). The host patterns are the content
 script's match on `soundcloud.com`, plus one `host_permissions` entry per site
 the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
 `fanlink.tv`, `droploud.com` and its `api.` host, `pumpyoursound.com`,
@@ -713,7 +734,7 @@ the Downloader reads gate pages from — `hypeddit.com`, `toneden.io`,
 (`d21i0hc4hl3bvt.cloudfront.net` for the drop, `d3oyaxbt9vo0fg.cloudfront.net`
 for the artist) and `events.laylo.com`, where a signup is posted, and `ffm.to`.
 Chrome reports those as site access on exactly those sites. No other host
-access, no background service worker, no remote code.
+access, no remote code.
 
 ### Limitations
 
@@ -1224,11 +1245,11 @@ same page at all.
 
 The controls are not quite alike underneath:
 
-| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page)                                                                       |
-| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                             |
-| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was |
+| SoundCloud's control                                                                                                                                   | What replaces it                                                                                                                                         | What a click does                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purchase link (`a.soundActions__purchaseLink`, legacy `.sc-buylink`)                                                                                   | an `<a>` to the link's **real** destination — SoundCloud wraps outbound links in its `gate.sc` redirector, and this unwraps it exactly as the panel does | queues the track, and the browser follows the link (so ⌘-click still opens it behind the page). A link to Hypeddit, Droploud or Pump Your Sound is saved instead; see [Walking a gate from the page](#walking-a-gate-from-the-page) |
+| The cart, which is the same link in the signed-in track page's own frame (the one link leaving the site from its `section[aria-label="Track header"]`) | the same `<a>`                                                                                                                                           | the same                                                                                                                                                                                                                            |
+| **Download file** (`.sc-button-download`, inside the More menu)                                                                                        | a `<button>`                                                                                                                                             | queues the track, then presses SoundCloud's own button, hidden beneath it — which the click detection above sees, so the track is marked downloaded as it always was                                                                |
 
 The panel's button for a SoundCloud download opens the _track page_, because
 "Download file" has no URL of its own to open; on the track page itself that
@@ -1281,6 +1302,38 @@ space where a download button was. The More menu renders only when it is
 opened, so for the tenth of a second the repaint is coalesced into, a
 freshly-opened menu shows SoundCloud's own button; clicking it in that moment
 does what it always did.
+
+### Walking a gate from the page
+
+A purchase link to Hypeddit, Droploud or Pump Your Sound is a gate the
+[third-party downloader](#third-party-downloader) can always walk to a file,
+so a plain click on this extension's button there does what that tool's
+**Get** does: the gate is walked, the file lands in the site's folder under the
+download directory, and the track is marked downloaded (unless **mark the
+SoundCloud track downloaded** is off in Settings). The button dims while the
+walk runs and ignores another click until it ends. Nothing goes into the
+session queue, since nothing is left to mark.
+
+When the walk does not end in a saved file, the gate opens in a tab beside the
+page and the track is queued, which is what the button did before. That covers
+a gate that wants an email address Settings does not have yet, a Spotify step
+that needs pressing **Connect** once, a CAPTCHA, a Droploud gate pointed at a
+page, and a transfer Chrome refused (then it is the file that opens). A click
+with ⌘, Ctrl, Shift or Alt held is someone asking for the link itself, and is
+followed as before. The other gate sites (ToneDen, FanLink, Laylo,
+Feature.fm) often end in a page or a signup rather than a file, so their links
+are followed as before too.
+
+The walk runs in two places because neither the page nor a service worker can
+run it alone. A content script fetches as the page it is in, so every gate is
+an origin it is refused; a service worker has no `DOMParser`, which the
+Hypeddit and Pump Your Sound walks read pages with. So the button sends the
+link to the background worker (`src/background.ts`), which opens an offscreen
+page (`src/offscreen.ts`, Chrome's `DOM_PARSER` reason) and has the site module
+walk it there, with the address, name and mark setting the popup keeps. The
+worker does the parts that need a tab or the downloads API: the Spotify trip,
+the download, and the tab the gate opens in. Walks run one at a time, and the
+offscreen page is closed once none is waiting.
 
 ### The signed-in track page
 
@@ -1417,7 +1470,7 @@ worth a line in a format every install has to keep reading.
 Everything above lives in the extension's own storage, which goes away when
 the extension does. Reinstalling it, or moving to another browser profile,
 otherwise means losing every mark and paying for every lookup again. **your
-data**, the last section of the Settings sheet, takes the lot out to a JSON
+data**, a section of the Settings sheet, takes the lot out to a JSON
 file and reads one back (`src/lib/components/StateTransfer.svelte`).
 
 It was the Manager panel's own footer, which was the wrong place for it twice

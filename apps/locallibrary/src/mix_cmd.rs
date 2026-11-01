@@ -1,5 +1,6 @@
 //! `locallibrary mix`: find a drive's tracks in recorded mixes, print the tracklist, and write
-//! the interactive HTML report.
+//! the interactive HTML report, the report as data, or a mix's tracklist in a format a plugin
+//! adds.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -8,10 +9,11 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use locallibrary::mix::index::{Cache, IndexReport, LONGEST_TRACK_SECS};
 use locallibrary::mix::report::{self, Drive, playable_audio};
-use locallibrary::mix::{Identifier, MixReport, Options, Play, export};
+use locallibrary::mix::{CoverSource, Identifier, MixReport, Options, Play, export};
 use locallibrary::profile::ProfilePrefs;
 use locallibrary::progress::Ctx;
 use locallibrary::{Store, api, fsutil};
+use loclib_plugin::ExportSource;
 
 use crate::output::{self, Output, clock, dim};
 
@@ -33,18 +35,36 @@ pub struct MixArgs {
     #[arg(long)]
     open: bool,
     /// Write the report as data for other software (Local Network renders it on a DJ profile):
-    /// a .json file, or a folder when there are several mixes
+    /// a .json file, or a folder when there are several mixes; or, with --format, in a plugin's
+    /// format
     #[arg(long, value_name = "PATH")]
     export: Option<PathBuf>,
+    /// What --export writes of a single mix: a format a plugin adds for mixes (the report is
+    /// kept in the store for it) [default: the report as data]
+    #[arg(long, value_parser = formats(), requires = "export")]
+    format: Option<String>,
+    /// A plugin's format: an option for it, like key=value (repeatable; `locallibrary plugin
+    /// info` shows them)
+    #[arg(long = "option", value_name = "KEY=VALUE", requires = "format")]
+    options: Vec<String>,
     /// Replace files --html and --export would write that are there already
     #[arg(long)]
     replace: bool,
     /// Audio for the report's player [default: the mix itself, or an export next to a project]
     #[arg(long, value_name = "FILE")]
     audio: Option<PathBuf>,
+    /// The mix's cover, a JPEG, PNG or WebP image, for its report and data [default: the one
+    /// embedded in the recording]
+    #[arg(long, value_name = "FILE")]
+    cover: Option<PathBuf>,
     /// Playback speeds to search, in percent either way
     #[arg(long, value_name = "PERCENT", default_value_t = 16.0)]
     tempo_range: f64,
+}
+
+/// `--format`'s values: the formats plugins add for mixes.
+fn formats() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(crate::export_cmd::plugin_formats(loclib_plugin::ExportFrom::Mix))
 }
 
 pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -62,9 +82,17 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     if args.audio.is_some() && args.mixes.len() != 1 {
         bail!("--audio goes with a single mix");
     }
+    if args.format.is_some() && args.mixes.len() != 1 {
+        bail!("--format goes with a single mix");
+    }
+    if args.cover.is_some() && args.mixes.len() != 1 {
+        bail!("--cover goes with a single mix");
+    }
+    // Checked before the minutes identifying takes.
+    let cover = args.cover.as_deref().map(CoverSource::given).transpose()?;
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
-    let store = Store::open_or_init(store.clone().unwrap_or_else(Store::default_root))?;
+    let store = crate::open_store(store)?;
     let id = Identifier::new(&device, &Cache::in_store(&store), ctx)?;
     if args.mixes.is_empty() {
         out.emit(&id.report, |r| index_summary(&id.drive, r));
@@ -74,23 +102,29 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     let options = Options { tempo_range: args.tempo_range / 100.0 };
     let mut reports = Vec::new();
     for m in &args.mixes {
-        reports.push(id.identify(m, &options, ctx).with_context(|| format!("identifying {}", m.display()))?);
+        let mut r = id.identify(m, &options, ctx).with_context(|| format!("identifying {}", m.display()))?;
+        if let Some(c) = &cover {
+            r.mix.cover = Some(c.clone());
+        }
+        reports.push(r);
     }
 
     let pages: Vec<PathBuf> = match args.html.is_some() || args.open {
         true => reports.iter().map(|r| report_path(args.html.as_deref(), reports.len(), r, &store)).collect(),
         false => Vec::new(),
     };
-    let data: Vec<PathBuf> = match &args.export {
-        Some(target) => reports.iter().map(|r| export_path(target, reports.len(), r)).collect(),
-        None => Vec::new(),
+    // A plugin's format is written once the rest is (see below).
+    let data: Vec<PathBuf> = match (&args.export, &args.format) {
+        (Some(target), None) => reports.iter().map(|r| export_path(target, reports.len(), r)).collect(),
+        _ => Vec::new(),
     };
     // Every file named with --html or --export is checked before any is written. The store's own
     // copy of a page (--open alone) is the recording's, replaced each time it's identified.
     let named: Vec<&Path> = pages.iter().filter(|_| args.html.is_some()).chain(&data).map(PathBuf::as_path).collect();
     fsutil::refuse_to_replace(&named, args.replace)?;
     let prefs = ProfilePrefs::load(&store)?;
-    let drive = Some(Drive::new(&device, &id.library));
+    let shown = crate::plugins::shown_fields(Some(store.clone()));
+    let drive = Some(Drive { fields: Some(&shown), ..Drive::new(&device, &id.library) });
     // A page written with --html is made to be shared: it names the recording by its file alone.
     let shared = args.html.is_some();
     for (r, path) in reports.iter().zip(&pages) {
@@ -102,27 +136,54 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     }
     let written: Vec<&PathBuf> = pages.iter().chain(&data).collect();
 
-    out.emit(&reports, |reports| {
-        for (i, r) in reports.iter().enumerate() {
-            if i > 0 {
-                say!();
+    // With a plugin's format, what it writes is what's answered as JSON.
+    if !(args.format.is_some() && out.json) {
+        out.emit(&reports, |reports| {
+            for (i, r) in reports.iter().enumerate() {
+                if i > 0 {
+                    say!();
+                }
+                tracklist(r);
             }
-            tracklist(r);
-        }
-        if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
-            say!("{}", dim(format!("fingerprinted {} new track(s) on {}", reports[0].library.fingerprinted, id.drive)));
-        }
-        for p in &written {
-            let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
-            output::ok(format!("{what}: {}", p.display()));
-        }
-    });
+            if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
+                let fingerprinted = reports[0].library.fingerprinted;
+                say!("{}", dim(format!("fingerprinted {fingerprinted} new track(s) on {}", id.drive)));
+            }
+            let heard = id.cache.heard.load(std::sync::atomic::Ordering::Relaxed);
+            let kept: Vec<String> = [
+                id.cache.index.then(|| "the library's index".to_string()),
+                (heard > 0).then(|| format!("{heard} recording(s) heard before")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if !kept.is_empty() {
+                say!("{}", dim(format!("from the cache: {}", kept.join(", "))));
+            }
+            for p in &written {
+                let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
+                output::ok(format!("{what}: {}", p.display()));
+            }
+        });
+    }
     if args.open {
         for p in written.iter().filter(|p| p.extension().is_some_and(|e| e == "html")) {
             if let Err(e) = locallibrary::opener::open_file(p) {
                 output::warn(format!("couldn't open {}: {e}", p.display()));
             }
         }
+    }
+    if let (Some(format), Some(target)) = (&args.format, &args.export) {
+        let mix = report::save(&store, &reports[0])?;
+        let source =
+            ExportSource { drive: device.root().display().to_string(), mix: Some(mix), ..ExportSource::default() };
+        let written = crate::export_cmd::Written {
+            output: target,
+            options: &args.options,
+            dry_run: false,
+            replace: args.replace,
+        };
+        return crate::export_cmd::plugin_export(format, source, written, Some(&store), out, ctx);
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -214,14 +275,19 @@ fn tracklist(r: &MixReport) {
     }
 }
 
-/// The dimmed end of a play's row: the stretch of the track played, and that the match is
-/// tentative when it is (as the HTML report and the TUI say).
+/// The dimmed end of a play's row: the stretch of the track played, the speeds a ridden pitch
+/// fader went between (as the HTML report gives them), and that the match is tentative when it is
+/// (as the HTML report and the TUI say).
 fn played(p: &Play) -> String {
-    let stretch = format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64));
-    match p.is_tentative() {
-        true => format!("{stretch} · tentative ({:.0}%)", p.confidence * 100.0),
-        false => stretch,
+    let mut parts =
+        vec![format!("{}–{} of {}", clock(p.track_start), clock(p.track_end), clock(p.track.duration_secs as f64))];
+    if p.speed_range.is_some() {
+        parts.push(format!("ridden {}", p.speed()));
     }
+    if p.is_tentative() {
+        parts.push(format!("tentative ({:.0}%)", p.confidence * 100.0));
+    }
+    parts.join(" · ")
 }
 
 /// Where a report goes: `--html` as given (a directory when there are several mixes), or the

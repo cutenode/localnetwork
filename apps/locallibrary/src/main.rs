@@ -1,4 +1,5 @@
-//! `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured.
+// `locallibrary`: keep rekordbox USB drives in sync, backed up, merged and configured. (A plain
+// comment, as src/unit.rs includes this file, and an inner doc comment can't be included.)
 
 // First, for its `say!`.
 #[macro_use]
@@ -8,6 +9,8 @@ mod output;
 mod account_cmd;
 mod analysis_cmd;
 mod autostart;
+mod browser;
+mod bug_cmd;
 mod check_cmd;
 mod collection_cmd;
 mod completion;
@@ -26,6 +29,8 @@ mod mix_cmd;
 mod pager;
 mod players_cmd;
 mod plays_cmd;
+mod plugin_cmd;
+mod plugins;
 mod profile_cmd;
 #[cfg(feature = "account")]
 mod publish_cmd;
@@ -134,7 +139,9 @@ as \"outcome\", and errors as {\"error\": {kind, message}, \"outcome\"}. Every c
 );
 
 #[derive(Parser)]
-#[command(name = "locallibrary", version, about = "Store, sync, compare, merge and configure rekordbox USB libraries", long_about = None)]
+// bin_name: usage says `locallibrary` like the hints and completions do, not argv[0]'s
+// `locallibrary.exe` on Windows.
+#[command(name = "locallibrary", bin_name = "locallibrary", version, about = "Store, sync, compare, merge and configure rekordbox USB libraries", long_about = None)]
 #[command(after_help = AFTER_HELP, after_long_help = AFTER_LONG_HELP)]
 pub struct Cli {
     /// Store location [default: $LOCALLIBRARY_STORE or the platform data directory]
@@ -386,14 +393,6 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove useless tracks (rekordbox's bundled demo samples) and their files from a library
-    Clean {
-        #[arg(help = LIBRARY_HELP)]
-        drive: String,
-        /// Show what would be removed without removing anything
-        #[arg(long)]
-        dry_run: bool,
-    },
     /// Which of a drive's tracks a recorded mix plays, and when; drawn as an interactive HTML report
     Mix(mix_cmd::MixArgs),
     /// What your sets, collection and settings say about how you play, and what a public profile would show
@@ -401,13 +400,21 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     Profile(profile_cmd::ProfileArgs),
     /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
     #[cfg(feature = "account")]
-    Account(account_cmd::AccountArgs),
+    #[command(name = "account")]
+    Atmosphere(account_cmd::AccountArgs),
+    /// Report a bug in locallibrary, with this version and system filled in
+    #[command(after_help = BUG_HELP)]
+    Bug(bug_cmd::BugArgs),
     /// rekordbox's own collection on this computer (master.db), read only: info, tracks, playlists, and what a drive lacks
     Collection(collection_cmd::CollectionArgs),
     /// The player models `check` uses when none are given, and what each model reads
     Players(players_cmd::PlayersArgs),
     /// How well rekordbox's keys and tempos, and the analysis doctor runs, match annotated datasets
     Analysis(analysis_cmd::AnalysisArgs),
+    /// Run plugins' analyzers on a library's tracks: `track show` shows what they work out
+    Analyze(plugin_cmd::AnalyzeArgs),
+    /// The plugins locallibrary has: what each may do, what it adds, and their settings
+    Plugin(plugin_cmd::PluginArgs),
     /// Inspect and maintain the store
     Store {
         #[command(subcommand)]
@@ -415,29 +422,12 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     },
     /// Save drives into the store as they're plugged in (history lists rekordbox would delete), and keep their group in sync
     Watch(watch_cmd::WatchArgs),
-    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or for other DJ software
+    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or in a plugin's format (other DJ software's)
     Export(export_cmd::ExportArgs),
+    /// Read another program's file with a plugin: keys, BPMs, cues and My Tags added to a drive's tracks, plays kept as sessions
+    Import(plugin_cmd::ImportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
-    Xml {
-        #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
-rekordbox drive, or the one library plugged in]")]
-        drive: Option<String>,
-        /// The file to write
-        #[arg(long, short, default_value = "rekordbox.xml")]
-        output: PathBuf,
-        /// Where the audio will live when importing [default: the drive's mount point]
-        #[arg(long)]
-        location_root: Option<PathBuf>,
-        /// Metadata and playlists only (no beat grids or cues)
-        #[arg(long)]
-        no_analysis: bool,
-        /// Only this playlist or folder and its tracks (repeatable)
-        #[arg(long = "only", value_name = "PLAYLIST")]
-        only: Vec<String>,
-        /// Replace the file if it's there already
-        #[arg(long)]
-        replace: bool,
-    },
+    Xml(export_cmd::XmlArgs),
     /// Shell completion: the script to load in bash, zsh, fish, elvish or PowerShell
     Completions(completion::CompletionsArgs),
     /// Man pages for every command
@@ -491,8 +481,18 @@ impl Command {
     fn owns_output(&self) -> bool {
         match self {
             Command::Rpc { .. } => true,
+            Command::Plugin(a) => a.serves(),
             #[cfg(feature = "tui")]
             Command::Tui { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// The sidecar and a plugin serving: they handle signals themselves.
+    fn handles_signals(&self) -> bool {
+        match self {
+            Command::Rpc { .. } => true,
+            Command::Plugin(a) => a.serves(),
             _ => false,
         }
     }
@@ -506,6 +506,11 @@ const SYNC_LONG_HELP: &str =
     "With no drives, syncs each mounted library's group, its newest drive onto the others (see `locallibrary \
 drive groups`); archive and retired drives are left out. A drive back from a set whose only changes are the \
 players' (history lists, cues) is saved in the store, then updated.
+
+A synced drive is a byte-for-byte copy, so sync never transcodes. For a drive in a form your players play, \
+`locallibrary pack LIBRARY DRIVE --playlist FOLDER --transcode` writes copies they play of the lossless tracks \
+they can't (a --playlist for each top-level folder and playlist takes every playlist), and packing again keeps \
+them current.
 
 Examples:
   locallibrary sync                       every mounted library: its newest drive onto the others
@@ -550,6 +555,7 @@ macro_rules! filter_help {
 const TRACKS_LONG_HELP: &str = concat!(
     filter_help!(),
     "
+  sound.bpm:>120  sound.key:8A   what an analyzer plugin worked out (`locallibrary analyze`); --sort takes them too
 
 Examples:
   locallibrary tracks -s \"daft punk\"
@@ -572,6 +578,10 @@ headline and precision.
 
 const FILTER_HELP: &str = filter_help!();
 
+const BUG_HELP: &str = "Signed in to your Atmosphere account, it shows the report and asks, then posts it from your \
+account to Local Network's board on userinput.app, where anyone can read it. Signed out, or if posting doesn't work \
+out, it opens GitHub's bug report form instead.";
+
 /// `tracks`.
 #[derive(Args)]
 struct TracksArgs {
@@ -587,7 +597,7 @@ struct TracksArgs {
     /// Only tracks matching a filter, e.g. "bpm:120-128 key:8A~ rating:>=4" (syntax below)
     #[arg(long, short, allow_hyphen_values = true)]
     filter: Option<String>,
-    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path)
+    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path, or a plugin's field like sound.bpm)
     #[arg(long, allow_hyphen_values = true)]
     sort: Option<String>,
     /// Show at most this many
@@ -627,7 +637,8 @@ pub struct SyncFlags {
 enum StoreCommand {
     /// Store location and size
     Info,
-    /// Delete snapshots of no library the store has, and the files no snapshot uses
+    /// Delete snapshots of no library the store has, the files no snapshot uses, and caches no
+    /// version of locallibrary reads any more
     Gc {
         /// Show what would be deleted without deleting anything
         #[arg(long)]
@@ -650,11 +661,16 @@ enum StoreCommand {
     /// Remove old snapshots, keeping each library's latest, labelled ones, drives' last states
     /// and history lists; then free the files nothing uses
     Prune(library_cmd::PruneArgs),
-    /// Copy the store to another folder (a NAS, another disk, a cloud-synced folder), or bring
-    /// a copy up to date: only what's new is copied, and `--store DIR` reads the copy
+    /// Copy the store to another folder (a NAS, another disk, a cloud-synced folder) or a
+    /// plugin's destination, or bring a copy up to date: only what's new is copied, and `--store
+    /// DIR` reads a folder's copy
     Copy {
         /// The folder to copy the store to
-        dir: PathBuf,
+        #[arg(required_unless_present = "to")]
+        dir: Option<PathBuf>,
+        /// Copy it to a plugin's destination instead (`plugin info PLUGIN` lists them)
+        #[arg(long, value_name = "PLUGIN:DESTINATION", conflicts_with_all = ["dir", "mirror", "verify"])]
+        to: Option<String>,
         /// Also remove from the copy what the store no longer has (pruned or collected snapshots,
         /// and files nothing in the store uses)
         #[arg(long)]
@@ -672,6 +688,19 @@ enum StoreCommand {
     },
     /// Where the store has been copied, when, and whether each copy is up to date
     Copies,
+    /// Bring back what a copy of the store at a plugin's destination has that this store lacks
+    /// (after losing a computer, say): nothing this store has is replaced
+    Restore {
+        /// The plugin's destination the copy is at
+        #[arg(long, value_name = "PLUGIN:DESTINATION")]
+        from: String,
+        /// Library to bring back, by its name there (repeatable) [default: all of them]
+        #[arg(long = "library", value_name = "LIBRARY")]
+        libraries: Vec<String>,
+        /// Show what would be brought back without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Let another computer fetch this store's snapshots: prints a code to give it, and serves
     /// until Ctrl-C
     #[cfg(feature = "peers")]
@@ -753,10 +782,23 @@ enum SettingsCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Write everything set here to one file, for a copy or another computer: My Settings, the
+    /// players, the profile's preferences and every plugin's settings (key bindings included)
+    Export {
+        /// The file to write [default: print it]
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// Replace the file if it's there already
+        #[arg(long, requires = "file")]
+        replace: bool,
+    },
     /// Set the profile's base from a drive's settings, rekordbox's own (no argument), or the My
-    /// Settings an Atmosphere account published (settings the source doesn't have stay)
+    /// Settings an Atmosphere account published (settings the source doesn't have stay); or add
+    /// what a file `settings export` wrote has to what's set here
     Import {
-        /// The drive to take them from [default: rekordbox's settings on this computer]
+        /// The drive to take them from, or a file `settings export` wrote [default: rekordbox's
+        /// settings on this computer]
+        #[arg(value_name = "DRIVE|FILE")]
         drive: Option<String>,
         /// The My Settings this account published (a handle or DID; alpha)
         #[cfg(feature = "account")]
@@ -766,12 +808,9 @@ enum SettingsCommand {
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "drive")]
         from_account: bool,
-        /// The account's data server, instead of finding it from the handle
-        #[cfg(feature = "account")]
-        #[arg(long, value_name = "URL")]
-        pds: Option<String>,
-        /// Replace the whole base with the account's, unsetting what it didn't publish
-        #[cfg(feature = "account")]
+        /// With a file: where a value differs, take the file's instead of keeping the one here.
+        /// With --from-handle or --from-account: replace the whole base with the account's,
+        /// unsetting what it didn't publish
         #[arg(long)]
         replace: bool,
         /// Show what would change without importing
@@ -786,7 +825,7 @@ enum SettingsCommand {
         #[arg(long)]
         dry_run: bool,
         #[command(flatten)]
-        browser: account_cmd::BrowserArgs,
+        browser: browser::BrowserArgs,
     },
 }
 
@@ -856,6 +895,13 @@ them back (the last 5 embeds are kept).")]
         #[arg(long)]
         dry_run: bool,
     },
+    /// Find cover art for tracks with the plugins' providers (online), choose, and set it
+    #[command(after_help = FILTER_HELP, after_long_help = concat!(
+        "Without --replace, only tracks without artwork are looked up. A candidate alone scoring `locallibrary plugin \
+providers`' auto-pick or more is chosen for you; the others are asked about (or given with --choose).\n\n",
+        filter_help!()
+    ))]
+    Fetch(plugin_cmd::FetchArgs),
     /// Save a track's artwork from a drive to a file
     Get {
         #[arg(help = LIBRARY_HELP)]
@@ -982,13 +1028,14 @@ fn main() -> ExitCode {
     // A shell asking what to complete (`COMPLETE=bash locallibrary -- ...`) is answered here.
     completion::complete();
     let cmd = help::command();
-    let matches = match cmd.clone().try_get_matches() {
+    let mut matches = match cmd.clone().try_get_matches() {
         Ok(m) => m,
         Err(e) => match help::prep_moved(&e) {
             Some(moved) => return usage_error(cmd.clone().error(clap::error::ErrorKind::InvalidSubcommand, moved)),
             None => return usage_error(help::tidy_suggestions(e, &cmd)),
         },
     };
+    let contributed = plugin_cmd::take(&mut matches);
     let cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
         Err(e) => return usage_error(e),
@@ -997,19 +1044,30 @@ fn main() -> ExitCode {
     output::configure(cli.json, cli.quiet, cli.ascii, cli.color);
     // Piped into `head`, stop quietly rather than fail writing (the player and the sidecar
     // handle their own output).
-    if !cli.command.as_ref().is_none_or(Command::owns_output) {
+    if contributed.is_some() || !cli.command.as_ref().is_none_or(Command::owns_output) {
         pager::default_sigpipe();
     }
     locallibrary::op::allow_archive_writes(cli.overwrite_archive);
-    // A test switch that hides every drive and disk: never let it pass unnoticed.
-    if let Some(dirs) = locallibrary::device::volume_folders() {
+    // A test switch that hides every drive and disk: never let it pass unnoticed (but by a plugin
+    // serving, whose host has said so).
+    let serving = matches!(&cli.command, Some(Command::Plugin(a)) if a.serves());
+    if let Some(dirs) = locallibrary::device::volume_folders().filter(|_| !serving) {
         let dirs: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
         output::diag(format!(
             "LOCALLIBRARY_VOLUMES is set (a test switch): drives are looked for only in {}",
             if dirs.is_empty() { "no folder".into() } else { dirs.join(", ") }
         ));
     }
-    let code = run(cli, out);
+    if !serving {
+        for (m, why) in plugins::left_out() {
+            output::diag(format!("the {} plugin is left out: {why}", m.id));
+        }
+    }
+    let code = run(cli, out, contributed);
+    // Plugins started for the command stop with it.
+    if let Ok(plugins) = plugins::host() {
+        plugins.shutdown();
+    }
     pager::finish();
     match code {
         Ok(code) => code,
@@ -1095,15 +1153,22 @@ fn describe(e: &anyhow::Error) -> String {
     out
 }
 
+/// The store at `--store` (else the default), made if there's none yet.
 fn open_store(cli_store: &Option<PathBuf>) -> Result<Store> {
-    let root = cli_store.clone().unwrap_or_else(Store::default_root);
-    Store::open_or_init(&root).with_context(|| format!("opening store at {}", root.display()))
+    open_store_with(cli_store, Store::open_or_init)
 }
 
-fn run(cli: Cli, out: Output) -> Result<ExitCode> {
+/// The store at `--store` (else the default) as `open` opens it (`Store::open_or_init`, `open`
+/// or `open_existing`), naming the store when it won't open.
+fn open_store_with<T>(cli_store: &Option<PathBuf>, open: impl FnOnce(PathBuf) -> locallibrary::Result<T>) -> Result<T> {
+    let root = cli_store.clone().unwrap_or_else(Store::default_root);
+    open(root.clone()).with_context(|| format!("opening store at {}", root.display()))
+}
+
+fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> Result<ExitCode> {
     let cancel = CancelToken::new();
     // The sidecar handles signals itself, for every request it runs.
-    if !matches!(cli.command, Some(Command::Rpc { .. })) {
+    if !cli.command.as_ref().is_some_and(Command::handles_signals) {
         let c = cancel.clone();
         // The first Ctrl-C (or SIGTERM) stops at the next safe point; a second exits once no
         // database swap is under way. The player quits on its own, putting the terminal back.
@@ -1122,11 +1187,19 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             c.cancel();
         });
     }
-    api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    let store_root = cli.store.clone().unwrap_or_else(Store::default_root);
+    output::store_is_copy(locallibrary::offsite::written_copy_warning(&store_root));
+    api::set_store_root(store_root);
+    // The check before a set, doctor and edit plans run the plugins' checks, and refresh their
+    // operations.
+    locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
 
+    if let Some(c) = contributed {
+        return plugin_cmd::run_contributed(c, &cli.store, out, &ctx);
+    }
     let Some(command) = cli.command else {
         // Bare `locallibrary`: the player in a terminal, the usage everywhere else.
         #[cfg(feature = "tui")]
@@ -1141,7 +1214,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         let _ = help::command().write_help(&mut std::io::stderr());
         return Ok(ExitCode::from(2));
     };
-    if !(matches!(command, Command::Setup(_)) || command.owns_output()) {
+    if !(matches!(command, Command::Setup(_) | Command::Bug(_)) || command.owns_output()) {
         jobs_cmd::suggest_setup(&cli.store, out);
     }
     match command {
@@ -1154,9 +1227,11 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
+            let fields = plugins::installed(diff_cmd::existing_store(&cli.store)?);
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
-                api::tracks_query(&api::TracksQuery { drive, filter, playlist, sort, offset: 0, limit: a.limit })
+                let req = api::TracksQuery { library: drive.into(), filter, playlist, sort, offset: 0, limit: a.limit };
+                api::tracks_query_with(api::LibraryCache::none(), &req, Some(fields.source()))
             })?;
             out.page();
             // Several drives' TSV or CSV is one listing, for the program reading it.
@@ -1170,7 +1245,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         }
         Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
         Command::Playlists { drive } => return edit_cmd::tree(drive, out),
-        Command::Track(a) => return edit_cmd::track(a, out, &ctx),
+        Command::Track(a) => return edit_cmd::track(a, &cli.store, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &cli.store, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
         Command::Pack {
@@ -1276,22 +1351,6 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             let report = plan.apply(None, &ctx)?;
             return Ok(out.applied(&plan, &report, Outcome::Applied, || render::convert_report(&report, &req.drive)));
         }
-        Command::Clean { drive, dry_run } => {
-            let req = api::DriveRef { drive };
-            let plan = api::clean_plan(&req, &ctx)?;
-            if plan.noop {
-                return Ok(out.nothing(&plan, "nothing to clean"));
-            }
-            if !out.json {
-                render::clean_plan(&plan);
-                output::clones(&plan);
-            }
-            if let Some(o) = out.decide(dry_run, "Remove them?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let report = plan.apply(None, &ctx)?;
-            return Ok(out.applied(&plan, &report, Outcome::Applied, || render::clean_report(&report, &req.drive)));
-        }
         Command::Tags(args) => return tags_cmd::run(args, out, &ctx),
         Command::Pull { drive, library, new_library, message, label, force } => match drive {
             Some(drive) if !matches!(api::library_clones(&drive), Ok(Some(_))) => {
@@ -1315,12 +1374,12 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
         Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
-            // Reads about the store never make one.
+            // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
             match command.unwrap_or(StoreCommand::Info) {
                 StoreCommand::Info => out.emit(&api::store_info(&existing()?)?, render::store_info),
                 StoreCommand::Gc { dry_run } => {
-                    let store = store()?;
+                    let store = existing()?;
                     let plan = api::store_gc_plan(&store)?;
                     if plan.noop {
                         return Ok(out.nothing(&plan, "nothing to collect"));
@@ -1343,17 +1402,31 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
                 }
                 StoreCommand::Label { snapshot, label } => {
                     let req = api::LabelRequest { label, snapshot: Some(snapshot), remove: false };
-                    return store_cmd::label(&store()?, req, out);
+                    return store_cmd::label(&existing()?, req, out);
                 }
                 StoreCommand::Unlabel { label } => {
-                    return store_cmd::label(&store()?, api::LabelRequest { label, snapshot: None, remove: true }, out);
+                    return store_cmd::label(
+                        &existing()?,
+                        api::LabelRequest { label, snapshot: None, remove: true },
+                        out,
+                    );
                 }
-                StoreCommand::Prune(a) => return store_cmd::prune(&store()?, a.options(), out, &ctx),
-                StoreCommand::Copy { dir, mirror, verify, force, dry_run } => {
+                StoreCommand::Prune(a) => return store_cmd::prune(&existing()?, a.options(), out, &ctx),
+                StoreCommand::Copy { dir, to, mirror, verify, force, dry_run } => {
                     let options = api::CopyOptions { mirror, verify, force, dry_run };
-                    return store_cmd::copy(&store()?, api::StoreCopyRequest { path: dir, options }, out, &ctx);
+                    return match (to, dir) {
+                        (Some(to), _) => store_cmd::copy_to(&existing()?, &to, options, out, &ctx),
+                        (None, dir) => {
+                            let path = dir.expect("clap requires DIR without --to");
+                            store_cmd::copy(&existing()?, api::StoreCopyRequest { path, options }, out, &ctx)
+                        }
+                    };
                 }
                 StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
+                StoreCommand::Restore { from, libraries, dry_run } => {
+                    let options = locallibrary::offsite::RestoreOptions { libraries, dry_run };
+                    return store_cmd::restore(&store()?, &from, &options, out, &ctx);
+                }
                 #[cfg(feature = "peers")]
                 StoreCommand::Serve { local } => {
                     return store_cmd::serve(
@@ -1398,43 +1471,24 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Undo { drive, list: false, force, dry_run } => {
             return restore_cmd::undo(api::UndoRequest { drive, backup: None, force }, dry_run, out, &ctx);
         }
-        Command::Xml { drive, output: path, location_root, no_analysis, only, replace } => {
-            let drive = jobs_cmd::drive_or_default(drive, &cli.store, "export")?;
-            let req = api::ExportXml {
-                drive,
-                output: path.clone(),
-                location_root,
-                skip_analysis: no_analysis,
-                only,
-                replace,
-            };
-            let r = api::export_xml(&req, &ctx)?;
-            out.done(&r, |r| {
-                output::ok(format!(
-                    "wrote {} ({} tracks, {} playlists, {} beat grids, {} cues)",
-                    path.display(),
-                    r.tracks,
-                    r.playlists,
-                    r.tracks_with_beatgrid,
-                    r.cues
-                ));
-                crate::output::hint("Import in rekordbox: Preferences > Advanced > rekordbox xml > Imported Library");
-            });
-        }
+        Command::Xml(args) => return export_cmd::xml(args, &cli.store, out, &ctx),
         Command::Doctor(args) => return doctor_cmd::run(args, &cli.store, out, &ctx),
         Command::Plays(a) => return plays_cmd::run(a, &cli.store, out, &ctx),
         Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
         Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
         Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
         #[cfg(feature = "account")]
-        Command::Account(args) => return account_cmd::run(args, &cli.store, out, &ctx),
+        Command::Atmosphere(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
+        Command::Import(args) => return plugin_cmd::import(args, &cli.store, out, &ctx),
         Command::Diff(args) => return diff_cmd::run(args, &cli.store, out, &ctx),
         Command::Collection(args) => return collection_cmd::run(args, &cli.store, out, &ctx),
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
+        Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out, &ctx),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {
@@ -1443,6 +1497,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             }
             tui::run(cli.store.clone().unwrap_or_else(Store::default_root), drive)?;
         }
+        Command::Bug(args) => return bug_cmd::run(args, &cli.store, out, &ctx),
         Command::Completions(a) => return completion::completions(a, out),
         Command::Man(a) => return completion::man(a, out),
         Command::Rpc { emit_schema: Some(dir), .. } => {
@@ -1756,16 +1811,51 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             return publish_cmd::settings_publish(store_path, dry_run, browser, out, ctx);
         }
         #[cfg(feature = "account")]
-        SettingsCommand::Import { from_handle, from_account, pds, replace, dry_run, .. }
+        SettingsCommand::Import { from_handle, from_account, replace, dry_run, .. }
             if from_account || from_handle.is_some() =>
         {
-            let req = api::ImportPublishedSettings { from: from_handle, pds, replace };
+            let req = api::ImportPublishedSettings { from: from_handle, replace };
             return publish_cmd::settings_import(store_path, &req, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SettingsCommand::Import { pds: Some(_), .. } => bail!("--pds goes with --from-handle or --from-account"),
-        #[cfg(feature = "account")]
-        SettingsCommand::Import { replace: true, .. } => bail!("--replace goes with --from-handle or --from-account"),
+        SettingsCommand::Export { file, replace } => {
+            let doc = diff_cmd::read_or_empty(store_path, api::settings_export)?;
+            let mut text = serde_json::to_string_pretty(&doc)?;
+            text.push('\n');
+            let Some(path) = file else {
+                out.emit(&doc, |_| print!("{text}"));
+                return Ok(ExitCode::SUCCESS);
+            };
+            locallibrary::fsutil::write_output(&path, text.as_bytes(), replace)?;
+            out.done(&serde_json::json!({ "output": path, "settings": doc }), |_| {
+                output::ok(format!("wrote {}", path.display()));
+            });
+        }
+        SettingsCommand::Import { drive: Some(file), replace, dry_run, .. }
+            if std::path::Path::new(&file).is_file() =>
+        {
+            let store = open_store(store_path)?;
+            let req = api::ImportSettingsFile { file: locallibrary::fsutil::absolute(file.as_ref()), replace };
+            let plan = api::settings_import_file_plan(&store, &req)?;
+            if !out.json {
+                output::summary(&plan.summary, &plan.warnings);
+                render::settings_file_changes(&plan.plan.changes);
+            }
+            if plan.noop {
+                return Ok(out.nothing(&plan, "everything the file has is set here already"));
+            }
+            if let Some(o) = out.decide(dry_run, "Import them?") {
+                return Ok(out.not_applied(&plan, o));
+            }
+            let after = plan.apply(Some(&store), ctx)?;
+            let n =
+                plan.plan.changes.iter().filter(|c| c.action != locallibrary::settings::transfer::Action::Keep).count();
+            return Ok(out.applied(&plan, &after, Outcome::Applied, || {
+                output::ok(format!("imported {} from {file}", output::plural(n, "setting")));
+            }));
+        }
+        SettingsCommand::Import { replace: true, .. } => {
+            bail!("--replace goes with a file `settings export` wrote, --from-handle or --from-account")
+        }
         SettingsCommand::Import { drive, dry_run, .. } => {
             let store = open_store(store_path)?;
             let plan = api::settings_import_plan(&store, &api::ImportSettings { drive })?;
@@ -1785,7 +1875,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let profile = plan.apply(Some(&store), ctx)?;
             let from = plan.from.clone();
             return Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-                output::ok(format!("imported {} settings from {from}", profile.base.len()));
+                output::ok(format!("imported {} from {from}", output::plural(profile.base.len(), "setting")));
             }));
         }
     }
@@ -1815,23 +1905,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         ArtCommand::Set { drive, image, select, dry_run } => {
             let req = api::SetArtwork { drive, image, tracks: select.selector() };
-            let plan = api::artwork_set_plan(&req)?;
-            if !out.json {
-                output::summary(&plan.summary, &plan.warnings);
-                for t in plan.tracks.iter().take(10) {
-                    say!("    {}", output::dim(&t.name));
-                }
-                if plan.tracks.len() > 10 {
-                    say!("    {}", output::dim(format!("and {} more", plan.tracks.len() - 10)));
-                }
-            }
-            if let Some(o) = out.decide(dry_run, "Set it?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
-            }));
+            return edit_cmd::confirm_and_apply(&req.drive, api::artwork_set_plan(&req, ctx)?, dry_run, out, ctx);
         }
         ArtCommand::Auto { drive, dry_run } => {
             let drives = match drive {
@@ -1877,6 +1951,9 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             let r = plan.apply(None, ctx)?;
             return Ok(out.applied(&plan, &r, Outcome::Applied, || done(&r)));
         }
+        ArtCommand::Fetch(f) => {
+            return plugin_cmd::fetch(loclib_plugin::ProviderKind::Artwork, f, store_path, out, ctx);
+        }
         ArtCommand::Embed { image, files, dry_run } => {
             let plan = api::artwork_embed_plan(&api::EmbedArtwork { files, image })?;
             if !out.json {
@@ -1917,7 +1994,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             });
         }
         ArtCommand::Unembed { backup, list: false, dry_run } => {
-            let store = open_store(store_path)?;
+            let store = diff_cmd::store_to_read(store_path)?;
             let plan = api::artwork_unembed_plan(&store, &api::UnembedRequest { backup })?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);

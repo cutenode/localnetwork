@@ -1,7 +1,7 @@
 //! Cover art on a drive: found in the tracks' own audio or next to it, previewed, read back
 //! through the service layer, and kept in step with OneLibrary's database where it can be.
 
-use crate::common::media::{mp3, png};
+use crate::common::media::{mp3, png, set_artwork};
 use crate::common::{self, Warnings, path};
 
 use locallibrary::api::{self, DriveRef, TrackSelector};
@@ -58,11 +58,8 @@ fn art_that_cant_be_used_changes_nothing() {
 fn previews_fall_back_to_the_thumbnail() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open_export(common::demo_drive(dir.path(), "DNA")).unwrap();
-    assert!(matches!(
-        artwork::set_on_drive(&mut d, &[], &Artwork::from_bytes(&png(100, 100, 42)).unwrap(), &Ctx::silent()),
-        Err(Error::Invalid(_))
-    ));
-    artwork::set_on_drive(&mut d, &[1], &Artwork::from_bytes(&png(300, 300, 42)).unwrap(), &Ctx::silent()).unwrap();
+    assert!(matches!(set_artwork(&mut d, &[], &png(100, 100, 42), &Ctx::silent()), Err(Error::Invalid(_))));
+    set_artwork(&mut d, &[1], &png(300, 300, 42), &Ctx::silent()).unwrap();
     let lib = d.library().unwrap();
     let preview =
         || artwork::read_from_drive(&d, &lib, 1).unwrap().map(|b| image::load_from_memory(&b).unwrap().width());
@@ -87,8 +84,9 @@ fn a_track_onelibrary_doesnt_have_gets_art_in_export_pdb_only() {
     let mut d = Device::open_export(&root).unwrap();
     let warnings = Warnings::default();
     let ctx = warnings.ctx();
-    let r = artwork::set_on_drive(&mut d, &[id], &Artwork::from_bytes(&png(300, 300, 42)).unwrap(), &ctx).unwrap();
-    assert_eq!((r.tracks_updated, r.artwork_rows_added), (1, 1));
+    let r = set_artwork(&mut d, &[id], &png(300, 300, 42), &ctx).unwrap();
+    assert!(r.databases.iter().any(|d| d == "export.pdb"), "{:?}", r.databases);
+    assert!(!r.databases.iter().any(|d| d == "exportLibrary.db"), "{:?}", r.databases);
     let said = warnings.said();
     assert!(said.iter().any(|w| w.contains("1 selected track(s) aren't in exportLibrary.db")), "{said:?}");
     assert!(artwork::read_from_drive(&d, &d.library().unwrap(), id).unwrap().is_some());
@@ -110,8 +108,8 @@ fn art_isnt_looked_for_outside_the_drive() {
     assert!(plan.not_found.iter().any(|t| t.id == id));
 }
 
-/// Artwork set on one track is planned with the image's size, then read back as a JPEG; the other
-/// track still has none until an image next to its audio is found for it.
+/// Artwork set on one track is planned as an edit, then read back as a JPEG; the other track
+/// still has none until an image next to its audio is found for it.
 #[test]
 fn art_is_set_as_planned_found_next_to_the_audio_and_read_back() {
     let dir = tempfile::tempdir().unwrap();
@@ -129,9 +127,9 @@ fn art_is_set_as_planned_found_next_to_the_audio_and_read_back() {
         image: cover,
         tracks: TrackSelector { ids: vec![ids[0]], ..Default::default() },
     };
-    let plan = api::artwork_set_plan(&set).unwrap();
-    assert_eq!((plan.width, plan.height, plan.tracks.len()), (500, 400, 1));
-    assert_eq!(api::artwork_set(&set, &Ctx::silent()).unwrap().tracks_updated, 1);
+    let plan = api::artwork_set_plan(&set, &Ctx::silent()).unwrap();
+    assert_eq!(plan.changes, ["set the artwork of 1 track(s)"]);
+    assert_eq!(api::artwork_set(&set, &Ctx::silent()).unwrap().changes, 1);
     let art = get(ids[0]).expect("set");
     assert_eq!(art.mime, "image/jpeg");
     assert!(art.base64.starts_with("/9j/"), "a JPEG's first bytes, in base64");
