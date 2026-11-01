@@ -8,7 +8,7 @@ documents := lib.paths("lexicons/**/*.json")
 
 # The website's records, which predate tool groups, and the groups several tools share. A new
 # shared group goes here on purpose, named for what its records are.
-shared := {"audit", "booking", "defs", "directory", "dj", "epk", "follow", "listing", "moderation", "people", "permissions", "planner", "project", "show", "space", "staff"}
+shared := {"audit", "booking", "defs", "directory", "dj", "epk", "follow", "listing", "moderation", "people", "permissions", "planner", "profile", "project", "section", "show", "space", "staff"}
 
 deny contains msg if {
 	some path in documents

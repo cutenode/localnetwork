@@ -98,6 +98,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the builds without the default features (on Linux, without the ALSA headers): the tests of the
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
+- `format` and `eject` on a disk image each test creates and attaches (hdiutil on macOS, a loop
+  device on Linux, a VHD on Windows; `crates/locallibrary/src/format/tests/disk_image.rs`). They skip
+  themselves without `LOCALLIBRARY_DISK_IMAGE_TESTS=1`. On a Mac,
+  `LOCALLIBRARY_DISK_IMAGE_TESTS=1 cargo nextest run -p locallibrary --lib -E 'test(/^format::disk_image::/)'`
+  runs them;
 - the Bombadil explorations below;
 - mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
   `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
@@ -117,9 +122,10 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
 the next weekly run that passes closes it.
 
-`.github/workflows/locallibrary-bench.yml` runs the benchmarks under
-[CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
-some, and reports each one's change against `main`.
+The workspace has no benchmarks on `main` yet, so no workflow runs them: the `bnb/perf` branch
+adds them, and with them a workflow that runs them under [CodSpeed](https://codspeed.io)
+(`locallibrary-bench.yml`, which `git log --diff-filter=D -- .github/workflows/locallibrary-bench.yml`
+finds in the history).
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -306,8 +312,8 @@ repository root, `.github/workflows/locallibrary-release.yml`) when a version ta
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
-On pull requests that change a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-`rust-toolchain.toml`, `.github/actions/install-dist` or the workflow itself, it only runs
+On pull requests that change a `Cargo.toml`, `dist-workspace.toml`, `rust-toolchain.toml`,
+`.github/actions/install-dist` or the workflow itself, `locallibrary-ci.yml`'s lint job runs
 `dist plan`, which checks the configuration. `locallibrary-release.yml` is dist 0.33.0's
 generated workflow with hand-written additions listed at its top, so `dist-workspace.toml` sets
 `allow-dirty = ["ci"]`. After changing the dist configuration or upgrading dist, regenerate the

@@ -15,7 +15,7 @@ const list = (url: URL, name: string) => [
 ];
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const { projects, geocoder } = locals.app;
+	const { performers, geocoder } = locals.app;
 	const lat = Number(url.searchParams.get('lat'));
 	const lng = Number(url.searchParams.get('lng'));
 	const hasNear = url.searchParams.get('lat') !== null && url.searchParams.get('lat') !== '' && isValidLatLng(lat, lng);
@@ -47,9 +47,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
-	// Null when the directory is offline: the filters still render, so a retry is one click.
+	// Projects and the DJs staff list, together. Null when the directory is offline: the filters still render, so a retry
+	// is one click.
 	const result = await unlessOffline(locals.log, () =>
-		projects.search({
+		performers.search({
 			q: filters.q || undefined,
 			near: hasNear ? { lat, lng } : undefined,
 			radiusKm,

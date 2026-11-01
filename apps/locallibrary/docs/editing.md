@@ -211,7 +211,7 @@ track. `--filter` takes the same filter `tracks --filter` does:
 | `rating:>=4`, `plays:0`, `year:1999`, `time:>6:00`, `bitrate:<320` | numbers, ranges, comparisons |
 | `color:aqua`, `color:none`, `added:2026-09`, `added:>=2026-01-01` | colour, date added |
 | `playlist:Sets/Friday`, `tag:Genre/Deep`, `is:unfiled`, `is:unplayed`, `has:artwork` | membership, My Tags, state |
-| `sound.bpm:>120`, `sound.key:8A` | what an analyzer [plugin](plugins.md) worked out (`tracks` and the player's search only) |
+| `sound.bpm:>120`, `sound.key:8A` | what an analyzer [plugin](plugins.md) worked out |
 
 `playlist:` takes a path or a unique name, as `--playlist` does, and a folder means everything in
 it; one that names no playlist is refused. So is a word before a colon that names no field
@@ -219,8 +219,10 @@ it; one that names no playlist is refused. So is a word before a colon that name
 (`"re:zero"`) it's text. `tag:` reads the drive's My Tags wherever a filter goes, and `--history`
 finds lists in both databases.
 
-Sort orders are lists of fields, highest first with a `-`: `key,bpm`, `-rating,title`. `tracks
---sort` also takes a plugin's field (`-sound.bpm`); tracks without a value for it go last.
+Sort orders are lists of fields, highest first with a `-`: `key,bpm`, `-rating,title`, and a
+plugin's field (`-sound.bpm`); tracks without a value for it go last. A plugin's field is one an
+analyzer installed declares, and a rule or an edit naming another is refused, saying so; an edit
+whose filter names one no track has a value of yet warns that the tracks need analyzing first.
 
 ### When rekordbox exports again
 

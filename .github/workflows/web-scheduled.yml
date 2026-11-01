@@ -1,8 +1,11 @@
 name: Web scheduled
 
 # The end-to-end tests in every Playwright project (playwright.config.ts): Chromium, Firefox and
-# WebKit on the desktop, and a Pixel 7 and an iPhone 14. Weekly and on demand (Actions > Web
-# scheduled > Run workflow, on any branch), so pull requests only wait for web-ci.yml's Chromium run.
+# WebKit on the desktop, and a Pixel 7 and an iPhone 14. Then Lighthouse on every page in
+# lighthouse/pages.json, on a phone and a desktop, held against each page's history. Weekly and on
+# demand (Actions > Web scheduled > Run workflow, on any branch), so pull requests only wait for
+# web-ci.yml's Chromium run and its Lighthouse run on three pages. A week that changed none of what
+# they test skips them (see the changes job).
 on:
   schedule:
     - cron: "29 4 * * 1"
@@ -22,8 +25,52 @@ defaults:
 
 # Pinned the same way as web-ci.yml.
 jobs:
+  # Whether anything the end-to-end tests and Lighthouse read changed since the last weekly or hand-started run on
+  # main that passed. A run that failed doesn't count, so they run again each week until one
+  # passes. Started by hand, everything runs, as it does when none of the workflow's last 100 runs
+  # passed and there's nothing to compare with. The paths are what the e2e tests run: the app, the
+  # tools' READMEs its home page's cards come from, and the workspace's dependencies.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.web == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - '.node-version'
+              - '.github/workflows/web-scheduled.yml'
+
   e2e:
     name: End-to-end (every browser and phone)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -47,11 +94,129 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report/
 
+  # Every page in lighthouse/pages.json, signed in where it needs to be (scripts/lighthouse.ts), one
+  # job per form factor. Each job's summary is its lighthouse-summary-<form factor> artifact, and every
+  # run's report its lighthouse-<form factor> artifact.
+  lighthouse:
+    name: Lighthouse (${{ matrix.form-factor }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        form-factor: [mobile, desktop]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # As in web-ci.yml's Lighthouse job: lets Chromium's sandbox create its user namespaces.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Pull the HappyView image (scripts/lib/happyview.ts)
+        run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
+      - run: pnpm build
+      - run: pnpm exec tsx scripts/lighthouse.ts --form-factor "$FORM_FACTOR"
+        env:
+          FORM_FACTOR: ${{ matrix.form-factor }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: lighthouse-summary-${{ matrix.form-factor }}
+          path: apps/web/lighthouse-full/summary-*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: lighthouse-${{ matrix.form-factor }}
+          path: apps/web/lighthouse-full/${{ matrix.form-factor }}/
+
+  # Each page against the median of its last recorded runs on main (scripts/lighthouse-history.ts),
+  # in the run's summary; a regression or a bad result fails the job. The history is the
+  # lighthouse-history artifact: each run on main downloads the newest one, adds itself and uploads
+  # it again, so it lasts as long as runs on main come less than 90 days apart. Plain Node with
+  # nothing installed, so no package from npm runs while the job can read the repository's artifacts.
+  # A week Lighthouse skips, it only uploads the history again, so the artifact doesn't expire.
+  lighthouse-history:
+    name: Lighthouse history
+    needs: [changes, lighthouse]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The history artifact from an earlier run.
+      actions: read
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .node-version
+            apps/web/scripts/lighthouse-history.ts
+            apps/web/scripts/lib/lighthouse.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.lighthouse.result != 'skipped'
+        with:
+          pattern: lighthouse-summary-*
+          path: apps/web/lighthouse-full
+          merge-multiple: true
+      # Only from this workflow's own scheduled or hand-started runs on main in this repository,
+      # which a pull request (from a fork with a branch named main, say) can't start. Each is
+      # unpacked into an empty directory and only the history file is copied out, so an artifact
+      # can't put anything else in the checkout.
+      - name: Download the history so far
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UNPACK: ${{ runner.temp }}/lighthouse-history
+        run: |
+          runs=$(gh api "repos/$GH_REPO/actions/workflows/web-scheduled.yml/runs?branch=main&per_page=50" \
+            --jq '.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.id == .repository.id) | .id')
+          for run in $runs; do
+            rm -rf "$UNPACK"
+            if gh run download "$run" --name lighthouse-history --dir "$UNPACK" 2>/dev/null; then break; fi
+          done
+          if [ -f "$UNPACK/lighthouse-history.jsonl" ] && [ ! -L "$UNPACK/lighthouse-history.jsonl" ]; then
+            cp "$UNPACK/lighthouse-history.jsonl" lighthouse-history.jsonl
+          else
+            echo "::notice::No Lighthouse history yet: this run starts it."
+          fi
+      # Runs on other branches compare without recording, so main's history stays main's.
+      - name: Compare with the history
+        if: needs.lighthouse.result != 'skipped'
+        env:
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          args=(--markdown "$GITHUB_STEP_SUMMARY")
+          if [ "$IS_MAIN" = true ]; then args+=(--record); fi
+          node scripts/lighthouse-history.ts "${args[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && hashFiles('apps/web/lighthouse-history.jsonl') != '' }}
+        with:
+          name: lighthouse-history
+          path: apps/web/lighthouse-history.jsonl
+          retention-days: 90
+
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml).
+  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
   report:
-    needs: [e2e]
-    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    needs: [changes, e2e, lighthouse, lighthouse-history]
+    # A week the suites skip follows one that passed, so there's no issue to close.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.changes.outputs.run == 'true' }}
     permissions:
       actions: read
       issues: write
@@ -60,4 +225,5 @@ jobs:
       label: web
       details: >-
         The Playwright report, with each failed test's trace and screenshots, is the run's
-        playwright-report artifact.
+        playwright-report artifact. Lighthouse's regressions and bad results are in the run's
+        summary, and each page's reports in its lighthouse-mobile and lighthouse-desktop artifacts.

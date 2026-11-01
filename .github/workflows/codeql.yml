@@ -5,26 +5,17 @@ name: CodeQL
 # and suite but can't take a config file. Each language uploads under the category default setup
 # used, so its alerts carry over.
 #
-# Every pull request, with no paths filter: the "Protect Main" ruleset's code scanning rule waits
-# for an analysis of the pull request's commit, and CodeQL's own result is the check, so there's
-# no passed job. Each merge queue group too: the rule waits for an analysis of the group's commit
-# as well, and holds the group until it gets one (netresearch/.github#170 had every queued pull
-# request stuck on "Code scanning is still expecting 1 result from CodeQL"). Weekly too, for
-# queries added since the last push.
+# ci.yml calls it for every pull request into main, merge queue group and push to main but a
+# draft's, with every language whatever changed. The "Protect Main" ruleset's code scanning rule
+# holds a pull request or a merge queue group until its commit has a result in every category
+# main has (netresearch/.github#170 had every queued pull request stuck on "Code scanning is still
+# expecting 1 result from CodeQL", and so did #347 when only the languages that changed ran).
+# CodeQL's own result is that check. No weekly run: main gets pushes most days, and each analyses
+# with the queries of the action's pinned bundle.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  merge_group:
-  schedule:
-    - cron: "23 4 * * 1"
+  workflow_call:
 
 permissions: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 jobs:

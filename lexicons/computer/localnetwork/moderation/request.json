@@ -5,17 +5,18 @@
 		"main": {
 			"type": "record",
 			"key": "tid",
-			"description": "A request to create, claim, or change a project. Written by the requesting account into its own repo in the moderation space; only staff (through the app) can see it.",
+			"description": "A request to create, claim, or change a project, or to list a DJ in the directory. Written by the requesting account into its own repo in the moderation space; only staff (through the app) can see it.",
 			"record": {
 				"type": "object",
 				"required": ["kind", "createdAt"],
 				"properties": {
-					"kind": { "type": "string", "maxLength": 16, "knownValues": ["create", "claim", "update"] },
+					"kind": { "type": "string", "maxLength": 16, "knownValues": ["create", "claim", "update", "list"] },
 					"project": { "type": "string", "format": "at-uri" },
 					"baseRevision": { "type": "integer", "minimum": 1 },
 					"profile": { "type": "ref", "ref": "computer.localnetwork.defs#projectProfile" },
 					"details": { "type": "ref", "ref": "computer.localnetwork.defs#projectDetails" },
 					"claim": { "type": "ref", "ref": "#claim" },
+					"listing": { "type": "ref", "ref": "#listingSubject" },
 					"message": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 },
 					"onBehalfOf": {
 						"type": "string",
@@ -25,6 +26,23 @@
 					"withdrawnAt": { "type": "string", "format": "datetime" },
 					"createdAt": { "type": "string", "format": "datetime" },
 					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"listingSubject": {
+			"type": "object",
+			"description": "What a list request asks staff to list.",
+			"required": ["subject"],
+			"properties": {
+				"subject": {
+					"type": "string",
+					"format": "uri",
+					"description": "The profile or space to list, like the DJ's computer.localnetwork.profile record."
+				},
+				"cid": {
+					"type": "string",
+					"format": "cid",
+					"description": "The version of the profile the request was made with, when the subject is a record."
 				}
 			}
 		},

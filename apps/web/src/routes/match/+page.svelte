@@ -38,7 +38,10 @@
 	];
 </script>
 
-<svelte:head><title>Match a show · Local Network</title></svelte:head>
+<svelte:head>
+	<title>Match a show · Local Network</title>
+	<meta name="description" content="Describe your show and see which Local Network DJs fit it best, and why." />
+</svelte:head>
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<div class="flex flex-col gap-6">

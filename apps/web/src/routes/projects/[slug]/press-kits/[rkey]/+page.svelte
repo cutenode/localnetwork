@@ -2,16 +2,18 @@
 	import { ArrowLeft, Check, Copy, Printer, Quote } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
+	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
 	import EpkAccessCard from '#lib/components/epk/EpkAccessCard.svelte';
 	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import EpkPhotos from '#lib/components/epk/EpkPhotos.svelte';
 	import ManageLink from '#lib/components/ManageLink.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import { pressKitPath } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * A press kit published as records: the public part for everyone, and the rest for its project's managers and
@@ -34,6 +36,8 @@
 	const photos = $derived([...(record.photos ?? []), ...(content?.photos ?? []).map((photo) => ({ ...photo, onRequest: true }))]);
 
 	const isManager = $derived(data.access.kind === 'manager');
+
+	const hasDetails = $derived(!!data.details && Object.values(data.details).some(Boolean));
 
 	let copied = $state(false);
 
@@ -89,7 +93,7 @@
 		</section>
 		<aside aria-labelledby="epk-facts" class="flex min-w-0 flex-[1_1_15rem] flex-col gap-4">
 			<h2 id="epk-facts" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</aside>
 	</div>
 
@@ -134,7 +138,7 @@
 							<Quote class="mt-1 size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
 							<figure class="m-0 flex flex-col gap-1">
 								<blockquote class="m-0 text-lede text-fg-soft">{quote.text}</blockquote>
-								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={quote.url} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
+								<figcaption class="text-small text-fg-muted">{#if quote.url}<a class="link" href={webHref(quote.url)} rel="noopener noreferrer nofollow" target="_blank">{quote.source}</a>{:else}{quote.source}{/if}</figcaption>
 							</figure>
 						</li>
 					{/each}
@@ -151,7 +155,9 @@
 					{#if content.contact?.note}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Note</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.contact.note}</dd></div>{/if}
 					{#if content.techRider}<div class="sm:col-span-2"><dt class="eyebrow text-fg-subtle">Tech rider</dt><dd class="m-0 mt-1 whitespace-pre-line">{content.techRider}</dd></div>{/if}
 				</dl>
-			{:else}
+			{/if}
+			{#if hasDetails}<BookingDetails details={data.details} claimed={data.project.managers.length > 0} />{/if}
+			{#if !content.contact && !content.techRider && !hasDetails}
 				<p class="m-0 text-small text-fg-muted">No contact details in this press kit.{#if data.project.managers.length && !isManager}{' '}<a class="link" href="/dashboard/bookings/new?project={data.project.slug}">Send an inquiry</a> instead.{/if}</p>
 			{/if}
 		</section>

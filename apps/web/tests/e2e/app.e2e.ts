@@ -1,6 +1,7 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
+import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -28,20 +29,6 @@ function keepPdsCookies(page: Page) {
 }
 
 test.beforeEach(({ page }) => keepPdsCookies(page));
-
-/** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
-	await page.goto(`/login?next=${encodeURIComponent(next)}`);
-	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await page.locator('input[type="password"]').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('button', { name: 'Authorize' }).click();
-	const target = new URL(next, 'http://127.0.0.1:5199');
-	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
-	await page.waitForLoadState('networkidle');
-}
 
 /**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
@@ -103,7 +90,11 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
-		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expect(page.getByText('Contacts, rates and the tech rider come with a press kit.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'See the press kits' })).toHaveAttribute(
+			'href',
+			'/projects/halflight/press-kits'
+		);
 		await expectAccessible(page);
 	});
 
@@ -150,7 +141,7 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kits' }).click();
+		await page.getByRole('link', { name: 'Press kits', exact: true }).click();
 		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
@@ -297,6 +288,40 @@ test.describe('signed in', () => {
 		await page.goto('/projects/saffron-social');
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test('a DJ asks to be listed in Find DJs, staff list them, and they show up there', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/dashboard/profile');
+		await expect(page.getByRole('heading', { level: 1, name: 'Your profile' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Ask to be listed' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await signOut(page);
+
+		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests?kind=list');
+		await page.getByRole('link', { name: 'Listing: @neon.test' }).first().click();
+		await expect(page.getByRole('heading', { name: 'Profile to list' })).toBeVisible();
+		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
+		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Submit decision' }).click();
+		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
+
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon', exact: true })).toHaveAttribute('href', '/@neon.test');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toHaveCount(0);
+		await expectAccessible(page);
+
+		// Staff's Manage link on the profile goes to the listing, which takes them out again for the next browser's run.
+		await page.goto('/@neon.test');
+		await page.getByRole('link', { name: 'Manage' }).click();
+		await expect(page.getByText(/Listed in Find DJs since/)).toBeVisible();
+		await expectAccessible(page);
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.getByRole('button', { name: 'Take out of Find DJs' }).click();
+		await expect(page.getByText('Taken out of Find DJs')).toBeVisible();
+		await page.goto('/projects?q=neon');
+		await expect(page.getByRole('link', { name: 'Neon Tide', exact: true })).toBeVisible();
 	});
 
 	test("a project's manager goes from its public page to its dashboard, and others can't", async ({ page }) => {
@@ -669,9 +694,20 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
 		await expectAccessible(page);
 
-		// Signing out drops it, so the next person on this browser doesn't find it.
+		// Signing out drops it, so the next person on this browser doesn't find it, even when Sign out is
+		// pressed before the dashboard's scripts have run.
 		const inquiry = page.url();
-		await signOut(page);
+
+		const holdScripts = (route: Route) =>
+			route.request().resourceType() === 'script' ? route.abort() : route.fallback();
+
+		await page.route('**/*', holdScripts);
+		await page.goto('/dashboard');
+		await page.unroute('**/*', holdScripts);
+		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
+		await page.getByRole('button', { name: 'Sign out' }).click();
+		await page.waitForURL((url) => url.pathname === '/');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
 		expect(await page.evaluate(drafts)).toEqual([]);
 		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
