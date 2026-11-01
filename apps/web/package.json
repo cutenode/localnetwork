@@ -32,6 +32,7 @@
 		"test:build": "vitest run --project build",
 		"test:e2e": "playwright test",
 		"test:lighthouse": "pnpm build && lhci autorun",
+		"test:lighthouse:full": "pnpm build && tsx scripts/lighthouse.ts && node scripts/lighthouse-history.ts --record",
 		"lexicons:publish": "tsx scripts/publish-lexicons.ts",
 		"fixtures:mix": "tsx scripts/mix-fixture.ts",
 		"db:backup": "node scripts/db-backup.ts backup",

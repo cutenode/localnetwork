@@ -381,7 +381,15 @@ async function main() {
 	);
 
 	// The production build only reaches this network's loopback PDS and PLC with the SSRF guard off.
-	const production = { NODE_ENV: 'production', HOST: '127.0.0.1', ALLOW_PRIVATE_NETWORK: 'true' };
+	// adapter-node takes a request to be https unless PROTOCOL_HEADER's header says otherwise, so a
+	// form posted from http://127.0.0.1 (signing in) fails SvelteKit's CSRF check without
+	// `X-Forwarded-Proto: http`, which scripts/lighthouse.ts sends while it signs in.
+	const production = {
+		NODE_ENV: 'production',
+		HOST: '127.0.0.1',
+		PROTOCOL_HEADER: 'x-forwarded-proto',
+		ALLOW_PRIVATE_NETWORK: 'true'
+	};
 
 	const app = START_APP
 		? spawn(PRODUCTION ? process.execPath : 'pnpm', PRODUCTION ? ['build'] : ['exec', 'vite', 'dev'], {

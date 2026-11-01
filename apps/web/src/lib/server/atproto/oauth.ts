@@ -229,7 +229,9 @@ export class OAuthService {
 	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
 		this.client = new NodeOAuthClient({
 			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
-			allowHttp: deps.config.dev,
+			// An http PDS only lives on a private network, which ALLOW_PRIVATE_NETWORK already lets the
+			// production build reach (scripts/dev-network.ts --production, for Lighthouse's signed-in pages).
+			allowHttp: deps.config.dev || deps.config.allowPrivateNetwork,
 			plcDirectoryUrl: deps.config.plcUrl,
 			handleResolver: deps.config.handleResolverUrl,
 			requestLock: requestLocalLock,
