@@ -237,7 +237,7 @@ pub(crate) fn keep_identity(from: &OneLibrary, to: &OneLibrary) -> Result<()> {
 ///
 /// A drive with no `exportLibrary.db` has no name or colour to keep, and is left with none rather
 /// than the source's: a set stick packed from the main drive shouldn't show up on the players as
-/// the main drive (see [`no_name_note`]).
+/// the main drive (see `no_name_note`).
 pub fn stash(device: &mut Device, replaces: bool) -> Result<Option<DbIdentity>> {
     let kept = device.state().and_then(|s| s.pending.as_ref()).and_then(|p| p.player.clone());
     if kept.is_some() || !replaces {

@@ -5,7 +5,7 @@
 //! files, removed tracks' files), so restoring one undoes the change (`locallibrary undo`): files
 //! that were added stay on the drive but are no longer referenced. A backup also carries the
 //! drive's journal of edits (see [`crate::edit::journal`]) and the player name and colour it
-//! remembers ([`Carried`]), and restoring one puts those back as they were: `edits replay` then
+//! remembers (`Carried`), and restoring one puts those back as they were: `edits replay` then
 //! makes again exactly the edits the restored library had, also after an undo is redone. Restoring
 //! a backup an earlier version took, which carries neither, takes the edits it undoes off the
 //! journal instead.
