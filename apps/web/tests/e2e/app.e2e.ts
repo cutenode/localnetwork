@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
 import { expectAccessible } from './axe.ts';
@@ -53,6 +53,26 @@ async function signOut(page: Page) {
 	await page.waitForURL((url) => url.pathname === '/');
 }
 
+/**
+ * Opens `path` with its scripts held back and runs `act` on the server-rendered page, as someone on a slow
+ * connection can, then lets the page hydrate.
+ */
+async function beforeHydration(page: Page, path: string, act: () => Promise<void>) {
+	const { promise: released, resolve: release } = Promise.withResolvers<void>();
+
+	const holdScripts = async (route: Route) => {
+		if (route.request().resourceType() === 'script') await released;
+		await route.fallback();
+	};
+
+	await page.route('**/*', holdScripts);
+	await page.goto(path);
+	await act();
+	release();
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+	await page.unroute('**/*', holdScripts);
+}
+
 test.describe('public pages', () => {
 	test('home page lists seeded projects and links to search', async ({ page }) => {
 		await page.goto('/');
@@ -85,6 +105,17 @@ test.describe('public pages', () => {
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
 		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test('directory filters opened before the page hydrates stay open', async ({ page }) => {
+		await beforeHydration(page, '/projects', async () => {
+			// A phone folds the whole panel away first.
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await page.locator('summary', { hasText: 'More filters' }).click();
+		});
+		await expect(page.getByRole('group', { name: 'Format' })).toBeVisible();
 	});
 
 	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
@@ -165,9 +196,15 @@ test.describe('public pages', () => {
 	});
 
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
-		await page.goto('/projects/neon-tide');
-		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
-		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		// The sets render with the page once the server has them cached (otherwise they stream in after it
+		// hydrates), and a tracklist opened before the page hydrates stays open.
+		await page.request.get('/projects/neon-tide');
+		await beforeHydration(page, '/projects/neon-tide', () =>
+			page.locator('summary', { hasText: 'Tracklist' }).first().click()
+		);
+		const artist = page.getByRole('link', { name: 'Kestrel Unit' }).first();
+		await expect(artist).toBeVisible();
+		await artist.click();
 		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
 		await expectAccessible(page);
