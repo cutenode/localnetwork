@@ -3,6 +3,7 @@
 	import type { Snippet } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { type EpkFormValues, photoSize, pressChecks, type Visibility } from '#lib/epk.ts';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { control } from '#lib/ui/Field.svelte';
 	import TextField from '#lib/ui/TextField.svelte';
 	import AccessMatrix from './AccessMatrix.svelte';
@@ -37,8 +38,16 @@
 		{ value: 'hidden', label: 'Not shown' }
 	];
 
-	/** The extra mixes on file, then two empty rows to add more. */
-	const extraRows = $derived([...values.extraMixes, undefined, undefined]);
+	const emptyMix = (): EpkFormValues['extraMixes'][number] => ({ title: '', url: '', visibility: 'private' });
+
+	const fields = $derived(
+		formFields({
+			...values,
+			// The extra mixes on file, then two empty rows to add more.
+			extraMixes: [...values.extraMixes, emptyMix(), emptyMix()],
+			quotes: Array.from({ length: 5 }, (_, index) => values.quotes[index] ?? { text: '', source: '' })
+		})
+	);
 
 	const checks = $derived(pressChecks(values.photos.filter((photo) => photo.visibility !== 'hidden')));
 
@@ -66,7 +75,7 @@
 		<TextField id="headline" name="headline" label="Headline" hint="One line under your name." maxlength={300} value={values.headline} />
 		<div class="flex flex-col gap-1.5">
 			<label for="bio" class="text-label font-medium text-fg-soft">Short bio</label>
-			<textarea id="bio" name="bio" rows="4" maxlength="1000" class={control} aria-describedby="bio-hint">{values.bio}</textarea>
+			<textarea id="bio" name="bio" rows="4" maxlength="1000" class={control} aria-describedby="bio-hint" bind:value={fields.bio}></textarea>
 			<p id="bio-hint" class="m-0 text-label text-fg-subtle">Five or six sentences anyone can read. Keep it current and plain; promoters skip hype.</p>
 		</div>
 	</section>
@@ -78,13 +87,13 @@
 		{#if values.mixes.length}
 			<p class="m-0 text-small text-fg-muted">Promoters judge you on your mixes first. Pick which ones anyone can play, and keep promos for people you let in.</p>
 			<ul class="m-0 flex list-none flex-col p-0">
-				{#each values.mixes as mix (mix.url)}
+				{#each fields.mixes as mix (mix.url)}
 					<li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line py-3 last:border-b">
 						<span class="min-w-0 text-small font-semibold">{mix.title}</span>
 						<fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">
 							<legend class="sr-only">Who can play {mix.title}</legend>
 							{#each PLACES as place (place.value)}
-								<label class="chip-toggle"><input type="radio" class="sr-only" name="mixVisibility.{mix.url}" value={place.value} checked={mix.visibility === place.value} />{place.label}</label>
+								<label class="chip-toggle"><input type="radio" class="sr-only" name="mixVisibility.{mix.url}" value={place.value} bind:group={mix.visibility} />{place.label}</label>
 							{/each}
 						</fieldset>
 					</li>
@@ -96,14 +105,14 @@
 		<fieldset class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
 			<legend class="mb-1 text-label font-medium text-fg-soft">Mixes only in this press kit</legend>
 			<p class="m-0 text-label text-fg-subtle">Like an unreleased promo. They aren't added to your profile.</p>
-			{#each extraRows as mix, index (index)}
+			{#each fields.extraMixes as mix, index (index)}
 				<div class="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
-					<input name="extraMixTitle" aria-label="Extra mix {index + 1} name" placeholder="Name" maxlength="120" value={mix?.title ?? ''} class={control} />
-					<input name="extraMixUrl" type="url" aria-label="Extra mix {index + 1} address" placeholder="https://" value={mix?.url ?? ''} class={control} />
+					<input name="extraMixTitle" aria-label="Extra mix {index + 1} name" placeholder="Name" maxlength="120" bind:value={mix.title} class={control} />
+					<input name="extraMixUrl" type="url" aria-label="Extra mix {index + 1} address" placeholder="https://" bind:value={mix.url} class={control} />
 					<fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">
 						<legend class="sr-only">Who can play extra mix {index + 1}</legend>
 						{#each PLACES as place (place.value)}
-							<label class="chip-toggle"><input type="radio" class="sr-only" name="extraMixVisibility.{index}" value={place.value} checked={(mix?.visibility ?? 'private') === place.value} />{place.value === 'hidden' ? 'Remove' : place.label}</label>
+							<label class="chip-toggle"><input type="radio" class="sr-only" name="extraMixVisibility.{index}" value={place.value} bind:group={mix.visibility} />{place.value === 'hidden' ? 'Remove' : place.label}</label>
 						{/each}
 					</fieldset>
 				</div>
@@ -125,7 +134,7 @@
 		</ul>
 		{#if values.photos.length}
 			<ul class="m-0 grid list-none gap-4 p-0 sm:grid-cols-2">
-				{#each values.photos as photo, index (photo.cid)}
+				{#each fields.photos as photo, index (photo.cid)}
 					<li class="card flex flex-col gap-3 p-3">
 						<input type="hidden" name="photoCid" value={photo.cid} />
 						{#if photoBase}<img src="{photoBase}/{photo.cid}" alt={photo.alt} class="aspect-[4/3] w-full rounded-lg bg-raised object-cover" />{/if}
@@ -135,7 +144,7 @@
 						<fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">
 							<legend class="sr-only">Who sees photo {index + 1}</legend>
 							{#each PLACES as place (place.value)}
-								<label class="chip-toggle"><input type="radio" class="sr-only" name="photoVisibility.{index}" value={place.value} checked={photo.visibility === place.value} />{place.value === 'hidden' ? 'Remove' : place.label}</label>
+								<label class="chip-toggle"><input type="radio" class="sr-only" name="photoVisibility.{index}" value={place.value} bind:group={photo.visibility} />{place.value === 'hidden' ? 'Remove' : place.label}</label>
 							{/each}
 						</fieldset>
 						<TextField id="photo-alt-{index}" name="photoAlt" label="Description" maxlength={1000} value={photo.alt} />
@@ -166,15 +175,15 @@
 		</div>
 		<div class="flex flex-col gap-1.5">
 			<label for="longBio" class="text-label font-medium text-fg-soft">Full bio</label>
-			<textarea id="longBio" name="longBio" rows="8" maxlength="5000" class={control}>{values.longBio}</textarea>
+			<textarea id="longBio" name="longBio" rows="8" maxlength="5000" class={control} bind:value={fields.longBio}></textarea>
 		</div>
 		<fieldset class="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
 			<legend class="mb-1 text-label font-medium text-fg-soft">Press quotes</legend>
-			{#each Array.from({ length: 5 }, (_, index) => values.quotes[index]) as quote, index (index)}
+			{#each fields.quotes as quote, index (index)}
 				<div class="grid gap-2 sm:grid-cols-[2fr_1fr_1fr]">
-					<input name="quoteText" aria-label="Quote {index + 1}" placeholder="What they said" maxlength="500" value={quote?.text ?? ''} class={control} />
-					<input name="quoteSource" aria-label="Who said quote {index + 1}" placeholder="Who said it" maxlength="200" value={quote?.source ?? ''} class={control} />
-					<input name="quoteUrl" type="url" aria-label="Link for quote {index + 1}" placeholder="https://" value={quote?.url ?? ''} class={control} />
+					<input name="quoteText" aria-label="Quote {index + 1}" placeholder="What they said" maxlength="500" bind:value={quote.text} class={control} />
+					<input name="quoteSource" aria-label="Who said quote {index + 1}" placeholder="Who said it" maxlength="200" bind:value={quote.source} class={control} />
+					<input name="quoteUrl" type="url" aria-label="Link for quote {index + 1}" placeholder="https://" bind:value={quote.url} class={control} />
 				</div>
 			{/each}
 		</fieldset>
@@ -185,7 +194,7 @@
 		<TextField id="contactNote" name="contactNote" label="Contact note" hint="Like who to ask for, or when you reply." maxlength={500} value={values.contactNote} />
 		<div class="flex flex-col gap-1.5">
 			<label for="techRider" class="text-label font-medium text-fg-soft">Tech rider</label>
-			<textarea id="techRider" name="techRider" rows="4" maxlength="2000" class={control}>{values.techRider}</textarea>
+			<textarea id="techRider" name="techRider" rows="4" maxlength="2000" class={control} bind:value={fields.techRider}></textarea>
 		</div>
 	</section>
 

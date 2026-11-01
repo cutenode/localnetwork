@@ -5,6 +5,7 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { placeLabel } from '#lib/format.ts';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
@@ -19,6 +20,8 @@
 
 	// A restored draft, then what a failed send echoes, then the planner show's details or the defaults.
 	const v: Record<string, string> = $derived(draft.values ?? form?.values ?? data.values);
+
+	const fields = $derived(formFields(v));
 </script>
 
 <svelte:head><title>Inquire with {data.project.profile.name} · Local Network</title></svelte:head>
@@ -51,20 +54,20 @@
 		{#key draft.revision}
 			<div>
 				<label class="label" for="title">Show name</label>
-				<input id="title" name="title" class="input" required maxlength="120" value={v.title ?? ''} placeholder="Saturday Social at The Lot" />
+				<input id="title" name="title" class="input" required maxlength="120" bind:value={fields.title} placeholder="Saturday Social at The Lot" />
 			</div>
 			<div class="grid gap-4 sm:grid-cols-3">
-				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" value={v.date ?? ''} /></div>
-				<div><label class="label" for="time">Set time</label><input id="time" type="time" name="time" class="input" value={v.time ?? ''} /></div>
-				<div><label class="label" for="setMinutes">Set length (min)</label><input id="setMinutes" type="number" min="15" max="720" name="setMinutes" class="input" value={v.setMinutes ?? ''} /></div>
+				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" bind:value={fields.date} /></div>
+				<div><label class="label" for="time">Set time</label><input id="time" type="time" name="time" class="input" bind:value={fields.time} /></div>
+				<div><label class="label" for="setMinutes">Set length (min)</label><input id="setMinutes" type="number" min="15" max="720" name="setMinutes" class="input" bind:value={fields.setMinutes} /></div>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
-				<div><label class="label" for="venue">Venue</label><input id="venue" name="venue" class="input" value={v.venue ?? ''} /></div>
-				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" min="1" name="capacity" class="input" value={v.capacity ?? ''} /></div>
+				<div><label class="label" for="venue">Venue</label><input id="venue" name="venue" class="input" bind:value={fields.venue} /></div>
+				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" min="1" name="capacity" class="input" bind:value={fields.capacity} /></div>
 			</div>
 			<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-				<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" value={v.budgetAmount ?? ''} /></div>
-				<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input font-mono uppercase" maxlength="3" value={v.currency ?? ''} /></div>
+				<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" bind:value={fields.budgetAmount} /></div>
+				<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input font-mono uppercase" maxlength="3" bind:value={fields.currency} /></div>
 				<div>
 					<label class="label" for="budgetTier">Tier</label>
 					<select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v.budgetTier === option.value}>{option.label}</option>{/each}</select>
@@ -77,7 +80,7 @@
 			<div><label class="label" for="genres">Sound of the night</label><GenreInput value={v.genres ?? ''} /></div>
 			<div>
 				<label class="label" for="message">Message</label>
-				<textarea id="message" name="message" class="input min-h-36" required maxlength="2000" placeholder="Tell them about the night, the crowd, and what you'd like from them.">{v.message ?? ''}</textarea>
+				<textarea id="message" name="message" class="input min-h-36" required maxlength="2000" placeholder="Tell them about the night, the crowd, and what you'd like from them." bind:value={fields.message}></textarea>
 			</div>
 		{/key}
 		<div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

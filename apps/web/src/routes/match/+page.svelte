@@ -9,6 +9,7 @@
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import ScoreBar from '#lib/components/ScoreBar.svelte';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { feeSummary, kindLabel, placeLabel } from '#lib/format.ts';
 	import type { MatchBreakdown } from '#lib/matching.ts';
 	import { FEE_TIERS, FORMATS, SET_TYPES } from '#lib/taxonomy/options.ts';
@@ -21,6 +22,8 @@
 	let { data, form }: PageProps = $props();
 
 	const c = $derived(data.criteria);
+
+	const fields = $derived(formFields(c));
 
 	let selected = $state<string[]>([]);
 
@@ -52,16 +55,16 @@
 			<h2 class="m-0 text-emphasis font-semibold">Your show</h2>
 			<div>
 				<label class="label" for="title">Show name <span class="font-normal text-fg-subtle">(optional)</span></label>
-				<input id="title" name="title" class="input" value={c.title} maxlength="120" />
+				<input id="title" name="title" class="input" bind:value={fields.title} maxlength="120" />
 			</div>
 			<div class="grid grid-cols-2 gap-3">
 				<div class="min-w-0">
 					<label class="label" for="date">Date</label>
-					<input id="date" type="date" name="date" class="input" value={c.date} />
+					<input id="date" type="date" name="date" class="input" bind:value={fields.date} />
 				</div>
 				<div class="min-w-0">
 					<label class="label" for="capacity">Capacity</label>
-					<input id="capacity" type="number" min="1" name="capacity" class="input" value={c.capacity ?? ''} placeholder="300" />
+					<input id="capacity" type="number" min="1" name="capacity" class="input" bind:value={fields.capacity} placeholder="300" />
 				</div>
 			</div>
 			<div>
@@ -98,7 +101,7 @@
 				<legend class="label">Booth setup</legend>
 				<div class="flex flex-wrap gap-1.5">
 					{#each FORMATS as option (option.value)}
-						<label class="chip-toggle"><input type="checkbox" class="sr-only" name="format" value={option.value} checked={c.formats.includes(option.value)} />{option.label}</label>
+						<label class="chip-toggle"><input type="checkbox" class="sr-only" name="format" value={option.value} bind:group={fields.formats} />{option.label}</label>
 					{/each}
 				</div>
 			</fieldset>
