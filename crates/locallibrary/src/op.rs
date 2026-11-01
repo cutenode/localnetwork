@@ -210,7 +210,17 @@ impl Touched {
 
     /// Whether it changed since it was measured.
     pub fn changed(&self) -> bool {
-        measure(&self.root, &self.probes, None) != self.state
+        self.measured() != self.state
+    }
+
+    /// Its state as the plan was made.
+    pub(crate) fn planned_state(&self) -> Hash {
+        self.state
+    }
+
+    /// Its state now, measured as when the plan was made.
+    pub(crate) fn measured(&self) -> Hash {
+        measure(&self.root, &self.probes, None)
     }
 
     /// The drive, opened again (refused if it's gone).

@@ -340,8 +340,8 @@ impl Plugins {
             None if book.accounts.iter().any(|k| k.plugin == with) => params.extend(t.another_account.clone()),
             None => {}
         }
-        let given =
-            for_plugin.map(|plugin| Ok::<_, Error>((plugin.to_string(), self.slot(plugin)?.given(kind, scopes)?)));
+        let given = for_plugin
+            .map(|plugin| Ok::<_, Error>((plugin.to_string(), self.slot(plugin)?.scopes_given(kind, scopes)?)));
         let given = given.transpose()?;
         for name in scopes.iter().chain(given.iter().flat_map(|(_, given)| given)) {
             let scope = t.scopes.get(name);

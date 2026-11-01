@@ -3,7 +3,7 @@ use crate::common::{self, path};
 use std::fs;
 use std::path::Path;
 
-use locallibrary::api::{self, DiffRequest, RestoreBackup};
+use locallibrary::api::{self, DiffRequest, LabelRequest, RestoreBackup, SnapshotLibraryRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions};
 use locallibrary::progress::Ctx;
@@ -83,6 +83,40 @@ fn a_drive_against_a_snapshot() {
     let by_name = api::diff(Some(&store), &req("Club library".into(), path(&a), None)).unwrap();
     assert_eq!(by_name.left, d.left);
     assert!(matches!(api::diff(None, &req(spec, path(&a), None)), Err(Error::Invalid(_))));
+}
+
+/// A snapshot's library is the drive's as it was then, whatever the drive has since: the whole
+/// library, or its tracks a page at a time as `drive.library` pages them, the snapshot named by an
+/// id prefix (with or without `snapshot:`) or a label.
+#[test]
+fn a_snapshot_s_library_is_the_drive_s_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    let then = locallibrary::pdb::read_library(&a.join(paths::EXPORT_PDB)).unwrap();
+    let mut d = Device::open_export(&a).unwrap();
+    let snap = sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    set_entries(&a, aab(&a), &[1]);
+    let label = LabelRequest { label: "gig".into(), snapshot: Some(snap.short_id.clone()), remove: false };
+    api::snapshot_label(&store, &label).unwrap();
+    let read = |snapshot: &str, offset, limit| {
+        api::snapshot_library(&store, &SnapshotLibraryRequest { snapshot: snapshot.into(), offset, limit })
+    };
+
+    let ids = |tracks: &[locallibrary::model::Track]| tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    for spec in [&snap.short_id[..6], &format!("snapshot:{}", snap.short_id), "GIG"] {
+        let whole = read(spec, None, None).unwrap();
+        assert!(whole.page.is_none(), "{spec}");
+        assert_eq!(ids(&whole.library.tracks), ids(&then.tracks), "{spec}");
+        let playlist = whole.library.find_playlist("aab").unwrap();
+        assert_eq!(playlist.track_ids, then.find_playlist("aab").unwrap().track_ids, "{spec}: not the drive's now");
+    }
+    let page = read(&snap.short_id, Some(2), Some(3)).unwrap();
+    let p = page.page.unwrap();
+    assert_eq!((p.offset, p.count, p.total), (2, 3, then.tracks.len()));
+    assert_eq!(ids(&page.library.tracks), ids(&then.tracks[2..5]));
+    assert_eq!(page.summary.tracks, then.tracks.len());
+    assert!(matches!(read("ffffffff", None, None), Err(Error::NotFound(_))));
 }
 
 #[test]

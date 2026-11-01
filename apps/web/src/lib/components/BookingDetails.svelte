@@ -2,17 +2,17 @@
 	import type { ProjectDetails } from '#lib/types.ts';
 
 	/**
-	 * A project's private booking details, for signed-in members: contacts, rates, the tech rider
-	 * and hospitality. Signed out, a prompt to sign in; with nothing on file, a way to reach the
-	 * managers instead.
+	 * A project's private booking details: contacts, rates, the tech rider and hospitality. `details` is null for anyone
+	 * who isn't a manager, staff, or reading one of the project's press kits with access, since every other look at them
+	 * goes through a press kit, which records it. With nothing on file, a way to reach the managers instead.
 	 */
-	let { details, signedIn, claimed, loginHref }: { details: ProjectDetails | null; signedIn: boolean; claimed: boolean; loginHref: string } = $props();
+	let { details, claimed, kitsHref }: { details: ProjectDetails | null; claimed: boolean; kitsHref?: string } = $props();
 
 	const filled = $derived(details && Object.values(details).some(Boolean) ? details : null);
 </script>
 
-{#if !signedIn}
-	<p class="m-0 text-small text-fg-muted"><a class="link" href={loginHref}>Sign in</a> to see booking contacts, rates and the tech rider.</p>
+{#if !details}
+	<p class="m-0 text-small text-fg-muted">Contacts, rates and the tech rider come with a press kit.{#if kitsHref}{' '}<a class="link" href={kitsHref}>See the press kits</a>{/if}</p>
 {:else if filled}
 	<dl class="m-0 grid gap-4 text-small sm:grid-cols-2">
 		{#if filled.bookingEmail}<div><dt class="eyebrow text-fg-subtle">Booking email</dt><dd class="m-0 mt-1"><a class="link" href="mailto:{filled.bookingEmail}">{filled.bookingEmail}</a></dd></div>{/if}

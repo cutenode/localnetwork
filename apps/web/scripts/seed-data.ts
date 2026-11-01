@@ -1,4 +1,4 @@
-import type { ProjectProfile } from '../src/lib/types.ts';
+import type { ProfileRecord, ProjectProfile } from '../src/lib/types.ts';
 
 const at = (lat: number, lng: number) => ({ latE6: Math.round(lat * 1e6), lngE6: Math.round(lng * 1e6) });
 
@@ -280,6 +280,34 @@ const TRACK = {
 		recordingMbId: 'mbid:e2d6b7a0-8c4f-4e19-9b3d-6f05a1c7d8e2',
 		bpmCentis: 12700,
 		key: '9A'
+	}
+};
+
+/** neon.test's Local Network profile, with the performer and promoter sections on. */
+export const DEMO_PROFILE: Omit<ProfileRecord, 'createdAt' | 'updatedAt'> = {
+	basics: {
+		name: 'Neon',
+		bio: 'Plays long techno sets in Berlin, and runs a monthly warehouse night with friends.',
+		pronouns: 'they/them',
+		location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.52, 13.405) },
+		links: [{ kind: 'soundcloud', url: 'https://soundcloud.com/example-neon' }]
+	},
+	performer: {
+		tagline: 'Hypnotic techno for the last hours of the night',
+		genres: ['techno', 'dub techno'],
+		formats: ['vinyl', 'cdj'],
+		setTypes: ['peak', 'closing'],
+		setLength: { minMinutes: 120, maxMinutes: 360 },
+		fees: [{ label: 'Club nights', tier: 'established', currency: 'EUR', minAmount: 500, maxAmount: 1200 }],
+		travel: { radiusKm: 600, international: true },
+		highlights: ['Four-year residency at Halle Nord'],
+		activeSince: 2014
+	},
+	promoter: {
+		cities: [
+			{ city: 'Berlin', country: 'DE' },
+			{ city: 'Leipzig', country: 'DE' }
+		]
 	}
 };
 

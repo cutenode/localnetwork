@@ -32,6 +32,7 @@ fn rekordbox_cues_map_to_pads_and_loop_slots() {
         color,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let m = Markers::from_rekordbox(
         Some(TrackColor::Red),
@@ -62,6 +63,7 @@ fn loops_past_the_eighth_slot_are_left_out() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let m = Markers::from_rekordbox(None, &(0..9).map(memory_loop).collect::<Vec<_>>());
     assert_eq!(m.loops.iter().map(|l| l.0).collect::<Vec<_>>(), (0..8).collect::<Vec<u8>>());

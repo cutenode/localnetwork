@@ -132,6 +132,25 @@ impl Sidecar {
         }
     }
 
+    /// The next `serve` notification about the request `id`: its event. Other messages are kept
+    /// for later.
+    #[cfg(feature = "peers")]
+    fn served(&mut self, id: i64) -> Value {
+        let matches = |m: &Value| m["method"] == "serve" && m["params"]["id"] == id;
+        if let Some(i) = self.unclaimed.iter().position(matches) {
+            return self.unclaimed.remove(i)["params"]["event"].take();
+        }
+        loop {
+            let mut msg = self.next();
+            if matches(&msg) {
+                return msg["params"]["event"].take();
+            }
+            if msg["method"] != "progress" {
+                self.unclaimed.push(msg);
+            }
+        }
+    }
+
     /// Forgets the events not asked for.
     fn drop_events(&mut self) {
         self.unclaimed.retain(|m| m["method"] != "event");
@@ -263,6 +282,10 @@ fn initialize_says_whether_the_account_is_there() {
     let has = |list: &Value, x: &str| list.as_array().unwrap().contains(&json!(x));
     let built_with = cfg!(feature = "account");
     assert_eq!(has(&v["capabilities"], "account"), built_with, "{v}");
+    for m in ["store.serve", "store.fetch"] {
+        assert_eq!(has(&v["methods"], m), cfg!(feature = "peers"), "{m}");
+    }
+    assert_eq!(has(&v["capabilities"], "peers"), cfg!(feature = "peers"), "{v}");
     for m in ["account.status", "account.login.begin", "profile.publish.plan", "settings.import_published.apply"] {
         assert_eq!(has(&v["methods"], m), built_with, "{m}");
     }
@@ -578,6 +601,47 @@ fn events_say_what_drives_the_store_and_requests_do() {
     assert_eq!(s.call(10, "events.unsubscribe", json!({}))["result"]["unsubscribed"], false);
     s.drop_events();
     assert!(s.exit().success());
+}
+
+/// `store.serve` gives its code in a `serve` notification and serves until it's cancelled, then
+/// says how much went; another computer's `store.fetch` copies the snapshots its store lacks, as
+/// `store serve` and `store fetch` do.
+#[cfg(feature = "peers")]
+#[test]
+fn a_store_is_served_and_fetched_through_the_sidecar() {
+    let mut laptop = Sidecar::start();
+    let main = demo_drive(laptop.root(), "Main");
+    let pulled = laptop.call(1, "pull", json!({ "drive": main, "library": "Main", "new_library": true }));
+    assert!(pulled["result"]["snapshot"].is_object(), "{pulled}");
+    laptop.send(2, "store.serve", json!({ "local_only": true }));
+    let ready = laptop.served(2);
+    assert_eq!(ready["event"], "ready", "{ready}");
+    let code = ready["code"].clone();
+
+    let mut studio = Sidecar::start();
+    let dry = studio.call(1, "store.fetch", json!({ "code": code, "local_only": true, "dry_run": true }));
+    assert_eq!((&dry["result"]["snapshots"], &dry["result"]["dry_run"]), (&json!(1), &json!(true)), "{dry}");
+    assert!(studio.call(2, "library.list", json!({}))["result"].as_array().unwrap().is_empty());
+    let fetched = studio.call(3, "store.fetch", json!({ "code": code, "local_only": true }));
+    let library = &fetched["result"]["libraries"][0];
+    assert_eq!((&library["name"], &library["outcome"]), (&json!("Main"), &json!("added")), "{fetched}");
+    assert_eq!(studio.call(4, "library.list", json!({}))["result"][0]["name"], "Main");
+    let wrong = studio.call(5, "store.fetch", json!({ "code": "not-a-code" }));
+    assert_eq!(kind(&wrong), "invalid", "{wrong}");
+
+    // Each fetch connected, and was done once it had what it came for.
+    let events: Vec<Value> = (0..4).map(|_| laptop.served(2)["event"].clone()).collect();
+    let count = |e: &str| events.iter().filter(|x| *x == e).count();
+    assert_eq!((count("connected"), count("done")), (2, 2), "{events:?}");
+    assert_eq!(laptop.call(3, "$/cancel", json!({ "id": 2 }))["result"]["cancelled"], true);
+    let report = laptop.reply_to(2);
+    assert_eq!(report["result"]["peers"], 2, "{report}");
+    assert!(report["result"]["files"].as_u64().unwrap() > 0, "{report}");
+    // Serving stops when the front end goes away, where the sidecar would wait for it forever.
+    laptop.send(4, "store.serve", json!({ "local_only": true }));
+    assert_eq!(laptop.served(4)["event"], "ready");
+    assert!(laptop.exit().success());
+    assert!(studio.exit().success());
 }
 
 #[test]

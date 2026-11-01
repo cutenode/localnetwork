@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { SlidersHorizontal } from '@lucide/svelte';
+	import { browser } from '$app/env';
 	import { page } from '$app/state';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import FindDjsSwitch from '#lib/components/FindDjsSwitch.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
 	import { pluralize } from '#lib/format.ts';
+	import { djSummary, projectSummary } from '#lib/performers.ts';
 	import { FEE_TIERS, FORMATS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
@@ -22,9 +24,21 @@
 		[f.q, f.lat, f.country, f.unclaimed].filter(Boolean).length +
 			[f.genres, f.kinds, f.formats, f.setTypes, f.feeTiers].reduce((sum, list) => sum + list.length, 0)
 	);
+
+	/** "More filters" is open while one of them is on. */
+	let moreFiltersOpen = $derived(f.kinds.length > 0 || f.formats.length > 0 || !!f.country || f.unclaimed);
+
+	// Hydrating sets `open` from the line above, which would close "More filters" if someone opened it before the
+	// script ran. Start from what the server-rendered page shows instead (absent when this page wasn't server-rendered).
+	const rendered = browser ? document.querySelector<HTMLDetailsElement>('#more-filters') : null;
+
+	if (rendered) moreFiltersOpen = rendered.open;
 </script>
 
-<svelte:head><title>Find DJs · Local Network</title></svelte:head>
+<svelte:head>
+	<title>Find DJs · Local Network</title>
+	<meta name="description" content="Search Local Network's DJs by sound, place, fee and slot." />
+</svelte:head>
 
 {#snippet chips(name: string, options: readonly { value: string; label: string; hint?: string }[], checked: string[])}
 	<div class="flex flex-wrap gap-1.5">
@@ -76,7 +90,7 @@
 					<legend class="label">Slot</legend>
 					{@render chips('setType', SET_TYPES, f.setTypes)}
 				</fieldset>
-				<details open={f.kinds.length > 0 || f.formats.length > 0 || !!f.country || f.unclaimed}>
+				<details id="more-filters" open={moreFiltersOpen}>
 					<summary class="cursor-pointer text-small font-semibold text-fg-soft">More filters</summary>
 					<div class="mt-4 flex flex-col gap-5">
 						<fieldset class="m-0 border-0 p-0">
@@ -126,7 +140,9 @@
 					</EmptyState>
 				{:else}
 					<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4 p-0">
-						{#each data.result.items as project (project.uri)}<li class="min-w-0"><ProjectCard {project} /></li>{/each}
+						{#each data.result.items as item (item.kind === 'project' ? item.project.uri : item.dj.profile.uri)}
+							<li class="min-w-0"><PerformerCard performer={item.kind === 'project' ? projectSummary(item.project) : djSummary(item.dj)} /></li>
+						{/each}
 					</ul>
 					<Pagination page={data.result.page} pageSize={data.result.pageSize} total={data.result.total} />
 				{/if}

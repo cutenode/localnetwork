@@ -60,8 +60,9 @@ beforeAll(async () => {
 		return [...keys].map((each) => chunks[each].file);
 	};
 
-	// Node 0 is the root layout, which every page renders.
-	initialLoad = new Set([...manifest.client.imports, ...nodeScripts(0)]);
+	// Node 0 is the root layout, which every page renders, and node 1 the root error page, which the
+	// client loads on every page before it hydrates.
+	initialLoad = new Set([...manifest.client.imports, ...nodeScripts(0), ...nodeScripts(1)]);
 
 	routes = manifest.routes.flatMap(({ id, page }) => {
 		if (!page) return [];
@@ -92,8 +93,8 @@ it('ships no sourcemaps to the browser', () => {
 // that needs more than that is worth deciding on, not finding here later.
 
 it('keeps what every page loads within its budget', () => {
-	// The entry and the root layout with everything they import: SvelteKit's and Svelte's runtimes,
-	// devalue, and the small components pages share (vite.config.ts). About 172 KiB.
+	// The entry, the root layout and the root error page with everything they import: SvelteKit's and
+	// Svelte's runtimes, devalue, and the small components pages share (vite.config.ts). About 179 KiB.
 	expect(size(initialLoad)).toBeLessThan(180 * 1024);
 });
 

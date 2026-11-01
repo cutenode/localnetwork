@@ -30,6 +30,7 @@ use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::cue_edit::CueChange;
 use crate::device::{Device, LineageOp};
 use crate::error::{Action, Reason};
+use crate::fields::TrackValues;
 use crate::fsutil;
 use crate::harmony;
 use crate::hash::Hash;
@@ -38,7 +39,7 @@ use crate::onelibrary::{OneLibrary, Tree};
 use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
-use crate::query::{self, DriveContext, TrackSelector};
+use crate::query::{self, DriveContext, Filter, TrackSelector};
 use crate::tags::TagChange;
 use crate::{Error, Result};
 
@@ -1425,6 +1426,18 @@ impl<'a> Resolver<'a> {
         kept
     }
 
+    /// Says so when `sel`'s filter names a plugin's field no track here has a value of (none was
+    /// analyzed for it): the filter selects none of the tracks by it.
+    fn note_unanalyzed(&self, sel: &TrackSelector) {
+        let Some(values) = self.extra.fields() else { return };
+        let Some(filter) = sel.filter.as_deref().and_then(|f| Filter::parse(f).ok()) else { return };
+        for name in filter.fields().into_iter().filter(|name| values.declared.contains_key(*name)) {
+            if !values.tracks.values().any(|fields| fields.contains_key(name)) {
+                self.note(format!("no track here has a value for {name}: analyze the tracks first"));
+            }
+        }
+    }
+
     fn keys(lib: &Library, ids: &[u32]) -> Vec<String> {
         lib.tracks_by_id(ids).into_iter().map(|t| paths::file_key(&t.file_path)).collect()
     }
@@ -1434,6 +1447,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn select(&self, lib: &Library, sel: &TrackSelector, allow_empty: bool) -> Result<Vec<u32>> {
+        self.note_unanalyzed(sel);
         let ctx = self.extra.query(lib);
         if self.lenient && !sel.paths.is_empty() {
             let paths = self.present(lib, &sel.paths, "the edit selects");
@@ -1607,7 +1621,7 @@ impl<'a> Resolver<'a> {
                 let p = list(spec)?;
                 let mut add = self.select(lib, tracks, false)?;
                 if let Some(s) = sort {
-                    add = sorted(lib, &add, s)?;
+                    add = sorted(self.extra.fields(), lib, &add, s)?;
                 }
                 let old = entries(p);
                 if !allow_repeats {
@@ -1718,7 +1732,7 @@ impl<'a> Resolver<'a> {
             Edit::SetTracks { playlist: spec, tracks, sort, limit, create } => {
                 let mut ids = self.select(lib, tracks, true)?;
                 if let Some(s) = sort {
-                    ids = sorted(lib, &ids, s)?;
+                    ids = sorted(self.extra.fields(), lib, &ids, s)?;
                 }
                 if let Some(n) = limit {
                     ids.truncate(*n);
@@ -1775,7 +1789,7 @@ impl<'a> Resolver<'a> {
             }
             Edit::SortPlaylist { playlist: spec, by } => {
                 let p = list(spec)?;
-                let new = sorted(lib, &entries(p), by)?;
+                let new = sorted(self.extra.fields(), lib, &entries(p), by)?;
                 let canonical = Edit::SortPlaylist { playlist: named(p), by: by.clone() };
                 (vec![set(p, &new)], format!("sort {} by {by}", lib.playlist_path(p.id)), canonical)
             }
@@ -2004,8 +2018,11 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
+                // None found (replaying): the note a replay skips the edit with names them.
                 if picked.is_empty() {
-                    return Err(Error::NotFound("the history lists to delete".into()));
+                    let names: Vec<String> = wanted.iter().map(|w| format!("{:?}", w.name)).collect();
+                    let lists = if names.len() == 1 { "history list" } else { "history lists" };
+                    return Err(Error::NotFound(format!("{lists} {} to delete", names.join(", "))));
                 }
                 let desc = format!("delete {} history list(s)", picked.len());
                 let lists = picked
@@ -2105,10 +2122,12 @@ impl<'a> Resolver<'a> {
     }
 }
 
-fn sorted(lib: &Library, ids: &[u32], by: &str) -> Result<Vec<u32>> {
-    let keys = query::parse_sort(by)?;
+/// `ids` sorted by `by` (see [`query::parse_sort`]), a plugin's field by what the analyzers
+/// installed worked out (`fields`, read for a sort naming one).
+fn sorted(fields: Option<&TrackValues>, lib: &Library, ids: &[u32], by: &str) -> Result<Vec<u32>> {
+    let keys = query::parse_sort_with(by, fields.map(|f| &f.declared))?;
     let mut tracks = lib.tracks_by_id(ids);
-    query::sort_tracks(&mut tracks, &keys);
+    query::sort_tracks_with(&mut tracks, &keys, fields);
     Ok(tracks.iter().map(|t| t.id).collect())
 }
 
@@ -2282,7 +2301,8 @@ pub(crate) fn plan_writing(
     if !opts.lenient {
         edits = edits.into_iter().flat_map(with_tempo).collect();
     }
-    let extra = DriveContext::read(device, edits.iter().flat_map(Edit::selectors))?;
+    let extra =
+        DriveContext::read(device, edits.iter().flat_map(Edit::selectors), edits.iter().filter_map(Edit::sort))?;
     plan_with(device, &edits, opts, &extra, incoming, ctx)
 }
 
@@ -2300,6 +2320,15 @@ impl Edit {
     /// [`plan`]).
     pub(crate) fn is_step(&self) -> bool {
         matches!(self, Edit::MyTag(_) | Edit::Cues { .. } | Edit::SetArtwork { .. } | Edit::SetAnalysis { .. })
+    }
+
+    /// The order it sorts tracks in, if it sorts them (see [`query::parse_sort`]).
+    fn sort(&self) -> Option<&str> {
+        match self {
+            Edit::AddTracks { sort, .. } | Edit::SetTracks { sort, .. } => sort.as_deref(),
+            Edit::SortPlaylist { by, .. } => Some(by),
+            _ => None,
+        }
     }
 
     /// The track selections the edit makes.
@@ -2837,7 +2866,7 @@ struct Steps {
 /// A plan with steps (see [`Steps`]): one backup first (the databases, the analysis files cue
 /// edits may rewrite, the images artwork edits may replace and the files removed tracks leave),
 /// so `restore` undoes all of it; then each step, planned as it's made; then the others, planned
-/// again. The backup notes what the plan left, all of it made or not.
+/// again. The backup notes what the plan left, all of it made or not, as each step is made.
 fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
     let library = device.library()?;
     let mut extra = plan.files.clone();
@@ -2861,11 +2890,19 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     // A plan of new edits (a replace carrying cues) is an edit like any other to undo.
     let label = if steps.opts.no_journal { "before replaying edits" } else { "before editing" };
     let backup = backup::create(device, label, &extra, None)?;
+    // Sealed as each step is made, from the start: a replay cut off part way can be undone
+    // without forcing it, as what it left is known.
+    if let Err(e) = backup::seal(device, &backup.id) {
+        let _ = backup::discard(device, &backup.id);
+        return Err(e);
+    }
     // Changes are counted as they're made: a recorded edit that no longer applies writes nothing.
     let mut report = EditReport { backup: Some(backup.id.clone()), ..Default::default() };
     let swaps = device.swaps();
     let mut made = (Vec::new(), Vec::new());
-    let replayed = replay_steps(steps, &plan.changes, &extra, device, &mut report, &mut made, ctx);
+    let replayed = crate::commit::under_backup(&backup.id, || {
+        replay_steps(steps, &plan.changes, &extra, device, &mut report, &mut made, ctx)
+    });
     // What it made is recorded as one entry under the one backup, also when a later edit failed,
     // so a replay after rekordbox exports makes that again.
     let recorded = match steps.opts.no_journal || made.0.is_empty() {
@@ -3449,10 +3486,24 @@ pub mod journal {
         Ok(gone.len())
     }
 
-    /// The entries restoring `backup` would take off (see `undone`), oldest first.
+    /// The entries restoring `backup` would take off, oldest first: those the journal it carries
+    /// lacks (see [`crate::backup`]), or for a backup carrying none, those it undoes (see
+    /// `undone`).
     pub fn taken_off(device: &Device, backup: &crate::backup::BackupInfo) -> Result<Vec<JournalEntry>> {
+        let entries = list(device)?;
+        if let Some(carried) = crate::backup::carried_journal(device, backup)? {
+            return Ok(entries.into_iter().filter(|e| !carried.iter().any(|c| c.at == e.at)).collect());
+        }
         let order = order(device)?;
-        Ok(list(device)?.into_iter().filter(|e| undoes(&order, backup, e)).collect())
+        Ok(entries.into_iter().filter(|e| undoes(&order, backup, e)).collect())
+    }
+
+    /// The entries restoring `backup` would put back, oldest first: those the journal it carries
+    /// has and the drive's lacks (an undo's backup holds the edits the undo took off).
+    pub fn put_back(device: &Device, backup: &crate::backup::BackupInfo) -> Result<Vec<JournalEntry>> {
+        let entries = list(device)?;
+        let carried = crate::backup::carried_journal(device, backup)?.unwrap_or_default();
+        Ok(carried.into_iter().filter(|c| !entries.iter().any(|e| e.at == c.at)).collect())
     }
 
     /// Each of the drive's backups by id, and its place among them (0: the newest).

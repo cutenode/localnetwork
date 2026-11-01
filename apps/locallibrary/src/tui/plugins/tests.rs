@@ -36,8 +36,8 @@ fn panel(app: &App) -> String {
 }
 
 /// Every plugin's commands are in the palette, by title with the plugin's name, after the
-/// player's own; those of a plugin reading a drive say why they can't run without one, or on a
-/// drive opened as a folder (which a plugin can't name).
+/// player's own; those of a plugin reading a drive say why they can't run without one, and run on
+/// a folder opened by path as on a drive.
 #[test]
 fn plugins_commands_are_in_the_palette() {
     let (dir, root) = demo_drive();
@@ -57,7 +57,7 @@ fn plugins_commands_are_in_the_palette() {
     press(&mut app, "\u{1b}");
     app.extra_roots.push(root.clone());
     press(&mut app, ":");
-    assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
+    assert_eq!(entry(&app, "answer the params…").1, None);
 }
 
 /// The drive menu ends with plugins' commands, operations, analyzers, export and import formats,
@@ -406,7 +406,7 @@ fn operations_are_offered_where_they_can_run() {
     app.loaded.as_mut().unwrap().stale = false;
     app.extra_roots.push(root.clone());
     press(&mut app, "e");
-    assert_eq!(menu(&app)[echo].1.as_deref(), Some("only on a plugged-in drive"));
+    assert_eq!(menu(&app)[echo].1, None, "a folder opened by path is a drive here");
 }
 
 /// An operation from the actions menu: its form starts with the marked tracks, it's planned in
@@ -621,7 +621,7 @@ fn the_search_box_filters_by_plugins_fields() {
 }
 
 /// A plugin's column sorts by its values when its header's clicked, tracks without one last
-/// either way; a playlist can't be sorted on the drive by it.
+/// either way; a playlist is sorted on the drive by it as by any column.
 #[test]
 fn plugins_columns_sort_by_their_values() {
     let (_dir, mut app) = sized();
@@ -642,12 +642,17 @@ fn plugins_columns_sort_by_their_values() {
     assert!(screen(&mut app, 120, 30).contains("echo.bytes↑"));
     super::super::app::testing::mouse(&mut app, super::super::app::testing::LEFT, header);
     assert_eq!(shown(&app), [second, first], "the one without a value stays last");
-    // Shown a playlist, it can't be sorted on the drive by it.
+    // Shown a playlist, it's sorted on the drive by it.
     let mut t = app.target().unwrap();
     t.list = Some("Sets/Friday".into());
     let items = super::super::edits::menu_items(&t);
     let sort = items.iter().find(|i| i.action == super::super::edits::Action::SortList).unwrap();
-    assert_eq!(sort.unavailable.as_deref(), Some("a plugin's column can't sort the drive's playlists"));
+    assert_eq!((sort.label.as_str(), sort.unavailable.as_deref()), ("sort Friday by echo.bytes ↓ on the drive", None));
+    let by = match super::super::edits::sort("Sets/Friday", t.sort.unwrap()) {
+        locallibrary::edit::Edit::SortPlaylist { by, .. } => by,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(by, "-echo.bytes");
 }
 
 /// The settings of the plugin open in a form, from the palette.
@@ -1022,7 +1027,7 @@ use super::super::app::testing::{Plugged, plugged, plugins_once, settle};
 use super::super::palette::Then;
 
 /// Where a case runs plugins: with no drive open, on one plugged in, or on a folder opened by
-/// path (which a plugin can't name).
+/// path (which a plugin reads as it reads a drive).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Opened {
     Nowhere,
@@ -1122,12 +1127,11 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
-    // Every plugin here reads the drive: its hooks need one plugged in, its settings and columns
-    // don't.
+    // Every plugin here reads the drive: its hooks need one open (a folder opened by path too),
+    // its settings and columns don't.
     let why = match at {
         Opened::Nowhere => Some("open a drive first"),
-        Opened::Folder => Some("only on a plugged-in drive"),
-        Opened::Plugged => None,
+        Opened::Folder | Opened::Plugged => None,
     };
     let in_menu = drive.is_some() && tc.draw(gs::booleans());
     if let Some(d) = drive.as_ref().filter(|_| in_menu) {

@@ -114,3 +114,27 @@ fn embedding_skips_what_it_cant_rewrite_and_unembedding_what_is_gone() {
     assert!(plan.restored.is_empty());
     assert_eq!(plan.skipped.iter().map(|s| s.reason.as_str()).collect::<Vec<_>>(), ["gone"]);
 }
+
+/// Regression: a file rewritten in the second or two after art went in, at the same size, kept the
+/// size and mtime the embed noted, so taking the art back out put the old copy over the rewrite.
+/// The embed notes what the file held, and a file that holds something else is left alone; the
+/// plan says so before anything is put back.
+#[test]
+fn a_file_rewritten_as_the_art_went_in_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, files) = setup(dir.path(), &["a.wav"]);
+    let image = dir.path().join("cover.png");
+    let id = artwork::embed_with_backup(&store, &files, &art(), &image, &Ctx::silent()).unwrap().backup.unwrap();
+    let mtime = locallibrary::fsutil::mtime_secs(&std::fs::metadata(&files[0]).unwrap());
+    let mut rewritten = std::fs::read(&files[0]).unwrap();
+    let last = rewritten.len() - 1;
+    rewritten[last] ^= 0xff;
+    std::fs::write(&files[0], &rewritten).unwrap();
+    locallibrary::fsutil::set_mtime(&files[0], mtime).unwrap();
+
+    let plan = api::artwork_unembed_plan(&store, &api::UnembedRequest { backup: Some(id.clone()) }).unwrap();
+    assert!(plan.restored.is_empty(), "{:?}", plan.restored);
+    let r = artwork::restore_embedded(&store, Some(&id)).unwrap();
+    assert_eq!(r.skipped.iter().map(|s| s.reason.as_str()).collect::<Vec<_>>(), ["changed since the art went in"]);
+    assert_eq!(std::fs::read(&files[0]).unwrap(), rewritten);
+}

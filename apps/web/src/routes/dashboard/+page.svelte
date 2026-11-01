@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { ArrowRight, LogOut, Plus } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import ProfileSetupCard from '#lib/components/ProfileSetupCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { projectSummary } from '#lib/performers.ts';
 	import RequestList from '#lib/components/RequestList.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { accountLabel, timeAgo } from '#lib/format.ts';
@@ -34,6 +36,8 @@
 		</p>
 	{/if}
 
+	{#if data.firstRun}<ProfileSetupCard name={data.firstRun.name} hasAvatar={data.firstRun.hasAvatar} />{/if}
+
 	<section aria-labelledby="projects" class="flex flex-col gap-5">
 		<h2 id="projects" class="m-0 text-heading font-semibold">Projects you manage</h2>
 		{#await data.projects}
@@ -46,12 +50,12 @@
 			{:else if projects.length}
 				<div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
 					{#each projects as project (project.uri)}
-						<ProjectCard {project}>
+						<PerformerCard performer={projectSummary(project)}>
 							<div class="flex gap-2">
 								<Button variant="secondary" size="sm" href="/dashboard/projects/{project.slug}" aria-label="Manage {project.profile.name}">Manage</Button>
 								<Button variant="ghost" size="sm" href="/projects/{project.slug}" aria-label="View {project.profile.name}">View</Button>
 							</div>
-						</ProjectCard>
+						</PerformerCard>
 					{/each}
 				</div>
 			{:else}

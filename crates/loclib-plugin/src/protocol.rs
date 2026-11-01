@@ -143,18 +143,33 @@ pub enum ProgressReport {
     Unknown(Value),
 }
 
-/// The RPC sidecar's progress event: what happened, the drive (`target`) and step it's about, and
-/// for a coalesced `item`, how many items it stands for (count `items ?? 1`).
+// The one progress event: a plugin sends it, and the RPC sidecar sends it to a front end, whose
+// `schema.json` takes these doc comments.
+/// What happened, which drive and step it's about, and (for a coalesced `item`) how many files
+/// it stands for.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ProgressEvent {
     #[serde(flatten)]
     pub event: Progressed,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<StepInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How many files an `item` stands for, when more than one (count `items ?? 1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<u64>,
+}
+
+impl ProgressEvent {
+    /// What a [`loclib_progress::Coalesced`] reports from inside `scope`.
+    pub fn new(scope: &loclib_progress::Scope, report: loclib_progress::Report) -> ProgressEvent {
+        let (event, items) = match report {
+            loclib_progress::Report::Event { event, items } => (Progressed::Event(event), items),
+            loclib_progress::Report::Step => (Progressed::Step(StepStarted::default()), None),
+        };
+        let step = scope.step.map(|s| StepInfo { index: s.index, total: s.total, id: s.id.into() });
+        ProgressEvent { event, target: scope.target.clone(), step, items }
+    }
 }
 
 /// Read by hand: a phase's start has `items` of its own (how many there are), which a derived
@@ -196,8 +211,9 @@ pub enum StepTag {
     Step,
 }
 
-/// Step `index` of `total`, counting from 1, and its name (`id`).
+/// Step `index` of `total`, counting from 1. `id` names it (`format`, `library`, `verify`, ...).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "Step")]
 pub struct StepInfo {
     pub index: u32,
     pub total: u32,

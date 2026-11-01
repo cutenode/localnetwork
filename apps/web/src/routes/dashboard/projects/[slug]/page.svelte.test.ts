@@ -53,6 +53,7 @@ const base = {
 	pendingRequests: 0,
 	unread: 0,
 	projects: Promise.resolve([neon]),
+	sections: Promise.resolve(null),
 	project: neon,
 	managers: [
 		{ did: 'did:plc:neon', handle: 'neon.test' },

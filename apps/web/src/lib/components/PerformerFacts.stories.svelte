@@ -1,9 +1,9 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import type { ProjectProfile } from '#lib/types.ts';
-	import ProjectFacts from './ProjectFacts.svelte';
+	import PerformerFacts from './PerformerFacts.svelte';
 
-	const { Story } = defineMeta({ title: 'Patterns/Project facts', component: ProjectFacts, tags: ['autodocs'] });
+	const { Story } = defineMeta({ title: 'Patterns/Performer facts', component: PerformerFacts, tags: ['autodocs'] });
 
 	const profile: ProjectProfile = {
 		name: 'Neon Tide',
@@ -23,10 +23,12 @@
 	const phone = { viewport: { value: 'mobile2', isRotated: false } };
 </script>
 
-<Story name="Fee levels" args={{ profile: { ...profile, fees } }} />
+<Story name="Fee levels" args={{ performer: { ...profile, fees } }} />
 
-<Story name="One fee" args={{ profile: { ...profile, fees: [{ tier: 'emerging' }] } }} />
+<Story name="One fee" args={{ performer: { ...profile, fees: [{ tier: 'emerging' }] } }} />
 
-<Story name="No fees" args={{ profile }} />
+<Story name="No fees" args={{ performer: profile }} />
 
-<Story name="Phone, fee levels" args={{ profile: { ...profile, fees } }} globals={phone} />
+<Story name="A DJ's performer section" args={{ performer: { setTypes: ['closing'], activeSince: 2016 } }} />
+
+<Story name="Phone, fee levels" args={{ performer: { ...profile, fees } }} globals={phone} />
