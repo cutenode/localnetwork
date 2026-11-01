@@ -35,7 +35,7 @@ impl App {
     /// may read files in (`~/Music` to begin with) and for the source's options first.
     pub(in crate::tui) fn plugin_source(&mut self, plugin: &'static str, source: &'static str, root: Option<PathBuf>) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let declared =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.sources.iter().find(|s| s.name == source));
         let Some(s) = declared else { return };

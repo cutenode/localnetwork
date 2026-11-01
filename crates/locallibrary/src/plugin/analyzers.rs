@@ -87,7 +87,7 @@ impl Plugins {
     ) -> Result<Analyzed> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("analyzer", analyzer, &slot.manifest.contributes.analyzers, |a| &a.name)?;
-        let (context, device) =
+        let (context, device, _given) =
             slot.context(Context { drive: Some(drive.into()), ..Context::default() }, Some(store))?;
         let device = device.expect("a drive was named");
         let library = device.library()?;

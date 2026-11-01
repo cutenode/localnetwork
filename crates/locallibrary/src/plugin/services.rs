@@ -98,7 +98,7 @@ fn supervise(slot: &Weak<Slot>, service: &str, store: Option<&Store>, cancel: &C
         let Some(s) = slot.upgrade() else { return };
         let started = Instant::now();
         let ctx = Ctx::new(&NoProgress, cancel.clone());
-        let ran = s.context(Context::default(), store).and_then(|(context, _)| {
+        let ran = s.context(Context::default(), store).and_then(|(context, ..)| {
             let start = StartService { service: service.into(), context };
             s.call::<Value>(method::SERVICE_START, &start, store, &ctx)
         });

@@ -47,7 +47,7 @@ impl App {
     /// (on this computer) and the format's options first.
     pub(in crate::tui) fn plugin_import(&mut self, plugin: &'static str, format: &'static str, root: Option<PathBuf>) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Some(root) = self.plugged(root) else { return };
+        let Some(root) = self.drive_open(root) else { return };
         let importer =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.importers.iter().find(|i| i.format == format));
         let Some(i) = importer else { return };
