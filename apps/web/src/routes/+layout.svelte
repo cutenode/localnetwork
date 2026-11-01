@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
 	import { clearSignedOutDrafts } from '#lib/form-draft.svelte.ts';
+	import SocialMeta from '#lib/components/SocialMeta.svelte';
 	import { type NavLink, siteNav } from '#lib/nav.ts';
 	import SiteHeader from '#lib/ui/SiteHeader.svelte';
 	import { hotkeys, hotkeyTarget, loadHotkeyPreference, setHotkeysEnabled } from '#lib/hotkeys.svelte.ts';
@@ -62,6 +63,9 @@
 	<link rel="icon" href={favicon} />
 	<meta name="theme-color" content="#09090b" />
 </svelte:head>
+
+<!-- Public pages' loads say what they are. The pages search engines skip (see isUnlisted) set their own title. -->
+{#if page.data.meta}<SocialMeta meta={page.data.meta} />{/if}
 
 <svelte:window {onkeydown} />
 

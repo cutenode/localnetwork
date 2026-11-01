@@ -9,11 +9,6 @@
 	let { data }: PageProps = $props();
 </script>
 
-<svelte:head>
-	<title>Artists · Local Network</title>
-	<meta name="description" content="Find out which Local Network DJs played an artist's tracks, and where." />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<SectionHeader level={1} eyebrow="Artists" tone="high" title="Who played my track?" align="split" lede="Find an artist to see which of our DJs played their tracks, when and where.">
 		{#snippet actions()}<Button variant="secondary" href="/charts">See the charts</Button>{/snippet}

@@ -37,11 +37,6 @@
 	const followLogin = $derived(viewer ? undefined : loginHref);
 </script>
 
-<svelte:head>
-	<title>{profile.name} · Local Network</title>
-	<meta name="description" content={profile.tagline ?? `${kindLabel(profile.kind)} from ${placeLabel(profile)}`} />
-</svelte:head>
-
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
 		<PreviewBanner status={project.status} />

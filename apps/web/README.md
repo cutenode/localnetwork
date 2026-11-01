@@ -373,6 +373,7 @@ src/lib/server/sync/            Space syncer and record projections
 src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and the services it signs in to
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
+src/lib/server/meta.ts          What each public page tells link previews and search engines, returned by its load as `meta`
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright

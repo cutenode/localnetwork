@@ -1,9 +1,10 @@
 import { error } from '@sveltejs/kit';
+import { pageMeta } from '#lib/server/meta.ts';
 import { renderMarkdown } from '#lib/server/tools/markdown.ts';
 import { findTool } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = ({ params, locals }) => {
 	const tool = findTool(params.tool);
 
 	if (!tool) error(404, "There's no tool by that name.");
@@ -17,6 +18,11 @@ export const load: PageServerLoad = ({ params }) => {
 			title: section.title,
 			html: renderMarkdown(section.markdown, tool, readme)
 		})),
-		guides: tool.docs.map(({ slug, title }) => ({ slug, title }))
+		guides: tool.docs.map(({ slug, title }) => ({ slug, title })),
+		meta: pageMeta(locals.app.config.publicUrl, {
+			title: name,
+			description: `${name}: ${tagline}`,
+			path: `/tools/${id}`
+		})
 	};
 };

@@ -35,11 +35,6 @@
 	if (rendered) moreFiltersOpen = rendered.open;
 </script>
 
-<svelte:head>
-	<title>Find DJs · Local Network</title>
-	<meta name="description" content="Search Local Network's DJs by sound, place, fee and slot." />
-</svelte:head>
-
 {#snippet chips(name: string, options: readonly { value: string; label: string; hint?: string }[], checked: string[])}
 	<div class="flex flex-wrap gap-1.5">
 		{#each options as option (option.value)}

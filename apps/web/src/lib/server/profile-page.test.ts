@@ -125,7 +125,6 @@ describe('loadProfilePage', () => {
 
 		expect(page).toMatchObject({
 			account: { did: ADA, handle: 'ada.test' },
-			canonical: 'https://localnetwork.test/@ada.test',
 			profile: { did: ADA, uri: `at://${ADA}/${COLLECTION.profile}/self`, record: { basics: { name: 'Ada' } } }
 		});
 		expect('playsIn' in page && (await page.playsIn)?.map((project) => project.profile.name)).toEqual(['Ada Crew']);
@@ -139,8 +138,7 @@ describe('loadProfilePage', () => {
 
 	it('shows an account without a verified handle at its DID only', async () => {
 		expect(await open(CY)).toMatchObject({
-			account: { did: CY, handle: null },
-			canonical: `https://localnetwork.test/@${CY}`
+			account: { did: CY, handle: null }
 		});
 		expect(await open('cy.test')).toEqual({ status: 404 });
 	});

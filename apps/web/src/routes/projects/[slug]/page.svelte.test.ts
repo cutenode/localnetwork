@@ -6,6 +6,7 @@ import { djProfileSchema, djSetSchema } from '#lib/dj-schema.ts';
 import { EVENT_STATUS } from '#lib/shows.ts';
 import type { ProjectView, ShowView, Viewer } from '#lib/types.ts';
 import Page from './+page.svelte';
+import { PAGE_META } from '#lib/testing/page-meta.ts';
 
 it('renders a record that repeats genres, highlights, links, and mixes', async () => {
 	const mix = { title: 'Tidal Hours', url: 'https://soundcloud.com/neon/tidal-hours' };
@@ -39,6 +40,7 @@ it('renders a record that repeats genres, highlights, links, and mixes', async (
 		data: {
 			viewer: null,
 			pendingRequests: 0,
+			meta: PAGE_META,
 			project,
 			sets: undefined,
 			details: null,
@@ -77,6 +79,7 @@ const neon: ProjectView = {
 const base = {
 	viewer: null,
 	pendingRequests: 0,
+	meta: PAGE_META,
 	project: neon,
 	sets: undefined,
 	details: null,

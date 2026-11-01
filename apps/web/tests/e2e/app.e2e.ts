@@ -201,6 +201,59 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test("link previews get every public page's title and address without running scripts", async ({ request }) => {
+		// What an unfurler reads: the HTML as served, before any script runs.
+		const head = async (path: string) => {
+			const response = await request.get(path);
+			expect(response.status(), path).toBe(200);
+			const html = (await response.text()).split('</head>')[0];
+
+			const property = (name: string) =>
+				html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+
+			return {
+				titles: html.match(/<title>/g)?.length ?? 0,
+				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
+				robots: response.headers()['x-robots-tag'],
+				property
+			};
+		};
+
+		for (const path of [
+			'/',
+			'/about',
+			'/for-djs',
+			'/privacy',
+			'/match',
+			'/projects',
+			'/shows',
+			'/artists',
+			'/charts',
+			'/tools',
+			'/tools/locallibrary',
+			'/tools/locallibrary/docs/readme',
+			'/projects/neon-tide',
+			'/projects/neon-tide/press-kits',
+			'/@neon.test'
+		]) {
+			const page = await head(path);
+			expect(page.titles, path).toBe(1);
+			expect(page.property('og:title'), path).toBeTruthy();
+			expect(page.property('description'), path).toBeTruthy();
+			expect(page.property('og:url'), path).toBe(page.canonical);
+			expect(new URL(page.canonical ?? '').pathname, path).toBe(path);
+			expect(page.robots, path).toBeUndefined();
+		}
+
+		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
+		// reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
+		}).toPass({ timeout: 60_000 });
+
+		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
+	});
+
 	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);

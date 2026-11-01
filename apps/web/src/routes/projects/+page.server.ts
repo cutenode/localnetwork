@@ -1,5 +1,6 @@
 import { isValidLatLng } from '#lib/geo.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
+import { pageMeta } from '#lib/server/meta.ts';
 import { FEE_TIERS, FORMATS, isOneOf, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type { PageServerLoad } from './$types';
 
@@ -67,5 +68,14 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		})
 	);
 
-	return { result, filters, geocoder: geocoder.enabled };
+	return {
+		result,
+		filters,
+		geocoder: geocoder.enabled,
+		meta: pageMeta(locals.app.config.publicUrl, {
+			title: 'Find DJs',
+			description: "Search Local Network's DJs by sound, place, fee and slot.",
+			path: '/projects'
+		})
+	};
 };
