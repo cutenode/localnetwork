@@ -35,7 +35,7 @@ A DJ or an act: whoever gets booked, credited, and has press kits. Copy still sa
 _Avoid_: project, billing
 
 **Credit**:
-Who a set or show was played as: a DJ, an act, or several of either for a b2b. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
+Who a set or show was played as: a DJ, an act, or several of either for a b2b. A b2b partner is only credited once they confirm it. A one-off b2b is only a credit; a pairing that keeps playing together can become an act.
 _Avoid_: played with, lineup entry
 
 **Section**:
@@ -83,8 +83,8 @@ One night: a date, a venue, often a party, and a lineup of credits. Public event
 _Avoid_: gig, party (the party is the series)
 
 **Show**:
-One performer's appearance on an event's lineup.
-_Avoid_: gig, booking (a booking is the conversation that leads to one)
+One performer's appearance on an event's lineup. What they played there, once published, is a set.
+_Avoid_: gig, booking (a booking is the conversation that leads to one), set (the set is what was played)
 
 **Request**:
 Asking staff to list a DJ, act or party in the directory, or to confirm someone owns a venue. Profiles go live as soon as they're saved, but the directory only shows what staff have approved.
@@ -105,6 +105,20 @@ _Avoid_: edit, revision, request (requests go to staff)
 **Grant**:
 Permission for one account to read one press kit's private part.
 _Avoid_: access, approval
+
+## Music
+
+**Set**:
+One time a DJ played, start to finish: at a show, on the radio, on a stream, or at home with nobody listening. It records when, where and the tracks in order. Most sets are never shared as mixes.
+_Avoid_: mix (unless it's on a performer's page), session, performance
+
+**Mix**:
+A set a performer chose to put on their page for people to listen to, with a title and somewhere to listen. A mix always has a way to hear it.
+_Avoid_: set (when meaning what's on the page), upload, track
+
+**Recording**:
+The audio of a set, as a file people can play. A listen link to Mixcloud or SoundCloud is somewhere to hear a mix, not its recording.
+_Avoid_: mix (when meaning the audio), upload, file
 
 **Artist**:
 A producer credited in DJs' tracklists. Artists are not DJs or acts.
