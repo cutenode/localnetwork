@@ -1,19 +1,9 @@
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
-import type { StaffRole, Viewer } from '#lib/types.ts';
+import type { StaffMember, StaffRole, Viewer } from '#lib/types.ts';
 import { validateRecord } from '../atproto/lexicons';
 import { type Core, ForbiddenError, UserError } from '../core';
 import { nowIso } from '../db';
-
-export type StaffMember = {
-	did: string;
-	handle: string | null;
-	role: StaffRole;
-	grantedBy: string | null;
-	note: string | null;
-	createdAt: string | null;
-	bootstrap: boolean;
-};
 
 /**
  * A computer.localnetwork.staff.role record. The lexicon leaves `role` open, so synced ones are

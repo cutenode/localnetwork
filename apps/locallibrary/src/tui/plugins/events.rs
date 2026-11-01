@@ -33,7 +33,7 @@ fn mark(notice: &PluginNotice) -> u64 {
 
 /// Held while the player changes the suggestions kept and says what they are now: what it's
 /// told last is what's kept.
-static CHANGING: Mutex<()> = Mutex::new(());
+pub(super) static CHANGING: Mutex<()> = Mutex::new(());
 
 /// `change`s the suggestions kept in the store at `store_root`, and tells the player what they
 /// are then (or what went wrong).
@@ -104,13 +104,32 @@ impl App {
         self.suggested.iter().rev().flat_map(items).collect()
     }
 
-    /// The suggestion marked `marked`, no longer kept: none when it went since.
+    /// The suggestion marked `marked`, no longer offered, and no longer kept once the store
+    /// forgets it in the background: none when it went since.
     fn forget(&mut self, marked: u64) -> Option<PluginNotice> {
         let i = self.suggested.iter().position(|n| mark(n) == marked)?;
         let notice = self.suggested.remove(i);
-        let forgotten = notice.clone();
-        self.change_kept(move |root| forget_suggested(&Store::open(root)?, &forgotten));
+        self.forgetting.push(marked);
+        let (tx, forgotten) = (self.sender(), notice.clone());
+        self.change_kept(move |root| {
+            let kept = Store::open(root).and_then(|store| forget_suggested(&store, &forgotten));
+            let _ = tx.send(Msg::Forgotten(marked));
+            kept
+        });
         Some(notice)
+    }
+
+    /// What's kept now, told after a change to it: without what was reviewed or dismissed since
+    /// (the store forgets those in turn, and what it kept before it did would offer them again).
+    pub(in crate::tui) fn kept(&mut self, kept: Vec<PluginNotice>) {
+        self.suggested = kept.into_iter().filter(|n| !self.forgetting.contains(&mark(n))).collect();
+    }
+
+    /// The store has forgotten the suggestion marked `marked` (or failed to).
+    pub(in crate::tui) fn forgotten(&mut self, marked: u64) {
+        if let Some(i) = self.forgetting.iter().position(|m| *m == marked) {
+            self.forgetting.swap_remove(i);
+        }
     }
 
     /// Starts what a plugin suggested (the one marked `marked`, see [`Act::Review`]) as the user

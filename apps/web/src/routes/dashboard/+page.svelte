@@ -37,7 +37,7 @@
 	<section aria-labelledby="projects" class="flex flex-col gap-5">
 		<h2 id="projects" class="m-0 text-heading font-semibold">Projects you manage</h2>
 		{#await data.projects}
-			<div aria-busy="true" aria-label="Loading your projects" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+			<div role="status" aria-busy="true" aria-label="Loading your projects" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
 				<div class="h-40 animate-pulse rounded-xl bg-surface"></div>
 			</div>
 		{:then projects}

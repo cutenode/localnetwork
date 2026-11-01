@@ -296,7 +296,7 @@ impl App {
         let mut items = Vec::new();
         for m in plugins.manifests() {
             let settings = (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name));
-            let has_settings = !m.contributes.settings.is_empty() || !m.contributes.services.is_empty();
+            let has_settings = plugins.setting_list(&m.id).is_ok_and(|l| !l.is_empty());
             items.extend(Some(settings).filter(|_| has_settings));
             items.extend(accounts::items(m));
         }
@@ -324,10 +324,12 @@ impl App {
 
     /// Keep a plugin's settings as the form has them (`given`), in the background: those that
     /// changed, each left empty put back to its default, and each secret typed in (one left
-    /// empty is kept). A service turned on starts, one turned off stops.
+    /// empty is kept); a key for one of its commands the player refuses is said, and left as it
+    /// was. A service turned on starts, one turned off stops, and the keys are bound again.
     pub(super) fn save_settings(&mut self, plugin: &'static str, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
+        let refused = self.refused_keys(plugin, &given);
         let store_root = self.store_root.clone();
         self.task("Saving settings".into(), move |_| {
             let store = Store::open_or_init(&store_root)?;
@@ -336,7 +338,7 @@ impl App {
             for s in &listed {
                 let value = given.get(&s.key);
                 let typed = value.and_then(Value::as_str).is_some_and(|v| !v.is_empty());
-                if s.kind == SettingType::Secret && !typed {
+                if (s.kind == SettingType::Secret && !typed) || refused.contains(&s.key) {
                     continue;
                 }
                 if s.kind == SettingType::Secret || value.or(s.default.as_ref()) != now.get(&s.key) {
@@ -355,7 +357,10 @@ impl App {
                 if changed > 0 {
                     app.panels.stale(plugin);
                 }
-                app.toast(said, Level::Info)
+                app.bind_plugin_keys();
+                if refused.is_empty() {
+                    app.toast(said, Level::Info);
+                }
             }))
         });
     }

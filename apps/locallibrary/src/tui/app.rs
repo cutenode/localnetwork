@@ -759,6 +759,9 @@ pub enum Msg {
     Notice(locallibrary::plugin::PluginNotice),
     /// What plugins suggested, as it's kept now: to review from the palette.
     Suggested(Vec<locallibrary::plugin::PluginNotice>),
+    /// The suggestion marked so (reviewed or dismissed) is no longer kept, or couldn't be
+    /// forgotten: what's kept from now on says whether it's still offered.
+    Forgotten(u64),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -991,8 +994,10 @@ pub struct App {
     /// Dialogs from the background (a plan, a task's results) waiting for the one open to close.
     pub(super) waiting: VecDeque<Modal>,
     pub picking: Option<Pick>,
-    /// The fixes plugins' checks gave in the last check, offered in the palette.
+    /// The fixes the last check gave (plugins' and locallibrary's own), offered in the palette.
     pub fixes: Vec<super::plugins::checks::Fixing>,
+    /// The keys the user bound to plugins' commands and operations (see `keymap::bound`).
+    pub plugin_keys: Vec<keymap::bound::Bound>,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -1084,6 +1089,10 @@ pub struct App {
     /// What plugins suggested, to review from the palette, oldest first, as the store keeps it
     /// (see [`locallibrary::plugin::keep_suggested`]).
     pub(super) suggested: Vec<locallibrary::plugin::PluginNotice>,
+    /// The marks of suggestions reviewed or dismissed that the store may still keep: what's kept
+    /// is told the player after each change, and one told before the store forgot them leaves
+    /// them out.
+    pub(super) forgetting: Vec<u64>,
     drives_in_flight: bool,
     /// Read the drives again when the read in flight finishes (asked for while it ran).
     drives_again: bool,
@@ -1184,6 +1193,7 @@ impl App {
             waiting: VecDeque::new(),
             picking: None,
             fixes: Vec::new(),
+            plugin_keys: Vec::new(),
             job: None,
             last_backup: None,
             status: None,
@@ -1239,6 +1249,7 @@ impl App {
             listed: false,
             watcher: Watcher::default(),
             suggested: Vec::new(),
+            forgetting: Vec::new(),
             drives_in_flight: false,
             drives_again: false,
             volumes_in_flight: false,
@@ -1864,7 +1875,8 @@ impl App {
             Msg::Note(msg, level) => self.toast(msg, level),
             Msg::Log(line) => self.remember(line, Level::Info),
             Msg::Notice(notice) => self.told(notice),
-            Msg::Suggested(kept) => self.suggested = kept,
+            Msg::Suggested(kept) => self.kept(kept),
+            Msg::Forgotten(marked) => self.forgotten(marked),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
@@ -3227,8 +3239,11 @@ impl App {
             return;
         }
         let scopes = keymap::scopes(self);
+        // The player's own keys first, then those bound to plugins' commands.
         if let Some(b) = keymap::lookup(&scopes, &key) {
             self.perform(b.act, Some(key));
+        } else if let Some(act) = keymap::bound::lookup(&self.plugin_keys, &key) {
+            self.perform(act, Some(key));
         }
     }
 

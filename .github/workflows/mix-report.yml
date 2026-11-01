@@ -3,58 +3,15 @@ name: Mix report
 # locallibrary writes mix reports (`mix --export`) and the web app reads them, with the format
 # defined on each side. This regenerates the web app's fixture with the real writer: it fails
 # when the checked-in fixture is out of date (the analysis time aside) or the reader rejects it.
+# ci.yml calls it when either side changes.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  # Pushes and pull requests always start this workflow, so the passed job at the end always
-  # reports. The other jobs run only when the files listed here change.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
-    outputs:
-      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
-    steps:
-      # A pull request's files come from the API. A push is diffed against the last commit this
-      # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
-      - if: github.event_name == 'push'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: github.event_name == 'push'
-        id: base
-        uses: ./.github/actions/last-passed
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          base: ${{ steps.base.outputs.sha }}
-          filters: |
-            run:
-              - 'crates/locallibrary/src/mix/**'
-              - 'crates/loclib-mixid/**'
-              - 'apps/locallibrary/src/mix_cmd.rs'
-              - 'apps/web/src/lib/mix/**'
-              - 'apps/web/scripts/mix-fixture.ts'
-              - 'packages/tokens/**'
-              - '.github/workflows/mix-report.yml'
-
   fixture:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -80,15 +37,3 @@ jobs:
       - name: The reader accepts it
         working-directory: apps/web
         run: pnpm exec vitest run --project server src/lib/mix
-
-  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
-  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
-  passed:
-    name: Mix report passed
-    if: always()
-    needs: [changes, fixture]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1

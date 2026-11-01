@@ -47,3 +47,37 @@ fn rules_whose_paths_differ_only_in_case_are_two_rules() {
     assert_eq!(s.remove("Smart/FoO").unwrap().path, "Smart/FoO");
     assert_eq!(s.remove("smart/foo").unwrap().path, "Smart/Foo");
 }
+
+/// A collection export's rules for a drive: added, put in place of the rule an earlier export
+/// made for the drive, but never of another rule for the same path; and taken away once their
+/// playlist is gone, with nothing else.
+#[test]
+fn an_export_keeps_its_own_rules_for_its_drive() {
+    let (drive, other) = (Uuid::new_v4(), Uuid::new_v4());
+    let rule = |path: &str, filter: &str, drives: Vec<Uuid>| SmartPlaylist {
+        path: path.into(),
+        filter: filter.into(),
+        sort: None,
+        limit: None,
+        drives,
+    };
+    let mut s = SmartPlaylists::default();
+    s.set(rule("Mine", "bpm:>=128", vec![other]), &Default::default()).unwrap();
+    s.set(rule("Old", "bpm:1", vec![drive]), &Default::default()).unwrap();
+    s.set(rule("Gone", "bpm:2", vec![drive]), &Default::default()).unwrap();
+    s.set(rule("Gone too", "bpm:3", vec![other]), &Default::default()).unwrap();
+    let exported = [rule("Mine", "genre:house", vec![]), rule("Old", "bpm:4", vec![]), rule("New", "bpm:5", vec![])];
+    let left = s.keep_for_drive(drive, &exported, &["Gone".into(), "Gone too".into()]).unwrap();
+    assert_eq!(left, ["Mine"]);
+    let held: Vec<(&str, &str, &[Uuid])> =
+        s.playlists.iter().map(|p| (p.path.as_str(), p.filter.as_str(), p.drives.as_slice())).collect();
+    assert_eq!(
+        held,
+        [
+            ("Mine", "bpm:>=128", &[other][..]),
+            ("Old", "bpm:4", &[drive][..]),
+            ("Gone too", "bpm:3", &[other][..]),
+            ("New", "bpm:5", &[drive][..]),
+        ]
+    );
+}

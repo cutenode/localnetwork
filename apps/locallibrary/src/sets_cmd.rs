@@ -50,7 +50,8 @@ enum SetsCommand {
     /// Change a set's details and tracklist
     #[command(after_long_help = EDIT_HELP)]
     Edit(EditArgs),
-    /// Delete a set (the sessions and recording it came from stay)
+    /// Delete a set (the sessions and recording it came from stay), and its record and its
+    /// recording's from your Atmosphere account when they're published there
     Delete {
         #[arg(value_name = "SET")]
         set: String,
@@ -68,13 +69,13 @@ enum SetsCommand {
         undismiss: Vec<String>,
     },
     /// Write a set's tracklist out: for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists,
-    /// CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
+    /// podcast chapters, CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
     #[command(after_long_help = EXPORT_HELP)]
     Export {
         #[arg(value_name = "SET")]
         set: String,
-        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .csv, .m3u8,
-        /// .txt), else text]
+        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .json, .csv,
+        /// .m3u8, .txt), else text]
         #[arg(long, short, value_parser = formats())]
         format: Option<String>,
         /// Write it to this file [default: print it]
@@ -179,6 +180,7 @@ less; otherwise each is suggested on its own.";
 const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format mixcloud           paste into Mixcloud's tracklist
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
+  locallibrary sets export last -o friday.json              chapters for podcast apps
   locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
 Every format but csv and m3u8 is for publishing: a track marked unnamed or hidden by your profile
@@ -365,6 +367,8 @@ pub(crate) enum FormatArg {
     /// For 1001Tracklists
     #[value(name = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps
+    Chapters,
     /// Every detail, for a spreadsheet
     Csv,
     /// A playlist of the tracks on a drive
@@ -379,6 +383,7 @@ impl From<FormatArg> for SetFormat {
             FormatArg::Cue => SetFormat::Cue,
             FormatArg::Youtube => SetFormat::Youtube,
             FormatArg::Tracklists => SetFormat::Tracklists,
+            FormatArg::Chapters => SetFormat::Chapters,
             FormatArg::Csv => SetFormat::Csv,
             FormatArg::M3u8 => SetFormat::M3u8,
         }
@@ -389,6 +394,7 @@ impl From<FormatArg> for SetFormat {
 fn format_of(path: &Path) -> Option<SetFormat> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "cue" => Some(SetFormat::Cue),
+        "json" => Some(SetFormat::Chapters),
         "csv" => Some(SetFormat::Csv),
         "m3u8" => Some(SetFormat::M3u8),
         "txt" => Some(SetFormat::Text),
@@ -437,9 +443,15 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             return Ok(out.done(&change, |c| changed("changed", c)));
         }
         SetsCommand::Delete { set } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let s = api::set_get(&store, &api::SetRef { set: Some(set), venue: None })?;
             let what = format!("delete the set {} (its sessions and recording stay)", describe(&s));
+            #[cfg(feature = "account")]
+            let what = match api::set_published_uris(store.root(), &s.id)?.as_slice() {
+                [] => what,
+                [uri] => format!("{what}, and its record on your Atmosphere account ({uri})"),
+                uris => format!("{what}, and its records on your Atmosphere account ({})", uris.join(", ")),
+            };
             let id = api::SetRef { set: Some(s.id.clone()), venue: None };
             return out.one_step(
                 &what,
@@ -504,7 +516,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
         }
         SetsCommand::Playlist { set, drive, name, dry_run } => {
             let req = api::SetPlaylist { set, drive: drive.clone(), name };
-            let plan = api::set_playlist_plan(&store()?, &req, ctx)?;
+            let plan = api::set_playlist_plan(&crate::diff_cmd::store_to_read(store_path)?, &req, ctx)?;
             return crate::edit_cmd::confirm_and_apply(&drive, plan, dry_run, out, ctx);
         }
         SetsCommand::Publish {

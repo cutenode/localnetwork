@@ -40,6 +40,13 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
+plugins/accounts/           the account plugins: a manifest each and no crate, which locallibrary signs in from
+                            and never starts
+  google-account/           the `google` account type, signed in to through Local Network's token exchange;
+                            its scope `youtube-upload`
+  mixcloud-account/         the `mixcloud` account type, through the token exchange; its scope `upload`
+  soundcloud-account/       the `soundcloud` account type, through the token exchange; its scopes `upload`
+                            and `read`
 plugins/archive/            the archive plugin: the `item` set destination, a set's recording uploaded to the
                             Internet Archive in one PUT as an item, its tracklist the description, its page the link
 plugins/coverart/           the coverart plugin: front covers and track details for tracks lacking them (or
@@ -108,7 +115,9 @@ crates/locallibrary/src/    the library, built on the crates above
                sessions and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
-               by file name, size and modification time, and worked out in parallel when it isn't
+               by file name, size and modification time, and worked out in parallel when it isn't;
+               other files' results (a snapshot's history lists, the profile's reads of analysis
+               files) are cached by their contents
   fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, analyzer
                and the analyzer's version
   plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
@@ -164,7 +173,8 @@ apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs;
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
                             and the TypeScript types), the plugins it ships (plugins.rs: every crate in plugins/,
                             linked in from the table build.rs writes, each run as `locallibrary plugin serve
-                            <id>`; plugin_cmd/: what they add to the command line), and the player (tui/:
+                            <id>`, and the manifest of every account plugin in plugins/accounts/, which nothing
+                            runs; plugin_cmd/: what they add to the command line), and the player (tui/:
                             ratatui + rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
                             out)

@@ -6,7 +6,8 @@
 	"license": "MIT",
 	"type": "module",
 	"imports": {
-		"#lib/*": "./src/lib/*"
+		"#lib/*": "./src/lib/*",
+		"#lexicon-files": "./scripts/lib/lexicon-files.ts"
 	},
 	"scripts": {
 		"dev": "tsx scripts/dev-network.ts --app",
@@ -33,6 +34,9 @@
 		"test:lighthouse": "pnpm build && lhci autorun",
 		"lexicons:publish": "tsx scripts/publish-lexicons.ts",
 		"fixtures:mix": "tsx scripts/mix-fixture.ts",
+		"db:backup": "node scripts/db-backup.ts backup",
+		"db:backups": "node scripts/db-backup.ts list",
+		"db:restore": "node scripts/db-backup.ts restore",
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
@@ -50,6 +54,7 @@
 		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20261022141228",
 		"@atproto/space": "0.0.0-spaces-alpha-20261022141228",
+		"@aws-sdk/client-s3": "^3.1159.0",
 		"@fontsource-variable/instrument-sans": "^5.3.0",
 		"@fontsource-variable/jetbrains-mono": "^5.3.0",
 		"@lucide/svelte": "^1.51.0",
@@ -83,6 +88,7 @@
 		"@vitest/browser-playwright": "^5.0.3",
 		"@vitest/coverage-v8": "^5.0.3",
 		"cloudflare": "^7.3.0",
+		"fast-check": "^4.10.2",
 		"knip": "^6.39.0",
 		"marked": "^18.1.0",
 		"marked-gfm-heading-id": "^4.1.4",

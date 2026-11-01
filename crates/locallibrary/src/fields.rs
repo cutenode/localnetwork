@@ -76,7 +76,7 @@ pub struct FieldStore {
 
 /// Whether `s` can name a folder: plugin ids, analyzers and their versions are short names
 /// (`sound`, `tempo-key-loudness`, `3`).
-fn is_name(s: &str) -> bool {
+pub(crate) fn is_name(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
 }
 

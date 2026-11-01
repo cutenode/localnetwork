@@ -1105,14 +1105,14 @@ fn unknown_in(r: &MixReport, tr: &Transition) -> Option<f64> {
     (tr.overlap <= -1.0 && heard >= 1.0).then_some(heard)
 }
 
-/// How one play hands over to the next: a blend, a cut, or a gap (with something not in the
+/// How one play hands over to the next: a blend, a quick mix, or a gap (with something not in the
 /// library playing in it, perhaps), the keys (`keys` names them), the tempo.
 fn handoff(tr: &Transition, r: &MixReport, keys: bool) -> Vec<Span<'static>> {
     let plays = &r.plays;
-    let how = if tr.overlap >= 1.0 {
+    let how = if tr.is_blend() {
         format!("{} blend", secs(tr.overlap))
     } else if tr.overlap > -1.0 {
-        "cut".to_string()
+        "quick mix".to_string()
     } else if let Some(unknown) = unknown_in(r, tr) {
         format!("{} not in the library", secs(unknown))
     } else {
@@ -1547,14 +1547,18 @@ fn draw_tracklist(
                 (_, Some(played)) => played.clone(),
                 _ => p.track.key.clone(),
             };
-            let speed = format!("{:+.1}%", (p.tempo - 1.0) * 100.0);
+            // A ridden pitch fader: the slowest speed over the fastest.
+            let speed = match p.speed_range {
+                Some((slowest, fastest)) => format!("{}\n→{}", mix::percent(slowest), mix::percent(fastest)),
+                None => mix::percent(p.tempo),
+            };
             let mut cells = vec![
                 Cell::from(Line::from(number)),
                 Cell::from(Line::styled(clock(p.start), dim())),
                 Cell::from(Text::from(vec![Line::from(name), Line::from(next)])),
                 Cell::from(Line::styled(key, fg(theme::current().secondary))),
                 Cell::from(Line::styled(p.played_bpm.map(|b| format!("{b:.1}")).unwrap_or_default(), text())),
-                Cell::from(Line::styled(speed, dim())),
+                Cell::from(Text::styled(speed, dim())),
             ];
             if !narrow {
                 let lock = match p.key_lock {
@@ -1692,7 +1696,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
     if let Some(b) = p.played_bpm {
         how.push(Span::styled(format!(" · {b:.1} BPM"), text()));
         if t.bpm > 0.0 {
-            how.push(Span::styled(format!(" ({:+.1}% from {:.1})", (p.tempo - 1.0) * 100.0, t.bpm), dim()));
+            how.push(Span::styled(format!(" ({} from {:.1})", p.speed(), t.bpm), dim()));
         }
     }
     match p.key_lock {

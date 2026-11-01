@@ -32,15 +32,28 @@ cli = "say""#;
         .replace("title = \"Make a playlist\"", "title = \"Make a playlist\"\ncli = \"playlist fresh\"")
 }
 
+/// The repository's `plugins/`.
+fn plugins() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins")
+}
+
+/// The repository's `plugins/accounts/`, where the account plugins locallibrary ships are.
+fn account_plugins() -> std::path::PathBuf {
+    plugins().join("accounts")
+}
+
 /// The plugins locallibrary ships, as it lists them (before the tests' own): one for every folder in
-/// the repository's `plugins/`, in alphabetical order. Read from the folders, so a plugin
-/// `plugin list` leaves out fails the tests that compare the two.
+/// the repository's `plugins/` but `accounts/`, and for every folder in that, in alphabetical
+/// order. Read from the folders, so a plugin `plugin list` leaves out fails the tests that compare
+/// the two.
 static SHIPPED: LazyLock<Vec<&str>> = LazyLock::new(|| {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
-    let mut ids: Vec<&str> = std::fs::read_dir(dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.is_dir())
+    let folders = |dir: std::path::PathBuf| {
+        let paths = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path());
+        paths.filter(|path| path.is_dir()).collect::<Vec<_>>()
+    };
+    let crates = folders(plugins()).into_iter().filter(|path| *path != account_plugins());
+    let mut ids: Vec<&str> = crates
+        .chain(folders(account_plugins()))
         // Kept for the tests' whole run, as ids they put beside their own plugins'.
         .map(|path| &*path.file_name().unwrap().to_str().unwrap().to_owned().leak())
         .collect();
@@ -48,17 +61,40 @@ static SHIPPED: LazyLock<Vec<&str>> = LazyLock::new(|| {
     ids
 });
 
-/// Every plugin that ships is in the docs: plugins.md's list and how-it-works.md's layout. A new
-/// plugin left out of them fails here.
+/// Every plugin that ships is in the docs: plugins.md's list and how-it-works.md's layout, an
+/// account plugin under `plugins/accounts/`. A new plugin left out of them fails here.
 #[test]
 fn every_shipped_plugin_is_documented() {
     let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
     let plugins = std::fs::read_to_string(docs.join("plugins.md")).unwrap();
     let how = std::fs::read_to_string(docs.join("how-it-works.md")).unwrap();
+    let accounts = how.split_once("\nplugins/accounts/ ").map(|(_, after)| after).unwrap_or_default();
     for id in SHIPPED.iter() {
         assert!(plugins.contains(&format!("\n- **{id}**:")), "docs/plugins.md doesn't list {id}");
-        assert!(how.contains(&format!("\nplugins/{id}/ ")), "docs/how-it-works.md's layout doesn't have plugins/{id}/");
+        let (layout, line) = match account_plugins().join(id).is_dir() {
+            true => (accounts, format!("\n  {id}/ ")),
+            false => (how.as_str(), format!("\nplugins/{id}/ ")),
+        };
+        assert!(layout.contains(&line), "docs/how-it-works.md's layout doesn't have {}", line.trim());
     }
+}
+
+/// An account plugin is listed with the account type it adds, and `plugin info` has its scopes;
+/// nothing serves it, since locallibrary signs in from its manifest.
+#[test]
+fn account_plugins_are_listed_and_never_served() {
+    let env = Env::new();
+    let list = env.ok(&["plugin"]);
+    assert!(list.contains("google-account  Google Account 0.1.0\n  adds account type google\n"), "{list}");
+    let info = env.ok(&["plugin", "info", "google-account"]);
+    for line in ["Account type:\n    google  Google\n", "Scopes:\n    youtube-upload  upload videos to YouTube\n"] {
+        assert!(info.contains(line), "{line}: {info}");
+    }
+    let r = env.run(&["plugin", "serve", "google-account"]);
+    assert_eq!((r.code, r.out.as_str()), (1, ""), "{}", r.err);
+    let why =
+        "the google-account plugin is an account plugin, which nothing runs: locallibrary signs in from its manifest";
+    assert!(r.err.contains(why), "{}", r.err);
 }
 
 /// An [`Env`] with the echo plugin, and the demo drive USB (two tracks, with audio).
@@ -106,7 +142,9 @@ fn a_secret_setting_is_read_from_stdin_and_never_shown() {
     let said = out + &err;
     assert_eq!((code, said.contains("token is set"), said.contains("hunter2")), (0, true, false), "{said}");
     let (_, shown, _) = run(&["plugin", "settings", "echo"], "");
-    assert!(shown.contains("token     set  Token") && !shown.contains("hunter2"), "{shown}");
+    // Padded to the longest key: a command's key in the player (`keys.playlist`).
+    let words = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(words.contains("token set Token") && !shown.contains("hunter2"), "{shown}");
     let (_, json, _) = run(&["--json", "plugin", "info", "echo"], "");
     let json: Value = serde_json::from_str(&json).unwrap();
     assert_eq!((&json["secrets"], json["settings"].get("token")), (&json!({ "token": true }), None));
@@ -209,7 +247,10 @@ fn plugins_are_listed_and_their_settings_kept() {
     );
     assert!(env.fails(1, &["plugin", "info", "nope"]).contains("error: not found: plugin \"nope\""));
 
-    assert!(env.ok(&["plugin", "settings", "echo"]).contains("greeting  hello  Greeting (default)"));
+    let settings = env.ok(&["plugin", "settings", "echo"]);
+    assert!(crate::support::line(&settings, "greeting ").ends_with("  hello  Greeting (default)"), "{settings}");
+    let key = crate::support::line(&settings, "keys.titles ");
+    assert!(key.ends_with("  not set  List the drive's tracks: its key in the player"), "{settings}");
     assert_eq!(
         env.exits(3, &["plugin", "settings", "echo", "greeting", "hi"]).lines().next(),
         Some("• set the echo plugin's greeting to hi")
@@ -462,6 +503,9 @@ fn check_and_doctor_name_the_coverart_plugins_art_fetch() {
     let message = files.and_then(|i| i["message"].as_str()).unwrap_or_else(|| panic!("{v}"));
     let said = "; `locallibrary art auto \"USB\"` fills in art their files embed, and `locallibrary art fetch \"USB\"` finds covers online";
     assert!(message.starts_with("1 track(s) have no artwork image: ") && message.ends_with(said), "{message}");
+    // And fixed by fetching covers for that track, as the player offers it.
+    let fix = files.map(|i| &i["fix"]).unwrap();
+    assert_eq!(fix, &json!({ "name": "art.fetch", "params": { "drive": "USB", "tracks": [1] } }));
     let doctor = env.run(&["doctor", "USB", "--only", "missing"]);
     for hint in
         ["`locallibrary art auto \"USB\"` fills in artwork", "`locallibrary art fetch \"USB\"` finds covers online"]

@@ -44,18 +44,17 @@ pub fn account(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let AccountArgs { plugin, account, command } = args;
-    let root = store_path.clone().unwrap_or_else(Store::default_root);
     match command.unwrap_or(AccountCommand::Status) {
         AccountCommand::Status => {
-            let store = Store::open_existing(&root)?;
+            let store = crate::diff_cmd::existing_store(store_path)?;
             out.emit(&plugins.account(&plugin, &account, store.as_ref())?, status);
         }
         AccountCommand::SignIn(browser) => {
-            let signed_in = sign_in(plugins, &plugin, &account, &Store::open_or_init(&root)?, browser, out, ctx)?;
+            let signed_in = sign_in(plugins, &plugin, &account, &crate::open_store(store_path)?, browser, out, ctx)?;
             return Ok(out.done(&signed_in, |a| ok(format!("Signed in to {}", style(&a.title).bold()))));
         }
         AccountCommand::SignOut => {
-            let r = plugins.sign_out(&plugin, &account, &Store::open_or_init(&root)?)?;
+            let r = plugins.sign_out(&plugin, &account, &crate::open_store(store_path)?)?;
             return Ok(out.done(&r, |r| match (r.was_signed_in, r.revoked) {
                 (false, _) => say!("{}", dim(format!("Not signed in to {}.", r.status.title))),
                 (true, true) => ok(format!("Signed out of {}", r.status.title)),

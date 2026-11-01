@@ -591,6 +591,9 @@ fn render_upload(p: &PlannedUpload) {
         }
     };
     say!("  {:<9} {how}", "Goes up");
+    if !p.chapters.is_empty() {
+        say!("  {:<9} {}", "Chapters", crate::output::plural(p.chapters.len(), "track"));
+    }
     for note in &p.notes {
         say!("  {}", dim(note));
     }
@@ -617,7 +620,7 @@ pub fn set_upload(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let root = root(store);
-    let upload = api::SetUploadRequest { set: req.set.clone(), max_bytes };
+    let upload = api::SetUploadRequest { set: req.set.clone(), max_bytes, hide: req.hide.clone() };
     let mut p = api::set_upload_plan(&root, &upload)?;
     if !out.json {
         render_upload(&p);
@@ -724,7 +727,7 @@ pub fn settings_import(
     let profile = plan.apply(None, ctx)?;
     let (count, from) = (plan.published.values.len(), plan.from.name());
     Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-        ok(format!("imported {count} settings from {from}"));
+        ok(format!("imported {} from {from}", plural(count, "setting")));
         crate::output::hint("Run `locallibrary settings apply` to write the profile to your drives.");
     }))
 }

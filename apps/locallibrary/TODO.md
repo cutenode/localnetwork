@@ -15,8 +15,8 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
-      against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
-      headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
+      against the updated lockfile), docs, cargo-deny, and clippy on the headless CLI without ALSA
+      headers (in the lint job). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
       first run measures. Weekly and on demand, `locallibrary-scheduled.yml` runs Bombadil, the
       no-default-features tests, the cargo-hack feature powerset and cargo-deny's advisories:
@@ -37,8 +37,9 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       role, the RPC method aliases): they only map from builds nobody else ran, and after v0.1.0
       they're public contract. Fold CHANGELOG "Changed" into "Added" at the same time (it still
       lists `mirror` and `push`).
-- [ ] `dist plan` runs only on PRs that touch a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-      `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will trigger it. Then try
+- [ ] `dist plan` runs (in `locallibrary-ci.yml`'s lint job) only on PRs that touch a `Cargo.toml`,
+      `dist-workspace.toml`, `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will
+      trigger it. Then try
       the release pipeline with `locallibrary-v0.1.0-rc.1` (which skips the Homebrew push) before
       tagging `locallibrary-v0.1.0`.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
@@ -171,60 +172,27 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (`format/linux.rs`).
 - [ ] `eject` on a two-partition image on the macOS leg of that job: refusing when the store is on
       another volume, and naming the volumes it unmounts.
-- [ ] `check --audio` on tiny committed MP3, FLAC and M4A fixtures, truncated in
-      `tests/it/check.rs` (only WAV truncation is tested). The same fixtures cover MP3 gapless.
-- [ ] The underline on the current hot cue, with a ratatui `TestBackend`.
 
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: `drive tidy` exits 0 when it couldn't remove
-      some files (`recordings` says Partial); `setup --role` is ignored for the drive that becomes
-      the primary, even a bad value; a lenient replay that skips `DeleteHistoryLists` only says
-      "not found", dropping which list; merging the same drive twice in folder mode makes "(2)"
-      copies of every playlist; under `LOCALLIBRARY_VOLUMES`, `format::disk_at` still runs
-      read-only `diskutil info`/`lsblk` on the disk holding the test folder.
+- [ ] Found while raising coverage, each a decision: a lenient replay that skips
+      `DeleteHistoryLists` only says "not found", dropping which list; merging the same drive
+      twice in folder mode makes "(2)" copies of every playlist; under `LOCALLIBRARY_VOLUMES`,
+      `format::disk_at` still runs read-only `diskutil info`/`lsblk` on the disk holding the test
+      folder.
 - [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
       undo then redo leaves edits that replay won't redo, and restoring an older backup then a
       newer one puts back edits the journal has forgotten.
 - [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
       finishes it, but taking it back needs `undo --force`.
-- [ ] `prep` syncs one pair at a time; it could use the parallel multi-drive sync when no drive came
-      back from a set.
-- [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
-      copy` refuses instead (without `--force`).
-- [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
-      take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
-      nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
-- [ ] Changes that look something up in the store make an empty one and then fail or find nothing
-      to do: `drive forget`/`role`/`retire`, `sets delete`, `smart rm`, `profile unpin`/`unhide`,
-      `store label`/`unlabel`, and the dry runs of `sets playlist`, `smart apply`, `adopt --as`,
-      `store gc`/`prune`/`copy`, `library prune` and `art unembed`. Look up with
-      `diff_cmd::store_to_read` or `read_or_empty` and make the store only when applying.
-- [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
-      `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
-      Register it as what it is, or record only into a store that's there.
-- [ ] `drive groups` (and the sidecar's `drive.groups`) answers `[]` with no store, though
-      `fleet::sets` groups mounted drives by the library id each one holds and listed them
-      (unnamed) against a new store. Decide whether no store should still list those groups.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
-      let the TUI offer one-key fixes.
 - [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
       .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
-- [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
-      report shows one averaged speed.
-- [ ] `mix --cover FILE`: reports and exports carry a cover only when it's embedded in the
-      recording.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
-- [ ] A file whose container claims huge counts can abort `mix`, `check` or the player on Linux
-      without overcommit and on Windows: symphonia-format-isomp4's `stsz.rs` sizes a `Vec` from
-      them (`TODO: Apply a limit`). File it upstream.
-- [ ] `provision` shows the format plan's warnings twice: in the format plan and again in its own
-      `warnings`.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
 - [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
@@ -238,13 +206,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       (online-only Dropbox files that download onto the boot disk): both the fit warning
       (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
       to `~/rekordbox-export` stopped at 1.8 of 25 GB.
-- [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
-      CLI's `sets export` reads with `store_to_read`.
-- [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
-      that `main.rs` and `drive_cmd.rs` add.
-- [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
-      size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
-      steers around the case.
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
@@ -284,14 +245,12 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.
-- [ ] Unpublishing (`deleteRecord`) needs `delete` added to the publishing permission set
-      (`lexicons/computer/localnetwork/locallibraryPublishing.json`) and `PUBLISH_SCOPES`; until
-      then `sets delete` leaves a published set's record on the account.
+- [ ] First real `sets delete` of a published set: check a real PDS grants
+      `repo:computer.localnetwork.dj.set` and `repo:computer.localnetwork.dj.recording` (all three
+      actions) from the permission set, and
+      answers `deleteRecord` of a record that's already gone as done.
 - [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
       only `atproto`, publishing reports a missing scope, and sign-in loops.
-- [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
-      declared sets the profile finds sessions its own way (history lists, dated by the pull that
-      archived them) rather than with `sets::session::gather` and its windows.
 - [ ] File the jacquard-oauth issue on tangled (nonbinary.computer/jacquard): 0.12.2 and `main`
       panic when a token response grants a scope `Scopes` can't parse, in `callback_core`
       (`client.rs`) and on every refresh (`session.rs`'s `update_with_tokens`). Once a release
@@ -301,43 +260,22 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `collection export` skips intelligent playlists: `SmartList` rules aren't read
-      (`masterdb.rs:38`).
-- [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
-      Tags.
 - [ ] `store serve` and `store fetch` aren't in the sidecar.
-- [ ] Decide: x2 and /2 tempo fixes, which need rekordbox's PQT2 per-beat field decoded (`doctor`
-      points at rekordbox's own buttons meanwhile).
-- [ ] Decide: export history lists as playlists for Traktor, Serato and Engine (`traktor.rs:200`
-      and `engine.rs:219` skip them).
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
-- [ ] Decide: Serato `--write-tags` refuses an AIFF whose odd-sized last chunk lacks its pad byte
-      at apply rather than plan; catching it earlier means redoing lofty's chunk walk.
 
 ## Lexicons
 
-- [ ] MusicBrainz IDs come from file tags on a mounted drive when a set is made or edited, so a set
-      built with the drive unplugged has none until it's edited with the drive in. The store keeps
-      the files and could be read instead.
-- [ ] `transitionIn`'s `technique` is only ever `blend` (an overlap of 8 seconds or more, as the
-      website's mix report has it) or `unknown`; the terminal player calls 1 second a blend.
-      Pick one threshold.
 - [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
       `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
       and the `uri` format first.
 
 ## Website (`apps/web`)
 
-- [ ] `planner.save()` can make duplicate save records when two saves of one project overlap: it
-      reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
-      fixed record key per project fixes it, but changes the data shape.
 - [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
 - [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
       backfill from Jetstream, so `dj.set` records are let in only from a published project's
       managers, and the new-project forms have no set picker.
-- [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
-      the light background (`packages/tokens/colors.json` has one phrase palette).
 - [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like
       `/planner/shows/new` has.
 - [ ] `@lhci/cli` 0.15.1 (Lighthouse, on `bnb/ci-runners`) brings 7 advisories into the dev
@@ -369,17 +307,23 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Performance
 
-- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`).
-- [ ] `Device::scan_fingerprinted` forgets every database key, so `.locallibrary/index.json` is
-      rewritten with `F_FULLFSYNC` on every scan (about 20% of `check`'s per-drive time). Skipping
-      it changes the index's `at` timestamps.
-- [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
-      transaction changes the header's change counters, which `content_hash` already ignores.
+- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`). On one machine, plugged
+      in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
+      with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
+      of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
+      a 5,000-track drive, `check` on a drive and the `bnb/perf` criterion benches. Switch only if
+      the run times win by more than their run-to-run spread. Needs about 15 GB free.
+- [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
+      building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
+      `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
+      planning a replay of one (its edits name tracks by path, which the plan's per-track model
+      in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
       O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
 - [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
-      `codspeed-criterion-compat`, as `locallibrary-bench.yml` already says it is, and connect
-      the repo in CodSpeed after the first push (the free tier needs it public).
+      `codspeed-criterion-compat`, bring back `locallibrary-bench.yml` (removed while `main` had
+      no benchmarks; it's in the history), and connect the repo in CodSpeed after the first push
+      (the free tier needs it public).
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 

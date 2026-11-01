@@ -51,6 +51,7 @@ const show = (did: string, rkey: string, name: string): ShowView => ({
 const base = {
 	viewer,
 	pendingRequests: 0,
+	unread: 0,
 	projects: Promise.resolve([neon]),
 	project: neon,
 	managers: [
