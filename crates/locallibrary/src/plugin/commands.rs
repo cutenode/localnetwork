@@ -44,7 +44,7 @@ impl Plugins {
     ) -> Result<CommandOutput> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("command", command, &slot.manifest.contributes.commands, |c| &c.name)?;
-        let (context, _) = slot.context(context, store)?;
+        let (context, _, _given) = slot.context(context, store)?;
         let params = super::fitting(declared.params.as_ref(), params, &context)?;
         let run = RunCommand { command: command.into(), params, context };
         let shown = |partial| {

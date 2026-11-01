@@ -88,8 +88,15 @@
 				<SetPlayer bind:this={player} bind:current id="set-player-{n}" load={load(set.uri)} title={name(set)} tracks={playerTracks(set)} />
 			{/if}
 			{#if set.tracks.length}
-				<!-- Open while the player is, so the tracklist can follow along. -->
-				<details class="group border-t border-line pt-2 print:hidden" open={isOpen || undefined}>
+				<!-- Open while the player is, so the tracklist can follow along. Not `open={isOpen}`: hydrating applies that and closes a tracklist someone opened before the script ran. -->
+				<details
+					class="group border-t border-line pt-2 print:hidden"
+					{@attach (details) => {
+						if (!isOpen) return;
+						details.open = true;
+						return () => (details.open = false);
+					}}
+				>
 					<summary class="cursor-pointer text-small text-fg-muted marker:text-fg-subtle hover:text-fg">Tracklist</summary>
 					<ol class="m-0 mt-2 list-none p-0">
 						{#each set.tracks as track, i (i)}

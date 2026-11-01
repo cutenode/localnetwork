@@ -272,6 +272,7 @@ tests:
           - "**/{vitest,vitest.stryker,playwright}.config.ts"
           - "**/stryker*.{mjs,ts}"
           - "apps/web/src/lib/server/testing/**"
+          - "apps/web/{lighthouse/**,scripts/lighthouse*.ts,scripts/lib/lighthouse.ts}"
           - "apps/locallibrary/bombadil/**"
           - "fuzz/**"
           - ".config/nextest.toml"

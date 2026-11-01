@@ -1,6 +1,7 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
+import { signIn } from '../sign-in.ts';
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -29,20 +30,6 @@ function keepPdsCookies(page: Page) {
 
 test.beforeEach(({ page }) => keepPdsCookies(page));
 
-/** Signs in through the local PDS's OAuth screens with a seeded test account. */
-async function signIn(page: Page, handle: string, password: string, next = '/dashboard') {
-	await page.goto(`/login?next=${encodeURIComponent(next)}`);
-	await page.waitForLoadState('networkidle');
-	await page.getByPlaceholder('alice.bsky.social').fill(handle);
-	await page.getByRole('button', { name: 'Continue' }).click();
-	await page.locator('input[type="password"]').fill(password);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('button', { name: 'Authorize' }).click();
-	const target = new URL(next, 'http://127.0.0.1:5199');
-	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
-	await page.waitForLoadState('networkidle');
-}
-
 /**
  * Signs out from the dashboard and waits for the redirect home: /logout records the audit entry and
  * revokes the OAuth session first, and a sign-in started before it finishes would find the old session.
@@ -51,6 +38,26 @@ async function signOut(page: Page) {
 	await page.goto('/dashboard');
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await page.waitForURL((url) => url.pathname === '/');
+}
+
+/**
+ * Opens `path` with its scripts held back and runs `act` on the server-rendered page, as someone on a slow
+ * connection can, then lets the page hydrate.
+ */
+async function beforeHydration(page: Page, path: string, act: () => Promise<void>) {
+	const { promise: released, resolve: release } = Promise.withResolvers<void>();
+
+	const holdScripts = async (route: Route) => {
+		if (route.request().resourceType() === 'script') await released;
+		await route.fallback();
+	};
+
+	await page.route('**/*', holdScripts);
+	await page.goto(path);
+	await act();
+	release();
+	await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+	await page.unroute('**/*', holdScripts);
 }
 
 test.describe('public pages', () => {
@@ -83,8 +90,23 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
-		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expect(page.getByText('Contacts, rates and the tech rider come with a press kit.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'See the press kits' })).toHaveAttribute(
+			'href',
+			'/projects/halflight/press-kits'
+		);
 		await expectAccessible(page);
+	});
+
+	test('directory filters opened before the page hydrates stay open', async ({ page }) => {
+		await beforeHydration(page, '/projects', async () => {
+			// A phone folds the whole panel away first.
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await page.locator('summary', { hasText: 'More filters' }).click();
+		});
+		await expect(page.getByRole('group', { name: 'Format' })).toBeVisible();
 	});
 
 	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
@@ -93,7 +115,7 @@ test.describe('public pages', () => {
 		await expect(page.getByText('126–134')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('link', { name: 'Press kits' }).click();
+		await page.getByRole('link', { name: 'Press kits', exact: true }).click();
 		await expect(page).toHaveURL(/\/projects\/neon-tide\/press-kits$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
@@ -165,9 +187,15 @@ test.describe('public pages', () => {
 	});
 
 	test("a profile's sets link their artists to who played them", async ({ page }) => {
-		await page.goto('/projects/neon-tide');
-		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
-		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		// The sets render with the page once the server has them cached (otherwise they stream in after it
+		// hydrates), and a tracklist opened before the page hydrates stays open.
+		await page.request.get('/projects/neon-tide');
+		await beforeHydration(page, '/projects/neon-tide', () =>
+			page.locator('summary', { hasText: 'Tracklist' }).first().click()
+		);
+		const artist = page.getByRole('link', { name: 'Kestrel Unit' }).first();
+		await expect(artist).toBeVisible();
+		await artist.click();
 		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
 		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
 		await expectAccessible(page);

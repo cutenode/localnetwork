@@ -144,6 +144,14 @@ fn unknown_field<'a>(tok: &str, word: &str, names: impl IntoIterator<Item = &'a 
     ))
 }
 
+/// The error for a plugin's field `name` (in `tok`) that none of the analyzers installed declares
+/// (`declared` are those they do), with the one it most likely meant.
+fn undeclared(tok: &str, name: &str, declared: &Declared) -> Error {
+    let near = nearest(name, declared.keys().map(String::as_str))
+        .map_or_else(|| " (no plugin installed has it)".to_string(), |near| format!(" (did you mean {near}?)"));
+    Error::invalid(format!("can't read {tok:?}: there's no field {name:?}{near}"))
+}
+
 /// A numeric condition: `128`, `120-128`, `>=124`, `<5`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Num {
@@ -495,24 +503,7 @@ impl Filter {
                         "a {name}: term needs what analyzers worked out, and none was read"
                     )));
                 }
-                Cond::Plugin { name, num, text } => {
-                    let declared = &ctx.fields.expect("given").declared;
-                    let Some(&kind) = declared.get(name) else {
-                        return Err(unknown_field(name, name, declared.keys().map(String::as_str)));
-                    };
-                    let bad = |what: &str| Err(Error::invalid(format!("can't read the {name} term: {what}")));
-                    let switch = |t: &String| ["true", "false", "yes", "no"].contains(&t.as_str());
-                    match kind {
-                        FieldType::Number | FieldType::Integer if num.is_none() => {
-                            return bad("it's a number: give one, a range or a comparison (>120, 120-128)");
-                        }
-                        FieldType::Boolean if text.is_empty() || !text.iter().all(switch) => {
-                            return bad("it's true or false");
-                        }
-                        _ if text.is_empty() && num.is_none() => return bad("nothing to look for"),
-                        _ => {}
-                    }
-                }
+                Cond::Plugin { .. } => term.check_field(&ctx.fields.expect("given").declared)?,
                 Cond::Playlist(specs) => {
                     if let Some(s) = specs.iter().find(|s| ctx.library.find_playlist(s).is_none()) {
                         return Err(Error::NotFound(format!("playlist {s:?}")));
@@ -527,6 +518,26 @@ impl Filter {
         Ok(())
     }
 
+    /// Refuse a plugin's field none of the analyzers installed declares (`declared`), or a value
+    /// its field can't hold, as [`Filter::check`] does: what a rule is checked against before
+    /// any track is read.
+    pub fn check_fields(&self, declared: &Declared) -> Result<()> {
+        self.terms.iter().try_for_each(|t| t.check_field(declared))
+    }
+
+    /// The plugins' fields its terms name (`sound.bpm`), each once.
+    pub fn fields(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = Vec::new();
+        for t in &self.terms {
+            if let Cond::Plugin { name, .. } = &t.cond
+                && !names.contains(&name.as_str())
+            {
+                names.push(name);
+            }
+        }
+        names
+    }
+
     pub fn matches(&self, t: &Track, ctx: &QueryContext<'_>) -> bool {
         self.terms.iter().all(|term| term.matches(t, ctx) != term.negate)
     }
@@ -538,6 +549,23 @@ impl Filter {
 }
 
 impl Term {
+    /// Refuse it when it names a plugin's field none of `declared` is, or a value its field can't
+    /// hold.
+    fn check_field(&self, declared: &Declared) -> Result<()> {
+        let Cond::Plugin { name, num, text } = &self.cond else { return Ok(()) };
+        let Some(&kind) = declared.get(name) else { return Err(undeclared(name, name, declared)) };
+        let bad = |what: &str| Err(Error::invalid(format!("can't read the {name} term: {what}")));
+        let switch = |t: &String| ["true", "false", "yes", "no"].contains(&t.as_str());
+        match kind {
+            FieldType::Number | FieldType::Integer if num.is_none() => {
+                bad("it's a number: give one, a range or a comparison (>120, 120-128)")
+            }
+            FieldType::Boolean if text.is_empty() || !text.iter().all(switch) => bad("it's true or false"),
+            _ if text.is_empty() && num.is_none() => bad("nothing to look for"),
+            _ => Ok(()),
+        }
+    }
+
     fn matches(&self, t: &Track, ctx: &QueryContext<'_>) -> bool {
         let has = |hay: &str, needles: &[String]| {
             let hay = normalize(hay);
@@ -844,7 +872,7 @@ pub fn parse_sort_with(s: &str, declared: Option<&Declared>) -> Result<Vec<SortK
                 "path" | "file" => SortField::Path,
                 other if plugin_field(other).is_some() => match declared {
                     Some(d) if d.contains_key(other) => SortField::Field(FieldName::new(other)),
-                    Some(d) => return Err(unknown_field(other, other, d.keys().map(String::as_str))),
+                    Some(d) => return Err(undeclared(other, other, d)),
                     None => {
                         return Err(Error::invalid(format!(
                             "can't sort by {other:?} here: a plugin's field sorts track listings only"
@@ -1001,7 +1029,12 @@ impl TrackSelector {
     /// The selected track ids on `device`, whose library is `lib`, sorted, without repeats, with
     /// what the selector needs from the drive besides its library (see [`DriveContext`]).
     pub fn select_on(&self, device: &Device, lib: &Library) -> Result<Vec<u32>> {
-        self.select_with(&DriveContext::read(device, [self])?.query(lib))
+        self.select_with(&DriveContext::read(device, [self], [])?.query(lib))
+    }
+
+    /// Whether the filter names a plugin's field (`sound.bpm:>120`).
+    pub fn uses_fields(&self) -> bool {
+        self.filter.as_deref().and_then(|f| Filter::parse(f).ok()).is_some_and(|f| f.uses_fields())
     }
 
     pub fn select_with(&self, ctx: &QueryContext<'_>) -> Result<Vec<u32>> {
@@ -1115,33 +1148,62 @@ impl TrackSelector {
     }
 }
 
-/// What selecting tracks on a drive reads besides its library, each only when a selector needs
-/// it: the drive's My Tags (for `tag:`), and the history lists of both its databases (players that
-/// read only OneLibrary record theirs there, not in `export.pdb`).
+/// What selecting tracks on a drive reads besides its library, each only when a selector (or a
+/// sort) needs it: the drive's My Tags (for `tag:`), the history lists of both its databases
+/// (players that read only OneLibrary record theirs there, not in `export.pdb`), and what the
+/// analyzers installed worked out (for a plugin's field, `sound.bpm`; see
+/// [`crate::fields::Installed`]).
 #[derive(Debug, Default)]
 pub struct DriveContext {
     tags: Option<FxHashMap<String, Vec<String>>>,
     history: Option<Vec<HistoryList>>,
+    fields: Option<TrackValues>,
 }
 
 impl DriveContext {
-    /// Read what `selectors` need from `device`.
-    pub fn read<'s>(device: &Device, selectors: impl IntoIterator<Item = &'s TrackSelector>) -> Result<DriveContext> {
-        let (mut tags, mut history) = (false, false);
+    /// Read what `selectors` and `sorts` (see [`parse_sort`]) need from `device`.
+    pub fn read<'s>(
+        device: &Device,
+        selectors: impl IntoIterator<Item = &'s TrackSelector>,
+        sorts: impl IntoIterator<Item = &'s str>,
+    ) -> Result<DriveContext> {
+        let (mut tags, mut history, mut fields) = (false, false, false);
         for s in selectors {
             tags |= s.uses_tags();
             history |= s.history.is_some();
+            fields |= s.uses_fields();
         }
+        fields |= sorts.into_iter().any(sorts_by_field);
+        let values = || {
+            let installed = crate::fields::Installed::hosted();
+            Ok::<_, Error>(TrackValues::read(installed.source(), device, &device.library()?))
+        };
         Ok(DriveContext {
             tags: tags.then(|| crate::tags::by_track(device)).transpose()?,
             history: history.then(|| crate::plays::drive_history(device).map(|h| h.lists)).transpose()?,
+            fields: fields.then(values).transpose()?,
         })
     }
 
     /// A context for selecting on `library` (the drive's) with what was read.
     pub fn query<'a>(&'a self, library: &'a Library) -> QueryContext<'a> {
-        QueryContext { tags: self.tags.as_ref(), history: self.history.as_deref(), ..QueryContext::new(library) }
+        QueryContext {
+            tags: self.tags.as_ref(),
+            history: self.history.as_deref(),
+            fields: self.fields.as_ref(),
+            ..QueryContext::new(library)
+        }
     }
+
+    /// What the analyzers installed worked out, when a selector or a sort needed it.
+    pub fn fields(&self) -> Option<&TrackValues> {
+        self.fields.as_ref()
+    }
+}
+
+/// Whether the sort `s` names a plugin's field (`-sound.bpm`), whether or not one declares it.
+fn sorts_by_field(s: &str) -> bool {
+    s.split(',').map(|p| p.trim().trim_start_matches('-')).any(|p| plugin_field(p).is_some())
 }
 
 /// Refuse a blank text field of a selector: an empty search or album name would take every track.

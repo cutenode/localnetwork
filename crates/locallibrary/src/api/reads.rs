@@ -421,10 +421,16 @@ pub struct AnalysisView {
     pub structure: Option<SongStructure>,
 }
 
+/// A track's beat grid, cues, waveforms and phrases on `device`: what `track.analysis`,
+/// `tracks.analysis`, `track.show` and the player read.
+pub fn analysis_of(device: &Device, track: &Track) -> TrackAnalysis {
+    anlz::load(device, track)
+}
+
 impl AnalysisView {
     /// The track's analysis on `device`, with the waveforms chosen and encoded as asked.
     fn of(device: &Device, track: &Track, waveform: WaveformChoice, encoding: WaveformEncoding) -> AnalysisView {
-        let a: TrackAnalysis = anlz::load(device, track);
+        let a = analysis_of(device, track);
         let encode = |w: Waveform| match encoding {
             WaveformEncoding::Json => WaveformData::Json(w),
             WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),
