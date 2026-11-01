@@ -806,14 +806,15 @@ impl Ids {
         {
             return id;
         }
-        let mut id = self.max_category + 1;
-        if !Ids::fits(source, id) {
-            id = 1;
-        }
-        while self.used.contains(&id) {
-            id += 1;
-        }
-        id
+        let free_from = |mut id: i64| {
+            while self.used.contains(&id) {
+                id += 1;
+            }
+            id
+        };
+        // The next free id can run past `u32::MAX` even when `max_category + 1` fits.
+        let id = free_from(self.max_category + 1);
+        if Ids::fits(source, id) { id } else { free_from(1) }
     }
 
     /// The other database's id for the same tag, if this one doesn't use it; else a large id
