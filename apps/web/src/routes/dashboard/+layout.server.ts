@@ -1,3 +1,4 @@
+import { sectionsOf } from '#lib/server/forms/profile.ts';
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { requireViewer } from '#lib/server/http.ts';
 import type { LayoutServerLoad } from './$types';
@@ -19,6 +20,13 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
 	return {
 		// Streamed, so the dashboard shows while the directory finds them; null when it's offline.
 		projects: unlessOffline(locals.log, () => locals.app.projects.managedBy(viewer.did)),
+		// Which sections the account's profile has on, which decide the sidebar; null without a profile, or while the
+		// directory is offline, when the sidebar shows everything.
+		sections: unlessOffline(locals.log, async () => {
+			const profile = await locals.app.profiles.get(viewer.did);
+
+			return profile && sectionsOf(profile.record);
+		}).then((sections) => sections ?? null),
 		unread: await locals.app.notifications.unreadCount(viewer.did)
 	};
 };

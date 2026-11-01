@@ -1,0 +1,22 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.profile",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "A person's Local Network profile, in their own repo. Every account has at most one. A section is on when its object is present, even empty: the performer section makes the profile a DJ's, the promoter section a promoter's.",
+			"record": {
+				"type": "object",
+				"required": ["basics", "createdAt", "updatedAt"],
+				"properties": {
+					"basics": { "type": "ref", "ref": "computer.localnetwork.section.defs#basics" },
+					"performer": { "type": "ref", "ref": "computer.localnetwork.section.defs#performer" },
+					"promoter": { "type": "ref", "ref": "computer.localnetwork.section.defs#promoter" },
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

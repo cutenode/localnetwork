@@ -179,7 +179,7 @@ describe('linked sets', () => {
 		expect(calls).toEqual(['/admin/backfill', '/admin/backfill/status', `/xrpc/${DIRECTORY.listSets}`]);
 	});
 
-	it("has HappyView read a project's new managers' sets, recordings, stats, press kits, calendar events, and Bluesky profiles and follows once it's published", async () => {
+	it("has HappyView read a project's new managers' sets, recordings, stats, press kits, calendar events, profiles, and Bluesky profiles and follows once it's published", async () => {
 		const backfilled: string[] = [];
 
 		// Reads go to the test's HappyView; only the backfills are watched.
@@ -220,7 +220,8 @@ describe('linked sets', () => {
 					COLLECTION.djProfile,
 					COLLECTION.djRecording,
 					COLLECTION.djSet,
-					COLLECTION.epk
+					COLLECTION.epk,
+					COLLECTION.profile
 				].map((collection) => `${collection} ${STRANGER}`)
 			);
 	});

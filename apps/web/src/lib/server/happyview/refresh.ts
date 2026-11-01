@@ -5,8 +5,8 @@ import type { Core } from '../core';
 import type { HappyViewClient } from './client';
 
 /**
- * The collections HappyView keeps that the site reads per project manager (their Bluesky profile for verification
- * statuses). Jetstream only brings records written after HappyView started keeping them, so each manager's older ones
+ * The collections HappyView keeps that the site reads per project manager (their Local Network profile, and their
+ * Bluesky profile for verification statuses). Jetstream only brings records written after HappyView started keeping them, so each manager's older ones
  * are re-read: once per version of the collection's record script, and when they become a manager.
  */
 export const MANAGER_COLLECTIONS = [
@@ -15,6 +15,7 @@ export const MANAGER_COLLECTIONS = [
 	COLLECTION.djProfile,
 	COLLECTION.epk,
 	CALENDAR_EVENT,
+	COLLECTION.profile,
 	BSKY_PROFILE
 ];
 

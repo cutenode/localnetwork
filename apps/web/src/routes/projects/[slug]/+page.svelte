@@ -12,7 +12,7 @@
 	import ManageLink from '#lib/components/ManageLink.svelte';
 	import MixList from '#lib/components/MixList.svelte';
 	import PreviewBanner from '#lib/components/PreviewBanner.svelte';
-	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import PerformerFacts from '#lib/components/PerformerFacts.svelte';
 	import ShowList from '#lib/components/ShowList.svelte';
 	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -20,6 +20,7 @@
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import Tag from '#lib/ui/Tag.svelte';
 	import type { PageProps } from './$types';
+	import { webHref } from '#lib/web-url.ts';
 
 	let { data, form }: PageProps = $props();
 
@@ -171,14 +172,14 @@
 	<aside class="flex min-w-0 flex-[1_1_18rem] flex-col gap-6">
 		<section aria-labelledby="glance" class="card flex flex-col gap-4 p-5">
 			<h2 id="glance" class="m-0 eyebrow text-fg-subtle">At a glance</h2>
-			<ProjectFacts {profile} />
+			<PerformerFacts performer={profile} />
 		</section>
 		{#if profile.links?.length}
 			<section aria-labelledby="links" class="card flex flex-col gap-3 p-5">
 				<h2 id="links" class="m-0 eyebrow text-fg-subtle">Links</h2>
 				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-small">
 					{#each profile.links as link, index (index)}
-						<li><a class="link inline-flex items-center gap-1.5" href={link.url} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 opacity-70" /></a></li>
+						<li><a class="link inline-flex items-center gap-1.5" href={webHref(link.url)} rel="noopener noreferrer nofollow" target="_blank">{link.label ?? labelFor(LINK_KINDS, link.kind)}<ExternalLink class="size-3 opacity-70" /></a></li>
 					{/each}
 				</ul>
 			</section>

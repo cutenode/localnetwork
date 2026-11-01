@@ -1,5 +1,5 @@
 import { USERINPUT } from '#lib/bug-report.ts';
-import { BSKY_FOLLOW, VERIFICATION } from '#lib/nsid.ts';
+import { BSKY_FOLLOW, COLLECTION, VERIFICATION } from '#lib/nsid.ts';
 import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
@@ -34,6 +34,9 @@ import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
 import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
+import { DjListings } from './services/dj-listings';
+import { PerformerSearch } from './services/performers';
+import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
 import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
@@ -215,7 +218,6 @@ export async function createApp(options: CreateAppOptions) {
 	const backfills = new Backfills(happyView, logger.child({ component: 'backfills' }));
 	const plyr = new PlyrClient(logger.child({ component: 'plyr' }));
 	const projects = new ProjectService(core, happyView, INDEX_WAIT_MS, backfills, plyr);
-	const requests = new RequestService(core, projects);
 	const staff = new StaffService(core);
 	const bookings = new BookingService(core, projects);
 	const planner = new PlannerService(core);
@@ -223,6 +225,10 @@ export async function createApp(options: CreateAppOptions) {
 	const tracklists = new TracklistService(core);
 	const indexedRepo = new IndexedRepo(happyView, logger.child({ component: 'indexed-repo' }));
 	const dj = new DjService(indexedRepo, logger.child({ component: 'dj' }));
+	const profiles = new ProfileService(core, indexedRepo);
+	const djListings = new DjListings(core, indexedRepo);
+	const performers = new PerformerSearch(core, happyView, projects, profiles);
+	const requests = new RequestService(core, projects, profiles, djListings);
 
 	const recordings = new RecordingService(
 		indexedRepo,
@@ -246,6 +252,8 @@ export async function createApp(options: CreateAppOptions) {
 		login: new RateLimiter(10, 10 / 60),
 		write: new RateLimiter(30, 30 / 60),
 		search: new RateLimiter(60, 2),
+		/** Profile addresses that name no account, each of which may have sent the app to resolve a stranger's name. */
+		profileMisses: new RateLimiter(30, 30 / 600),
 		/** Turning email or DMs on, or checking again, which asks other services each time. */
 		optIn: new RateLimiter(5, 5 / 600),
 		testSend: new RateLimiter(3, 3 / 3600)
@@ -344,6 +352,9 @@ export async function createApp(options: CreateAppOptions) {
 		projectAdmin,
 		tracklists,
 		dj,
+		profiles,
+		djListings,
+		performers,
 		recordings,
 		supports,
 		epks,
@@ -414,8 +425,8 @@ export async function createApp(options: CreateAppOptions) {
 		 * Has HappyView re-read, once for each collection's current record script (`uploaded` lists the scripts it just
 		 * got), the older records the site reads from other repos: the records of each of MANAGER_COLLECTIONS by the
 		 * managers and the root (which holds press kits), the follows of the accounts press kits' audience checks read, the
-		 * root's verifications, and the bug report space. A failure is logged and tried again on the next round, without
-		 * marking the directory sync failed.
+		 * root's verifications and DJ listings, and the bug report space. A failure is logged and tried again on the next
+		 * round, without marking the directory sync failed.
 		 */
 		async refreshRecords(uploaded: string[] = []) {
 			if (!config.happyView.apiKey) return;
@@ -430,6 +441,7 @@ export async function createApp(options: CreateAppOptions) {
 				})),
 				{ collection: BSKY_FOLLOW, accounts: () => epks.followReaders() },
 				{ collection: VERIFICATION, accounts: async () => [rootDid] },
+				{ collection: COLLECTION.listingProfile, accounts: async () => [rootDid] },
 				...(spaceOwner ? [{ collection: USERINPUT.space, accounts: async () => [spaceOwner] }] : [])
 			];
 

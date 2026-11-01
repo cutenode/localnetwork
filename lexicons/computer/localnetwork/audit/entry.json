@@ -50,6 +50,7 @@
 							"show.delete",
 							"follow.create",
 							"follow.delete",
+							"profile.save",
 							"space.create",
 							"people.add",
 							"people.update",

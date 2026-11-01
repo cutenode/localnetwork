@@ -7,8 +7,9 @@
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
-	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import PerformerCard from '#lib/components/PerformerCard.svelte';
 	import { pluralize } from '#lib/format.ts';
+	import { djSummary, projectSummary } from '#lib/performers.ts';
 	import { FEE_TIERS, FORMATS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
@@ -139,7 +140,9 @@
 					</EmptyState>
 				{:else}
 					<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-4 p-0">
-						{#each data.result.items as project (project.uri)}<li class="min-w-0"><ProjectCard {project} /></li>{/each}
+						{#each data.result.items as item (item.kind === 'project' ? item.project.uri : item.dj.profile.uri)}
+							<li class="min-w-0"><PerformerCard performer={item.kind === 'project' ? projectSummary(item.project) : djSummary(item.dj)} /></li>
+						{/each}
 					</ul>
 					<Pagination page={data.result.page} pageSize={data.result.pageSize} total={data.result.total} />
 				{/if}

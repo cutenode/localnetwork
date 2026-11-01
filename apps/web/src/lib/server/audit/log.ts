@@ -47,6 +47,7 @@ export const AUDIT_ACTIONS = [
 	'show.delete',
 	'follow.create',
 	'follow.delete',
+	'profile.save',
 	'space.create',
 	'people.add',
 	'people.update',
