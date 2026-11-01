@@ -17,15 +17,6 @@ const byDid = (uris: (string | undefined)[]) => [
 ];
 
 /**
- * A page's metadata with its records, unless it's kept out of search: a page few can open names none, so its records
- * aren't even looked up.
- */
-export const withRecords = async (
-	meta: PageMeta,
-	records: () => PageRecords | Promise<PageRecords>
-): Promise<PageMeta> => (meta.noindex ? meta : { ...meta, records: await records() });
-
-/**
  * A performer's page's records: the project by default. Its authors are the managers who asked to manage it
  * themselves, so nobody an admin named without asking is credited with it.
  */

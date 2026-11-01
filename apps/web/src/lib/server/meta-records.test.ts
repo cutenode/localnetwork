@@ -1,10 +1,8 @@
 import { AtUri } from '@atproto/syntax';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DjActivity } from '#lib/dj.ts';
-import type { PageMeta } from '#lib/meta.ts';
-import type { ProjectProfile, ProjectView } from '#lib/types.ts';
-import { performerMeta } from './meta';
-import { djProfiles, type PageRecords, profileRecords, projectRecords, withRecords } from './meta-records';
+import type { ProjectProfile } from '#lib/types.ts';
+import { djProfiles, type PageRecords, profileRecords, projectRecords } from './meta-records';
 import { createTestServices } from './testing/core';
 
 const ADMIN = 'did:plc:admin';
@@ -169,49 +167,6 @@ describe('projectRecords', () => {
 
 		expect(records).toEqual({ canonical: [kit], alternate: [project.uri, set], author: [] });
 		expectDidUris(records);
-	});
-});
-
-describe('withRecords', () => {
-	const project: ProjectView = {
-		uri: 'at://did:plc:root/computer.localnetwork.project/1',
-		rkey: '1',
-		cid: 'c',
-		slug: 'neon-tide',
-		profile: profile('Neon Tide'),
-		managers: [],
-		status: 'active',
-		revision: 1,
-		createdBy: ADMIN,
-		createdAt: '2026-01-01T00:00:00Z',
-		updatedAt: '2026-01-01T00:00:00Z',
-		avatarUrl: null
-	};
-
-	const records: PageRecords = { canonical: [project.uri], alternate: [], author: [`at://${DJ}`] };
-
-	it("adds the records to a page search engines may list, and none to one they're kept from", async () => {
-		const listed: PageMeta = await withRecords(performerMeta('https://localnetwork.test', project), () => records);
-
-		const hidden = await withRecords(
-			performerMeta('https://localnetwork.test', { ...project, status: 'hidden' }),
-			() => records
-		);
-
-		expect(listed.records).toEqual(records);
-		expect(hidden.noindex).toBe(true);
-		expect(hidden).not.toHaveProperty('records');
-	});
-
-	it("doesn't look up the records of a page kept out of search", async () => {
-		// Any lookup fails, so the page resolving at all shows none was made.
-		const unreachable = { joinedManagers: () => Promise.reject(new Error('looked up')) };
-
-		const hidden = await withRecords(performerMeta('https://localnetwork.test', { ...project, status: 'hidden' }), () =>
-			projectRecords(unreachable, { ...project, managers: [DJ] })
-		);
-
-		expect(hidden).not.toHaveProperty('records');
 	});
 });
 
