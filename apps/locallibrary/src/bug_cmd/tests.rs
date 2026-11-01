@@ -92,6 +92,28 @@ fn a_long_report_is_cut_short_to_fit_an_address() {
     assert!(said.len() > 2000 && long.starts_with(said.as_str()), "{}", said.len());
 }
 
+/// However long the title and the message, the address fits in [`MAX_URL`]: each field it has is
+/// the start of what was typed, in the form's order, and a field whose name doesn't fit is left
+/// out.
+#[hegel::test(test_cases = 200)]
+#[hegel::explicit_test_case(title_len = 9000usize, message_len = 1usize, piece = "a")]
+fn the_address_never_runs_past_its_limit(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let title_len = tc.draw(gs::integers::<usize>().max_value(9000));
+    let message_len = tc.draw(gs::integers::<usize>().max_value(9000));
+    let piece = tc.draw(gs::sampled_from(&["a", "é", "日", "🇬🇧", "& ="][..]));
+    let (title, message) = (piece.repeat(title_len), piece.repeat(message_len));
+    let url = report(Some(HOMEBREW), Some(&title), Some(&message)).github_url();
+    assert!(url.len() <= MAX_URL, "{}", url.len());
+    let q = query(&url);
+    let ids: Vec<&str> = q.iter().map(|(k, _)| k.as_str()).collect();
+    let all = ["template", "version", "os", "install", "title", "what-happened"];
+    assert!(all.starts_with(&ids), "{ids:?}");
+    for ((_, said), typed) in q.iter().skip(4).zip([&title, &message]) {
+        assert!(typed.starts_with(said.as_str()), "{said:?}");
+    }
+}
+
 #[cfg(feature = "account")]
 #[test]
 fn a_post_says_what_happened_then_the_details() {

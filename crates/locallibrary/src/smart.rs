@@ -1,12 +1,14 @@
 //! Rule-based ("smart") playlists: a filter, sort order and limit kept in the store and written to
 //! drives as ordinary playlists, which is what players can show. rekordbox's own Intelligent
-//! Playlists reach a drive the same way, as fixed lists from export time.
+//! Playlists reach a drive the same way, as fixed lists from export time; `collection export`
+//! keeps a rule for each one a filter can say (see [`SmartPlaylists::keep_for_drive`]).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::edit::Edit;
+use crate::fields::Declared;
 use crate::query::{self, Filter, TrackSelector};
 use crate::{Error, Result};
 
@@ -27,7 +29,10 @@ pub struct SmartPlaylist {
 }
 
 impl SmartPlaylist {
-    pub fn validate(&self) -> Result<()> {
+    /// Refuse a rule that can't be applied: one without a path or a filter, or whose filter or
+    /// sort can't be read, or names a plugin's field none of the analyzers installed declares
+    /// (`declared` are those they do) or a value its field can't hold.
+    pub fn validate(&self, declared: &Declared) -> Result<()> {
         if self.path.split('/').all(|p| p.trim().is_empty()) {
             return Err(Error::invalid("give the playlist a path, e.g. Smart/Peak time"));
         }
@@ -35,9 +40,9 @@ impl SmartPlaylist {
         if self.filter.trim().is_empty() {
             return Err(Error::invalid("give the rule a filter, e.g. \"bpm:126-132 rating:>=4\""));
         }
-        Filter::parse(&self.filter)?;
+        Filter::parse(&self.filter)?.check_fields(declared)?;
         if let Some(s) = &self.sort {
-            query::parse_sort(s)?;
+            query::parse_sort_with(s, Some(declared))?;
         }
         Ok(())
     }
@@ -83,9 +88,10 @@ impl SmartPlaylists {
         self.playlists.iter().find(|p| p.key() == key(path))
     }
 
-    /// Add a rule, or replace the one for exactly its path.
-    pub fn set(&mut self, rule: SmartPlaylist) -> Result<()> {
-        rule.validate()?;
+    /// Add a rule, or replace the one for exactly its path, once it's valid (see
+    /// [`SmartPlaylist::validate`]).
+    pub fn set(&mut self, rule: SmartPlaylist, declared: &Declared) -> Result<()> {
+        rule.validate(declared)?;
         match self.playlists.iter_mut().find(|p| p.key() == rule.key()) {
             Some(p) => *p = rule,
             None => self.playlists.push(rule),
@@ -112,6 +118,26 @@ impl SmartPlaylists {
             }
         };
         Ok(self.playlists.remove(i))
+    }
+
+    /// Keep the rules a collection export made for the drive `drive` (see
+    /// [`crate::collection_export`]): each of `rules`, limited to it, added, or put in place of the
+    /// rule for its path when that one is limited to this drive alone too; and the rules for `gone`
+    /// (paths an earlier export kept) that are so limited taken away. Returns the paths of `rules`
+    /// left alone, as another rule is there.
+    pub fn keep_for_drive(&mut self, drive: Uuid, rules: &[SmartPlaylist], gone: &[String]) -> Result<Vec<String>> {
+        let own = |p: &SmartPlaylist| p.drives == [drive];
+        self.playlists.retain(|p| !(own(p) && gone.iter().any(|g| key(g) == p.key())));
+        let mut left = Vec::new();
+        for r in rules {
+            let rule = SmartPlaylist { drives: vec![drive], ..r.clone() };
+            match self.get(&rule.path) {
+                Some(p) if !own(p) => left.push(rule.path),
+                // An export's rules come from rekordbox's own filters: no plugin's fields.
+                _ => self.set(rule, &Declared::default())?,
+            }
+        }
+        Ok(left)
     }
 
     /// The edits that bring a drive's smart playlists up to date (see [`SmartPlaylist::applies_to`]).

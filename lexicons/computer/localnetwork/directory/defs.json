@@ -33,7 +33,7 @@
 				},
 				"genres": {
 					"type": "array",
-					"items": { "type": "string" },
+					"items": { "type": "string", "maxLength": 48 },
 					"description": "The genres it was searched by: its performer section's, or when that names none, the ones the DJ plays most by their computer.localnetwork.dj.profile."
 				},
 				"distanceM": {
@@ -68,10 +68,15 @@
 			"properties": {
 				"uri": { "type": "string", "format": "at-uri" },
 				"cid": { "type": "string", "format": "cid", "description": "The set's current version." },
-				"title": { "type": "string" },
-				"date": { "type": "string", "description": "The day it was played, as YYYY-MM-DD." },
-				"kind": { "type": "string" },
-				"venue": { "type": "string" },
+				"title": { "type": "string", "maxLength": 1000 },
+				"date": {
+					"type": "string",
+					"minLength": 10,
+					"maxLength": 10,
+					"description": "The day it was played, as YYYY-MM-DD."
+				},
+				"kind": { "type": "string", "maxLength": 640 },
+				"venue": { "type": "string", "maxLength": 1000 },
 				"location": { "type": "ref", "ref": "community.lexicon.location.address" },
 				"trackCount": { "type": "integer", "minimum": 0 }
 			}
@@ -133,6 +138,7 @@
 			"properties": {
 				"code": {
 					"type": "string",
+					"maxLength": 32,
 					"knownValues": [
 						"plays",
 						"adjacentSound",
@@ -155,14 +161,14 @@
 				},
 				"genres": {
 					"type": "array",
-					"items": { "type": "string" },
+					"items": { "type": "string", "maxLength": 48 },
 					"description": "For plays: the project's closely matching genres."
 				},
 				"distanceM": { "type": "integer", "minimum": 0, "description": "For nearby, travels, and outOfRange." },
-				"setType": { "type": "string", "description": "For setType." },
+				"setType": { "type": "string", "maxLength": 32, "description": "For setType." },
 				"formats": {
 					"type": "array",
-					"items": { "type": "string" },
+					"items": { "type": "string", "maxLength": 32 },
 					"description": "For formats: the formats both sides share."
 				}
 			}
@@ -170,14 +176,14 @@
 		"facet": {
 			"type": "object",
 			"required": ["value", "count"],
-			"properties": { "value": { "type": "string" }, "count": { "type": "integer", "minimum": 0 } }
+			"properties": { "value": { "type": "string", "maxLength": 48 }, "count": { "type": "integer", "minimum": 0 } }
 		},
 		"place": {
 			"type": "object",
 			"required": ["city", "country", "count"],
 			"properties": {
-				"city": { "type": "string" },
-				"country": { "type": "string" },
+				"city": { "type": "string", "maxLength": 1000 },
+				"country": { "type": "string", "maxLength": 10 },
 				"count": { "type": "integer", "minimum": 0 }
 			}
 		},
@@ -186,8 +192,12 @@
 			"description": "An artist whose tracks DJs played. An artist is their MusicBrainz ID, else their name in any case; a name some sets give one MBID counts as that MBID's. A DJ is an act: a project whose managers are all counted as one, and only while it's active.",
 			"required": ["name", "supports", "djCount"],
 			"properties": {
-				"name": { "type": "string", "description": "The name sets credit them as most." },
-				"mbid": { "type": "string", "description": "Their MusicBrainz artist ID, as a bare lowercase UUID." },
+				"name": { "type": "string", "maxLength": 3000, "description": "The name sets credit them as most." },
+				"mbid": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Their MusicBrainz artist ID, as a bare lowercase UUID."
+				},
 				"supports": {
 					"type": "integer",
 					"minimum": 0,
@@ -203,17 +213,22 @@
 			"properties": {
 				"id": {
 					"type": "string",
+					"maxLength": 6006,
 					"description": "Opaque: tells tracks apart within one answer and between answers. Clients shouldn't read meaning into it."
 				},
-				"title": { "type": "string" },
-				"artist": { "type": "string", "description": "The artist credit, as one line." },
+				"title": { "type": "string", "maxLength": 3000 },
+				"artist": { "type": "string", "maxLength": 3000, "description": "The artist credit, as one line." },
 				"artists": {
 					"type": "array",
 					"description": "The artists it credits, one by one, or its whole credit as one.",
 					"items": { "type": "ref", "ref": "#artistCredit" }
 				},
-				"recordingMbId": { "type": "string", "description": "Its MusicBrainz recording ID, as a bare lowercase UUID." },
-				"isrc": { "type": "string" },
+				"recordingMbId": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Its MusicBrainz recording ID, as a bare lowercase UUID."
+				},
+				"isrc": { "type": "string", "maxLength": 12 },
 				"supports": { "type": "integer", "minimum": 0, "description": "How many DJs played it." }
 			}
 		},
@@ -221,8 +236,12 @@
 			"type": "object",
 			"required": ["name"],
 			"properties": {
-				"name": { "type": "string" },
-				"mbid": { "type": "string", "description": "Their MusicBrainz artist ID, as a bare lowercase UUID." }
+				"name": { "type": "string", "maxLength": 3000 },
+				"mbid": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "Their MusicBrainz artist ID, as a bare lowercase UUID."
+				}
 			}
 		},
 		"trackPlays": {
@@ -260,7 +279,7 @@
 		"projectLink": {
 			"type": "object",
 			"required": ["slug", "name"],
-			"properties": { "slug": { "type": "string" }, "name": { "type": "string" } }
+			"properties": { "slug": { "type": "string", "maxLength": 64 }, "name": { "type": "string", "maxLength": 640 } }
 		}
 	}
 }

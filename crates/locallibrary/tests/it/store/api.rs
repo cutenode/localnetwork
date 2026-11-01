@@ -107,9 +107,11 @@ fn the_check_and_its_player_models() {
         models: models.iter().map(|m| m.to_string()).collect(),
         library: library.map(Into::into),
     };
-    let err = api::players_set_plan(&store, &set(&["CDJ-3000"], Some("Club"))).unwrap_err();
+    let err = api::players_set_plan(Some(&store), &set(&["CDJ-3000"], Some("Club"))).unwrap_err();
     assert_eq!(err.reason(), Some(Reason::UnknownLibrary), "{err}");
-    assert!(api::players_set_plan(&store, &set(&[], None)).unwrap_err().to_string().contains("at least one model"));
+    assert!(
+        api::players_set_plan(Some(&store), &set(&[], None)).unwrap_err().to_string().contains("at least one model")
+    );
     api::players_set(&store, &set(&["cdj-3000"], Some("Home"))).unwrap();
     let shown = api::players_show(&store).unwrap();
     assert_eq!(shown.libraries[0].models, ["CDJ-3000"]);

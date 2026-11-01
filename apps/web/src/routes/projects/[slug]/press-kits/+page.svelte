@@ -18,7 +18,7 @@
 	/**
 	 * A project's press kits: the ones its managers publish as records, listed first, then one put
 	 * together from what's on file (the profile, its mixes, the managers' playing stats and sets, and
-	 * booking details for members). That one reads like a document and prints on white.
+	 * booking details for its managers). That one reads like a document and prints on white.
 	 */
 	let { data }: PageProps = $props();
 
@@ -161,7 +161,7 @@
 
 	<section aria-labelledby="epk-booking" class="card flex flex-col gap-4 p-5 print:break-inside-avoid">
 		<h2 id="epk-booking" class="m-0 text-heading font-semibold">Booking</h2>
-		<BookingDetails details={data.details} signedIn={!!data.viewer} claimed={project.managers.length > 0} loginHref="/login?next=/projects/{project.slug}/press-kits" />
+		<BookingDetails details={data.details} claimed={project.managers.length > 0} />
 		<div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-small">
 			{#if data.viewer && project.managers.length && !data.isManager}<a class="btn-primary btn-sm print:hidden" href="/dashboard/bookings/new?project={project.slug}">Send inquiry</a>{/if}
 			<span class="text-fg-muted">Profile: <a class="link break-all" href={data.profileUrl}>{data.profileUrl}</a></span>

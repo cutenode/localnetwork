@@ -24,76 +24,91 @@
 			"properties": {
 				"onAirDisplay": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "On Air Display. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"quantize": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Quantize. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"autoCueLevel": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Auto Cue Level. rekordbox's default: memory (MYSETTING.DAT).",
 					"knownValues": ["-36db", "-42db", "-48db", "-54db", "-60db", "-66db", "-72db", "-78db", "memory"]
 				},
 				"ejectLock": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Eject/Load Lock. rekordbox's default: unlock (MYSETTING.DAT).",
 					"knownValues": ["unlock", "lock"]
 				},
 				"sync": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Sync. rekordbox's default: off (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"playMode": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Play Mode / Auto Play Mode. rekordbox's default: single (MYSETTING.DAT).",
 					"knownValues": ["continue", "single"]
 				},
 				"quantizeBeatValue": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Quantize Beat Value. rekordbox's default: 1 (MYSETTING.DAT).",
 					"knownValues": ["1", "1/2", "1/4", "1/8"]
 				},
 				"hotCueAutoLoad": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Hot Cue Auto Load. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on", "rekordbox"]
 				},
 				"needleLock": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Needle Lock. rekordbox's default: lock (MYSETTING.DAT).",
 					"knownValues": ["unlock", "lock"]
 				},
 				"jogMode": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Jog Mode. rekordbox's default: vinyl (MYSETTING.DAT).",
 					"knownValues": ["cdj", "vinyl"]
 				},
 				"autoCue": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Auto Cue. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"masterTempo": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Master Tempo. rekordbox's default: off (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"tempoRange": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Tempo Range. rekordbox's default: 10 (MYSETTING.DAT).",
 					"knownValues": ["6", "10", "16", "wide"]
 				},
 				"vinylSpeedAdjust": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Vinyl Speed Adjust. rekordbox's default: touch (MYSETTING2.DAT).",
 					"knownValues": ["touch-release", "touch", "release"]
 				},
 				"beatJumpBeatValue": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Beat Jump Beat Value. rekordbox's default: 16 (MYSETTING2.DAT).",
 					"knownValues": ["1/2", "1", "2", "4", "8", "16", "32", "64"]
 				}
@@ -105,11 +120,13 @@
 			"properties": {
 				"lcdBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "LCD Brightness. rekordbox's default: 3 (MYSETTING.DAT).",
 					"knownValues": ["1", "2", "3", "4", "5"]
 				},
 				"language": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Language. rekordbox's default: english (MYSETTING.DAT).",
 					"knownValues": [
 						"english",
@@ -134,81 +151,97 @@
 				},
 				"jogRingBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Jog Ring Brightness. rekordbox's default: bright (MYSETTING.DAT).",
 					"knownValues": ["off", "dark", "bright"]
 				},
 				"jogRingIndicator": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Jog Ring Indicator. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"slipFlashing": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Slip Flashing. rekordbox's default: on (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"discSlotIllumination": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Disc Slot Illumination. rekordbox's default: bright (MYSETTING.DAT).",
 					"knownValues": ["off", "dark", "bright"]
 				},
 				"hotCueColor": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Hot Cue Color. rekordbox's default: off (MYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"timeMode": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Time Mode. rekordbox's default: remain (MYSETTING.DAT).",
 					"knownValues": ["elapsed", "remain"]
 				},
 				"phaseMeter": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Phase Meter. rekordbox's default: type1 (MYSETTING.DAT).",
 					"knownValues": ["type1", "type2"]
 				},
 				"jogDisplayMode": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Jog Display Mode. rekordbox's default: auto (MYSETTING2.DAT).",
 					"knownValues": ["auto", "info", "simple", "artwork"]
 				},
 				"padButtonBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Pad/Button Brightness. rekordbox's default: 3 (MYSETTING2.DAT).",
 					"knownValues": ["1", "2", "3", "4"]
 				},
 				"jogLcdBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Jog LCD Brightness. rekordbox's default: 3 (MYSETTING2.DAT).",
 					"knownValues": ["1", "2", "3", "4", "5"]
 				},
 				"waveformDivisions": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Waveform Divisions. rekordbox's default: phrase (MYSETTING2.DAT).",
 					"knownValues": ["time-scale", "phrase"]
 				},
 				"waveformDisplay": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Waveform / Phase Meter. rekordbox's default: waveform (MYSETTING2.DAT).",
 					"knownValues": ["waveform", "phase-meter"]
 				},
 				"overviewWaveformType": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Overview Waveform Type. rekordbox's default: half (DEVSETTING.DAT).",
 					"knownValues": ["half", "full"]
 				},
 				"waveformColor": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Waveform Color. rekordbox's default: blue (DEVSETTING.DAT).",
 					"knownValues": ["blue", "rgb", "3band"]
 				},
 				"keyDisplayFormat": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Key Display Format. rekordbox's default: classic (DEVSETTING.DAT).",
 					"knownValues": ["classic", "alphanumeric"]
 				},
 				"waveformCurrentPosition": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Waveform Current Position. rekordbox's default: center (DEVSETTING.DAT).",
 					"knownValues": ["center", "left"]
 				}
@@ -220,66 +253,79 @@
 			"properties": {
 				"channelFaderCurve": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Channel Fader Curve. rekordbox's default: linear (DJMMYSETTING.DAT).",
 					"knownValues": ["steep-top", "linear", "steep-bottom"]
 				},
 				"crossfaderCurve": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Crossfader Curve. rekordbox's default: fast-cut (DJMMYSETTING.DAT).",
 					"knownValues": ["constant-power", "slow-cut", "fast-cut"]
 				},
 				"headphonesPreEq": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Headphones Pre EQ. rekordbox's default: post-eq (DJMMYSETTING.DAT).",
 					"knownValues": ["post-eq", "pre-eq"]
 				},
 				"headphonesMonoSplit": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Headphones Mono Split. rekordbox's default: stereo (DJMMYSETTING.DAT).",
 					"knownValues": ["stereo", "mono-split"]
 				},
 				"beatFxQuantize": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Beat FX Quantize. rekordbox's default: on (DJMMYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"micLowCut": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Mic Low Cut. rekordbox's default: on (DJMMYSETTING.DAT).",
 					"knownValues": ["off", "on"]
 				},
 				"talkOverMode": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Talk Over Mode. rekordbox's default: advanced (DJMMYSETTING.DAT).",
 					"knownValues": ["advanced", "normal"]
 				},
 				"talkOverLevel": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Talk Over Level. rekordbox's default: -18db (DJMMYSETTING.DAT).",
 					"knownValues": ["-24db", "-18db", "-12db", "-6db"]
 				},
 				"midiChannel": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "MIDI Channel. rekordbox's default: 1 (DJMMYSETTING.DAT).",
 					"knownValues": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"]
 				},
 				"midiButtonType": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "MIDI Button Type. rekordbox's default: toggle (DJMMYSETTING.DAT).",
 					"knownValues": ["toggle", "trigger"]
 				},
 				"mixerDisplayBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Mixer Display Brightness. rekordbox's default: 5 (DJMMYSETTING.DAT).",
 					"knownValues": ["white", "1", "2", "3", "4", "5"]
 				},
 				"mixerIndicatorBrightness": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Mixer Indicator Brightness. rekordbox's default: 3 (DJMMYSETTING.DAT).",
 					"knownValues": ["1", "2", "3"]
 				},
 				"channelFaderCurveLong": {
 					"type": "string",
+					"maxLength": 32,
 					"description": "Channel Fader Curve (Long Fader). rekordbox's default: exponential (DJMMYSETTING.DAT).",
 					"knownValues": ["exponential", "smooth", "linear"]
 				}

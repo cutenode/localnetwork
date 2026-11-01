@@ -22,10 +22,7 @@ fn diskutil(args: &[&str]) -> Result<Value> {
 }
 
 pub fn list() -> Result<Vec<Disk>> {
-    let filter: &[&str] = if super::virtual_disks_allowed() { &["external"] } else { &["external", "physical"] };
-    let mut args = vec!["list"];
-    args.extend_from_slice(filter);
-    let listing = diskutil(&args)?;
+    let listing = diskutil(&["list", "external", "physical"])?;
     let boot = boot_disks();
     let usb = usb_devices();
     json::array(listing.get("WholeDisks"))

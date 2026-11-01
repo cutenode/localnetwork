@@ -12,7 +12,6 @@
 //! once the file changes. A plugin's answer with what its manifest doesn't say it `provides` is
 //! refused.
 
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -27,7 +26,7 @@ use serde_json::Value;
 
 use super::Plugins;
 use super::apply::key_and_bpm;
-use super::process::Slot;
+use super::process::{Slot, printable_json};
 use crate::cue_edit::{CueChange, CuePosition, Drafts, FIND_TOLERANCE_MS, HotCue, SetCue};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
@@ -104,16 +103,16 @@ impl Plugins {
         if !std::fs::metadata(file).is_ok_and(|m| m.is_file()) {
             return Err(Error::invalid(format!("{} isn't a file", file.display())));
         }
-        let (context, device) = slot.context(Context { drive: Some(drive.into()), ..Context::default() }, store)?;
-        let options = super::fitting(declared.options.as_ref(), options, &context)?;
+        let (context, device, _given) =
+            slot.context(Context { drive: Some(drive.into()), ..Context::default() }, store)?;
+        let options = super::fitting_options("format", declared.options.as_ref(), options, &context)?;
         let device = device.expect("a drive was named");
         let req = ReadImport { importer: importer.into(), file: file.into(), options, context };
         let read = |answer, scratch: &super::blobs::Scratch, _: &_| match answer {
             ImportAnswer::Read(read) => Ok(read),
             ImportAnswer::Blob(b) => {
                 let opened = scratch.blob(&b.blob).map_err(|why| slot.misbehaved(format!("its answer: {why}")))?;
-                serde_json::from_reader(BufReader::new(opened))
-                    .map_err(|e| slot.misbehaved(format!("its answer in {} isn't one: {e}", b.blob)))
+                printable_json(opened).map_err(|e| slot.misbehaved(format!("its answer in {} isn't one: {e}", b.blob)))
             }
         };
         let read: Imported = slot.call_with(method::READ_IMPORT, &req, store, ctx, &|_| {}, read)?;

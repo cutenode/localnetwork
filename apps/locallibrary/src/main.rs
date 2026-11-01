@@ -1153,9 +1153,16 @@ fn describe(e: &anyhow::Error) -> String {
     out
 }
 
+/// The store at `--store` (else the default), made if there's none yet.
 fn open_store(cli_store: &Option<PathBuf>) -> Result<Store> {
+    open_store_with(cli_store, Store::open_or_init)
+}
+
+/// The store at `--store` (else the default) as `open` opens it (`Store::open_or_init`, `open`
+/// or `open_existing`), naming the store when it won't open.
+fn open_store_with<T>(cli_store: &Option<PathBuf>, open: impl FnOnce(PathBuf) -> locallibrary::Result<T>) -> Result<T> {
     let root = cli_store.clone().unwrap_or_else(Store::default_root);
-    Store::open_or_init(&root).with_context(|| format!("opening store at {}", root.display()))
+    open(root.clone()).with_context(|| format!("opening store at {}", root.display()))
 }
 
 fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> Result<ExitCode> {
@@ -1180,7 +1187,9 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             c.cancel();
         });
     }
-    api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    let store_root = cli.store.clone().unwrap_or_else(Store::default_root);
+    output::store_is_copy(locallibrary::offsite::written_copy_warning(&store_root));
+    api::set_store_root(store_root);
     // The check before a set, doctor and edit plans run the plugins' checks, and refresh their
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
@@ -1218,7 +1227,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
-            let fields = plugins::Installed::with(diff_cmd::existing_store(&cli.store)?);
+            let fields = plugins::installed(diff_cmd::existing_store(&cli.store)?);
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
                 let req = api::TracksQuery { library: drive.into(), filter, playlist, sort, offset: 0, limit: a.limit };
@@ -1365,12 +1374,12 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
         Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
-            // Reads about the store never make one.
+            // Reads about the store, and changes to what it holds already, never make one.
             let existing = || diff_cmd::store_to_read(&cli.store);
             match command.unwrap_or(StoreCommand::Info) {
                 StoreCommand::Info => out.emit(&api::store_info(&existing()?)?, render::store_info),
                 StoreCommand::Gc { dry_run } => {
-                    let store = store()?;
+                    let store = existing()?;
                     let plan = api::store_gc_plan(&store)?;
                     if plan.noop {
                         return Ok(out.nothing(&plan, "nothing to collect"));
@@ -1393,19 +1402,23 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
                 }
                 StoreCommand::Label { snapshot, label } => {
                     let req = api::LabelRequest { label, snapshot: Some(snapshot), remove: false };
-                    return store_cmd::label(&store()?, req, out);
+                    return store_cmd::label(&existing()?, req, out);
                 }
                 StoreCommand::Unlabel { label } => {
-                    return store_cmd::label(&store()?, api::LabelRequest { label, snapshot: None, remove: true }, out);
+                    return store_cmd::label(
+                        &existing()?,
+                        api::LabelRequest { label, snapshot: None, remove: true },
+                        out,
+                    );
                 }
-                StoreCommand::Prune(a) => return store_cmd::prune(&store()?, a.options(), out, &ctx),
+                StoreCommand::Prune(a) => return store_cmd::prune(&existing()?, a.options(), out, &ctx),
                 StoreCommand::Copy { dir, to, mirror, verify, force, dry_run } => {
                     let options = api::CopyOptions { mirror, verify, force, dry_run };
                     return match (to, dir) {
-                        (Some(to), _) => store_cmd::copy_to(&store()?, &to, options, out, &ctx),
+                        (Some(to), _) => store_cmd::copy_to(&existing()?, &to, options, out, &ctx),
                         (None, dir) => {
                             let path = dir.expect("clap requires DIR without --to");
-                            store_cmd::copy(&store()?, api::StoreCopyRequest { path, options }, out, &ctx)
+                            store_cmd::copy(&existing()?, api::StoreCopyRequest { path, options }, out, &ctx)
                         }
                     };
                 }
@@ -1862,7 +1875,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             let profile = plan.apply(Some(&store), ctx)?;
             let from = plan.from.clone();
             return Ok(out.applied(&plan, &profile, Outcome::Applied, || {
-                output::ok(format!("imported {} settings from {from}", profile.base.len()));
+                output::ok(format!("imported {} from {from}", output::plural(profile.base.len(), "setting")));
             }));
         }
     }
@@ -1981,7 +1994,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             });
         }
         ArtCommand::Unembed { backup, list: false, dry_run } => {
-            let store = open_store(store_path)?;
+            let store = diff_cmd::store_to_read(store_path)?;
             let plan = api::artwork_unembed_plan(&store, &api::UnembedRequest { backup })?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);

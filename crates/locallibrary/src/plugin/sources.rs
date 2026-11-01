@@ -117,8 +117,8 @@ impl Plugins {
         let slot = self.slot(&req.plugin)?;
         let declared = slot.declared("library source", &req.source, &slot.manifest.contributes.sources, |s| &s.name)?;
         let roots = granted(&req.grants)?;
-        let (context, _) = slot.context(Context::default(), store)?;
-        let options = super::fitting(declared.options.as_ref(), req.options.clone(), &context)?;
+        let (context, ..) = slot.context(Context::default(), store)?;
+        let options = super::fitting_options("source", declared.options.as_ref(), req.options.clone(), &context)?;
         let source = format!("{}:{}", req.plugin, req.source);
         let mut read = ReadLibrary { source: req.source.clone(), options, roots: roots.clone(), cursor: None, context };
         let operation = format!("{}.source.{}", req.plugin, req.source);
@@ -168,10 +168,8 @@ impl super::process::Slot {
     /// waveforms), and the rest of it (playlists, warnings and `next`).
     fn page(&self, mut page: LibraryPage, scratch: &Scratch) -> Result<(Vec<Answered>, LibraryPage)> {
         if let Some(name) = page.blob.take() {
-            let mut text = String::new();
-            let read = scratch.blob(&name).and_then(|mut f| f.read_to_string(&mut text).map_err(|e| e.to_string()));
-            read.map_err(|why| self.misbehaved(format!("its page's blob: {why}")))?;
-            let more: LibraryPage = serde_json::from_str(&text)
+            let file = scratch.blob(&name).map_err(|why| self.misbehaved(format!("its page's blob: {why}")))?;
+            let more: LibraryPage = super::process::printable_json(file)
                 .map_err(|e| self.misbehaved(format!("its page's blob isn't a page: {e}")))?;
             page.tracks.extend(more.tracks);
             page.playlists.extend(more.playlists);

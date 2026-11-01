@@ -74,7 +74,7 @@ impl Plugins {
     ) -> Result<OpPlanned> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("operation", operation, &slot.manifest.contributes.operations, |o| &o.name)?;
-        let (context, device) = slot.context(context, store)?;
+        let (context, device, _given) = slot.context(context, store)?;
         let params = super::fitting(declared.params.as_ref(), params, &context)?;
         let device = device.ok_or_else(|| Error::invalid(format!("{operation} edits a drive: say which")))?;
         let op = PlanOp { operation: operation.into(), params, context };

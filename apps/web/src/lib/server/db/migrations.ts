@@ -331,6 +331,22 @@ const inbox = statements(
 	`CREATE INDEX notification_delivery_due ON notification_delivery (status, next_attempt_at)`
 );
 
+/** Receipts of press kit views, which their project's managers can delete and which expire. */
+const epkViews = statements(
+	`CREATE TABLE epk_view (
+		id TEXT PRIMARY KEY,
+		epk_uri TEXT NOT NULL,
+		epk_title TEXT NOT NULL,
+		project_uri TEXT NOT NULL,
+		viewer_did TEXT NOT NULL,
+		salt TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX epk_view_project ON epk_view (project_uri, created_at)`,
+	`CREATE INDEX epk_view_viewer ON epk_view (epk_uri, viewer_did, created_at)`,
+	`CREATE INDEX epk_view_created ON epk_view (created_at)`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
@@ -367,6 +383,11 @@ const migrations = {
 	'007_inbox': {
 		async up(db) {
 			for (const statement of inbox) await sql.raw(statement).execute(db);
+		}
+	},
+	'008_epk_views': {
+		async up(db) {
+			for (const statement of epkViews) await sql.raw(statement).execute(db);
 		}
 	},
 	// What a list request asks staff to list, so a profile's requests are found without reading every record.

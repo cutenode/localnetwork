@@ -1,12 +1,15 @@
 name: Size report
 description: >-
-  A table of what this run measured (a JSON object of names and sizes in bytes, from its `sizes`
-  artifact) beside the same from main's latest push run that has one, written to the run's
+  A table of what this run measured (a JSON object of names and sizes in bytes, from its
+  `artifact`) beside the same from main's latest push run that has one, written to the run's
   summary and to `output` for the pull request comment. Needs `actions: read`.
 
 inputs:
   sizes:
     description: This run's sizes.json.
+    required: true
+  artifact:
+    description: The artifact sizes.json is uploaded in, which main's runs keep too.
     required: true
   output:
     description: Where to write the Markdown.
@@ -18,7 +21,7 @@ runs:
     - id: main
       uses: ./.github/actions/main-artifact
       with:
-        name: sizes
+        name: ${{ inputs.artifact }}
         path: ${{ runner.temp }}/main-sizes
     - shell: bash
       env:

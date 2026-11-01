@@ -36,8 +36,8 @@ fn panel(app: &App) -> String {
 }
 
 /// Every plugin's commands are in the palette, by title with the plugin's name, after the
-/// player's own; those of a plugin reading a drive say why they can't run without one, or on a
-/// drive opened as a folder (which a plugin can't name).
+/// player's own; those of a plugin reading a drive say why they can't run without one, and run on
+/// a folder opened by path as on a drive.
 #[test]
 fn plugins_commands_are_in_the_palette() {
     let (dir, root) = demo_drive();
@@ -57,7 +57,7 @@ fn plugins_commands_are_in_the_palette() {
     press(&mut app, "\u{1b}");
     app.extra_roots.push(root.clone());
     press(&mut app, ":");
-    assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
+    assert_eq!(entry(&app, "answer the params…").1, None);
 }
 
 /// The drive menu ends with plugins' commands, operations, analyzers, export and import formats,
@@ -406,7 +406,7 @@ fn operations_are_offered_where_they_can_run() {
     app.loaded.as_mut().unwrap().stale = false;
     app.extra_roots.push(root.clone());
     press(&mut app, "e");
-    assert_eq!(menu(&app)[echo].1.as_deref(), Some("only on a plugged-in drive"));
+    assert_eq!(menu(&app)[echo].1, None, "a folder opened by path is a drive here");
 }
 
 /// An operation from the actions menu: its form starts with the marked tracks, it's planned in
@@ -621,7 +621,7 @@ fn the_search_box_filters_by_plugins_fields() {
 }
 
 /// A plugin's column sorts by its values when its header's clicked, tracks without one last
-/// either way; a playlist can't be sorted on the drive by it.
+/// either way; a playlist is sorted on the drive by it as by any column.
 #[test]
 fn plugins_columns_sort_by_their_values() {
     let (_dir, mut app) = sized();
@@ -642,12 +642,17 @@ fn plugins_columns_sort_by_their_values() {
     assert!(screen(&mut app, 120, 30).contains("echo.bytes↑"));
     super::super::app::testing::mouse(&mut app, super::super::app::testing::LEFT, header);
     assert_eq!(shown(&app), [second, first], "the one without a value stays last");
-    // Shown a playlist, it can't be sorted on the drive by it.
+    // Shown a playlist, it's sorted on the drive by it.
     let mut t = app.target().unwrap();
     t.list = Some("Sets/Friday".into());
     let items = super::super::edits::menu_items(&t);
     let sort = items.iter().find(|i| i.action == super::super::edits::Action::SortList).unwrap();
-    assert_eq!(sort.unavailable.as_deref(), Some("a plugin's column can't sort the drive's playlists"));
+    assert_eq!((sort.label.as_str(), sort.unavailable.as_deref()), ("sort Friday by echo.bytes ↓ on the drive", None));
+    let by = match super::super::edits::sort("Sets/Friday", t.sort.unwrap()) {
+        locallibrary::edit::Edit::SortPlaylist { by, .. } => by,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(by, "-echo.bytes");
 }
 
 /// The settings of the plugin open in a form, from the palette.
@@ -685,7 +690,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let f = settings_form(&mut app);
     assert_eq!(
         (f.title.as_str(), texts(f)),
-        ("Echo settings", vec!["hello".into(), "1.5".into(), "false".into(), "calm".into()])
+        ("Echo settings", ["hello", "1.5", "false", "calm", "", "", "", "", ""].map(String::from).to_vec())
     );
     let s = screen(&mut app, 120, 40);
     for needle in ["Echo settings", "greeting", "Greeting (empty for hello)", "enter save · esc cancel"] {
@@ -714,7 +719,7 @@ fn plugins_settings_are_a_form_kept_in_the_store() {
     let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(written, json!({ "greeting": "hi", "loud": true, "mood": "wild" }), "only what changed");
     // Open again: as set now. Nothing changed: nothing written.
-    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild"]);
+    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild", "", "", "", "", ""]);
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");
@@ -1022,7 +1027,7 @@ use super::super::app::testing::{Plugged, plugged, plugins_once, settle};
 use super::super::palette::Then;
 
 /// Where a case runs plugins: with no drive open, on one plugged in, or on a folder opened by
-/// path (which a plugin can't name).
+/// path (which a plugin reads as it reads a drive).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Opened {
     Nowhere,
@@ -1121,12 +1126,11 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
-    // Every plugin here reads the drive: its hooks need one plugged in, its settings and columns
-    // don't.
+    // Every plugin here reads the drive: its hooks need one open (a folder opened by path too),
+    // its settings and columns don't.
     let why = match at {
         Opened::Nowhere => Some("open a drive first"),
-        Opened::Folder => Some("only on a plugged-in drive"),
-        Opened::Plugged => None,
+        Opened::Folder | Opened::Plugged => None,
     };
     let in_menu = drive.is_some() && tc.draw(gs::booleans());
     if let Some(d) = drive.as_ref().filter(|_| in_menu) {
@@ -1308,9 +1312,19 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), (s.title.clone(), fields));
             press(app, "\u{1b}");
         }
+        // Its settings, its services' switches, then its commands' and operations' keys.
         Act::PluginSettings(p) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
-            let keys: Vec<String> = m.contributes.settings.iter().map(|s| s.key.clone()).collect();
+            let c = &m.contributes;
+            let services = c.services.iter().map(|s| format!("services.{}", s.name));
+            let hooks = c.commands.iter().map(|x| &x.name).chain(c.operations.iter().map(|x| &x.name));
+            let keys: Vec<String> = c
+                .settings
+                .iter()
+                .map(|s| s.key.clone())
+                .chain(services)
+                .chain(hooks.map(|n| format!("keys.{n}")))
+                .collect();
             assert_eq!(form_open(app), (format!("{} settings", m.name), keys));
             press(app, "\u{1b}");
         }
@@ -1995,7 +2009,8 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
     let loud = tc.draw(gs::booleans());
     let mood = tc.draw(gs::integers::<usize>().max_value(2));
     press(&mut app, ":echo plugin settings\n");
-    assert_eq!(form_open(&app).1, ["greeting", "speed", "loud", "mood"]);
+    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.wait", "keys.playlist"];
+    assert_eq!(form_open(&app).1, [&["greeting", "speed", "loud", "mood"][..], &commands].concat());
     for field in turns(&tc, 4) {
         to_field(&tc, &mut app, field);
         match field {
@@ -2058,7 +2073,9 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
     press(&mut app, ":echo plugin settings\n");
     let texts: Vec<String> = the_form(&app).fields.iter().map(|f| f.text.clone()).collect();
     let keys = ["greeting", "speed", "loud", "mood"];
-    assert_eq!(texts, keys.map(|k| cell(&kept[k])));
+    // Then its commands' keys, none set.
+    let unset = std::iter::repeat_n(String::new(), commands.len());
+    assert_eq!(texts, keys.map(|k| cell(&kept[k])).into_iter().chain(unset).collect::<Vec<_>>());
     press(&mut app, "\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!(last_message(&app), "nothing changed");
