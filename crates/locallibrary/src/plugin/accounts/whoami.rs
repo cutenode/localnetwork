@@ -1,7 +1,7 @@
 //! Who signed in: what an account type's whoami endpoint answers a new access token, read at its
 //! JSON pointers.
 
-use loclib_plugin::{AccountType, TokenPlace};
+use loclib_plugin::AccountType;
 use oauth2::http::{Request, header};
 use reqwest::Url;
 use serde_json::Value;
@@ -13,32 +13,33 @@ use crate::{Error, Result};
 /// The most redirects followed.
 const MAX_REDIRECTS: usize = 5;
 
-/// `url` with `token` as its query parameter `name`, whatever it had there.
-fn with_token(url: &Url, name: &str, token: &str) -> Url {
+/// `url` with `value` as its query parameter `name`, whatever it had there.
+fn with_param(url: &Url, name: &str, value: &str) -> Url {
     let mut url = url.clone();
     let kept: Vec<(String, String)> =
         url.query_pairs().filter(|(k, _)| k != name).map(|(k, v)| (k.into(), v.into())).collect();
-    url.query_pairs_mut().clear().extend_pairs(kept).append_pair(name, token);
+    url.query_pairs_mut().clear().extend_pairs(kept).append_pair(name, value);
     url
 }
 
 impl Plugin {
     /// The subject and name of whoever `token` is `t`'s access token for, from its whoami
     /// endpoint: reached as the service's other endpoints are (see [`Plugin::send`]), with the
-    /// token where `t` says it goes, following redirects within the endpoint's origin only, the
-    /// token given again in the query when it goes there. A subject is a string or an integer
+    /// token where the first of `t`'s places says it goes, following redirects within the
+    /// endpoint's origin only, the token given again in the query when it goes there. A subject is a string or an integer
     /// (as its digits); the name falls back to it.
     pub(super) fn whoami(&self, t: &AccountType, token: &str) -> Result<(String, String)> {
         let failed = |why: String| Error::Account(self.net.scrub(&format!("asking {} who signed in: {why}", t.title)));
         let w = t.whoami.as_ref().ok_or_else(|| failed("its account type says nowhere to ask".into()))?;
+        let places = t.places();
+        let place = places.first().ok_or_else(|| failed("its account type says nowhere it goes".into()))?;
+        let filled = place.filled(|_| token);
         let mut url = Url::parse(&w.url).map_err(|e| failed(e.to_string()))?;
         let mut hops = 0;
         let answer = loop {
-            let request = match &t.token {
-                TokenPlace::Scheme(scheme) => {
-                    Request::get(url.as_str()).header(header::AUTHORIZATION, format!("{scheme} {token}"))
-                }
-                TokenPlace::Query(name) => Request::get(with_token(&url, name, token).as_str()),
+            let request = match &place.query {
+                Some(name) => Request::get(with_param(&url, name, &filled).as_str()),
+                None => Request::get(url.as_str()).header(header::AUTHORIZATION, &filled),
             };
             let request = request.header(header::ACCEPT, "application/json").body(Vec::new());
             let answer =

@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use loclib_plugin::{
-    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, RpcError, SettingType, TokenPlace,
+    ACCOUNT_PLACEHOLDER, AccountNeed, Capability, Fetch, Fetched, FormPart, KeyPlace, RpcError, SettingType,
     account_placeholder,
 };
 use reqwest::header::{
@@ -143,14 +143,18 @@ fn invalid(why: impl Into<String>) -> RpcError {
     RpcError::failed("invalid", why)
 }
 
-/// Where an account's token goes, which is at `place` (the `Authorization` header when it's not
-/// known), saying how a request names it.
-fn misplaced(place: Option<&TokenPlace>) -> RpcError {
-    match place {
-        Some(TokenPlace::Query(name)) => {
-            invalid(format!("this account goes only in the query: {name}={{account:<type>}}"))
-        }
-        _ => invalid("an account goes only in the Authorization header: {account:<type>}"),
+/// Where an account goes, which is at each of `places` (the `Authorization` header when they're
+/// not known), saying how a request names it there.
+fn misplaced(places: &[KeyPlace]) -> RpcError {
+    let queries: Vec<String> =
+        places.iter().filter_map(|p| p.query.as_ref()).map(|q| format!("{q}={{account:<type>}}")).collect();
+    if queries.is_empty() {
+        return invalid("an account goes only in the Authorization header: {account:<type>}");
+    }
+    let query = format!("the query: {}", queries.join(", "));
+    match places.iter().any(|p| p.header.is_some()) {
+        true => invalid(format!("this account goes only in the Authorization header: {{account:<type>}} or {query}")),
+        false => invalid(format!("this account goes only in {query}")),
     }
 }
 
@@ -450,9 +454,9 @@ impl Plugin {
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
     /// account by type as the whole of `value`, `{account:<type>}` of a type the plugin asks for:
-    /// in the `Authorization` header (`query` is `None`), its scheme and access token; as the query
-    /// parameter `query`, the token. Only where the account type says its token goes, and where the
-    /// plugin's access may go (see [`Plugin::usable`]), which `accounts` gets.
+    /// in the `Authorization` header (`query` is `None`) or as the query parameter `query`, the
+    /// value the account type gives that place, filled in. Only where the account type says it
+    /// goes, and where the plugin's access may go (see [`Plugin::usable`]), which `accounts` gets.
     fn account(
         &self,
         live: &Live,
@@ -470,16 +474,13 @@ impl Plugin {
         let (method, url) = asked;
         let usable = self.usable(live, need, access, method.as_str(), url)?;
         let store = live.store.as_ref().ok_or_else(|| invalid("there's no store"))?;
-        let filled = |token: &str| match (&usable.place, query) {
-            (TokenPlace::Scheme(scheme), None) => Some(format!("{scheme} {token}")),
-            (TokenPlace::Query(name), Some(query)) if name == query => Some(token.to_string()),
-            _ => None,
-        };
-        if filled("").is_none() {
-            return Err(misplaced(Some(&usable.place)));
-        }
+        let place = usable.places.iter().find(|p| match query {
+            None => p.header.is_some(),
+            Some(query) => p.query.as_deref() == Some(query),
+        });
+        let Some(place) = place.cloned() else { return Err(misplaced(&usable.places)) };
         let token = self.usable_token(&usable, store)?;
-        let filled = filled(&token).unwrap_or_default();
+        let filled = place.filled(|_| &token);
         accounts.push(Filled { usable, token });
         Ok(filled)
     }
@@ -491,14 +492,14 @@ impl Plugin {
         Some((self.manifest.accounts.iter().find(|n| n.name == kind)?, access))
     }
 
-    /// Why `text`, which names an account, can't be where it is: where that account's token goes,
-    /// as the first account plugin providing its type says.
+    /// Why `text`, which names an account, can't be where it is: where that account goes, as the
+    /// first account plugin providing its type says.
     fn misplaced(&self, text: &str) -> RpcError {
         let named = text.split(ACCOUNT_PLACEHOLDER).nth(1).and_then(|rest| rest.split('}').next()).unwrap_or_default();
         let need = self.by_type(&format!("{ACCOUNT_PLACEHOLDER}{named}}}")).map(|(need, _)| need);
         let with = need.and_then(|n| self.host.providing(&n.name).first().and_then(|id| self.host.account_plugin(id)));
-        let place = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.token.clone()));
-        misplaced(place.as_ref())
+        let places = with.and_then(|w| w.manifest.contributes.account_types.first().map(|t| t.places()));
+        misplaced(&places.unwrap_or_default())
     }
 
     /// A form's parts, its text's secrets filled in and its files checked.

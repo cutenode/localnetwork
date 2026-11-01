@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use loclib_plugin::{AccountNeed, AccountType, ErrorData, RpcError, Scope, TokenPlace};
+use loclib_plugin::{AccountNeed, AccountType, ErrorData, KeyPlace, RpcError, Scope};
 use reqwest::Url;
 use serde_json::{Map, json};
 
@@ -23,15 +23,15 @@ use crate::error::Reason;
 use crate::plugin::process::{Live, Plugin};
 use crate::store::Store;
 
-/// An access a request may use, of the type `need` asks for: where its account's token goes, and
-/// the scopes (by name) it may use it for (those the account was granted what they ask), which a
-/// redirect has to stay within.
+/// An access a request may use, of the type `need` asks for: where its account goes (see
+/// [`AccountType::places`]), and the scopes (by name) it may use it for (those the account was
+/// granted what they ask), which a redirect has to stay within.
 pub(crate) struct Usable {
     /// The account plugin, which gets the token.
     with: Arc<Plugin>,
     access: Access,
     need: AccountNeed,
-    pub(crate) place: TokenPlace,
+    pub(crate) places: Vec<KeyPlace>,
     pub(crate) scopes: Vec<(String, Scope)>,
 }
 
@@ -104,7 +104,7 @@ impl Plugin {
                 return Err(scope_failed(why, &names, &names));
             }
             let scopes = scopes().filter(|(_, s)| is_granted(s)).map(|(n, s)| (n.clone(), s.clone())).collect();
-            Ok(Usable { with: with.clone(), access: a.clone(), need: need.clone(), place: t.token.clone(), scopes })
+            Ok(Usable { with: with.clone(), access: a.clone(), need: need.clone(), places: t.places(), scopes })
         })
     }
 
