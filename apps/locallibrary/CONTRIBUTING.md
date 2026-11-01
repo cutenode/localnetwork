@@ -122,10 +122,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
 the next weekly run that passes closes it.
 
-The workspace has no benchmarks on `main` yet, so no workflow runs them: the `bnb/perf` branch
-adds them, and with them a workflow that runs them under [CodSpeed](https://codspeed.io)
-(`locallibrary-bench.yml`, which `git log --diff-filter=D -- .github/workflows/locallibrary-bench.yml`
-finds in the history).
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
+[CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
+branch (Actions, locallibrary benchmarks, Run workflow), it reports each benchmark's change
+against `main`'s last run. A weekly run skips them when nothing they build from changed, and a
+failed one opens an issue as the scheduled suites do.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
