@@ -77,6 +77,8 @@
   import ListX from '@lucide/svelte/icons/list-x';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
+  import Badge from '$lib/components/Badge.svelte';
+  import HintSwitch from '$lib/components/HintSwitch.svelte';
   import PanelShell from '$lib/components/PanelShell.svelte';
   import StatusNote from '$lib/components/StatusNote.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
@@ -86,16 +88,16 @@
   import { Checkbox } from '$lib/components/ui/checkbox/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
   import { Progress } from '$lib/components/ui/progress/index.ts';
-  import { Switch } from '$lib/components/ui/switch/index.ts';
   import * as Select from '$lib/components/ui/select/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
-  import { openTab } from '$lib/chrome.ts';
+  import { BACKGROUND_HINT, openTab } from '$lib/chrome.ts';
   import { artworkOf, fullSizeArtwork } from '$lib/artwork.ts';
   import { copyImage, copyText } from '$lib/clipboard.ts';
   import { downloaded } from '$lib/downloaded.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { createSelection } from '$lib/selection.svelte.ts';
   import { createFilter } from '$lib/list-filter.svelte.ts';
+  import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { remembered, view, type Remembered } from '$lib/view.svelte.ts';
   import { count, OPEN_A_PAGE, readPage } from '$lib/soundcloud.ts';
@@ -111,7 +113,6 @@
     entriesFor,
     isWithoutLinks,
     lookupNotes,
-    LOOKUP_ERRORS,
     rowFacts,
     rowMarks,
     searchText,
@@ -192,8 +193,6 @@
 
   const SORT_HINT =
     'by site groups rows by where their links point. list order keeps the order you added them.';
-
-  const BACKGROUND_HINT = 'opens links behind the popup instead of taking focus.';
 
   // Both row toggles work on the one row they are on; a batch goes through
   // Select instead, which says so itself.
@@ -1082,7 +1081,7 @@
                    enabled:cursor-pointer enabled:hover:bg-well enabled:hover:text-fg
                    disabled:text-fg-subtle disabled:italic"
             disabled={!fact.copy}
-            aria-label={fact.copy ? `copy the ${fact.label}` : `${fact.label}: ${fact.value}`}
+            aria-label={fact.copy ? undefined : `${fact.label}: ${fact.value}`}
             title={fact.copy ? (fact.id === 'link' ? LINK_HINT : FACT_HINT) : ''}
             onclick={() => onCopyFact(fact)}
           >
@@ -1187,18 +1186,14 @@
 {#snippet searchBadges(track: ListedEntry)}
   {#each badgeSites as site (site.id)}
     {@const query = queryOf(site, track)}
-    <Button
-      size="icon-sm"
-      variant="ghost"
+    <Badge
+      badge={site.badge}
+      action={`search ${site.name}`}
       style={site.style}
-      class="w-7 border-transparent text-[10px] font-bold hover:brightness-110"
-      disabled={!searchable(site, track)}
-      aria-label={`search ${site.name} for ${query}`}
       title={`search ${site.name} for “${query}”`}
+      disabled={!searchable(site, track)}
       onclick={() => openTab(searchUrl(site, track), { background: background.value })}
-    >
-      {site.badge}
-    </Button>
+    />
   {/each}
 {/snippet}
 
@@ -1262,7 +1257,13 @@
           </span>
           <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
-        <Progress value={progress.done} max={progress.total || 1} class="h-1" />
+        <Progress
+          value={progress.done}
+          max={progress.total || 1}
+          class="h-1"
+          aria-label="checking download details"
+          aria-valuetext={`${progress.done} of ${progress.total}`}
+        />
       </div>
     {/if}
   {/snippet}
@@ -1289,12 +1290,20 @@
         <FilterBar {filter} shown={shownTracks} total={listedTracks} />
 
         <div class="flex items-center gap-2.5">
+          <!-- The hint is a tooltip for the pointer and the trigger's description
+               for a screen reader. The wrapper is the tooltip's trigger rather
+               than the select's own button, since a tooltip opened by focus would
+               sit over the open list; -1 keeps it out of the tab order. -->
           <Tooltip.Root>
-            <Tooltip.Trigger class="min-w-0 flex-1">
+            <Tooltip.Trigger tabindex={-1}>
               {#snippet child({ props })}
                 <div {...props} class="min-w-0 flex-1">
                   <Select.Root type="single" bind:value={sort.value}>
-                    <Select.Trigger class="h-8 w-full text-label" aria-label="sort order">
+                    <Select.Trigger
+                      class="h-8 w-full text-label"
+                      aria-label="sort order"
+                      aria-describedby={`${here}-sort-hint`}
+                    >
                       {SORTS.find((s) => s.value === sort.value)?.label}
                     </Select.Trigger>
                     <Select.Content>
@@ -1305,28 +1314,19 @@
                       {/each}
                     </Select.Content>
                   </Select.Root>
+                  <span id={`${here}-sort-hint`} class="sr-only">{SORT_HINT}</span>
                 </div>
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content class="max-w-72">{SORT_HINT}</Tooltip.Content>
           </Tooltip.Root>
 
-          <Tooltip.Root>
-            <Tooltip.Trigger>
-              {#snippet child({ props })}
-                <div {...props} class="flex shrink-0 items-center gap-1.5">
-                  <Switch id="background" bind:checked={background.value} />
-                  <Label
-                    for="background"
-                    class="text-caption font-normal whitespace-nowrap text-fg-muted"
-                  >
-                    background tabs
-                  </Label>
-                </div>
-              {/snippet}
-            </Tooltip.Trigger>
-            <Tooltip.Content class="max-w-72">{BACKGROUND_HINT}</Tooltip.Content>
-          </Tooltip.Root>
+          <HintSwitch
+            id="background"
+            label="background tabs"
+            hint={BACKGROUND_HINT}
+            bind:checked={background.value}
+          />
         </div>
 
         {#if picks.active}

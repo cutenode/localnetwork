@@ -11,14 +11,19 @@ import { describe, it, expect } from 'vitest';
 import { audit, accessibleName, focusable } from './helpers/a11y.ts';
 import {
 	addPage,
+	byLabel,
 	click,
 	extraction,
 	mountApp,
 	mountPanel,
 	openQueue,
+	openSettings,
 	panelChrome,
 	queueButton,
+	queueSheet,
+	settingsButton,
 	settle,
+	settleUntil,
 	track,
 	type
 } from './helpers/panel.ts';
@@ -412,6 +417,77 @@ describe('the popup as a whole', () => {
 	});
 });
 
+// Focus has to go somewhere a keyboard and a screen reader can carry on from:
+// into a sheet as it comes up and back to what opened it, and to the heading
+// of a view that replaced the one the pressed button was in.
+describe('where focus goes', () => {
+	const escape = () =>
+		document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+	const heading = () => document.querySelector('main h1');
+
+	it.each([
+		['the queue', queueButton, openQueue, () => byLabel('close the queue')],
+		['settings', settingsButton, openSettings, () => byLabel('close settings')]
+	])('goes into %s as it comes up, and back to its button on the way out', async (_name, opener, open, close) => {
+		panelChrome({ session: { queue: TRACKS } });
+		await mountApp();
+
+		for (const leave of [escape, () => click(close())]) {
+			// Chrome focuses a button as it is clicked; a dispatched click does not.
+			opener()!.focus();
+			const sheet = await open();
+			expect(document.activeElement).toBe(sheet);
+
+			await leave();
+			await settle();
+			expect(document.activeElement).toBe(opener());
+		}
+	});
+
+	it('moves to the heading of the view a click opened, and of the menu on the way back', async () => {
+		panelChrome({ response: extraction({ tracks: TRACKS }) });
+		await mountApp();
+
+		const tool = [...document.querySelectorAll<HTMLButtonElement>('nav button')].find((b) =>
+			b.textContent.includes('playlist to text')
+		)!;
+
+		tool.focus();
+
+		await click(tool);
+		await settleUntil(() => !document.querySelector('[aria-busy="true"]'));
+		// The panel's own heading, not the ghost's that stood in for it.
+		expect(document.activeElement).toBe(heading());
+		expect(heading()!.textContent).toMatch(/playlist to text/i);
+
+		await click(byLabel('back to all tools'));
+		await settle();
+		expect(document.activeElement).toBe(heading());
+		expect(heading()!.textContent).toMatch(/localtoolbox/);
+	});
+
+	it('goes to the new tool when the queue hands it a batch', async () => {
+		panelChrome({ session: { queue: TRACKS } });
+		await mountApp();
+		queueButton()!.focus();
+		const sheet = (await openQueue())!;
+		const send = [...sheet.querySelectorAll('button')].find((b) => b.textContent.includes('playlist to text'));
+
+		await click(send);
+		await settleUntil(() => !document.querySelector('[aria-busy="true"]'));
+		expect(queueSheet()).toBe(null);
+		expect(document.activeElement).toBe(heading());
+		expect(heading()!.textContent).toMatch(/playlist to text/i);
+	});
+
+	it('leaves focus alone when the popup opens', async () => {
+		panelChrome();
+		await mountApp();
+		expect(document.activeElement).toBe(document.body);
+	});
+});
+
 describe('the audit itself', () => {
 	// A check that never fails is a check that is not running.
 	it('catches the mistakes it is there to catch', () => {
@@ -425,7 +501,8 @@ describe('the audit itself', () => {
       <img src="x.jpg">
       <div aria-pressed="true">not a button</div>
       <button aria-pressed="yes">odd</button>
-      <button aria-disabled="true">still clickable</button>`;
+      <button aria-disabled="true">still clickable</button>
+      <div tabindex="0"><button>wrapped</button></div>`;
 		const problems = audit();
 		expect(problems).toEqual(
 			expect.arrayContaining([
@@ -438,7 +515,8 @@ describe('the audit itself', () => {
 				expect.stringContaining('has no alt attribute'),
 				expect.stringContaining('has aria-pressed but its role is "none"'),
 				expect.stringContaining('has aria-pressed="yes"'),
-				expect.stringContaining('is aria-disabled but still focusable')
+				expect.stringContaining('is aria-disabled but still focusable'),
+				expect.stringContaining('is a tab stop but its role is "none"')
 			])
 		);
 	});
