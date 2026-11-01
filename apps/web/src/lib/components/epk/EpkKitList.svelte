@@ -9,11 +9,14 @@
 	/**
 	 * A project's press kits on its dashboard: each with how it's shared and every manager's open draft of it, then drafts
 	 * of press kits that aren't published. Only the viewer's own drafts of unpublished ones open, since nobody else's
-	 * changes have anything to show over.
+	 * changes have anything to show over. While they load, `count` placeholders (how many press kits the project has) stand
+	 * in, each shaped like a card with a line of title, headline and access, wrapping its buttons the way a card does.
 	 */
-	let { dashboard, slug, viewerDid }: { dashboard: Promise<EpkDashboard>; slug: string; viewerDid: string } = $props();
+	let { dashboard, slug, viewerDid, count = 1 }: { dashboard: Promise<EpkDashboard>; slug: string; viewerDid: string; count?: number } = $props();
 
 	const editor = (rkey: string) => `/dashboard/projects/${slug}/press-kits/${rkey}`;
+
+	const card = 'card flex flex-wrap items-start justify-between gap-x-6 gap-y-3 p-4 sm:px-5';
 </script>
 
 {#snippet drafts(list: EpkDraftView[])}
@@ -27,11 +30,32 @@
 	</ul>
 {/snippet}
 
+{#snippet empty()}
+	<EmptyState title="No press kits yet" body="Make one for each kind of booking, like clubs or festivals.">
+		<a class="btn-primary btn-sm" href="/dashboard/projects/{slug}/press-kits/new"><Plus class="size-4" />New press kit</a>
+	</EmptyState>
+{/snippet}
+
 {#await dashboard}
-	<div role="status" aria-busy="true" aria-label="Loading press kits" class="flex flex-col gap-3">
-		<div class="h-24 animate-pulse rounded-xl bg-surface"></div>
-		<div class="h-24 animate-pulse rounded-xl bg-surface"></div>
-	</div>
+	{#if count === 0}
+		{@render empty()}
+	{:else}
+		<div role="status" aria-busy="true" aria-label="Loading press kits" class="flex flex-col gap-3">
+			{#each { length: count }, index (index)}
+				<div aria-hidden="true" class={card}>
+					<!-- About as wide as a card's access line, so the buttons wrap below it on a phone and sit beside it from sm up. -->
+					<div class="flex w-72 max-w-full min-w-0 flex-col gap-1.5">
+						<span class="flex h-[1lh] items-center text-emphasis"><span class="h-4 w-1/3 animate-pulse rounded-sm bg-raised"></span></span>
+						<span class="flex h-[1lh] items-center text-small"><span class="h-3.5 w-2/3 animate-pulse rounded-sm bg-raised"></span></span>
+						<span class="flex h-[1lh] items-center text-caption"><span class="h-3 w-1/2 animate-pulse rounded-sm bg-raised"></span></span>
+					</div>
+					<div class="flex flex-wrap gap-2">
+						{#each ['w-20', 'w-24', 'w-18'] as width, button (button)}<span class="h-9 {width} animate-pulse rounded-md bg-raised"></span>{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
 {:then { kits, drafts: unpublished }}
 	{#if kits.length || unpublished.length}
 		{#if kits.length}
@@ -39,7 +63,7 @@
 				{#each kits as { epk, drafts: open } (epk.uri)}
 					{@const preset = presetFor(epk.record.access)}
 					{@const mine = open.some((draft) => draft.author.did === viewerDid)}
-					<li class="card flex flex-wrap items-start justify-between gap-x-6 gap-y-3 p-4 sm:px-5">
+					<li class={card}>
 						<div class="flex min-w-0 flex-col gap-1.5">
 							<a class="text-emphasis font-semibold text-fg no-underline hover:underline" href={editor(epk.rkey)}>{epk.record.title}</a>
 							{#if epk.record.headline}<p class="m-0 text-small text-fg-soft">{epk.record.headline}</p>{/if}
@@ -75,9 +99,7 @@
 			</section>
 		{/if}
 	{:else}
-		<EmptyState title="No press kits yet" body="Make one for each kind of booking, like clubs or festivals.">
-			<a class="btn-primary btn-sm" href="/dashboard/projects/{slug}/press-kits/new"><Plus class="size-4" />New press kit</a>
-		</EmptyState>
+		{@render empty()}
 	{/if}
 {:catch}
 	<p role="alert" class="notice notice-error m-0">Couldn't load the press kits. Reload the page to try again.</p>

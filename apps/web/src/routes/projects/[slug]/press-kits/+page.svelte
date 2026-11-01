@@ -66,8 +66,22 @@
 		<h2 id="press-kits" class="m-0 text-heading font-semibold">Press kits</h2>
 		<p class="m-0 text-small text-fg-muted">One for each kind of booking.</p>
 	</div>
+	<!-- One placeholder per press kit the project has, each shaped like a card with a line of title, headline and access. -->
+	{#snippet none()}<p class="m-0 text-small text-fg-muted">None published yet. Below is one put together from the profile.</p>{/snippet}
 	{#await data.epks}
-		<div role="status" aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
+		{#if project.counts?.pressKits === 0}
+			{@render none()}
+		{:else}
+			<div role="status" aria-busy="true" aria-label="Loading press kits" class="grid gap-3 sm:grid-cols-2">
+				{#each { length: project.counts?.pressKits ?? 1 }, index (index)}
+					<div aria-hidden="true" class="card flex flex-col gap-1.5 p-4">
+						<span class="flex h-[1lh] items-center text-emphasis"><span class="h-4 w-1/3 animate-pulse rounded-sm bg-raised"></span></span>
+						<span class="flex h-[1lh] items-center text-small"><span class="h-3.5 w-2/3 animate-pulse rounded-sm bg-raised"></span></span>
+						<span class="mt-auto pt-1"><span class="flex h-[1lh] items-center text-caption"><span class="h-3 w-1/2 animate-pulse rounded-sm bg-raised"></span></span></span>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	{:then epks}
 		{#if epks.length}
 			<ul class="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
@@ -83,7 +97,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="m-0 text-small text-fg-muted">None published yet. Below is one put together from the profile.</p>
+			{@render none()}
 		{/if}
 	{/await}
 </section>

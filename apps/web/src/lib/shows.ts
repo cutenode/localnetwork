@@ -1,6 +1,9 @@
 import type { ShowDetails, ShowRecord } from './types';
 
 /** The lexicon-community calendar event statuses this app writes. */
+/** The most upcoming shows a project's page lists. */
+export const PROJECT_SHOWS = 20;
+
 export const EVENT_STATUS = {
 	scheduled: 'community.lexicon.calendar.event#scheduled',
 	rescheduled: 'community.lexicon.calendar.event#rescheduled',

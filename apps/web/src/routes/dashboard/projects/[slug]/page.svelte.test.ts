@@ -119,3 +119,22 @@ it('sends a manager with changes waiting to their request, and holds shows for a
 	await expect.element(page.getByText('Not public yet. Only its managers and staff can see it.')).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Announce a show' })).not.toBeInTheDocument();
 });
+
+it('holds a row of room for each upcoming show the project has while they load', async () => {
+	const loading = new Promise<never>(() => {});
+
+	await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: {
+			...base,
+			project: { ...neon, counts: { pressKits: 0, upcomingShows: 3 } },
+			shows: loading,
+			edited: loading
+		},
+		form: null
+	});
+
+	const placeholder = page.getByRole('list', { name: 'Loading shows' });
+	await expect.element(placeholder).toBeInTheDocument();
+	expect(placeholder.element().children).toHaveLength(3);
+});

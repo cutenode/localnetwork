@@ -6,15 +6,16 @@ import type { ProjectService } from './services/projects';
 /**
  * The project `slug` and the signed-in viewer, when the viewer manages it: a 404 when there's no
  * such project, a 403 when they don't manage it. The dashboard's project layout checks this for
- * its pages, and each form action checks it again, since actions run without the layout.
+ * its pages, and each form action checks it again, since actions run without the layout. `options` go to bySlug.
  */
 export async function requireManager(
 	locals: { viewer: Viewer | null; app: { projects: Pick<ProjectService, 'bySlug'> } },
 	url: URL,
-	slug: string
+	slug: string,
+	options?: { counts?: boolean }
 ) {
 	const viewer = requireViewer(locals, url);
-	const project = await locals.app.projects.bySlug(slug);
+	const project = await locals.app.projects.bySlug(slug, options);
 
 	if (!project) error(404, 'No project with that name');
 
