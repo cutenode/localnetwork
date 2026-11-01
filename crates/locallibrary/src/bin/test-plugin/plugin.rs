@@ -151,7 +151,9 @@ impl Test {
         }
         if let Some(kind) = p["fail"].as_str() {
             let mut e = RpcError::failed(kind, p["message"].as_str().unwrap_or("it failed"));
-            e.data.as_mut().expect("a failure has data").fields = p["fields"].as_object().cloned().unwrap_or_default();
+            let data = e.data.as_mut().expect("a failure has data");
+            data.fields = p["fields"].as_object().cloned().unwrap_or_default();
+            data.reason = p["reason"].as_str().map(String::from);
             return Err(e);
         }
         if let Some(name) = p["env"].as_str() {

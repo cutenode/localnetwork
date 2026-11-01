@@ -624,6 +624,7 @@ fn publish_to(
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
+    crate::account_cmd::access::ask(spec, store, out, ctx)?;
     let plan = crate::plugins::host()?.publish_plan(spec, set, hide, store, ctx)?;
     if !out.json {
         crate::output::summary(&plan.summary, &plan.warnings);

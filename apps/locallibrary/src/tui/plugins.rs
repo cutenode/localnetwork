@@ -5,12 +5,13 @@
 //! confirmed and applied as any edit is, and undone with `u`. A question either asks first is a
 //! list to choose from (several, one after another), after which it runs again with the answers.
 //! Each plugin's settings are a form, kept in the store, with a switch for each of its services,
-//! and its accounts are signed in to and out of beside them. What the other families of hooks
-//! add (cover art and tags from providers, analyzers, checks, exports, imports, what plugins tell
-//! the user and suggest) is in a module each. Nothing here tells one plugin from another: it's
+//! and its access to the store's accounts is beside them, as is signing in to and out of those.
+//! What the other families of hooks add (cover art and tags from providers, analyzers, checks,
+//! exports, imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one plugin from another: it's
 //! all drawn from their manifests, through the host the command line uses (see
 //! [`crate::plugins`]).
 
+mod access;
 mod accounts;
 mod analyzers;
 pub(super) mod checks;
@@ -38,6 +39,8 @@ use super::keymap::Act;
 use super::palette::{Item, Picker, Then};
 use crate::plugin_cmd::view::{Drawn, Names};
 use crate::plugins::params::{cell, properties};
+
+pub use access::AccessChoice;
 
 /// A plugin's command or operation, and where it runs: the drive, and what's selected there (its
 /// context's drive is the drive's).
@@ -288,9 +291,11 @@ impl App {
         root
     }
 
-    /// The settings of each plugin that has some (or a service) and signing in to and out of its
-    /// accounts, then the providers' and the checks' settings when there are any, then the themes
-    /// to draw in when a plugin has one, as the palette lists them, wherever it's open.
+    /// The settings of each plugin that has some (or a service), signing in to and out of its
+    /// accounts, giving it access to the store's and signing in to an account of each type an
+    /// account plugin provides, then signing out of each account the store keeps, the providers'
+    /// and the checks' settings when there are any, and the themes to draw in when a plugin has
+    /// one, as the palette lists them, wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
         let mut items = Vec::new();
@@ -298,8 +303,10 @@ impl App {
             let settings = (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name));
             let has_settings = plugins.setting_list(&m.id).is_ok_and(|l| !l.is_empty());
             items.extend(Some(settings).filter(|_| has_settings));
-            items.extend(accounts::items(m));
+            items.extend(access::items(m));
+            items.extend(accounts::sign_in_items(m));
         }
+        items.extend(accounts::sign_out_items(plugins, &self.store_root));
         let providers =
             providers::providing(plugins, None).map(|by| (Act::ProviderSettings, Item::new("provider settings…", by)));
         let checks = checks::checking(plugins).map(|by| (Act::CheckSettings, Item::new("check settings…", by)));
