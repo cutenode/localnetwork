@@ -30,7 +30,8 @@ impl Plugin {
     /// (as its digits); the name falls back to it.
     pub(super) fn whoami(&self, t: &AccountType, token: &str) -> Result<(String, String)> {
         let failed = |why: String| Error::Account(self.net.scrub(&format!("asking {} who signed in: {why}", t.title)));
-        let mut url = Url::parse(&t.whoami.url).map_err(|e| failed(e.to_string()))?;
+        let w = t.whoami.as_ref().ok_or_else(|| failed("its account type says nowhere to ask".into()))?;
+        let mut url = Url::parse(&w.url).map_err(|e| failed(e.to_string()))?;
         let mut hops = 0;
         let answer = loop {
             let request = match &t.token {
@@ -61,12 +62,12 @@ impl Plugin {
             return Err(failed(format!("it answered {}", answer.status())));
         }
         let who: Value = serde_json::from_slice(answer.body()).map_err(|_| failed("its answer isn't JSON".into()))?;
-        let subject = match who.pointer(&t.whoami.subject) {
+        let subject = match who.pointer(&w.subject) {
             Some(Value::String(s)) if !s.is_empty() => s.clone(),
             Some(Value::Number(n)) if n.is_i64() || n.is_u64() => n.to_string(),
-            _ => return Err(failed(format!("its answer has no subject at {}", t.whoami.subject))),
+            _ => return Err(failed(format!("its answer has no subject at {}", w.subject))),
         };
-        let name = who.pointer(&t.whoami.name).and_then(Value::as_str).filter(|n| !n.is_empty());
+        let name = who.pointer(&w.name).and_then(Value::as_str).filter(|n| !n.is_empty());
         Ok((subject.clone(), name.map_or(subject, String::from)))
     }
 }

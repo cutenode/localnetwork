@@ -31707,8 +31707,15 @@
         "title": {
           "type": "string"
         },
+        "kind": {
+          "$ref": "#/$defs/SignIn",
+          "description": "How it's signed in to: in the browser unless it says."
+        },
         "authorize_url": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "The service's authorization endpoint, where the browser signs in (https)."
         },
         "token_url": {
@@ -31716,7 +31723,7 @@
             "string",
             "null"
           ],
-          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type has this or `token_exchange`."
+          "description": "Its token endpoint, where the host trades the browser's code for tokens and refreshes\nthem (https). An account type signed in to in the browser has this or `token_exchange`."
         },
         "token_exchange": {
           "type": [
@@ -31726,7 +31733,10 @@
           "description": "Local Network's token exchange for its service, in `token_url`'s place: only in an\naccount plugin locallibrary ships, since it signs people in as Local Network."
         },
         "client_id": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Its client at the service: a public one, without a secret, or Local Network's, whose\nsecret the token exchange holds."
         },
         "revoke_url": {
@@ -31758,8 +31768,15 @@
           "description": "The service's scopes every sign-in asks for, as the service names them (`openid`)."
         },
         "whoami": {
-          "$ref": "#/$defs/Whoami",
-          "description": "Where the host asks the service who signed in."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Whoami"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the host asks the service who signed in. One signed in to with keys may leave it\nout: the user names the account then."
         },
         "one_account": {
           "type": "object",
@@ -31782,6 +31799,27 @@
           },
           "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s."
         },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Key"
+          },
+          "description": "The keys the user enters, by name (`access`), which the service gave them."
+        },
+        "keys_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the user gets them (https)."
+        },
+        "goes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KeyPlace"
+          },
+          "description": "Where they go in a request, each place naming the keys it's made of."
+        },
         "scopes": {
           "type": "object",
           "additionalProperties": {
@@ -31792,12 +31830,24 @@
       },
       "required": [
         "type",
-        "title",
-        "authorize_url",
-        "client_id",
-        "whoami"
+        "title"
       ],
-      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser."
+      "description": "`[[contributes.account_types]]`: an account type, signed in to in the browser, or by entering\nkeys (`kind = \"keys\"`). Its OAuth fields are an account type's signed in to in the browser,\nand only its; `keys`, `keys_url` and `goes` are one's signed in to with keys, and only its."
+    },
+    "SignIn": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "oauth",
+          "description": "In the browser, with OAuth 2: `oauth`."
+        },
+        {
+          "type": "string",
+          "const": "keys",
+          "description": "By entering the keys the service gave the user: `keys`."
+        }
+      ],
+      "description": "How an account of a type is signed in to."
     },
     "TokenPlace": {
       "oneOf": [
@@ -31852,6 +31902,43 @@
         "name"
       ],
       "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, and JSON pointers into its answer."
+    },
+    "Key": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What it's called where the user gets it (`S3 access key`)."
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "description": "`[contributes.account_types.keys.<name>]`: a key the user enters."
+    },
+    "KeyPlace": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "description": "`{ header = \"Authorization\", value = \"LOW {access}:{secret}\" }` or `{ query = \"accesskey\", value\n= \"{access}\" }`: where an account goes in a request (the `Authorization` header, or a query\nparameter), and what goes there, each of its keys named in braces."
     },
     "Scope": {
       "type": "object",

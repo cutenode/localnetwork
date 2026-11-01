@@ -168,9 +168,12 @@ impl Plugin {
             self.misbehaved(format!("its {} account's {what} can't be used: {e}", t.title))
         };
         let token_url = t.token_url.as_ref().or(t.token_exchange.as_ref()).cloned().unwrap_or_default();
-        let client = Client::<EndpointNotSet, EndpointNotSet>::new(ClientId::new(t.client_id.clone()))
-            .set_auth_uri(AuthUrl::new(t.authorize_url.clone()).map_err(|e| bad("authorize_url", e))?)
-            .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
+        let client =
+            Client::<EndpointNotSet, EndpointNotSet>::new(ClientId::new(t.client_id.clone().unwrap_or_default()))
+                .set_auth_uri(
+                    AuthUrl::new(t.authorize_url.clone().unwrap_or_default()).map_err(|e| bad("authorize_url", e))?,
+                )
+                .set_token_uri(TokenUrl::new(token_url).map_err(|e| bad("token_url", e))?);
         Ok(match redirect {
             Some(redirect) => client.set_redirect_uri(redirect),
             None => client,
@@ -234,7 +237,7 @@ impl Plugin {
         let form = form_urlencoded::Serializer::new(String::new())
             .append_pair("token", token)
             .append_pair("token_type_hint", hint)
-            .append_pair("client_id", &t.client_id)
+            .append_pair("client_id", t.client_id.as_deref().unwrap_or_default())
             .finish();
         let request = oauth2::http::Request::post(url)
             .header(oauth2::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
