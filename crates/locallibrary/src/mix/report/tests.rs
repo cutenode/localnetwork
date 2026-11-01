@@ -277,6 +277,7 @@ fn extras_come_from_the_drive_by_file() {
         color: None,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let analyses = [TrackAnalysis { cues: vec![cue(1), cue(200)], ..Default::default() }];
     let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
@@ -575,6 +576,7 @@ fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
             color: color.map(|(r, g, b)| [r, g, b]),
             color_id: 0,
             loop_beats: None,
+            active_loop: false,
         })
         .collect();
     let library = Library { tracks: vec![t.clone()], ..Default::default() };
