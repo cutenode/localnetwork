@@ -449,6 +449,34 @@ export type LabelRequest = {
   remove?: boolean;
 };
 
+/** `snapshot.library`, optionally paged as `drive.library` is. */
+export type SnapshotLibraryRequest = {
+  /** A label, or an id or its first 4 or more characters, with or without `snapshot:` in front. */
+  snapshot: string;
+  offset?: number | null;
+  limit?: number | null;
+};
+
+export type ServeOptions = {
+  /**
+   * Stay on the local network: no relays, so only computers that can reach this one directly
+   * can fetch.
+   */
+  local_only?: boolean;
+};
+
+/** `store.fetch`: the code to fetch with, and what to fetch. */
+export type FetchRequest = {
+  /** The share code the other computer's `store.serve` gave (its `ready` event). */
+  code: string;
+  /** Libraries to fetch, by name or id on the other computer. Empty: all of them. */
+  libraries?: string[];
+  /** Stay on the local network: no relays. */
+  local_only?: boolean;
+  /** Say what would be copied, and copy nothing. */
+  dry_run?: boolean;
+};
+
 export type RenameLibrary = {
   /** The library's name (any case) or id. */
   library: string;
@@ -3253,6 +3281,11 @@ export type Cue = {
    * when it was set on the grid. Only the extended list has it.
    */
   loop_beats: LoopBeats | null;
+  /**
+   * A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only
+   * the basic list has it.
+   */
+  active_loop: boolean;
 };
 
 export type LoopBeats = [numerator: number, denominator: number];
@@ -3622,6 +3655,12 @@ export type EmbeddedFile = {
   /** The file once the art went in: it's only put back while it's still that. */
   size: number;
   mtime: number;
+  /**
+   * What it held once the art went in, by content: its size and mtime, taken moments after it
+   * was written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).
+   * Missing from embeds an earlier version made, which go by size and mtime alone.
+   */
+  hash?: Hash | null;
 };
 
 export type Comparison = {
@@ -4136,6 +4175,54 @@ export type LibraryListing = {
   /** Drives linked to it, by name. */
   drives: string[];
 };
+
+export type ServeReport = {
+  /** Computers that fetched. */
+  peers: number;
+  files: number;
+  bytes: number;
+};
+
+export type FetchReport = {
+  /**
+   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
+   * destination (`<plugin>:<destination>`).
+   */
+  peer: string;
+  libraries: FetchedLibrary[];
+  snapshots: number;
+  /** Stored files copied, and the store had already. */
+  files: number;
+  bytes: number;
+  present: number;
+  dry_run: boolean;
+};
+
+export type FetchedLibrary = {
+  /** Its name in this store. */
+  name: string;
+  /** Its name on the other computer, when that was taken here. */
+  was?: string | null;
+  id: string;
+  /** The other computer's latest snapshot. */
+  head: Hash | null;
+  outcome: LibraryOutcome;
+};
+
+export type LibraryOutcome =
+  /** This store didn't have it. */
+  | "added"
+  /** It moved to the other computer's newer latest snapshot. */
+  | "updated"
+  /** This store was as new, or newer. */
+  | "up_to_date"
+  /** Both changed: this store keeps its latest, and has the other's beside it. */
+  | "diverged"
+  /**
+   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
+   * missing from its store): the library is left as it was.
+   */
+  | "unavailable";
 
 export type EditPlan = {
   drive: string;
@@ -7998,8 +8085,9 @@ export type CollectionExportPlan = {
    */
   unsaved: Unsaved | null;
   /**
-   * Space the export needs on the target: the files it copies, its new databases and the
-   * backup of what it replaces.
+   * Space the export needs on the target: the files it copies, its new databases, the backup
+   * of what it replaces, and the online-only files it downloads when their cloud folder is on
+   * the same disk.
    */
   needed_bytes: number;
   free_space: number | null;
@@ -8913,47 +9001,6 @@ export type Section = {
   view: View;
 };
 
-export type FetchReport = {
-  /**
-   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
-   * destination (`<plugin>:<destination>`).
-   */
-  peer: string;
-  libraries: FetchedLibrary[];
-  snapshots: number;
-  /** Stored files copied, and the store had already. */
-  files: number;
-  bytes: number;
-  present: number;
-  dry_run: boolean;
-};
-
-export type FetchedLibrary = {
-  /** Its name in this store. */
-  name: string;
-  /** Its name on the other computer, when that was taken here. */
-  was?: string | null;
-  id: string;
-  /** The other computer's latest snapshot. */
-  head: Hash | null;
-  outcome: LibraryOutcome;
-};
-
-export type LibraryOutcome =
-  /** This store didn't have it. */
-  | "added"
-  /** It moved to the other computer's newer latest snapshot. */
-  | "updated"
-  /** This store was as new, or newer. */
-  | "up_to_date"
-  /** Both changed: this store keeps its latest, and has the other's beside it. */
-  | "diverged"
-  /**
-   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
-   * missing from its store): the library is left as it was.
-   */
-  | "unavailable";
-
 /** A set a plugin will publish, as its dry run said. */
 export type SetPublish = {
   plugin: string;
@@ -9459,6 +9506,39 @@ export type PluginNotice = {
   action?: HostAction;
 };
 
+/** A `serve` notification's parameters: what `store.serve` is doing. */
+export type ServeParams = {
+  /** The `store.serve` request it's about. */
+  id: RequestId | null;
+  event: ServeEvent;
+};
+
+/** What serving is doing, as it happens. */
+export type ServeEvent =
+  /** Serving: give `code` to the other computer. */
+  | {
+    event: "ready";
+    code: string;
+  }
+  /** A computer with the code connected (`peer`: its key, shortened). */
+  | {
+    event: "connected";
+    peer: string;
+  }
+  /** A computer without the right code was turned away. */
+  | {
+    event: "refused";
+    peer: string;
+  }
+  /** A computer that fetched disconnected, having been sent this much. */
+  | {
+    event: "done";
+    peer: string;
+    snapshots: number;
+    files: number;
+    bytes: number;
+  };
+
 /** An error response's `error.data`: what a front end can act on without reading the message. */
 export type ErrorData = {
   /** Stable: `not_found`, `conflict`, `stale_plan`, `invalid_params`... (see [`crate::Error::code`]). */
@@ -9765,7 +9845,13 @@ export interface Methods {
   /** immediate method */
   "snapshot.label": { params: LabelRequest & WriteOptions; result: SnapshotLabel };
   /** read method */
+  "snapshot.library": { params: SnapshotLibraryRequest; result: LibraryPage };
+  /** read method */
   "library.list": { params: NoParams; result: LibraryListing[] };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "store.serve": { params: ServeOptions; result: ServeReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "store.fetch": { params: FetchRequest & WriteOptions; result: FetchReport };
   /** immediate method */
   "library.rename": { params: RenameLibrary & WriteOptions; result: LibraryRecord };
   /** plan method; paired with `edit.apply`; can delete or overwrite something */
@@ -10228,4 +10314,5 @@ export type Result<M extends MethodName> = Methods[M]["result"];
 export interface Notifications {
   progress: ProgressParams;
   event: Notice;
+  serve: ServeParams;
 }

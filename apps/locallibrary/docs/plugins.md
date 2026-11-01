@@ -255,8 +255,10 @@ account by its type (`{account:TYPE}`) where the type says its token goes, the `
 header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
 token once it has checked the request against the scopes of the plugin's access, never sending it
 on to another server a redirect leads to. When the service refuses the token (a 401), locallibrary
-refreshes it and sends the request once more; one it can't refresh is signed out, and a second
-refusal saying the token is no good signs it out too. When the service says the token lacks a
+refreshes it and sends the request once more. A refusal that isn't sent again (the second, or
+one for an account with no refresh token) is passed on to the plugin, and signs the account out
+only when the service says the token is no good (`error="invalid_token"`); one the service won't
+refresh signs it out too. When the service says the token lacks a
 scope, the request fails saying which, and signing in again is offered.
 
 Some services (SoundCloud) only take the browser back at the exact address their app was
@@ -298,7 +300,8 @@ track's values once (again only for a changed audio file, or a new version of th
 keeps them in the store. A value worked out with nothing to show (silence's key) shows as `-`,
 matches no filter and sorts last. `locallibrary track LIBRARY --track ID` shows them under the
 track's details, each as `ID.FIELD` (`sound.bpm`), and `locallibrary tracks` filters and sorts by
-them (`--filter "sound.bpm:>120" --sort -sound.bpm`), as the sidecar's `tracks.query` does. In
+them (`--filter "sound.bpm:>120" --sort -sound.bpm`), as the sidecar's `tracks.query`, smart
+playlists' rules, edits' track selectors and playlist sorts do. In
 the player, analyzers are in the palette and a drive's menu, and their fields are columns to
 show, sort and search by. An analyzer may say how its fields are shown: a unit (`LUFS`), how many
 places, as a key, a duration (`3:07`), decibels, a percentage or a meter, and how wide its column
@@ -582,7 +585,8 @@ locallibrary adds kinds of hooks without breaking older plugins.
 
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
 call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
-bounded size, and what it gets back, errors too, doesn't say where things are on this computer:
+bounded size. Those are the drives known here, and the one a hook under way runs on, a folder
+opened by path too, named as the hook's context names it, until the hook is done. What it gets back, errors too, doesn't say where things are on this computer:
 a drive is said by its name, where the store's copies, a set's or a mix's recording and
 rekordbox's collection are is left out, and any other path is said from its drive, the store
 (`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as

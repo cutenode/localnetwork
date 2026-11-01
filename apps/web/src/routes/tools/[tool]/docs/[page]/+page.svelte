@@ -7,6 +7,7 @@
 
 <svelte:head>
 	<title>{data.doc.title} · {data.tool.name} · Local Network</title>
+	<meta name="description" content="{data.tool.name} guide: {data.doc.title}." />
 </svelte:head>
 
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-12 sm:py-14">

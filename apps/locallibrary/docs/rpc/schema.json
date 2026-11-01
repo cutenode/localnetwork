@@ -1196,6 +1196,19 @@
       }
     },
     {
+      "name": "snapshot.library",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/SnapshotLibraryRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/LibraryPage"
+      }
+    },
+    {
       "name": "library.list",
       "aliases": [],
       "kind": "read",
@@ -1209,6 +1222,39 @@
         "items": {
           "$ref": "#/$defs/LibraryListing"
         }
+      }
+    },
+    {
+      "name": "store.serve",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/ServeOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/ServeReport"
+      }
+    },
+    {
+      "name": "store.fetch",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/FetchRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/FetchReport"
       }
     },
     {
@@ -5876,6 +5922,9 @@
     },
     "event": {
       "$ref": "#/$defs/Notice"
+    },
+    "serve": {
+      "$ref": "#/$defs/ServeParams"
     }
   },
   "error": {
@@ -6975,6 +7024,78 @@
       "required": [
         "label"
       ]
+    },
+    "SnapshotLibraryRequest": {
+      "type": "object",
+      "properties": {
+        "snapshot": {
+          "type": "string",
+          "description": "A label, or an id or its first 4 or more characters, with or without `snapshot:` in front."
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "snapshot"
+      ],
+      "description": "`snapshot.library`, optionally paged as `drive.library` is."
+    },
+    "ServeOptions": {
+      "type": "object",
+      "properties": {
+        "local_only": {
+          "type": "boolean",
+          "description": "Stay on the local network: no relays, so only computers that can reach this one directly\ncan fetch.",
+          "default": false
+        }
+      }
+    },
+    "FetchRequest": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "The share code the other computer's `store.serve` gave (its `ready` event)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Libraries to fetch, by name or id on the other computer. Empty: all of them.",
+          "default": []
+        },
+        "local_only": {
+          "type": "boolean",
+          "description": "Stay on the local network: no relays.",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Say what would be copied, and copy nothing.",
+          "default": false
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "description": "`store.fetch`: the code to fetch with, and what to fetch."
     },
     "RenameLibrary": {
       "type": "object",
@@ -14894,6 +15015,11 @@
             }
           ],
           "description": "A loop's length in beats as rekordbox stored it, numerator and denominator (4/1, 1/2),\nwhen it was set on the grid. Only the extended list has it."
+        },
+        "active_loop": {
+          "type": "boolean",
+          "description": "A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only\nthe basic list has it.",
+          "default": false
         }
       },
       "required": [
@@ -14903,7 +15029,8 @@
         "comment",
         "color",
         "color_id",
-        "loop_beats"
+        "loop_beats",
+        "active_loop"
       ]
     },
     "LoopBeats": {
@@ -16024,6 +16151,17 @@
         "mtime": {
           "type": "integer",
           "format": "int64"
+        },
+        "hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it held once the art went in, by content: its size and mtime, taken moments after it\nwas written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).\nMissing from embeds an earlier version made, which go by size and mtime alone."
         }
       },
       "required": [
@@ -17925,6 +18063,149 @@
         "drives"
       ],
       "description": "A library in the store, for listings."
+    },
+    "ServeReport": {
+      "type": "object",
+      "properties": {
+        "peers": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Computers that fetched."
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "peers",
+        "files",
+        "bytes"
+      ]
+    },
+    "FetchReport": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FetchedLibrary"
+          }
+        },
+        "snapshots": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "Stored files copied, and the store had already."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "present": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "libraries",
+        "snapshots",
+        "files",
+        "bytes",
+        "present",
+        "dry_run"
+      ]
+    },
+    "FetchedLibrary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Its name in this store."
+        },
+        "was": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Its name on the other computer, when that was taken here."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The other computer's latest snapshot."
+        },
+        "outcome": {
+          "$ref": "#/$defs/LibraryOutcome"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "head",
+        "outcome"
+      ]
+    },
+    "LibraryOutcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "added",
+          "description": "This store didn't have it."
+        },
+        {
+          "type": "string",
+          "const": "updated",
+          "description": "It moved to the other computer's newer latest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "up_to_date",
+          "description": "This store was as new, or newer."
+        },
+        {
+          "type": "string",
+          "const": "diverged",
+          "description": "Both changed: this store keeps its latest, and has the other's beside it."
+        },
+        {
+          "type": "string",
+          "const": "unavailable",
+          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
+        }
+      ]
     },
     "EditPlan": {
       "type": "object",
@@ -30726,7 +31007,7 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
-          "description": "Space the export needs on the target: the files it copies, its new databases and the\nbackup of what it replaces."
+          "description": "Space the export needs on the target: the files it copies, its new databases, the backup\nof what it replaces, and the online-only files it downloads when their cloud folder is on\nthe same disk."
         },
         "free_space": {
           "type": [
@@ -33114,123 +33395,6 @@
         "view"
       ]
     },
-    "FetchReport": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string",
-          "description": "Where it was fetched from: the other computer's key, shortened, or a plugin's store\ndestination (`<plugin>:<destination>`)."
-        },
-        "libraries": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/FetchedLibrary"
-          }
-        },
-        "snapshots": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "files": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0,
-          "description": "Stored files copied, and the store had already."
-        },
-        "bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "present": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "dry_run": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "peer",
-        "libraries",
-        "snapshots",
-        "files",
-        "bytes",
-        "present",
-        "dry_run"
-      ]
-    },
-    "FetchedLibrary": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Its name in this store."
-        },
-        "was": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Its name on the other computer, when that was taken here."
-        },
-        "id": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "head": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Hash"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The other computer's latest snapshot."
-        },
-        "outcome": {
-          "$ref": "#/$defs/LibraryOutcome"
-        }
-      },
-      "required": [
-        "name",
-        "id",
-        "head",
-        "outcome"
-      ]
-    },
-    "LibraryOutcome": {
-      "oneOf": [
-        {
-          "type": "string",
-          "const": "added",
-          "description": "This store didn't have it."
-        },
-        {
-          "type": "string",
-          "const": "updated",
-          "description": "It moved to the other computer's newer latest snapshot."
-        },
-        {
-          "type": "string",
-          "const": "up_to_date",
-          "description": "This store was as new, or newer."
-        },
-        {
-          "type": "string",
-          "const": "diverged",
-          "description": "Both changed: this store keeps its latest, and has the other's beside it."
-        },
-        {
-          "type": "string",
-          "const": "unavailable",
-          "description": "The other computer's latest snapshot couldn't be had (removed there during the fetch, or\nmissing from its store): the library is left as it was."
-        }
-      ]
-    },
     "SetPublish": {
       "type": "object",
       "properties": {
@@ -34699,6 +34863,121 @@
         "message"
       ],
       "description": "A line a plugin tells the user (`host/notify`), and what it suggests, with its params: one of\nits operations (`operation`) or one of the host's actions (`action`) on its own contributions.\nThe front end offers to start it, and the user confirms it as when they start it themselves."
+    },
+    "ServeParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequestId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The `store.serve` request it's about."
+        },
+        "event": {
+          "$ref": "#/$defs/ServeEvent"
+        }
+      },
+      "required": [
+        "id",
+        "event"
+      ],
+      "description": "A `serve` notification's parameters: what `store.serve` is doing."
+    },
+    "ServeEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "ready"
+            },
+            "code": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "code"
+          ],
+          "description": "Serving: give `code` to the other computer."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "connected"
+            },
+            "peer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "peer"
+          ],
+          "description": "A computer with the code connected (`peer`: its key, shortened)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "refused"
+            },
+            "peer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "peer"
+          ],
+          "description": "A computer without the right code was turned away."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "done"
+            },
+            "peer": {
+              "type": "string"
+            },
+            "snapshots": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "files": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "event",
+            "peer",
+            "snapshots",
+            "files",
+            "bytes"
+          ],
+          "description": "A computer that fetched disconnected, having been sent this much."
+        }
+      ],
+      "description": "What serving is doing, as it happens."
     },
     "ErrorData": {
       "type": "object",

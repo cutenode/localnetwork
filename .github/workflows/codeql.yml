@@ -6,19 +6,14 @@ name: CodeQL
 # used, so its alerts carry over.
 #
 # ci.yml calls it for every pull request into main, merge queue group and push to main but a
-# draft's, with the languages whose code changed. The "Protect Main" ruleset's code scanning rule
-# waits for an analysis of a pull request's commit, and of each merge queue group's, and holds it
-# until it gets one (netresearch/.github#170 had every queued pull request stuck on "Code scanning
-# is still expecting 1 result from CodeQL"), so the workflows' analysis, a minute long, runs
-# every time. CodeQL's own result is that check. No weekly run: main gets pushes most days, and
-# each analyses with the queries of the action's pinned bundle.
+# draft's, with every language whatever changed. The "Protect Main" ruleset's code scanning rule
+# holds a pull request or a merge queue group until its commit has a result in every category
+# main has (netresearch/.github#170 had every queued pull request stuck on "Code scanning is still
+# expecting 1 result from CodeQL", and so did #347 when only the languages that changed ran).
+# CodeQL's own result is that check. No weekly run: main gets pushes most days, and each analyses
+# with the queries of the action's pinned bundle.
 on:
   workflow_call:
-    inputs:
-      languages:
-        description: The languages to analyse, as a JSON list.
-        type: string
-        required: true
 
 permissions: {}
 
@@ -36,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ${{ fromJSON(inputs.languages) }}
+        language: [actions, javascript-typescript, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -671,12 +671,13 @@ enum Refreshing {
 /// with twice (refusing the token, saying it lacks a scope in a challenge or Google's body,
 /// forbidding it otherwise, or answering): an answer to a request that still had the token
 /// refusing it (a 401) gets the token refreshed once and the request sent again, its answer
-/// passed on, the account signed out when it's refused again as `invalid_token`; an account
-/// whose token doesn't refresh is signed out, failing `access` (`signed_out`); one the service
-/// says lacks a scope fails `scope`, naming what signing in again needs to allow, and is no
-/// longer granted what the service named (else what those ask); anything else, and any answer
-/// once the token was dropped, is passed on. No request is sent more than twice, and no token
-/// gets out.
+/// passed on; a 401 that isn't sent again (the second, or the first without a refresh token) is
+/// passed on too, signing the account out only when it says `invalid_token`, and otherwise the
+/// next request still gets the token. An account whose refresh token the service refuses is
+/// signed out, failing `access` (`signed_out`); one the service says lacks a scope fails
+/// `scope`, naming what signing in again needs to allow, and is no longer granted what the
+/// service named (else what those ask); anything else, and any answer once the token was
+/// dropped, is passed on. No request is sent more than twice, and no token gets out.
 #[hegel::test(test_cases = 24, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
     let query = tc.draw(gs::sampled_from(vec![None, Some("access_token")]));
@@ -718,15 +719,13 @@ fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
     if again {
         assert_eq!(sent_at(&sent[1]), Some(2), "{said}: not sent again with the token refreshed");
     }
-    let signed_out = match () {
-        _ if refused && !again => true,
-        _ => again && last == Reply::InvalidToken,
-    };
+    let refresh_refused = refused && refreshing == Refreshing::Refused;
+    let signed_out = refresh_refused || (refused && last == Reply::InvalidToken);
     let kept = m.listed();
     assert_eq!(kept.is_empty(), signed_out, "{said}");
     let e = &answer["error"]["data"];
     match last.needs().filter(|_| !redirected) {
-        _ if refused && !again => {
+        _ if refresh_refused => {
             assert_eq!((e["kind"].as_str(), e["reason"].as_str()), (Some("access"), Some("signed_out")), "{said}")
         }
         Some(needs) => {
@@ -737,6 +736,15 @@ fn a_refused_token_is_refreshed_once_then_given_up(tc: TestCase) {
         }
         None => assert_eq!(answer["result"]["status"], last.status(), "{said}"),
     }
+    let mut answers = vec![answer["error"].clone()];
+    if refused && !signed_out && last.needs().is_none() {
+        m.state.lock().unwrap().script.clear();
+        let next = m.fetch_as("GET", "/r/x", "{account:mock}", query);
+        assert_eq!(next["result"]["status"], 200, "{said}: then {next}");
+        let got = m.server.got().into_iter().rfind(|g| g.target.starts_with("/r/x"));
+        assert_eq!(got.as_ref().and_then(sent_at), Some(1 + usize::from(again)), "{said}: then not sent its token");
+        answers.push(next["error"].clone());
+    }
     // What the service answered is the service's: it echoes the token it got.
-    assert!(!m.leaked(&[answer["error"].clone()]), "a token is out: {said}");
+    assert!(!m.leaked(&answers), "a token is out: {said}");
 }

@@ -351,3 +351,28 @@ fn merging_from_export_pdb_brings_cues_into_onelibrary() {
     assert_eq!(got.iter().filter(|(hot, _)| hot.is_some()).count(), 1, "{got:?}");
     assert!(got.contains(&(None, 20_000)), "{got:?}");
 }
+
+/// Regression: merging the same drive into a folder again made a "Guest (2)" folder with a copy of
+/// every playlist. The second merge goes into the folder the first made, by name, and adds
+/// nothing.
+#[test]
+fn merging_the_same_drive_into_a_folder_again_adds_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = common::bigger_drive(dir.path(), "Guest");
+    let src = Device::open_export(&src_root).unwrap();
+    let mut dst = Device::open_export(common::demo_drive(dir.path(), "Main")).unwrap();
+    let opts = MergeOptions::default();
+    let first = merge::plan(&src, &dst, &opts, &Ctx::silent()).unwrap();
+    merge::apply(&first, &src, &mut dst, &opts, &Ctx::silent()).unwrap();
+    let lib = dst.library().unwrap();
+    let merged = lib.find_playlist("Guest/aab").unwrap().track_ids.len();
+    assert_eq!(merged, 12);
+
+    let again = merge::plan(&src, &dst, &opts, &Ctx::silent()).unwrap();
+    assert!(again.is_noop(), "{:?}", again.playlists);
+    let report = merge::apply(&again, &src, &mut dst, &opts, &Ctx::silent()).unwrap();
+    assert_eq!((report.playlists_created, report.playlist_entries_added), (0, 0));
+    let lib = dst.library().unwrap();
+    assert!(lib.find_playlist("Guest (2)").is_none(), "no second folder");
+    assert_eq!(lib.find_playlist("Guest/aab").unwrap().track_ids.len(), merged);
+}

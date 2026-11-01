@@ -6,6 +6,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import MixEmbed from './mix/MixEmbed.svelte';
 	import LinkedSet from './LinkedSet.svelte';
+	import { webHref } from '#lib/web-url.ts';
 
 	/**
 	 * `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). `sets` are the linked
@@ -43,7 +44,7 @@
 					</button>
 				{/if}
 				<div class="min-w-0 flex-1">
-					<a class="block truncate text-emphasis font-semibold text-fg no-underline hover:underline" href={mix.url} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
+					<a class="block truncate text-emphasis font-semibold text-fg no-underline hover:underline" href={webHref(mix.url)} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
 					{#if meta.length}<p class="m-0 font-mono text-caption text-fg-subtle">{meta.join(' · ')}</p>{/if}
 				</div>
 				{#if mix.tracklist && tracklistHref}

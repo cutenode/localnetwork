@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::paths;
+use crate::{fsutil, paths};
 
 /// A mounted volume and the device it's on. The device matters because a mount point can show
 /// up before its drive is mounted on it (macOS and udisks make the folder first): the path
@@ -36,23 +36,8 @@ pub fn mounts() -> Vec<Mount> {
 }
 
 fn mount(path: PathBuf) -> Mount {
-    let dev = std::fs::metadata(&path).map_or(0, |m| ids(&path, &m).0);
+    let dev = std::fs::metadata(&path).map_or(0, |m| fsutil::ids(&path, &m).0);
     Mount { path, dev }
-}
-
-/// The file or folder at `path` (whose metadata is `m`): its device, and its id there. The
-/// device and inode on Unix; on Windows the volume serial number and file index, through a
-/// handle (0s when it can't be opened).
-#[cfg(unix)]
-fn ids(_: &Path, m: &std::fs::Metadata) -> (u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (m.dev(), m.ino())
-}
-
-#[cfg(windows)]
-fn ids(path: &Path, _: &std::fs::Metadata) -> (u64, u64) {
-    let info = winapi_util::Handle::from_path_any(path).and_then(winapi_util::file::information);
-    info.map_or((0, 0), |i| (i.volume_serial_number(), i.file_index()))
 }
 
 /// One file's metadata, enough to tell that it was rewritten.
@@ -72,7 +57,7 @@ impl FileStamp {
     pub fn of(path: &Path) -> Option<FileStamp> {
         crate::fsutil::unreplaced(|| {
             let m = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
-            Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino: ids(path, &m).1 })
+            Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino: fsutil::ids(path, &m).1 })
         })
     }
 }
@@ -219,7 +204,7 @@ struct StoreStamp {
 impl StoreStamp {
     fn of(root: &Path) -> StoreStamp {
         let dir = root.join("snapshots");
-        let snapshots = std::fs::metadata(&dir).ok().map(|m| (m.modified().ok(), ids(&dir, &m).1));
+        let snapshots = std::fs::metadata(&dir).ok().map(|m| (m.modified().ok(), fsutil::ids(&dir, &m).1));
         StoreStamp { files: STORE_FILES.map(|(_, f)| FileStamp::of(&root.join(f))), snapshots }
     }
 

@@ -2,18 +2,16 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
-	import { timeAgo } from '#lib/format.ts';
+	import { REQUEST_KIND_LABEL, requestSubject, timeAgo } from '#lib/format.ts';
 	import type { RequestView } from '#lib/types.ts';
 	import ResponsiveTable from '#lib/ui/ResponsiveTable.svelte';
 
 	/** Requests to staff that match the console's filters. */
 	let { requests }: { requests: RequestView[] } = $props();
-
-	const kindLabel = { create: 'New project', claim: 'Claim', update: 'Changes' } as const;
 </script>
 
 {#snippet title(request: RequestView)}
-	<a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>
+	<a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{REQUEST_KIND_LABEL[request.kind]}: {requestSubject(request)}</a>
 	{#if request.record.onBehalfOf}<p class="text-label text-fg-subtle">Filed by root on their behalf</p>{/if}
 {/snippet}
 

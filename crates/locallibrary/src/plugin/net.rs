@@ -307,9 +307,10 @@ impl Plugin {
     /// one (a 401 or 403; not after a hop that dropped them, which isn't about them): saying the
     /// token lacks scopes (see [`insufficient_scope`]), `scope`, its body not passed on (see
     /// [`Plugin::scope_refused`]); a 401 otherwise, the request sent again once with the account's
-    /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on, the account
-    /// signed out when it's a 401 again saying `error="invalid_token"`. With the placeholders of
-    /// the tokens the request that was answered had in its query.
+    /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on. A 401 that isn't
+    /// sent again, the second or one with no refresh token to refresh, signs the account out only
+    /// when it says `error="invalid_token"` (see [`Plugin::invalid_token`]). With the placeholders
+    /// of the tokens the request that was answered had in its query.
     fn answered(
         &self,
         live: &Live,
@@ -344,17 +345,18 @@ impl Plugin {
                 let written = Url::parse(&req.url).map_err(|_| invalid("it isn't a web address"))?;
                 return Err(self.scope_refused(&attached[0].usable, &scopes, &req.method, &written, store));
             }
-            if status == 403 || again {
-                let invalid = again && status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
+            let resend = status == 401 && !again && {
+                let refreshed = attached.iter().map(|f| self.refused_token(&f.usable, &f.token, store));
+                refreshed.collect::<Result<Vec<bool>, _>>()?.contains(&true)
+            };
+            if !resend {
+                let invalid = status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
                 if invalid {
                     for f in &attached {
                         self.invalid_token(&f.usable, &f.token, store)?;
                     }
                 }
                 return Ok((Answer { status, headers, read: body, response }, in_query));
-            }
-            for f in &attached {
-                self.refused_token(&f.usable, &f.token, store)?;
             }
             again = true;
             let (url, sent, query) = self.prepare(live, req)?;

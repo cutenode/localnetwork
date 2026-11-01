@@ -40,6 +40,11 @@ fn says_what_a_filter_can_and_cant() {
     );
     assert_eq!(ok(list(false, &[("rating", 1, "", "4", "")])), "rating:4..4");
     assert_eq!(ok(list(false, &[("stockDate", 2, "", "2024-03-01", "")])), "-added:2024-03-01..2024-03-01");
+    assert_eq!(
+        ok(list(false, &[("stockDate", 5, "", "2024-05-31", "2024-03-01")])),
+        "added:2024-03-01..2024-05-31",
+        "a range's ends in either order"
+    );
     assert_eq!(ok(list(true, &[("grouping", 1, "", "2", ""), ("grouping", 1, "", "0", "")])), "color:red|none");
     assert_eq!(ok(list(true, &[("myTag", 8, "", "A/x", ""), ("myTag", 8, "", "B/y", "")])), r#"tag:"A/x|B/y""#);
     let refused = |l: SmartList| l.filter().unwrap_err();
@@ -177,7 +182,7 @@ fn a_filter_matches_what_the_rules_match(tc: TestCase) {
         limit: None,
         drives: Vec::new(),
     };
-    rule.validate().unwrap();
+    rule.validate(&Default::default()).unwrap();
     let library = Library { tracks, ..Default::default() };
     let ctx = QueryContext::new(&library).with_tags(&tags);
     for t in &library.tracks {
