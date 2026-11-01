@@ -3239,6 +3239,11 @@ export type Cue = {
    * when it was set on the grid. Only the extended list has it.
    */
   loop_beats: LoopBeats | null;
+  /**
+   * A loop that plays round by itself once playback reaches it (rekordbox's active loop). Only
+   * the basic list has it.
+   */
+  active_loop: boolean;
 };
 
 export type LoopBeats = [numerator: number, denominator: number];

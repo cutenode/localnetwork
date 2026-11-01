@@ -192,6 +192,7 @@ pub fn cue() -> impl PrintableGenerator<Cue> {
         color,
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     })
 }
 

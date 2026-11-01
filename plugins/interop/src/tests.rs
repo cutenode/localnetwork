@@ -112,6 +112,7 @@ fn drive() -> Drive {
         color: hot_cue.map(|_| [0xe6, 0x28, 0x28]),
         color_id: 0,
         loop_beats: None,
+        active_loop: false,
     };
     let cues = vec![
         Cue { color_id: 6, ..cue(None, 25, None, "Intro") },

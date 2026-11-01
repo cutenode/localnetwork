@@ -34,7 +34,7 @@ const PCO2: [u8; 4] = *b"PCO2";
 const HOT: u32 = 1;
 const MEMORY: u32 = 0;
 const NO_LOOP: u32 = u32::MAX;
-const ACTIVE_LOOP: u32 = 4;
+pub(super) const ACTIVE_LOOP: u32 = 4;
 const PCPT_LEN: usize = 0x38;
 /// `PCP2` up to the comment length field.
 const PCP2_HEAD: usize = 0x2c;

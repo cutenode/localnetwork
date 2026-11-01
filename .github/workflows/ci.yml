@@ -71,7 +71,6 @@ jobs:
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       codeql: ${{ steps.scope.outputs.codeql }}
-      codeql_languages: ${{ steps.scope.outputs.codeql_languages }}
       draft: ${{ steps.scope.outputs.draft }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
@@ -358,17 +357,6 @@ jobs:
               - '.github/rulesets/**'
               - 'tools/ruleset.sh'
               - '.github/workflows/repo-checks.yml'
-            # What CodeQL extracts for each language without a build, and its config.
-            codeql_rust:
-              - '**/*.rs'
-              - '**/Cargo.toml'
-              - 'Cargo.lock'
-              - '.github/codeql/**'
-              - '.github/workflows/codeql.yml'
-            codeql_javascript:
-              - '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,svelte,vue,html}'
-              - '.github/codeql/**'
-              - '.github/workflows/codeql.yml'
       # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
       # has the pull request as it was when the event was made: #211 was marked ready a second after
       # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
@@ -453,20 +441,17 @@ jobs:
           set_if web any web_verify web_integration web_e2e web_lighthouse web_docker
           set_if repo_checks any repo_checks_policy repo_checks_lexicons repo_checks_ruleset
 
-          # CodeQL on every event but a draft's and a pull request's into another branch than main:
-          # the code scanning rule holds a pull request or a merge queue group until it has CodeQL's
-          # results for its commit, and pull requests' alerts are compared with main's. The workflows' analysis always runs (it takes about a minute),
-          # so every commit has a result; Rust's and TypeScript's only when their code changed.
-          languages=()
-          if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then
-            languages+=(actions)
-            if changed codeql_javascript; then languages+=(javascript-typescript); fi
-            if changed codeql_rust; then languages+=(rust); fi
-          fi
+          # CodeQL, every language, on every event but a draft's and a pull request's into another
+          # branch than main. The code scanning rule holds a pull request or a merge queue group until
+          # its commit has a result in every category main has: #347, which changed no Rust and got
+          # no Rust analysis, couldn't join the queue ("Code scanning is still expecting 1 result
+          # from CodeQL"). Pull requests' alerts are compared with main's, so main's pushes analyse
+          # every language too.
+          codeql=false
+          if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then codeql=true; fi
           {
             for name in "${!out[@]}"; do echo "$name=${out[$name]}"; done
-            echo "codeql=$([ ${#languages[@]} -gt 0 ] && echo true || echo false)"
-            echo "codeql_languages=$(jq -cn '$ARGS.positional' --args "${languages[@]}")"
+            echo "codeql=$codeql"
             echo "draft=${DRAFT:-false}"
           } >> "$GITHUB_OUTPUT"
       # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
@@ -575,8 +560,6 @@ jobs:
       # Uploading the results to code scanning.
       security-events: write
     uses: ./.github/workflows/codeql.yml
-    with:
-      languages: ${{ needs.changes.outputs.codeql_languages }}
 
   # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
   # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't
