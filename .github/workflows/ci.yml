@@ -71,6 +71,8 @@ jobs:
       repo_checks_lexicons: ${{ steps.scope.outputs.repo_checks_lexicons }}
       repo_checks_ruleset: ${{ steps.scope.outputs.repo_checks_ruleset }}
       codeql: ${{ steps.scope.outputs.codeql }}
+      codeql_unchanged: ${{ steps.scope.outputs.codeql_unchanged }}
+      codeql_base: ${{ steps.scope.outputs.codeql_base }}
       draft: ${{ steps.scope.outputs.draft }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
@@ -358,6 +360,19 @@ jobs:
               - '.github/rulesets/**'
               - 'tools/ruleset.sh'
               - '.github/workflows/repo-checks.yml'
+            # What CodeQL extracts for each language without a build, its config, and the
+            # workflow that pins its version: a language none of them changed for has the same
+            # results as the commit this one is diffed against.
+            codeql_rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
+            codeql_javascript:
+              - '**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,svelte,vue,html}'
+              - '.github/codeql/**'
+              - '.github/workflows/codeql.yml'
       # Whether the pull request is a draft now, and has the `all-os` label, from the API. The event
       # has the pull request as it was when the event was made: #211 was marked ready a second after
       # a push, GitHub started a run for the push and none for ready_for_review, and the push's event
@@ -383,6 +398,7 @@ jobs:
           DRAFT: ${{ steps.pr.outputs.draft }}
           ALL_OS: ${{ steps.pr.outputs.all_os }}
           BASE: ${{ github.base_ref }}
+          LAST_PASSED: ${{ steps.base.outputs.sha }}
         run: |
           matched() { [ "$(jq -r --arg f "$1" '.[$f] // "false"' <<< "$FILTER")" = true ]; }
           all=false
@@ -450,9 +466,20 @@ jobs:
           # every language too.
           codeql=false
           if [ "$DRAFT" != true ] && { [ "$EVENT" != pull_request ] || [ "$BASE" = main ]; }; then codeql=true; fi
+          # A language whose code didn't change (not `all`: a change to this workflow doesn't change
+          # what CodeQL finds) reuses the analysis of the commit this one was diffed against:
+          # main's last passed one for a push or a merge queue group, the base a pull request's
+          # merge commit sits on for a pull request (codeql.yml finds that one).
+          unchanged=()
+          if [ "$EVENT" = pull_request ] || [ -n "$LAST_PASSED" ]; then
+            if ! matched codeql_javascript; then unchanged+=(javascript-typescript); fi
+            if ! matched codeql_rust; then unchanged+=(rust); fi
+          fi
           {
             for name in "${!out[@]}"; do echo "$name=${out[$name]}"; done
             echo "codeql=$codeql"
+            echo "codeql_unchanged=$(jq -cn '$ARGS.positional' --args "${unchanged[@]}")"
+            echo "codeql_base=$LAST_PASSED"
             echo "draft=${DRAFT:-false}"
           } >> "$GITHUB_OUTPUT"
       # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
@@ -561,6 +588,9 @@ jobs:
       # Uploading the results to code scanning.
       security-events: write
     uses: ./.github/workflows/codeql.yml
+    with:
+      unchanged: ${{ needs.changes.outputs.codeql_unchanged }}
+      base: ${{ needs.changes.outputs.codeql_base }}
 
   # The check the "Protect Main" ruleset requires. It starts a runner only to fail: when a tool's
   # workflow failed or was cancelled, or was skipped while its changes output was true (it didn't
