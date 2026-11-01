@@ -4,20 +4,14 @@ package workflows
 
 import data.lib
 
-# Pull request workflows with no passed check: benchmarks report to CodSpeed, the release workflow
-# is dist's own, which only plans a release on pull requests, dependency review is GitHub's own
-# check of what a pull request adds, which isn't a required check, and CodeQL holds merges through
-# the ruleset's code scanning rule, which reads its alerts.
-ungated := {
-	".github/workflows/locallibrary-bench.yml",
-	".github/workflows/locallibrary-release.yml",
-	".github/workflows/dependency-review.yml",
-	".github/workflows/codeql.yml",
-}
+# Pull request workflows with no passed check: dependency review is GitHub's own check of what a
+# pull request adds, which isn't a required check.
+ungated := {".github/workflows/dependency-review.yml"}
 
-# Jobs that stay out of the passed check's needs on purpose: `report` posts coverage on the pull
-# request, so a comment that can't post never holds up a merge, and `semver` only reports breaking
-# changes in the loclib-* crates, which aren't published yet.
+# Jobs that never hold up the passed check: `report` posts coverage on the pull request, so a
+# comment that can't post never holds up a merge, and `semver` only reports breaking changes in the
+# loclib-* crates, which aren't published yet. In a gated workflow they stay out of passed's needs;
+# in a workflow one calls, they can't fail the call.
 outside_passed := {"report", "semver"}
 
 # YAML 1.1 reads the `on:` key as true, which is how conftest parses it.
@@ -29,6 +23,14 @@ gated[path] := wf if {
 	not path in ungated
 	wf := lib.file(path)
 	runs_on(triggers(wf), "pull_request")
+}
+
+# The workflows a gated one calls (ci.yml's tools), which run as jobs of its run.
+called[path] := wf if {
+	some _, gated_wf in gated
+	some _, job in gated_wf.jobs
+	path := trim_prefix(job.uses, "./")
+	wf := lib.file(path)
 }
 
 # `on:` is an event, a list of them, or an object keyed by them (`pull_request:` is often empty).
@@ -62,11 +64,13 @@ deny contains msg if {
 	msg := sprintf("%s: add a `passed` job that fails when any other job fails (see localtoolbox-ci.yml)", [path])
 }
 
+# It starts a runner only to fail, so its conditions are the job's own `if`, after `always()`:
+# a job skipped by its `if` counts as passing.
 deny contains msg if {
 	some path, wf in gated
 	passed := wf.jobs.passed
-	object.get(passed, "if", "") != "always()"
-	msg := sprintf("%s: the passed job needs `if: always()`, so it reports when jobs are skipped", [path])
+	not startswith(object.get(passed, "if", ""), "always() && (")
+	msg := sprintf("%s: the passed job's `if` should be `always() && (...)`, with the conditions it fails on, so it runs when jobs fail or are skipped", [path])
 }
 
 deny contains msg if {
@@ -92,13 +96,14 @@ deny contains msg if {
 }
 
 # A job skipped because one it needs didn't finish reports `skipped`, as one with nothing to check
-# does, so the step also checks for skipped jobs next to the changes job's outputs: #88's tests
-# were skipped after its macOS build was cancelled, and locallibrary CI passed.
+# does, so the job's `if` also checks for skipped jobs next to the changes job's outputs: #88's
+# tests were skipped after its macOS build was cancelled, and locallibrary CI passed.
 fails_on_failure(job) if {
+	contains(job["if"], "contains(needs.*.result, 'failure')")
+	contains(job["if"], "contains(needs.*.result, 'cancelled')")
+	contains(job["if"], "'skipped'")
 	some step in job.steps
-	contains(step["if"], "contains(needs.*.result, 'failure')")
-	contains(step["if"], "contains(needs.*.result, 'cancelled')")
-	contains(step["if"], "'skipped'")
+	contains(step.run, "exit 1")
 }
 
 # A draft's run skips the work, and skipped jobs pass the passed check, so a draft marked ready
@@ -121,6 +126,7 @@ deny contains msg if {
 }
 
 fails_on_draft(job) if {
+	contains(job["if"], "needs.changes.outputs.draft == 'true'")
 	some step in job.steps
 	step["if"] == "needs.changes.outputs.draft == 'true'"
 }
@@ -140,9 +146,54 @@ deny contains msg if {
 	msg := sprintf("%s: add a concurrency group that cancels superseded runs", [path])
 }
 
-# On every event: on main too, the next run's changes job covers what a cancelled run didn't check
-# (see the rule below).
+# On every event, or every event but a push to main: there a run can finish, since what it saves is
+# what pull requests restore, and GitHub keeps only one run waiting behind it.
 cancels_superseded(wf) if wf.concurrency["cancel-in-progress"] == true
+
+cancels_superseded(wf) if wf.concurrency["cancel-in-progress"] == "${{ github.event_name != 'push' }}"
+
+# A call evaluates its workflow's concurrency group with the caller's `github.workflow`, so the
+# group is the caller's own, and the call would cancel the run that started it.
+deny contains msg if {
+	some path, wf in called
+	wf.concurrency
+	msg := sprintf("%s: remove its concurrency group; a call gets the calling workflow's, so it would cancel the run that called it", [path])
+}
+
+deny contains msg if {
+	some path, wf in called
+	some event in ["push", "pull_request"]
+	runs_on(triggers(wf), event)
+	msg := sprintf("%s: remove `on.%s`; the workflow that calls it already runs it then", [path, event])
+}
+
+# A call has to grant every permission its workflow's jobs ask for, the ones it skips too, or GitHub
+# won't start the run. actionlint doesn't look across files for this.
+deny contains msg if {
+	some path in lib.paths(".github/workflows/*.yml")
+	wf := lib.file(path)
+	some id, job in wf.jobs
+	callee_path := trim_prefix(job.uses, "./")
+	granted := object.get(job, "permissions", object.get(wf, "permissions", {}))
+	some callee_id, callee_job in lib.file(callee_path).jobs
+	some scope, level in object.get(callee_job, "permissions", {})
+	not grants(granted, scope, level)
+	msg := sprintf("%s: job %q should grant `%s: %s`, which %s's %q job asks for", [path, id, scope, level, callee_path, callee_id])
+}
+
+grants(granted, scope, _) if granted[scope] == "write"
+
+grants(granted, scope, "read") if granted[scope] == "read"
+
+# A call's result covers every job in it, so a report or semver job that fails would fail the call
+# and hold up the passed check.
+deny contains msg if {
+	some path, wf in called
+	some id, job in wf.jobs
+	id in outside_passed
+	object.get(job, "continue-on-error", false) != true
+	msg := sprintf("%s: give job %q `continue-on-error: true`, or it fails the call when it fails", [path, id])
+}
 
 # A push diffed against the commit before it drops what a cancelled or failed run never checked
 # whenever the next push touches other files, so it's diffed against the last commit the workflow
@@ -184,4 +235,35 @@ deny contains msg if {
 covered(path) if {
 	some glob in filter_globs
 	lib.matches(glob, path)
+}
+
+# The paths of the filter named `name` in a gated workflow's changes job.
+filter(name) := lib.strings(globs) if {
+	some _, wf in gated
+	some step in wf.jobs.changes.steps
+	startswith(step.uses, "dorny/paths-filter@")
+	globs := yaml.unmarshal(step["with"].filters)[name]
+}
+
+filtered(name, path) if {
+	globs := filter(name)
+	some glob in globs
+	not startswith(glob, "!")
+	lib.matches(glob, path)
+	not excluded(globs, path)
+}
+
+excluded(globs, path) if {
+	some glob in globs
+	startswith(glob, "!")
+	lib.matches(substring(glob, 1, -1), path)
+}
+
+# A file the Rust code embeds from outside its crate (include_str! and include_bytes!) changes
+# what the Rust checks see, so the locallibrary filter has it, even where its folder belongs to
+# another tool (the lexicons, the tokens).
+deny contains msg if {
+	some path in lib.embedded_files
+	not filtered("locallibrary", path)
+	msg := sprintf("%s: the Rust code embeds it, so add it to the locallibrary paths filter", [path])
 }
