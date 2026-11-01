@@ -2018,8 +2018,11 @@ impl<'a> Resolver<'a> {
                         }
                     }
                 }
+                // None found (replaying): the note a replay skips the edit with names them.
                 if picked.is_empty() {
-                    return Err(Error::NotFound("the history lists to delete".into()));
+                    let names: Vec<String> = wanted.iter().map(|w| format!("{:?}", w.name)).collect();
+                    let lists = if names.len() == 1 { "history list" } else { "history lists" };
+                    return Err(Error::NotFound(format!("{lists} {} to delete", names.join(", "))));
                 }
                 let desc = format!("delete {} history list(s)", picked.len());
                 let lists = picked
@@ -2863,7 +2866,7 @@ struct Steps {
 /// A plan with steps (see [`Steps`]): one backup first (the databases, the analysis files cue
 /// edits may rewrite, the images artwork edits may replace and the files removed tracks leave),
 /// so `restore` undoes all of it; then each step, planned as it's made; then the others, planned
-/// again. The backup notes what the plan left, all of it made or not.
+/// again. The backup notes what the plan left, all of it made or not, as each step is made.
 fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
     let library = device.library()?;
     let mut extra = plan.files.clone();
@@ -2887,11 +2890,19 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     // A plan of new edits (a replace carrying cues) is an edit like any other to undo.
     let label = if steps.opts.no_journal { "before replaying edits" } else { "before editing" };
     let backup = backup::create(device, label, &extra, None)?;
+    // Sealed as each step is made, from the start: a replay cut off part way can be undone
+    // without forcing it, as what it left is known.
+    if let Err(e) = backup::seal(device, &backup.id) {
+        let _ = backup::discard(device, &backup.id);
+        return Err(e);
+    }
     // Changes are counted as they're made: a recorded edit that no longer applies writes nothing.
     let mut report = EditReport { backup: Some(backup.id.clone()), ..Default::default() };
     let swaps = device.swaps();
     let mut made = (Vec::new(), Vec::new());
-    let replayed = replay_steps(steps, &plan.changes, &extra, device, &mut report, &mut made, ctx);
+    let replayed = crate::commit::under_backup(&backup.id, || {
+        replay_steps(steps, &plan.changes, &extra, device, &mut report, &mut made, ctx)
+    });
     // What it made is recorded as one entry under the one backup, also when a later edit failed,
     // so a replay after rekordbox exports makes that again.
     let recorded = match steps.opts.no_journal || made.0.is_empty() {
@@ -3475,10 +3486,24 @@ pub mod journal {
         Ok(gone.len())
     }
 
-    /// The entries restoring `backup` would take off (see `undone`), oldest first.
+    /// The entries restoring `backup` would take off, oldest first: those the journal it carries
+    /// lacks (see [`crate::backup`]), or for a backup carrying none, those it undoes (see
+    /// `undone`).
     pub fn taken_off(device: &Device, backup: &crate::backup::BackupInfo) -> Result<Vec<JournalEntry>> {
+        let entries = list(device)?;
+        if let Some(carried) = crate::backup::carried_journal(device, backup)? {
+            return Ok(entries.into_iter().filter(|e| !carried.iter().any(|c| c.at == e.at)).collect());
+        }
         let order = order(device)?;
-        Ok(list(device)?.into_iter().filter(|e| undoes(&order, backup, e)).collect())
+        Ok(entries.into_iter().filter(|e| undoes(&order, backup, e)).collect())
+    }
+
+    /// The entries restoring `backup` would put back, oldest first: those the journal it carries
+    /// has and the drive's lacks (an undo's backup holds the edits the undo took off).
+    pub fn put_back(device: &Device, backup: &crate::backup::BackupInfo) -> Result<Vec<JournalEntry>> {
+        let entries = list(device)?;
+        let carried = crate::backup::carried_journal(device, backup)?.unwrap_or_default();
+        Ok(carried.into_iter().filter(|c| !entries.iter().any(|e| e.at == c.at)).collect())
     }
 
     /// Each of the drive's backups by id, and its place among them (0: the newest).

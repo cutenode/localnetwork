@@ -15970,6 +15970,17 @@
         "mtime": {
           "type": "integer",
           "format": "int64"
+        },
+        "hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it held once the art went in, by content: its size and mtime, taken moments after it\nwas written, can't tell a rewrite in the same second or two (see [`fsutil::settled`]).\nMissing from embeds an earlier version made, which go by size and mtime alone."
         }
       },
       "required": [
@@ -30815,7 +30826,7 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
-          "description": "Space the export needs on the target: the files it copies, its new databases and the\nbackup of what it replaces."
+          "description": "Space the export needs on the target: the files it copies, its new databases, the backup\nof what it replaces, and the online-only files it downloads when their cloud folder is on\nthe same disk."
         },
         "free_space": {
           "type": [

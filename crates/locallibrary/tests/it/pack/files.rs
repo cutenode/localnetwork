@@ -78,3 +78,35 @@ fn a_drive_is_packed_for_a_set() {
     let written: Vec<u32> = store.drives().unwrap().into_values().map(|d| d.log.writes).collect();
     assert_eq!(written, [1], "the stick is registered with its write");
 }
+
+/// Regression: a pack (and a collection export, which writes the same way) that copied a file
+/// moments after its source was written took the copy as current next time while size and mtime
+/// matched, though the source could have been rewritten since in the same second or two. That
+/// copy is copied again, and a rewrite at the same size and mtime reaches the target.
+#[test]
+fn a_file_packed_as_it_was_written_is_copied_again_next_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = common::bigger_drive(dir.path(), "Main");
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let src = Device::open_export(&src_root).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let audio = paths::key(&src.library().unwrap().tracks[0].file_path);
+    let file = paths::to_fs(&src_root, &audio);
+    // Ahead of the clock, so the copy is made within its window however slow the machine is.
+    let written = chrono::Utc::now().timestamp() + 30;
+    locallibrary::fsutil::set_mtime(&file, written).unwrap();
+    let opts = PackOptions { playlists: vec!["aab".into()], ..Default::default() };
+    pack::apply(&pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap(), &src, &mut club, None, &Ctx::silent())
+        .unwrap();
+
+    let mut bytes = fs::read(&file).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    fs::write(&file, &bytes).unwrap();
+    locallibrary::fsutil::set_mtime(&file, written).unwrap();
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    assert!(plan.copies.iter().any(|c| c.path == audio), "{:?}", plan.copies);
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    assert_eq!(fs::read(paths::to_fs(&club_root, &audio)).unwrap(), bytes);
+}

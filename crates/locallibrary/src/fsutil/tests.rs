@@ -399,3 +399,53 @@ fn a_file_read_while_its_rewritten_is_read_whole() {
     });
     assert_eq!(read_json::<u32>(&path).unwrap(), 50);
 }
+
+/// A file's size and mtime recorded at `at` count as settled exactly when no rewrite after `at`
+/// can show an mtime [`mtime_eq`] takes for the recorded one: a rewrite at second `t` (at or after
+/// `at`) shows `t` where mtimes are kept to the second, and `t` rounded down to an even second on
+/// FAT32. Unsettled, a FAT32 file (even mtime) has such a rewrite: one at `at` itself. Regression:
+/// the hash cache and scrub each had a window of their own, neither allowing for that drift.
+#[hegel::test(test_cases = 300)]
+fn settled_means_no_rewrite_since_can_look_unchanged(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mtime: i64 = tc.draw(gs::integers::<i64>().min_value(1_000_000_000).max_value(2_000_000_000));
+    let at = mtime + tc.draw(gs::integers::<i64>().min_value(0).max_value(12));
+    let later = tc.draw(gs::integers::<i64>().min_value(0).max_value(10));
+    let rewrite = at + later;
+    let shown = [rewrite, rewrite - rewrite.rem_euclid(2)];
+    if settled(mtime, at) {
+        assert!(shown.iter().all(|s| !mtime_eq(mtime, *s)), "mtime {mtime}, recorded {at}, rewritten {rewrite}");
+    }
+    let fat = mtime - mtime.rem_euclid(2);
+    if !settled(fat, at.max(fat)) {
+        let at = at.max(fat);
+        assert!(
+            mtime_eq(fat, at - at.rem_euclid(2)),
+            "FAT mtime {fat}, recorded {at}: a rewrite at {at} looks unchanged"
+        );
+    }
+}
+
+/// Waiting longer than `after` (an online-only file downloading), the wait is said once, naming
+/// what it's for; finishing in time, nothing is said. Each closure waits on the other side's
+/// signal, not on a clock, so neither case depends on timing.
+#[test]
+fn a_slow_wait_is_said_once() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (said, heard) = mpsc::channel::<String>();
+    let said = std::sync::Mutex::new(said);
+    let tell = move |e: &crate::progress::Event| {
+        if let crate::progress::Event::Warning { message } = e {
+            let _ = said.lock().unwrap().send(message.clone());
+        }
+    };
+    let ctx = Ctx::new(&tell, crate::progress::CancelToken::new());
+    let waited = warn_if_slow(&ctx, Duration::from_millis(1), "waiting for a.mp3".into(), || {
+        heard.recv_timeout(Duration::from_secs(60)).expect("the warning comes while it waits")
+    });
+    assert_eq!(waited, "waiting for a.mp3");
+    let quick = warn_if_slow(&ctx, Duration::from_secs(3600), "waiting for b.mp3".into(), || 7);
+    assert_eq!(quick, 7);
+    assert!(heard.try_recv().is_err(), "nothing said for a quick one");
+}
