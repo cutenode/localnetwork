@@ -904,11 +904,18 @@ impl Server {
             let run = || {
                 // Cancelled while it waited (shutting down): it doesn't start.
                 ctx.check().map_err(locallibrary::Error::from)?;
+                #[cfg(feature = "peers")]
                 let notify = |method: &str, event: Value| {
                     let params = json!({ "id": id, "event": event });
                     send(&out, &json!({ "jsonrpc": "2.0", "method": method, "params": params }));
                 };
-                let call = Call { root: &store_root, plans: &plans, ctx: &ctx, notify: &notify };
+                let call = Call {
+                    root: &store_root,
+                    plans: &plans,
+                    ctx: &ctx,
+                    #[cfg(feature = "peers")]
+                    notify: &notify,
+                };
                 m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(&method)))
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
@@ -949,7 +956,13 @@ pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcErro
     let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
     // The store the host started the plugin in (see `Reads::read`), else the process's.
     let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
-    let call = Call { root: &root, plans: &NONE, ctx, notify: &|_, _| {} };
+    let call = Call {
+        root: &root,
+        plans: &NONE,
+        ctx,
+        #[cfg(feature = "peers")]
+        notify: &|_, _| {},
+    };
     m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))
 }
 

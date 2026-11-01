@@ -76,14 +76,16 @@ fn build(registry: &Registry, methods: Vec<&Method>) -> Value {
         d.insert("result".into(), m.result_schema(&mut results, registry).to_value());
         described.push(Value::Object(d));
     }
-    let mut notifications = json!({
+    let notifications = json!({
         "progress": results.subschema_for::<api::ProgressParams>().to_value(),
         "event": results.subschema_for::<api::Notice>().to_value(),
     });
     #[cfg(feature = "peers")]
-    {
+    let notifications = {
+        let mut notifications = notifications;
         notifications["serve"] = results.subschema_for::<api::ServeParams>().to_value();
-    }
+        notifications
+    };
     let mut contract = json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "locallibrary RPC",

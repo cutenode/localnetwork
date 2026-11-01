@@ -67,6 +67,7 @@ pub struct Call<'a> {
     pub plans: &'a Plans,
     pub ctx: &'a Ctx<'a>,
     /// Sends the notification `method` (`serve`) about this request, as `{id, event}`.
+    #[cfg(feature = "peers")]
     pub notify: &'a dyn Fn(&str, Value),
 }
 
