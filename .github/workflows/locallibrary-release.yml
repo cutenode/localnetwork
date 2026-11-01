@@ -8,7 +8,8 @@
 # * macOS signing and notarization steps in build-local-artifacts that run only when the
 #   APPLE_* secrets exist (dist's own setup would fail without them);
 # * a Homebrew job that skips itself until HOMEBREW_TAP_TOKEN exists;
-# * pull requests run only when they change what `dist plan` reads;
+# * no pull_request trigger: ci.yml's locallibrary lint job runs `dist plan` and the check below
+#   when a pull request changes what it reads, in a runner it already has;
 # * a step in `plan` that fails when the plan releases anything but locallibrary-cli;
 # * the workflow's name says it's locallibrary's, beside the repo's other workflows;
 # * timeouts on every job, a read-only token everywhere but `host` (the one job that writes: it
@@ -28,23 +29,13 @@
 #
 # * a pushed tag that starts with `locallibrary` and has a version ("locallibrary-cli-v0.1.0",
 #   "locallibrary-cli-v0.2.0-beta.1"): builds the archives and installers, creates the GitHub
-#   Release (a prerelease when the version has a suffix) and pushes the Homebrew formula;
-# * pull requests that change the workspace's manifests, the dist configuration, the toolchain,
-#   the action that installs dist or this file: only `dist plan`, which checks the configuration.
+#   Release (a prerelease when the version has a suffix) and pushes the Homebrew formula.
 
 name: locallibrary release
 permissions:
   "contents": "read"
 
 on:
-  pull_request:
-    paths:
-      - "**/Cargo.toml"
-      - "Cargo.lock"
-      - "dist-workspace.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/locallibrary-release.yml"
-      - ".github/actions/install-dist/**"
   push:
     tags:
       - 'locallibrary**[0-9]+.[0-9]+.[0-9]+*'

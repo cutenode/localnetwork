@@ -5,7 +5,15 @@ description: >-
   failed run never checked whenever the next push doesn't touch the same files; diffed against the
   last commit that passed, those files count until a run passes. Empty, with a warning, when none
   of the workflow's last 100 runs is one, which leaves paths-filter on the commit before the push.
-  Needs `actions: read`.
+  For a merge queue group, the commit it goes on top of, so the group checks what its pull requests
+  change. With `events`, the last successful run of those events on the branch instead, with no
+  warning when there's none: a scheduled workflow decides for itself what to do without one. Needs
+  `actions: read`.
+
+inputs:
+  events:
+    description: The events whose runs count, separated by spaces.
+    default: push
 
 outputs:
   sha:
@@ -22,7 +30,14 @@ runs:
         GH_REPO: ${{ github.repository }}
         WORKFLOW_REF: ${{ github.workflow_ref }}
         BRANCH: ${{ github.ref_name }}
+        GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        EVENTS: ${{ inputs.events }}
       run: |
+        if [ -n "$GROUP_BASE" ]; then
+          echo "sha=$GROUP_BASE" >> "$GITHUB_OUTPUT"
+          echo "Changes since $GROUP_BASE, the commit the group goes on top of"
+          exit 0
+        fi
         # owner/repo/.github/workflows/<file>@<ref> to <file>.
         workflow=${WORKFLOW_REF%@*}
         workflow=${workflow##*/}
@@ -30,10 +45,14 @@ runs:
         # go through GitHub's search index, which answered 11 of 40 identical queries with no runs
         # on 2026-10-22, while the unfiltered list, newest first, found the run every time.
         sha=$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?per_page=100" |
-          jq -r --arg branch "$BRANCH" '[.workflow_runs[]
-            | select(.head_branch == $branch and .event == "push" and .conclusion == "success")]
+          jq -r --arg branch "$BRANCH" --arg events "$EVENTS" '[.workflow_runs[]
+            | select(.head_branch == $branch and (.event | IN($events | split(" ")[])) and .conclusion == "success")]
             | .[0].head_sha // empty')
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        if [ "$EVENTS" != push ]; then
+          echo "Last $EVENTS run that passed on $BRANCH: ${sha:-none in the last 100 runs}"
+          exit 0
+        fi
         if [ -z "$sha" ]; then
           echo "::warning title=No passed run::None of $workflow's last 100 runs passed on a push to $BRANCH, so this push is diffed against the commit before it"
         fi

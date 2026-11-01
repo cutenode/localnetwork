@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
 import { expectAccessible } from './axe.ts';
@@ -568,9 +568,20 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('status').filter({ hasText: 'unsent changes' })).toBeVisible();
 		await expectAccessible(page);
 
-		// Signing out drops it, so the next person on this browser doesn't find it.
+		// Signing out drops it, so the next person on this browser doesn't find it, even when Sign out is
+		// pressed before the dashboard's scripts have run.
 		const inquiry = page.url();
-		await signOut(page);
+
+		const holdScripts = (route: Route) =>
+			route.request().resourceType() === 'script' ? route.abort() : route.fallback();
+
+		await page.route('**/*', holdScripts);
+		await page.goto('/dashboard');
+		await page.unroute('**/*', holdScripts);
+		await expect(page.locator('html')).not.toHaveAttribute('data-hydrated');
+		await page.getByRole('button', { name: 'Sign out' }).click();
+		await page.waitForURL((url) => url.pathname === '/');
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 		const drafts = () => Object.keys(localStorage).filter((key) => key.startsWith('ln:draft:'));
 		expect(await page.evaluate(drafts)).toEqual([]);
 		await signIn(page, 'pat.test', 'pat-pass', new URL(inquiry).pathname + new URL(inquiry).search);
