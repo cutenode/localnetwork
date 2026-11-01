@@ -330,8 +330,11 @@ pub fn disk_by_id(spec: &str) -> Result<Option<Disk>> {
     os::by_id(spec)
 }
 
-/// The disk holding the volume mounted at `root`.
+/// The disk holding the volume mounted at `root`. Refused while `$LOCALLIBRARY_VOLUMES` hides
+/// this machine's disks (see [`crate::device::volume_folders`]): the disk holding a test folder is
+/// this machine's own, and the system's disk tools don't run then.
 pub fn disk_at(root: &Path) -> Result<Disk> {
+    crate::device::disks_shown()?;
     os::by_mount(&root.canonicalize().unwrap_or_else(|_| root.to_path_buf()))
 }
 

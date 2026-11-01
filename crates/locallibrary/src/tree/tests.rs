@@ -79,6 +79,32 @@ fn hash_index_avoids_rehashing() {
     assert_eq!(index.lookup(entry), None);
 }
 
+/// An entry recorded within moments of the file's mtime is racy: not looked up, and [`racy`]
+/// says so while the file still shows that size and mtime; recorded clearly later, it isn't.
+///
+/// [`racy`]: HashIndex::racy
+#[test]
+fn entries_recorded_as_the_file_was_written_are_racy() {
+    let now = chrono::Utc::now().timestamp();
+    let entry = |mtime: i64| FileEntry {
+        path: "Contents/a.mp3".into(),
+        size: 5,
+        mtime,
+        class: FileClass::Audio,
+        hash: Some(Hash::of(b"hello")),
+    };
+    // Racy entries' mtimes are ahead of now, so however slow the machine, they're recorded within
+    // the window.
+    for (mtime, racy) in [(now + 30, true), (now + 1, true), (now - 10, false), (1_600_000_000, false)] {
+        let mut index = HashIndex::default();
+        index.record(&entry(mtime));
+        let seen = FileEntry { hash: None, ..entry(mtime) };
+        assert_eq!(index.racy(&seen), racy, "mtime {} s from now", mtime - now);
+        assert_eq!(index.lookup(&seen).is_none(), racy);
+        assert!(!index.racy(&FileEntry { size: 6, ..seen.clone() }), "another size isn't the recorded file");
+    }
+}
+
 /// What's saved answers lookups as the index recording every hash afresh did (only when entries
 /// were recorded can differ), and recording what the cache holds already writes nothing.
 #[hegel::test(test_cases = 100)]
@@ -87,7 +113,7 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("index.json");
     let now = chrono::Utc::now().timestamp();
-    // Hashed now, files modified this long before are settled (more than RACY_SECS); ones
+    // Hashed now, files modified this long before are settled (see `fsutil::settled`); ones
     // modified this long after (negative) aren't, however long the test takes.
     let ages = [-1000, -5000, 1000, 5000];
     let entry = |path: usize, size: u64, age: usize, hash: u8| FileEntry {
@@ -122,7 +148,7 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
                 let age = tc.draw(gs::integers::<usize>().max_value(3));
                 let e = entry(path, size, age, tc.draw(gs::integers::<u8>().max_value(1)));
                 index.record(&e);
-                model.insert(e.path.clone(), (e, ages[age] > RACY_SECS));
+                model.insert(e.path.clone(), (e, ages[age] > 0));
             }
             1 => {
                 index.forget(&entry(path, 0, 0, 0).path);
@@ -160,7 +186,7 @@ fn the_hash_cache_is_written_only_when_its_answers_change(tc: hegel::TestCase) {
         if pass == 0 {
             let saved = HashIndex::load(&file);
             for (m, _) in model.values() {
-                assert_eq!(saved.lookup(m), m.hash.filter(|_| m.mtime < now - RACY_SECS), "{m:?}");
+                assert_eq!(saved.lookup(m), m.hash.filter(|_| m.mtime < now), "{m:?}");
             }
         }
     }

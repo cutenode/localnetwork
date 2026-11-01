@@ -376,7 +376,13 @@ fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
         return;
     }
     let (plans, call_ctx) = (Plans::default(), Ctx::silent());
-    let call = Call { root: &store, plans: &plans, ctx: &call_ctx };
+    let call = Call {
+        root: &store,
+        plans: &plans,
+        ctx: &call_ctx,
+        #[cfg(feature = "peers")]
+        notify: &|_, _| {},
+    };
     let ran = registry().get(name).unwrap().run(&call, json!({})).unwrap();
     let kind = |r: &Result<Value, RpcError>| r.as_ref().map_err(|e| e.kind).cloned();
     assert_eq!(kind(&got), kind(&ran), "{name}");

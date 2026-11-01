@@ -88,7 +88,7 @@ impl Session {
     fn granted(&self, name: &str) -> PathBuf {
         let dir = self.dir.path().join(name);
         std::fs::create_dir_all(&dir).unwrap();
-        dunce::canonicalize(dir).unwrap()
+        loclib_model::paths::resolved(&dir)
     }
 
     fn stop(self) {

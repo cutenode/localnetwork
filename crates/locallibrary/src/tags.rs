@@ -797,7 +797,8 @@ impl Ids {
     }
 
     /// The other database's id for the same category, if this one doesn't use it; else the next
-    /// small id (rekordbox's categories are 1..4).
+    /// small id (rekordbox's categories are 1..4), or the smallest free one when that's past what
+    /// the database holds (a OneLibrary database can number them past exportExt.pdb's `u32`).
     fn category(&self, source: Source, tree: &Tree, other: Option<&Tree>, name: &str) -> i64 {
         if let Some(id) = other.and_then(|o| o.category(name)).map(|c| c.id)
             && Ids::fits(source, id)
@@ -805,11 +806,15 @@ impl Ids {
         {
             return id;
         }
-        let mut id = self.max_category + 1;
-        while self.used.contains(&id) {
-            id += 1;
-        }
-        id
+        let free_from = |mut id: i64| {
+            while self.used.contains(&id) {
+                id += 1;
+            }
+            id
+        };
+        // The next free id can run past `u32::MAX` even when `max_category + 1` fits.
+        let id = free_from(self.max_category + 1);
+        if Ids::fits(source, id) { id } else { free_from(1) }
     }
 
     /// The other database's id for the same tag, if this one doesn't use it; else a large id
@@ -955,11 +960,18 @@ fn plan_db(
     Ok(ops)
 }
 
-/// Refuse a name too long for one exportExt.pdb row, which its editor would only refuse when
-/// applying (OneLibrary takes any length).
+/// Refuse a name too long for one exportExt.pdb row, or an id past its `u32`, which applying
+/// would only refuse then (OneLibrary takes any length, and `i64` ids).
 fn check_names(db: &Db, ops: &[Op]) -> Result<()> {
     let Handle::Ext(bytes) = &db.handle else { return Ok(()) };
     let editor = guard_ext(|| ext_editor(bytes.clone()))?;
+    for op in ops {
+        match op {
+            Op::AddTag { category, id, .. } => [*category, *id].into_iter().try_for_each(|i| ext_id(i).map(drop))?,
+            Op::AddCategory { id, .. } | Op::Rename { id, .. } | Op::Remove { id } => drop(ext_id(*id)?),
+            Op::Link { tag, .. } | Op::Unlink { tag, .. } => drop(ext_id(*tag)?),
+        }
+    }
     for op in ops {
         let (what, name) = match op {
             Op::AddCategory { name, .. } => ("the category name", name),

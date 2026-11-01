@@ -55,7 +55,7 @@ fn history_lists_are_deleted_only_with_the_entries_they_were_recorded_with() {
     // Replaying, the edit is skipped with a warning.
     let replay = plan(&root, &[other_entries], true).unwrap();
     assert!(replay.is_noop());
-    let skipped = "skipped an edit that no longer applies: not found: the history lists to delete";
+    let skipped = "skipped an edit that no longer applies: not found: history list \"HISTORY 001\" to delete";
     assert_eq!(replay.warnings, [skipped]);
 
     let exact = Edit::DeleteHistoryLists { lists: vec![list(vec![path(1), path(2)])] };

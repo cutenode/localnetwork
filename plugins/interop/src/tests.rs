@@ -570,7 +570,7 @@ fn an_engine_library_is_what_loclib_interop_writes() {
 fn rekordbox_xml_is_what_loclib_interop_writes() {
     let drive = drive();
     let session = start(&drive);
-    let real = dunce::canonicalize(drive.dir.path()).unwrap();
+    let real = resolved(drive.dir.path());
     for output in [drive.dir.path().join("library.xml"), real.join("resolved.xml")] {
         let planned = session.export("rekordbox", &output, json!({}), true).unwrap();
         // As spelled: paths compare equal with a separator at the end, which names no file.
@@ -951,23 +951,6 @@ fn is_built(want: &Expected, asked: &Asked, drive: &Drive, output: &Path, done: 
         ));
     }
     assert_eq!(done.warnings, warnings);
-}
-
-/// The part of a path that's there is resolved, symlinks too, and a `..` takes away the folder
-/// the OS would be in. Regression: what wasn't there was appended as it was, `..` left in, so
-/// `/tmp/new/../out` and `/private/tmp/out` didn't compare.
-#[test]
-fn the_part_that_exists_is_resolved() {
-    let dir = TempDir::new().unwrap();
-    let real = dunce::canonicalize(dir.path()).unwrap();
-    assert_eq!(resolved(&dir.path().join("new/../out/x")), real.join("out/x"));
-    #[cfg(unix)]
-    {
-        std::fs::create_dir_all(real.join("deep/er")).unwrap();
-        std::os::unix::fs::symlink(real.join("deep/er"), real.join("up")).unwrap();
-        assert_eq!(resolved(&real.join("up/../x")), real.join("deep/x"));
-        assert_eq!(resolved(&real.join("new/../up/x")), real.join("deep/er/x"));
-    }
 }
 
 /// The set and mix exporters.

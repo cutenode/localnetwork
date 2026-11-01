@@ -25,7 +25,7 @@
 //! before it is applied. Sync, push and pack copy whole libraries incrementally with their own
 //! staged copy, which a run that's stopped resumes ([`crate::sync`], [`crate::pack::apply`]).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -44,6 +44,21 @@ use crate::{Error, Result, fsutil, paths};
 thread_local! {
     static FAIL_BEFORE_SWAP: Cell<bool> = const { Cell::new(false) };
     static FAIL_AFTER_SWAP: Cell<bool> = const { Cell::new(false) };
+    static UNDER_BACKUP: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with each write in it that takes no backup of its own noting what it left in backup
+/// `id` (see [`backup::seal`]): a replay's steps, made under the one backup the replay took, so
+/// a replay cut off part way can be undone without forcing it.
+pub(crate) fn under_backup<T>(id: &str, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<String>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNDER_BACKUP.with(|u| *u.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(UNDER_BACKUP.with(|u| u.borrow_mut().replace(id.to_string())));
+    f()
 }
 
 /// For tests: make every commit on this thread fail just before its swap, as a crash or a full
@@ -380,8 +395,8 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
     }
 
     // What the write left, the new state, the journal, and the backups kept.
-    if let Some(id) = &done.backup {
-        backup::seal(device, id)?;
+    if let Some(id) = done.backup.clone().or_else(|| UNDER_BACKUP.with(|u| u.borrow().clone())) {
+        backup::seal(device, &id)?;
     }
     if opts.lineage {
         let library = device.library()?;

@@ -42,7 +42,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Between computers.** `store serve` prints a code and `store fetch <code>` on another
   computer copies the snapshots and files its store lacks over the network (iroh, directly or
   through relays, or `--local` for the local network alone), checking each file's hash; libraries
-  it lacks are added and ones it has move to the other's newer snapshot.
+  it lacks are added and ones it has move to the other's newer snapshot. The sidecar has them as
+  `store.serve`, which gives its code and says who connects in `serve` notifications until it's
+  cancelled, and `store.fetch`.
 - **Exporting without rekordbox.** `collection export` writes rekordbox's collection to a drive or
   a folder as rekordbox's Export does (tracks, playlists, analysis, cues, artwork and My Tags), so
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
@@ -867,7 +869,9 @@ their old names.
 - Text from servers and the browser has control characters removed before it reaches the terminal
   or an error.
 - The sign-in page, `mix --open` and the player's mix report open only `https://` addresses and
-  files that exist, without a shell (on Windows, `rundll32` instead of `cmd /C start`).
+  files that exist, without a shell (on Windows, `rundll32` instead of `cmd /C start`). An
+  address is parsed and opened as parsed: one with a user name or password, or on this computer
+  or its local network, is refused, where anything starting with `https://` went to the browser.
 - A drive's `exportLibrary.db` with a view or trigger is refused, its schema runs with
   `trusted_schema` off and SQLite's defensive mode, and column names from it are quoted safely.
   Audacity projects open with `trusted_schema` off too, and are refused when they hold a view.

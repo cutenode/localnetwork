@@ -5,6 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::LibraryPage;
+use crate::doctor::Databases;
 use crate::hash::Hash;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
@@ -102,6 +104,25 @@ pub fn snapshot_label(store: &Store, req: &LabelRequest) -> Result<SnapshotLabel
     let spec = req.snapshot.as_deref().ok_or_else(|| Error::invalid("say which snapshot to label"))?;
     let id: Hash = store.resolve_snapshot(spec.strip_prefix("snapshot:").unwrap_or(spec))?;
     store.add_label(&id, &req.label)
+}
+
+/// `snapshot.library`, optionally paged as `drive.library` is.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SnapshotLibraryRequest {
+    /// A label, or an id or its first 4 or more characters, with or without `snapshot:` in front.
+    pub snapshot: String,
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// The library players saw on the drive a snapshot was taken of (`export.pdb`'s, or OneLibrary's
+/// without it), its tracks paged when asked: what a playlist is restored from.
+pub fn snapshot_library(store: &Store, req: &SnapshotLibraryRequest) -> Result<LibraryPage> {
+    let snapshot = super::diff::snapshot(store, &req.snapshot)?;
+    let databases = Databases::from_snapshot(store, &snapshot)?;
+    Ok(super::reads::library_page(databases.primary(), req.offset, req.limit))
 }
 
 pub use crate::offsite::{CopyOptions, CopyRecord, CopyReport, CopyStatus};

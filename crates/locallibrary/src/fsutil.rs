@@ -241,14 +241,7 @@ pub fn absolute(path: &Path) -> PathBuf {
     loclib_model::paths::absolute_with(path, |_| None)
 }
 
-/// `path` made absolute, with symlinks resolved as far as it exists (macOS's `/tmp` is
-/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
-/// without Windows' `\\?\` prefix. A `..` goes where the OS takes it, out of a link's target
-/// rather than back to the link's folder, so a path is inside a folder here exactly when what it
-/// opens is (once the folders that aren't there yet are made, `..` folded over them).
-pub fn resolved(path: &Path) -> PathBuf {
-    loclib_model::paths::absolute_with(path, |p| p.canonicalize().ok().map(crate::device::without_verbatim_prefix))
-}
+pub use loclib_model::paths::resolved;
 
 /// Delete a file if it exists. Returns whether it did.
 pub fn remove_if_exists(path: &Path) -> Result<bool> {
@@ -321,9 +314,61 @@ pub fn mtime_secs(meta: &fs::Metadata) -> i64 {
     FileTime::from_last_modification_time(meta).unix_seconds()
 }
 
+/// How far apart two mtimes of the same file may be: FAT32 stores them with 2 second
+/// granularity.
+const MTIME_DRIFT: i64 = 2;
+
 /// FAT32 stores mtimes with 2 second granularity, so allow that much drift.
 pub fn mtime_eq(a: i64, b: i64) -> bool {
-    (a - b).abs() <= 2
+    (a - b).abs() <= MTIME_DRIFT
+}
+
+/// Whether a file's size and modification time `mtime`, recorded at `at` (unix seconds), still
+/// tell it apart from any rewrite since: a file rewritten after `at` has an mtime of `at - 1` or
+/// later (FAT32 rounds down to 2 s, and `at` is whole seconds), which must be more than
+/// [`mtime_eq`]'s drift from `mtime`. A file recorded in the same window it was written in can be
+/// rewritten at the same size with an mtime that looks unchanged ("racy", as git calls it), so
+/// equal size and mtime say nothing about it.
+pub fn settled(mtime: i64, at: i64) -> bool {
+    at - 1 > mtime + MTIME_DRIFT
+}
+
+/// The file or folder at `path` (whose metadata is `m`): its device, and its id there. The
+/// device and inode on Unix; on Windows the volume serial number and file index, through a
+/// handle (0s when it can't be opened).
+#[cfg(unix)]
+pub(crate) fn ids(_: &Path, m: &fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (m.dev(), m.ino())
+}
+
+#[cfg(windows)]
+pub(crate) fn ids(path: &Path, _: &fs::Metadata) -> (u64, u64) {
+    let info = winapi_util::Handle::from_path_any(path).and_then(winapi_util::file::information);
+    info.map_or((0, 0), |i| (i.volume_serial_number(), i.file_index()))
+}
+
+/// Whether `a` and `b` are on the same volume, each by its nearest folder that's there (a folder
+/// an export makes may not be yet). `false` when either can't be told.
+pub(crate) fn same_volume(a: &Path, b: &Path) -> bool {
+    let volume = |p: &Path| p.ancestors().find_map(|p| fs::metadata(p).ok().map(|m| ids(p, &m).0)).filter(|v| *v != 0);
+    volume(a).is_some_and(|v| volume(b) == Some(v))
+}
+
+/// Run `f`, warning `waiting` once if it's still running after `after`: reading an online-only
+/// file waits for its download, which can take minutes, and the warning says which file it is.
+pub(crate) fn warn_if_slow<T>(ctx: &Ctx<'_>, after: std::time::Duration, waiting: String, f: impl FnOnce() -> T) -> T {
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            if finished.recv_timeout(after) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                ctx.warn(waiting);
+            }
+        });
+        let out = f();
+        drop(done);
+        out
+    })
 }
 
 /// Free bytes on the filesystem holding `path`.

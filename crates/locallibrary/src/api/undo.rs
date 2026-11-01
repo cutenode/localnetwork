@@ -1,7 +1,7 @@
 //! Undo: put back the backup of the last change locallibrary made to a drive that the drive
 //! still holds (see [`crate::backup::choose`]), after showing what that changes: the files and
 //! databases, the playlists and tracks, the history lists dropped, and the recorded edits taken
-//! off the journal. Writers that change a drive in place back it up first (not repairs, firmware
+//! off the journal or put back on it. Writers that change a drive in place back it up first (not repairs, firmware
 //! files, recordings or `drive tidy`'s deletions), so the last change can be taken back, and the
 //! one before it next. A drive that changed since (a rekordbox
 //! export, a sync, players at a set) is refused unless forced, as that would be lost too.
@@ -144,6 +144,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
     let label = format!("backup {}", info.id);
     let diff = super::diff::to_backup(&d, &put_back, &label);
     let journal = journal::taken_off(&d, &info)?;
+    let journal_back = journal::put_back(&d, &info)?;
     // Players record history in either database: every list of the drive's the backup lacks.
     let kept = crate::plays::drive_history(&put_back).map(|h| h.lists).unwrap_or_default();
     let history_lists: Vec<String> = crate::plays::drive_history(&d)
@@ -166,6 +167,9 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
     if !journal.is_empty() {
         summary.push(format!("{} recorded edit(s) come off the journal", journal.len()));
     }
+    if !journal_back.is_empty() {
+        summary.push(format!("{} recorded edit(s) go back on the journal", journal_back.len()));
+    }
     let mut warnings = Vec::new();
     if !history_lists.is_empty() {
         warnings.push(format!(
@@ -182,7 +186,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
         ));
     }
     let keys = info.files.clone();
-    let noop = files.is_empty() && journal.is_empty();
+    let noop = files.is_empty() && journal.is_empty() && journal_back.is_empty();
     let plan = UndoPlan {
         drive: d.name(),
         root: d.root().into(),
