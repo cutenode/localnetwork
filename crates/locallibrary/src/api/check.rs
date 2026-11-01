@@ -85,11 +85,15 @@ pub struct SetPlayers {
 fn library_id(store: &Store, library: &str) -> Result<Uuid> {
     match store.find_library(library)? {
         Some(l) => Ok(l.id),
-        None => Err(Error::NotFound(format!("library {library:?}"))
-            .because(Reason::UnknownLibrary)
-            .with("library", library)
-            .action(Action::call("library.list", serde_json::json!({}), "List the libraries"))),
+        None => Err(unknown_library(library)),
     }
+}
+
+fn unknown_library(library: &str) -> Error {
+    Error::NotFound(format!("library {library:?}"))
+        .because(Reason::UnknownLibrary)
+        .with("library", library)
+        .action(Action::call("library.list", serde_json::json!({}), "List the libraries"))
 }
 
 /// What remembering (or forgetting) player models would change.
@@ -112,20 +116,22 @@ pub struct PlayersChange {
     models: Vec<String>,
 }
 
+/// The plan, against the models `store` remembers (with no store, none: it's made on apply).
 fn players_plan(
-    store: &Store,
+    store: Option<&Store>,
     operation: &'static str,
     library: Option<&str>,
     models: Vec<String>,
 ) -> Result<Planned<PlayersPlan, PlayersChange>> {
-    let r = store.player_models()?;
-    let (library, library_name, from) = match library {
-        Some(library) => {
+    let (library, library_name, from) = match (library, store) {
+        (Some(library), None) => return Err(unknown_library(library)),
+        (Some(library), Some(store)) => {
+            let r = store.player_models()?;
             let id = library_id(store, library)?;
             let name = store.library_by_id(id)?.map(|l| l.name);
             (Some(id), name, r.libraries.get(&id).cloned().unwrap_or_default())
         }
-        None => (None, None, r.default.clone()),
+        (None, store) => (None, None, store.map(Store::player_models).transpose()?.unwrap_or_default().default),
     };
     let whose = match (library, &library_name) {
         (Some(_), Some(name)) => format!("drives of {name}"),
@@ -140,15 +146,17 @@ fn players_plan(
     let noop = from == models;
     let change = PlayersChange { library, models: models.clone() };
     let plan = PlayersPlan { library, library_name, from, to: models };
-    Ok(Planned::new(operation, plan, change).line(line).noop(noop).touches(Touched::path(
-        store.root(),
-        true,
-        vec![Probe::Content(vec!["players.json".into()])],
-    )))
+    let planned = Planned::new(operation, plan, change).line(line).noop(noop);
+    Ok(match store {
+        Some(store) => {
+            planned.touches(Touched::path(store.root(), true, vec![Probe::Content(vec!["players.json".into()])]))
+        }
+        None => planned,
+    })
 }
 
 /// What remembering these models would change (`players set`).
-pub fn players_set_plan(store: &Store, req: &SetPlayers) -> Result<Planned<PlayersPlan, PlayersChange>> {
+pub fn players_set_plan(store: Option<&Store>, req: &SetPlayers) -> Result<Planned<PlayersPlan, PlayersChange>> {
     let models = equipment::canonical(&req.models)?;
     if models.is_empty() {
         return Err(Error::invalid("give at least one model (`players clear` forgets them)"));
@@ -181,7 +189,7 @@ impl Operation for PlayersPlan {
 
 /// Remember the models (planned and applied in one go; see [`players_set_plan`]).
 pub fn players_set(store: &Store, req: &SetPlayers) -> Result<RememberedPlayers> {
-    players_set_plan(store, req)?.apply(Some(store), &Ctx::silent())
+    players_set_plan(Some(store), req)?.apply(Some(store), &Ctx::silent())
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -192,11 +200,11 @@ pub struct ClearPlayers {
 }
 
 /// What forgetting the remembered models would change (`players clear`).
-pub fn players_clear_plan(store: &Store, req: &ClearPlayers) -> Result<Planned<PlayersPlan, PlayersChange>> {
+pub fn players_clear_plan(store: Option<&Store>, req: &ClearPlayers) -> Result<Planned<PlayersPlan, PlayersChange>> {
     players_plan(store, "players.clear", req.library.as_deref(), Vec::new())
 }
 
 /// Forget the models (planned and applied in one go; see [`players_clear_plan`]).
 pub fn players_clear(store: &Store, req: &ClearPlayers) -> Result<RememberedPlayers> {
-    players_clear_plan(store, req)?.apply(Some(store), &Ctx::silent())
+    players_clear_plan(Some(store), req)?.apply(Some(store), &Ctx::silent())
 }

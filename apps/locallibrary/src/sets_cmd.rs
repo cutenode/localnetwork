@@ -50,7 +50,8 @@ enum SetsCommand {
     /// Change a set's details and tracklist
     #[command(after_long_help = EDIT_HELP)]
     Edit(EditArgs),
-    /// Delete a set (the sessions and recording it came from stay)
+    /// Delete a set (the sessions and recording it came from stay), and its record and its
+    /// recording's from your Atmosphere account when they're published there
     Delete {
         #[arg(value_name = "SET")]
         set: String,
@@ -68,13 +69,13 @@ enum SetsCommand {
         undismiss: Vec<String>,
     },
     /// Write a set's tracklist out: for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists,
-    /// CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
+    /// podcast chapters, CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
     #[command(after_long_help = EXPORT_HELP)]
     Export {
         #[arg(value_name = "SET")]
         set: String,
-        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .csv, .m3u8,
-        /// .txt), else text]
+        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .json, .csv,
+        /// .m3u8, .txt), else text]
         #[arg(long, short, value_parser = formats())]
         format: Option<String>,
         /// Write it to this file [default: print it]
@@ -114,7 +115,7 @@ enum SetsCommand {
         dry_run: bool,
     },
     /// Publish a set: with its recording at a plugin's set destination (--to), or on your
-    /// Atmosphere account, where anyone can read it (alpha)
+    /// Atmosphere account, its recording too with --upload, where anyone can read it (alpha)
     Publish {
         #[arg(value_name = "SET")]
         set: String,
@@ -130,6 +131,16 @@ enum SetsCommand {
         /// Show what would be published without publishing (or looking anything up)
         #[arg(long)]
         dry_run: bool,
+        /// Upload its recording to your Atmosphere account first, and point its record at it
+        /// (encoded as AAC by ffmpeg when browsers can't play it or it's too big)
+        #[cfg(feature = "account")]
+        #[arg(long, conflicts_with = "to")]
+        upload: bool,
+        /// The most your account's data server takes, in MiB, when that's less than 300 (the
+        /// recording is encoded to fit)
+        #[cfg(feature = "account")]
+        #[arg(long, value_name = "MIB", requires = "upload", value_parser = clap::value_parser!(u64).range(1..))]
+        max_mib: Option<u64>,
         /// Don't look up MusicBrainz IDs for the tracks that have none
         #[cfg(feature = "account")]
         #[arg(long)]
@@ -169,6 +180,7 @@ less; otherwise each is suggested on its own.";
 const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format mixcloud           paste into Mixcloud's tracklist
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
+  locallibrary sets export last -o friday.json              chapters for podcast apps
   locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
 Every format but csv and m3u8 is for publishing: a track marked unnamed or hidden by your profile
@@ -355,6 +367,8 @@ pub(crate) enum FormatArg {
     /// For 1001Tracklists
     #[value(name = "1001")]
     Tracklists,
+    /// Podcasting 2.0 JSON chapters, for podcast apps
+    Chapters,
     /// Every detail, for a spreadsheet
     Csv,
     /// A playlist of the tracks on a drive
@@ -369,6 +383,7 @@ impl From<FormatArg> for SetFormat {
             FormatArg::Cue => SetFormat::Cue,
             FormatArg::Youtube => SetFormat::Youtube,
             FormatArg::Tracklists => SetFormat::Tracklists,
+            FormatArg::Chapters => SetFormat::Chapters,
             FormatArg::Csv => SetFormat::Csv,
             FormatArg::M3u8 => SetFormat::M3u8,
         }
@@ -379,6 +394,7 @@ impl From<FormatArg> for SetFormat {
 fn format_of(path: &Path) -> Option<SetFormat> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "cue" => Some(SetFormat::Cue),
+        "json" => Some(SetFormat::Chapters),
         "csv" => Some(SetFormat::Csv),
         "m3u8" => Some(SetFormat::M3u8),
         "txt" => Some(SetFormat::Text),
@@ -427,9 +443,15 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             return Ok(out.done(&change, |c| changed("changed", c)));
         }
         SetsCommand::Delete { set } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let s = api::set_get(&store, &api::SetRef { set: Some(set), venue: None })?;
             let what = format!("delete the set {} (its sessions and recording stay)", describe(&s));
+            #[cfg(feature = "account")]
+            let what = match api::set_published_uris(store.root(), &s.id)?.as_slice() {
+                [] => what,
+                [uri] => format!("{what}, and its record on your Atmosphere account ({uri})"),
+                uris => format!("{what}, and its records on your Atmosphere account ({})", uris.join(", ")),
+            };
             let id = api::SetRef { set: Some(s.id.clone()), venue: None };
             return out.one_step(
                 &what,
@@ -494,7 +516,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
         }
         SetsCommand::Playlist { set, drive, name, dry_run } => {
             let req = api::SetPlaylist { set, drive: drive.clone(), name };
-            let plan = api::set_playlist_plan(&store()?, &req, ctx)?;
+            let plan = api::set_playlist_plan(&crate::diff_cmd::store_to_read(store_path)?, &req, ctx)?;
             return crate::edit_cmd::confirm_and_apply(&drive, plan, dry_run, out, ctx);
         }
         SetsCommand::Publish {
@@ -502,6 +524,10 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             to,
             dry_run,
             hide,
+            #[cfg(feature = "account")]
+            upload,
+            #[cfg(feature = "account")]
+            max_mib,
             #[cfg(feature = "account")]
             no_lookup,
             #[cfg(feature = "account")]
@@ -518,6 +544,12 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             #[cfg(feature = "account")]
             {
                 let req = api::SetPublishRequest { set, hide: all(hide) };
+                if upload {
+                    let max_bytes = max_mib.map(|m| m.saturating_mul(1024 * 1024));
+                    return crate::publish_cmd::set_upload(
+                        store_path, &req, max_bytes, dry_run, !no_lookup, browser, out, ctx,
+                    );
+                }
                 return Ok(crate::publish_cmd::set_publish(store_path, &req, dry_run, !no_lookup, browser, out, ctx)?
                     .print(out));
             }

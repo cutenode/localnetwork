@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
@@ -574,7 +574,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Forget { drive } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let req = DriveRef { drive };
             let rec = api::drive_find(&store, &req)?;
             let change = format!("forget {} ({}): it's registered again the next time it's synced", rec.name, rec.id);
@@ -588,7 +588,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         DriveCommand::Role { drive, role } => {
             let role = (!role.eq_ignore_ascii_case("none")).then_some(role);
             let parsed = role.as_deref().map(Role::parse).transpose()?;
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let rec = api::drive_to_change(&store, &DriveRef { drive: drive.clone() })?;
             let change = match parsed {
                 Some(r) => format!("make {} ({}) {}", rec.name, rec.id, role_drive(r)),
@@ -605,7 +605,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             );
         }
         DriveCommand::Retire { drive, undo } => {
-            let store = store()?;
+            let store = crate::diff_cmd::store_to_read(store_path)?;
             let rec = api::drive_to_change(&store, &DriveRef { drive: drive.clone() })?;
             let change = match undo {
                 true => format!("put {} ({}) back in use", rec.name, rec.id),
@@ -746,13 +746,15 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Groups => {
-            let groups = crate::diff_cmd::read_or_empty(store_path, api::drive_sets)?;
+            // With no store, still the mounted drives grouped by the library each holds, unnamed.
+            let groups = api::drive_sets(crate::diff_cmd::existing_store(store_path)?.as_ref())?;
             out.emit(&groups, |groups| {
                 if groups.is_empty() {
                     say!("No mounted drives are linked to a library.");
                 }
                 for s in groups {
-                    heading(s.library.as_deref().unwrap_or("?"));
+                    let unnamed = || s.library_id.map_or("?".into(), |id| format!("an unnamed library ({id})"));
+                    heading(&s.library.clone().unwrap_or_else(unnamed));
                     for m in &s.members {
                         let primary = if Some(m) == s.primary.as_ref() { " (primary)" } else { "" };
                         say!("  {}{primary}", m.display());
@@ -789,7 +791,7 @@ fn info(drive: Option<String>, out: Output) -> Result<ExitCode> {
 fn adopt(a: AdoptArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let AdoptArgs { drive, name, known, dry_run } = a;
     if let Some(known) = known {
-        let store = open_store(store_path)?;
+        let store = crate::diff_cmd::store_to_read(store_path)?;
         let plan = api::drive_adopt_as_plan(&store, &api::AdoptAs { drive, known })?;
         if !out.json {
             output::summary(&plan.summary, &plan.warnings);
@@ -948,12 +950,13 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     let VerifyArgs { drive, snapshot, against, from, repair, all } = a;
     let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "verify")?;
     output::show_all(all);
-    let store = open_store(store_path).ok();
+    // The check is recorded in the store only if there is one.
+    let store = crate::diff_cmd::existing_store(store_path)?;
     // Its good copies are fetched into the store.
     let dest = match (&from, &store) {
         (None, _) => None,
         (Some(spec), Some(store)) => Some(crate::plugins::host()?.store_destination(spec, Some(store))?),
-        (Some(_), None) => return Err(crate::jobs_cmd::usage("--from needs the store, which couldn't be opened")),
+        (Some(_), None) => return Err(crate::jobs_cmd::usage("--from needs the store, and there's none yet")),
     };
     let req = api::VerifyRequest { drive: drive.clone(), snapshot, against: against.clone() };
     let mut report = api::drive_verify(store.as_ref(), &req, ctx)?;
@@ -1011,7 +1014,7 @@ fn fsck(a: FsckArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCo
     {
         return Ok(out.not_applied(&serde_json::Value::Null, o));
     }
-    let store = open_store(store_path).ok();
+    let store = crate::diff_cmd::existing_store(store_path)?;
     let r = api::drive_fs_check(store.as_ref(), &api::FsCheckRequest { drive, repair })?;
     let outcome = if r.ok { Outcome::Applied } else { Outcome::Problems };
     // Checking is a report; repairing changes the drive.
@@ -1073,7 +1076,8 @@ fn tidy(a: TidyArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         return Ok(out.not_applied(&plan, o));
     }
     let r = plan.apply(None, ctx)?;
-    Ok(out.applied(&plan, &r, Outcome::Applied, || {
+    let outcome = if r.failed.is_empty() { Outcome::Applied } else { Outcome::Partial };
+    Ok(out.applied(&plan, &r, outcome, || {
         ok(format!("removed {} file(s), {}", r.removed, bytes(r.bytes)));
         for f in &r.failed {
             warn(format!("{}: {}", f.path, f.error));
@@ -1217,10 +1221,7 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
     } = a;
     // Under sudo, never one made now: it would belong to root.
     let store = match std::env::var_os("SUDO_UID") {
-        Some(_) => {
-            let root = store_root(store_path)?;
-            Store::open(&root).with_context(|| format!("opening store at {}", root.display()))?
-        }
+        Some(_) => crate::open_store_with(&Some(store_root(store_path)?), Store::open)?,
         None => open_store(store_path)?,
     };
     let req = api::ProvisionRequest {
@@ -1246,7 +1247,8 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
         for (i, s) in plan.steps.iter().enumerate() {
             say!("  {}. {s}", i + 1);
         }
-        for w in &plan.warnings {
+        // Its own: the format plan above showed the format's.
+        for w in &plan.plan.warnings {
             warn(w);
         }
     }
@@ -1597,7 +1599,7 @@ pub fn sync_set(
     let mut libraries: Vec<String> = match library {
         Some(l) => vec![l],
         None => {
-            let sets = api::drive_sets(&store)?.into_iter().filter(|s| s.members.len() >= 2);
+            let sets = api::drive_sets(Some(&store))?.into_iter().filter(|s| s.members.len() >= 2);
             sets.filter_map(|s| s.library).collect()
         }
     };

@@ -19,7 +19,7 @@ use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
-use crate::mix::{self, Identifier};
+use crate::mix::{self, Identifier, MixReport};
 use crate::model::{Library, LibrarySummary, Playlist, Track};
 use crate::paths;
 use crate::profile::ProfilePrefs;
@@ -570,6 +570,24 @@ fn identifier(
     Ok((device, id))
 }
 
+/// `req`'s mix identified with its drive's identifier (kept in `cache`), with the cover given for
+/// it. The cover is checked first: a bad one is refused before the minutes identifying takes.
+fn identified(
+    cache: &LibraryCache,
+    store: &Store,
+    req: &super::IdentifyMix,
+    ctx: &Ctx<'_>,
+) -> Result<(Device, std::sync::Arc<Identifier>, MixReport)> {
+    let cover = req.cover.as_deref().map(mix::CoverSource::given).transpose()?;
+    let (device, id) = identifier(cache, store, req.drive.as_deref(), ctx)?;
+    let options = mix::Options { tempo_range: req.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
+    let mut report = id.identify(&req.mix, &options, ctx)?;
+    if cover.is_some() {
+        report.mix.cover = cover;
+    }
+    Ok((device, id, report))
+}
+
 /// Which of a drive's tracks a recorded mix plays, when, at what speed and in what key, with the
 /// drive's identifier kept in `cache`. A report that can't be kept (`save`) is still answered,
 /// with a warning.
@@ -579,9 +597,7 @@ pub fn mix_identify_cached(
     req: &IdentifyMixRequest,
     ctx: &Ctx<'_>,
 ) -> Result<IdentifiedMix> {
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let mut saved = None;
     if req.save {
         match report::save(store, &report) {
@@ -602,9 +618,7 @@ pub fn mix_export_cached(
 ) -> Result<MixExport> {
     // Refused before the long run, and checked again as it's written.
     fsutil::refuse_to_replace(req.output.as_deref().as_slice(), req.replace)?;
-    let (device, id) = identifier(cache, store, req.identify.drive.as_deref(), ctx)?;
-    let options = mix::Options { tempo_range: req.identify.tempo_range.unwrap_or(mix::DEFAULT_TEMPO_RANGE) };
-    let report = id.identify(&req.identify.mix, &options, ctx)?;
+    let (device, id, report) = identified(cache, store, &req.identify, ctx)?;
     let doc = export::build(&report, Some(Drive::new(&device, &id.library)), &ProfilePrefs::load(store)?);
     if let Some(path) = &req.output {
         let json = serde_json::to_vec(&doc).map_err(|e| Error::invalid(e.to_string()))?;

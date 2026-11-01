@@ -16,8 +16,10 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the three record types it publishes, not to delete them, and to ask Local Network's
-directory to read them again, and nothing else in the account. `account login --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
+and replace the four record types it publishes, to delete sets and their recordings (`sets
+delete` takes them off the account), to upload audio files (a set's recording), and to ask Local
+Network's directory to read them again, and nothing else in the account. `account login
+--publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
 the same way, the first time, for permission to post bug reports and nothing else.
 
 - **Publishing's permission is a permission set**, the Lexicon
@@ -25,9 +27,12 @@ the same way, the first time, for permission to post bug reports and nothing els
   sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
   set's title and description when you approve, and the session is granted what the set lists in
   its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, the
-  same for `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`, and
+  same for `computer.localnetwork.dj.profile`, `repo:computer.localnetwork.dj.set` and
+  `repo:computer.localnetwork.dj.recording` for creating, replacing and deleting them, and
   `rpc:computer.localnetwork.directory.requestIndex?aud=*`, a token for that one method of Local
-  Network's website; see [Where records are read](#where-records-are-read)). Servers
+  Network's website; see [Where records are read](#where-records-are-read)). A permission set
+  can't grant uploads, so the same sign-in asks for `blob:audio/*` beside it: audio files, and no
+  other kind. Servers
   look the set up when you sign in and every time the session is refreshed, so it has to be
   published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
   DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
@@ -57,8 +62,8 @@ the same way, the first time, for permission to post bug reports and nothing els
   front page to locallibrary's page on localnetwork.computer. Until it's online, sign-in says so
   and falls back to the `http://localhost` development client, which servers show as "a local app"
   and ask about every time (`account` says when a session is the development client's). The
-  document lists every scope a sign-in may ask for, publishing's and bug reports' included
-  (`repo:app.userinput.discussion?action=create`), and servers refuse a sign-in that asks for more: a release that asks for new scopes needs the hosted document updated
+  document lists every scope a sign-in may ask for, publishing's (`blob:audio/*` too) and bug
+  reports' (`repo:app.userinput.discussion?action=create`) included, and servers refuse a sign-in that asks for more: a release that asks for new scopes needs the hosted document updated
   first. Until it allows them, sign-in stops and says so. `--dev-client` chooses that client on
   purpose; `--client-id` (or `LOCALLIBRARY_OAUTH_CLIENT_ID`) another document.
 
@@ -72,6 +77,7 @@ checks on the server's answer, refresh and revocation) is the
 locallibrary settings publish                 # your My Settings
 locallibrary profile publish --dry-run        # your DJ profile: look first
 locallibrary sets publish last --hide 3,7     # your latest set, without naming tracks 3 and 7
+locallibrary sets publish last --upload       # and its recording, uploaded to your account
 locallibrary sets publish last --no-lookup    # without looking up MusicBrainz IDs first
 ```
 
@@ -89,22 +95,27 @@ shows the plan again for the account you approved. Publishing again replaces the
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
 | `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
+| `sets publish <set> --upload` | `computer.localnetwork.dj.recording`, keyed by the set's id, then the set's record | the recording on this computer, uploaded to your account (as AAC when it has to be, see [Sets](sets.md#sets)), and how long it plays |
 | `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`, each with its name) and the record its recording plays from (`recording`, such as a plyr.fm track), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
 
-A set's notes, its recording, the sessions it came from and the files' paths stay on this
-computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
+A set's notes, its recording (unless you upload it), the sessions it came from and the files'
+paths stay on this computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
 (`profile hide`) and the positions you give with `--hide 3,7` are published as unidentified:
 only their place in the set and when it starts. The venue, city and country also go out as a
 `community.lexicon.location.address`, which needs a country: without one, the city stays out. A
 set built from a single history list that an earlier version published with `plays publish`
-takes that list's key as its id the first time it's published. The old record stays where `plays
+takes that list's key as its id the first time it's published. `sets delete` deletes a published
+set's record and its recording's from the account first, and says so before it asks; signed out,
+they stay. A session signed in before publishing could delete them is told to sign in again
+(`account login --publish`), and the set stays until then. The old record stays where `plays
 publish` wrote it (`computer.localnetwork.locallibrary.set`), since publishing may only write
 today's set records.
 
 A track's artists go out one by one (split as the profile counts them) when its credit names
 several, and its MusicBrainz IDs (bare UUIDs, as teal.fm writes them) when the set has them.
 rekordbox keeps none, so they're read from the files on the mounted drives when a set is made or
-edited (as MusicBrainz Picard tags files), else from what a plugin's analyzer worked out for the
+edited (as MusicBrainz Picard tags files), or from the store's copy of a file no mounted drive
+holds (its tags only), else from what a plugin's analyzer worked out for the
 `recording`, `release` and `artists` [roles](plugins.md#roles): the musicbrainz plugin's unless
 you choose another, which looks a track up on MusicBrainz by its ISRC. Before publishing, `sets
 publish` runs that analyzer on the tracks it will name that have no IDs yet, and keeps what it
@@ -128,8 +139,8 @@ since May 2026 takes 150 KB: about 160 fully tagged tracks with long names, or 2
 ones. The plan says when a record is bigger than that.
 
 The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
-My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local
-Network's tools share (`dj/`, with the definitions both use in `dj/defs.json`). The address Lexicon
+My Settings is locallibrary's own (`locallibrary/`), and the profile, set and recording are DJ
+records Local Network's tools share (`dj/`, with the definitions they use in `dj/defs.json`). The address Lexicon
 they use is [Lexicon Community](https://tangled.org/lexicon.community/lexicons)'s, copied into
 [`lexicons/community/`](../../../lexicons/community/lexicon/location/address.json) as it publishes
 it. Each record is checked against its Lexicon before it's written. Everything published is public

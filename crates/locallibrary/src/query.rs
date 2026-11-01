@@ -203,7 +203,7 @@ fn seconds(s: &str) -> Option<f64> {
 }
 
 /// A date (prefix) as a sortable number: `2026-09-30` -> 20260930, `2026-09` -> 20260900.
-fn date_value(s: &str, end: bool) -> Option<f64> {
+pub(crate) fn date_value(s: &str, end: bool) -> Option<f64> {
     let parts: Vec<&str> = s.trim().split(['-', '/']).collect();
     let y: u32 = parts.first()?.parse().ok()?;
     let m: u32 = parts.get(1).map_or(Some(if end { 12 } else { 1 }), |m| m.parse().ok())?;

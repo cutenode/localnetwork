@@ -12,7 +12,6 @@
 //! once the file changes. A plugin's answer with what its manifest doesn't say it `provides` is
 //! refused.
 
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -20,14 +19,14 @@ use indexmap::{IndexMap, IndexSet};
 use loclib_plugin::{
     Context, ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, Importer, ReadImport, TrackMatch, method,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 
 use super::Plugins;
 use super::apply::key_and_bpm;
-use super::process::Slot;
+use super::process::{Slot, printable_json};
 use crate::cue_edit::{CueChange, CuePosition, Drafts, FIND_TOLERANCE_MS, HotCue, SetCue};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
@@ -105,15 +104,14 @@ impl Plugins {
             return Err(Error::invalid(format!("{} isn't a file", file.display())));
         }
         let (context, device) = slot.context(Context { drive: Some(drive.into()), ..Context::default() }, store)?;
-        let options = super::fitting(declared.options.as_ref(), options, &context)?;
+        let options = super::fitting_options("format", declared.options.as_ref(), options, &context)?;
         let device = device.expect("a drive was named");
         let req = ReadImport { importer: importer.into(), file: file.into(), options, context };
         let read = |answer, scratch: &super::blobs::Scratch, _: &_| match answer {
             ImportAnswer::Read(read) => Ok(read),
             ImportAnswer::Blob(b) => {
                 let opened = scratch.blob(&b.blob).map_err(|why| slot.misbehaved(format!("its answer: {why}")))?;
-                serde_json::from_reader(BufReader::new(opened))
-                    .map_err(|e| slot.misbehaved(format!("its answer in {} isn't one: {e}", b.blob)))
+                printable_json(opened).map_err(|e| slot.misbehaved(format!("its answer in {} isn't one: {e}", b.blob)))
             }
         };
         let read: Imported = slot.call_with(method::READ_IMPORT, &req, store, ctx, &|_| {}, read)?;
@@ -201,14 +199,15 @@ impl Plugins {
 
 /// A drive's tracks found as a file names them, and how each was.
 struct Found<'a> {
-    library: &'a Library,
+    /// The drive's tracks by id, the first of a repeated one (as [`Library::track`] finds).
+    by_id: FxHashMap<u32, &'a Track>,
     matcher: Matcher<'a>,
     matched: Vec<Matched>,
 }
 
 impl<'a> Found<'a> {
     fn new(library: &'a Library) -> Found<'a> {
-        Found { library, matcher: Matcher::new(library), matched: Vec::new() }
+        Found { by_id: super::by_id(library), matcher: Matcher::new(library), matched: Vec::new() }
     }
 
     /// The track `find` names (the file's `line`th), if it's one on the drive: none when it
@@ -230,7 +229,7 @@ impl<'a> Found<'a> {
     }
 
     fn get(&self, id: u32) -> &'a Track {
-        self.library.track(id).expect("found in the library")
+        self.by_id.get(&id).copied().expect("found in the library")
     }
 }
 
@@ -341,8 +340,9 @@ fn edits(
     };
     let (mut edits, mut left_out, mut refused) = (Vec::new(), 0, Vec::new());
     let mut tags: IndexMap<&str, Vec<String>> = IndexMap::new();
+    let by_id = super::by_id(library);
     for (&id, g) in gathered {
-        let t = library.track(id).expect("found in the library");
+        let t = by_id.get(&id).copied().expect("found in the library");
         let fields = key_and_bpm(t, g.key, g.bpm, false);
         if !fields.is_empty() {
             edits

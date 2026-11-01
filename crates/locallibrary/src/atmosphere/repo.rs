@@ -1,19 +1,28 @@
 //! Reading and writing records in an account's repository.
 //!
-//! Writes go through the signed-in session ([`put_record`], [`create_record`]): jacquard sends
-//! them to the account's data server (PDS) with the DPoP-bound access token, refreshing it when it
-//! has run out. Before a write, the record is checked against its Lexicon and the session's
-//! scopes against what it needs, so a session signed in without permission to publish fails here,
-//! not at the server.
+//! Writes go through the signed-in session ([`put_record`], [`create_record`], [`delete_record`]):
+//! jacquard sends them to the account's data server (PDS) with the DPoP-bound access token,
+//! refreshing it when it has run out. Before a write, the record is checked against its Lexicon
+//! and the session's scopes against what it needs, so a session signed in without permission to
+//! publish fails here, not at the server. [`upload_blob`] sends a file the same way, read from
+//! disk as it goes.
 //! Reads need no session, and come from Local Network's directory ([`super::directory`]), never
 //! the PDS: a write that replaces a record names the version the directory had ([`put_record`]'s
 //! `swap`), so it only lands on what the DJ saw. [`resolve`] finds an account's DID from its
 //! handle.
 
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
+use std::sync::mpsc;
+use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jacquard_api::com_atproto::repo::create_record::{CreateRecord, CreateRecordError};
+use jacquard_api::com_atproto::repo::delete_record::{DeleteRecord, DeleteRecordError};
 use jacquard_api::com_atproto::repo::put_record::{PutRecord, PutRecordError};
+use jacquard_api::com_atproto::server::get_session::GetSession;
 use jacquard_common::error::{AuthError, ClientError, ClientErrorKind, HttpError};
 use jacquard_common::types::did::Did;
 use jacquard_common::types::handle::Handle;
@@ -22,17 +31,25 @@ use jacquard_common::types::value::from_json_value;
 use jacquard_common::xrpc::{XrpcClient, XrpcError};
 use jacquard_common::{SmolStr, ToSmolStr};
 use jacquard_identity::resolver::IdentityResolver;
+use jacquard_oauth::dpop::build_dpop_proof;
+use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, WWW_AUTHENTICATE};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::{
-    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, missing_scope, not_signed_in, resolver,
-    restore, status, store,
+    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, may_delete, may_upload, missing_scope, net,
+    not_signed_in, resolver, restore, status, store,
 };
-use crate::error::{Action, Reason};
+use crate::error::{Action, IoContext, Reason};
 use crate::export::one_line;
+use crate::net::Requests;
+use crate::progress::{Ctx, Event, Phase};
 use crate::{Error, Result};
+
+/// The data server's method that takes a file.
+const UPLOAD_BLOB: &str = "com.atproto.repo.uploadBlob";
 
 /// `at://did/collection/rkey`.
 pub fn at_uri(did: &str, collection: &str, rkey: &str) -> String {
@@ -49,6 +66,7 @@ fn what(collection: &str) -> &'static str {
         lexicon::SETTINGS => "My Settings",
         lexicon::PROFILE => "the profile",
         lexicon::SET => "sets",
+        lexicon::RECORDING => "recordings",
         lexicon::DISCUSSION => "bug reports",
         _ => "records",
     }
@@ -112,7 +130,8 @@ pub fn put_record(
     record: &Value,
     swap: Option<&str>,
 ) -> Result<Written> {
-    let (_lock, info) = writer(root, did, collection, record, |info| missing_scope(info, collection).is_none())?;
+    lexicon::validate(collection, record)?;
+    let (_lock, info) = writer(root, did, collection, |info| missing_scope(info, collection).is_none())?;
     let session = restore(root)?;
     let body =
         json!({ "repo": info.did, "collection": collection, "rkey": rkey, "record": record, "swapRecord": swap });
@@ -149,7 +168,8 @@ pub fn put_record(
 /// the signed-in account, under a key the server picks (a TID). The session only needs to be
 /// allowed to create such records, not to replace them.
 pub fn create_record(root: &Path, did: &str, collection: &str, record: &Value) -> Result<Written> {
-    let (_lock, info) = writer(root, did, collection, record, |info| may_create(info, collection))?;
+    lexicon::validate(collection, record)?;
+    let (_lock, info) = writer(root, did, collection, |info| may_create(info, collection))?;
     let session = restore(root)?;
     let request =
         from_json_value::<CreateRecord>(json!({ "repo": info.did, "collection": collection, "record": record }))
@@ -165,16 +185,32 @@ pub fn create_record(root: &Path, did: &str, collection: &str, record: &Value) -
     }
 }
 
-/// Before a write: `record` fits its Lexicon, the account signed in is `did` and its session
-/// `may` write it. Holds the lock on the session until the write is done.
+/// Delete `collection/rkey` from the repository of `did`, which has to be the signed-in account,
+/// whatever version is there. A server answers a record that isn't there as deleted.
+pub fn delete_record(root: &Path, did: &str, collection: &str, rkey: &str) -> Result<()> {
+    let (_lock, info) = writer(root, did, collection, |info| may_delete(info, collection))?;
+    let session = restore(root)?;
+    let request = from_json_value::<DeleteRecord>(json!({ "repo": info.did, "collection": collection, "rkey": rkey }))
+        .map_err(|e| Error::invalid(format!("deleting the {} record: {e}", lexicon::short_name(collection))))?;
+    let response = block_on(session.send(request)).map_err(|e| client_error(&info, collection, e))?;
+    let status = response.status();
+    match response.into_output() {
+        Ok(_) => Ok(()),
+        Err(XrpcError::Xrpc(DeleteRecordError::Other { error, message })) => {
+            Err(refusal(&info, collection, status.as_u16(), &error, message.as_deref().unwrap_or_default()))
+        }
+        Err(e) => Err(answer_error(&info, collection, status.as_u16(), e)),
+    }
+}
+
+/// Before a write of `collection`: the account signed in is `did` and its session `may` write it.
+/// Holds the lock on the session until the write is done.
 fn writer(
     root: &Path,
     did: &str,
     collection: &str,
-    record: &Value,
     may: impl Fn(&AccountInfo) -> bool,
 ) -> Result<(store::AccountLock, AccountInfo)> {
-    lexicon::validate(collection, record)?;
     // Nothing to write with: don't create the folder for a lock.
     status(root)?.ok_or_else(not_signed_in)?;
     let lock = store::lock(root)?;
@@ -228,16 +264,152 @@ fn client_error(info: &AccountInfo, collection: &str, e: ClientError) -> Error {
                 .and_then(|h| h.body.as_ref())
                 .and_then(|b| serde_json::from_slice(b).ok())
                 .unwrap_or_default();
-            let error = body["error"].as_str().unwrap_or_default();
-            let message = body["message"].as_str().unwrap_or_default();
-            if status.as_u16() == 403 && error.is_empty() && message.is_empty() {
-                // Forbidden without a word: what a server says to a token without the scope.
-                return scope_error(info, collection);
-            }
-            let error = if error.is_empty() { status.as_str() } else { error };
-            refusal(info, collection, status.as_u16(), error, message)
+            http_refusal(info, collection, status.as_u16(), &body)
         }
         _ => Error::Account(one_line(&format!("publishing to {}: {e}", host(&info.pds)))),
+    }
+}
+
+/// An HTTP error answer: its status, and `body`'s `error` and `message`.
+fn http_refusal(info: &AccountInfo, collection: &str, status: u16, body: &Value) -> Error {
+    let error = body["error"].as_str().unwrap_or_default();
+    let message = body["message"].as_str().unwrap_or_default();
+    if status == 403 && error.is_empty() && message.is_empty() {
+        // Forbidden without a word: what a server says to a token without the scope.
+        return scope_error(info, collection);
+    }
+    let status_text = status.to_string();
+    let error = if error.is_empty() { status_text.as_str() } else { error };
+    refusal(info, collection, status, error, message)
+}
+
+/// Upload the file at `path` (of the type `mime`, `audio/mp4`) to the data server of `did`, which
+/// has to be the signed-in account, reporting the bytes sent in the upload phase. Returns its blob,
+/// as a record links to it: `$type`, `ref`, `mimeType` (what the server made of the file) and
+/// `size`. The file is read as it's sent, never held whole: a set's recording runs to hundreds of
+/// MB. jacquard would hold it (its upload takes the bytes, and its streaming upload keeps every
+/// part sent in case the server asks for a DPoP nonce), so this request goes out by itself, with
+/// the session's token and a DPoP proof of its own.
+pub fn upload_blob(root: &Path, did: &str, path: &Path, mime: &str, ctx: &Ctx<'_>) -> Result<Value> {
+    let collection = lexicon::RECORDING;
+    let (_lock, info) = writer(root, did, collection, |info| may_upload(info, mime))?;
+    let size = std::fs::metadata(path).at(path)?.len();
+    let session = restore(root)?;
+    // A small request through jacquard first: it refreshes the access token if it ran out and
+    // learns the server's DPoP nonce, so the upload goes out with both.
+    block_on(session.send(GetSession)).map_err(|e| client_error(&info, collection, e))?;
+    // As long as sending it at 128 KiB/s would take, and half a minute more.
+    let timeout = Duration::from_secs(30 + size / (128 * 1024));
+    // Each attempt's connection goes with its runtime (see `Requests`).
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .pool_max_idle_per_host(0)
+        .timeout(timeout)
+        .build()
+        .map_err(|e| Error::Account(format!("the network: {e}")))?;
+    let mut retried = false;
+    loop {
+        let (url, token, proof) = block_on(async {
+            let data = session.data.read().await;
+            let url = format!("{}/xrpc/{UPLOAD_BLOB}", data.host_url.as_str().trim_end_matches('/'));
+            let token = data.token_set.access_token.to_string();
+            let ath = URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()));
+            let nonce = Some(data.dpop_data.dpop_host_nonce.as_str()).filter(|n| !n.is_empty());
+            let proof = build_dpop_proof(&data.dpop_data.dpop_key, "POST", &url, nonce, Some(&ath));
+            (url, token, proof)
+        });
+        let proof = proof.map_err(|e| Error::Account(format!("signing the upload: {e}")))?;
+        let request = client
+            .post(&url)
+            .header(AUTHORIZATION, format!("DPoP {token}"))
+            .header("DPoP", proof.as_str())
+            .header(CONTENT_TYPE, mime);
+        let (status, headers, answer) = send_file(request, path, size, ctx)?;
+        let header = |name| headers.get(name).and_then(|v| v.to_str().ok()).map(String::from);
+        let (nonce, challenge) = (header("DPoP-Nonce"), header(WWW_AUTHENTICATE.as_str()).unwrap_or_default());
+        let body: Value = serde_json::from_slice(&answer).unwrap_or_default();
+        match (status, nonce) {
+            (200, _) if body["blob"].is_object() => return Ok(body["blob"].clone()),
+            (200, _) => {
+                return Err(Error::Account(one_line(&format!(
+                    "{} answered the upload in a way locallibrary can't read",
+                    host(&info.pds)
+                ))));
+            }
+            // Its nonce changed since: once more with the new one.
+            (401, Some(nonce))
+                if !retried && (challenge.contains("use_dpop_nonce") || body["error"] == "use_dpop_nonce") =>
+            {
+                block_on(async { session.data.write().await.dpop_data.dpop_host_nonce = nonce.into() });
+                retried = true;
+            }
+            (401, _) if challenge.contains("insufficient_scope") => return Err(scope_error(&info, collection)),
+            _ if status == 413 || body["error"] == "PayloadTooLarge" => return Err(too_big(&info, size)),
+            _ => return Err(http_refusal(&info, collection, status, &body)),
+        }
+    }
+}
+
+/// A file the server wouldn't take for its size, which no server says up front.
+fn too_big(info: &AccountInfo, size: u64) -> Error {
+    Error::Account(format!(
+        "{} refused the recording: {} is more than it takes. A data server takes 5 MiB unless whoever runs \
+         it allows more (PDS_BLOB_UPLOAD_LIMIT; the official installer allows 300 MiB); `--max-mib` makes the \
+         recording smaller",
+        host(&info.pds),
+        crate::op::bytes(size)
+    ))
+}
+
+/// Send `request` with the file at `path` (`size` bytes) as its body, read as it's sent, with
+/// what's sent reported in the upload phase: the answer's status, headers and body (up to
+/// [`net::MAX_BODY`], else none). Cancelled, it stops at once, even while the server isn't
+/// reading ([`Requests`]).
+fn send_file(request: reqwest::RequestBuilder, path: &Path, size: u64, ctx: &Ctx<'_>) -> Result<Answer> {
+    let requests = Requests::new().map_err(|e| Error::Account(format!("the network: {e}")))?;
+    let (sent, reported) = mpsc::channel();
+    let body = Sending { file: File::open(path).at(path)?, sent };
+    let request = request.header(CONTENT_LENGTH, size).body(crate::net::streamed(body, ctx.cancel.clone()));
+    ctx.phase_start(Phase::Upload, 1, size);
+    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    ctx.emit(Event::Item { phase: Phase::Upload, path: name, bytes: size });
+    // Another thread waits for the answer while this one reports.
+    let (requests, cancel) = (&requests, ctx.cancel.clone());
+    let answer = std::thread::scope(|s| {
+        let asked = || async move {
+            let response = request.send().await?;
+            let (status, headers) = (response.status().as_u16(), response.headers().clone());
+            Ok::<_, reqwest::Error>((status, headers, net::body(response).await.unwrap_or_default()))
+        };
+        let sending = s.spawn(move || requests.run(asked, &cancel));
+        loop {
+            match reported.recv_timeout(Duration::from_millis(100)) {
+                Ok(bytes) => ctx.emit(Event::Bytes { phase: Phase::Upload, bytes }),
+                Err(mpsc::RecvTimeoutError::Timeout) if !sending.is_finished() => {}
+                Err(_) => break,
+            }
+        }
+        sending.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    });
+    ctx.phase_end(Phase::Upload);
+    let answer = answer.ok_or(Error::Cancelled)?;
+    answer.map_err(|e| Error::Account(one_line(&format!("sending {}: {}", path.display(), net::with_causes(&e)))))
+}
+
+/// What a server answered: its status, headers and body.
+type Answer = (u16, reqwest::header::HeaderMap, Vec<u8>);
+
+/// A file as it's sent: each read told to whoever reports it.
+struct Sending {
+    file: File,
+    sent: mpsc::Sender<u64>,
+}
+
+impl Read for Sending {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.file.read(buf)?;
+        let _ = self.sent.send(n as u64);
+        Ok(n)
     }
 }
 

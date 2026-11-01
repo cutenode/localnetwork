@@ -148,6 +148,15 @@ are:
   Local Network's SoundCloud app is registered with the redirect address
   `http://127.0.0.1:47110/callback`, so signing in needs port 47110 free.
 
+- **google-account**: an account plugin (see [Account plugins](#account-plugins)), the `google`
+  account type, signed in to through Local Network's token exchange. Its scope `youtube-upload`
+  uploads videos to YouTube.
+- **mixcloud-account**: an account plugin, the `mixcloud` account type, signed in to through the
+  token exchange. Its scope `upload` uploads shows to Mixcloud.
+- **soundcloud-account**: an account plugin, the `soundcloud` account type, signed in to through
+  the token exchange. Its scopes are `upload`, for uploading tracks to SoundCloud, and `read`, for
+  reading from SoundCloud as you.
+
 coverart, musicbrainz, plyr, archive, youtube, mixcloud and soundcloud are the only ones that go
 online, and
 only for these, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz
@@ -179,6 +188,20 @@ playlist, with a form for what it takes, a param the plugin fills from what's se
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
+
+## Account plugins
+
+An account plugin provides one account type (Google, say) and nothing else. It's a manifest
+alone, its `[[contributes.account_types]]`: how to sign in to the service, how to ask it who
+signed in, and the scopes a plugin may be given, each with the requests it covers. It has no
+code, so locallibrary never starts one: it runs every sign-in from the manifest and keeps the
+tokens itself (see [the decision](adr/0001-account-plugins-are-manifests.md)). Only the ones
+locallibrary ships may use Local Network's token exchange. Those are google-account,
+mixcloud-account and soundcloud-account, in `plugins/accounts/`. `locallibrary plugin` lists the
+account type each adds, and `plugin info` its scopes.
+
+Plugins don't use account types yet: each still declares its own accounts (below), which are what
+you sign in to, until they move onto account types.
 
 ## Accounts
 
@@ -258,7 +281,9 @@ most) change that (kept
 in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
 `checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
 in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form
-for which run.
+for which run. locallibrary's own findings that something fixes are offered there the same way:
+a drive behind or ahead of the first is synced, history lists the store lacks are pulled, and
+tracks without artwork have covers fetched, when a plugin finds them.
 
 ## Commands and operations
 
@@ -332,7 +357,12 @@ form with its options and a set's own name for the file (where it goes is yours 
 always); or a question before analyzing. The player doesn't export mixes, so it says so for a
 mix's format. "dismiss: ..." lets it go. Suggestions are kept in the store until you
 do either (the newest 20), so they're still there when the player opens again; `watch` says what
-it's told and keeps its suggestions for the player the same way. The sidecar sends it as a
+it's told and keeps its suggestions for the player the same way. What you reviewed or dismissed
+is remembered (in the store's `plugins/seen.json`), and a plugin suggesting it again, or one
+waiting already, is left out: an action on tracks keeps only the tracks not suggested before.
+So the coverart plugin, which suggests fetching covers for a drive's tracks without artwork once
+it's plugged in or its databases change, and the sound plugin, which suggests analysing the tracks it has no
+tempo, key or loudness for, only bring up tracks that are new. The sidecar sends it as a
 `plugin.notice` event. A plugin can't suggest another plugin's work, and nothing it suggests is
 planned or applied unless you choose to.
 
@@ -464,6 +494,14 @@ One that stops or crashes is started again a second later, then twice that, and 
 off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
 plugin's services, and whether they're on.
 
+## Keys
+
+A plugin's command or operation can have a key of its own in the player:
+`locallibrary plugin settings ID keys.NAME KEY` (or its field in the plugin's settings form),
+where `KEY` is one character, `ctrl-` and a letter, or `f1` to `f12`. The player's own keys
+always win: one it uses anywhere, or one already bound to another command, is refused, saying
+why.
+
 ## Settings
 
 `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets one and `plugin
@@ -509,10 +547,13 @@ rekordbox's collection are is left out, and any other path is said from its driv
 (`<store>`) or your home folder (`~`). An exporter alone is told where the drive it exports is, as
 the files it writes name the audio there, and an importer only where the file it reads is. None is started from a process running as an administrator or
 root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
-answering is stopped, and started again the next time it's needed.
+answering is stopped, and started again the next time it's needed. What a plugin says (its
+manifest, its answers, its errors and what it tells you) is shown without control characters or
+terminal escape sequences, a newline or a tab as a space (but in a text view, or a command's
+answer that's only text, which keep their lines).
 
 A plugin goes online through locallibrary, which fetches only from the servers its `net:`
-capabilities name (`plugin info` lists them), at public https addresses, following redirects only
+capabilities name (`plugin info` lists them), at public https addresses without a user name or password, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
 its manifest says each server allows. A secret setting, or an account's token, goes only where
 such a request names it (an account's token, only where its manifest says it goes), filled in by

@@ -159,8 +159,8 @@ impl Env {
     /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
     /// adopted; Blank, [`blank_drive`]) and a store, made once and written out for each test case
     /// of a property test; and a home folder of the commands' own with a cover image in it
-    /// (`cover.png`), so nothing of the person running the tests (rekordbox's settings and
-    /// collection) is read.
+    /// (`cover.png`) and a file `settings export` wrote (`settings.json`), so nothing of the
+    /// person running the tests (rekordbox's settings and collection) is read.
     pub fn from_template() -> Env {
         static TEMPLATE: OnceLock<Template> = OnceLock::new();
         let template = TEMPLATE.get_or_init(|| {
@@ -174,6 +174,13 @@ impl Env {
         template.write(env.volumes.parent().unwrap());
         std::fs::create_dir(env.outside("home")).unwrap();
         image::RgbImage::new(8, 8).save(env.home("cover.png")).unwrap();
+        let settings = json!({
+            "version": 1,
+            "my_settings": { "base": { "quantize": "off" } },
+            "player": { "theme": "themes.night" },
+            "plugins": { "sound": { "keys.analyze": "a" } }
+        });
+        std::fs::write(env.home("settings.json"), settings.to_string()).unwrap();
         env
     }
 
@@ -238,6 +245,7 @@ impl Env {
 
     /// The commands find Local Network's directory and website at `url` (a pretend data server,
     /// which stands in for both), not nowhere.
+    #[cfg(feature = "account")]
     pub fn with_directory(mut self, url: &str) -> Env {
         self.directory = Some(url.to_string());
         self
@@ -292,7 +300,7 @@ impl Env {
 
     /// `args` run with a terminal for stdin, on which `typed` was typed ahead (stdout and stderr
     /// piped, so it isn't a terminal for output).
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "account"))]
     pub fn typed_ahead(&self, args: &[&str], typed: &str) -> Run {
         let (mut keyboard, stdin) = terminal();
         keyboard.write_all(typed.as_bytes()).unwrap();
@@ -518,8 +526,10 @@ pub mod account {
     pub use crate::session::DID;
     use crate::session::{session_json, sign_in_as};
 
-    /// What a sign-in that allows publishing asks for: locallibrary's permission set.
-    pub const PUBLISHING: [&str; 2] = ["atproto", "include:computer.localnetwork.locallibraryPublishing"];
+    /// What a sign-in that allows publishing asks for: locallibrary's permission set, and to upload
+    /// audio files.
+    pub const PUBLISHING: [&str; 3] =
+        ["atproto", "include:computer.localnetwork.locallibraryPublishing", "blob:audio/*"];
 
     /// A P-256 key made for these tests: it signs nothing but proofs sent to the pretend server.
     pub fn test_key() -> Value {

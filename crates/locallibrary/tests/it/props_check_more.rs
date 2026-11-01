@@ -1,7 +1,7 @@
 //! More faults for the check before a set: audio cut short, artwork gone, a file too big for
 //! FAT32, a database that can't be read, a drive holding only OneLibrary, history lists with no
 //! store to keep them, and a second drive that went its own way or holds another library. Each
-//! fault put in is named, at its level.
+//! fault put in is named, at its level, with what fixes it when one does.
 
 use crate::common::{self, media};
 use crate::drawn;
@@ -13,10 +13,12 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::check::{self, CheckOptions, CheckReport, Level};
 use locallibrary::device::Device;
+use locallibrary::plugin::Fix;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::{paths, pdb};
+use loclib_plugin::{DriveAction, HostAction};
 use rekordbox_pdb::NewTrack;
 
 fn said(r: &CheckReport, drive: &str, check: &str, level: Level, what: &str) -> bool {
@@ -122,5 +124,12 @@ fn each_fault_put_in_is_named_with(tc: &TestCase, variant: u8) {
         Some(0) => assert!(said(&r, "B", "same_library", Level::Problem, "have both changed"), "{notes}"),
         Some(_) => assert!(said(&r, "B", "same_library", Level::Problem, "holds a different library"), "{notes}"),
         None => {}
+    }
+    // Of these, only history lists the store lacks have a fix: pulling the drive. No plugin finds
+    // cover art here, and drives that both changed or hold another library can't be synced.
+    for i in &r.items {
+        let pull = Fix::Host(HostAction::Pull(DriveAction { drive: i.drive.clone() }));
+        let fixed = i.check == "history" && i.level == Level::Warning;
+        assert_eq!(i.fix.as_ref(), fixed.then_some(&pull), "{notes}");
     }
 }

@@ -42,6 +42,29 @@ describe('loadConfig', () => {
 		});
 	});
 
+	it('logs email in development, and sends it in production only through Resend with a key', () => {
+		const production = { ...base, NODE_ENV: 'production', PUBLIC_URL: 'https://ln.example' };
+
+		expect(loadConfig(base).email).toEqual({ provider: 'log', from: 'Local Network <inbox@127.0.0.1>' });
+		expect(loadConfig(production).email).toEqual({ provider: 'none', from: 'Local Network <inbox@ln.example>' });
+		expect(loadConfig({ ...production, RESEND_API_KEY: 're_1', EMAIL_FROM: 'LN <hi@ln.example>' }).email).toEqual({
+			provider: 'resend',
+			apiKey: 're_1',
+			from: 'LN <hi@ln.example>'
+		});
+		expect(loadConfig({ ...base, EMAIL_PROVIDER: 'none', RESEND_API_KEY: 're_1' }).email.provider).toBe('none');
+		expect(() => loadConfig({ ...base, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY/);
+	});
+
+	it('logs DMs in development, and sends them through Bluesky chat only once set', () => {
+		expect(loadConfig(base).dm).toEqual({ provider: 'log', chatService: 'did:web:api.bsky.chat' });
+		expect(loadConfig({ ...base, NODE_ENV: 'production' }).dm.provider).toBe('none');
+		expect(loadConfig({ ...base, DM_PROVIDER: 'bluesky', CHAT_SERVICE_DID: 'did:web:chat.test' }).dm).toEqual({
+			provider: 'bluesky',
+			chatService: 'did:web:chat.test'
+		});
+	});
+
 	it('reports every problem at once', () => {
 		expect(() => loadConfig({ ADMIN_DIDS: 'alice', SYNC_POLL_INTERVAL_MS: '5' })).toThrow(
 			/ROOT_IDENTIFIER[\s\S]*ROOT_PASSWORD[\s\S]*ADMIN_DIDS[\s\S]*HAPPYVIEW_URL[\s\S]*SYNC_POLL_INTERVAL_MS/
@@ -80,6 +103,36 @@ describe('loadConfig', () => {
 			'at://alice.test/app.userinput.space/3mabc'
 		])
 			expect(() => loadConfig({ ...base, USERINPUT_SPACE: wrong })).toThrow(/USERINPUT_SPACE/);
+	});
+
+	it('turns backups on with a bucket, which needs its endpoint and keys', () => {
+		const bucket = {
+			BACKUP_S3_ENDPOINT: 'https://t3.storageapi.dev',
+			BACKUP_S3_BUCKET: 'localnetwork-backups-x1',
+			BACKUP_S3_ACCESS_KEY_ID: 'id',
+			BACKUP_S3_SECRET_ACCESS_KEY: 'secret'
+		};
+
+		expect(loadConfig(base).backup).toBeUndefined();
+		expect(loadConfig({ ...base, ...bucket }).backup).toEqual({
+			endpoint: 'https://t3.storageapi.dev',
+			region: 'auto',
+			bucket: 'localnetwork-backups-x1',
+			accessKeyId: 'id',
+			secretAccessKey: 'secret',
+			pathStyle: false,
+			keep: { daily: 7, weekly: 8 }
+		});
+		expect(
+			loadConfig({ ...base, ...bucket, BACKUP_S3_PATH_STYLE: 'yes', BACKUP_KEEP_DAILY: '3', BACKUP_KEEP_WEEKLY: '0' })
+				.backup
+		).toMatchObject({ pathStyle: true, keep: { daily: 3, weekly: 0 } });
+		expect(() => loadConfig({ ...base, BACKUP_S3_BUCKET: 'b', BACKUP_S3_ACCESS_KEY_ID: 'id' })).toThrow(
+			'BACKUP_S3_BUCKET is set, so set BACKUP_S3_ENDPOINT, BACKUP_S3_SECRET_ACCESS_KEY too'
+		);
+		expect(() => loadConfig({ ...base, ...bucket, BACKUP_KEEP_DAILY: '0', BACKUP_S3_ENDPOINT: 'nope' })).toThrow(
+			/BACKUP_S3_ENDPOINT[\s\S]*BACKUP_KEEP_DAILY/
+		);
 	});
 });
 

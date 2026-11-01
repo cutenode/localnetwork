@@ -550,7 +550,7 @@ enum Output {
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_export_overwrites_only_as_planned(tc: TestCase) {
     let mine = |i: usize| format!("mine{}", "!".repeat(i));
-    let f = Fixture::echo();
+    let f = Fixture::exporting();
     let here = f.store.root().parent().unwrap().join("exports");
     let relative = tc.draw(gs::sampled_from(vec!["out.m3u", "exports/out.m3u", "./x", ""]));
     let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
@@ -820,7 +820,7 @@ fn a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
 #[derive(Debug, Clone)]
 struct Offered {
     id: &'static str,
-    first_party: bool,
+    built_in: bool,
     command: Option<&'static str>,
     operation: Option<&'static str>,
     secret: bool,
@@ -836,12 +836,12 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     let mut offered = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
         let id = tc.draw(gs::sampled_from(vec!["a", "b", "c"]));
-        let first_party = tc.draw(gs::integers::<u8>().max_value(7)) > 0;
+        let built_in = tc.draw(gs::integers::<u8>().max_value(7)) > 0;
         let command = tc.draw(gs::optional(gs::sampled_from(vec!["say", "play"])));
         let operation = tc.draw(gs::optional(gs::sampled_from(vec!["say", "mix", "playlist make"])));
         let operation = operation.filter(|o| Some(*o) != command);
         let secret = tc.draw(gs::integers::<u8>().max_value(7)) == 0;
-        offered.push(Offered { id, first_party, command, operation, secret });
+        offered.push(Offered { id, built_in, command, operation, secret });
     }
     let specs: Vec<PluginSpec> = offered
         .iter()
@@ -862,13 +862,13 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
             }
             // Parsed and checked as the host does: a secret setting is a valid manifest.
             let manifest = loclib_plugin::Manifest::parse(&toml).unwrap();
-            PluginSpec { manifest, launch: launch_nothing(), first_party: o.first_party }
+            PluginSpec { manifest, launch: launch_nothing(), built_in: o.built_in }
         })
         .collect();
     let mut places: Vec<&str> = Vec::new();
     let mut ids: Vec<&str> = Vec::new();
     let refused = offered.iter().find_map(|o| {
-        if !o.first_party {
+        if !o.built_in {
             return Some(format!("{}: third-party plugins aren't supported yet", o.id));
         }
         if let Some(place) = [o.command, o.operation].into_iter().flatten().find(|p| places.contains(p)) {

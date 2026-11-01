@@ -39,7 +39,7 @@ pub struct DiffArgs {
 
 /// The store, if there is one: read-only commands never create it.
 pub fn existing_store(path: &Option<PathBuf>) -> Result<Option<Store>> {
-    Ok(Store::open_existing(path.clone().unwrap_or_else(Store::default_root))?)
+    crate::open_store_with(path, Store::open_existing)
 }
 
 /// What `read` finds in the store, or its empty value when there's no store.
@@ -52,7 +52,7 @@ pub fn read_or_empty<T: Default>(
 
 /// The store, for a read about the store itself: with none, it fails (`not_found`).
 pub fn store_to_read(path: &Option<PathBuf>) -> Result<Store> {
-    Ok(Store::open(path.clone().unwrap_or_else(Store::default_root))?)
+    crate::open_store_with(path, Store::open)
 }
 
 pub fn run(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {

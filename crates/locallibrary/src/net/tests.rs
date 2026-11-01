@@ -174,3 +174,47 @@ fn errors_say_each_cause_once(tc: TestCase) {
     assert_eq!(with_causes(chain.as_ref()), expected);
     assert_eq!(with_causes(&Caused(said[0].clone(), None)), said[0], "no causes");
 }
+
+/// A body that's endless zeros, saying when it's read and when it's let go of.
+struct Endless {
+    said: std::sync::mpsc::Sender<&'static str>,
+}
+
+impl Read for Endless {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let _ = self.said.send("read");
+        buf.fill(0);
+        Ok(buf.len())
+    }
+}
+
+impl Drop for Endless {
+    fn drop(&mut self) {
+        let _ = self.said.send("dropped");
+    }
+}
+
+/// A request sending to a server that never reads stops once it's cancelled, and lets go of its
+/// body (a file it sends), though it has filled what the connection holds by then: hyper alone
+/// would hold it until it could send the rest.
+#[test]
+fn a_request_cancelled_lets_go_of_its_body_at_once() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    // Taken and held, never read.
+    let held = std::thread::spawn(move || listener.accept().unwrap());
+    let (tx, said) = std::sync::mpsc::channel();
+    let cancel = CancelToken::new();
+    let request = reqwest::Client::new().put(url).body(streamed(Endless { said: tx }, cancel.clone()));
+    let cancelling = cancel.clone();
+    // Its connection goes with the runtime, once the request has given up.
+    let sent = std::thread::spawn(move || Requests::new().unwrap().run(|| request.send(), &cancelling).is_none());
+    assert_eq!(said.recv_timeout(Duration::from_secs(10)), Ok("read"));
+    cancel.cancel();
+    // Generous: it notices in 50 ms.
+    let bound = Duration::from_secs(5);
+    let dropped = std::iter::from_fn(|| said.recv_timeout(bound).ok()).find(|s| *s == "dropped");
+    assert_eq!(dropped, Some("dropped"), "the body is still held");
+    assert!(sent.join().unwrap(), "cancelled");
+    drop(held);
+}

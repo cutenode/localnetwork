@@ -431,13 +431,13 @@ fn a_traktor_collection_is_what_loclib_interop_writes() {
     let export = want.build(&drive.root, false, |s| traktor::build(s, &output, &Ctx::silent()).unwrap());
     assert_eq!(written(&output), contents(&export, &output, &output));
     assert_eq!((export.tracks, export.playlists, export.folders, export.beat_grids, export.cues), (4, 3, 1, 3, 5));
-    // What loclib-interop says of it: each file's contents and size, the counts, the notes and
-    // (every track's audio being there) its warnings.
+    // What loclib-interop says of it: each file's contents and size, the counts, the notes (naming
+    // the plugin's options) and (every track's audio being there) its warnings.
     let described: Vec<(&str, u64)> = done.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect();
     assert_eq!(described, export.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect::<Vec<_>>());
     let counts: Vec<(&str, u64)> = done.counts.iter().map(|(label, n)| (label.as_str(), *n)).collect();
     assert_eq!(counts, [("tracks", 4), ("playlists", 3), ("folders", 1), ("beat grids", 3), ("cues", 5)]);
-    assert_eq!((&done.notes, &done.warnings), (&export.notes, &export.warnings));
+    assert_eq!((&done.notes, &done.warnings), (&notes(&export), &export.warnings));
     assert_eq!(files(&drive.root), before, "the drive is only read");
 
     let library = session.calls("drive.library");
@@ -583,7 +583,7 @@ fn rekordbox_xml_is_what_loclib_interop_writes() {
         assert_eq!((export.tracks, export.playlists, export.folders, export.beat_grids, export.cues), (4, 3, 1, 3, 5));
         let Content::Bytes(xml) = &export.files[0].content else { panic!("the XML is written out") };
         assert_eq!(&std::fs::read(&output).unwrap(), xml);
-        assert_eq!((&done.notes, &done.warnings), (&export.notes, &export.warnings));
+        assert_eq!((&done.notes, &done.warnings), (&notes(&export), &export.warnings));
     }
     session.stop();
 }
@@ -640,7 +640,7 @@ fn what_cant_be_exported_is_refused() {
     assert_eq!(
         messages,
         [
-            "Traktor doesn't take history lists",
+            "Traktor doesn't take history lists: include_history exports them as playlists",
             "the location root must be an absolute path, not Music",
             "not found: playlist \"Sunday\""
         ]
@@ -762,7 +762,8 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
                 .max_size(3),
         ),
     };
-    // A playlist the drive hasn't, and a history list, which no format takes.
+    // A playlist the drive hasn't, and a history list, which no format takes without
+    // `include_history` (see `history`).
     if tc.draw(gs::weighted_booleans(0.1)) {
         lists.push("Sunday");
     }
@@ -833,7 +834,11 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     let has_linked = want.as_ref().is_some_and(|w| w.library.tracks.iter().any(|t| t.file_path == linked_track));
     let refused = |why: String| Some(Some((code::INVALID_PARAMS, why)));
     let stopped = |cancel: Option<&str>| match () {
-        _ if history => refused(format!("{} doesn't take history lists", software.name())),
+        _ if history && software == Software::Rekordbox => refused("rekordbox doesn't take history lists".into()),
+        _ if history => refused(format!(
+            "{} doesn't take history lists: include_history exports them as playlists",
+            software.name()
+        )),
         _ if relative => refused("the location root must be an absolute path, not Music".to_string()),
         _ if tags && root.is_some() => {
             refused("a location root doesn't go with writing tags: the crates list the tagged copies".into())
@@ -948,4 +953,5 @@ fn is_built(want: &Expected, asked: &Asked, drive: &Drive, output: &Path, done: 
 }
 
 /// The set and mix exporters.
+mod history;
 mod sets;

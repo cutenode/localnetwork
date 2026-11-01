@@ -1,6 +1,7 @@
 id: stored-type-response
 valid:
   - "return imageResponse(new Uint8Array(photo.bytes), photo.mimeType, PHOTO_TYPES, { cacheControl, log });"
+  - "return audioResponse(slice(upstream.body, start, length), audio.mimeType, { status, headers, log });"
   - "new Response(stream, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8' } });"
   - "if (options.body) headers.set('content-type', 'application/json');"
   - "headers.set('cache-control', cacheControl);"
