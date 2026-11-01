@@ -125,15 +125,24 @@ jobs:
           pattern: lighthouse-summary-*
           path: apps/web/lighthouse-full
           merge-multiple: true
+      # Only from this workflow's own scheduled or hand-started runs on main in this repository,
+      # which a pull request (from a fork with a branch named main, say) can't start. Each is
+      # unpacked into an empty directory and only the history file is copied out, so an artifact
+      # can't put anything else in the checkout.
       - name: Download the history so far
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          UNPACK: ${{ runner.temp }}/lighthouse-history
         run: |
-          run=$(gh api "repos/$GH_REPO/actions/artifacts?name=lighthouse-history&per_page=50" \
-            --jq '[.artifacts[] | select((.expired | not) and .workflow_run.head_branch == "main")][0].workflow_run.id // empty')
-          if [ -n "$run" ]; then
-            gh run download "$run" --name lighthouse-history --dir .
+          runs=$(gh api "repos/$GH_REPO/actions/workflows/web-scheduled.yml/runs?branch=main&per_page=50" \
+            --jq '.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.id == .repository.id) | .id')
+          for run in $runs; do
+            rm -rf "$UNPACK"
+            if gh run download "$run" --name lighthouse-history --dir "$UNPACK" 2>/dev/null; then break; fi
+          done
+          if [ -f "$UNPACK/lighthouse-history.jsonl" ] && [ ! -L "$UNPACK/lighthouse-history.jsonl" ]; then
+            cp "$UNPACK/lighthouse-history.jsonl" lighthouse-history.jsonl
           else
             echo "::notice::No Lighthouse history yet: this run starts it."
           fi
