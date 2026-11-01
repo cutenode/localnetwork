@@ -34,7 +34,9 @@ test_merge_queue_with_merge_group if {
 
 scanning := {"type": "code_scanning", "parameters": {"code_scanning_tools": [{"tool": "CodeQL"}]}}
 
-codeql(on) := {"path": ".github/workflows/codeql.yml", "contents": {"true": on, "jobs": {"analyze": {}}}}
+every_language := {"strategy": {"matrix": {"language": ["actions", "rust"]}}}
+
+codeql(on) := {"path": ".github/workflows/codeql.yml", "contents": {"true": on, "jobs": {"analyze": every_language}}}
 
 with_queue_and_scanning(on) := array.concat(
 	fixtures.with_file(".github/rulesets/protect-main.json", json.patch(fixtures.file(".github/rulesets/protect-main.json"), [
@@ -69,4 +71,16 @@ test_merge_queue_with_codeql_called_off_merge_groups if {
 test_required_check_never_reports if {
 	repo := fixtures.without_file(".github/workflows/deps.yml")
 	".github/rulesets/protect-main.json: no workflow reports \"Deps passed\", so nothing can merge" in ruleset.deny with input as repo
+}
+
+languages_msg := ".github/workflows/codeql.yml: list every language in job \"analyze\"'s matrix; the code scanning rule holds a commit until each category main has gets a result"
+
+test_codeql_with_every_language if {
+	not languages_msg in ruleset.deny with input as with_queue_and_scanning({"workflow_call": null})
+}
+
+test_codeql_with_languages_that_changed if {
+	some_languages := {"path": ".github/workflows/codeql.yml", "contents": {"true": {"workflow_call": null}, "jobs": {"analyze": {"strategy": {"matrix": {"language": "${{ fromJSON(inputs.languages) }}"}}}}}}
+	repo := array.concat([f | some f in with_queue_and_scanning({"workflow_call": null}); f.path != ".github/workflows/codeql.yml"], [some_languages])
+	languages_msg in ruleset.deny with input as repo
 }

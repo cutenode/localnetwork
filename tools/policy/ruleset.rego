@@ -55,3 +55,14 @@ codeql_on_merge_groups if {
 	some _, job in wf.jobs
 	job.uses == "./.github/workflows/codeql.yml"
 }
+
+# The code scanning rule also holds a commit until it has a result in every category main has, so
+# CodeQL analyses every language each time: #347 couldn't join the queue when only the languages
+# whose code changed ran.
+deny contains msg if {
+	some scanning in rules
+	scanning.type == "code_scanning"
+	some id, job in lib.file(".github/workflows/codeql.yml").jobs
+	not is_array(job.strategy.matrix.language)
+	msg := sprintf(".github/workflows/codeql.yml: list every language in job %q's matrix; the code scanning rule holds a commit until each category main has gets a result", [id])
+}
