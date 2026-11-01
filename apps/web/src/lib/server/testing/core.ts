@@ -12,6 +12,7 @@ import { AccountService } from '../services/accounts';
 import { BookingService } from '../services/bookings';
 import { DjListings } from '../services/dj-listings';
 import { EpkService } from '../services/epk';
+import { EpkViews } from '../services/epk-views';
 import { FollowService } from '../services/follows';
 import { PerformerSearch } from '../services/performers';
 import { PlannerService } from '../services/planner';
@@ -116,6 +117,7 @@ export async function createTestServices(
 		throw new Error(`no such handle ${identifier}`);
 	});
 
+	const epkViews = new EpkViews(core, epks, 90);
 	const shows = new ShowService(core, projects, directory, indexedRepo, 0);
 	const profiles = new ProfileService(core, indexedRepo);
 	const djListings = new DjListings(core, indexedRepo);
@@ -168,6 +170,7 @@ export async function createTestServices(
 		tracklists,
 		supports,
 		epks,
+		epkViews,
 		shows,
 		follows,
 		verifications,

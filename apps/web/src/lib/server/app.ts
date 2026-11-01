@@ -38,6 +38,7 @@ import { DjListings } from './services/dj-listings';
 import { PerformerSearch } from './services/performers';
 import { ProfileService } from './services/profiles';
 import { EpkService } from './services/epk';
+import { EpkViews } from './services/epk-views';
 import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
@@ -240,6 +241,7 @@ export async function createApp(options: CreateAppOptions) {
 
 	const epks = new EpkService(core, projects, indexedRepo, (identifier) => identity.resolveIdentifier(identifier));
 
+	const epkViews = new EpkViews(core, epks, config.epkViewRetentionDays);
 	const shows = new ShowService(core, projects, happyView, indexedRepo);
 	const follows = new FollowService(core, happyView);
 	const verifications = new VerificationService(core, indexedRepo, projects, identity);
@@ -356,6 +358,7 @@ export async function createApp(options: CreateAppOptions) {
 		recordings,
 		supports,
 		epks,
+		epkViews,
 		shows,
 		follows,
 		verifications,
@@ -498,6 +501,7 @@ export async function createApp(options: CreateAppOptions) {
 			// Rewrites listings that drifted from their spaces: one listRecords of the root's listings, and writes only
 			// where one differs.
 			every(60 * 60_000, () => listings.reconcile(), 'listings');
+			every(60 * 60_000, () => epkViews.expire(), 'epk-view-expiry');
 			every(60 * 60_000, () => Promise.all([notifications.prune(), outbox.prune()]), 'inbox-retention');
 			every(15_000, () => outbox.processDue(), 'notification-delivery');
 			void outbox

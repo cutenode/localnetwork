@@ -15,6 +15,10 @@ import {
 	load as editorLoad
 } from '../../src/routes/dashboard/projects/[slug]/press-kits/[rkey]/+page.server.ts';
 import {
+	actions as kitsActions,
+	load as kitsLoad
+} from '../../src/routes/dashboard/projects/[slug]/press-kits/+page.server.ts';
+import {
 	actions as accessActions,
 	load as accessLoad
 } from '../../src/routes/dashboard/projects/[slug]/press-kits/[rkey]/access/+page.server.ts';
@@ -409,8 +413,34 @@ describe('shared press kits on a real atproto spaces network', () => {
 		);
 
 		const shown = (viewer: typeof neon | null) => publicKit({ params, locals: locals(viewer) });
-		expect(await shown(pat)).toMatchObject({ access: { kind: 'granted' }, content: { updatedAt: expect.any(String) } });
-		expect(await shown(null)).toMatchObject({ access: { kind: 'signedOut' }, content: null });
+		expect(await shown(pat)).toMatchObject({
+			access: { kind: 'granted' },
+			content: { updatedAt: expect.any(String) },
+			details: {}
+		});
+		expect(await shown(null)).toMatchObject({ access: { kind: 'signedOut' }, content: null, details: null });
+
+		// Pat's look leaves the managers a receipt; theirs don't. Either manager can delete it, and the chain still holds.
+		await shown(remy);
+		const kits = `/dashboard/projects/${slug}/press-kits`;
+
+		const receipts = async (viewer: typeof neon) =>
+			(
+				await kitsLoad({
+					url: new URL(`http://x${kits}`),
+					locals: locals(viewer),
+					parent: async () => ({ project: night })
+				})
+			).views;
+
+		const [receipt, ...others] = await receipts(remy);
+		expect(others).toEqual([]);
+		expect(receipt).toMatchObject({ viewer: { did: pat.did }, epk: { rkey, title: 'Night Shift' } });
+		expect(await kitsActions.forgetView(post(kits, neon, [['view', receipt.id]], { slug }))).toMatchObject({
+			success: 'View deleted.'
+		});
+		expect(await receipts(remy)).toEqual([]);
+		expect(await net.app.audit.verifyChain()).toMatchObject({ ok: true });
 
 		// A co-manager opening a press kit that hasn't moved yet is told who has to open it.
 		const { rkey: old } = await legacyKit('remy', night, {

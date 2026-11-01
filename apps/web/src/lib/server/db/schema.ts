@@ -3,8 +3,8 @@ import type { SpaceKind } from '#lib/capabilities.ts';
 import type { NotificationChannel, PausedReason, RequestKind } from '#lib/types.ts';
 
 /**
- * Local index. Everything here except sessions, the audit outbox, and people's
- * inboxes is derived from records stored in atproto repos and spaces, and can be
+ * Local index. Everything here except sessions, the audit outbox, press kit view receipts and
+ * people's inboxes is derived from records stored in atproto repos and spaces, and can be
  * rebuilt by re-syncing, so those need backing up. Published projects aren't
  * here: HappyView indexes them.
  * Column names are snake_case in SQLite and camelCase in code.
@@ -34,6 +34,7 @@ export interface Database {
 	spaceInvite: SpaceInviteTable;
 	spaceInviteLink: SpaceInviteLinkTable;
 	spaceJoinRequest: SpaceJoinRequestTable;
+	epkView: EpkViewTable;
 	geocodeCache: GeocodeCacheTable;
 	notification: NotificationTable;
 	notificationChannel: NotificationChannelTable;
@@ -313,6 +314,22 @@ export interface SpaceJoinRequestTable {
 	spaceUri: string;
 	did: string;
 	message: string | null;
+	createdAt: string;
+}
+
+/**
+ * Who viewed a press kit's private part. Only here, never on atproto: the audit chain holds an HMAC of the viewer's DID
+ * under `salt`, so deleting the row leaves the chain whole but no longer says who it was.
+ */
+export interface EpkViewTable {
+	/** The audit entry recording the view. */
+	id: string;
+	epkUri: string;
+	/** The press kit's title when it was viewed, so the receipt still reads after the press kit is gone. */
+	epkTitle: string;
+	projectUri: string;
+	viewerDid: string;
+	salt: string;
 	createdAt: string;
 }
 

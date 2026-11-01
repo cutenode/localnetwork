@@ -101,6 +101,9 @@ describe('/tools/[tool]/docs/[page]', () => {
 		});
 		await expect.element(page.getByRole('heading', { level: 1, name: 'Installing localthing' })).toBeInTheDocument();
 		await expect
+			.poll(() => document.head.querySelector('meta[name="description"]')?.getAttribute('content'))
+			.toBe('localthing guide: Installing localthing.');
+		await expect
 			.element(page.getByRole('heading', { level: 2, name: 'From source' }))
 			.toHaveAttribute('id', 'from-source');
 		await expect
