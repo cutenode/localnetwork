@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import type { PageMeta } from '#lib/meta.ts';
 import SocialMeta from './SocialMeta.svelte';
 
 const tag = (selector: string) => document.head.querySelector(selector)?.getAttribute('content');
@@ -46,4 +47,57 @@ it('takes its own document title, and keeps a page out of search when asked, wit
 	await expect.poll(() => document.title).toBe('Local Network · Find local DJs for your show');
 	expect(tag('meta[name="robots"]')).toBe('noindex');
 	expect(document.head.querySelector('meta[property="og:image"]')).toBeNull();
+});
+
+const jsonLdScripts = () => document.head.querySelectorAll('script[type="application/ld+json"]');
+
+it('writes the structured data search engines read, and none for a page without it', async () => {
+	const meta: PageMeta = {
+		title: 'Neon Tide',
+		description: 'Rolling techno',
+		url: 'https://localnetwork.test/projects/neon-tide',
+		type: 'profile'
+	};
+
+	const { rerender } = await render(SocialMeta, {
+		meta: {
+			...meta,
+			jsonLd: {
+				'@context': 'https://schema.org',
+				'@type': 'ProfilePage',
+				mainEntity: { '@type': 'MusicGroup', name: 'Neon Tide' }
+			}
+		}
+	});
+
+	await expect.poll(() => jsonLdScripts().length).toBe(1);
+	expect(jsonLdScripts()[0]?.textContent).toBe(
+		'{"@context":"https://schema.org","@type":"ProfilePage","mainEntity":{"@type":"MusicGroup","name":"Neon Tide"}}'
+	);
+
+	await rerender({ meta });
+	await expect.poll(() => jsonLdScripts().length).toBe(0);
+});
+
+it("keeps a name that closes the script tag inside it, so it can't add a script of its own", async () => {
+	const name = '</script><script>alert(1)</script>';
+	const scripts = () => document.head.querySelectorAll('script');
+	const before = scripts().length;
+
+	await render(SocialMeta, {
+		meta: {
+			title: name,
+			description: name,
+			url: 'https://localnetwork.test/projects/x',
+			type: 'profile',
+			jsonLd: { '@context': 'https://schema.org', '@type': 'MusicGroup', name }
+		}
+	});
+
+	await expect.poll(() => jsonLdScripts().length).toBe(1);
+	expect(scripts().length).toBe(before + 1);
+	// The name is all still there, each `<` as JSON's escape for it, which reads back as the same character.
+	expect(jsonLdScripts()[0]?.textContent).toBe(
+		String.raw`{"@context":"https://schema.org","@type":"MusicGroup","name":"\u003c/script>\u003cscript>alert(1)\u003c/script>"}`
+	);
 });

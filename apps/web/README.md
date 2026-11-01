@@ -374,6 +374,7 @@ src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
 src/lib/server/meta.ts          What each public page tells link previews and search engines, returned by its load as `meta`
+src/lib/server/structured-data.ts  The schema.org structured data (JSON-LD) a performer, profile, mix or artist page adds to its `meta`
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright
