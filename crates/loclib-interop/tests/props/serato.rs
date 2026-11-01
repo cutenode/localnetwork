@@ -833,14 +833,17 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
 /// An AIFF or WAV whose header gives any size at all, with any bytes after the chunks, is either
 /// tagged so that it reads back with its tag and audio, or refused as a typed error and left as it
 /// was: lofty writes its tag's chunk where that size says the chunks end, so one ending anywhere
-/// else (0, or inside a chunk) is refused. Its true size, and the size of just its `WAVE` or
-/// `AIFF` id, are tagged.
+/// else (0, inside a chunk, or past bytes lofty doesn't read as a chunk) is refused. Its true
+/// size, and the size of just its `WAVE` or `AIFF` id, are tagged.
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 0u32, trailing = Vec::<u8>::new())]
 #[hegel::explicit_test_case(wav = false, audio = vec![1u8; 64], size = 0u32, trailing = Vec::<u8>::new())]
 #[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 28u32, trailing = Vec::<u8>::new())]
 #[hegel::explicit_test_case(wav = false, audio = vec![1u8; 64], size = 30u32, trailing = Vec::<u8>::new())]
 #[hegel::explicit_test_case(wav = true, audio = vec![1u8; 64], size = 100u32, trailing = vec![0u8; 7])]
+// A size counting a stray byte, and one counting junk lofty stops reading at.
+#[hegel::explicit_test_case(wav = false, audio = vec![1u8; 2], size = 49u32, trailing = vec![0u8])]
+#[hegel::explicit_test_case(wav = false, audio = vec![1u8; 2], size = 56u32, trailing = vec![0u8; 8])]
 fn header_sizes_are_tagged_or_refused(tc: TestCase) {
     use lofty::config::ParseOptions;
     use lofty::file::AudioFile;
