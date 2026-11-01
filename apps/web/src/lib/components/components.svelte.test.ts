@@ -58,6 +58,27 @@ describe('ClaimFields', () => {
 		await render(ClaimFields, { values: {}, claimant: { did: 'did:plc:neon', handle: null } });
 		await expect.element(page.getByText('localnetwork did:plc:neon')).toBeInTheDocument();
 	});
+
+	it('keeps what was entered, and starts over from new values', async () => {
+		const claimant = { did: 'did:plc:pat', handle: 'pat.test' };
+
+		const { rerender } = await render(ClaimFields, {
+			values: { relationship: 'manager', links: 'https://a.test' },
+			claimant
+		});
+
+		const links = page.getByRole('textbox', { name: 'Supporting links' });
+
+		await expect.element(page.getByRole('radio', { name: "I'm their manager" })).toBeChecked();
+		await page.getByRole('radio', { name: "I'm their booking agent" }).click();
+		await links.fill('https://b.test');
+		await expect.element(page.getByRole('radio', { name: "I'm their booking agent" })).toBeChecked();
+		await expect.element(links).toHaveValue('https://b.test');
+
+		await rerender({ values: { relationship: 'member', links: 'https://c.test' }, claimant });
+		await expect.element(page.getByRole('radio', { name: "I'm a member of this group" })).toBeChecked();
+		await expect.element(links).toHaveValue('https://c.test');
+	});
 });
 
 describe('ScoreBar', () => {
@@ -213,6 +234,49 @@ describe('ProjectForm', () => {
 			document.querySelector<HTMLInputElement>(`input[type=hidden][name=${name}]`)?.value;
 
 		expect([hidden('linkLabel'), hidden('mixDuration'), hidden('mixYear')]).toEqual(['Shop', '90', '2024']);
+	});
+
+	it('posts what was entered, and starts over from new values', async () => {
+		const { rerender } = await render(ProjectForm, {
+			values: {
+				name: 'Neon Tide',
+				formats: ['vinyl'],
+				fees: [{ label: 'Club nights', tier: '', currency: '', minAmount: '', maxAmount: '' }]
+			},
+			avatarUrl: '/avatar.png',
+			geocoder: false
+		});
+
+		const posted = () => {
+			const form = new FormData(document.querySelector('form')!);
+
+			return {
+				name: form.get('name'),
+				formats: form.getAll('formats'),
+				removeAvatar: form.get('removeAvatar'),
+				fee: form.get('feeLabel')
+			};
+		};
+
+		await page.getByRole('textbox', { name: 'Project name' }).fill('Neon Tide Live');
+		await page.getByText('Modular').click();
+		await page.getByRole('checkbox', { name: 'Remove the current image' }).click();
+		await page.getByRole('textbox', { name: 'What this fee covers' }).fill('Warehouse nights');
+		expect(posted()).toEqual({
+			name: 'Neon Tide Live',
+			formats: ['vinyl', 'modular'],
+			removeAvatar: 'on',
+			fee: 'Warehouse nights'
+		});
+
+		await rerender({
+			values: { name: 'Halflight', formats: ['cdj'], removeAvatar: 'on' },
+			avatarUrl: '/avatar.png',
+			geocoder: false
+		});
+		await expect.element(page.getByRole('textbox', { name: 'Project name' })).toHaveValue('Halflight');
+		await expect.element(page.getByRole('checkbox', { name: 'Remove the current image' })).toBeChecked();
+		expect(posted()).toMatchObject({ name: 'Halflight', formats: ['cdj'], removeAvatar: 'on' });
 	});
 });
 

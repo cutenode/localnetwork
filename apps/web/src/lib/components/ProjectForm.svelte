@@ -4,6 +4,7 @@
 	import { Plus, Trash2 } from '@lucide/svelte';
 	import { FEE_TIERS, FORMATS, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import { FormDraft } from '#lib/form-draft.svelte.ts';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { djSetLabel } from '#lib/format.ts';
 	import { formValues } from '#lib/project-form.ts';
 	import type { DjSetView, FeeFormRow, ProjectFormValues, ProjectLink, ProjectMix, StrongRef } from '#lib/types.ts';
@@ -36,7 +37,7 @@
 		draft?: string;
 		/** The managers' published sets (null when they can't be loaded), for a picker on each mix. No picker without. */
 		sets?: Promise<DjSetView[] | null>;
-		/** Extra fields, drawn from the values the form shows (a restored draft's, or `values`). */
+		/** Extra fields, which bind to the values the form shows (a restored draft's, or `values`). */
 		children?: Snippet<[ProjectFormValues]>;
 		footer?: Snippet;
 	} = $props();
@@ -51,6 +52,8 @@
 
 	/** What the fields show: the restored draft, or the values the page passed. */
 	const shown = $derived(formDraft.values ?? values);
+
+	const fields = $derived(formFields<ProjectFormValues>({ ...shown, setTypes: shown.setTypes ?? [], formats: shown.formats ?? [] }));
 
 	const initialLinks = () => {
 		const list = shown.links ?? [];
@@ -67,7 +70,7 @@
 		return (list.length ? list : [{ title: '', url: '' }]).map((mix) => ({ ...mix, key: nextMixKey++ }));
 	};
 
-	// Fee rows have stable keys too: their inputs aren't bound, so each must stay with its own row.
+	// Fee rows have stable keys too: each holds a tier picker, which must stay with its own row.
 	let nextFeeKey = 0;
 
 	const emptyFee = (): FeeFormRow & { key: number } => ({ label: '', tier: '', currency: '', minAmount: '', maxAmount: '', key: nextFeeKey++ });
@@ -132,8 +135,6 @@
 	}
 
 	const v = (key: string) => String(shown[key] ?? '');
-
-	const has = (key: 'formats' | 'setTypes', option: string) => (shown[key] ?? []).includes(option);
 </script>
 
 <!-- Floated, a legend leaves the fieldset's border alone and lays out like the other flex items. -->
@@ -169,7 +170,7 @@
 			<div class="grid gap-4 sm:grid-cols-[1fr_14rem]">
 				<div>
 					<label class="label" for="name">Project name</label>
-					<input id="name" class="input" name="name" value={v('name')} required maxlength="64" />
+					<input id="name" class="input" name="name" bind:value={fields.name} required maxlength="64" />
 				</div>
 				<div>
 					<label class="label" for="kind">Type</label>
@@ -181,11 +182,11 @@
 			<div class="grid gap-4 sm:grid-cols-[1fr_10rem]">
 				<div>
 					<label class="label" for="tagline">Tagline</label>
-					<input id="tagline" class="input" name="tagline" value={v('tagline')} maxlength="140" placeholder="Hypnotic, rolling techno for late rooms" />
+					<input id="tagline" class="input" name="tagline" bind:value={fields.tagline} maxlength="140" placeholder="Hypnotic, rolling techno for late rooms" />
 				</div>
 				<div>
 					<label class="label" for="pronouns">Pronouns <span class="font-normal text-fg-subtle">(optional)</span></label>
-					<input id="pronouns" class="input" name="pronouns" value={v('pronouns')} maxlength="24" />
+					<input id="pronouns" class="input" name="pronouns" bind:value={fields.pronouns} maxlength="24" />
 				</div>
 			</div>
 			<div>
@@ -195,7 +196,7 @@
 			</div>
 			<div>
 				<label class="label" for="bio">Bio</label>
-				<textarea id="bio" class="input min-h-36 py-2.5" name="bio" maxlength="30000">{v('bio')}</textarea>
+				<textarea id="bio" class="input min-h-36 py-2.5" name="bio" maxlength="30000" bind:value={fields.bio}></textarea>
 			</div>
 			<div class="flex items-start gap-4">
 				<Avatar src={avatarUrl} name={v('name') || 'New project'} size="xl" />
@@ -204,7 +205,7 @@
 					<input id="avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="block w-full text-small text-fg-muted" />
 					<p class="hint">PNG, JPEG, or WebP, up to 1 MB.</p>
 					{#if avatarUrl}
-						<label class="mt-3 flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="removeAvatar" checked={shown.removeAvatar === 'on'} /> Remove the current image</label>
+						<label class="mt-3 flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="removeAvatar" bind:checked={() => fields.removeAvatar === 'on', (on) => (fields.removeAvatar = on ? 'on' : '')} /> Remove the current image</label>
 					{/if}
 				</div>
 			</div>
@@ -216,15 +217,15 @@
 			<div class="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-end">
 				<div>
 					<label class="label" for="travelRadiusKm">Will travel up to (km)</label>
-					<input id="travelRadiusKm" class="input" type="number" name="travelRadiusKm" min="0" max="20000" value={v('travelRadiusKm')} />
+					<input id="travelRadiusKm" class="input" type="number" name="travelRadiusKm" min="0" max="20000" bind:value={fields.travelRadiusKm} />
 				</div>
 				<label class="flex min-h-11 items-center gap-2.5 text-small text-fg-soft">
-					<input type="checkbox" class="checkbox" name="international" checked={shown.international} /> Open to international bookings
+					<input type="checkbox" class="checkbox" name="international" bind:checked={fields.international} /> Open to international bookings
 				</label>
 			</div>
 			<div>
 				<label class="label" for="travelNotes">Travel notes</label>
-				<input id="travelNotes" class="input" name="travelNotes" value={v('travelNotes')} maxlength="300" placeholder="Has a car; needs a hotel for gigs over 200 km" />
+				<input id="travelNotes" class="input" name="travelNotes" bind:value={fields.travelNotes} maxlength="300" placeholder="Has a car; needs a hotel for gigs over 200 km" />
 			</div>
 		</fieldset>
 
@@ -235,7 +236,7 @@
 				<div class="flex flex-wrap gap-2">
 					{#each SET_TYPES as option (option.value)}
 						<label class="chip-toggle">
-							<input type="checkbox" class="sr-only" name="setTypes" value={option.value} checked={has('setTypes', option.value)} />{option.label}
+							<input type="checkbox" class="sr-only" name="setTypes" value={option.value} bind:group={fields.setTypes} />{option.label}
 						</label>
 					{/each}
 				</div>
@@ -245,7 +246,7 @@
 				<div class="flex flex-wrap gap-2">
 					{#each FORMATS as option (option.value)}
 						<label class="chip-toggle">
-							<input type="checkbox" class="sr-only" name="formats" value={option.value} checked={has('formats', option.value)} />{option.label}
+							<input type="checkbox" class="sr-only" name="formats" value={option.value} bind:group={fields.formats} />{option.label}
 						</label>
 					{/each}
 				</div>
@@ -253,23 +254,23 @@
 			<div class="grid grid-cols-2 gap-4 md:grid-cols-5">
 				<div>
 					<label class="label" for="setMin">Shortest set (min)</label>
-					<input id="setMin" class="input" type="number" name="setMin" min="15" max="720" value={v('setMin')} />
+					<input id="setMin" class="input" type="number" name="setMin" min="15" max="720" bind:value={fields.setMin} />
 				</div>
 				<div>
 					<label class="label" for="setMax">Longest set (min)</label>
-					<input id="setMax" class="input" type="number" name="setMax" min="15" max="720" value={v('setMax')} />
+					<input id="setMax" class="input" type="number" name="setMax" min="15" max="720" bind:value={fields.setMax} />
 				</div>
 				<div>
 					<label class="label" for="capacityMin">Smallest room</label>
-					<input id="capacityMin" class="input" type="number" name="capacityMin" min="0" value={v('capacityMin')} />
+					<input id="capacityMin" class="input" type="number" name="capacityMin" min="0" bind:value={fields.capacityMin} />
 				</div>
 				<div>
 					<label class="label" for="capacityMax">Biggest room</label>
-					<input id="capacityMax" class="input" type="number" name="capacityMax" min="0" value={v('capacityMax')} />
+					<input id="capacityMax" class="input" type="number" name="capacityMax" min="0" bind:value={fields.capacityMax} />
 				</div>
 				<div>
 					<label class="label" for="activeSince">Playing since</label>
-					<input id="activeSince" class="input" type="number" name="activeSince" min="1950" max="2100" value={v('activeSince')} placeholder="2018" />
+					<input id="activeSince" class="input" type="number" name="activeSince" min="1950" max="2100" bind:value={fields.activeSince} placeholder="2018" />
 				</div>
 			</div>
 		</fieldset>
@@ -285,13 +286,13 @@
 								<option value="">Pick a tier</option>
 								{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={fee.tier === option.value}>{option.label}</option>{/each}
 							</select>
-							<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="feeLabel" value={fee.label} maxlength="64" placeholder="What it covers, like club nights" aria-label="What this fee covers" />
+							<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="feeLabel" bind:value={fee.label} maxlength="64" placeholder="What it covers, like club nights" aria-label="What this fee covers" />
 							{@render remove('Remove fee', () => (fees = fees.filter((f) => f.key !== fee.key)))}
 						</div>
 						<div class="grid grid-cols-[5.5rem_1fr_1fr] gap-2 sm:grid-cols-[11rem_1fr_1fr] sm:pr-13">
-							<input class="input uppercase" name="feeCurrency" value={fee.currency} maxlength="3" placeholder="USD" aria-label="Currency" />
-							<input class="input" type="number" min="0" name="feeMin" value={fee.minAmount} placeholder="From" aria-label="From" />
-							<input class="input" type="number" min="0" name="feeMax" value={fee.maxAmount} placeholder="Up to" aria-label="Up to" />
+							<input class="input uppercase" name="feeCurrency" bind:value={fee.currency} maxlength="3" placeholder="USD" aria-label="Currency" />
+							<input class="input" type="number" min="0" name="feeMin" bind:value={fee.minAmount} placeholder="From" aria-label="From" />
+							<input class="input" type="number" min="0" name="feeMax" bind:value={fee.maxAmount} placeholder="Up to" aria-label="Up to" />
 						</div>
 					</div>
 				{/each}
@@ -306,8 +307,8 @@
 				{#each links as link, index (index)}
 					<!-- On a phone the URL takes its own row under the type and the remove button. -->
 					<div class="flex flex-wrap gap-2 sm:flex-nowrap">
-						<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="linkKind" bind:value={link.kind} aria-label="Link type">
-							{#each LINK_KINDS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
+						<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="linkKind" aria-label="Link type" onchange={(event) => (link.kind = event.currentTarget.value)}>
+							{#each LINK_KINDS as option (option.value)}<option value={option.value} selected={link.kind === option.value}>{option.label}</option>{/each}
 						</select>
 						<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
 						<!-- No field edits this here; posting it back keeps it on save. -->
@@ -367,12 +368,12 @@
 			</div>
 			<div>
 				<label class="label" for="highlights">Highlights</label>
-				<textarea id="highlights" class="input min-h-24 py-2.5" name="highlights" placeholder="One per line: residencies, festivals, releases">{v('highlights')}</textarea>
+				<textarea id="highlights" class="input min-h-24 py-2.5" name="highlights" placeholder="One per line: residencies, festivals, releases" bind:value={fields.highlights}></textarea>
 				<p class="hint">Up to 12.</p>
 			</div>
 			<div>
 				<label class="label" for="lookingFor">Looking for</label>
-				<textarea id="lookingFor" class="input py-2.5" name="lookingFor" maxlength="5000" placeholder="Warm-up slots at queer parties, daytime outdoor events…">{v('lookingFor')}</textarea>
+				<textarea id="lookingFor" class="input py-2.5" name="lookingFor" maxlength="5000" placeholder="Warm-up slots at queer parties, daytime outdoor events…" bind:value={fields.lookingFor}></textarea>
 			</div>
 		</fieldset>
 
@@ -382,36 +383,36 @@
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="label" for="bookingEmail">Booking email</label>
-						<input id="bookingEmail" class="input" type="email" name="bookingEmail" value={v('bookingEmail')} />
+						<input id="bookingEmail" class="input" type="email" name="bookingEmail" bind:value={fields.bookingEmail} />
 					</div>
 					<div>
 						<label class="label" for="bookingPhone">Booking phone</label>
-						<input id="bookingPhone" class="input" name="bookingPhone" value={v('bookingPhone')} />
+						<input id="bookingPhone" class="input" name="bookingPhone" bind:value={fields.bookingPhone} />
 					</div>
 				</div>
 				<div>
 					<label class="label" for="rateNotes">Rates</label>
-					<textarea id="rateNotes" class="input py-2.5" name="rateNotes">{v('rateNotes')}</textarea>
+					<textarea id="rateNotes" class="input py-2.5" name="rateNotes" bind:value={fields.rateNotes}></textarea>
 				</div>
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="label" for="techRider">Tech rider</label>
-						<textarea id="techRider" class="input min-h-28 py-2.5" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors">{v('techRider')}</textarea>
+						<textarea id="techRider" class="input min-h-28 py-2.5" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors" bind:value={fields.techRider}></textarea>
 					</div>
 					<div>
 						<label class="label" for="hospitality">Hospitality</label>
-						<textarea id="hospitality" class="input min-h-28 py-2.5" name="hospitality">{v('hospitality')}</textarea>
+						<textarea id="hospitality" class="input min-h-28 py-2.5" name="hospitality" bind:value={fields.hospitality}></textarea>
 					</div>
 				</div>
 			</fieldset>
 		{/if}
 
-		{#if children}{@render children(shown)}{/if}
+		{#if children}{@render children(fields)}{/if}
 
 		{#if showMessage}
 			<div class="card p-5 sm:p-6">
 				<label class="label" for="message">Note to moderators <span class="font-normal text-fg-subtle">(optional)</span></label>
-				<textarea id="message" class="input py-2.5" name="message" maxlength="2000">{v('message')}</textarea>
+				<textarea id="message" class="input py-2.5" name="message" maxlength="2000" bind:value={fields.message}></textarea>
 			</div>
 		{/if}
 	{/key}

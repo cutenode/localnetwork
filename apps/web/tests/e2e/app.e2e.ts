@@ -118,6 +118,32 @@ test.describe('public pages', () => {
 		await expect(page.getByRole('group', { name: 'Format' })).toBeVisible();
 	});
 
+	test('directory filters set before the page hydrates stay set', async ({ page }) => {
+		const search = page.getByLabel('Search');
+		const chip = page.getByRole('group', { name: 'Fee tier' }).getByRole('checkbox').first();
+		const sort = page.getByLabel('Sort by');
+
+		await beforeHydration(page, '/projects', async () => {
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await search.fill('techno');
+			await chip.locator('xpath=..').click();
+			await sort.selectOption('name');
+		});
+		await expect(search).toHaveValue('techno');
+		await expect(chip).toBeChecked();
+		await expect(sort).toHaveValue('name');
+
+		// Kept filters apply, and the form follows the page when they're cleared.
+		await page.getByRole('button', { name: 'Apply' }).click();
+		await expect(page).toHaveURL(/[?&]q=techno(&|$)/);
+		await page.getByRole('link', { name: 'Clear filters' }).first().click();
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(search).toHaveValue('');
+		await expect(chip).not.toBeChecked();
+	});
+
 	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
 		await page.goto('/projects/neon-tide');
 		await expect(page.getByRole('heading', { name: 'How they play' })).toBeVisible();
@@ -543,6 +569,44 @@ test.describe('keeps what people entered', () => {
 		page.once('dialog', (dialog) => dialog.accept());
 		await page.getByRole('button', { name: 'Withdraw' }).click();
 		await expect(page.getByText('Request withdrawn')).toBeVisible();
+	});
+
+	test('the profile and press kit editors keep what was entered before the page hydrated', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass');
+
+		const tagline = page.getByLabel('Tagline');
+		const bio = page.getByLabel('Bio', { exact: true });
+		const modular = page.locator('input[name="formats"][value="modular"]');
+		const fee = page.getByLabel('What this fee covers').first();
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/profile', async () => {
+			await tagline.fill('Typed before the script loaded');
+			await bio.fill('A bio typed early');
+			await modular.locator('xpath=..').click();
+			await fee.fill('Warehouse nights');
+		});
+		await expect(tagline).toHaveValue('Typed before the script loaded');
+		await expect(bio).toHaveValue('A bio typed early');
+		await expect(modular).toBeChecked();
+		await expect(fee).toHaveValue('Warehouse nights');
+
+		const kitHeadline = page.getByLabel('Headline');
+		const longBio = page.getByLabel('Full bio');
+		const open = page.getByRole('radio', { name: /^Open/ });
+		const quote = page.getByLabel('Quote 1', { exact: true });
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/press-kits/new', async () => {
+			await kitHeadline.fill('Typed before the script loaded');
+			await longBio.fill('A full bio typed early');
+			await open.check();
+			await quote.fill('Relentless');
+		});
+		await expect(kitHeadline).toHaveValue('Typed before the script loaded');
+		await expect(longBio).toHaveValue('A full bio typed early');
+		await expect(open).toBeChecked();
+		await expect(quote).toHaveValue('Relentless');
+		// Picking a preset before the script loaded still sets the rules it stands for.
+		await expect(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' })).toBeChecked();
 	});
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {
