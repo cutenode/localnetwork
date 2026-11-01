@@ -69,6 +69,11 @@ overrides:
 # release has the fix (#6214).
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
+  # SvelteKit's client imports the root error page before it hydrates, but the server doesn't
+  # preload it, so every page fetched it a round trip late (sveltejs/kit#17415). That round trip put
+  # /projects/halflight's simulated LCP over Lighthouse's budget on a busy machine. Drop the patch
+  # once a release has the fix (sveltejs/kit#17416).
+  '@sveltejs/kit@3.1.0': patches/@sveltejs__kit@3.1.0.patch
 # zod 3.x reaches prod only through @atproto/* (^3.23.8), and no 3.x release has the fix (4.6.6
 # does). Drop this once @atproto moves to zod 4.
 auditConfig:
