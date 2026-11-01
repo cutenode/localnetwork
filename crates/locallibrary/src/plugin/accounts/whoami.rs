@@ -1,5 +1,5 @@
-//! Who signed in: what an account type's whoami endpoint answers a new access token, read at its
-//! JSON pointers.
+//! Who signed in: what an account type's whoami endpoint answers a new access token, or keys just
+//! entered, read at its JSON pointers.
 
 use loclib_plugin::AccountType;
 use oauth2::http::{Request, header};
@@ -7,6 +7,7 @@ use reqwest::Url;
 use serde_json::Value;
 
 use super::Unanswered;
+use super::keys::Credential;
 use crate::plugin::process::Plugin;
 use crate::{Error, Result};
 
@@ -23,17 +24,18 @@ fn with_param(url: &Url, name: &str, value: &str) -> Url {
 }
 
 impl Plugin {
-    /// The subject and name of whoever `token` is `t`'s access token for, from its whoami
-    /// endpoint: reached as the service's other endpoints are (see [`Plugin::send`]), with the
-    /// token where the first of `t`'s places says it goes, following redirects within the
-    /// endpoint's origin only, the token given again in the query when it goes there. A subject is a string or an integer
+    /// The subject and name of whoever `signed` (an access token or keys) is for at `t`'s service,
+    /// from its whoami endpoint: reached as the service's other endpoints are (see
+    /// [`Plugin::send`]), with what the first of `t`'s places says goes there, following redirects
+    /// within the endpoint's origin only, given again in the query when it goes there. A subject is a string or an integer
     /// (as its digits); the name falls back to it.
-    pub(super) fn whoami(&self, t: &AccountType, token: &str) -> Result<(String, String)> {
+    pub(super) fn whoami(&self, t: &AccountType, signed: &Credential) -> Result<(String, String)> {
         let failed = |why: String| Error::Account(self.net.scrub(&format!("asking {} who signed in: {why}", t.title)));
         let w = t.whoami.as_ref().ok_or_else(|| failed("its account type says nowhere to ask".into()))?;
         let places = t.places();
         let place = places.first().ok_or_else(|| failed("its account type says nowhere it goes".into()))?;
-        let filled = place.filled(|_| token);
+        let filled = signed.filled(place);
+        self.net.saw(&filled);
         let mut url = Url::parse(&w.url).map_err(|e| failed(e.to_string()))?;
         let mut hops = 0;
         let answer = loop {
@@ -55,7 +57,8 @@ impl Plugin {
             let next = url.join(location).map_err(|e| failed(e.to_string()))?;
             if next.origin() != url.origin() {
                 let to = next.host_str().unwrap_or_default();
-                return Err(failed(format!("it sent the token on to {to}, which isn't where it was asked")));
+                let what = signed.said();
+                return Err(failed(format!("it sent the {what} on to {to}, which isn't where it was asked")));
             }
             url = next;
         };

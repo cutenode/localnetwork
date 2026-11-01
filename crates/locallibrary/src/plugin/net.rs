@@ -4,14 +4,15 @@
 //! `locallibrary/<version>` (with the plugin's `contact` setting, when it has one), spaced out as
 //! its manifest's `[[net]]` limits say, together with every other plugin's to that host. Its
 //! secret settings go only where a request names them (`{secret:<key>}`), and its accounts' access
-//! tokens only where a request names one by type (`{account:<type>}`, see [`super::accounts`]) and
-//! the account type says its token goes: the `Authorization` header, or a query parameter; and only
-//! into a request a scope of the plugin's access covers (see [`super::accounts::token`]). They're
+//! tokens or keys only where a request names one by type (`{account:<type>}`, see
+//! [`super::accounts`]) and the account type says it goes: the `Authorization` header, or a query
+//! parameter; and only into a request a scope of the plugin's access covers (see
+//! [`super::accounts::token`]). They're
 //! filled in once it's checked, never on to another server a redirect leads to, nor to an address
 //! no scope of the access covers, and left out of its log and the errors it's told (see
 //! [`State::scrub`]); what a server answers is passed on as it is, but for a token it was sent in
 //! the query, given back as the placeholder it was named with, and a server refusing a token it was
-//! sent, which the host answers (see [`Plugin::answered`]).
+//! sent, which the host answers (see [`Plugin::answered`]); a server refusing keys is passed on.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept. What it sends is text, or files it was given (see [`body`]).
 //! A request cancelled stops at once, sending or reading its answer ([`Requests`]).
@@ -39,6 +40,7 @@ use serde_json::Value;
 
 use self::body::{Body, Field, FilePart};
 use self::challenge::{Challenge, challenges, insufficient_scope};
+use super::accounts::keys::Credential;
 use super::accounts::token::Usable;
 use super::blobs;
 use super::process::{Live, Plugin, printable};
@@ -117,10 +119,20 @@ struct Sent {
     accounts: Vec<Filled>,
 }
 
-/// An account's token filled into a request, and the access it's through.
+/// An account filled into a request, what it's signed in with, and the access it's through.
 struct Filled {
     usable: Usable,
-    token: String,
+    signed: Credential,
+}
+
+/// The accounts' tokens of `filled`, and their accesses: what a service refusing one is about.
+/// Keys aren't: nothing refreshes them, and a service refusing them is passed on.
+fn tokens(filled: Vec<Filled>) -> Vec<(Usable, String)> {
+    let token = |f: Filled| match f.signed {
+        Credential::Token(token) => Some((f.usable, token)),
+        Credential::Keys(_) => None,
+    };
+    filled.into_iter().filter_map(token).collect()
 }
 
 /// The accounts' tokens filled into a request's query, and the placeholders that named them.
@@ -306,9 +318,10 @@ impl Plugin {
         serde_json::to_value(fetched).map_err(|e| RpcError::internal(e.to_string()))
     }
 
-    /// The response `followed`, which `req` was answered on a hop it went to with the tokens that
-    /// went with it (see [`Plugin::follow`]), or what's answered instead when the server refused
-    /// one (a 401 or 403; not after a hop that dropped them, which isn't about them): saying the
+    /// The response `followed`, which `req` was answered on a hop it went to with the accounts that
+    /// went with it (see [`Plugin::follow`]), or what's answered instead when the server refused a
+    /// token (a 401 or 403 to a request with one; not after a hop that dropped them, which isn't
+    /// about them, nor to one with keys alone, passed on as it is): saying the
     /// token lacks scopes (see [`insufficient_scope`]), `scope`, its body not passed on (see
     /// [`Plugin::scope_refused`]); a 401 otherwise, the request sent again once with the account's
     /// token refreshed (see [`Plugin::refused_token`]), and its answer passed on, the account
@@ -323,7 +336,8 @@ impl Plugin {
         requests: &Requests,
         cancel: &CancelToken,
     ) -> Result<(Answer, InQuery), RpcError> {
-        let (mut response, mut attached) = followed;
+        let (mut response, attached) = followed;
+        let mut attached = tokens(attached);
         let mut again = false;
         loop {
             let (status, headers) = (response.status().as_u16(), response.headers().clone());
@@ -346,24 +360,25 @@ impl Plugin {
             let body = read.map_err(|e| RpcError::failed("external", self.net.scrub(&e)))?;
             if let Some(scopes) = insufficient_scope(status, &said, &body) {
                 let written = Url::parse(&req.url).map_err(|_| invalid("it isn't a web address"))?;
-                return Err(self.scope_refused(&attached[0].usable, &scopes, &req.method, &written, store));
+                return Err(self.scope_refused(&attached[0].0, &scopes, &req.method, &written, store));
             }
             if status == 403 || again {
                 let invalid = again && status == 401 && said.iter().any(|c| c.param("error") == Some("invalid_token"));
                 if invalid {
-                    for f in &attached {
-                        self.invalid_token(&f.usable, &f.token, store)?;
+                    for (usable, token) in &attached {
+                        self.invalid_token(usable, token, store)?;
                     }
                 }
                 return Ok((Answer { status, headers, read: body, response }, in_query));
             }
-            for f in &attached {
-                self.refused_token(&f.usable, &f.token, store)?;
+            for (usable, token) in &attached {
+                self.refused_token(usable, token, store)?;
             }
             again = true;
             let (url, sent, query) = self.prepare(live, req)?;
             in_query = query;
-            (response, attached) = self.follow(live, url, sent, requests, cancel)?;
+            let (followed, filled) = self.follow(live, url, sent, requests, cancel)?;
+            (response, attached) = (followed, tokens(filled));
         }
     }
 
@@ -479,9 +494,10 @@ impl Plugin {
             Some(query) => p.query.as_deref() == Some(query),
         });
         let Some(place) = place.cloned() else { return Err(misplaced(&usable.places)) };
-        let token = self.usable_token(&usable, store)?;
-        let filled = place.filled(|_| &token);
-        accounts.push(Filled { usable, token });
+        let signed = self.usable_credential(&usable, store)?;
+        let filled = signed.filled(&place);
+        self.net.saw(&filled);
+        accounts.push(Filled { usable, signed });
         Ok(filled)
     }
 

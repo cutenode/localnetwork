@@ -18,6 +18,7 @@ use serde_json::{Map, json};
 
 use super::access::Access;
 use super::kept::{self, Kept};
+use super::keys::Credential;
 use crate::Error;
 use crate::error::Reason;
 use crate::plugin::process::{Live, Plugin};
@@ -142,16 +143,18 @@ impl Plugin {
         f(a, book.account(on, &a.account.subject), with, t)
     }
 
-    /// The token of `usable`'s account, told to [`crate::plugin::net::State::scrub`]: `access`
-    /// (`signed_out`) when it's signed out, or the service signs it out.
-    pub(crate) fn usable_token(&self, usable: &Usable, store: &Store) -> Result<String, RpcError> {
-        let token = usable.with.account_token(store, &usable.access.account.subject);
-        let token = token.map_err(|e| self.token_failed(usable, e))?;
-        self.net.saw(&token);
-        Ok(token)
+    /// What `usable`'s account is signed in with (its token, or keys), told to
+    /// [`crate::plugin::net::State::scrub`]: `access` (`signed_out`) when it's signed out, or the
+    /// service signs it out.
+    pub(crate) fn usable_credential(&self, usable: &Usable, store: &Store) -> Result<Credential, RpcError> {
+        let signed = usable.with.account_credential(store, &usable.access.account.subject);
+        let signed = signed.map_err(|e| self.token_failed(usable, e))?;
+        signed.secrets().into_iter().for_each(|s| self.net.saw(s));
+        Ok(signed)
     }
 
-    /// `e`, which getting `usable`'s token failed with, as the plugin is told it.
+    /// `e`, which getting what `usable`'s account is signed in with failed with, as the plugin is
+    /// told it.
     fn token_failed(&self, usable: &Usable, e: Error) -> RpcError {
         let why = self.net.scrub(&e.to_string());
         match e.reason() {

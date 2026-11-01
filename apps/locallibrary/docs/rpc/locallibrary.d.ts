@@ -8094,20 +8094,23 @@ export type Access = {
   declined?: string[];
 };
 
-/** A sign-in to an account of a type, waiting for the browser. */
+/** A sign-in to an account of a type, waiting for the browser, or for the user's keys. */
 export type AccountSignIn = {
   /**
-   * Finishes it: [`Plugins::finish_account_sign_in`],
-   * [`Plugins::finish_account_sign_in_with_url`].
+   * Finishes it: [`Plugins::finish_account_sign_in`] or
+   * [`Plugins::finish_account_sign_in_with_url`], or with keys
+   * [`Plugins::finish_account_sign_in_with_keys`].
    */
   id: string;
   type: string;
   /** The account plugin signing in. */
   plugin: string;
-  /** Open this in the browser. */
+  /** Open this in the browser: the service's sign-in page, or where the user gets the keys. */
   url: string;
-  /** Where the browser comes back to. */
-  redirect_uri: string;
+  /** Where the browser comes back to, when it signs in there. */
+  redirect_uri?: string | null;
+  /** The keys to enter, by name, and what each is called, when it's signed in to with keys. */
+  keys?: { [key: string]: string };
 };
 
 /** What signing in to an account of a type did. */
@@ -8409,7 +8412,7 @@ export type TokenPlace =
 
 /**
  * `whoami = { url = "...", subject = "/sub", name = "/email" }`: the endpoint the host gets with a
- * new access token, and JSON pointers into its answer.
+ * new access token, or keys just entered, and JSON pointers into its answer.
  */
 export type Whoami = {
   /** Where (https). */

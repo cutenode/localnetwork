@@ -280,3 +280,40 @@ requests = [{{ method = "GET", url = "{server}/p/*" }}]
 "#
     )
 }
+
+/// An account plugin providing the `mock` account type at `server`, signed in to with an `access`
+/// and a `secret` key going where `goes` (a TOML array of places) says, asking `whoami` (an
+/// address) who they're for when it's given. Its scopes: `read` covers GETs under `/r/`, and
+/// `write` POSTs under `/w/`.
+pub fn keys_account_plugin(server: &str, whoami: Option<&str>, goes: &str) -> String {
+    let whoami = whoami.map(|w| format!("whoami = {{ url = \"{w}\", subject = \"/id\", name = \"/name\" }}\n"));
+    format!(
+        r#"id = "{WITH}"
+name = "Mock accounts"
+version = "0.1.0"
+protocol = "^0.2"
+
+[[contributes.account_types]]
+type = "mock"
+title = "Mock"
+kind = "keys"
+keys_url = "{server}/keys"
+goes = {goes}
+{whoami}
+[contributes.account_types.keys.access]
+title = "Access key"
+
+[contributes.account_types.keys.secret]
+title = "Secret key"
+
+[contributes.account_types.scopes.read]
+title = "read"
+requests = [{{ method = "GET", url = "{server}/r/*" }}]
+
+[contributes.account_types.scopes.write]
+title = "write"
+requests = [{{ method = "POST", url = "{server}/w/*" }}]
+"#,
+        whoami = whoami.unwrap_or_default()
+    )
+}

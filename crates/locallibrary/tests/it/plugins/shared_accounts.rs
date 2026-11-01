@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use locallibrary::keychain::Storage;
 use locallibrary::plugin::{Account, AccountSignedIn};
 
-use super::accounts::{Service, come_back_to, form, has, opened_at, service};
+use super::accounts::{Service, back, come_back_to, form, has, opened_at, service};
 use super::net::{Got, Reply, Server};
 use super::*;
 pub(super) use crate::mock_oauth::WITH;
@@ -116,7 +116,7 @@ impl Mock {
             let mut s = self.state.lock().unwrap();
             (s.challenge, s.signing_in_as) = (query["code_challenge"].clone(), who);
         }
-        let browser = come_back_to(&start.redirect_uri, format!("code=c0de&state={}", query["state"]));
+        let browser = come_back_to(back(&start), format!("code=c0de&state={}", query["state"]));
         let done = self.f.plugins.finish_account_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent());
         browser.join().unwrap();
         (done, query)

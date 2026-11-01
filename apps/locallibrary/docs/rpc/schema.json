@@ -31010,7 +31010,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Finishes it: [`Plugins::finish_account_sign_in`],\n[`Plugins::finish_account_sign_in_with_url`]."
+          "description": "Finishes it: [`Plugins::finish_account_sign_in`] or\n[`Plugins::finish_account_sign_in_with_url`], or with keys\n[`Plugins::finish_account_sign_in_with_keys`]."
         },
         "type": {
           "type": "string"
@@ -31021,21 +31021,30 @@
         },
         "url": {
           "type": "string",
-          "description": "Open this in the browser."
+          "description": "Open this in the browser: the service's sign-in page, or where the user gets the keys."
         },
         "redirect_uri": {
-          "type": "string",
-          "description": "Where the browser comes back to."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the browser comes back to, when it signs in there."
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The keys to enter, by name, and what each is called, when it's signed in to with keys."
         }
       },
       "required": [
         "id",
         "type",
         "plugin",
-        "url",
-        "redirect_uri"
+        "url"
       ],
-      "description": "A sign-in to an account of a type, waiting for the browser."
+      "description": "A sign-in to an account of a type, waiting for the browser, or for the user's keys."
     },
     "AccountSignedIn": {
       "type": "object",
@@ -31901,7 +31910,7 @@
         "subject",
         "name"
       ],
-      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, and JSON pointers into its answer."
+      "description": "`whoami = { url = \"...\", subject = \"/sub\", name = \"/email\" }`: the endpoint the host gets with a\nnew access token, or keys just entered, and JSON pointers into its answer."
     },
     "Key": {
       "type": "object",
