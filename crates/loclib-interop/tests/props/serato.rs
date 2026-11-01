@@ -534,6 +534,7 @@ fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
                 color: None,
                 color_id: 0,
                 loop_beats: None,
+                active_loop: false,
             })
             .collect();
         analysis.insert(t.id, (Vec::new(), cues));

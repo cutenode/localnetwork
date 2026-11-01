@@ -50,6 +50,7 @@ fn cue(tc: &TestCase, max_ms: u32) -> Cue {
         color: tc.draw(gs::optional(gs::arrays::<_, _, 3>(gs::integers::<u8>()))),
         color_id: tc.draw(gs::integers::<u8>().max_value(10)),
         loop_beats: length.and(loop_beats),
+        active_loop: length.is_some() && tc.draw(gs::booleans()),
     }
 }
 
