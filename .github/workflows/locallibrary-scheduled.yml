@@ -3,8 +3,9 @@ name: locallibrary scheduled
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
 # combination, Bombadil, mutation testing, fuzzing, the Hegel property tests on fresh inputs, the
-# CLI's timings against a week earlier and a release build of every target. Also a weekly RustSec check, which catches advisories published against
-# Cargo.lock between pushes.
+# CLI's timings against a week earlier and a release build of every target. A week that changed
+# none of what they test skips them (see the changes job). Also a weekly RustSec check, which
+# catches advisories published against Cargo.lock between pushes, so it runs every week.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -19,6 +20,66 @@ env:
 
 # Pinned the same way as locallibrary-ci.yml.
 jobs:
+  # Whether anything the suites test changed since the last weekly or hand-started run on main that
+  # passed, which every job but advisories and report needs. A run that failed doesn't count, so the
+  # suites run again each week until one passes. Started by hand, everything runs, as it does when
+  # none of the workflow's last 100 runs passed and there's nothing to compare with.
+  # The paths are ci.yml's locallibrary ones, plus what only these suites read: the fuzz targets,
+  # the scripts the Hegel and timing jobs run, dist's configuration and installer for the release
+  # build, and .node-version for Bombadil's specifications.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.locallibrary == 'true' || steps.filter.outputs.readmes == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            locallibrary:
+              - 'apps/locallibrary/**'
+              - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - 'packages/tokens/**'
+              - 'fuzz/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - 'deny.toml'
+              - 'dist-workspace.toml'
+              - '.cargo/**'
+              - '.config/nextest.toml'
+              - '.node-version'
+              - 'lexicons/**'
+              - 'tools/hegel-coverage.sh'
+              - 'tools/cli-timings.sh'
+              - '.github/actions/install-dist/**'
+              - '.github/workflows/locallibrary-scheduled.yml'
+              - '!**/*.md'
+            readmes:
+              - 'crates/*/README.md'
+
+  # Every week whatever changed: advisories are published without a commit here.
   advisories:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -36,6 +97,8 @@ jobs:
   # with and without the account. No ALSA headers until the last step, which shows the builds
   # without `playback` don't need them; then clippy over every combination of features.
   features:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -62,6 +125,8 @@ jobs:
   # apps/locallibrary/bombadil/).
   # macOS and Linux only: Bombadil has no Windows build.
   bombadil:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +182,8 @@ jobs:
   # Only the code changed in the past week: all of it is about 4,800 mutants and 20 runner-hours.
   # A whole crate runs locally with `cargo mutants -p <crate>`.
   mutants:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -189,6 +256,8 @@ jobs:
   # targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
   # crash fails the job and uploads its input.
   fuzz:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -240,6 +309,8 @@ jobs:
   # failure to find others, and the failing examples it finds are cached for the next run to try
   # first; a failure fails the job and prints the line that replays it.
   hegel:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -295,6 +366,8 @@ jobs:
   # keeps their history and raises an alert when a command is slower than the upper 99% bound of a
   # t-test over its last 64 runs.
   cli-timings:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -357,6 +430,8 @@ jobs:
   # signing and notarization: the matrix comes from `dist plan`, and the global job builds the
   # installers, formula and checksums over every target's archive.
   release-plan:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     outputs:
@@ -441,11 +516,13 @@ jobs:
       - run: dist build --artifacts=global
 
   # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
-  # that passes closes it (scheduled-issue.yml).
+  # that passes closes it (scheduled-issue.yml). Skipped suites count as passed.
   report:
     needs:
-      [advisories, features, bombadil, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
-    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+      [changes, advisories, features, bombadil, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
+    # A week the suites skip follows one that passed, so no issue is open, and only the advisories
+    # can fail.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && (needs.changes.outputs.run == 'true' || needs.advisories.result != 'success') }}
     permissions:
       actions: read
       issues: write
