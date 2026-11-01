@@ -41,7 +41,7 @@ export type DirectoryMatch = {
 export type DirectoryOutputs = {
 	searchProjects: { projects: DirectoryProject[]; total: number; cursor?: string };
 	matchProjects: { matches: DirectoryMatch[] };
-	getProject: { project?: DirectoryProject };
+	getProject: { project?: DirectoryProject; pressKits?: number; upcomingShows?: number };
 	getProjects: { projects: DirectoryProject[] };
 	getStats: {
 		total: number;

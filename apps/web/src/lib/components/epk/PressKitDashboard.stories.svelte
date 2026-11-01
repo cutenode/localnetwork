@@ -100,6 +100,12 @@
 
 <Story name="Loading" args={{ ...list, dashboard: pending<EpkDashboard>() }} />
 
+<Story name="Loading three press kits" args={{ ...list, dashboard: pending<EpkDashboard>(), count: 3 }} />
+
+<Story name="Loading three press kits on a phone" args={{ ...list, dashboard: pending<EpkDashboard>(), count: 3 }} globals={phone} />
+
+<Story name="Loading, none yet" args={{ ...list, dashboard: pending<EpkDashboard>(), count: 0 }} />
+
 <Story name="Couldn't load" args={{ ...list, dashboard: failed<EpkDashboard>() }} />
 
 <Story name="Draft status badges" asChild>

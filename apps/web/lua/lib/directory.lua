@@ -176,6 +176,11 @@ end
 local UPCOMING = " AND coalesce(datetime(json_extract(s.record, '$.endsAt')),"
 	.. " datetime(json_extract(s.record, '$.startsAt'), '+12 hours')) > datetime('now')"
 
+-- The FROM and WHERE of showRows and showCount.
+local SHOWS_FROM = " FROM happyview_records s JOIN happyview_records p ON p.uri = json_extract(s.record, '$.project')"
+	.. " WHERE s.collection = ? AND p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'"
+	.. " AND EXISTS (SELECT 1 FROM json_each(p.record, '$.managers') WHERE value = s.did)"
+
 -- Shows (aliased s) by a current manager of the active root project they name (aliased p), narrowed by `where` (SQL
 -- starting with ' AND ') and followed by `order` (ORDER BY and LIMIT, or ''), their placeholders filled from `args`.
 -- Each row has the show's uri, cid, and record JSON, its latE6 and lngE6, and the project's projectUri, projectCid,
@@ -187,13 +192,18 @@ local function showRows(where, args, order)
 		'SELECT s.uri, s.cid, s.record,'
 			.. " json_extract(s.record, '$.location.latE6') AS latE6, json_extract(s.record, '$.location.lngE6') AS lngE6,"
 			.. ' p.uri AS projectUri, p.cid AS projectCid, p.record AS project'
-			.. " FROM happyview_records s JOIN happyview_records p ON p.uri = json_extract(s.record, '$.project')"
-			.. " WHERE s.collection = ? AND p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'"
-			.. " AND EXISTS (SELECT 1 FROM json_each(p.record, '$.managers') WHERE value = s.did)"
+			.. SHOWS_FROM
 			.. where
 			.. order,
 		values
 	)
+end
+
+-- How many shows showRows would return for `where` and `args`, without reading them.
+local function showCount(where, args)
+	local values = { SHOW, PROJECT, ROOT_DID }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	return db.raw('SELECT count(*) AS n' .. SHOWS_FROM .. where, values)[1].n
 end
 
 -- A showRows row as a showView, `km` from the searched place when there was one.

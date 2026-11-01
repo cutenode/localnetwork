@@ -1,8 +1,10 @@
 import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
+import { MAX_EPKS_PER_PROJECT } from '#lib/epk.ts';
 import { type LatLng, toE6 } from '#lib/geo.ts';
 import { type MatchCriteria, type MatchResult, noteTexts } from '#lib/matching.ts';
 import { BSKY_FOLLOW, COLLECTION } from '#lib/nsid.ts';
+import { PROJECT_SHOWS } from '#lib/shows.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import type {
 	FieldChange,
@@ -167,11 +169,29 @@ export class ProjectService {
 		return row ? parseJson<ProjectDetails>(row.details, {}) : null;
 	}
 
-	async bySlug(slug: string): Promise<ProjectView | null> {
+	/**
+	 * A project by slug. With `counts`, the same query also counts the press kits and upcoming shows its pages stream in
+	 * afterwards, capped at as many as they list.
+	 */
+	async bySlug(slug: string, options: { counts?: boolean } = {}): Promise<ProjectView | null> {
 		if (!SLUG.test(slug)) return null;
-		const { project } = await this.directory.query('getProject', { slug });
 
-		return project ? this.toView(project) : null;
+		const { project, pressKits, upcomingShows } = await this.directory.query('getProject', {
+			slug,
+			counts: options.counts
+		});
+
+		const view = project && this.toView(project);
+
+		if (!view || pressKits === undefined || upcomingShows === undefined) return view ?? null;
+
+		return {
+			...view,
+			counts: {
+				pressKits: Math.min(pressKits, MAX_EPKS_PER_PROJECT),
+				upcomingShows: Math.min(upcomingShows, PROJECT_SHOWS)
+			}
+		};
 	}
 
 	async byUri(uri: string): Promise<ProjectView | null> {
