@@ -4,13 +4,29 @@ name: locallibrary CI
 # or push touches it: on Linux, everything below but other-os, and on macOS and Windows, other-os,
 # which ci.yml runs for each merge queue group (and on pull requests with the `all-os` label). The
 # slow suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
-# release build) and a weekly advisory check are in locallibrary-scheduled.yml, the benchmarks in
-# locallibrary-bench.yml, and locallibrary-cache.yml keeps other-os's caches on main.
+# release build) and a weekly advisory check are in locallibrary-scheduled.yml, and
+# locallibrary-cache.yml keeps other-os's caches on main.
 on:
   workflow_call:
     inputs:
       linux:
         description: Whether to run the Linux jobs.
+        type: boolean
+        required: true
+      docs:
+        description: Whether only the crates' docs changed (ci.yml's locallibrary_readmes paths), so lint runs the doctests and the docs.
+        type: boolean
+        required: true
+      cache:
+        description: Whether to run the jobs that save main's caches, for a push to main that changed what they're keyed on (rust_cache).
+        type: boolean
+        required: true
+      deny:
+        description: Whether what cargo-deny reads changed (locallibrary_deny).
+        type: boolean
+        required: true
+      dist:
+        description: Whether a pull request changed what `dist plan` reads (locallibrary_dist).
         type: boolean
         required: true
       other-os:
@@ -36,33 +52,68 @@ env:
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
 # install` with no arguments installs it, with clippy and rustfmt.
 jobs:
+  # fmt, clippy, the doctests and the docs, which build the same crates, in one job. A change to the
+  # crates' READMEs alone (`docs`) runs only the doctests and the docs. A pull request that changes
+  # what `dist plan` reads gets the plan here too (`dist`), in place of a runner of its own in
+  # locallibrary-release.yml.
   lint:
-    if: inputs.linux
+    if: inputs.linux || inputs.docs || inputs.cache || inputs.dist
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # dist reads the workspace through cargo too.
       - run: rustup toolchain install
       # Only main saves its caches, which pull requests restore. A cache saved by each pull request
       # would push main's out of the repo's 10 GB.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - if: inputs.linux || inputs.docs || inputs.cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: inputs.linux || inputs.cache
+        run: cargo fmt --all --check
+      # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
+      # passes clippy without ALSA's headers, so this runs before they're installed.
+      # locallibrary-scheduled.yml runs its tests and every other combination.
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
       # The TUI's audio output goes through ALSA on Linux.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - if: inputs.linux || inputs.cache
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # nextest doesn't run doctests.
-      - run: cargo test --doc --workspace --locked
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: cargo test --doc --workspace --locked
+      - if: inputs.linux || inputs.docs || inputs.cache
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      # As locallibrary-release.yml's plan job runs it for a tag: it checks dist-workspace.toml and
+      # the manifests.
+      - if: inputs.dist
+        uses: ./.github/actions/install-dist
+      - if: inputs.dist
+        run: dist plan --output-format=json > "$RUNNER_TEMP/plan-dist-manifest.json"
+      # dist releases every package with a binary that doesn't opt out, so a new one would
+      # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
+      - if: inputs.dist
+        name: Check only locallibrary-cli is released
+        run: |
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' "$RUNNER_TEMP/plan-dist-manifest.json" > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' "$RUNNER_TEMP/plan-dist-manifest.json"), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+            exit 1
+          fi
 
   # Build, then test in 3 shards, then coverage, with the Hegel coverage beside the shards. The
   # build job compiles the tests once, instrumented for coverage, into a nextest archive that the
   # shards run, and the coverage job merges the shards' profiles and fails below the thresholds in
-  # .cargo/config.toml.
+  # .cargo/config.toml. On a push to main that changed what the caches are keyed on (`cache`), it
+  # only builds, for its cache.
   build:
-    if: inputs.linux
+    if: inputs.linux || inputs.cache
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -86,6 +137,7 @@ jobs:
 
   test:
     needs: build
+    if: inputs.linux
     strategy:
       fail-fast: false
       matrix:
@@ -139,6 +191,7 @@ jobs:
   hegel:
     name: Hegel coverage
     needs: build
+    if: inputs.linux
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -325,28 +378,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
-  # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
-  # other combination.
-  features:
-    if: inputs.linux
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
-
   # The oldest Rust the workspace supports: `rust-version` in Cargo.toml (keep the two in step).
   # Only the library and the CLI, what `cargo install` builds (with their default features): the
   # tests' dev-dependencies may need a newer Rust.
   msrv:
-    if: inputs.linux
+    if: inputs.linux || inputs.cache
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -363,28 +399,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo +1.91 check --workspace --locked
 
-  docs:
-    if: inputs.linux
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      RUSTDOCFLAGS: -D warnings
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - run: cargo doc --workspace --no-deps --locked
-
-  # RustSec advisories, banned crates and where crates come from (see deny.toml).
-  # locallibrary-scheduled.yml also checks advisories weekly, for ones published between pushes.
+  # RustSec advisories, banned crates and where crates come from (see deny.toml), when what it reads
+  # changed. locallibrary-scheduled.yml also checks advisories weekly, for ones published between
+  # pushes.
   deny:
-    if: inputs.linux
+    if: inputs.deny
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -466,12 +485,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # The coverage summary from the coverage job on the pull request, in one comment each push
-  # updates. A fork's pull request gets a read-only token, so its summary stays in the run's. It
-  # can't fail the call, so a comment that can't post never holds up a merge.
+  # updates, when the coverage job ran. A fork's pull request gets a read-only token, so its summary
+  # stays in the run's. It can't fail the call, so a comment that can't post never holds up a merge.
   report:
     name: Coverage report
     needs: coverage
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && inputs.linux }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.coverage.result != 'skipped' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 5

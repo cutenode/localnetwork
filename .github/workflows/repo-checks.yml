@@ -3,13 +3,21 @@ name: Repo checks
 # The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
 # config files, ast-grep's rules (sgconfig.yml) over the Rust, TypeScript and Svelte code, goat over
 # the lexicons, and on main, that GitHub's "Protect Main" ruleset is .github/rulesets/protect-main.json.
-# ci.yml calls it on every pull request and push, and it runs weekly too, for a ruleset changed in
-# GitHub's settings.
+# ci.yml calls it with the jobs a pull request or push needs, and it runs weekly too, for a ruleset
+# changed in GitHub's settings, which starts no workflow.
 on:
   workflow_call:
     inputs:
+      policy:
+        description: Whether to run the policies and ast-grep (ci.yml's repo_checks paths).
+        type: boolean
+        required: true
       lexicons:
         description: Whether the lexicons changed, so goat checks them.
+        type: boolean
+        required: true
+      ruleset:
+        description: Whether a push to main changed the ruleset file, so it's checked against GitHub's copy.
         type: boolean
         required: true
   schedule:
@@ -20,8 +28,10 @@ permissions:
   contents: read
 
 jobs:
-  # The policies are quick and read files from all over, so they always run.
+  # Every pull request but one that only edits Markdown, and manual runs. Not weekly: the policies
+  # and ast-grep read only the repo, which every push to it already checked.
   policy:
+    if: github.event_name == 'workflow_dispatch' || inputs.policy
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,8 +49,9 @@ jobs:
       - run: pnpm exec ast-grep test --skip-snapshot-tests
       - run: pnpm exec ast-grep scan
 
-  # Scheduled and manual runs have no inputs: they check everything. (An empty input compares
-  # equal to false, so `inputs.lexicons != false` alone would skip them.)
+  # Weekly too: `breaking` compares with the published lexicons, which change outside the repo.
+  # Scheduled and manual runs have no inputs. (An empty input compares equal to false, so
+  # `inputs.lexicons != false` alone would skip them.)
   lexicons:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.lexicons
     runs-on: ubuntu-latest
@@ -62,9 +73,10 @@ jobs:
 
   # Not on pull requests: a new required check goes into the file with the workflow that reports
   # it, and an admin applies the file once it merges (tools/ruleset.sh apply). Until then, this
-  # fails on main.
+  # fails on main. On a push to main only when the file changed; weekly for a change made in
+  # GitHub's settings.
   ruleset:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.ruleset
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

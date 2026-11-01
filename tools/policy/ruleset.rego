@@ -42,7 +42,16 @@ deny contains msg if {
 	queue.type == "merge_queue"
 	some scanning in rules
 	scanning.type == "code_scanning"
-	wf := lib.file(".github/workflows/codeql.yml")
-	not workflows.runs_on(workflows.triggers(wf), "merge_group")
-	msg := ".github/workflows/codeql.yml: add `on.merge_group`; the code scanning rule holds each merge queue group until CodeQL analyses its commit"
+	not codeql_on_merge_groups
+	msg := ".github/workflows/codeql.yml: run it on merge_group, or call it from a workflow that does (as ci.yml does); the code scanning rule holds each merge queue group until CodeQL analyses its commit"
+}
+
+codeql_on_merge_groups if workflows.runs_on(workflows.triggers(lib.file(".github/workflows/codeql.yml")), "merge_group")
+
+codeql_on_merge_groups if {
+	some path in lib.paths(".github/workflows/*.yml")
+	wf := lib.file(path)
+	workflows.runs_on(workflows.triggers(wf), "merge_group")
+	some _, job in wf.jobs
+	job.uses == "./.github/workflows/codeql.yml"
 }
