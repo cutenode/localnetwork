@@ -60,7 +60,7 @@
 			{#if project.status === 'active'}<a href="{base}/shows/new" class="btn-secondary btn-sm"><Megaphone class="size-4" />Announce a show</a>{/if}
 		</div>
 		{#await Promise.all([data.shows, data.edited])}
-			<ShowList shows={undefined} project={project.uri} empty={{ title: '' }} />
+			<ShowList shows={undefined} rows={project.counts?.upcomingShows || 1} project={project.uri} empty={{ title: '' }} />
 		{:then [shows, edited]}
 			<ShowList {shows} project={project.uri} {editable} {edited} retryHref={page.url.pathname} empty={{ title: 'No upcoming shows', body: 'Announce one and it shows on your page and to your followers.' }} />
 		{/await}

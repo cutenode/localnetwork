@@ -4,16 +4,32 @@
 	"defs": {
 		"main": {
 			"type": "query",
-			"description": "Get one published project by URI or slug. The output has no project when none matches.",
+			"description": "Get one published project by URI or slug. The output has no project when none matches. With counts, it also says how many press kits and upcoming shows the project's pages list, so they can hold room for them while those load.",
 			"parameters": {
 				"type": "params",
-				"properties": { "uri": { "type": "string", "format": "at-uri" }, "slug": { "type": "string", "maxLength": 64 } }
+				"properties": {
+					"uri": { "type": "string", "format": "at-uri" },
+					"slug": { "type": "string", "maxLength": 64 },
+					"counts": { "type": "boolean", "description": "Also count the project's press kits and upcoming shows." }
+				}
 			},
 			"output": {
 				"encoding": "application/json",
 				"schema": {
 					"type": "object",
-					"properties": { "project": { "type": "ref", "ref": "computer.localnetwork.directory.defs#projectView" } }
+					"properties": {
+						"project": { "type": "ref", "ref": "computer.localnetwork.directory.defs#projectView" },
+						"pressKits": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Press kits naming the project, by the root or one of its managers, once each by record key. Only with counts."
+						},
+						"upcomingShows": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Upcoming shows of the project, as listShows lists them. Only with counts."
+						}
+					}
 				}
 			}
 		}

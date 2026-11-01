@@ -311,6 +311,9 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         ));
     }
     warnings.extend(edit::journal::forget_warning(target, None, "packing"));
+    if databases.plus.is_some() {
+        warnings.extend(crate::player::no_name_note(target));
+    }
     let transcode_bytes: u64 = made.transcodes.iter().filter(|t| !t.current).map(|t| t.size).sum();
     if !written.fits {
         warnings.push(format!(

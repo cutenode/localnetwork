@@ -4,8 +4,11 @@
 
 	let { name = 'genres', value = '', max = 12, id = 'genres', placeholder = 'Type a genre and press Enter' }: { name?: string; value?: string; max?: number; id?: string; placeholder?: string } = $props();
 
+	// What the plain input holds, bound so the tags start from whatever was typed before the page hydrated.
+	let typed = $derived(value);
+
 	let tags = $derived(
-		value
+		typed
 			.split(',')
 			.map((item) => normalizeGenre(item))
 			.filter(Boolean)
@@ -63,7 +66,7 @@
 	</div>
 	<input type="hidden" {name} value={tags.join(', ')} />
 {:else}
-	<input {id} class="input" {name} {value} list="{id}-options" placeholder="house, techno, disco" />
+	<input {id} class="input" {name} bind:value={typed} list="{id}-options" placeholder="house, techno, disco" />
 {/if}
 <datalist id="{id}-options">
 	{#each KNOWN_GENRES as genre (genre)}<option value={genre}></option>{/each}

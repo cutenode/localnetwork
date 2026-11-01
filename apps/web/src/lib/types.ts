@@ -253,7 +253,15 @@ export type ProjectView = {
 	updatedAt: string;
 	avatarUrl: string | null;
 	distanceKm?: number | null;
+	/** Only from a lookup that asked for them (ProjectService.bySlug with `counts`). */
+	counts?: ProjectCounts;
 };
+
+/**
+ * How many press kits and upcoming shows a project's pages list, at most as many as they show, known before those
+ * lists stream in so their placeholders hold that much room.
+ */
+export type ProjectCounts = { pressKits: number; upcomingShows: number };
 
 export type AccountView = { did: string; handle: string | null };
 

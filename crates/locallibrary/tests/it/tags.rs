@@ -790,3 +790,31 @@ fn tag_filters_select_with_the_drives_my_tags() {
     let cues = api::cues_list(&ListCues { library: drive.into(), tracks: filter("tag:\"Peak Time\"") }).unwrap();
     assert_eq!(cues.iter().map(|c| c.track.id).collect::<Vec<_>>(), peak);
 }
+
+/// Regression: a OneLibrary category id past exportExt.pdb's `u32` made the next category id
+/// planned for exportExt.pdb one past it too, so the plan looked fine and applying failed with "My
+/// Tag id N doesn't fit". exportExt.pdb gets the smallest free id instead, and plan and apply
+/// agree.
+#[test]
+fn a_onelibrary_category_id_past_u32_still_plans_what_applies() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = both_drive(dir.path());
+    // exportExt.pdb with room for two more categories, and OneLibrary with one numbered past it.
+    let ext_path = root.join(paths::EXPORT_EXT_PDB);
+    let ids: Vec<u32> = ExtDatabase::from_file(&ext_path).unwrap().categories().iter().map(|c| c.id).collect();
+    let mut ed = ExtEditor::from_file(&ext_path).unwrap();
+    for id in &ids[2..] {
+        ed.remove(*id).unwrap();
+    }
+    ed.save(&ext_path).unwrap();
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    one.add_my_tag(i64::from(u32::MAX) + 1, 0, "Venue", true).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let mut d = Device::open_export(&root).unwrap();
+    let tracks = select(&d, "Noise");
+    let plan = tags::plan(&d, &add("Venue/Club", tracks)).unwrap();
+    tags::apply(&plan, &mut d, &Ctx::silent()).unwrap_or_else(|e| panic!("planned, then: {e}"));
+    let ext = ExtDatabase::from_file(&ext_path).unwrap();
+    let venue = ext.categories().into_iter().find(|c| c.name == "Venue").expect("Venue in exportExt.pdb");
+    assert!(!ids[..2].contains(&venue.id), "a free id: {}", venue.id);
+}

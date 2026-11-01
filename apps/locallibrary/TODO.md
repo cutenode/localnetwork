@@ -46,9 +46,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       `cargo about` in `locallibrary-release.yml`, plus rekordbox-pdb's MIT notice for the vendored
       code and `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in
       CONTRIBUTING.md's release checklist, not both.
-- [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
-      mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
-      drives this job already wrote; refuse otherwise.
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
@@ -71,8 +68,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       read an account again.
 - [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
       down.
-- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
-      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
@@ -167,33 +162,20 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Open bugs and gaps
 
-- [ ] Found while raising coverage, each a decision: a lenient replay that skips
-      `DeleteHistoryLists` only says "not found", dropping which list; merging the same drive
-      twice in folder mode makes "(2)" copies of every playlist; under `LOCALLIBRARY_VOLUMES`,
-      `format::disk_at` still runs read-only `diskutil info`/`lsblk` on the disk holding the test
-      folder.
-- [ ] Redo: the backup an undo makes doesn't carry `edits.json` or the remembered player state, so
-      undo then redo leaves edits that replay won't redo, and restoring an older backup then a
-      newer one puts back edits the journal has forgotten.
-- [ ] A replay cut off by a crash leaves its backup without `after`: running the replay again
-      finishes it, but taking it back needs `undo --force`.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
 - [ ] `mix` matches one drive's library; tracks only on another drive (or only in rekordbox) show
       as "not in the library". `collection` could supply rekordbox's tracks.
 - [ ] `cue_edit.rs` sums its backup's size itself; it could use `backup::needed_bytes` like pack
       and clean (its sum also counts staged analysis files).
-- [ ] A sync or pack onto a stick with no `exportLibrary.db` takes on the source's player name and
-      colour, since there's none to keep. For set sticks, clearing it may be better.
 - [ ] Type-check `docs/rpc/locallibrary.d.ts` with `tsc` in CI once something consumes the RPC.
 - [ ] Apple signing secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
       `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) need a paid
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
-- [ ] `collection export`'s space check counts `written.needed_bytes` but not `download_bytes`
-      (online-only Dropbox files that download onto the boot disk): both the fit warning
-      (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
-      to `~/rekordbox-export` stopped at 1.8 of 25 GB.
+- [ ] `collection export` copies online-only files one at a time, so one that takes minutes to
+      download stalls the export (it now says which file it's waiting on). Start the next few
+      downloads while one copies (reading a file's first byte is enough).
 - [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
       and `account logout` may forget the handle after a refused status check.
 - [ ] Two property tests failed once and passed on reruns, with no saved case:
@@ -248,7 +230,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Features and decisions
 
-- [ ] `store serve` and `store fetch` aren't in the sidecar.
 - [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
       database still has it (`--replace` is the way out, `docs/editing.md`).
 

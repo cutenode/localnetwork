@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ACCESS_PRESETS, ACCESS_RULES, AUDIENCE_LABELS, AUDIENCES, type EpkAccess, presetFor, RULE_LABELS } from '#lib/epk.ts';
+	import { ACCESS_PRESETS, ACCESS_RULES, type AccessRule, type Audience, AUDIENCE_LABELS, AUDIENCES, type EpkAccess, presetFor, RULE_LABELS } from '#lib/epk.ts';
 
 	/** Column headings short enough for three to fit beside the groups on a phone. */
 	const RULE_SHORT = { auto: 'Straight in', review: 'You approve', none: "Can't ask" } as const;
@@ -25,10 +25,23 @@
 		if (chosen) custom = { ...chosen.access };
 	}
 
-	function set(audience: (typeof AUDIENCES)[number], rule: (typeof ACCESS_RULES)[number]) {
+	function set(audience: Audience, rule: AccessRule) {
 		custom = { ...custom, [audience]: rule };
 		preset = presetFor(custom)?.id ?? 'custom';
 	}
+
+	// What the radios bind to, so a choice made before the page hydrated counts: binding hands it to `pick` and
+	// `set` the way a click does, where `checked={...}` would put the saved choice back.
+	const bound = {
+		get preset() {
+			return preset;
+		},
+		set preset(id: string) {
+			pick(id);
+		},
+		// SAFETY: the properties below give every audience its rule.
+		rules: Object.defineProperties({} as EpkAccess, Object.fromEntries(AUDIENCES.map((audience) => [audience, { get: () => shown[audience], set: (rule: AccessRule) => set(audience, rule) }])))
+	};
 </script>
 
 <fieldset class="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
@@ -37,7 +50,7 @@
 	<div class="grid gap-2 sm:grid-cols-2">
 		{#each ACCESS_PRESETS as option (option.id)}
 			<label class="flex cursor-pointer gap-3 rounded-xl border border-line bg-surface p-3.5 has-checked:border-fg has-focus-visible:outline-2 has-focus-visible:outline-link">
-				<input type="radio" name="preset" value={option.id} checked={preset === option.id} onchange={() => pick(option.id)} class="mt-1 accent-fg" />
+				<input type="radio" name="preset" value={option.id} bind:group={bound.preset} class="mt-1 accent-fg" />
 				<span class="flex flex-col gap-0.5">
 					<span class="text-small font-semibold">{option.label}</span>
 					<span class="text-label text-fg-muted">{option.description}</span>
@@ -45,7 +58,7 @@
 			</label>
 		{/each}
 		<label class="flex cursor-pointer gap-3 rounded-xl border border-line bg-surface p-3.5 has-checked:border-fg has-focus-visible:outline-2 has-focus-visible:outline-link">
-			<input type="radio" name="preset" value="custom" checked={preset === 'custom'} onchange={() => (preset = 'custom')} class="mt-1 accent-fg" />
+			<input type="radio" name="preset" value="custom" bind:group={bound.preset} class="mt-1 accent-fg" />
 			<span class="flex flex-col gap-0.5">
 				<span class="text-small font-semibold">Your own mix</span>
 				<span class="text-label text-fg-muted">Pick a rule for each group below.</span>
@@ -75,8 +88,7 @@
 									type="radio"
 									name="access.{audience}"
 									value={rule}
-									checked={shown[audience] === rule}
-									onchange={() => set(audience, rule)}
+									bind:group={bound.rules[audience]}
 									aria-label="{AUDIENCE_LABELS[audience].label}: {RULE_LABELS[rule]}"
 									class="accent-fg"
 								/>

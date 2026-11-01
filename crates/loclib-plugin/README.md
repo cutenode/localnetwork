@@ -95,8 +95,10 @@ A response is never answered, not even a bad one. Errors use the RPC sidecar's c
 (parse error), -32600 (invalid request), -32601 (method not found), -32602 (invalid params),
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
 `incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
-`not_found`, `conflict`, `stale_plan`, `permission`, and `io` or `parse` about the file
-`data.fields.path` names), with the plugin named; any other kind is the plugin failing.
+`not_found`, `conflict`, and `io` or `parse` about the file `data.fields.path` names), with the
+plugin named, and `cancelled` as the request stopping. Any other kind is the plugin failing,
+`stale_plan` (only the host's plans go stale) and `permission` (a plugin never runs elevated)
+included.
 
 ## The manifest
 

@@ -65,12 +65,17 @@ pub struct Page {
 /// The drive's library ([`super::drive_library`]), its tracks paged when asked.
 pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Result<LibraryPage> {
     let (_, _, lib) = cache.read(&req.library)?;
+    Ok(library_page(&lib, req.offset, req.limit))
+}
+
+/// `lib` with its tracks from `offset`, at most `limit` of them; every track when neither is given.
+pub(super) fn library_page(lib: &Library, offset: Option<usize>, limit: Option<usize>) -> LibraryPage {
     let summary = lib.summary();
-    if req.offset.is_none() && req.limit.is_none() {
-        return Ok(LibraryPage { summary, library: Library::clone(&lib), page: None });
+    if offset.is_none() && limit.is_none() {
+        return LibraryPage { summary, library: lib.clone(), page: None };
     }
-    let offset = req.offset.unwrap_or(0);
-    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
+    let offset = offset.unwrap_or(0);
+    let tracks: Vec<Track> = lib.tracks.iter().skip(offset).take(limit.unwrap_or(usize::MAX)).cloned().collect();
     let page = Page { offset, count: tracks.len(), total: lib.tracks.len() };
     let library = Library {
         tracks,
@@ -78,7 +83,7 @@ pub fn drive_library_cached(cache: &LibraryCache, req: &LibraryRequest) -> Resul
         history_playlists: lib.history_playlists,
         history: lib.history.clone(),
     };
-    Ok(LibraryPage { summary, library, page: Some(page) })
+    LibraryPage { summary, library, page: Some(page) }
 }
 
 /// A playlist or folder in [`PlaylistTree`].

@@ -8,6 +8,9 @@
 	 */
 	let { name, hasAvatar }: { name: string; hasAvatar: boolean } = $props();
 
+	// Bound, so a name typed before the page hydrated stays (see formFields).
+	let typed = $derived(name);
+
 	let submitting = $state(false);
 </script>
 
@@ -34,7 +37,7 @@
 	>
 		<div class="sm:max-w-sm">
 			<label class="label" for="setup-name">Name</label>
-			<input id="setup-name" class="input" name="name" value={name} required maxlength="64" />
+			<input id="setup-name" class="input" name="name" bind:value={typed} required maxlength="64" />
 		</div>
 		{#if hasAvatar}
 			<label class="flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="blueskyAvatar" checked /> Use my Bluesky picture</label>
