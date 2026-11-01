@@ -47,3 +47,26 @@ it('takes its own document title, and keeps a page out of search when asked, wit
 	expect(tag('meta[name="robots"]')).toBe('noindex');
 	expect(document.head.querySelector('meta[property="og:image"]')).toBeNull();
 });
+
+it('names the records behind the page as at-tags, one tag per record', async () => {
+	const project = 'at://did:plc:root/computer.localnetwork.project/1';
+	const set = 'at://did:plc:a/computer.localnetwork.dj.set/3x';
+
+	await render(SocialMeta, {
+		meta: {
+			title: 'Warehouse by Neon Tide',
+			description: 'A tracklist',
+			url: 'https://localnetwork.test/projects/neon-tide/mixes/1',
+			type: 'music.song',
+			records: { canonical: [project], alternate: [set], author: ['at://did:plc:a', 'at://did:plc:b'] }
+		}
+	});
+
+	const values = (name: string) =>
+		[...document.head.querySelectorAll(`meta[name="${name}"]`)].map((meta) => meta.getAttribute('content'));
+
+	await expect.poll(() => values('at:canonical')).toEqual([project]);
+	expect(values('at:alternate')).toEqual([set]);
+	expect(values('at:author')).toEqual(['at://did:plc:a', 'at://did:plc:b']);
+	expect(document.head.querySelector('meta[property^="at:"], link[href^="at:"]')).toBeNull();
+});

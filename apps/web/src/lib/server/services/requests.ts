@@ -790,6 +790,25 @@ export class RequestService {
 		return open ?? null;
 	}
 
+	/**
+	 * Which of a project's managers asked for it themselves: their own request to create or claim it was approved.
+	 * Admins can name managers without asking them, and those aren't here.
+	 */
+	async joinedManagers(project: Pick<ProjectView, 'uri' | 'managers'>): Promise<Set<string>> {
+		if (project.managers.length === 0) return new Set();
+
+		const rows = await this.core.db
+			.selectFrom('request')
+			.select('requesterDid')
+			.where('requesterDid', 'in', project.managers)
+			.where('kind', 'in', ['create', 'claim'])
+			.where('status', '=', 'approved')
+			.where('resultProjectUri', '=', project.uri)
+			.execute();
+
+		return new Set(rows.map((row) => row.requesterDid));
+	}
+
 	async byRkey(rkey: string): Promise<RequestView | null> {
 		const row = await this.core.db.selectFrom('request').selectAll().where('rkey', '=', rkey).executeTakeFirst();
 

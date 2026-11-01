@@ -1,3 +1,4 @@
+import { AtUri } from '@atproto/syntax';
 import { expect, type Page, type Route, test } from '@playwright/test';
 import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { z } from 'zod';
@@ -276,6 +277,14 @@ test.describe('public pages', () => {
 		await expect(async () => {
 			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
 		}).toPass({ timeout: 60_000 });
+
+		// The records behind a page, as at-tags, by DID so a handle change doesn't break them.
+		const performer = new AtUri((await head('/projects/neon-tide')).property('at:canonical') ?? '');
+		expect(performer.host).toMatch(/^did:/);
+		expect(performer.collection).toBe('computer.localnetwork.project');
+		expect((await head('/@neon.test')).property('at:canonical')).toMatch(
+			/^at:\/\/did:[^/]+\/computer\.localnetwork\.profile\/self$/
+		);
 
 		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
 	});
