@@ -13,6 +13,8 @@
 		"@tailwindcss/typography",
 		"@fontsource-variable/instrument-sans",
 		"@fontsource-variable/jetbrains-mono",
+		"@fontsource/instrument-sans",
+		"@fontsource/jetbrains-mono",
 		"tailwindcss"
 	],
 	"ignoreExportsUsedInFile": true

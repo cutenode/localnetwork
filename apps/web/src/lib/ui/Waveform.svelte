@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ClassValue } from 'svelte/elements';
+	import type { ClassValue, SVGAttributes } from 'svelte/elements';
 	import { colors, type MixReport } from '#lib/mix/report.ts';
 
 	/**
@@ -7,7 +7,7 @@
 	 * three-band waveform: lows outermost, highs a bright core, each band in its colour at its
 	 * token scale, like a player's. Or pass `heights` (with `colors`) for a track overview, one
 	 * colour per column. Columns are grouped into one path per colour, so a long waveform stays a
-	 * handful of nodes.
+	 * handful of nodes. Anything else is set on the `<svg>` (a link-preview card gives it a size in pixels).
 	 */
 	let {
 		bands,
@@ -16,8 +16,9 @@
 		align = 'center',
 		playhead,
 		label,
-		class: extra = 'h-24'
-	}: {
+		class: extra = 'h-24',
+		...rest
+	}: SVGAttributes<SVGSVGElement> & {
 		bands?: Omit<MixReport['waveform'], 'secondsPerColumn'>;
 		heights?: number[];
 		colors?: string[];
@@ -71,6 +72,7 @@
 	role={label ? 'img' : undefined}
 	aria-label={label}
 	aria-hidden={label ? undefined : 'true'}
+	{...rest}
 >
 	{#each paths as [fill, d] (fill)}<path {d} style:fill={fill} />{/each}
 	{#if playhead !== undefined}<rect x={Math.min(Math.max(playhead, 0), 1) * n - 0.3} y="0" width="0.6" height={H} style:fill={colors.playhead} />{/if}
