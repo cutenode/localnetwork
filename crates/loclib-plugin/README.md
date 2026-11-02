@@ -264,7 +264,7 @@ The host signs the user in through an account plugin that provides the type (OAu
 authorization code flow with PKCE, the browser coming back to `127.0.0.1`), keeps the tokens in
 the system's keychain, refreshes them a minute before they expire, and gives the plugin access to
 the account (the scopes it needs, and the optional ones the user allows). The feature has no
-methods: it's the SDK's own.
+methods of the host's: it's the SDK's own.
 
 The plugin never sees a token: a `net/fetch` request names the account as `{account:<type>}`
 (the plugin's default access for the type) or `{account:<type>/<access id>}` (the access's 8 hex
@@ -274,6 +274,15 @@ access's scopes covers, while the access has every scope the plugin needs; other
 fails before it's sent, as `access` (no such access, or `reason` `signed_out`) or `scope`, its
 `fields` naming the `type`, the `scopes` and the `account_plugins`. Passed on, either is an
 `account` error saying how to sign in.
+
+Before it needs one of its optional scopes, a hook can ask for it: `accounts/ensure` (`{type,
+scopes, access?}`, `Host::ensure_account`) answers which of `scopes` it may use (`granted`) and
+which the user declined (`declined`), never a token. Where the access hasn't a scope, or the
+service didn't grant what it asks, the host asks the user, signing in again when it has to, and
+waits for them; a scope they decline isn't asked about again until they give it. Where it can't
+ask (`--json`, the sidecar, `watch`), it fails as a request would (`access` or `scope`, `needs`
+naming the scopes), which passed on says how to give them. A scope the plugin's `[[accounts]]`
+doesn't ask for is refused.
 
 The type's `token` says where the token goes: `Authorization: Bearer <token>` unless it says
 otherwise. `token = { scheme = "OAuth" }` sends `Authorization: OAuth <token>` (SoundCloud), and

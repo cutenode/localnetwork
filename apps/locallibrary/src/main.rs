@@ -50,6 +50,7 @@ use indexmap::IndexMap;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand, ValueEnum};
@@ -1193,6 +1194,13 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
     // operations.
     locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
+    // A plugin wanting more of an account asks in the terminal: not with `--json` or `--yes`, and
+    // never in `watch`, the sidecar or a plugin serving, which run on their own.
+    let alone = cli.command.as_ref().is_some_and(|c| c.handles_signals() || matches!(c, Command::Watch(_)));
+    if plugin_cmd::choose::interactive(out) && !out.yes && !alone {
+        let drawing = progress.drawing();
+        plugins::ask_to(Some(Arc::new(account_cmd::asking::Terminal { out, drawing })));
+    }
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
 

@@ -35,7 +35,7 @@ fn a_service_runs_once_its_turned_on_and_keeps_its_plugin() {
     let options = Options { idle: Duration::from_millis(100), ..Options::default() };
     let (f, notices) = service("beat", options);
     let keys: Vec<String> = f.plugins.setting_list("echo").unwrap().into_iter().map(|s| s.key).collect();
-    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.wait", "keys.playlist"];
+    let commands = ["keys.echo", "keys.titles", "keys.steps", "keys.ensure", "keys.wait", "keys.playlist"];
     assert_eq!(keys, [&["greeting", "services.beat"][..], &commands].concat());
     let key = f.plugins.set_setting("echo", &f.store, "keys.titles", Some(json!("%"))).unwrap();
     assert_eq!((key.get("keys.titles"), key.get("keys.steps")), (Some(&json!("%")), None));
