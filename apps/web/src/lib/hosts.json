@@ -1,0 +1,21 @@
+{
+	"$schema": "./hosts.schema.json",
+	"hosts": [
+		{
+			"name": "Bluesky",
+			"domain": "bsky.social",
+			"service": "https://bsky.social",
+			"country": "United States",
+			"note": "most people start here"
+		},
+		{ "name": "Blacksky", "domain": "blacksky.app", "service": "https://blacksky.app", "country": "United States" },
+		{ "name": "Eurosky", "domain": "eurosky.social", "service": "https://eurosky.social", "country": "Germany" },
+		{
+			"name": "self-hosted.social",
+			"domain": "selfhosted.social",
+			"service": "https://selfhosted.social",
+			"country": "United States"
+		},
+		{ "name": "npmx", "domain": "npmx.social", "service": "https://npmx.social", "country": "Germany" }
+	]
+}

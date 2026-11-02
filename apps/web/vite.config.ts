@@ -48,7 +48,8 @@ export default defineConfig({
 					// Mixcloud's and SoundCloud's widget APIs, loaded when someone opens one of their players.
 					'script-src': ['self', 'https://widget.mixcloud.com', 'https://w.soundcloud.com'],
 					'style-src': ['self', 'unsafe-inline'],
-					'img-src': ['self', 'data:', 'blob:'],
+					// cdn.bsky.app: the avatars in sign-in's account suggestions (src/lib/server/actor-search.ts).
+					'img-src': ['self', 'data:', 'blob:', 'https://cdn.bsky.app'],
 					'font-src': ['self'],
 					'connect-src': ['self'],
 					// Recordings the set player plays: DJs' own (/media/audio), plyr.fm's CDN, and archive.org downloads,
