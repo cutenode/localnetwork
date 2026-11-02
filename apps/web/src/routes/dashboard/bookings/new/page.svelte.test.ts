@@ -39,6 +39,7 @@ const fromShow = {
 	project,
 	values: inquiryValues({ title: 'Rooftop Rave', date: '2026-12-12T23:30:00.000Z', venue: 'The Lot', capacity: 300 }),
 	show: { rkey: '3kshow', title: 'Rooftop Rave' },
+	asks: [],
 	geocoder: false
 };
 
@@ -86,27 +87,15 @@ it('opens without a planner show, with only the defaults', async () => {
 });
 
 it('shows what the project asks for beside the budget, and leaves the venue city optional', async () => {
-	const asking: ProjectView = {
-		...project,
-		profile: {
-			...project.profile,
-			fees: [{ tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 }],
-			setTypes: ['peak', 'closing'],
-			setLength: { minMinutes: 90, maxMinutes: 240 }
-		}
-	};
-
 	await render(Page, {
 		params: {},
-		data: { ...fromShow, project: asking, values: inquiryDefaults, show: null },
+		data: { ...fromShow, values: inquiryDefaults, show: null, asks: ['Fee: Established.', 'Slots: Peak time.'] },
 		form: null
 	});
 
 	await expect
 		.element(page.getByLabelText('Budget'))
-		.toHaveAccessibleDescription(
-			/^Fee: Established · €600–€1,500\. Slots: Peak time, Closing\. Set length: 90–240 minutes\.$/
-		);
+		.toHaveAccessibleDescription('Fee: Established. Slots: Peak time.');
 	await expect.element(page.getByLabelText('City')).not.toBeRequired();
 });
 

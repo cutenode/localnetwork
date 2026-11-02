@@ -5,7 +5,6 @@
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import PlacePicker from '#lib/components/PlacePicker.svelte';
-	import { performerFacts } from '#lib/components/PerformerFacts.svelte';
 	import { draftKey, FormDraft } from '#lib/form-draft.svelte.ts';
 	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { placeLabel } from '#lib/format.ts';
@@ -24,13 +23,6 @@
 	const v: Record<string, string> = $derived(draft.values ?? form?.values ?? data.values);
 
 	const fields = $derived(formFields(v));
-
-	// What the project asks for, beside the budget, so the offer can match it.
-	const asks = $derived(
-		performerFacts(data.project.profile)
-			.filter((fact) => ['Fee', 'Fees', 'Slots', 'Set length'].includes(fact.term))
-			.map((fact) => `${fact.term}: ${[fact.value].flat().join('; ')}.`)
-	);
 </script>
 
 <svelte:head><title>Inquire with {data.project.profile.name} · Local Network</title></svelte:head>
@@ -77,7 +69,7 @@
 			<PlacePicker values={v} geocoder={data.geocoder} required={false} missing="Pick the venue's city from the search, so a confirmed booking can be announced with it." />
 			<div class="flex flex-col gap-1.5">
 				<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-					<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" bind:value={fields.budgetAmount} aria-describedby={asks.length ? 'asks' : undefined} /></div>
+					<div><label class="label" for="budgetAmount">Budget</label><input id="budgetAmount" type="number" min="0" name="budgetAmount" class="input" bind:value={fields.budgetAmount} aria-describedby={data.asks.length ? 'asks' : undefined} /></div>
 					<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input font-mono uppercase" maxlength="3" bind:value={fields.currency} /></div>
 					<div>
 						<label class="label" for="budgetTier">Tier</label>
@@ -88,7 +80,7 @@
 						<select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as option (option.value)}<option value={option.value} selected={v.setType === option.value}>{option.label}</option>{/each}</select>
 					</div>
 				</div>
-				{#if asks.length}<p id="asks" class="hint m-0">{asks.join(' ')}</p>{/if}
+				{#if data.asks.length}<p id="asks" class="hint m-0">{data.asks.join(' ')}</p>{/if}
 			</div>
 			<div><label class="label" for="genres">Sound of the night</label><GenreInput value={v.genres ?? ''} /></div>
 			<div>

@@ -9,15 +9,16 @@
 </script>
 
 <script lang="ts">
-	import { ChevronDown, PanelLeft } from '@lucide/svelte';
+	import { ChevronDown, Menu } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import Eyebrow from './Eyebrow.svelte';
 
 	/**
 	 * A signed-in area's page: a sidebar of `groups`, then `footer` below a rule, beside the page. On a
 	 * phone the sidebar folds into a menu button that names the current section with its icon, so it
-	 * doesn't read as a second site menu under the header's. `current` is the page's path; an item is
-	 * current on its own page and the pages under it.
+	 * doesn't read as a second site menu under the header's. With no current section it falls back to
+	 * the header's own menu icon, which keeps that icon in the chunk every page shares. `current` is the
+	 * page's path; an item is current on its own page and the pages under it.
 	 */
 	let {
 		label,
@@ -70,7 +71,7 @@
 
 <nav aria-label={label} class="max-lg:border-b max-lg:border-line max-lg:pb-3 lg:sticky lg:top-6 lg:self-start">
 		<button type="button" aria-expanded={open} aria-controls="{id}-items" aria-label="{title} menu: {here?.label ?? title}" onclick={() => (open = !open)} class="flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 text-small font-medium text-fg hover:bg-raised lg:hidden">
-			{#if here}<here.icon class="size-4 shrink-0" aria-hidden="true" />{:else}<PanelLeft class="size-4 shrink-0" aria-hidden="true" />{/if}<span class="min-w-0 truncate">{here?.label ?? title}</span>
+			{#if here}<here.icon class="size-4 shrink-0" aria-hidden="true" />{:else}<Menu class="size-4 shrink-0" aria-hidden="true" />{/if}<span class="min-w-0 truncate">{here?.label ?? title}</span>
 			<ChevronDown class={['ml-auto size-4 shrink-0 transition-transform', open && 'rotate-180']} aria-hidden="true" />
 		</button>
 		<div id="{id}-items" class={['flex-col gap-5 max-lg:pt-3 lg:flex', open ? 'flex' : 'hidden']}>

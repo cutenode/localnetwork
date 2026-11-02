@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { performerFacts } from '#lib/components/PerformerFacts.svelte';
 import { feeLevels } from '#lib/format.ts';
 import { parseShow } from '#lib/server/forms/show.ts';
 import { act, requireViewer, stringValues, text } from '#lib/server/http.ts';
@@ -44,6 +45,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		project,
 		values,
 		show: show && { rkey: show.rkey, title: show.details.title },
+		// What the project asks for, shown beside the budget so the offer can match it. Worded here, so the form's
+		// page doesn't share PerformerFacts with the project's public page (one more script for it to fetch).
+		asks: performerFacts(project.profile)
+			.filter((fact) => ['Fee', 'Fees', 'Slots', 'Set length'].includes(fact.term))
+			.map((fact) => `${fact.term}: ${[fact.value].flat().join('; ')}.`),
 		geocoder: locals.app.geocoder.enabled
 	};
 };

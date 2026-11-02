@@ -16,8 +16,8 @@ afterEach(async () => {
 	await f.t.db.destroy();
 });
 
-/** What the inquiry form to `slug` opens with for `did` at `query`, with their viewer changed by `as`. */
-async function opened(did: string, query: string, as: Partial<Viewer> = {}, slug = f.project.slug) {
+/** The inquiry form's load for `did` at `query` to `slug`, with their viewer changed by `as`. */
+async function loaded(did: string, query: string, as: Partial<Viewer> = {}, slug = f.project.slug) {
 	const locals = {
 		app: { ...f.t, geocoder: { enabled: false } },
 		viewer: { ...(await f.t.viewer(did)), ...as },
@@ -27,7 +27,12 @@ async function opened(did: string, query: string, as: Partial<Viewer> = {}, slug
 	const url = new URL(`https://x.test/dashboard/bookings/new?project=${slug}&${query}`);
 
 	// SAFETY: the load reads only the URL and locals, and the services are the app's own.
-	const data = await load({ url, locals } as never);
+	return load({ url, locals } as never);
+}
+
+/** What the inquiry form opens with: its values, and the planner show they came from. */
+async function opened(did: string, query: string, as: Partial<Viewer> = {}) {
+	const data = await loaded(did, query, as);
 
 	return data && { values: data.values, show: data.show };
 }
@@ -75,7 +80,7 @@ it("opens with the matcher's date, or empty, when there's no planner show to rea
 	});
 });
 
-it("starts the budget in the currency of the project's first fee", async () => {
+it("starts the budget in the currency of the project's first fee, with what the project asks for beside it", async () => {
 	const priced = await f.t.projectAdmin.create({
 		actor: await f.t.viewer(ADMIN),
 		profile: {
@@ -83,9 +88,20 @@ it("starts the budget in the currency of the project's first fee", async () => {
 			kind: 'solo',
 			genres: ['techno'],
 			location: { city: 'Berlin', country: 'DE' },
-			fees: [{ tier: 'established', currency: 'EUR', minAmount: 600 }]
+			fees: [{ tier: 'established', currency: 'EUR', minAmount: 600, maxAmount: 1500 }],
+			setTypes: ['peak', 'closing'],
+			setLength: { minMinutes: 90, maxMinutes: 240 }
 		}
 	});
 
-	expect((await opened(PROMOTER, '', {}, priced.slug))?.values.currency).toBe('EUR');
+	const data = await loaded(PROMOTER, '', {}, priced.slug);
+
+	expect(data?.values.currency).toBe('EUR');
+	expect(data?.asks).toEqual([
+		'Fee: Established · €600–€1,500.',
+		'Slots: Peak time, Closing.',
+		'Set length: 90–240 minutes.'
+	]);
+	// The demo project asks for nothing, so nothing shows beside the budget.
+	expect((await loaded(PROMOTER, ''))?.asks).toEqual([]);
 });
