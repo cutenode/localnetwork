@@ -68,6 +68,10 @@ pub struct AccountType {
     /// (`prompt = "select_account"`).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub another_account: IndexMap<String, String>,
+    /// The authorize params every sign-in sends besides (`access_type = "offline"`), none of
+    /// `one_account`'s or `another_account`'s.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub params: IndexMap<String, String>,
     /// What a plugin may be given access to, by name (`youtube-upload`).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub scopes: IndexMap<String, Scope>,
@@ -132,7 +136,8 @@ impl Scope {
 /// `[[contributes.account_types]]`: one, in a manifest with nothing else; its type and scopes'
 /// names, titles, endpoints (a token endpoint, or Local Network's token exchange in a built-in
 /// plugin), where its token goes and the port the browser comes back to, the service's scopes,
-/// pointers into who signed in, authorize params, and the requests each scope covers.
+/// pointers into who signed in, authorize params (each set in one place), and the requests each
+/// scope covers.
 pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError> {
     let (at, c) = ("contributes.account_types", &m.contributes);
     let Some(x) = c.account_types.first() else { return Ok(()) };
@@ -174,6 +179,13 @@ pub(crate) fn validate(m: &Manifest, built_in: bool) -> Result<(), ManifestError
     }
     params(&format!("{at}.one_account"), &x.one_account, true)?;
     params(&format!("{at}.another_account"), &x.another_account, false)?;
+    params(&format!("{at}.params"), &x.params, false)?;
+    let elsewhere = [("one_account", &x.one_account), ("another_account", &x.another_account)];
+    for key in x.params.keys() {
+        if let Some((which, _)) = elsewhere.iter().find(|(_, set)| set.contains_key(key)) {
+            return Err(invalid(format!("{at}.params.{key}"), format!("is in {which} too: set it in one place")));
+        }
+    }
     for (name, scope) in &x.scopes {
         let at = format!("{at}.scopes.{name}");
         if !is_name(name) {
@@ -235,7 +247,7 @@ fn params(at: &str, params: &IndexMap<String, String>, subject: bool) -> Result<
         if unnamed.contains(['{', '}']) {
             let why = match subject {
                 true => format!("{value:?} has a {{ or }} besides {SUBJECT_PLACEHOLDER}"),
-                false => format!("{value:?} has a {{ or }}: there's no account yet to name"),
+                false => format!("{value:?} has a {{ or }}: only one_account names an account"),
             };
             return Err(invalid(at, why));
         }

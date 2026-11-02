@@ -207,6 +207,7 @@ let manifest = Manifest::parse(r#"
     always = ["openid", "email"]
     whoami = { url = "https://openidconnect.googleapis.com/v1/userinfo", subject = "/sub", name = "/email" }
     one_account = { login_hint = "{subject}" }
+    params = { access_type = "offline" }
 
     [contributes.account_types.scopes.youtube-upload]
     title = "upload videos to YouTube"
@@ -244,8 +245,11 @@ assert!(!upload.covers("POST", &Url::parse("https://www.googleapis.com.evil.exam
   one it doesn't know, or isn't set up for yet, fails the sign-in with what the website said.
 - `one_account` and `another_account` are authorize params for signing in again as one account
   the host knows (`login_hint = "{subject}"`, the only placeholder) and for adding another
-  (`prompt = "select_account"`). They may be `login_hint`, `prompt`, `hd` and `access_type` only:
-  the host sets the rest itself, and others (`request_uri`) could replace what it sets.
+  (`prompt = "select_account"`), and `params` are those every sign-in sends
+  (`access_type = "offline"`, which Google wants before it gives a web client a refresh token).
+  They may be `login_hint`, `prompt`, `hd` and `access_type` only: the host sets the rest itself,
+  and others (`request_uri`) could replace what it sets. A param set in `params` isn't set in the
+  other two.
 - `[contributes.account_types.scopes.<name>]`: `title`, `asks` (the service's scopes it needs,
   none for one only locallibrary knows) and `requests`, each a `method` (`GET`, `HEAD`, `POST`,
   `PUT`, `PATCH` or `DELETE`) and a `url` written as it's read (`https://a.example/`, not

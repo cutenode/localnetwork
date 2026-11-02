@@ -76,8 +76,9 @@ impl Mock {
 }
 
 /// An account is signed in to for a plugin, listed with the access it gave (by `account`, `account
-/// TYPE:NAME status` and `plugin access`), signed out of, listed for that access, and the access
-/// taken away; and a command that can't name an account says why.
+/// TYPE:NAME status` and `plugin access`), given to it with more scopes, signed out of, listed for
+/// that access, signed in to again by name, and the access taken away; and a command that can't
+/// name an account says why.
 #[test]
 fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     let m = Mock::new();
@@ -100,12 +101,26 @@ fn an_account_is_signed_in_listed_and_signed_out_on_the_command_line() {
     }
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);
     assert_eq!(out, "mock: Tests\n  a@mock.example (default) · read\n");
+    let (code, _, err) = m.run(&["plugin", "access", "echo", "--scope", "write"]);
+    assert!(code == 2 && err.contains("--give"), "{err}");
+    let (code, out, err) = m.run(&["plugin", "access", "echo", "--give", "a", "--scope", "write"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, "✓ Gave echo access to the Mock account a@mock.example: read, write\n"),
+        "{err}"
+    );
 
     let (code, out, _) = m.run(&["account", "mock:a", "sign-out"]);
     assert_eq!((code, out.as_str()), (0, "✓ Signed out of a@mock.example\n"));
     let (_, out, _) = m.run(&["account"]);
-    let signed_out = "  signed out: `locallibrary account mock sign-in` signs in again\n  access: echo (default)\n";
+    let signed_out = "  signed out: `locallibrary account mock:a sign-in` signs in again\n  access: echo (default)\n";
     assert!(out.contains(signed_out), "{out}");
+    // Signed out, it's still named for signing in to again: echo has access to it.
+    let mut c = m.command();
+    c.args(["account", "mock:a@mock.example", "sign-in", "--no-browser", "--timeout", "10"]);
+    let (code, out, err) = m.approving(c, &who("a"));
+    assert_eq!((code, out.as_str()), (0, "✓ Signed in to the Mock account a@mock.example\n"), "{err}");
+    assert_eq!(m.run(&["account", "mock:a", "sign-out"]).0, 0);
     let (code, out, _) = m.run(&["plugin", "access", "echo", "--take-away", "a"]);
     assert_eq!((code, out.as_str()), (0, "✓ Took echo's access to the Mock account a@mock.example away\n"));
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);
@@ -338,6 +353,32 @@ fn a_destination_without_access_asks_which_account_in_a_terminal() {
     assert!(out.starts_with("✓ Echo uses the Mock account b@mock.example\n"), "{out}");
     let (_, out, _) = m.run(&["plugin", "access", "echo"]);
     assert_eq!(out, "mock: Tests\n  b@mock.example (default) · read\n");
+
+    // Signed out, it's offered signing in again as b; turned down, the destination is refused,
+    // saying so.
+    assert_eq!(m.run(&["account", "mock:b", "sign-out"]).0, 0);
+    let (code, _, err) = m.typed(&COPY, "n\n", "b");
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("? The Mock account b@mock.example, which Echo uses, is signed out. Sign in again? [y/N]"),
+        "{err}"
+    );
+    assert!(
+        err.contains("hint: Sign in again as b@mock.example, allowing read: locallibrary account mock:b sign-in"),
+        "{err}"
+    );
+    let (code, out, err) = m.typed(&COPY, "y\n", "b");
+    assert_eq!(code, 0, "{err}");
+    assert!(out.starts_with("✓ Signed in to the Mock account b@mock.example\n"), "{out}");
+    // Its access lacking what echo needs, it's offered giving it.
+    let file = m.env.store.join("accounts.json");
+    let mut kept: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    kept["accesses"][0]["scopes"] = json!([]);
+    std::fs::write(&file, kept.to_string()).unwrap();
+    let (code, out, err) = m.typed(&COPY, "y\n", "b");
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("? Echo needs to read with the Mock account b@mock.example. Give it access? [y/N]"), "{err}");
+    assert!(out.starts_with("✓ Echo has access to the Mock account b@mock.example\n"), "{out}");
 }
 
 /// A second account plugin's id, providing the `mock` type too.
@@ -430,10 +471,11 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     answered
 }
 
-/// For one account plugin providing the type or two, a service that says what it granted or not,
-/// revokes or not and whose tokens are refreshed, last an hour or last, accounts named by subject,
-/// name or TYPE:SUBJECT, and `--json` or not: signing in for echo and not, again as a kept account
-/// (the browser maybe approving another), each account's status, echo's accesses, making one its
+/// For one account plugin providing the type or two, a service that says what it granted (maybe
+/// not what echo can do without) or not, revokes or not and whose tokens are refreshed, last an
+/// hour or last, accounts named by subject, name or TYPE:SUBJECT, and `--json` or not: signing in
+/// for echo (saying what the service declined) and not, again as a kept account (the browser
+/// maybe approving another), each account's status, echo's accesses, making one its
 /// default, signing out and taking the access away say in words what they answer as JSON; a name
 /// two accounts share is refused, naming their subjects; with two account plugins, signing in
 /// without `--with` is refused, naming them, and so is signing in for echo with a scope it doesn't
@@ -450,7 +492,8 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     a_with = TOO,
     b_with = WITH,
     same_name = true,
-    instead = true
+    instead = true,
+    grants_write = true
 )]
 #[hegel::explicit_test_case(
     two = false,
@@ -462,7 +505,8 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     a_with = WITH,
     b_with = WITH,
     same_name = false,
-    instead = true
+    instead = true,
+    grants_write = false
 )]
 #[hegel::explicit_test_case(
     two = true,
@@ -474,7 +518,8 @@ fn echo_accesses(m: &Mock, two: bool) -> Value {
     a_with = WITH,
     b_with = TOO,
     same_name = true,
-    instead = false
+    instead = false,
+    grants_write = false
 )]
 fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
     let two = tc.draw(gs::booleans());
@@ -490,9 +535,13 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
     let b_with = tc.draw(gs::sampled_from(providers));
     let same_name = tc.draw(gs::booleans());
     let instead = tc.draw(gs::booleans());
+    // Whether the service grants what echo's optional `write` asks, which a is signed in for.
+    let grants_write = tc.draw(gs::booleans());
+    let granted = if grants_write || unscoped { "read write" } else { "read" };
     {
         let mut s = m.state.lock().unwrap();
         s.unscoped = unscoped;
+        s.grants = Some(granted.split(' ').map(String::from).collect());
         s.refreshless = !matches!(lasting, Lasting::Refreshed);
         s.expires_in = (!matches!(lasting, Lasting::Ever)).then_some(3600);
     }
@@ -527,19 +576,28 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
     let a = Kept { subject: "a", name: "a@mock.example".into(), with: a_with };
     let b_name = if same_name { a.name.clone() } else { "b@mock.example".into() };
     let b = Kept { subject: "b", name: b_name, with: b_with };
-    for (k, more) in [(&a, &["--for", "echo"][..]), (&b, &[])] {
+    let declined = !grants_write && !unscoped;
+    for (k, more) in [(&a, &["--for", "echo", "--scope", "write"][..]), (&b, &[])] {
         let mut c = m.command();
         c.args(maybe_json(json, &["account", "mock", "sign-in", "--no-browser", "--timeout", "10", "--with", k.with]));
         c.args(more);
         let (code, out, err) = m.approving(c, &json!({ "sub": k.subject, "email": k.name }));
         assert_eq!(code, 0, "{err}");
+        let for_echo = !more.is_empty();
         match json {
             true => {
                 let done = report(&out);
                 assert_eq!((&done["subject"], &done["plugin"]), (&json!(k.subject), &json!(k.with)), "{done}");
-                assert_eq!(done["access"]["default"], if more.is_empty() { Value::Null } else { json!(true) });
+                assert_eq!(done["access"]["default"], if for_echo { json!(true) } else { Value::Null });
+                let given = if declined { json!(["read"]) } else { json!(["read", "write"]) };
+                assert_eq!(done["access"]["scopes"], if for_echo { given } else { Value::Null }, "{done}");
+                let left_out = if declined && for_echo { json!(["write"]) } else { Value::Null };
+                assert_eq!((&done["declined"], &done["access"]["declined"]), (&left_out, &left_out), "{done}");
             }
-            false => assert!(out.starts_with(&format!("✓ Signed in to the {}\n", called(k))), "{out}"),
+            false => {
+                assert!(out.starts_with(&format!("✓ Signed in to the {}\n", called(k))), "{out}");
+                assert_eq!(out.contains("! the service didn't allow echo to write\n"), declined && for_echo, "{out}");
+            }
         }
     }
     let mut kept = vec![a.clone(), b.clone()];
@@ -602,7 +660,7 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
         };
         // What the service granted, or when it doesn't say, what was asked.
         let allowed = joined(&account["scopes"], " ");
-        assert_eq!(allowed == "read write", !unscoped, "{allowed}");
+        assert_eq!(allowed == granted, !unscoped, "{allowed}");
         let access = match one["accesses"].as_array().unwrap().is_empty() {
             true => "",
             false => "  access: echo (default)\n",
@@ -641,7 +699,8 @@ fn every_account_command_says_in_words_what_it_answers_as_json(tc: TestCase) {
         (false, false) => assert_eq!(out, format!("✓ Signed out of {} on this computer\n", a.name)),
     }
     let (_, shown, _) = m.run(&["account"]);
-    let signed_out = "signed out: `locallibrary account mock sign-in` signs in again\n  access: echo\n";
+    let signed_out =
+        format!("signed out: `locallibrary account mock:{} sign-in` signs in again\n  access: echo\n", a.subject);
     assert!(shown.contains(&format!("{}\n  {signed_out}", called(&a))), "{shown}");
     let (code, out, err) = m.run(&maybe_json(json, &["plugin", "access", "echo", "--take-away", &target]));
     assert_eq!(code, 0, "{err}");

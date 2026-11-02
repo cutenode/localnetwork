@@ -5080,6 +5080,26 @@
       }
     },
     {
+      "name": "accounts.access.give",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/GiveAccess"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Access"
+      }
+    },
+    {
       "name": "accounts.access.set_default",
       "aliases": [],
       "kind": "immediate",
@@ -12090,7 +12110,7 @@
             "string",
             "null"
           ],
-          "description": "An account the store keeps, by subject, to sign in to again (asking for more scopes, say).",
+          "description": "An account the store keeps, or one signed out that plugins still have access to, by\nsubject, to sign in to again (asking for more scopes, say).",
           "default": null
         },
         "scopes": {
@@ -12194,6 +12214,30 @@
           "default": null
         }
       }
+    },
+    "GiveAccess": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "account": {
+          "$ref": "#/$defs/AccountId"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Scopes of the account's type it can do without to give it besides those it needs, by name.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "account"
+      ]
     },
     "AccessRef": {
       "type": "object",
@@ -31214,6 +31258,13 @@
           "type": "boolean",
           "description": "It's the plugin's default for the type: `{account:<type>}` names it.",
           "default": false
+        },
+        "declined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The scopes (by name) a sign-in for it asked the service for, which didn't grant all they\nask, until it's given them again. Those it needs are in `scopes` too, and still can't be\nused."
         }
       },
       "required": [
@@ -31305,7 +31356,7 @@
             "string",
             "null"
           ],
-          "description": "The account it was to sign in again, when the browser signed in to another: that one is\nkept too, and this one as it was."
+          "description": "The account it was to sign in again, when the browser signed in to another: that one is\nkept too, and this one as it was. The plugin it was for isn't given access to it."
         },
         "access": {
           "anyOf": [
@@ -31317,6 +31368,13 @@
             }
           ],
           "description": "The access it gave the plugin it was signed in for, if it was."
+        },
+        "declined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The scopes (by name) asked for that plugin that the service didn't grant all they ask:\nthose it can do without aren't in its access."
         }
       },
       "required": [
@@ -31973,6 +32031,13 @@
             "type": "string"
           },
           "description": "The authorize params that sign in to another account than those the browser has\n(`prompt = \"select_account\"`)."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The authorize params every sign-in sends besides (`access_type = \"offline\"`), none of\n`one_account`'s or `another_account`'s."
         },
         "scopes": {
           "type": "object",
@@ -35119,7 +35184,7 @@
         {
           "type": "string",
           "const": "not_signed_in",
-          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout: sign in."
+          "description": "Not signed in to an Atmosphere account, or the account a plugin's access is to is signed\nout or won't stay signed in long enough: sign in."
         },
         {
           "type": "string",
