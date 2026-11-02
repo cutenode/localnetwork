@@ -17,9 +17,13 @@
 	<meta property="og:url" content={meta.url} />
 	{#if meta.image}
 		<meta property="og:image" content={meta.image.url} />
+		{#if meta.image.width}
+			<meta property="og:image:width" content={`${meta.image.width}`} />
+			<meta property="og:image:height" content={`${meta.image.height}`} />
+		{/if}
 		<meta property="og:image:alt" content={meta.image.alt} />
 		<meta name="twitter:image:alt" content={meta.image.alt} />
 	{/if}
-	<!-- Pictures so far are square avatars and photos, which the small card fits. -->
-	<meta name="twitter:card" content="summary" />
+	<!-- The site's cards are wide, which X shows large; a profile's square avatar fits the small card. -->
+	<meta name="twitter:card" content="summary{meta.image?.width ? '_large_image' : ''}" />
 </svelte:head>

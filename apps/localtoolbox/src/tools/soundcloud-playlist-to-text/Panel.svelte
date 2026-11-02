@@ -56,7 +56,9 @@
 
   // What there is to turn into text: the queue, or the page once it has been
   // read. Both are plain track objects, and everything below works on either.
-  const listed = $derived(fromQueue ? queue.items : (data?.tracks ?? []));
+  // Only the output reads this, and the output is drawn from the page only
+  // once the page has been read without a problem, which is when `data` is set.
+  const listed = $derived(fromQueue ? queue.items : data!.tracks);
 
   const tracks = $derived(
     processTracks(listed, { splitTitle: splitTitle.value, dedupe: dedupe.value })
@@ -120,7 +122,7 @@
           </Select.Trigger>
           <Select.Content>
             {#each FORMATS as option (option.value)}
-              <Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>
+              <Select.Item value={option.value} label={option.label} />
             {/each}
           </Select.Content>
         </Select.Root>

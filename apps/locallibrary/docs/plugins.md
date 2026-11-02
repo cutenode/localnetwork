@@ -2,8 +2,8 @@
 
 A plugin adds to locallibrary the kinds of things below (commands, operations that change a
 library, analyzers that work out values for each track, export and import formats, accounts,
-places to copy the store to...), each in a section of its own. It's a program of its own that
-locallibrary starts when it's first used and talks to over its stdin and stdout (the protocol is in
+places to copy the store to...). It's a program of its own that locallibrary starts when it's
+first used and talks to over its stdin and stdout (the protocol is in
 [loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive: it reads the
 library through locallibrary, within what its capabilities allow, and an operation hands
 locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
@@ -186,8 +186,7 @@ On the command line, what a plugin adds runs as commands of its own or of locall
 palette (`:`), and a drive's menu or the actions menu (`e`) where it works on a drive, tracks or a
 playlist, with a form for what it takes, a param the plugin fills from what's selected (the
 tracks, the playlist, the drive) starting as it (see [the player](player.md)). The sidecar has all of it for desktop apps as
-`plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
-own.
+`plugins.*` methods (see [Building a GUI](sidecar.md)).
 
 ## Account plugins
 
@@ -239,8 +238,18 @@ In the player's palette, "sign in to a TYPE account…" signs in to one, "sign o
 out of one, and "access for PLUGIN…" opens a form choosing which account of each type the plugin
 uses, saying what for, or signing in to another.
 
+A plugin asks for the scopes it can do without when it needs them. In a terminal, and in the
+player, you're asked whether it may, and why it wants them; when the account wasn't granted them,
+allowing it signs in again in the browser. A no is remembered: it isn't asked again until
+`locallibrary plugin access PLUGIN --give ACCOUNT --scope SCOPE` gives the scope. With `--json`,
+`--yes` or no terminal, in `watch` and in the sidecar, nothing's asked: the plugin fails, saying
+how to give it the scope.
+
 The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
-and refreshed a minute before they expire. A plugin never sees them: a request it makes names the
+and refreshed a minute before they expire. An account that isn't refreshed signs itself out as its
+token expires, and one whose service says how long its refresh token lasts signs itself out then:
+`locallibrary account` says when (`signs_out` with `--json`), and in its last two days warns, as a
+destination using it does (offering to sign in again in a terminal) and the player as it starts. A plugin never sees them: a request it makes names the
 account by its type (`{account:TYPE}`) where the type says its token goes, the `Authorization`
 header unless the service only takes it in the address (Mixcloud), and locallibrary fills in the
 token once it has checked the request against the scopes of the plugin's access, never sending it
@@ -524,9 +533,9 @@ A service is something a plugin keeps running in the background (watching a fold
 off until you turn it on, `locallibrary plugin settings ID services.NAME on` (or its switch in the
 player's settings form), and runs while the player, the sidecar or `watch` (but not `watch
 --once`) do, never for a command run once. A plugin with a service running isn't stopped as idle.
-One that stops or crashes is started again a second later, then twice that, and so on, and left
-off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
-plugin's services, and whether they're on.
+One that stops or crashes is started again a second later, then twice that, and so on, up to five
+times in a row, then left off (saying so). `plugin info` and `plugin list` show each plugin's
+services, and whether they're on.
 
 ## Keys
 
@@ -607,5 +616,5 @@ that crashed left. A library source names audio files by path, and locallibrary 
 only when it's in a folder you granted for that build, its links resolved (see
 [Library sources](#library-sources)).
 
-A plugin runs as you and isn't sandboxed, so this is what locallibrary does, not a wall your
-system keeps: a plugin could still read any file you can.
+A plugin runs as you and isn't sandboxed. The limits above are locallibrary's own, and your
+system doesn't enforce them: a plugin could still read any file you can.

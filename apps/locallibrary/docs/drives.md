@@ -275,12 +275,12 @@ later runs decode only new files and those that failed), which estimates its tem
 - tracks whose true peak is over 0 dBTP, that have runs of three or more samples at full scale, or
   whose integrated loudness is more than 6 LU from the library's median.
 
-The estimates are a second opinion, not a correction: on the GiantSteps datasets rekordbox gets
-about 72% of keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are
-similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what was analysed
-already: a key the analysis heard a fifth away, or as its relative or parallel, counts as less
-sure (and one it heard as unrelated, least sure), so a clash it causes weighs less.
-None of this counts as a problem for doctor's exit status.
+Treat the estimates as a second opinion: on the GiantSteps datasets rekordbox gets about 72% of
+keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are similar. Where
+they disagree, listen. Ordering a set (`playlist order`) uses what was analysed already: a key the
+analysis heard a fifth away, or as its relative or parallel, counts as less sure (and one it heard
+as unrelated, least sure), so a clash it causes weighs less. None of this counts as a problem for
+doctor's exit status.
 
 `--fix-tempo` runs the same analysis, then doubles the beat grid of each track whose stored tempo
 is half what it heard (a beat halfway between each two) and halves it where it's double (every

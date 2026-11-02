@@ -15,7 +15,7 @@
 // Paths are relative (`base: './'`) because the popup is opened from a
 // chrome-extension:// origin, where absolute asset URLs would resolve
 // against the extension root rather than the page.
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type Rolldown } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import blankSpace from 'ts-blank-space';
@@ -27,12 +27,14 @@ const here = import.meta.dirname;
 
 const root = resolve(here, 'src');
 
-// The two scripts the popup shares with the content script. They define page
-// globals (TbxDownloaded, TbxState), which only a classic script can do, so
-// they are injected as plain <script src> tags rather than imported: Vite
-// leaves tags it injects itself alone, and `unbundled` below puts the files
-// beside the page.
-const classicScripts = ['downloaded-store.js', 'state-transfer.js'];
+// The script the popup shares with the content script. It defines a page
+// global (TbxDownloaded), which only a classic script can do, so it is
+// injected as a plain <script src> tag rather than imported: Vite leaves tags
+// it injects itself alone, and `pageScripts` below puts the file beside the
+// page. state-transfer.js is a classic script too (TbxState), but only the
+// settings sheet uses it, so src/lib/globals.ts adds it when the sheet opens
+// instead of every popup reading it before anything is drawn.
+const classicScripts = ['downloaded-store.js'];
 
 // What ships as written, because it does not run in the popup: the content
 // script's stylesheet, the icons, and the manifest — which lives under src/
@@ -48,7 +50,7 @@ const unbundled = {
 	icons: 'icons'
 };
 
-// The classic scripts: the content script and the two shared ones. A classic
+// The classic scripts: the content script and the two the popup reads. A classic
 // script has nothing to compile but its types, so ts-blank-space replaces each
 // annotation with spaces and leaves every line and column where it was — an
 // error on soundcloud.com points at the same place in the source, with no
@@ -120,6 +122,27 @@ const injectClassicScripts = (): Plugin => ({
 	}
 });
 
+// Rolldown names a shared chunk after a module in it, which suits most of them
+// (select, checkbox, clipboard) and not the ones that matter most: the Svelte
+// runtime came out as "zod", which shares its chunk, the component library as
+// "StatusNote", the stores the shell shares with every panel as "info" and the
+// frame around a panel as "file-music", both icons they happen to hold, and
+// all four panels as "Panel". Those are named here for what they are, by a
+// module only that chunk holds; the rest keep Rolldown's name.
+const sharedChunks: [name: string, holds: string][] = [
+	['core', '/node_modules/svelte/src/internal/client/'],
+	['ui', '/src/lib/utils.ts'],
+	['shared', '/src/lib/stored.ts'],
+	['panel-shell', '/src/lib/components/PanelShell.svelte']
+];
+
+function chunkFileName({ facadeModuleId, moduleIds }: Rolldown.PreRenderedChunk) {
+	const tool = facadeModuleId?.match(/\/src\/tools\/([^/]+)\/Panel\.svelte$/)?.[1];
+	const shared = sharedChunks.find(([, holds]) => moduleIds.some((id) => id.includes(holds)))?.[0];
+
+	return `assets/${tool ? `Panel-${tool}` : (shared ?? '[name]')}-[hash].mjs`;
+}
+
 export default defineConfig(({ mode }) => ({
 	root,
 	base: './',
@@ -173,7 +196,7 @@ export default defineConfig(({ mode }) => ({
 			// without a hash, because the manifest has to name it.
 			output: {
 				entryFileNames: (chunk) => (chunk.name === 'background' ? 'background.js' : 'assets/[name]-[hash].mjs'),
-				chunkFileNames: 'assets/[name]-[hash].mjs'
+				chunkFileNames: chunkFileName
 			}
 		}
 	}

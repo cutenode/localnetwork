@@ -4,6 +4,7 @@ import { getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { gzipped } from '#lib/server/compress.ts';
+import { CRAWLER_HEAD, withCrawlerHead } from '#lib/server/crawler-head.ts';
 import { guardArea, isUnlisted } from '#lib/server/http.ts';
 import { createLogger } from '#lib/server/logger.ts';
 import { toolSite } from '#lib/server/tools/site.ts';
@@ -14,6 +15,10 @@ const fallbackLogger = createLogger({
 });
 
 export const init: ServerInit = async () => {
+	// Vitest's browser projects serve their assets through SvelteKit's dev server, which runs this. A test run has no
+	// configuration for the app, so starting it would only log that it couldn't.
+	if (process.env.NODE_ENV === 'test') return;
+
 	try {
 		await getApp();
 	} catch (error) {
@@ -87,6 +92,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	guardArea(event.locals, event.url, event.route.id);
 
+	let headWritten = false;
+
 	// The two typefaces set every line and differ in width from the system fallbacks, so arriving after
 	// the first paint they moved the whole page (Lighthouse's CLS). Their Latin files are preloaded with
 	// the CSS; the other subsets load only for pages that need them.
@@ -96,7 +103,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 			preload: ({ type, path }) =>
 				type === 'js' ||
 				type === 'css' ||
-				(type === 'font' && /(instrument-sans|jetbrains-mono)-latin-wght-normal\.[\w-]+\.woff2$/.test(path))
+				(type === 'font' && /(instrument-sans|jetbrains-mono)-latin-wght-normal\.[\w-]+\.woff2$/.test(path)),
+			// The marker is in the first chunk, app.html's head. Later chunks are left alone, whatever they hold.
+			transformPageChunk: ({ html }) => {
+				if (headWritten || !html.includes(CRAWLER_HEAD)) return html;
+				headWritten = true;
+
+				return withCrawlerHead(html, event.locals.crawlerHead);
+			}
 		})
 	);
 

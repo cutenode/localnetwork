@@ -48,6 +48,7 @@
   import { copyText } from '$lib/clipboard.ts';
   import { matches } from '$lib/filter.ts';
   import { LOOKUP_ERRORS } from '$lib/lookup-errors.ts';
+  import { createPainting } from '$lib/painting.svelte.ts';
   import { choicePref, flagPref } from '$lib/prefs.svelte.ts';
   import { queue } from '$lib/queue.svelte.ts';
   import { queryOf, searchable, searchUrl } from '$lib/search-sites.ts';
@@ -341,6 +342,12 @@
 
   const visible = $derived(ordered.filter((entry) => matches(searchText(entry), query.value)));
 
+  // What has been drawn of it so far: a long list, or a search being deleted,
+  // goes up a frame's worth of rows at a time ($lib/painting.svelte.ts).
+  const drawing = createPainting(() => visible.map((entry) => entry.permalink));
+
+  const painted = $derived(visible.filter((entry) => drawing.has(entry.permalink)));
+
   const withSocials = $derived(
     artists.items.filter((entry) => hasProfile(entry) && linksOf(entry.profile).length > 0).length
   );
@@ -525,9 +532,11 @@
           <span>looking up socials…</span>
           <span class="font-mono">{progress.done} / {progress.total}</span>
         </div>
+        <!-- The total is never 0: the page only reports on a lookup that has
+             artists to look up (content.ts). -->
         <Progress
           value={progress.done}
-          max={progress.total || 1}
+          max={progress.total}
           class="h-1"
           aria-label="looking up socials"
           aria-valuetext={`${progress.done} of ${progress.total}`}
@@ -640,9 +649,7 @@
                     </Select.Trigger>
                     <Select.Content>
                       {#each SORTS as option (option.value)}
-                        <Select.Item value={option.value} label={option.label}>
-                          {option.label}
-                        </Select.Item>
+                        <Select.Item value={option.value} label={option.label} />
                       {/each}
                     </Select.Content>
                   </Select.Root>
@@ -662,7 +669,7 @@
         </div>
 
         <ul class="flex flex-col gap-1.5">
-          {#each visible as entry (entry.permalink)}
+          {#each painted as entry (entry.permalink)}
             {@const name = nameOf(entry)}
             {@const links = linksOf(entry.profile)}
             {@const checking = checkingIds.has(entry.permalink)}

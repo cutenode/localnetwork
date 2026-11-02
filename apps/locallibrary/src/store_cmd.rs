@@ -1,4 +1,4 @@
-//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|restore|serve|fetch`.
+//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|restore|serve|fetch|index-limit`.
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -10,7 +10,9 @@ use locallibrary::Store;
 use locallibrary::api;
 use locallibrary::catalog::{FetchReport, LibraryOutcome};
 use locallibrary::local_time;
+use locallibrary::mix::prefs::{DEFAULT_INDEX_LIMIT_MIB, MixPrefs};
 use locallibrary::progress::Ctx;
+use serde::Serialize;
 
 use crate::output::{self, Outcome, Output};
 use crate::render;
@@ -251,6 +253,49 @@ pub fn copies(store: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
         }
     });
     Ok(ExitCode::SUCCESS)
+}
+
+/// `store index-limit`'s value: MiB, or `None` for the default.
+#[derive(Debug, Clone, Copy)]
+pub struct IndexLimit(Option<u64>);
+
+pub fn parse_index_limit(s: &str) -> std::result::Result<IndexLimit, String> {
+    match s {
+        "default" => Ok(IndexLimit(None)),
+        _ => s.parse().map(|mib| IndexLimit(Some(mib))).map_err(|_| format!("not a number of MiB or `default`: {s:?}")),
+    }
+}
+
+/// What `store index-limit` says: the limit, and whether it's the default.
+#[derive(Serialize)]
+struct IndexLimitShown {
+    index_limit_mib: u64,
+    default: bool,
+}
+
+/// `store index-limit`: the largest fingerprint index kept for a drive, or `limit` set as that.
+pub fn index_limit(store: &Option<PathBuf>, limit: Option<IndexLimit>, out: Output) -> Result<ExitCode> {
+    let shown = |p: &MixPrefs| IndexLimitShown {
+        index_limit_mib: p.index_limit_mib.unwrap_or(DEFAULT_INDEX_LIMIT_MIB),
+        default: p.index_limit_mib.is_none(),
+    };
+    let said = |s: &IndexLimitShown| {
+        let default = if s.default { " (the default)" } else { "" };
+        match s.index_limit_mib {
+            0 => "fingerprint indexes aren't kept".to_string(),
+            mib => format!("fingerprint indexes are kept up to {mib} MiB a drive{default}"),
+        }
+    };
+    let Some(IndexLimit(mib)) = limit else {
+        let prefs = crate::diff_cmd::read_or_empty(store, MixPrefs::load)?;
+        out.emit(&shown(&prefs), |s| say!("{}", said(s)));
+        return Ok(ExitCode::SUCCESS);
+    };
+    let store = crate::open_store(store)?;
+    let mut prefs = MixPrefs::load(&store)?;
+    prefs.index_limit_mib = mib;
+    prefs.save(&store)?;
+    Ok(out.done(&shown(&prefs), |s| output::ok(said(s))))
 }
 
 /// `store label` and `store unlabel`.

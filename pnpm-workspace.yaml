@@ -64,6 +64,9 @@ overrides:
   # tmp.tmpNameSync, which 0.2 keeps.
   '@lhci/cli>tmp': ^0.2.6
   'external-editor>tmp': ^0.2.6
+  # Every satori release pins fflate 0.7.3, which has GHSA-px8p-9vwx-vf98 (an endless loop on a
+  # malformed ZIP64 archive); 0.7.5 fixes it. Satori only calls inflateSync, to read fonts.
+  'satori>fflate': ^0.7.5
 # Stryker's vitest runner 10.0.0 names tests the way Vitest 4 did, so on Vitest 5 it runs no tests
 # for a mutant and every mutant survives (stryker-mutator/stryker-js#6210). Drop the patch once a
 # release has the fix (#6214).

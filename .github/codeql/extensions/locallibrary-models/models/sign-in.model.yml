@@ -2,6 +2,13 @@
 # redirect_uri, scope, state, code_challenge and login_hint, and no token, secret or verifier.
 # It's printed so --no-browser and --paste work. CodeQL's cleartext-logging query takes any name
 # with "account" in it for a secret, so without these barriers the link reads as one.
+#
+# rust/log-injection reads the same barrier kind, and there is no kind for cleartext-logging
+# alone, so these rows keep that query off the same values. Nothing in them can break a line or
+# move the cursor: the links are URLs as the url crate serializes them (atmosphere's
+# sign_in_page re-serializes the one the server sends), which have no control characters; an
+# account plugin's id and type are names its manifest checks; and the rest (ids, the redirect
+# URI, the client and its note) is made here or comes from this computer's own settings.
 extensions:
   - addsTo:
       pack: codeql/rust-all

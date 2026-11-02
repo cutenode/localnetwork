@@ -223,6 +223,37 @@ describe('adding from the tab', () => {
 		expect(document.querySelector('[aria-live]')!.textContent).toMatch(/looked up 2 artists/);
 	});
 
+	// lookup.ts takes an answer from a content script older than this panel as
+	// long as it lists profiles; what it leaves out is read as nothing.
+	it('takes answers that leave out the profiles or the failures', async () => {
+		let finish!: (value: PageReply) => void;
+		chromeAnswering();
+		chrome.tabs.sendMessage.mockImplementation(
+			(_id, message) =>
+				new Promise((resolve) => {
+					if (message.type === 'EXTRACT_TRACKS') resolve(PAGE);
+					else finish = resolve;
+				})
+		);
+		await load();
+		await addTab();
+
+		await chrome.testSendMessage({ type: 'ARTIST_PROFILES_PROGRESS', done: 1, total: 2, failed: ['/fourtet'] });
+		await settle();
+		expect(rowText()).toEqual(['Bicep looking up…', 'Four Tet no public profile']);
+
+		finish({ ok: true, profiles: [profile('/bicep')], error: '' });
+		await settle();
+		expect(rowText()).toEqual(['Bicep Belfast, GB · 1.2K followers · 1 link IG', 'Four Tet no public profile']);
+	});
+
+	it('files artists from an untitled page of no particular kind under “a playlist”', async () => {
+		chromeAnswering({ page: extraction({ tracks: TRACKS, title: '', pageType: 'other' }) });
+		await load();
+		await addTab();
+		expect(stored().map((one) => one.from)).toEqual(['a playlist', 'a playlist']);
+	});
+
 	it('ignores progress that is not for it', async () => {
 		// An artist the stray answers name, so taking any of them would show.
 		chromeAnswering({ storage: { artists: [entry('/bicep')] } });
@@ -447,6 +478,38 @@ describe('the list', () => {
 		await click(byLabel('clear the search'));
 		expect(rows()).toHaveLength(3);
 		expect(search.value).toBe('');
+	});
+
+	it('draws a long list a screenful at a time, and what a search hid the same way', async () => {
+		vi.useFakeTimers();
+		chromeAnswering({ storage: { artists: Array.from({ length: 200 }, (_, n) => entry(`/a${n}`)) } });
+		await load();
+		expect(rows()).toHaveLength(60);
+
+		// jsdom's frames come from a setInterval, which the fake timers hold, so
+		// each 60ms step is the same three frames every run.
+		const grown = async () => {
+			for (let i = 0; i < 6; i++) {
+				await vi.advanceTimersByTimeAsync(60);
+				await settle();
+			}
+		};
+
+		await grown();
+		expect(rows()).toHaveLength(200);
+
+		const search = labelled('search the artists', HTMLInputElement);
+		await type(search, 'a199');
+		expect(rows()).toHaveLength(1);
+		const [stayed] = rows();
+
+		// Clearing it puts back a frame's worth, beside the row that stayed.
+		await type(search, '');
+		expect(rows()).toHaveLength(41);
+		expect(rows()).toContain(stayed);
+		await grown();
+		expect(rows()).toHaveLength(200);
+		expect(new Set(rows().map((li) => li.dataset.permalink)).size).toBe(200);
 	});
 
 	it('copies every artist shown as text', async () => {

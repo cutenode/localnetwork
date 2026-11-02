@@ -13,6 +13,7 @@ import {
 	addPage,
 	byLabel,
 	click,
+	clickNow,
 	extraction,
 	mountApp,
 	mountPanel,
@@ -25,7 +26,8 @@ import {
 	settle,
 	settleUntil,
 	track,
-	type
+	type,
+	unmountPanel
 } from './helpers/panel.ts';
 
 /** A state the audit is run in, as STATES and SHEET_STATES below list them. */
@@ -479,6 +481,32 @@ describe('where focus goes', () => {
 		expect(queueSheet()).toBe(null);
 		expect(document.activeElement).toBe(heading());
 		expect(heading()!.textContent).toMatch(/playlist to text/i);
+	});
+
+	it('goes to the new tool when the queue hands a batch over from inside another tool', async () => {
+		panelChrome({ session: { queue: TRACKS } });
+		await mountApp();
+		await click([...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Manager')));
+		queueButton()!.focus();
+		const sheet = (await openQueue())!;
+		const send = [...sheet.querySelectorAll('button')].find((b) => b.textContent.includes('playlist to text'));
+
+		await click(send);
+		await settleUntil(() => !document.querySelector('[aria-busy="true"]'));
+		// The Manager slid out as the new tool came in, rather than staying under it.
+		expect(document.querySelectorAll('main h1')).toHaveLength(1);
+		expect(document.activeElement).toBe(heading());
+		expect(heading()!.textContent).toMatch(/playlist to text/i);
+	});
+
+	// The popup closing is the one way the view can go while focus is on its way.
+	it('reaches for no heading once the popup has gone', async () => {
+		panelChrome();
+		await mountApp();
+		clickNow([...document.querySelectorAll('nav button')].find((b) => b.textContent.includes('Manager')));
+		unmountPanel();
+		await settle();
+		expect(document.activeElement).toBe(document.body);
 	});
 
 	it('leaves focus alone when the popup opens', async () => {

@@ -3,11 +3,7 @@
  * artists and labels are invented.
  */
 import { MIX_REPORT_FORMAT, MIX_REPORT_VERSION, type MixReport } from './report';
-
-const wave = (n: number, seed: number, base: number, swing: number) =>
-	Array.from({ length: n }, (_, i) =>
-		Math.round(base + swing * Math.abs(Math.sin(i / 7 + seed) * Math.cos(i / 31 + seed)))
-	);
+import { madeUpBands, madeUpWave as wave } from './wave';
 
 const overview = (seed: number) => ({
 	heights: wave(200, seed, 60, 180),
@@ -41,9 +37,7 @@ export const sampleReport: MixReport = {
 	coverage: 0.93,
 	waveform: {
 		secondsPerColumn: 1.45,
-		low: wave(1200, 1, 40, 200),
-		mid: wave(1200, 2, 30, 160),
-		high: wave(1200, 3, 20, 120)
+		...madeUpBands(1200)
 	},
 	plays: plays.map(([title, artist, label, bpm, key, start, end], i) => ({
 		track: {

@@ -89,7 +89,7 @@ fn a_drive_is_set_up_like_another_with_settings_role_and_player_name() {
 
 /// Pushing from the store needs a library to push: one there is, or the one named. With none,
 /// several, or an unknown name, the plan says what to do instead. A role that isn't one is
-/// refused too, and a drive holding a library is warned about.
+/// refused too, formatting or not, and a drive holding a library is warned about.
 #[test]
 fn the_library_to_push_must_be_clear() {
     let dir = tempfile::tempdir().unwrap();
@@ -99,6 +99,10 @@ fn the_library_to_push_must_be_clear() {
     let err = plan(&request(&new)).unwrap_err();
     assert!(matches!(&err, Error::NotFound(m) if m.contains("no libraries yet")), "{err}");
     let err = plan(&ProvisionRequest { role: Some("dj".into()), ..request(&new) }).unwrap_err();
+    assert!(err.to_string().contains("unknown role"), "{err}");
+    // Also when formatting, before the format's plan looks for the disk (hidden here). Regression:
+    // the format was planned first, so this was refused for the hidden disks instead.
+    let err = plan(&ProvisionRequest { role: Some("dj".into()), format: true, ..request(&new) }).unwrap_err();
     assert!(err.to_string().contains("unknown role"), "{err}");
 
     let home = common::demo_drive(dir.path(), "Home");

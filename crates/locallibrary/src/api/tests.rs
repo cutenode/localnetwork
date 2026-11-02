@@ -424,7 +424,7 @@ fn a_provision_plan_keeps_the_formats_warnings_in_the_formats_plan() {
         verify: false,
         eject: false,
     };
-    let plan = drives::plan_provision(&store, &req, Some(format.unwrap())).unwrap();
+    let plan = drives::plan_provision(&store, &req, None, Some(format.unwrap())).unwrap();
     let once = |w: &[String]| w.iter().filter(|w| *w == untested).count() == 1;
     assert!(once(&plan.format.as_ref().unwrap().warnings), "{:?}", plan.format);
     assert!(plan.plan.warnings.is_empty(), "its own: {:?}", plan.plan.warnings);

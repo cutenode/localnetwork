@@ -39,7 +39,7 @@ cargo nextest run --workspace
 
 `pnpm dev` runs the website on a local network: a PLC directory and a PDS from `@atproto/dev-env`, HappyView in Docker (so Docker or OrbStack has to be running), and demo accounts, all from `apps/web/scripts/dev-network.ts`, which writes `apps/web/.env.local`. The extension's `dev` is a watch build into `apps/localtoolbox/dist/`.
 
-`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none.
+`lefthook.yml` formats and lints staged files before a commit and runs each app's type check and tests before a push. Each TypeScript app and the lexicons have jobs of their own; Rust has none. Each hook installs dependencies once before its jobs, and runs them under the Node in `.node-version` when fnm is installed (`tools/lefthook-rc.sh`).
 
 Lint and format:
 

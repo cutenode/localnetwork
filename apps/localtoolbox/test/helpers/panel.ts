@@ -340,6 +340,28 @@ export async function type(element: Target, value: string) {
 }
 
 /**
+ * Focuses the trigger of a tooltip, which opens it as a pointer resting on it
+ * would.
+ *
+ * The open tooltip watches its own size with a ResizeObserver, which jsdom
+ * has none of. jsdom lays nothing out either, so one that never reports is
+ * the honest stand-in, and it is lent to this test alone.
+ */
+export async function focusHint(element: Target) {
+	if (!(element instanceof HTMLElement)) throw new Error(`can't focus ${element?.tagName ?? 'nothing'}`);
+	vi.stubGlobal(
+		'ResizeObserver',
+		class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		}
+	);
+	element.focus();
+	await settle();
+}
+
+/**
  * Renders what has changed, without letting any promise settle.
  *
  * For the moment between a click and what it went and fetched: a tool's panel

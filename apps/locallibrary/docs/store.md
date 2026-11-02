@@ -66,9 +66,9 @@ locallibrary watch --uninstall                 # stop it
 On macOS that's a launchd agent, `~/Library/LaunchAgents/local.locallibrary.watch.plist`, logging
 to `~/Library/Logs/locallibrary-watch.log`; on Linux a systemd user service,
 `~/.config/systemd/user/locallibrary-watch.service` (`journalctl --user -u locallibrary-watch`
-shows the log). It runs the `locallibrary` you installed it with, with `--store` when you gave one,
-so install it again after moving the binary. Installing again replaces it, options and all.
-`status` reminds you of it when a drive holds changes the store lacks.
+shows the log). It runs the `locallibrary` you installed it with, with `--store` and `--settle`
+when you gave them, so install it again after moving the binary. Installing again replaces it,
+options and all. `status` reminds you of it when a drive holds changes the store lacks.
 
 macOS may ask to let `locallibrary` read removable volumes; if drives are never looked at, check
 System Settings > Privacy & Security > Files & Folders. On Windows, a Task Scheduler task that runs

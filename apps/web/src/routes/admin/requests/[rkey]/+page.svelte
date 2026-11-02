@@ -66,6 +66,12 @@
 					<p>The project changed since this request was made (revision <span class="font-mono">{request.record.baseRevision}</span> → <span class="font-mono">{data.project?.revision}</span>). Approving replaces the profile with this proposal.</p>
 				</div>
 			{/if}
+			{#if data.avatar && !data.avatar.shown && request.status === 'pending'}
+				<div class="notice flex items-start gap-2">
+					<TriangleAlert class="mt-0.5 size-4 shrink-0 text-warning" />
+					<p>Their avatar is {data.avatar.type}, which the site can't show, so approving won't work. Ask for changes so they can upload a PNG, JPEG, or WebP image.</p>
+				</div>
+			{/if}
 			{#if data.listing}
 				{#if data.listing.changed}
 					<div class="notice flex items-start gap-2">
@@ -115,7 +121,7 @@
 				<Card as="section">
 					<div class="mb-3 flex items-center justify-between gap-4">
 						<h2 class="section-title">{request.kind === 'create' ? 'Proposed profile' : request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
-						{#if data.hasAvatar}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
+						{#if data.avatar?.shown}<img src="/dashboard/requests/{request.rkey}/avatar" alt="Proposed" class="size-16 rounded-lg border border-line object-cover" />{/if}
 					</div>
 					<DiffTable changes={data.changes} />
 					{#if data.tracklists.length}
