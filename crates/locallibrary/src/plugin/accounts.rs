@@ -157,7 +157,7 @@ pub(crate) struct Pending {
 /// [`Plugins::finish_account_sign_in_with_keys`]).
 pub(crate) enum Waiting {
     Browser(Box<Pending>),
-    Keys { asked: shared::Asked, store: Store, started: Instant },
+    Keys { asked: Box<shared::Asked>, store: Store, started: Instant },
 }
 
 impl Waiting {

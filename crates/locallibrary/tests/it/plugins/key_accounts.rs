@@ -330,6 +330,7 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
     let titles: IndexMap<String, String> =
         IndexMap::from_iter([("access".to_string(), "Access key".to_string()), ("secret".into(), "Secret key".into())]);
     assert_eq!(start.keys, titles);
+    assert!(start.named, "Mock doesn't say who the keys are for");
     let (access, secret) = ("ak-0123456789", "sk-9876543210");
     let mut undeclared = entered(access, secret);
     undeclared.insert("token".into(), "tk-0123456789".into());
@@ -371,6 +372,7 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
 
     let browser: Mock = mock_for(3600, "/userinfo", "", &asking(&["read"], &[]));
     let start = browser.f.plugins.begin_account_sign_in("mock", WITH, None, None, &[], &browser.f.store).unwrap();
+    assert!(!start.named, "the user names an account the browser signs in to");
     let e = browser.f.plugins.finish_account_sign_in_with_keys(&start.id, &entered(access, secret), Some("me"));
     assert_eq!(e.unwrap_err().to_string(), format!("sign-in {:?} finishes in the browser", start.id));
 
@@ -389,6 +391,7 @@ fn keys_missing_or_undeclared_or_short_keep_nothing() {
 fn whoami_gets_the_keys_in_the_authorization_header() {
     let (access, secret) = ("ak-0123456789", "sk-9876543210");
     let k = keyed(true);
+    assert!(!k.begin().named, "the user names an account its whoami says");
     let e = k.sign_in(&entered(access, secret), None).unwrap_err().to_string();
     assert!(e.starts_with("asking Mock who signed in: it answered 403"), "{e}");
     let e = k.sign_in(&entered(access, secret), Some("me")).unwrap_err();

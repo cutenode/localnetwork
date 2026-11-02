@@ -10,7 +10,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::{Value, json};
 
-use crate::mock_oauth::{Server, Service, WITH, account_plugin, service};
+use crate::mock_oauth::{Server, Service, WITH, account_plugin, keys_account_plugin, service};
 use crate::props_rpc::{at, contract, violation};
 use crate::support::{Env, Rpc, echo_plugin};
 
@@ -34,6 +34,16 @@ impl Mock {
         let server = service(state.clone());
         let mut env = Env::new();
         env.plugins(&[&asking(), &account_plugin(&server.url, &format!("{}/userinfo", server.url), "")]);
+        Mock { state, server, env }
+    }
+
+    /// [`Mock::new`], its account plugin's `mock` accounts signed in to with an access and a secret
+    /// key that the user names (see [`keys_account_plugin`]).
+    pub(super) fn keyed() -> Mock {
+        let state = Arc::new(Mutex::new(Service::default()));
+        let server = service(state.clone());
+        let mut env = Env::new();
+        env.plugins(&[&asking(), &keys_account_plugin(&server.url, None)]);
         Mock { state, server, env }
     }
 
@@ -173,6 +183,44 @@ fn the_sidecar_signs_in_for_a_plugin_and_lists_its_access() {
     assert_eq!(s.call(11, "accounts.list", json!({}))["result"], json!({ "accounts": [], "accesses": [] }));
     let answers = [begun.to_string(), listed.to_string(), out.to_string(), taken.to_string()].concat();
     assert!(!m.leaked(&answers), "an answer holds a token");
+}
+
+/// The sidecar signs in to an account with keys for the echo plugin: `sign_in.begin` answers where
+/// to get them, which to enter and that the user names it, and `sign_in.finish` with them and a
+/// name keeps it, giving echo access. A key the host refuses ends that sign-in with what it says.
+/// No key is answered.
+#[test]
+fn the_sidecar_signs_in_with_keys_for_a_plugin() {
+    let m = Mock::keyed();
+    let mut s = Rpc::start(m.command());
+    let (access, secret) = ("ak-0123456789", "sk-9876543210");
+    let begin = json!({ "type": "mock", "for": "echo" });
+    let begun = s.call(1, "accounts.sign_in.begin", begin.clone());
+    let id = &begun["result"]["id"];
+    let keys = json!({ "access": "Access key", "secret": "Secret key" });
+    let url = format!("{}/keys", m.server.url);
+    let expected = json!({ "id": id, "type": "mock", "plugin": WITH, "url": url, "keys": keys, "named": true });
+    assert_eq!(begun["result"], expected, "{begun}");
+    let short = json!({ "id": id, "keys": { "access": access, "secret": "sk-1234" }, "name": "me" });
+    let refused = s.call(2, "accounts.sign_in.finish", short);
+    let said = "the Mock account's Secret key (secret) is 7 characters: a key is 8 at least";
+    assert_eq!(refused["error"]["message"], said, "{refused}");
+    let again = s.call(3, "accounts.sign_in.finish", json!({ "id": id, "keys": {}, "name": "me" }));
+    assert_eq!(again["error"]["data"]["kind"], "not_found", "the sign-in isn't over: {again}");
+
+    let begun = s.call(4, "accounts.sign_in.begin", begin);
+    let finish = json!({ "id": begun["result"]["id"], "keys": { "access": access, "secret": secret }, "name": "me" });
+    let described = contract()["methods"].as_array().unwrap().iter().find(|m| m["name"] == "accounts.sign_in.finish");
+    assert_eq!(violation(&finish, &format!("{}/params", at(described.unwrap()))), None, "the contract takes keys");
+    let done = s.call(5, "accounts.sign_in.finish", finish);
+    let r = &done["result"];
+    let got = (&r["subject"], &r["name"], &r["refreshes"], &r["access"]["plugin"], &r["access"]["default"]);
+    assert_eq!(got, (&json!("me"), &json!("me"), &json!(false), &json!("echo"), &json!(true)), "{done}");
+    let listed = s.call(6, "accounts.list", json!({}));
+    assert_eq!(listed["result"]["accesses"], json!([r["access"]]), "{listed}");
+    assert!(m.server.got().is_empty(), "the service was sent something");
+    let answers = [begun, refused, again, done, listed].map(|a| a.to_string()).concat();
+    assert!(![access, secret, "sk-1234"].iter().any(|k| answers.contains(k)), "an answer holds a key: {answers}");
 }
 
 /// Signing in names the account plugin when the type has one; a type none provides, or a plugin

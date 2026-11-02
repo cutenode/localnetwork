@@ -2322,6 +2322,14 @@ export type FinishSignIn = {
   id: string;
   /** How long to wait for the browser (default 300, an hour at most). */
   timeout_secs?: number | null;
+  /**
+   * For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by
+   * name, as the user entered it. The host keeps them in the keychain and never answers them;
+   * pass them straight from the user's input, nowhere else.
+   */
+  keys?: { [key: string]: string } | null;
+  /** With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account. */
+  name?: string | null;
 };
 
 export type PasteSignIn = {
@@ -8199,6 +8207,11 @@ export type AccountSignIn = {
   redirect_uri?: string | null;
   /** The keys to enter, by name, and what each is called, when it's signed in to with keys. */
   keys?: { [key: string]: string };
+  /**
+   * The user names the account, since its type's keys don't say who they're for: the sign-in
+   * finishes with its name besides the keys.
+   */
+  named?: boolean;
 };
 
 /** What signing in to an account of a type did. */

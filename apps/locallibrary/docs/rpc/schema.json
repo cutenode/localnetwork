@@ -12142,6 +12142,25 @@
           "minimum": 0,
           "description": "How long to wait for the browser (default 300, an hour at most).",
           "default": null
+        },
+        "keys": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "For a sign-in with keys, which finishes at once: each key its `sign_in.begin` listed, by\nname, as the user entered it. The host keeps them in the keychain and never answers them;\npass them straight from the user's input, nowhere else.",
+          "default": null
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "With `keys`, when its `sign_in.begin` answered `named`: what the user calls the account.",
+          "default": null
         }
       },
       "required": [
@@ -31317,6 +31336,10 @@
             "type": "string"
           },
           "description": "The keys to enter, by name, and what each is called, when it's signed in to with keys."
+        },
+        "named": {
+          "type": "boolean",
+          "description": "The user names the account, since its type's keys don't say who they're for: the sign-in\nfinishes with its name besides the keys."
         }
       },
       "required": [

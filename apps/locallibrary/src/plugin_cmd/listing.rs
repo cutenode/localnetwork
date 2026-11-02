@@ -1,7 +1,6 @@
 //! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`
 //! (`plugin checks` is [`super::checks`]).
 
-use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -212,26 +211,6 @@ fn shown(s: &Setting, settings: &IndexMap<String, Value>, secrets: &Secrets) -> 
     }
 }
 
-/// A secret read from stdin: typed without being shown in a terminal, else its first line.
-fn read_secret(key: &str) -> Result<String> {
-    let secret = match std::io::stdin().is_terminal() {
-        true => {
-            eprint!("{key}: ");
-            console::Term::stderr().read_secure_line()?
-        }
-        false => {
-            let mut line = String::new();
-            std::io::stdin().lock().read_line(&mut line)?;
-            line
-        }
-    };
-    let secret = secret.trim_end_matches(['\r', '\n']);
-    if secret.is_empty() {
-        return Err(usage(format!("no {key} came on stdin")));
-    }
-    Ok(secret.into())
-}
-
 /// `plugin settings`: shows them (or one), or sets one or puts it back to its default.
 pub(super) fn settings(
     plugins: &Plugins,
@@ -255,7 +234,10 @@ pub(super) fn settings(
     // Not named `secret`: CodeQL would take it for the secret itself, and the key it prompts with for a logged secret.
     let keychained = setting.filter(|s| s.kind == SettingType::Secret);
     let value = match keychained {
-        Some(s) if change.secret => Some(read_secret(&s.key)?),
+        Some(s) if change.secret => match output::read_entry(&s.key, true)? {
+            v if v.is_empty() => return Err(usage(format!("no {} came on stdin", s.key))),
+            v => Some(v),
+        },
         None if change.secret => {
             return Err(usage(format!("{} isn't a secret: give its value", key.unwrap_or_default())));
         }

@@ -92,6 +92,10 @@ pub struct AccountSignIn {
     /// The keys to enter, by name, and what each is called, when it's signed in to with keys.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     pub keys: IndexMap<String, String>,
+    /// The user names the account, since its type's keys don't say who they're for: the sign-in
+    /// finishes with its name besides the keys.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
 }
 
 /// What signing in to an account of a type did.
@@ -428,14 +432,16 @@ impl Plugin {
             scopes: scopes.clone(),
         };
         if t.kind == SignIn::Keys {
-            let id = self.host.wait(Waiting::Keys { asked, store: store.clone(), started: Instant::now() });
+            let id =
+                self.host.wait(Waiting::Keys { asked: Box::new(asked), store: store.clone(), started: Instant::now() });
             let keys = t.keys.iter().map(|(name, key)| (name.clone(), key.title.clone())).collect();
-            let url = t.keys_url.clone().unwrap_or_default();
-            return Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri: None, keys });
+            let (url, named) = (t.keys_url.clone().unwrap_or_default(), t.whoami.is_none());
+            let (kind, plugin) = (kind.into(), with.into());
+            return Ok(AccountSignIn { id, kind, plugin, url, redirect_uri: None, keys, named });
         }
         let (id, url, redirect_uri) = self.begin(t, &scopes, &params, asked, store)?;
         let (redirect_uri, keys) = (Some(redirect_uri), IndexMap::new());
-        Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri, keys })
+        Ok(AccountSignIn { id, kind: kind.into(), plugin: with.into(), url, redirect_uri, keys, named: false })
     }
 
     /// The account `p` asked for, signed in through it from what the browser came back to `p`

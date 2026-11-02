@@ -212,6 +212,9 @@ account` lists your accounts after the DJ account, each with whether it's signed
 plugins that have access to it. `locallibrary account TYPE sign-in` opens the service's sign-in
 page in the browser and waits for it to come back to this computer (`--no-browser` prints the
 link, `--paste` takes the address the browser ended up on when it runs on another computer).
+For a service that gives you keys instead, it prints where to get them and reads them from
+stdin, typed without being shown in a terminal or a line each in the order it lists them, then
+the account's name when the service doesn't say whose they are.
 `--for PLUGIN` gives a plugin access to it, `--with PLUGIN` picks the account plugin when several
 provide the type, and `--scope NAME` asks for one of the type's scopes besides. A service may let
 you leave some of that out on its page: a plugin then goes without the scopes it can do without

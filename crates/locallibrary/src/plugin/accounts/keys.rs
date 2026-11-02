@@ -166,6 +166,6 @@ impl Plugins {
         let Waiting::Keys { asked, store, .. } = self.host.pending(id)? else {
             return Err(Error::invalid(format!("sign-in {id:?} finishes in the browser")));
         };
-        self.slot(&asked.with)?.signed_in_with_keys(asked, &store, entered, name)
+        self.slot(&asked.with)?.signed_in_with_keys(*asked, &store, entered, name)
     }
 }

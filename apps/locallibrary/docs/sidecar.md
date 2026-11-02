@@ -393,6 +393,11 @@ with `instead_of` when the browser signed in to another than `account` (the plug
 isn't given access then), `access` when it was for a plugin: the access that plugin was given, and
 `declined`: the scopes asked for that plugin that the service didn't grant. The plugin gets those
 it needs all the same, and goes without the others.
+A type signed in to with keys answers `{id, type, plugin, url, keys, named?}` instead: `url` is
+where the user gets them, `keys` what each is called by name, and `named` is true when the user
+names the account. `accounts.sign_in.finish {id, keys, name?}` finishes it at once with what the
+user entered for each key, by name, and the account's `name` when `named`. The host keeps the keys
+and never answers them.
 `accounts.sign_in.paste {id, url}` finishes with the address the browser ended up on, and
 `accounts.sign_in.cancel {id}` answers `{cancelled}`. `accounts.sign_out {account: {plugin,
 subject}}` answers the account as it was, with `revoked`; plugins keep their access to it.
