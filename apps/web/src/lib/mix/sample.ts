@@ -87,3 +87,27 @@ export const sampleReport: MixReport = {
 	],
 	unidentified: [{ start: 980, end: 1020 }]
 };
+
+/**
+ * The sample with the pitch fader ridden through its second track, a 124 BPM track: +0% from
+ * 5:00, a line only searched at (+12%, outside the ride) from 6:00, then +8% from 7:00.
+ */
+export const riddenReport: MixReport = {
+	...sampleReport,
+	plays: sampleReport.plays.map((play, i) =>
+		i === 1
+			? {
+					...play,
+					track: { ...play.track, bpm: 124 },
+					tempo: 1.04,
+					speedRange: [1, 1.08],
+					playedBpm: 128.96,
+					lines: [
+						{ start: 300, trackStart: 10, tempo: 1 },
+						{ start: 360, trackStart: 70, tempo: 1.12 },
+						{ start: 420, trackStart: 135, tempo: 1.08 }
+					]
+				}
+			: play
+	)
+};
