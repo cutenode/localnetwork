@@ -115,6 +115,9 @@ struct Sent {
     secret: bool,
     /// The accounts whose tokens are filled in, which go only where their scopes cover.
     accounts: Vec<Filled>,
+    /// Its query, with its secrets and tokens filled in, when it has one to fill: the first hop
+    /// is sent with it in place of the address's own, which a secret is never put in.
+    query: Option<Vec<(String, String)>>,
 }
 
 /// An account's token filled into a request, and the access it's through.
@@ -275,7 +278,8 @@ impl Plugin {
     /// token, on the last hop it went to, is answered for the plugin (see [`Plugin::answered`]).
     pub(crate) fn fetch(&self, live: &Live, params: Value, cancel: &CancelToken) -> Result<Value, RpcError> {
         let req: Fetch = loclib_plugin::params(params)?;
-        let (url, sent, in_query) = self.prepare(live, &req)?;
+        let url = self.address(&req)?;
+        let (sent, in_query) = self.prepare(live, &req, &url)?;
         // Before it's sent: an answer with nowhere to go is never asked for.
         let into = req.into_blob.as_deref().map(|blob| self.new_blob(live, blob)).transpose()?;
         let requests = Requests::new().map_err(|e| RpcError::internal(format!("the network: {e}")))?;
@@ -359,20 +363,26 @@ impl Plugin {
                 return Ok((Answer { status, headers, read: body, response }, in_query));
             }
             again = true;
-            let (url, sent, query) = self.prepare(live, req)?;
+            let url = self.address(req)?;
+            let (sent, query) = self.prepare(live, req, &url)?;
             in_query = query;
             (response, attached) = self.follow(live, url, sent, requests, cancel)?;
         }
     }
 
-    /// The request `req` asks for, as it's sent to its URL, its secrets and accounts' tokens
-    /// filled in: with the tokens filled into its query, and the placeholders that named them.
-    fn prepare(&self, live: &Live, req: &Fetch) -> Result<(Url, Sent, InQuery), RpcError> {
-        let mut url =
-            Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
+    /// The address `req` asks for, as the plugin wrote it, when the plugin may go there.
+    fn address(&self, req: &Fetch) -> Result<Url, RpcError> {
+        let url = Url::parse(&req.url).map_err(|_| invalid(format!("{} isn't a web address", one_line(&req.url))))?;
         if let Some(why) = refused(&self.manifest.capabilities, &url, self.loopback()).or_else(|| self.offline(&url)) {
             return Err(denied(why));
         }
+        Ok(url)
+    }
+
+    /// The request `req` asks for at `url` (its [`Plugin::address`]), as it's sent, its secrets
+    /// and accounts' tokens filled in, the query's kept apart from the address: with the tokens
+    /// filled into its query, and the placeholders that named them.
+    fn prepare(&self, live: &Live, req: &Fetch, url: &Url) -> Result<(Sent, InQuery), RpcError> {
         let method = Method::from_bytes(req.method.as_bytes())
             .map_err(|_| invalid(format!("{} isn't an HTTP method", one_line(&req.method))))?;
         if req.body.is_some() && req.body_blob.is_some() {
@@ -391,7 +401,7 @@ impl Plugin {
         // What a scope covers is the request as the plugin wrote it.
         let asked = (method.clone(), url.clone());
         let (plain, filled) = (HeaderMap::new(), HeaderMap::new());
-        let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new() };
+        let mut sent = Sent { method, plain, filled, body: None, secret: false, accounts: Vec::new(), query: None };
         // The accounts' tokens filled into the query, and the placeholders that named them.
         let mut in_query = Vec::new();
         if url.query_pairs().any(|(_, v)| v.contains(SECRET) || v.contains(ACCOUNT_PLACEHOLDER)) {
@@ -407,7 +417,7 @@ impl Plugin {
                 filled.push((k, token.clone()));
                 in_query.push((token, v));
             }
-            url.query_pairs_mut().clear().extend_pairs(filled);
+            sent.query = Some(filled);
         }
         for (name, value) in &req.headers {
             let name = HeaderName::from_bytes(name.as_bytes())
@@ -447,7 +457,7 @@ impl Plugin {
             sent.plain.remove(CONTENT_TYPE);
             sent.body = Some(Body::Form(self.form(live, &req.multipart)?));
         }
-        Ok((url, sent, in_query))
+        Ok((sent, in_query))
     }
 
     /// What goes where a request (`asked`, its method and URL as the plugin wrote it) names an
@@ -535,7 +545,14 @@ impl Plugin {
         let mut hops = 0;
         loop {
             self.wait_turn(&url, cancel)?;
-            let mut request = self.client()?.request(sent.method.clone(), url.clone());
+            let mut request = match sent.query.take() {
+                Some(query) => {
+                    let mut bare = url.clone();
+                    bare.set_query(None);
+                    self.client()?.request(sent.method.clone(), bare).query(&query)
+                }
+                None => self.client()?.request(sent.method.clone(), url.clone()),
+            };
             request = request.headers(sent.plain.clone()).headers(sent.filled.clone());
             if let Some(body) = &sent.body {
                 let files = body.file_bytes();
