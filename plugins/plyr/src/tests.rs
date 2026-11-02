@@ -7,8 +7,9 @@ use std::time::Duration;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_plugin::{
-    ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer,
-    ProgressReport, Progressed, PublishedSet, SettingType, StrongRef, TracklistEntry, method,
+    ACCOUNT_PLACEHOLDER, AccountType, ByteRange, Capability, DestinationKind, Fetch, Fetched, HelloReply, Incoming,
+    Manifest, PROTOCOL_VERSION, Peer, ProgressReport, Progressed, PublishedSet, SignIn, StrongRef, TracklistEntry,
+    account_placeholder, method,
 };
 use loclib_progress::{Event, Phase};
 use serde_json::{Value, json};
@@ -22,6 +23,19 @@ const UPLOAD: &str = "0b7c";
 const TRACK: u64 = 4242;
 const TRACK_URI: &str = "at://did:plc:dj/fm.plyr.track/3m4tr4ck";
 const TRACK_CID: &str = "bafyreie5737gdxlw5i64vzichcalba3z2v5n6icifvx5xytvske7mr3hpm";
+
+/// The account type the plugin asks for, as the plyr.fm account plugin provides it.
+fn account_type() -> AccountType {
+    let manifest = Manifest::parse(include_str!("../../accounts/plyr-account/locallibrary-plugin.toml"));
+    let [account_type] = &manifest.unwrap().contributes.account_types[..] else { panic!("one account type") };
+    account_type.clone()
+}
+
+/// The account's developer token, as the host fills it in.
+const TOKEN: &str = "plyr-developer-token";
+
+/// As the host fails a request for a plyr account that's signed out.
+const SIGNED_OUT: &str = "the plyr account dj.example is signed out: sign in again";
 
 /// How plyr.fm answers a request through the host, in place of what it would: a status and body,
 /// or the host failing to reach it.
@@ -50,6 +64,8 @@ struct Received {
     parts: Vec<(u64, Vec<u8>)>,
     /// The fields the track was finished with.
     finished: Vec<(String, String)>,
+    /// How many requests the host refused to send, the account signed out.
+    signed_out: usize,
 }
 
 impl Received {
@@ -70,10 +86,10 @@ impl Received {
 }
 
 /// plyr.fm as `upload_sessions.py` and `uploads.py` answer, with parts of `part_size` bytes, but
-/// as `script` says, through a host with the token set or not that lent the hook `lent`.
+/// as `script` says, through a host with the account signed in or not that lent the hook `lent`.
 struct Plyr {
     part_size: u64,
-    token: bool,
+    signed_in: bool,
     lent: Option<PathBuf>,
     script: Script,
     received: Received,
@@ -81,7 +97,7 @@ struct Plyr {
 
 impl Plyr {
     fn new(part_size: u64) -> Plyr {
-        Plyr { part_size, token: true, lent: None, script: Box::new(|_, _| None), received: Received::default() }
+        Plyr { part_size, signed_in: true, lent: None, script: Box::new(|_, _| None), received: Received::default() }
     }
 
     fn scripted(part_size: u64, script: impl Fn(&str, usize) -> Option<Reply> + Send + 'static) -> Plyr {
@@ -90,17 +106,26 @@ impl Plyr {
 
     /// The host's answer to `fetch`.
     fn answer(&mut self, fetch: &Fetch) -> Result<Fetched, RpcError> {
-        if !self.token {
-            // As the host fails a request whose secret isn't set.
-            return Err(RpcError::failed(
-                "invalid",
-                "its secret token isn't set (locallibrary plugin settings plyr token --secret)",
-            ));
+        // As the host fills in the account: only as the whole `Authorization` header (never in the
+        // address), while it's signed in, for a request its `upload` scope covers.
+        let misplaced = || RpcError::failed("invalid", "an account goes only in the Authorization header");
+        let named = fetch.headers.iter().filter(|(_, v)| v.contains(ACCOUNT_PLACEHOLDER));
+        let placed: Vec<_> = named.map(|(k, v)| (k.to_lowercase(), account_placeholder(v))).collect();
+        if fetch.url.contains(ACCOUNT_PLACEHOLDER) || placed != [("authorization".to_string(), Some(("plyr", None)))] {
+            return Err(misplaced());
+        }
+        if !self.signed_in {
+            self.received.signed_out += 1;
+            return Err(RpcError::failed("access", SIGNED_OUT));
+        }
+        let url = url::Url::parse(&fetch.url).unwrap();
+        if !account_type().scopes["upload"].covers(&fetch.method, &url) {
+            let why = format!("none of its scopes on the plyr account dj.example covers {} {url}", fetch.method);
+            return Err(RpcError::failed("scope", why));
         }
         let sent = file_part(self.lent.as_deref(), fetch)?;
         let r = &mut self.received;
         r.requests.push((fetch.method.clone(), fetch.url.clone()));
-        assert_eq!(fetch.headers.get("Authorization").map(String::as_str), Some(AUTHORIZATION), "{fetch:?}");
         let path = fetch.url.strip_prefix(API).expect("only plyr.fm's API");
         let session = format!("/tracks/uploads/{UPLOAD}");
         let route = match (fetch.method.as_str(), path) {
@@ -301,8 +326,10 @@ fn kind(e: &RpcError) -> (&str, &str) {
     (e.kind().unwrap_or_default(), e.message.as_str())
 }
 
-/// It reaches plyr.fm's API alone, publishes sets at one destination and keeps a token as a
-/// secret.
+/// It reaches plyr.fm's API alone, publishes sets at one destination, and asks for a plyr.fm
+/// account to upload with, naming it where the account plugin puts its token: the
+/// `Authorization` header, after `Bearer`, as plyr.fm takes a developer token. That account plugin
+/// asks plyr.fm's API whose token it is.
 #[test]
 fn the_manifest_is_a_built_in_set_destination_on_plyr() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -311,14 +338,23 @@ fn the_manifest_is_a_built_in_set_destination_on_plyr() {
     let [destination] = &manifest.contributes.destinations[..] else { panic!("{manifest:?}") };
     assert_eq!((manifest.id.as_str(), destination.name.as_str()), ("plyr", "track"));
     assert_eq!(destination.kind, DestinationKind::Set);
-    let settings: Vec<(&str, SettingType)> =
-        manifest.contributes.settings.iter().map(|s| (s.key.as_str(), s.kind)).collect();
-    assert_eq!(settings, [("token", SettingType::Secret)]);
+    let [need] = &manifest.accounts[..] else { panic!("{manifest:?}") };
+    assert_eq!((need.name.as_str(), need.scopes.as_slice()), ("plyr", ["upload".to_string()].as_slice()));
+    assert!(need.optional.is_empty(), "{need:?}");
+    assert!(manifest.contributes.settings.is_empty(), "{:?}", manifest.contributes.settings);
+    let account_type = account_type();
+    assert_eq!(format!("{{account:{}}}", account_type.name), AUTHORIZATION);
+    let place = account_type.place();
+    assert_eq!((account_type.kind, place.header.as_deref()), (SignIn::Keys, Some("Authorization")));
+    assert_eq!(place.filled(|_| TOKEN), format!("Bearer {TOKEN}"));
+    let whoami = account_type.whoami.expect("plyr.fm says whose token it is");
+    assert_eq!(whoami.url, format!("{API}/auth/me"));
 
-    // Served as a real one is: it says it's this manifest, publishing sets through fetches.
+    // Served as a real one is: it says it's this manifest, publishing sets through fetches with an
+    // account.
     let s = start(Plyr::new(4));
     let has = |f: &&str| s.hello.features.iter().any(|had| had == f);
-    assert!(["destinations", "net", "blobs"].iter().all(has), "{:?}", s.hello.features);
+    assert!(["destinations", "net", "blobs", "accounts"].iter().all(has), "{:?}", s.hello.features);
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     s.stop();
@@ -451,15 +487,34 @@ fn a_part_that_fails_is_sent_again() {
     assert_eq!(TRIES, 4);
 }
 
-/// Without a token set nothing goes: the host's error says how to set one.
+/// With the account signed out nothing goes, and nothing is asked again: the host's error
+/// (`access`, which it passes on saying how to sign in) is the answer.
 #[test]
-fn without_a_token_nothing_goes() {
+fn signed_out_nothing_goes() {
     let dir = tempfile::tempdir().unwrap();
     let path = recording(dir.path(), "set.flac", 10);
-    let s = start(Plyr { token: false, ..Plyr::new(1024) });
+    let s = start(Plyr { signed_in: false, ..Plyr::new(1024) });
     let e = s.publish(&set(), &path, &[], false).0.unwrap_err();
-    assert_eq!(kind(&e), ("invalid", "its secret token isn't set (locallibrary plugin settings plyr token --secret)"));
-    assert!(s.stop().requests.is_empty());
+    assert_eq!(kind(&e), ("access", SIGNED_OUT));
+    let r = s.stop();
+    assert_eq!((r.requests.len(), r.signed_out), (0, 1));
+}
+
+/// The plyr.fm account plugin's `upload` scope covers every request of the upload, and not the
+/// rest of plyr.fm's API.
+#[test]
+fn plyrs_upload_scope_covers_the_upload() {
+    let account_type = account_type();
+    let scope = &account_type.scopes["upload"];
+    let covers = |method: &str, path: &str| scope.covers(method, &url::Url::parse(&format!("{API}{path}")).unwrap());
+    let session = format!("/tracks/uploads/{UPLOAD}");
+    assert!(covers("POST", "/tracks/uploads"));
+    assert!(covers("PUT", &format!("{session}/parts/1")));
+    assert!(covers("POST", &format!("{session}/finish")));
+    assert!(covers("GET", &format!("{session}/progress")));
+    assert!(!covers("DELETE", &format!("/tracks/{TRACK}")));
+    assert!(!covers("GET", "/auth/me"));
+    assert!(!covers("POST", "/tracks/uploadsX"));
 }
 
 /// A recording cut short once the upload has started fails the upload where the host can't send
@@ -497,7 +552,8 @@ fn plyr_refusing_says_why() {
     let s = start(Plyr::scripted(1024, |route, _| (route == "start").then(|| status(401, "session_expired"))));
     let e = s.publish(&set(), &path, &[], false).0.unwrap_err();
     assert_eq!(s.stop().requests.len(), 1);
-    let said = "plyr.fm refused the token (401: session_expired): make a new one at plyr.fm/settings#developer";
+    let said = "plyr.fm refused the account's token (401: session_expired): sign in again with a new one from \
+                plyr.fm/settings#developer (locallibrary account plyr sign-in)";
     assert_eq!(kind(&e), ("permission", said));
 
     let s = start(Plyr::scripted(1024, |route, _| (route == "finish").then(|| status(400, "invalid tags"))));
@@ -702,14 +758,14 @@ const REFUSALS: [(u16, &str); 5] = [
 /// the file arrives whole, in order, and the publish answers the track's page, and its record when
 /// plyr.fm names both its URI and CID. A part failing every time stops it there, and plyr.fm
 /// refusing a step (or failing it every time) stops it at that step, saying why, nothing finished
-/// past it. A dry run, or a recording plyr.fm wouldn't take, or a host without the token, sends
-/// nothing.
+/// past it. A dry run, a recording plyr.fm wouldn't take, or a host with the account signed out
+/// sends nothing.
 #[hegel::test(test_cases = 100)]
 fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     let format = tc.draw(gs::sampled_from(vec!["flac", "WAV", "aif", "mp3", "ogg", "aac"]));
     // 0: empty, 1: gone, 2: over plyr.fm's limit; else as long as it's drawn.
     let shape = tc.draw(gs::integers::<u8>().max_value(19));
-    let token = tc.draw(gs::weighted_booleans(0.95));
+    let signed_in = tc.draw(gs::weighted_booleans(0.95));
     let size = tc.draw(gs::integers::<u64>().min_value(1).max_value(4000));
     // 20 parts at most: each is a request through the host, and a few show the order.
     let part = tc.draw(gs::integers::<u64>().min_value(size.div_ceil(20)).max_value(1500));
@@ -762,7 +818,7 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
     // case shrinks through hundreds of them.
     static SESSION: LazyLock<Mutex<Session>> = LazyLock::new(|| Mutex::new(start(Plyr::new(1))));
     let s = SESSION.lock().unwrap_or_else(PoisonError::into_inner);
-    s.script(Plyr { token, ..plyr });
+    s.script(Plyr { signed_in, ..plyr });
     let (answer, upload) = s.publish(&set(), &path, &tracklist, dry_run);
     let r = s.received();
     drop(s);
@@ -782,8 +838,8 @@ fn any_publish_sends_the_file_whole_or_stops_saying_why(tc: TestCase) {
         assert!(r.requests.is_empty() && upload.is_empty());
         return;
     }
-    if !token {
-        assert_eq!(answer.unwrap_err().kind(), Some("invalid"));
+    if !signed_in {
+        assert_eq!(answer.unwrap_err().kind(), Some("access"));
         assert!(r.requests.is_empty() && upload.is_empty());
         return;
     }

@@ -13,9 +13,9 @@ name = "track"
 title = "A track on plyr.fm"
 kind = "set"
 
-# plyr.fm signs scripts in with a developer token. The host keeps it in the keychain and fills it
-# into the plugin's requests to plyr.fm; the plugin never sees it.
-[[contributes.settings]]
-key = "token"
-title = "Developer token (make one at plyr.fm/settings#developer)"
-type = "secret"
+# plyr.fm signs scripts in with a developer token. The host keeps it and fills it into each
+# request, which names the account; the plugin never sees it.
+[[accounts]]
+type = "plyr"
+scopes = ["upload"]
+why = "It uploads each set you publish to plyr.fm as a track on your account."

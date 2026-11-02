@@ -357,14 +357,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     doesn't arrive), titled after the set, its tracklist as the description and tagged `dj mix`,
     and keeping the track's page as the set's link and its `fm.plyr.track` record as the set's
     recording. A recording plyr.fm wouldn't take (another format, or over 1536 MiB) is refused
-    before anything goes. It signs in with a plyr.fm developer token, kept as a secret setting, and
-    goes online only to publish.
+    before anything goes. It uploads with a `plyr` account, signed in to with a plyr.fm developer
+    token, and goes online only to publish.
   - `archive`: a set destination, `sets publish SET --to archive:item`, uploading the set's
     recording to the Internet Archive in one PUT as an item in Community Audio, at an identifier
     no item has (`CREATOR-DATE-TITLE`, with `-2` and on when it's taken), titled after the set,
     by the `creator` setting, its tracklist as the description and tagged `dj mix`, sent again a
     few times when it doesn't arrive or the Archive says to slow down, and keeping the item's page
-    as the set's link. It signs in with the account's S3 keys, kept as secret settings, goes
+    as the set's link. It uploads with an `archive` account, signed in to with its S3 keys, goes
     online only to publish, and never waits for the Archive to process the item.
   - `youtube`: a set destination, `sets publish SET --to youtube:video`, publishing the set to
     YouTube as a video: FFmpeg makes it from a still picture (the `picture` setting, else a black

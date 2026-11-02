@@ -52,9 +52,9 @@ are:
   as many as plyr.fm's 5,000 bytes hold) and tagged `dj mix`, and keeps the track's page as the
   set's link, named plyr.fm, and the track's `fm.plyr.track` record as the set's recording.
   plyr.fm takes mp3, wav, m4a, aiff, flac, webm and ogg recordings of up to 1536 MiB, and the
-  plugin refuses others before anything goes. It needs a developer token from
-  plyr.fm/settings#developer, kept as a secret: `locallibrary plugin settings plyr token
-  --secret`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
+  plugin refuses others before anything goes. It uploads with a plyr.fm account (plyr-account's),
+  signed in to with a developer token from plyr.fm/settings#developer: `locallibrary account plyr
+  sign-in`. The recording goes straight from its file in the parts plyr.fm asks for (10 MiB),
   each sent again a few times when it doesn't arrive, with the time locallibrary gives a request
   sending a file (enough for about 1 Mbit/s up). An upload that stops partway is dropped by
   plyr.fm after a day, and publishing again starts over.
@@ -65,9 +65,9 @@ are:
   (`05:30 Artist - Title` lines, as many as fit in the 8,000-byte header it's sent in) and tagged
   `dj mix` and the set's kind, venue and city, and keeps the item's page as the set's link. The item
   is called `CREATOR-DATE-TITLE` (`dj-kit-2026-10-03-closing-set`), with `-2` and on when that's
-  taken. It needs the pair of S3 keys from archive.org/account/s3.php, kept as secrets:
-  `locallibrary plugin settings archive access --secret` and `locallibrary plugin settings archive
-  secret --secret`. The recording goes in one upload, sent again a few times (waiting while the
+  taken. It uploads with an Internet Archive account (archive-account's), signed in to with the
+  pair of S3 keys from archive.org/account/s3.php: `locallibrary account archive sign-in`. The
+  recording goes in one upload, sent again a few times (waiting while the
   Archive says it's busy) when it doesn't arrive; locallibrary gives it as long as 128 KiB/s
   would take, so a 2 GB recording needs about 1 Mbit/s up. The Archive takes a few minutes, sometimes longer, to show a
   new item while it processes it, and the link works once it has. The Archive is only for what
@@ -207,8 +207,8 @@ take keys you enter instead. `locallibrary plugin` lists the account type each a
 info` its scopes.
 
 A plugin asks for accounts of a type with `[[accounts]]`, naming the scopes it needs and why:
-youtube asks for a google account to upload videos with, mixcloud and soundcloud for an account
-of their own type to upload with.
+youtube asks for a google account to upload videos with; archive, mixcloud, plyr and soundcloud
+each for an account of their own type to upload with.
 
 ## Accounts
 
