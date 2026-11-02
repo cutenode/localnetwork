@@ -1,6 +1,7 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { ada } from '#lib/testing/requests.ts';
 import Page from './+page.svelte';
 import type { PageProps } from './$types';
 
@@ -84,5 +85,66 @@ describe('System page backups', () => {
 
 		expect(backupsRow()?.textContent).toBe('failed 1 hour ago: Access Denied · none yet');
 		expect(backupsRow()?.querySelectorAll('.text-critical')).toHaveLength(2);
+	});
+});
+
+const space = (name: string, lastError: string | null = null) => ({
+	space: `at://did:plc:root/space/computer.localnetwork.space.${name}/main`,
+	type: `computer.localnetwork.space.${name}`,
+	skey: 'main',
+	spaceRev: null,
+	lastSyncedAt: '2026-10-01T00:00:00Z',
+	lastError,
+	registrationExpiresAt: null,
+	repos: []
+});
+
+const base = {
+	viewer: ada,
+	pendingRequests: 0,
+	root: { did: 'did:plc:root', handle: 'localnetwork.test', service: 'http://localhost:2632' },
+	spaces: [],
+	sync: [space('audit'), space('staff')],
+	audit: { total: 10, pending: 0, failed: 0, unsupported: 0 },
+	failed: [],
+	happyView: { url: 'http://127.0.0.1:1', reachable: true, sync: { at: '2026-10-01T00:00:00Z', error: null } },
+	backups: null,
+	config: {
+		publicUrl: 'http://127.0.0.1:5173',
+		serviceDid: 'did:web:localhost',
+		syncNotify: true,
+		pollMs: 10_000,
+		geocoder: 'none' as const
+	}
+};
+
+describe('System page health', () => {
+	it('says when everything is healthy', async () => {
+		await render(Page, { params: {}, data: base, form: null });
+
+		await expect.element(page.getByRole('status')).toHaveTextContent('Everything is running and in sync.');
+		await expect.element(page.getByRole('button', { name: 'Bootstrap and sync' })).toHaveClass(/btn-secondary/);
+	});
+
+	it('leads with the problems and lists failing spaces first', async () => {
+		await render(Page, {
+			params: {},
+			data: {
+				...base,
+				sync: [space('audit'), space('staff', 'PDS timed out')],
+				audit: { ...base.audit, failed: 2 },
+				happyView: { ...base.happyView, reachable: false },
+				backups: { latestAt: null, lastAttempt: { at: '2026-10-01T00:00:00Z', error: 'Access Denied' }, stale: true }
+			},
+			form: null
+		});
+
+		await expect
+			.element(page.getByRole('status'))
+			.toHaveTextContent(
+				"HappyView isn't answering · 1 of 2 spaces have sync errors · 2 audit copies failed · The last backup failed · No backup in two days"
+			);
+		const cards = page.getByText(/^(audit|staff) \/ main/).elements();
+		expect(cards.map((card) => card.textContent)).toEqual(['staff / mainFailed', 'audit / main']);
 	});
 });

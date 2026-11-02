@@ -28,11 +28,6 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Local Network · Find local DJs for your show</title>
-	<meta name="description" content="Promoters find local DJs who fit their show. DJs get a profile they control, built on the AT Protocol." />
-</svelte:head>
-
 <section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
 	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
 		{#snippet headline()}<HeroHeadline />{/snippet}

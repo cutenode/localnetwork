@@ -36,28 +36,21 @@
   A sheet rather than a tool, and for the reason the session queue is one: it
   is about the tools rather than beside them. It comes up over whichever one is
   open, from a button in the header of every view (SettingsButton.svelte), and
-  goes away leaving that tool exactly as it was.
-
-  It carries its own Tooltip.Provider because it is rendered at the root of the
-  app rather than inside PanelShell, which is where every other tooltip in the
-  extension lives.
+  goes away leaving that tool exactly as it was. The sheet itself, and where
+  focus goes, is Sheet.svelte.
 -->
 <script lang="ts">
-  import { fly, fade } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
   import Bug from '@lucide/svelte/icons/bug';
   import Monitor from '@lucide/svelte/icons/monitor';
   import Moon from '@lucide/svelte/icons/moon';
   import Settings from '@lucide/svelte/icons/settings';
   import Sun from '@lucide/svelte/icons/sun';
-  import X from '@lucide/svelte/icons/x';
+  import Sheet from '$lib/components/Sheet.svelte';
   import StateTransfer from '$lib/components/StateTransfer.svelte';
-  import ToolTile from '$lib/components/ToolTile.svelte';
   import { Button } from '$lib/components/ui/button/index.ts';
   import { Input } from '$lib/components/ui/input/index.ts';
   import { Label } from '$lib/components/ui/label/index.ts';
   import { Switch } from '$lib/components/ui/switch/index.ts';
-  import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import { bugReportUrl, extensionVersion } from '$lib/bug-report.ts';
   import { downloader } from '$lib/downloader.svelte.ts';
   import { searchSites } from '$lib/search-sites.svelte.ts';
@@ -107,271 +100,211 @@
     { mode: 'light', icon: Sun, label: 'light' },
     { mode: 'dark', icon: Moon, label: 'dark' },
   ];
-
-  // Escape closes it, wherever the focus is: a sheet over the whole popup has
-  // to answer the key that puts one away.
-  function onkeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    onclose();
-  }
 </script>
 
-<svelte:window {onkeydown} />
+<Sheet title="settings" icon={Settings} meta="for the whole extension" closeLabel="close settings" {onclose}>
+  <div class="flex flex-col gap-2.5">
+    <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+      <h3 class="section-title m-0">SoundCloud pages</h3>
 
-<Tooltip.Provider delayDuration={350}>
-  <div class="fixed inset-0 z-40 flex flex-col justify-end">
-    <!-- The ground behind the sheet. A click on it puts the sheet away, which
-         is a shortcut rather than the way out: the close button in the header
-         is what a keyboard uses, so this is hidden from the tree entirely. -->
-    <button
-      type="button"
-      tabindex="-1"
-      aria-hidden="true"
-      class="absolute inset-0 bg-black/50"
-      transition:fade={{ duration: 150 }}
-      onclick={onclose}
-    ></button>
-
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="settings"
-      class="relative flex max-h-[85vh] flex-col rounded-t-xl border-t border-line-strong bg-canvas"
-      transition:fly={{ y: 240, duration: 240, easing: cubicOut, opacity: 1 }}
-    >
-      <header class="flex h-13 shrink-0 items-center gap-2.5 border-b border-line px-3">
-        <ToolTile icon={Settings} />
-
+      <div class="flex items-start gap-2.5">
+        <Switch
+          id="replace-download-buttons"
+          class="mt-0.5 shrink-0"
+          bind:checked={
+            () => settings.replaceDownloadButtons,
+            (on) => (settings.replaceDownloadButtons = on)
+          }
+        />
         <div class="min-w-0 flex-1">
-          <h2 class="m-0 truncate text-label leading-tight font-semibold">settings</h2>
-          <p class="m-0 truncate text-caption leading-tight text-fg-muted">
-            for the whole extension
+          <Label for="replace-download-buttons" class="text-label leading-snug font-normal">
+            replace SoundCloud’s download buttons
+          </Label>
+          <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
+            {REPLACE_HINT}
           </p>
         </div>
+      </div>
 
-        <!-- The browser's own tooltip rather than the shell's, for the reason
-             the queue sheet's close button has one: this is the only way out,
-             and the one control a screen reader has to find here is better off
-             being the button itself. -->
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          class="-mr-1 shrink-0"
-          aria-label="close settings"
-          title="close"
-          onclick={onclose}
-        >
-          <X />
-        </Button>
-      </header>
-
-      <div class="scroll-slim min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <div class="flex flex-col gap-2.5">
-          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
-            <h3 class="section-title m-0">SoundCloud pages</h3>
-
-            <div class="flex items-start gap-2.5">
-              <Switch
-                id="replace-download-buttons"
-                class="mt-0.5 shrink-0"
-                bind:checked={
-                  () => settings.replaceDownloadButtons,
-                  (on) => (settings.replaceDownloadButtons = on)
-                }
-              />
-              <div class="min-w-0 flex-1">
-                <Label for="replace-download-buttons" class="text-label leading-snug font-normal">
-                  replace SoundCloud’s download buttons
-                </Label>
-                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-                  {REPLACE_HINT}
-                </p>
-              </div>
-            </div>
-
-            <div class="flex items-start gap-2.5">
-              <Switch
-                id="likes-list-view"
-                class="mt-0.5 shrink-0"
-                bind:checked={
-                  () => settings.likesListView, (on) => (settings.likesListView = on)
-                }
-              />
-              <div class="min-w-0 flex-1">
-                <Label for="likes-list-view" class="text-label leading-snug font-normal">
-                  open your likes as a list
-                </Label>
-                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-                  {LIKES_VIEW_HINT}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <!--
-            What the Downloader gives a gate that asks, and what it does with
-            what comes back. Kept here rather than on that panel because none
-            of it is about the list on screen: the address and the name are
-            typed on the day one gate asks for them, and a failed row that
-            wants either sends you straight to this sheet.
-          -->
-          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
-            <h3 class="section-title m-0">downloads</h3>
-
-            <div class="flex flex-col gap-1.5">
-              <Label for="email" class="text-caption text-fg-muted">email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                autocomplete="off"
-                spellcheck="false"
-                class="h-8"
-                bind:value={downloader.email.value}
-              />
-              <Label for="name" class="text-caption text-fg-muted">name</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="your name"
-                autocomplete="off"
-                class="h-8"
-                bind:value={downloader.name.value}
-              />
-              <p class="m-0 text-caption leading-relaxed text-fg-muted">{EMAIL_HINT}</p>
-            </div>
-
-            <div class="flex items-start gap-2.5">
-              <Switch
-                id="mark"
-                class="mt-0.5 shrink-0"
-                bind:checked={downloader.mark.value}
-              />
-              <div class="min-w-0 flex-1">
-                <Label for="mark" class="text-label leading-snug font-normal">
-                  mark the SoundCloud track downloaded
-                </Label>
-                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-                  {MARK_HINT}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <!--
-            The badges a link-less track carries in Manager, one switch each.
-            Which sites there are is data rather than code
-            (src/lib/search-sites.json), so this list is however long that file
-            is and nothing here names a site — somebody who adds one to the
-            file gets its switch for free.
-
-            Here rather than on the Manager panel for the reason the address
-            above is: it is not about the list in front of you. Which shops you
-            buy from is a fact about you, settled once, and the panel's own
-            options are the two that say how its list is drawn.
-          -->
-          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
-            <h3 class="section-title m-0">search badges</h3>
-            <p class="m-0 text-caption leading-relaxed text-fg-muted">{SEARCH_HINT}</p>
-
-            <div class="flex flex-col gap-2">
-              {#each badges as site (site.id)}
-                <div class="flex items-center gap-2.5">
-                  <Switch
-                    id={`search-${site.id}`}
-                    class="shrink-0"
-                    bind:checked={() => site.on, (on) => searchSites.set(site.id, on)}
-                  />
-                  <!-- The badge itself, drawn as the row draws it: the two
-                       letters on the button are what somebody has to
-                       recognise, and the name beside them is what this list
-                       is otherwise a list of. -->
-                  <span
-                    class="grid size-5 shrink-0 place-items-center rounded text-[9px] font-bold"
-                    style={site.style}
-                    aria-hidden="true">{site.badge}</span
-                  >
-                  <Label for={`search-${site.id}`} class="text-label leading-snug font-normal">
-                    {site.name}
-                  </Label>
-                </div>
-              {/each}
-            </div>
-
-            {#if badges.every((site) => !site.on)}
-              <p class="m-0 text-caption leading-relaxed text-fg-muted">{NO_SEARCH_HINT}</p>
-            {/if}
-          </section>
-
-          <!-- A section of its own (StateTransfer.svelte): it is the only
-               thing here that writes anything but a setting, and the one
-               control in the sheet that can take something away. -->
-          <StateTransfer />
-
-          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
-            <h3 class="section-title m-0">appearance</h3>
-            <div class="flex gap-1.5">
-              {#each THEMES as option (option.mode)}
-                {@const Icon = option.icon}
-                {@const on = theme.mode === option.mode}
-                <Button
-                  size="sm"
-                  variant={on ? 'default' : 'outline'}
-                  class={on ? '' : 'text-fg-muted'}
-                  aria-pressed={on}
-                  onclick={() => theme.set(option.mode)}
-                >
-                  <Icon />
-                  {option.label}
-                </Button>
-              {/each}
-            </div>
-
-            <!--
-              How an opened row's words are drawn, rather than which of them
-              there are: the transform is $lib/title-case.ts and the switch
-              itself $lib/title-case.svelte.ts, thrown here and read by the
-              Manager panel under this sheet, which redraws its opened rows as
-              it moves.
-            -->
-            <div class="flex items-start gap-2.5">
-              <Switch
-                id="title-case"
-                class="mt-0.5 shrink-0"
-                bind:checked={titleCasing.value}
-              />
-              <div class="min-w-0 flex-1">
-                <Label for="title-case" class="text-label leading-snug font-normal">
-                  title case the title, artist and genre
-                </Label>
-                <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
-                  {TITLE_CASE_HINT}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
-            <h3 class="section-title m-0">about</h3>
-            <div class="flex items-center gap-2.5">
-              <p class="m-0 min-w-0 flex-1 truncate font-mono text-caption text-fg-muted">
-                localtoolbox {version}
-              </p>
-              <Button
-                size="sm"
-                variant="outline"
-                href={reportUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Bug />
-                report a bug
-              </Button>
-            </div>
-          </section>
+      <div class="flex items-start gap-2.5">
+        <Switch
+          id="likes-list-view"
+          class="mt-0.5 shrink-0"
+          bind:checked={
+            () => settings.likesListView, (on) => (settings.likesListView = on)
+          }
+        />
+        <div class="min-w-0 flex-1">
+          <Label for="likes-list-view" class="text-label leading-snug font-normal">
+            open your likes as a list
+          </Label>
+          <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
+            {LIKES_VIEW_HINT}
+          </p>
         </div>
       </div>
-    </div>
+    </section>
+
+    <!--
+      What the Downloader gives a gate that asks, and what it does with
+      what comes back. Kept here rather than on that panel because none
+      of it is about the list on screen: the address and the name are
+      typed on the day one gate asks for them, and a failed row that
+      wants either sends you straight to this sheet.
+    -->
+    <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+      <h3 class="section-title m-0">downloads</h3>
+
+      <div class="flex flex-col gap-1.5">
+        <Label for="email" class="text-caption text-fg-muted">email</Label>
+        <Input
+          id="email"
+          type="email"
+          placeholder="you@example.com"
+          autocomplete="off"
+          spellcheck="false"
+          class="h-8"
+          bind:value={downloader.email.value}
+        />
+        <Label for="name" class="text-caption text-fg-muted">name</Label>
+        <Input
+          id="name"
+          type="text"
+          placeholder="your name"
+          autocomplete="off"
+          class="h-8"
+          bind:value={downloader.name.value}
+        />
+        <p class="m-0 text-caption leading-relaxed text-fg-muted">{EMAIL_HINT}</p>
+      </div>
+
+      <div class="flex items-start gap-2.5">
+        <Switch
+          id="mark"
+          class="mt-0.5 shrink-0"
+          bind:checked={downloader.mark.value}
+        />
+        <div class="min-w-0 flex-1">
+          <Label for="mark" class="text-label leading-snug font-normal">
+            mark the SoundCloud track downloaded
+          </Label>
+          <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
+            {MARK_HINT}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!--
+      The badges a link-less track carries in Manager, one switch each.
+      Which sites there are is data rather than code
+      (src/lib/search-sites.json), so this list is however long that file
+      is and nothing here names a site — somebody who adds one to the
+      file gets its switch for free.
+
+      Here rather than on the Manager panel for the reason the address
+      above is: it is not about the list in front of you. Which shops you
+      buy from is a fact about you, settled once, and the panel's own
+      options are the two that say how its list is drawn.
+    -->
+    <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+      <h3 class="section-title m-0">search badges</h3>
+      <p class="m-0 text-caption leading-relaxed text-fg-muted">{SEARCH_HINT}</p>
+
+      <div class="flex flex-col gap-2">
+        {#each badges as site (site.id)}
+          <div class="flex items-center gap-2.5">
+            <Switch
+              id={`search-${site.id}`}
+              class="shrink-0"
+              bind:checked={() => site.on, (on) => searchSites.set(site.id, on)}
+            />
+            <!-- The badge itself, drawn as the row draws it: the two
+                 letters on the button are what somebody has to
+                 recognise, and the name beside them is what this list
+                 is otherwise a list of. -->
+            <span
+              class="grid size-5 shrink-0 place-items-center rounded text-[9px] font-bold"
+              style={site.style}
+              aria-hidden="true">{site.badge}</span
+            >
+            <Label for={`search-${site.id}`} class="text-label leading-snug font-normal">
+              {site.name}
+            </Label>
+          </div>
+        {/each}
+      </div>
+
+      {#if badges.every((site) => !site.on)}
+        <p class="m-0 text-caption leading-relaxed text-fg-muted">{NO_SEARCH_HINT}</p>
+      {/if}
+    </section>
+
+    <!-- A section of its own (StateTransfer.svelte): it is the only
+         thing here that writes anything but a setting, and the one
+         control in the sheet that can take something away. -->
+    <StateTransfer />
+
+    <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+      <h3 class="section-title m-0">appearance</h3>
+      <div class="flex gap-1.5">
+        {#each THEMES as option (option.mode)}
+          {@const Icon = option.icon}
+          {@const on = theme.mode === option.mode}
+          <Button
+            size="sm"
+            variant={on ? 'default' : 'outline'}
+            class={on ? '' : 'text-fg-muted'}
+            aria-pressed={on}
+            onclick={() => theme.set(option.mode)}
+          >
+            <Icon />
+            {option.label}
+          </Button>
+        {/each}
+      </div>
+
+      <!--
+        How an opened row's words are drawn, rather than which of them
+        there are: the transform is $lib/title-case.ts and the switch
+        itself $lib/title-case.svelte.ts, thrown here and read by the
+        Manager panel under this sheet, which redraws its opened rows as
+        it moves.
+      -->
+      <div class="flex items-start gap-2.5">
+        <Switch
+          id="title-case"
+          class="mt-0.5 shrink-0"
+          bind:checked={titleCasing.value}
+        />
+        <div class="min-w-0 flex-1">
+          <Label for="title-case" class="text-label leading-snug font-normal">
+            title case the title, artist and genre
+          </Label>
+          <p class="m-0 mt-1 text-caption leading-relaxed text-fg-muted">
+            {TITLE_CASE_HINT}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+      <h3 class="section-title m-0">about</h3>
+      <div class="flex items-center gap-2.5">
+        <p class="m-0 min-w-0 flex-1 truncate font-mono text-caption text-fg-muted">
+          localtoolbox {version}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          href={reportUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Bug />
+          report a bug
+        </Button>
+      </div>
+    </section>
   </div>
-</Tooltip.Provider>
+</Sheet>

@@ -109,6 +109,32 @@ test.describe('public pages', () => {
 		await expect(page.getByRole('group', { name: 'Format' })).toBeVisible();
 	});
 
+	test('directory filters set before the page hydrates stay set', async ({ page }) => {
+		const search = page.getByLabel('Search');
+		const chip = page.getByRole('group', { name: 'Fee tier' }).getByRole('checkbox').first();
+		const sort = page.getByLabel('Sort by');
+
+		await beforeHydration(page, '/projects', async () => {
+			const panel = page.locator('summary', { hasText: /^\s*Filters/ });
+
+			if (await panel.isVisible()) await panel.click();
+			await search.fill('techno');
+			await chip.locator('xpath=..').click();
+			await sort.selectOption('name');
+		});
+		await expect(search).toHaveValue('techno');
+		await expect(chip).toBeChecked();
+		await expect(sort).toHaveValue('name');
+
+		// Kept filters apply, and the form follows the page when they're cleared.
+		await page.getByRole('button', { name: 'Apply' }).click();
+		await expect(page).toHaveURL(/[?&]q=techno(&|$)/);
+		await page.getByRole('link', { name: 'Clear filters' }).first().click();
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(search).toHaveValue('');
+		await expect(chip).not.toBeChecked();
+	});
+
 	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
 		await page.goto('/projects/neon-tide');
 		await expect(page.getByRole('heading', { name: 'How they play' })).toBeVisible();
@@ -201,6 +227,59 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test("link previews get every public page's title and address without running scripts", async ({ request }) => {
+		// What an unfurler reads: the HTML as served, before any script runs.
+		const head = async (path: string) => {
+			const response = await request.get(path);
+			expect(response.status(), path).toBe(200);
+			const html = (await response.text()).split('</head>')[0];
+
+			const property = (name: string) =>
+				html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+
+			return {
+				titles: html.match(/<title>/g)?.length ?? 0,
+				canonical: html.match(/<link rel="canonical" href="([^"]*)"/)?.[1],
+				robots: response.headers()['x-robots-tag'],
+				property
+			};
+		};
+
+		for (const path of [
+			'/',
+			'/about',
+			'/for-djs',
+			'/privacy',
+			'/match',
+			'/projects',
+			'/shows',
+			'/artists',
+			'/charts',
+			'/tools',
+			'/tools/locallibrary',
+			'/tools/locallibrary/docs/readme',
+			'/projects/neon-tide',
+			'/projects/neon-tide/press-kits',
+			'/@neon.test'
+		]) {
+			const page = await head(path);
+			expect(page.titles, path).toBe(1);
+			expect(page.property('og:title'), path).toBeTruthy();
+			expect(page.property('description'), path).toBeTruthy();
+			expect(page.property('og:url'), path).toBe(page.canonical);
+			expect(new URL(page.canonical ?? '').pathname, path).toBe(path);
+			expect(page.robots, path).toBeUndefined();
+		}
+
+		// The artist's name reaches the head, not a placeholder written before the plays were counted. The demo sets
+		// reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			expect((await head('/artists/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72')).property('og:title')).toBe('Mira Okonkwo');
+		}).toPass({ timeout: 60_000 });
+
+		expect((await request.get('/login')).headers()['x-robots-tag']).toBe('noindex');
+	});
+
 	test('staff pages and the dashboard require sign-in', async ({ page, request }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
@@ -249,12 +328,15 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and publish' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and published')).toBeVisible();
 
 		await page.goto('/admin/audit');
-		// The newest entry; earlier projects' approvals read the same.
-		await expect(page.getByText("Approved @neon.test's change request for Saffron Social").first()).toBeVisible();
+		// The newest entry; earlier projects' approvals read the same. A phone shows entries as cards, a desktop as rows.
+		await expect(
+			page.getByText("Approved @neon.test's change request for Saffron Social").filter({ visible: true }).first()
+		).toBeVisible();
 		await page.getByRole('button', { name: 'Verify chain' }).click();
 		await expect(page.getByText(/entries verified/)).toBeVisible();
 		await expectAccessible(page);
@@ -278,6 +360,7 @@ test.describe('signed in', () => {
 		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
 		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and list' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
 
@@ -568,6 +651,44 @@ test.describe('keeps what people entered', () => {
 		page.once('dialog', (dialog) => dialog.accept());
 		await page.getByRole('button', { name: 'Withdraw' }).click();
 		await expect(page.getByText('Request withdrawn')).toBeVisible();
+	});
+
+	test('the profile and press kit editors keep what was entered before the page hydrated', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass');
+
+		const tagline = page.getByLabel('Tagline');
+		const bio = page.getByLabel('Bio', { exact: true });
+		const modular = page.locator('input[name="formats"][value="modular"]');
+		const fee = page.getByLabel('What this fee covers').first();
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/profile', async () => {
+			await tagline.fill('Typed before the script loaded');
+			await bio.fill('A bio typed early');
+			await modular.locator('xpath=..').click();
+			await fee.fill('Warehouse nights');
+		});
+		await expect(tagline).toHaveValue('Typed before the script loaded');
+		await expect(bio).toHaveValue('A bio typed early');
+		await expect(modular).toBeChecked();
+		await expect(fee).toHaveValue('Warehouse nights');
+
+		const kitHeadline = page.getByLabel('Headline');
+		const longBio = page.getByLabel('Full bio');
+		const open = page.getByRole('radio', { name: /^Open/ });
+		const quote = page.getByLabel('Quote 1', { exact: true });
+
+		await beforeHydration(page, '/dashboard/projects/neon-tide/press-kits/new', async () => {
+			await kitHeadline.fill('Typed before the script loaded');
+			await longBio.fill('A full bio typed early');
+			await open.check();
+			await quote.fill('Relentless');
+		});
+		await expect(kitHeadline).toHaveValue('Typed before the script loaded');
+		await expect(longBio).toHaveValue('A full bio typed early');
+		await expect(open).toBeChecked();
+		await expect(quote).toHaveValue('Relentless');
+		// Picking a preset before the script loaded still sets the rules it stands for.
+		await expect(page.getByRole('radio', { name: 'Anyone signed in: Approved automatically' })).toBeChecked();
 	});
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {

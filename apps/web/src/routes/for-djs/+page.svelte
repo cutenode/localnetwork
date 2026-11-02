@@ -15,11 +15,6 @@
 	];
 </script>
 
-<svelte:head>
-	<title>For DJs · Local Network</title>
-	<meta name="description" content="List or claim your DJ project so promoters near you can find and book you." />
-</svelte:head>
-
 {#snippet calls()}
 	<Button size="lg" href="/dashboard/projects/new">List your project</Button>
 	<Button size="lg" variant="secondary" href="/projects?unclaimed=1">Find and claim yours</Button>

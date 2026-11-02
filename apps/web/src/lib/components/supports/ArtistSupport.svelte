@@ -10,13 +10,12 @@
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
 	import ArtistLinks from './ArtistLinks.svelte';
-	import GhostRows from './GhostRows.svelte';
 
 	/**
-	 * An artist's page below the breadcrumb, as it streams in: their name and supports, then each of their tracks DJs
-	 * played with every play. `supports` is null when the directory is offline; `retryHref` asks again.
+	 * An artist's page below the breadcrumb: their name and supports, then each of their tracks DJs played with every
+	 * play. `supports` is null when the directory is offline; `retryHref` asks again.
 	 */
-	let { supports, retryHref }: { supports: Promise<ArtistSupports | null> | ArtistSupports | null; retryHref: string } = $props();
+	let { supports, retryHref }: { supports: ArtistSupports | null; retryHref: string } = $props();
 
 	/** Plays shown before the rest fold away. */
 	const SHOWN = 8;
@@ -40,62 +39,48 @@
 	</li>
 {/snippet}
 
-{#await supports}
-	<div class="flex flex-col gap-3">
-		<h1 class="m-0"><span class="sr-only">Artist</span><span aria-hidden="true" class="block h-10 w-72 max-w-full animate-pulse rounded-md bg-raised"></span></h1>
-		<div aria-hidden="true" class="h-5 w-48 animate-pulse rounded-sm bg-raised"></div>
-	</div>
+{#if !supports}
+	<h1 class="m-0 text-title font-semibold">Artist</h1>
+	<EmptyState title="Artists offline" body="Who played what isn't answering. Try again in a minute."><Button variant="secondary" href={retryHref}>Try again</Button></EmptyState>
+{:else if !supports.artist}
+	<h1 class="m-0 text-title font-semibold">Artist</h1>
+	<EmptyState title="No plays yet" body="None of our DJs' sets credit this artist yet."><Button variant="secondary" href="/artists">Find another artist</Button></EmptyState>
+{:else}
+	{@const artist = supports.artist}
+	<header class="flex flex-col gap-3">
+		<h1 class="m-0 text-title font-semibold text-balance">{artist.name}</h1>
+		<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
+			<span><span class="font-mono text-fg">{artist.supports.toLocaleString('en')}</span> all-time {artist.supports === 1 ? 'support' : 'supports'} from <span class="font-mono text-fg">{artist.djCount.toLocaleString('en')}</span> {artist.djCount === 1 ? 'DJ' : 'DJs'}</span>
+			{#if artist.mbid}<a class="link inline-flex items-center gap-1" href={musicBrainzUrl('artist', artist.mbid)} rel="noopener noreferrer" target="_blank">MusicBrainz<ExternalLink class="size-3" /></a>{/if}
+		</p>
+	</header>
 	<section aria-labelledby="tracks-title" class="flex flex-col gap-3">
 		<h2 id="tracks-title" class="m-0 text-heading font-semibold">Tracks</h2>
-		<GhostRows label="Loading who played their tracks" rows={4} />
-	</section>
-{:then result}
-	{#if !result}
-		<h1 class="m-0 text-title font-semibold">Artist</h1>
-		<EmptyState title="Artists offline" body="Who played what isn't answering. Try again in a minute."><Button variant="secondary" href={retryHref}>Try again</Button></EmptyState>
-	{:else if !result.artist}
-		<h1 class="m-0 text-title font-semibold">Artist</h1>
-		<EmptyState title="No plays yet" body="None of our DJs' sets credit this artist yet."><Button variant="secondary" href="/artists">Find another artist</Button></EmptyState>
-	{:else}
-		{@const artist = result.artist}
-		<header class="flex flex-col gap-3">
-			<h1 class="m-0 text-title font-semibold text-balance">{artist.name}</h1>
-			<p class="m-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-small text-fg-muted">
-				<span><span class="font-mono text-fg">{artist.supports.toLocaleString('en')}</span> all-time {artist.supports === 1 ? 'support' : 'supports'} from <span class="font-mono text-fg">{artist.djCount.toLocaleString('en')}</span> {artist.djCount === 1 ? 'DJ' : 'DJs'}</span>
-				{#if artist.mbid}<a class="link inline-flex items-center gap-1" href={musicBrainzUrl('artist', artist.mbid)} rel="noopener noreferrer" target="_blank">MusicBrainz<ExternalLink class="size-3" /></a>{/if}
-			</p>
-		</header>
-		<section aria-labelledby="tracks-title" class="flex flex-col gap-3">
-			<h2 id="tracks-title" class="m-0 text-heading font-semibold">Tracks</h2>
-			<ol class="m-0 flex list-none flex-col gap-4 p-0">
-				{#each result.tracks as { track, plays } (track.id)}
-					<li class="card overflow-hidden">
-						<div class="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
-							<div class="flex min-w-0 flex-col">
-								<h3 class="m-0 text-emphasis font-semibold">
-									{track.title}{#if track.recordingMbId}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
-								</h3>
-								<span class="text-small"><ArtistLinks artists={track.artists} /></span>
-							</div>
-							<span class="font-mono text-label whitespace-nowrap text-fg-soft">{pluralize(track.supports, 'DJ')}</span>
+		<ol class="m-0 flex list-none flex-col gap-4 p-0">
+			{#each supports.tracks as { track, plays } (track.id)}
+				<li class="card overflow-hidden">
+					<div class="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
+						<div class="flex min-w-0 flex-col">
+							<h3 class="m-0 text-emphasis font-semibold">
+								{track.title}{#if track.recordingMbId}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title} on MusicBrainz"><ExternalLink class="size-3.5" /></a>{/if}
+							</h3>
+							<span class="text-small"><ArtistLinks artists={track.artists} /></span>
 						</div>
-						<ol aria-label="Plays of {track.title}" class="m-0 flex list-none flex-col divide-y divide-line p-0">
-							{#each plays.slice(0, SHOWN) as item, i (i)}{@render play(item, result.djs)}{/each}
-						</ol>
-						{#if plays.length > SHOWN}
-							<details class="border-t border-line">
-								<summary class="cursor-pointer px-4 py-2.5 text-small text-fg-muted marker:text-fg-subtle hover:text-fg">{pluralize(plays.length - SHOWN, 'more play')}</summary>
-								<ol aria-label="More plays of {track.title}" class="m-0 flex list-none flex-col divide-y divide-line border-t border-line p-0">
-									{#each plays.slice(SHOWN) as item, i (i)}{@render play(item, result.djs)}{/each}
-								</ol>
-							</details>
-						{/if}
-					</li>
-				{/each}
-			</ol>
-		</section>
-	{/if}
-{:catch}
-	<h1 class="m-0 text-title font-semibold">Artist</h1>
-	<EmptyState title="Couldn't load this artist" body="Something went wrong on our side. Try again in a minute."><Button variant="secondary" href={retryHref}>Try again</Button></EmptyState>
-{/await}
+						<span class="font-mono text-label whitespace-nowrap text-fg-soft">{pluralize(track.supports, 'DJ')}</span>
+					</div>
+					<ol aria-label="Plays of {track.title}" class="m-0 flex list-none flex-col divide-y divide-line p-0">
+						{#each plays.slice(0, SHOWN) as item, i (i)}{@render play(item, supports.djs)}{/each}
+					</ol>
+					{#if plays.length > SHOWN}
+						<details class="border-t border-line">
+							<summary class="cursor-pointer px-4 py-2.5 text-small text-fg-muted marker:text-fg-subtle hover:text-fg">{pluralize(plays.length - SHOWN, 'more play')}</summary>
+							<ol aria-label="More plays of {track.title}" class="m-0 flex list-none flex-col divide-y divide-line border-t border-line p-0">
+								{#each plays.slice(SHOWN) as item, i (i)}{@render play(item, supports.djs)}{/each}
+							</ol>
+						</details>
+					{/if}
+				</li>
+			{/each}
+		</ol>
+	</section>
+{/if}

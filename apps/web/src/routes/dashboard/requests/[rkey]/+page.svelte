@@ -9,7 +9,7 @@
 	import ProjectForm from '#lib/components/ProjectForm.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { draftKey, hasDraft } from '#lib/form-draft.svelte.ts';
-	import { formatDateTime } from '#lib/format.ts';
+	import { formatDateTime, requestTitle } from '#lib/format.ts';
 	import { CLAIM_RELATIONSHIPS, labelFor } from '#lib/taxonomy/options.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -23,15 +23,7 @@
 
 	const editable = $derived(request.requester.did === data.viewer?.did && (request.status === 'pending' || request.status === 'changes_requested'));
 
-	const title = $derived(
-		request.kind === 'create'
-			? `New project: ${request.record.profile?.name}`
-			: request.kind === 'claim'
-				? `Claim: ${request.project?.name}`
-				: request.kind === 'list'
-					? 'Listing in Find DJs'
-					: `Changes to ${request.project?.name}`
-	);
+	const title = $derived(requestTitle(request));
 
 	let editing = $state(false);
 
@@ -70,7 +62,7 @@
 	</header>
 
 	{#if data.submitted}
-		<FormMessage form={{ success: "Submitted. A moderator will review it soon; it was written to your PDS inside Local Network's private moderation space." }} />
+		<FormMessage form={{ success: 'Submitted. A moderator will review it soon.' }} />
 	{/if}
 	<FormMessage {form} />
 
@@ -97,7 +89,7 @@
 		</Card>
 	{:else if request.kind === 'update'}
 		<Card as="section" class="flex flex-col gap-3">
-			<h2 class="m-0 text-emphasis font-semibold">Proposed changes</h2>
+			<h2 class="m-0 text-emphasis font-semibold">{request.status === 'approved' ? 'Published changes' : 'Proposed changes'}</h2>
 			<DiffTable changes={data.changes} />
 		</Card>
 	{/if}
@@ -135,10 +127,4 @@
 			{/if}
 		{/if}
 	{/if}
-
-	<Card as="section" tone="well" padding="sm" class="flex flex-col gap-1">
-		<h2 class="m-0 text-small font-medium text-fg-soft">Where this lives</h2>
-		<p class="m-0 text-caption text-fg-muted">{request.repoDid === request.requester.did ? 'Your repo' : 'Filed for you by the root account'} inside the moderation space:</p>
-		<p class="m-0 font-mono text-caption break-all text-fg-subtle">{request.uri}</p>
-	</Card>
 </div>

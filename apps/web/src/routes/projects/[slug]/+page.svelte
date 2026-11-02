@@ -37,11 +37,6 @@
 	const followLogin = $derived(viewer ? undefined : loginHref);
 </script>
 
-<svelte:head>
-	<title>{profile.name} · Local Network</title>
-	<meta name="description" content={profile.tagline ?? `${kindLabel(profile.kind)} from ${placeLabel(profile)}`} />
-</svelte:head>
-
 <div class="border-b border-line">
 	<div class="container-page flex flex-col gap-6 py-10 sm:py-14">
 		<PreviewBanner status={project.status} />
@@ -116,7 +111,7 @@
 		<section id="shows" aria-labelledby="shows-title" class="flex scroll-mt-20 flex-col gap-4">
 			<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
 			{#await data.shows}
-				<ShowList shows={undefined} project={project.uri} empty={{ title: '' }} />
+				<ShowList shows={undefined} rows={project.counts?.upcomingShows || 1} project={project.uri} empty={{ title: '' }} />
 			{:then shows}
 				<ShowList {shows} project={project.uri} retryHref={page.url.pathname} empty={{ title: 'No upcoming shows', body: `Follow ${profile.name} to see new ones under Shows.` }} />
 			{/await}

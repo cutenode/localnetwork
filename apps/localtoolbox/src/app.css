@@ -18,16 +18,23 @@
 @custom-variant data-open (&:is([data-open], [data-state="open"]));
 @custom-variant data-closed (&:is([data-closed], [data-state="closed"]));
 
-@layer base {
-	body {
-		/* A browser-action popup sizes itself to its content, between these
-       bounds; past the height Chrome scrolls the whole popup, so the lists
-       inside keep their own scroll areas well under it. The website's body
-       size is too big for a 400px panel, so the popup reads at label size. */
-		@apply m-0 bg-canvas text-label;
-		width: 400px;
-	}
+/* Outside the layers on purpose: Chrome gives every extension page a sheet of
+   its own, `body { font-family: system-ui; font-size: 75% }`, and an
+   unlayered rule beats anything in a layer, so a body rule in `base` lost to
+   it and the popup drew in the system font at 12px.
 
+   A browser-action popup sizes itself to its content, up to 800 by 600; past
+   the height Chrome scrolls the whole popup, so the lists inside keep their
+   own scroll areas well under it. The website's body size is too big for a
+   400px panel, so the popup reads at label size. The width is in rem so the
+   whole popup grows with Chrome's font size setting rather than squeezing
+   bigger text into 400px. */
+body {
+	@apply m-0 bg-canvas font-sans text-label;
+	width: min(25rem, 800px);
+}
+
+@layer base {
 	/* Counts, sizes and track numbers line up column-wise as they change. */
 	.tabular {
 		font-variant-numeric: tabular-nums;

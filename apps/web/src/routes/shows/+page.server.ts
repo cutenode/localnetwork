@@ -1,4 +1,5 @@
 import { unlessOffline } from '#lib/server/happyview/offline.ts';
+import { pageMeta } from '#lib/server/meta.ts';
 import { RADII, showsPlace } from '#lib/server/shows-place.ts';
 import type { ShowView } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
@@ -20,5 +21,16 @@ export const load: PageServerLoad = async ({ url, cookies, locals }) => {
 						: app.shows.upcoming({ near, radiusKm: place?.radiusKm, cursor })
 				);
 
-	return { following, place, radii: RADII, geocoder: app.geocoder.enabled, shows };
+	return {
+		following,
+		place,
+		radii: RADII,
+		geocoder: app.geocoder.enabled,
+		shows,
+		meta: pageMeta(app.config.publicUrl, {
+			title: 'Shows',
+			description: 'Upcoming shows by DJs on Local Network, near you or from the DJs you follow.',
+			path: '/shows'
+		})
+	};
 };

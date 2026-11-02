@@ -8,6 +8,7 @@
 	import NearInput from '#lib/components/NearInput.svelte';
 	import Pagination from '#lib/components/Pagination.svelte';
 	import PerformerCard from '#lib/components/PerformerCard.svelte';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { pluralize } from '#lib/format.ts';
 	import { djSummary, projectSummary } from '#lib/performers.ts';
 	import { FEE_TIERS, FORMATS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
@@ -18,6 +19,8 @@
 	let { data }: PageProps = $props();
 
 	const f = $derived(data.filters);
+
+	const fields = $derived(formFields(f));
 
 	/** How many filters are on, for the phone's folded panel. Sort isn't a filter. */
 	const active = $derived(
@@ -35,15 +38,10 @@
 	if (rendered) moreFiltersOpen = rendered.open;
 </script>
 
-<svelte:head>
-	<title>Find DJs · Local Network</title>
-	<meta name="description" content="Search Local Network's DJs by sound, place, fee and slot." />
-</svelte:head>
-
-{#snippet chips(name: string, options: readonly { value: string; label: string; hint?: string }[], checked: string[])}
+{#snippet chips(name: string, options: readonly { value: string; label: string; hint?: string }[], list: 'feeTiers' | 'setTypes' | 'formats' | 'kinds')}
 	<div class="flex flex-wrap gap-1.5">
 		{#each options as option (option.value)}
-			<label class="chip-toggle" title={option.hint}><input type="checkbox" class="sr-only" {name} value={option.value} checked={checked.includes(option.value)} />{option.label}</label>
+			<label class="chip-toggle" title={option.hint}><input type="checkbox" class="sr-only" {name} value={option.value} bind:group={fields[list]} />{option.label}</label>
 		{/each}
 	</div>
 {/snippet}
@@ -66,7 +64,7 @@
 			<form method="GET" class="flex flex-col gap-5 border-line p-5 max-lg:border-t" data-sveltekit-reset="false">
 				<div>
 					<label class="label" for="q">Search</label>
-					<input id="q" name="q" class="input" value={f.q} placeholder="Name, sound, venue" />
+					<input id="q" name="q" class="input" bind:value={fields.q} placeholder="Name, sound, venue" />
 				</div>
 				<div>
 					<label class="label" for="near">Near</label>
@@ -84,28 +82,28 @@
 				</div>
 				<fieldset class="m-0 border-0 p-0">
 					<legend class="label">Fee tier</legend>
-					{@render chips('fee', FEE_TIERS, f.feeTiers)}
+					{@render chips('fee', FEE_TIERS, 'feeTiers')}
 				</fieldset>
 				<fieldset class="m-0 border-0 p-0">
 					<legend class="label">Slot</legend>
-					{@render chips('setType', SET_TYPES, f.setTypes)}
+					{@render chips('setType', SET_TYPES, 'setTypes')}
 				</fieldset>
 				<details id="more-filters" open={moreFiltersOpen}>
 					<summary class="cursor-pointer text-small font-semibold text-fg-soft">More filters</summary>
 					<div class="mt-4 flex flex-col gap-5">
 						<fieldset class="m-0 border-0 p-0">
 							<legend class="label">Format</legend>
-							{@render chips('format', FORMATS, f.formats)}
+							{@render chips('format', FORMATS, 'formats')}
 						</fieldset>
 						<fieldset class="m-0 border-0 p-0">
 							<legend class="label">Kind</legend>
-							{@render chips('kind', PROJECT_KINDS, f.kinds)}
+							{@render chips('kind', PROJECT_KINDS, 'kinds')}
 						</fieldset>
 						<div>
 							<label class="label" for="country">Country code</label>
-							<input id="country" name="country" class="input uppercase" maxlength="2" value={f.country} placeholder="Any" />
+							<input id="country" name="country" class="input uppercase" maxlength="2" bind:value={fields.country} placeholder="Any" />
 						</div>
-						<label class="flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="unclaimed" checked={f.unclaimed} />Unclaimed only</label>
+						<label class="flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="unclaimed" bind:checked={fields.unclaimed} />Unclaimed only</label>
 					</div>
 				</details>
 				<div>

@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { PAGE_META } from '#lib/testing/page-meta.ts';
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { toolCards } from '#lib/tools/index.ts';
 	import type { ProjectView, Viewer } from '#lib/types.ts';
@@ -67,7 +68,7 @@
 </script>
 
 {#snippet home(viewer: Viewer | null, data: typeof directory | typeof empty | typeof offline)}
-	{@const layout = { viewer, pendingRequests: 0 }}
+	{@const layout = { viewer, pendingRequests: 0, meta: PAGE_META }}
 	<Layout data={layout} params={{}}>
 		<Page data={{ ...layout, geocoder: false, tools: toolCards(), ...data }} params={{}} form={null} />
 	</Layout>

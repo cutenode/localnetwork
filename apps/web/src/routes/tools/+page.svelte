@@ -7,11 +7,6 @@
 	let { data }: PageProps = $props();
 </script>
 
-<svelte:head>
-	<title>Tools · Local Network</title>
-	<meta name="description" content="Tools for DJs from Local Network. Each one stands on its own and signs in with your Atmosphere account." />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-12 sm:py-14">
 	<SectionHeader level={1} eyebrow="Tools for DJs" tone="high" title="From the crate to the booth." lede="Each one stands on its own. They share your Atmosphere account and the records you publish on Local Network." />
 	<ul class="m-0 flex list-none flex-wrap gap-4 p-0">

@@ -2,11 +2,6 @@
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 </script>
 
-<svelte:head>
-	<title>How it works · Local Network</title>
-	<meta name="description" content="How Local Network keeps projects, requests, bookings and its audit log on the AT Protocol." />
-</svelte:head>
-
 <div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
 	<SectionHeader level={1} eyebrow="How it works" title="Built on the AT Protocol" />
 	<div class="prose prose-site">

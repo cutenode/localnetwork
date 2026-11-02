@@ -2,6 +2,7 @@
 	import { ArrowLeft, Mail, Plus, Trash2 } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
+	import { formFields } from '#lib/form-fields.svelte.ts';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
 	import Card from '#lib/ui/Card.svelte';
 	import Eyebrow from '#lib/ui/Eyebrow.svelte';
@@ -33,9 +34,18 @@
 		}
 	);
 
-	let lineup = $derived<Slot[]>((form?.values?.lineup ?? data.show?.lineup ?? []).map((slot) => ({ ...slot })));
+	const fields = $derived(formFields(v));
 
-	let adding = $state('');
+	const lineup = $derived(formFields<Slot[]>(form?.values?.lineup ?? data.show?.lineup ?? []));
+
+	const STATUSES = [
+		{ value: 'considering', label: 'Considering' },
+		{ value: 'contacted', label: 'Contacted' },
+		{ value: 'confirmed', label: 'Confirmed' }
+	];
+
+	// Unset until it mounts, so it starts from a project picked before the page hydrated.
+	let adding = $state<string>();
 
 	const addable = $derived(data.saves.filter((save) => !lineup.some((slot) => slot.project === save.project)));
 </script>
@@ -52,18 +62,18 @@
 		<FormMessage {form} />
 		<Card as="section" class="flex flex-col gap-4 sm:p-6">
 			<h2 class="m-0 text-emphasis font-semibold">Details</h2>
-			<div><label class="label" for="title">Show name</label><input id="title" name="title" class="input" required maxlength="120" value={v.title ?? ''} /></div>
+			<div><label class="label" for="title">Show name</label><input id="title" name="title" class="input" required maxlength="120" bind:value={fields.title} /></div>
 			<div class="grid gap-4 sm:grid-cols-3">
-				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" value={v.date ?? ''} /></div>
-				<div><label class="label" for="venue">Venue</label><input id="venue" name="venue" class="input" maxlength="120" value={v.venue ?? ''} /></div>
-				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" name="capacity" min="1" class="input" value={v.capacity ?? ''} /></div>
+				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" bind:value={fields.date} /></div>
+				<div><label class="label" for="venue">Venue</label><input id="venue" name="venue" class="input" maxlength="120" bind:value={fields.venue} /></div>
+				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" name="capacity" min="1" class="input" bind:value={fields.capacity} /></div>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div><label class="label" for="budgetTier">Budget</label><select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as o (o.value)}<option value={o.value} selected={v.budgetTier === o.value}>{o.label}</option>{/each}</select></div>
 				<div><label class="label" for="setType">Main slot</label><select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as o (o.value)}<option value={o.value} selected={v.setType === o.value}>{o.label}</option>{/each}</select></div>
 			</div>
 			<div><label class="label" for="genres">Sound</label><GenreInput value={v.genres ?? ''} /></div>
-			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24 py-2.5" maxlength="2000">{v.notes ?? ''}</textarea></div>
+			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24 py-2.5" maxlength="2000" bind:value={fields.notes}></textarea></div>
 		</Card>
 		<Card as="section" class="flex flex-col gap-4 sm:p-6">
 			<h2 class="m-0 text-emphasis font-semibold">Lineup</h2>
@@ -82,11 +92,11 @@
 							</div>
 							<div class="ml-auto flex sm:order-last">
 								{#if inquire}<a class="btn-ghost px-2.5" href={inquire} aria-label="Inquire with {name}" title="Inquire"><Mail class="size-4" /></a>{/if}
-								<button type="button" class="btn-ghost px-2.5" aria-label="Remove {name}" onclick={() => (lineup = lineup.filter((_, i) => i !== index))}><Trash2 class="size-4" /></button>
+								<button type="button" class="btn-ghost px-2.5" aria-label="Remove {name}" onclick={() => lineup.splice(index, 1)}><Trash2 class="size-4" /></button>
 							</div>
-							<input name="slotLabel" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" placeholder="e.g. 23:00–01:00" value={slot.slot ?? ''} aria-label="Slot" />
-							<select name="slotStatus" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" value={slot.status ?? 'considering'} aria-label="Status">
-								<option value="considering">Considering</option><option value="contacted">Contacted</option><option value="confirmed">Confirmed</option>
+							<input name="slotLabel" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" placeholder="e.g. 23:00–01:00" bind:value={slot.slot} aria-label="Slot" />
+							<select name="slotStatus" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" aria-label="Status">
+								{#each STATUSES as status (status.value)}<option value={status.value} selected={(slot.status ?? 'considering') === status.value}>{status.label}</option>{/each}
 							</select>
 						</li>
 					{/each}
@@ -100,7 +110,7 @@
 						<option value="">Add a saved project…</option>
 						{#each addable as save (save.rkey)}<option value={save.project}>{projects[save.project]?.profile.name ?? save.project}</option>{/each}
 					</select>
-					<button type="button" class="btn-secondary" disabled={!adding} onclick={() => { lineup = [...lineup, { project: adding, status: 'considering' }]; adding = ''; }}><Plus class="size-4" />Add</button>
+					<button type="button" class="btn-secondary" disabled={!adding} onclick={() => { if (adding) lineup.push({ project: adding, status: 'considering' }); adding = ''; }}><Plus class="size-4" />Add</button>
 				</div>
 			{/if}
 		</Card>
