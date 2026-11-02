@@ -32,6 +32,9 @@ import type {
 } from '$lib/types';
 import type { StoredView } from '../../src/lib/view.svelte.ts';
 import type { Kept } from '../../src/tools/third-party-downloads/walked.svelte.ts';
+import type { Json } from './json.ts';
+
+export type { Json };
 
 /** The mock as a test holds it: the real API, with the stubbed members' `vi.fn` types over it. */
 export type ChromeMock = typeof globalThis.chrome & ChromeStub;
@@ -41,9 +44,6 @@ export type AreaName = 'local' | 'session';
 
 /** A tab as a test describes one: the fields it cares about, usually `id` and `url`. */
 export type TabStub = Partial<chrome.tabs.Tab>;
-
-/** Plain JSON, which is all chrome.storage keeps: Chrome serializes every value it is given. */
-export type Json = string | number | boolean | null | Json[] | { [key: string]: Json | undefined };
 
 /** The session keys the popup keeps for itself, typed by the stores that write them. */
 export interface PopupSession {

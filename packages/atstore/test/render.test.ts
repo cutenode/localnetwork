@@ -15,11 +15,13 @@ const listing = (frame: Listing['hero']['frame']): Listing => ({
 	eyebrow: 'Local Network · "test"',
 	icon: 'apps/locallibrary/assets/icon.svg',
 	glow: '#ff5ca0',
-	hero: { shots: [0], frame },
+	hero: { shots: ['one'], frame },
+	screenshots: ['one'],
+	page: false,
 	capture: async () => []
 });
 
-const shot = { name: 'one', png: Buffer.from('not really a png') };
+const shot = Buffer.from('not really a png');
 
 describe('heroHtml', () => {
 	it('escapes the words it is given', () => {
@@ -60,7 +62,7 @@ describe('drawing', () => {
 	it('draws the hero at 16:9', async () => {
 		const page = await browser.newPage();
 		await page.setContent('<body style="margin:0;background:#123456;width:200px;height:100px"></body>');
-		const screenshot = { name: 'blue', png: await page.screenshot() };
+		const screenshot = await page.screenshot();
 		await page.close();
 
 		const png = await renderHero(browser, listing({ kind: 'browser', url: 'localnetwork.computer' }), svg, [
