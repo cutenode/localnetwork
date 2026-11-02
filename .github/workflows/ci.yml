@@ -43,7 +43,8 @@ jobs:
     permissions:
       # Cancelling a merge queue group's runs once the group is gone.
       actions: write
-      contents: read
+      # Submitting main's npm packages to the dependency graph.
+      contents: write
       # Labelling the pull request.
       pull-requests: write
     outputs:
@@ -482,6 +483,19 @@ jobs:
             echo "codeql_base=$LAST_PASSED"
             echo "draft=${DRAFT:-false}"
           } >> "$GITHUB_OUTPUT"
+      # Each commit on main's npm packages, for the dependency graph, which can't read pnpm 12's
+      # two-document lockfile, and for the base side of dependency-review.yml's review, which looks
+      # for a snapshot of the exact base commit. Component Detection reads a folder with the
+      # lockfile alone, as the review's submission does, under the same correlator.
+      - if: github.event_name == 'push'
+        run: mkdir "$RUNNER_TEMP/lockfile" && cp pnpm-lock.yaml "$RUNNER_TEMP/lockfile/"
+      - if: github.event_name == 'push'
+        uses: advanced-security/component-detection-dependency-submission-action@a02aeda7a175ad4dd38a13c4d3ff2df9da8f2cf0 # v0.2.0
+        with:
+          filePath: ${{ runner.temp }}/lockfile
+          detectorsCategories: Npm
+          fail-on-empty: true
+          correlator: pnpm-lock
       # The tools, areas and kinds of file the pull request changes, as labels (.github/labeler.yml).
       # A fork's pull request gets a read-only token here, so pr-labels.yml labels those instead.
       - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
