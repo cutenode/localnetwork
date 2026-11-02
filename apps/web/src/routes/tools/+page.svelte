@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Capture from '#lib/components/tools/Capture.svelte';
+	import { Capture } from '#lib/components/tools/index.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import type { PageProps } from './$types';
 

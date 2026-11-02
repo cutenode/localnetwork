@@ -87,7 +87,7 @@
 					aria-controls="{id}-panel"
 					tabindex={selected === i ? 0 : -1}
 					class={[
-						'absolute top-0 flex h-7 cursor-pointer items-center gap-1.5 rounded-sm px-2 font-mono text-caption font-semibold whitespace-nowrap transition-colors',
+						'absolute top-0 flex h-7 cursor-pointer items-center gap-1.5 rounded-sm px-2 font-mono text-caption font-semibold whitespace-nowrap',
 						i === cues.length - 1 ? '-translate-x-full lg:translate-x-0' : 'max-lg:-translate-x-1/2',
 						selected === i ? 'bg-cue-hot text-fg-inverse' : 'bg-well text-cue-hot hover:bg-raised'
 					]}
@@ -136,7 +136,7 @@
 					aria-hidden={showing !== i}
 				>
 					{#if picked.has(i)}
-						<Capture capture={item.capture} eager={i === 0} sizes="(min-width: 1280px) 760px, (min-width: 1024px) 62vw, 100vw" onload={() => onload(i)} />
+						<Capture capture={item.capture} sizes="(min-width: 1280px) 760px, (min-width: 1024px) 62vw, 100vw" onload={() => onload(i)} />
 					{/if}
 				</div>
 			{/each}

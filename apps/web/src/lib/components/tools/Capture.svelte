@@ -29,14 +29,6 @@
 	}
 </script>
 
-<!-- The page's largest paint, asked for with the page rather than once the browser reaches it. -->
-<svelte:head>
-	{#if eager}
-		{#if phone}<link rel="preload" as="image" type="image/avif" media="(max-width: 639px)" imagesrcset={phone.sources.avif} fetchpriority="high" />{/if}
-		<link rel="preload" as="image" type="image/avif" media={phone ? '(min-width: 640px)' : undefined} imagesrcset={picture.sources.avif} imagesizes={sizes} fetchpriority="high" />
-	{/if}
-</svelte:head>
-
 <picture>
 	{#if phone}
 		{#each Object.entries(phone.sources) as [format, srcset] (format)}

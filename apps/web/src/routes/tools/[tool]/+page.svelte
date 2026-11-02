@@ -1,6 +1,6 @@
 <script lang="ts">
 	import HotCues from '#lib/components/tools/HotCues.svelte';
-	import WithGuides from '#lib/components/tools/WithGuides.svelte';
+	import { WithGuides } from '#lib/components/tools/index.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import CodeBlock from '#lib/ui/CodeBlock.svelte';
 	import type { PageProps } from './$types';
@@ -18,6 +18,7 @@
 				<p class="m-0 text-small text-fg-muted">{tool.kind}</p>
 				<h1 class="m-0 text-display font-semibold">{tool.name}</h1>
 				<p class="m-0 text-intro text-fg-muted">{tool.tagline}</p>
+				<p class="m-0 max-w-[65ch] text-fg-soft">{tool.summary}</p>
 			</div>
 			<Button href="#install">How to install it</Button>
 		</div>
@@ -26,7 +27,6 @@
 	<HotCues tool={tool.name} cues={tool.cues} track={data.track} />
 
 	<WithGuides tool={tool.id} guides={data.guides}>
-		<p class="m-0 max-w-[65ch] text-lede text-fg-soft">{tool.summary}</p>
 		<section id="install" aria-labelledby="install-title" class="flex scroll-mt-6 flex-col gap-5">
 			<div class="flex flex-col gap-2">
 				<h2 id="install-title" class="m-0 text-heading font-semibold">Install</h2>

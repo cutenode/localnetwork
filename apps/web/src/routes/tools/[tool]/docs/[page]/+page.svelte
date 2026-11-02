@@ -1,5 +1,5 @@
 <script lang="ts">
-	import WithGuides from '#lib/components/tools/WithGuides.svelte';
+	import { WithGuides } from '#lib/components/tools/index.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
