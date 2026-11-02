@@ -1,6 +1,5 @@
 import { AtUri, isValidAtUri, isValidDid } from '@atproto/syntax';
 import type { DjActivity } from '#lib/dj.ts';
-import type { PageMeta } from '#lib/meta.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import type { ProfileView, ProjectView } from '#lib/types.ts';
 import type { RequestService } from './services/requests';
@@ -9,7 +8,20 @@ import type { RequestService } from './services/requests';
  * The records behind a page, for its at-tags. Canonical is the record whose deletion takes the page down, alternate a
  * record it shows but outlives, and author a person who put themselves on it.
  */
-export type PageRecords = NonNullable<PageMeta['records']>;
+export type PageRecords = { canonical: string[]; alternate: string[]; author: string[] };
+
+/** `value` as a double-quoted attribute can hold it. */
+const attribute = (value: string) =>
+	value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+/**
+ * A page's records as at-tags (tangled.org/chrisshank.com/at-tags), one `<meta name="at:…">` per record, for the server
+ * hook to write into its head. Every value is escaped, though byDid only lets through URIs that parse.
+ */
+export const recordTags = (records: PageRecords) =>
+	(['canonical', 'alternate', 'author'] as const)
+		.flatMap((name) => records[name].map((uri) => `<meta name="at:${name}" content="${attribute(uri)}" />`))
+		.join('');
 
 /** Only addresses that name their repo by DID, since a handle can move to another account; each once. */
 const byDid = (uris: (string | undefined)[]) => [

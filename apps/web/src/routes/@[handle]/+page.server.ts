@@ -10,9 +10,13 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		...page,
-		meta: await listed(profileMeta(event.locals.app.config.publicUrl, page.account, page.profile, page.name), {
-			records: () => profileRecords(page.profile),
-			jsonLd: page.profile && personProfile(page.profile, page.name)
-		})
+		meta: await listed(
+			event.locals,
+			profileMeta(event.locals.app.config.publicUrl, page.account, page.profile, page.name),
+			{
+				records: () => profileRecords(page.profile),
+				jsonLd: page.profile && personProfile(page.profile, page.name)
+			}
+		)
 	};
 };

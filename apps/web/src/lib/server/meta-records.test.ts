@@ -2,7 +2,7 @@ import { AtUri } from '@atproto/syntax';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DjActivity } from '#lib/dj.ts';
 import type { ProjectProfile } from '#lib/types.ts';
-import { djProfiles, type PageRecords, profileRecords, projectRecords } from './meta-records';
+import { djProfiles, type PageRecords, profileRecords, projectRecords, recordTags } from './meta-records';
 import { createTestServices } from './testing/core';
 
 const ADMIN = 'did:plc:admin';
@@ -200,5 +200,23 @@ describe('profileRecords', () => {
 
 	it('names nothing for an account without a profile record', () => {
 		expect(profileRecords(null)).toEqual({ canonical: [], alternate: [], author: [] });
+	});
+});
+
+describe('recordTags', () => {
+	it('writes one at-tag per record, in order, with each value escaped for its attribute', () => {
+		expect(
+			recordTags({
+				canonical: ['at://did:plc:root/computer.localnetwork.project/1'],
+				alternate: ['at://did:plc:dj/computer.localnetwork.dj.set/2', 'at://did:plc:dj/x/"><script>'],
+				author: ['at://did:plc:dj']
+			})
+		).toBe(
+			'<meta name="at:canonical" content="at://did:plc:root/computer.localnetwork.project/1" />' +
+				'<meta name="at:alternate" content="at://did:plc:dj/computer.localnetwork.dj.set/2" />' +
+				'<meta name="at:alternate" content="at://did:plc:dj/x/&quot;&gt;&lt;script&gt;" />' +
+				'<meta name="at:author" content="at://did:plc:dj" />'
+		);
+		expect(recordTags({ canonical: [], alternate: [], author: [] })).toBe('');
 	});
 });

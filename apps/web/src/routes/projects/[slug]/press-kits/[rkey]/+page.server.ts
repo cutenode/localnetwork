@@ -27,7 +27,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		tracklists: Object.fromEntries(
 			(page.project.profile.mixes ?? []).flatMap((mix, index) => (mix.tracklist ? [[mix.url, index + 1]] : []))
 		),
-		meta: await listed(pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk), {
+		meta: await listed(locals, pressKitMeta(locals.app.config.publicUrl, page.project, kit.epk), {
 			records: () =>
 				projectRecords(locals.app.requests, page.project, { canonical: kit.epk.uri, alternate: [page.project.uri] }),
 			jsonLd: pressKitProfile(page.project, kit.epk.record)

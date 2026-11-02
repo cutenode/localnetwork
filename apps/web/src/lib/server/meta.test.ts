@@ -215,25 +215,31 @@ describe('listed', () => {
 
 	const thing = () => ({ '@type': 'Thing', name: 'x' });
 
-	it('adds the records and structured data to a page search engines may list', async () => {
-		expect(await listed(performerMeta(SITE, project), { records: () => records, jsonLd: thing })).toMatchObject({
-			records,
-			jsonLd: { '@context': 'https://schema.org', '@type': 'Thing', name: 'x' }
-		});
-		// A page with nothing to say gets neither.
-		const plain = await listed(performerMeta(SITE, project), { jsonLd: null });
+	it("sets a listed page's at-tags and structured data aside for the head, and leaves its metadata as it was", async () => {
+		const locals: Pick<App.Locals, 'crawlerHead'> = {};
+		const meta = performerMeta(SITE, project);
 
-		expect(plain).not.toHaveProperty('records');
-		expect(plain).not.toHaveProperty('jsonLd');
+		expect(await listed(locals, meta, { records: () => records, jsonLd: thing })).toBe(meta);
+		expect(locals.crawlerHead).toBe(
+			`<meta name="at:canonical" content="${project.uri}" /><meta name="at:author" content="at://did:plc:dj" />` +
+				'<script type="application/ld+json">{"@context":"https://schema.org","@type":"Thing","name":"x"}</script>'
+		);
+
+		// A page with nothing to say gets nothing.
+		const plain: Pick<App.Locals, 'crawlerHead'> = {};
+		await listed(plain, meta, { jsonLd: null });
+		expect(plain.crawlerHead ?? '').toBe('');
 	});
 
 	it('leaves a page kept out of search as it was, without even looking its records up', async () => {
+		const locals: Pick<App.Locals, 'crawlerHead'> = {};
 		const hidden = performerMeta(SITE, { ...project, status: 'hidden' });
 
 		const lookUp = () => {
 			throw new Error('looked up');
 		};
 
-		expect(await listed(hidden, { records: lookUp, jsonLd: thing })).toBe(hidden);
+		expect(await listed(locals, hidden, { records: lookUp, jsonLd: thing })).toBe(hidden);
+		expect(locals.crawlerHead).toBeUndefined();
 	});
 });

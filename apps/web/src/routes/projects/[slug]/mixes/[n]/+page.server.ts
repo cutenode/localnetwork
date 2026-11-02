@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 			source: app.recordings.forMix(mix),
 			n,
 			report,
-			meta: await listed(mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), {
+			meta: await listed(locals, mixMeta(app.config.publicUrl, project, mix, n, report.plays.length), {
 				// The mix lives in the project's record, so the project is the record that takes this page down.
 				records: () => projectRecords(app.requests, project, { alternate: [mix.set?.uri] }),
 				jsonLd: mixRecording(project, mix, report)

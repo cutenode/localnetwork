@@ -40,7 +40,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
 		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null,
-		meta: await listed(performerMeta(app.config.publicUrl, project), {
+		meta: await listed(locals, performerMeta(app.config.publicUrl, project), {
 			records: () => projectRecords(app.requests, project, { alternate: djProfiles(shared.dj) }),
 			jsonLd: performerProfile(project)
 		})
