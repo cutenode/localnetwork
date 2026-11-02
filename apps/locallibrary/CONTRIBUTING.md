@@ -122,10 +122,11 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
 the next weekly run that passes closes it.
 
-The workspace has no benchmarks on `main` yet, so no workflow runs them: the `bnb/perf` branch
-adds them, and with them a workflow that runs them under [CodSpeed](https://codspeed.io)
-(`locallibrary-bench.yml`, which `git log --diff-filter=D -- .github/workflows/locallibrary-bench.yml`
-finds in the history).
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks (see Benchmarks) under
+[CodSpeed](https://codspeed.io) weekly and on demand, not on pull requests: started by hand on a
+branch (Actions, locallibrary benchmarks, Run workflow), it reports each benchmark's change
+against `main`'s last run. A weekly run skips them when nothing they build from changed, and a
+failed one opens an issue as the scheduled suites do.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -205,6 +206,24 @@ its nextest filter, so it packs them into filtersets of at most 96 KiB, each its
 Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
 `tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
 same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
+
+## Benchmarks
+
+```bash
+cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+```
+
+Crates with work that grows with a library or a recording have
+[criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
+`locallibrary` (reading, querying, comparing, scanning, writing and converting libraries of 5k to
+20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding tracks in a
+mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
+`loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
+`library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
+machine and rerun anything close: a few percent is noise.
 
 ## Property-based tests
 

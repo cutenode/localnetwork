@@ -488,10 +488,11 @@ fn plan_in_place(library: &Library, shared: &FxHashSet<u32>, batches: &[Vec<u32>
             users.entry(a).or_default().push(t.id);
         }
     }
+    let track = library.track_lookup();
     batches
         .iter()
         .map(|sorted| {
-            let existing: Vec<Option<u32>> = library.tracks_by_id(sorted).iter().map(|t| t.artwork_id).collect();
+            let existing: Vec<Option<u32>> = sorted.iter().filter_map(|&id| track(id)).map(|t| t.artwork_id).collect();
             let exclusive = match existing.first() {
                 Some(Some(a)) if existing.iter().all(|e| e == &Some(*a)) && !shared.contains(a) => {
                     let mut u = users[a].clone();
@@ -546,13 +547,14 @@ fn apply_batches(
         let batches_plus: Vec<Vec<u32>> = if has_pdb {
             let by_path: FxHashMap<String, u32> =
                 plus_lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
+            let track = library.track_lookup();
             let mut missing = 0;
             let mapped = sorted
                 .iter()
                 .map(|ids| {
-                    let mut v: Vec<u32> = library
-                        .tracks_by_id(ids)
-                        .into_iter()
+                    let mut v: Vec<u32> = ids
+                        .iter()
+                        .filter_map(|&id| track(id))
                         .filter_map(|t| {
                             let found = by_path.get(&paths::file_key(&t.file_path)).copied();
                             missing += usize::from(found.is_none());
@@ -611,7 +613,7 @@ fn apply_batches(
                     pdb_changed = true;
                     report.artwork_rows_added += 1;
                     pdb::guard_editor(|| {
-                        let next_id = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+                        let next_id = editor.next_artwork_id()?;
                         let key = free_artwork_key(&root, next_id, "jpg");
                         let id = editor.add_artwork(&paths::device_path(&key))?;
                         for t in &sorted[i] {

@@ -1,0 +1,118 @@
+name: locallibrary benchmarks
+
+# The criterion benchmarks in crates/*/benches/ under CodSpeed (https://codspeed.io), weekly and on
+# demand (Actions > locallibrary benchmarks > Run workflow, on any branch), not on every pull
+# request: a run builds every bench with all features and runs each under Valgrind. A run on main
+# records the baseline; one started on a branch reports each benchmark's change against it.
+# CodSpeed's simulation mode counts the instructions a benchmark runs instead of timing it, so
+# shared runners give stable numbers. The workspace's `criterion` dependency is CodSpeed's
+# compatibility layer (codspeed-criterion-compat), which is plain criterion under `cargo bench`. A
+# week that changed none of what the benchmarks build from skips them (see the changes job).
+on:
+  schedule:
+    - cron: "47 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+# Pinned the same way as locallibrary-ci.yml.
+jobs:
+  # Whether anything the benchmarks build from changed since the last weekly or hand-started run on
+  # main that passed, as locallibrary-scheduled.yml's changes job works it out. Started by hand,
+  # they always run. The paths are ci.yml's locallibrary ones that a bench build reads.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # The workflow's earlier runs.
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ github.event_name != 'schedule' || steps.base.outputs.sha == '' || steps.filter.outputs.benches == 'true' }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        id: base
+        uses: ./.github/actions/last-passed
+        with:
+          events: schedule workflow_dispatch
+      - if: steps.base.outputs.sha != ''
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          predicate-quantifier: some-with-excludes
+          filters: |
+            benches:
+              - 'crates/**'
+              - 'plugins/**'
+              - 'vendor/**'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - '.github/workflows/locallibrary-bench.yml'
+              - '!**/*.md'
+
+  codspeed:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # CodSpeed authenticates the upload with a GitHub OIDC token, which works for public and
+    # private repositories alike. Without OIDC, drop `id-token` and pass
+    # `token: ${{ secrets.CODSPEED_TOKEN }}` (from the repository's CodSpeed settings) to the
+    # action instead.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # Only main saves its cache (see locallibrary-ci.yml).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      # Keep in step with codspeed-criterion-compat's version in Cargo.toml. It has no
+      # install-action manifest, so this falls back to cargo-binstall, which fetches CodSpeed's
+      # release binary.
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-codspeed@6.0.0
+      # Every feature, so benchmarks that need one (`test-util`) build too.
+      - run: cargo codspeed build --workspace --all-features --locked -m simulation
+      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+        with:
+          mode: simulation
+          run: cargo codspeed run -m simulation
+
+  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml). A skipped run counts as passed.
+  report:
+    needs: [changes, codspeed]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: locallibrary
+      details: The benchmarks' results are on CodSpeed, and the build's log on the run page.

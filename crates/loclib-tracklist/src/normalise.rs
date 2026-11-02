@@ -56,15 +56,19 @@ fn is_generic(w: &str) -> bool {
 pub fn fold(s: &str) -> String {
     let lower = normalize(s);
     let mut out = String::with_capacity(lower.len());
-    for c in lower.nfd() {
-        match c {
-            '\u{300}'..='\u{36f}' | '\'' | '\u{2018}' | '\u{2019}' | '`' | '\u{b4}' | '.' => {}
-            '&' => out.push_str(" and "),
-            c if c.is_alphanumeric() => out.push(c),
-            _ => out.push(' '),
-        }
+    let mut push = |c| match c {
+        '\u{300}'..='\u{36f}' | '\'' | '\u{2018}' | '\u{2019}' | '`' | '\u{b4}' | '.' => {}
+        '&' => out.push_str(" and "),
+        c if c.is_alphanumeric() => out.push(c),
+        _ => out.push(' '),
+    };
+    // ASCII has no accents to take apart or put back together.
+    if lower.is_ascii() {
+        lower.chars().for_each(&mut push);
+    } else {
+        lower.nfd().for_each(&mut push);
     }
-    let out: String = out.nfc().collect();
+    let out: String = if out.is_ascii() { out } else { out.nfc().collect() };
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -198,7 +202,10 @@ fn split_artists(s: &str) -> Vec<String> {
         " pres. ",
         " meets ",
     ] {
-        s = s.replace(sep, "\u{1f}");
+        // Most names hold none of them: looking is cheaper than copying the name.
+        if s.contains(sep) {
+            s = s.replace(sep, "\u{1f}");
+        }
     }
     let mut out: Vec<String> = Vec::new();
     for part in s.split(['\u{1f}', ',', ';', '/', '&', '+', '(', ')', '[', ']', '、']) {
@@ -328,16 +335,21 @@ pub(crate) fn score(e: &Key, t: &Key) -> f32 {
 /// Artists: half overlap (Dice), half containment, so a full credit list still matches its
 /// main artist.
 fn artist_similarity(a: &[String], b: &[String]) -> f32 {
-    let m = common_words(a, b) as f32;
-    0.5 * dice(a, b) + 0.5 * m / a.len().min(b.len()).max(1) as f32
+    let m = common_words(a, b);
+    0.5 * dice_of(a, b, m) + 0.5 * m as f32 / a.len().min(b.len()).max(1) as f32
 }
 
 /// Sørensen-Dice coefficient over words, tolerating a typo in longer words.
 fn dice(a: &[String], b: &[String]) -> f32 {
+    dice_of(a, b, common_words(a, b))
+}
+
+/// [`dice`] with the words `a` and `b` share already counted.
+fn dice_of(a: &[String], b: &[String], common: usize) -> f32 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
-    2.0 * common_words(a, b) as f32 / (a.len() + b.len()) as f32
+    2.0 * common as f32 / (a.len() + b.len()) as f32
 }
 
 /// Words of `a` paired with distinct words of `b`: exact pairs first, then near ones.
@@ -366,20 +378,27 @@ fn common_words(a: &[String], b: &[String]) -> usize {
 /// One edit apart (two for long words), for words of 5+ letters without digits ("arround",
 /// "colour"/"color"); numbers must match exactly.
 fn near_words(a: &str, b: &str) -> bool {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    let shortest = a.len().min(b.len());
-    if shortest < 5 || a.len().abs_diff(b.len()) > 2 || a.iter().chain(&b).any(char::is_ascii_digit) {
+    // Most pairs fail these, so they're checked before the words are copied out as characters,
+    // the cheapest first (a word has no more characters than bytes).
+    if a.len().min(b.len()) < 5 || a.bytes().chain(b.bytes()).any(|c| c.is_ascii_digit()) {
         return false;
     }
+    let (a_len, b_len) = (a.chars().count(), b.chars().count());
+    let shortest = a_len.min(b_len);
+    if shortest < 5 || a_len.abs_diff(b_len) > 2 {
+        return false;
+    }
+    let b: Vec<char> = b.chars().collect();
     let limit = if shortest >= 9 { 2 } else { 1 };
     // Levenshtein distance, one row at a time.
     let mut prev: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.iter().enumerate() {
-        let mut row = vec![i + 1; b.len() + 1];
-        for (j, cb) in b.iter().enumerate() {
+    let mut row = vec![0; b.len() + 1];
+    for (i, ca) in a.chars().enumerate() {
+        row[0] = i + 1;
+        for (j, &cb) in b.iter().enumerate() {
             row[j + 1] = (prev[j] + usize::from(ca != cb)).min(prev[j + 1] + 1).min(row[j] + 1);
         }
-        prev = row;
+        std::mem::swap(&mut prev, &mut row);
     }
     prev[b.len()] <= limit
 }

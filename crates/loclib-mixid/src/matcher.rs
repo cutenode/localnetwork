@@ -108,6 +108,47 @@ struct Vote {
     tau: u32,
 }
 
+/// A worker's vote buffers, kept from slice to slice.
+#[derive(Default)]
+struct Ballots {
+    /// Votes as they're cast.
+    cast: Vec<Vote>,
+    /// Votes per place: a track and speed's pair of neighbouring offset bins, hashed. Pairs that
+    /// share a place add up, which can only overcount.
+    tally: Vec<u32>,
+    /// The votes that may be in a cell with enough of them, sorted by key.
+    kept: Vec<Vote>,
+}
+
+impl Ballots {
+    /// Fill `kept` with the votes cast that may be in a cell with enough votes, sorted by key.
+    /// Most votes are strays, far from any other for their track and speed: dropping those
+    /// first leaves only a few to sort, and the cells among them are the same.
+    fn keep(&mut self) {
+        // Twice the places there are votes keeps chance collisions rare.
+        let mask = (self.cast.len() * 2).next_power_of_two() - 1;
+        // A cell's two bins are in one place or two neighbouring ones.
+        let place = |key: u64| {
+            let track_and_speed = (key >> 24).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 32;
+            track_and_speed.wrapping_add((key & 0xff_ffff) >> 1) as usize & mask
+        };
+        self.tally.clear();
+        self.tally.resize(mask + 1, 0);
+        for v in &self.cast {
+            self.tally[place(v.key)] += 1;
+        }
+        let tally = &self.tally;
+        let count = |p: usize| tally[p] + tally[(p + 1) & mask];
+        self.kept.clear();
+        // A vote is in the cell starting at its bin and the one starting at the bin before.
+        self.kept.extend(self.cast.iter().filter(|v| {
+            let p = place(v.key);
+            count(p) >= SLICE_VOTES || count(p.wrapping_sub(1) & mask) >= SLICE_VOTES
+        }));
+        self.kept.sort_unstable_by_key(|v| v.key);
+    }
+}
+
 /// Count votes slice by slice (in parallel) and keep each track's best cell per slice.
 pub fn detect(
     index: &LibraryIndex,
@@ -127,7 +168,7 @@ pub fn detect(
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 s.spawn(|| -> Result<()> {
-                    let mut votes = Vec::new();
+                    let mut ballots = Ballots::default();
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
                         if i >= slices as usize {
@@ -139,7 +180,7 @@ pub fn detect(
                             &landmarks[bounds[i]..bounds[i + 1]],
                             i as u32,
                             variants,
-                            &mut votes,
+                            &mut ballots,
                         );
                         out.lock().unwrap().extend(found);
                         ctx.emit(Event::Item { phase: Phase::Match, path: String::new(), bytes: 0 });
@@ -161,7 +202,7 @@ fn slice_detections(
     landmarks: &[Landmark],
     slice: u32,
     variants: &[Variant],
-    votes: &mut Vec<Vote>,
+    ballots: &mut Ballots,
 ) -> Vec<Detection> {
     // Every cell with enough votes is a candidate. Repetitive music gives one track several
     // (the same bars recur), and a few slices later only the real one is still in line.
@@ -173,7 +214,7 @@ fn slice_detections(
     let mut cells: FxHashMap<u32, Vec<Cell>> = FxHashMap::default();
     let mut lock: FxHashMap<u32, (u32, u32)> = FxHashMap::default();
     for (chunk, speeds) in variants.chunks(VARIANT_CHUNK).enumerate() {
-        votes.clear();
+        ballots.cast.clear();
         for lm in landmarks {
             for (vi, v) in speeds.iter().enumerate().map(|(i, v)| (chunk * VARIANT_CHUNK + i, v)) {
                 let Some(h) = v.original_hash(lm) else { continue };
@@ -182,11 +223,12 @@ fn slice_detections(
                     let tau = e as u32;
                     let t0 = lm.t as f64 - tau as f64 / v.ratio;
                     let bin = ((t0 + OFFSET_BIAS) / OFFSET_BIN) as u64 & 0xff_ffff;
-                    votes.push(Vote { key: (slot << 32) | ((vi as u64) << 24) | bin, t: lm.t, tau });
+                    ballots.cast.push(Vote { key: (slot << 32) | ((vi as u64) << 24) | bin, t: lm.t, tau });
                 }
             }
         }
-        votes.sort_unstable_by_key(|v| v.key);
+        ballots.keep();
+        let votes = &ballots.kept;
         let mut i = 0;
         while i < votes.len() {
             let key = votes[i].key;
@@ -1071,14 +1113,16 @@ impl Alignment {
 /// remix): the offset most of their landmarks agree on, and how much of each is heard there.
 /// `None` when they share less than one slice's worth of landmarks.
 pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
-    let mut in_b: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
-    for lm in fingerprint::landmarks(&b.peaks, crate::index::LIBRARY_FANOUT) {
-        in_b.entry(lm.hash()).or_default().push(lm.t);
-    }
+    // b's (hash, frame) sorted: one flat list to search rather than a list per hash.
+    let mut in_b: Vec<(u32, u32)> =
+        fingerprint::landmarks(&b.peaks, crate::index::LIBRARY_FANOUT).iter().map(|lm| (lm.hash(), lm.t)).collect();
+    in_b.sort_unstable();
     // (frame in a, frame in b minus frame in a) for every hash they share.
     let mut votes: Vec<(u32, i64)> = Vec::new();
     for lm in fingerprint::landmarks(&a.peaks, QUERY_FANOUT) {
-        for &tau in in_b.get(&lm.hash()).into_iter().flatten() {
+        let h = lm.hash();
+        let shared = &in_b[in_b.partition_point(|p| p.0 < h)..];
+        for &(_, tau) in shared.iter().take_while(|p| p.0 == h) {
             votes.push((lm.t, i64::from(tau) - i64::from(lm.t)));
         }
     }

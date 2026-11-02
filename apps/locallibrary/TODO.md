@@ -280,19 +280,17 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       in, with `cargo clean` between: build `cargo build --release -p locallibrary-cli` as is and
       with `CARGO_PROFILE_RELEASE_LTO=fat`, and record for each the build's wall time, the size
       of `target/release/locallibrary` and of `target/`, and the release run time of `convert` on
-      a 5,000-track drive, `check` on a drive and the `bnb/perf` criterion benches. Switch only if
-      the run times win by more than their run-to-run spread. Needs about 15 GB free.
+      a 5,000-track drive, `check` on a drive and the criterion benches (`cargo bench`). Switch
+      only if the run times win by more than their run-to-run spread. Needs about 15 GB free.
 - [ ] Applying many set-fields ops to the drive's databases still finds each op's tracks by
       building a map of every track (`ids_of` in `edit::apply_op`, and `PdbDb::set_fields`'s
       `self.lib.track`), so a whole-library key and BPM import's apply is O(ops x tracks), as is
       planning a replay of one (its edits name tracks by path, which the plan's per-track model
       in `edit/track_index.rs` doesn't take yet).
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
-      O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
-- [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
-      `codspeed-criterion-compat`, bring back `locallibrary-bench.yml` (removed while `main` had
-      no benchmarks; it's in the history), and connect the repo in CodSpeed after the first push
-      (the free tier needs it public).
+      O(new x N). Use `Library::track_lookup` and measure it (`cargo bench -p locallibrary`).
+- [ ] Connect the repo in CodSpeed (LOC-47; the free tier needs it public), then run
+      `locallibrary-bench.yml` on `main` once so pull requests have a baseline to compare with.
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 
