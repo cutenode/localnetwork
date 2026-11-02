@@ -23,11 +23,12 @@ type Outcome = Response | HttpError | Redirect;
 
 const MBID = '2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41';
 
-/** A noisy photo, the hardest kind of picture to keep a PNG of small. */
+/**
+ * A plain photo. Noise, the hardest picture to keep a card's PNG small with, is render.test.ts's; here it only made each
+ * card a slow palette re-encode, which coverage on CI took past the test's time limit.
+ */
 const photo = (width: number, height: number) =>
-	sharp({
-		create: { width, height, channels: 3, background: '#808080', noise: { type: 'gaussian', mean: 128, sigma: 60 } }
-	})
+	sharp({ create: { width, height, channels: 3, background: '#5a5a70' } })
 		.jpeg()
 		.toBuffer();
 
