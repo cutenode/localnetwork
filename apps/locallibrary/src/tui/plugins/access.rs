@@ -69,16 +69,20 @@ fn choices(plugins: &Plugins, m: &Manifest, store: Option<&Store>) -> (Vec<Acces
     (all, filled)
 }
 
-/// What the form asks of the account type `need` asks for: what `m` needs it for (its scopes'
-/// titles, as an account plugin providing the type has them) and why.
-fn about(plugins: &Plugins, m: &Manifest, need: &loclib_plugin::AccountNeed) -> String {
-    let t = plugins.providing(&need.name).iter().find_map(|with| {
+/// The titles of the account type `kind`'s `scopes` (by name), as an account plugin providing the
+/// type has them.
+fn titles(plugins: &Plugins, kind: &str, scopes: &[String]) -> Vec<String> {
+    let t = plugins.providing(kind).iter().find_map(|with| {
         let types = &plugins.manifest(with).ok()?.contributes.account_types;
-        types.iter().find(|t| t.name == need.name).cloned()
+        types.iter().find(|t| t.name == kind).cloned()
     });
-    let scope = |s: &String| t.as_ref().and_then(|t| t.scopes.get(s)).map_or(s.clone(), |s| s.title.clone());
-    let scopes: Vec<String> = need.scopes.iter().map(scope).collect();
-    format!("{} needs it to {}: {}", m.name, scopes.join(", "), need.why)
+    scopes.iter().map(|s| t.as_ref().and_then(|t| t.scopes.get(s)).map_or(s.clone(), |s| s.title.clone())).collect()
+}
+
+/// What the form asks of the account type `need` asks for: what `m` needs it for (its scopes'
+/// titles) and why.
+fn about(plugins: &Plugins, m: &Manifest, need: &loclib_plugin::AccountNeed) -> String {
+    format!("{} needs it to {}: {}", m.name, titles(plugins, &need.name, &need.scopes).join(", "), need.why)
 }
 
 impl App {
@@ -103,14 +107,15 @@ impl App {
     }
 
     /// Give `plugin` the accounts the form has chosen (`given`) as its defaults, in the
-    /// background, signing in to those chosen to sign in to first.
+    /// background, signing in to those chosen to sign in to first, and say what the service
+    /// declined of it.
     pub(in crate::tui) fn save_access(&mut self, plugin: &'static str, all: Vec<AccessChoice>, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Ok(name) = plugins.manifest(plugin).map(|m| m.name.clone()) else { return };
         let store_root = self.store_root.clone();
         self.task_showing("Giving access".into(), move |ctx, show| {
             let store = Store::open_or_init(&store_root)?;
-            let mut used = Vec::new();
+            let (mut used, mut declined) = (Vec::new(), Vec::new());
             for c in &all {
                 let chosen = given.get(&c.kind).and_then(Value::as_str);
                 let Some((_, pick)) = c.picks.iter().find(|(l, _)| Some(l.as_str()) == chosen) else { continue };
@@ -119,14 +124,18 @@ impl App {
                     Pick::SignIn(with) => {
                         let start = plugins.begin_account_sign_in(&c.kind, with, Some(plugin), None, &[], &store)?;
                         open(&start.url, show);
-                        let a = plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?.account;
-                        AccountId { plugin: a.plugin, subject: a.subject }
+                        let done = plugins.finish_account_sign_in(&start.id, BROWSER_WAIT, ctx)?;
+                        declined.extend(titles(plugins, &c.kind, &done.declined));
+                        AccountId { plugin: done.account.plugin, subject: done.account.subject }
                     }
                 };
                 let access = plugins.set_default_access(plugin, &account, &store)?;
                 used.push(access.name);
             }
-            let said = format!("{name} uses {}", used.join(", "));
+            let mut said = format!("{name} uses {}", used.join(", "));
+            if !declined.is_empty() {
+                said.push_str(&format!("; the service didn't allow it to {}", declined.join(", ")));
+            }
             Ok(Box::new(move |app: &mut App| app.toast(said, Level::Info)))
         });
     }

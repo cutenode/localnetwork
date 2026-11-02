@@ -310,9 +310,9 @@ fn refusals_say_why_and_go_once() {
     let said = |kind: &str, message: &str| (kind.to_string(), message.to_string());
 
     let token = refused(error(401, "OAuthException", "An invalid access token was provided."));
-    let sign_in = "Mixcloud refused the show (401 OAuthException: An invalid access token was provided.): sign in \
-                   again: locallibrary account mixcloud sign-in --for mixcloud";
-    assert_eq!(token, said("permission", sign_in));
+    // One locallibrary didn't refresh, or sign out of, before it got here.
+    let why = "Mixcloud refused the show (401 OAuthException: An invalid access token was provided.)";
+    assert_eq!(token, said("permission", why));
 
     let details = json!({ "mp3": ["Unsupported audio.", "Try another file."], "name": "Too long." });
     let body = json!({ "error": { "type": "PostValidationError", "message": "Invalid fields." }, "details": details });

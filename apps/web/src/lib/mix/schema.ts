@@ -33,7 +33,7 @@ const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 const camelot = z.string().regex(/^(?:1[0-2]|[1-9])[AB]$/);
 
-const trackSchema = z.object({
+export const trackSchema = z.object({
 	title: text(300),
 	artist: optionalText(300),
 	remixer: optionalText(300),

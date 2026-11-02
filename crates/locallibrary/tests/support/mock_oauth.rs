@@ -5,6 +5,7 @@
 //! browser isn't played: a test comes back to the sign-in itself.
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -111,6 +112,11 @@ pub struct Service {
     pub spent: Vec<String>,
     /// The token endpoint doesn't say what it granted.
     pub unscoped: bool,
+    /// What the token endpoint says it granted, when it isn't `read write`.
+    pub grants: Option<Vec<String>>,
+    /// What it answers the requests it doesn't serve itself, in turn, before answering what
+    /// they were sent.
+    pub script: VecDeque<Reply>,
 }
 
 /// The form a request sent, by name.
@@ -148,7 +154,7 @@ pub fn sent_at(got: &Got) -> Option<usize> {
 /// token for tokens, and so does Local Network's token exchange for it, taking the same as JSON;
 /// `/revoke` takes one back; `/userinfo` says who an access token is for, and
 /// `/userinfo/moved` sends there; `/home` sends to `/here`, and `/r/go/<path>` to `/<path>`; and
-/// anything else answers what it was sent.
+/// anything else answers its [`Service::script`]'s next reply, else what it was sent.
 pub fn service(state: Arc<Mutex<Service>>) -> Server {
     Server::new(move |base, got| {
         let mut s = state.lock().unwrap();
@@ -193,8 +199,8 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
                     None => s.signing_in_as.clone(),
                 };
                 s.who.insert(n, who);
-                let mut answer =
-                    json!({ "access_token": format!("at-{n}"), "token_type": "bearer", "scope": "read write" });
+                let granted = s.grants.as_ref().map_or("read write".into(), |g| g.join(" "));
+                let mut answer = json!({ "access_token": format!("at-{n}"), "token_type": "bearer", "scope": granted });
                 if s.unscoped {
                     answer.as_object_mut().unwrap().remove("scope");
                 }
@@ -219,7 +225,9 @@ pub fn service(state: Arc<Mutex<Service>>) -> Server {
             _ if path.starts_with("/r/go/") => {
                 Reply { status: 307, headers: vec![("Location", format!("{base}/{}", &path[6..]))], body: Vec::new() }
             }
-            _ => ok(format!("{} {}", got.target, got.headers.get("authorization").map_or("-", String::as_str))),
+            _ => s.script.pop_front().unwrap_or_else(|| {
+                ok(format!("{} {}", got.target, got.headers.get("authorization").map_or("-", String::as_str)))
+            }),
         }
     })
 }

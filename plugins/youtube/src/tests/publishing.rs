@@ -388,9 +388,10 @@ fn an_upload_failing_again_and_again_stops() {
     assert!(!mp4.exists());
 }
 
-/// YouTube refusing says why in its words, and what to do where there's something to do: a
-/// sign-in it doesn't take, an account without a channel, a quota or limit used up, details it
-/// won't take, an upload it dropped. None is asked again; a server error is, and then fails.
+/// YouTube refusing says why in its words, and what to do where there's something to do: an
+/// account without a channel, a quota or limit used up, details it won't take, an upload it
+/// dropped. A token it doesn't take (which locallibrary refreshes or signs out of before it gets
+/// here) is refused as it says. None is asked again; a server error is, and then fails.
 #[test]
 fn youtube_refusing_says_why() {
     use youtube::{Reply, refusal};
@@ -402,10 +403,7 @@ fn youtube_refusing_says_why() {
             "start",
             refusal(401, "authError", "Invalid Credentials"),
             "permission",
-            format!(
-                "{details} (401 authError: Invalid Credentials): sign in again: locallibrary account google sign-in \
-                 --for youtube"
-            ),
+            format!("{details} (401 authError: Invalid Credentials)"),
         ),
         (
             "start",

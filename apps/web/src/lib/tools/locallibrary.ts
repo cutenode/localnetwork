@@ -1,3 +1,17 @@
+import check from './captures/locallibrary/check.png?enhanced&w=2560;1600;960';
+import checkPhone from './captures/locallibrary/check-phone.png?enhanced';
+import drives from './captures/locallibrary/drives.png?enhanced&w=2560;1600;960';
+import drivesPhone from './captures/locallibrary/drives-phone.png?enhanced';
+import library from './captures/locallibrary/library.png?enhanced&w=2560;1600;960';
+import libraryPhone from './captures/locallibrary/library-phone.png?enhanced';
+import mixes from './captures/locallibrary/mixes.png?enhanced&w=2560;1600;960';
+import mixesPhone from './captures/locallibrary/mixes-phone.png?enhanced';
+import player from './captures/locallibrary/player.png?enhanced&w=2560;1600;960';
+import playerPhone from './captures/locallibrary/player-phone.png?enhanced';
+import report from './captures/locallibrary/report.png?enhanced&w=2560;1600;960';
+import reportPhone from './captures/locallibrary/report-phone.png?enhanced';
+import snapshots from './captures/locallibrary/snapshots.png?enhanced&w=2560;1600;960';
+import snapshotsPhone from './captures/locallibrary/snapshots-phone.png?enhanced';
 import { loadDocs } from './docs.ts';
 // Written by locallibrary, which signs in as https://<host>/oauth-client-metadata.json:
 //   locallibrary account client-metadata -o apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json
@@ -7,21 +21,77 @@ import type { Tool } from './types.ts';
 export const locallibrary: Tool = {
 	id: 'locallibrary',
 	name: 'locallibrary',
-	kind: 'Command line tool',
+	kind: 'Terminal app for Mac',
 	tagline: 'Keeps your rekordbox USB drives in sync, backed up and edited.',
 	summary:
 		'A command line tool and terminal player for DJs who export from rekordbox to a stick and play it on CDJs or XDJs. It runs on a Mac (Linux and Windows are experimental). Every change shows its plan and asks first, and undo takes the last one back.',
-	features: [
-		'Keeps every copy of your library identical to the drive you export to',
-		'Tells you which drive is newest, and why',
-		'Keeps a history of your library, so a lost drive can be rebuilt',
-		'Edits playlists, tags, cues, ratings and cover art right on your drives',
-		"Checks drives before a set, down to the tracks a player won't load",
-		'Turns the history players record into tracklists for Mixcloud, YouTube or a CUE sheet',
-		'Sets the same My Settings on every drive'
+	cues: [
+		{
+			name: 'Play',
+			line: "Plays your drives with rekordbox's own waveforms, phrases and hot cues",
+			capture: {
+				picture: player,
+				phone: playerPhone,
+				alt: 'locallibrary playing a track in a terminal: its rekordbox waveform scrolling past the playhead, with BPM, key, the current phrase and the phrases ahead'
+			}
+		},
+		{
+			name: 'Sync',
+			line: 'Keeps every copy of your library identical to the drive you export to, My Settings included',
+			capture: {
+				picture: drives,
+				phone: drivesPhone,
+				alt: "locallibrary's Drives view: the DEMO and DJ drives, and for DJ its tracks, free space, My Settings files and a store that's up to date"
+			}
+		},
+		{
+			name: 'Edit',
+			line: 'Edits playlists, tags, cues, ratings and cover art right on your drives',
+			capture: {
+				picture: library,
+				phone: libraryPhone,
+				alt: "locallibrary's Library view: two drives, their playlists, and twelve tracks with artist, BPM, key and length"
+			}
+		},
+		{
+			name: 'Check',
+			line: "Checks drives before a set, down to the tracks a player won't load",
+			capture: {
+				picture: check,
+				phone: checkPhone,
+				alt: 'locallibrary check on a drive for CDJ-3000 and CDJ-2000NXS2 players: ready, with a warning that twelve tracks have no waveform, beat grid or cues'
+			}
+		},
+		{
+			name: 'History',
+			line: 'Keeps a history of your library, so a lost drive can be rebuilt',
+			capture: {
+				picture: snapshots,
+				phone: snapshotsPhone,
+				alt: "locallibrary's Snapshots view: the library's saved versions over time, any of which can go back on a drive"
+			}
+		},
+		{
+			name: 'Tracklist',
+			line: 'Turns the history players record into tracklists for Mixcloud, YouTube or a CUE sheet',
+			capture: {
+				picture: mixes,
+				phone: mixesPhone,
+				alt: "A recorded set in locallibrary's Mixes view: the set's waveform, four tracks identified along a timeline, and the key and tempo of each mix"
+			}
+		},
+		{
+			name: 'Report',
+			line: 'Makes a report of a recorded set to share, with its waveform, tracklist and tempo',
+			capture: {
+				picture: report,
+				phone: reportPhone,
+				alt: "A recorded set's report in a browser: the mix's waveform with each track along a timeline, the tracklist and a tempo chart"
+			}
+		}
 	],
 	install: {
-		note: "There's no download yet, so for now you build it on your own computer. On a Mac:",
+		note: "There's no download yet. For now you build it from source with Rust, which takes a few minutes on a Mac:",
 		steps: [
 			{ text: "Install Apple's command line tools.", command: 'xcode-select --install' },
 			{
