@@ -143,19 +143,15 @@ export default defineConfig({
 			// it is. A `??` or `||` written in a component is real behaviour and
 			// has a test.
 			//
-			// Statements and lines are the full 100%: a component line no test
-			// reaches fails the run. Functions are too, but for one: the empty
-			// `indeterminate` setter on the Manager's select-all box, which only
-			// bits-ui's keyboard toggle ever calls. Ticking from the keyboard goes
-			// through those empty setters and changes nothing, and when that is
-			// fixed the setter runs and the floor goes to 100.
+			// Statements, functions and lines are the full 100%: a component line
+			// no test reaches fails the run.
 			//
 			// Everything that is not a component is held to 100% across the board.
 			thresholds: {
 				perFile: true,
 				statements: 100,
 				branches: 50,
-				functions: 99.6,
+				functions: 100,
 				lines: 100,
 				'{content.ts,downloaded-store.ts,state-transfer.ts,src/**/*.ts}': {
 					perFile: true,

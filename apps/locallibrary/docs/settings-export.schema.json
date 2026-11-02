@@ -120,6 +120,18 @@
 				"auto_cue": { "description": "Start tracks at their first memory cue or beat.", "type": "boolean" }
 			}
 		},
+		"mix": {
+			"description": "What's set for identifying mixes.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"index_limit_mib": {
+					"description": "The largest fingerprint index kept for a drive between runs, in MiB (512 when it's not set): a bigger one is built again each run. 0 keeps none.",
+					"type": "integer",
+					"minimum": 0
+				}
+			}
+		},
 		"plugin_host": {
 			"description": "locallibrary's own settings for plugins: which analyzer each field role is read from, when a provider's candidate is picked, and whether each check runs.",
 			"type": "object"

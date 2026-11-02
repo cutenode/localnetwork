@@ -62,6 +62,18 @@ describe('DjSets', () => {
 		await expect.element(page.getByText('Unreleased')).toBeInTheDocument();
 		await expect.element(page.getByText('Tidal Hours', { exact: true })).not.toBeInTheDocument();
 	});
+
+	it('labels each set by its kind', async () => {
+		await render(DjSets, {
+			sets: [
+				set({ date: '2026-09-26', kind: 'club', tracks: [] }, 'at://a'),
+				set({ date: '2026-09-12', kind: 'mix', tracks: [] }, 'at://b')
+			]
+		});
+
+		await expect.element(page.getByText('Club', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByText('Studio', { exact: true })).toBeInTheDocument();
+	});
 });
 
 describe('PerformerFacts', () => {

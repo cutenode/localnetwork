@@ -51,6 +51,7 @@ pub(crate) fn report(plays: &[(&Track, f64, f64)], date: Option<&str>) -> MixRep
         track_end: 200.0,
         tempo: 1.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,

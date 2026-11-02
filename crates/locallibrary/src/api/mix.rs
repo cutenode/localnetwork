@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{default_drive, known_drives, registry, resolve_drive};
 use crate::device::Device;
 use crate::mix::index::{Cache, IndexReport};
+use crate::mix::prefs::MixPrefs;
 use crate::mix::report::{self, Drive, PlayExtras, SavedReport, ShownFields};
 use crate::mix::{Identifier, MixReport};
 use crate::profile::ProfilePrefs;
@@ -35,7 +36,7 @@ pub struct IndexMixLibrary {
 /// Fingerprints are cached in the store, so each audio file is decoded once.
 pub fn mix_index(store: &Store, req: &IndexMixLibrary, ctx: &Ctx<'_>) -> Result<IndexReport> {
     let device = mix_drive(req.drive.as_deref())?;
-    Ok(Identifier::new(&device, &Cache::in_store(store), ctx)?.report)
+    Ok(Identifier::new(&device, &Cache::in_store(store), &MixPrefs::load(store)?, ctx)?.report)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

@@ -338,7 +338,7 @@ export const DEMO_DJ_SETS = [
 	{
 		title: 'Tidal Hours 004',
 		date: daysAgo(45),
-		kind: 'mix',
+		kind: 'studio',
 		links: [{ uri: 'https://soundcloud.com/example-neon-tide', name: 'SoundCloud' }],
 		tracks: demoTracks
 	}

@@ -466,6 +466,7 @@ fn recording(title: &str, tracks: &[&Track]) -> MixReport {
         track_end: 300.0,
         tempo: 1.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,

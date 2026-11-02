@@ -2,11 +2,17 @@
 
 Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ, a b2b duo, a group, or a collective) get a profile built around what promoters book on: sound, distance, slot, room size, and budget. Fans follow DJs and see where they play next.
 
-All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
+All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything else (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension, where each space's read policy decides who can read it. Published projects, the DJ stats, sets, press kits, shows and follows their managers and fans publish, and the few Bluesky and userinput.app records the site reads are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher and serve those records to the site. The app keeps its own SQLite index only for space data, and can rebuild it from the network. Every public record is read through HappyView, never straight from a PDS or Bluesky's AppView (see [Directory](#directory) for the few exceptions); writes go to the PDS.
 
 > Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261022141228` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
 ## Features
+
+### Signing in
+
+- `/login` says why someone is there from where they'll go next ("to follow Neon Tide", "to book Neon Tide"), takes one handle, and suggests up to five accounts as they type. The suggestions come from Bluesky's AppView (`app.bsky.actor.searchActorsTypeahead`) through `/api/actors`, so visitors' keystrokes never leave this server, repeats are answered from a ten-minute in-memory cache, and the CSP keeps `connect-src 'self'`. HappyView can't answer them: it only keeps the display names of accounts this site lists.
+- "Make an account" (`/login/create`) lists the hosts in [`src/lib/hosts.json`](src/lib/hosts.json) (schema beside it) and starts sign-up at the one picked (OAuth `prompt=create`), which sends the new account straight back. On the dev network its own PDS comes first.
+- "How signing in works" lists what the app can and can't do in plain words, from [`src/lib/sign-in.ts`](src/lib/sign-in.ts); a test fails if a scope the app asks for isn't explained there.
 
 ### Dashboard
 
@@ -64,7 +70,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 ### Bug reports
 
-- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out, or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
+- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out (where the link reads "Report a bug on GitHub"), or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
 - Posting asks for one more OAuth scope, `repo:app.userinput.discussion?action=create`, the first time someone sends a report, not at sign-in: sessions from before it keep working, and the client metadata lists it so the PDS allows the request.
 
 ### Staff
@@ -96,8 +102,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Press kits' private part, requests and grants                             | One space per press kit under the root                            | Root (content, grants), askers       | Managers, granted       |
 | Press kit drafts (`computer.localnetwork.epk.draft`)                      | Each manager's repo in the project's backstage space              | Managers                             | The project's managers  |
 | Press kit view receipts                                                   | The app's database only                                           | The app                              | The project's managers  |
-| People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Its people, staff       |
-| Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Its people, staff       |
+| People in acts, parties and venues (`computer.localnetwork.people.*`)     | One space per performer, party or venue under the root            | Root, for its people or staff        | Members (staff via app) |
+| Directory listing status (`computer.localnetwork.listing.status`)         | The same space                                                    | Root, after staff action             | Members (staff via app) |
 | Bluesky display names (`app.bsky.actor.profile`)                          | The account's own public repo                                     | The account, in any Bluesky app      | Admins, via HappyView   |
 | Managers' Bluesky follows (`app.bsky.graph.follow`)                       | The manager's public repo                                         | The manager, in any Bluesky app      | The app, via HappyView  |
 | The bug report space (`app.userinput.space`)                              | Its owner's public repo on userinput.app                          | userinput.app                        | The app, via HappyView  |
@@ -282,6 +288,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `USERINPUT_SPACE`: Local Network's space on [userinput.app](https://userinput.app), as `at://<did>/app.userinput.space/<rkey>`. See [Bug reports](#bug-reports). Optional; without it, "Report a bug" opens GitHub's issue form.
 - `RESEND_API_KEY` (and optionally `EMAIL_FROM`, `EMAIL_PROVIDER`): sends inbox email through [Resend](https://resend.com) for people who turn it on. Optional; in production without it, email is off and the settings page says so. Outside production, email goes to the log.
 - `DM_PROVIDER` (and optionally `CHAT_SERVICE_DID`): `bluesky` sends inbox DMs from the root account through Bluesky chat. Off in production until set; first check that Bluesky's relay and AppView know the root account and that it can call `chat.bsky.convo.getConvoAvailability`. Outside production, DMs go to the log.
+- `ACTOR_SEARCH`: where sign-in's account suggestions come from, `bluesky` (the default) or `none`.
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `MIXCLOUD_CLIENT_ID` / `MIXCLOUD_CLIENT_SECRET`, `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET`: Local Network's clients at the services locallibrary plugins sign in to through the [token exchange](#token-exchange). Optional; a service without both answers that it isn't set up yet.
 
 ## Deploying
@@ -349,9 +356,9 @@ The services are in [`src/lib/server/token-exchange/services.json`](src/lib/serv
 - Every request to a host from a DID document goes through `@atproto-labs/fetch-node`'s safe fetch in production: no redirects, HTTPS only, and no private or loopback address, checked as it connects so DNS can't swap the address after. Resolving a DID or handle and fetching another account's avatar use the default port only, with responses up to 2 MB. Space credential calls, space sync, blob downloads and streamed recordings from a PDS, and everything the OAuth client sends (identity lookups, PDS and authorization server metadata, authorization and token requests, session requests) allow any port and have no size or time cap of their own, since callers bound what they read and how long they wait. The OAuth client sets no time limit on session requests, so the app gives each of its requests 30 seconds. The OAuth client leaves its requests to follow redirects, so the app makes them refuse redirects instead. ast-grep's [`no-unguarded-fetch`](../../tools/ast-grep/rules/no-unguarded-fetch.yml) rule fails a plain or passed-in `fetch` in any function that reads such a host. did:web hosts and handles that are IP addresses, carry a port, or use `localhost` or a reserved TLD are refused before any request, and `/@<handle>` lookups that find no account are rate-limited per IP.
 - Links people wrote into their own records (profiles, sets, press kits, shows, requests) are only made clickable when they're http(s) addresses (`src/lib/web-url.ts`).
 - Uploaded images are type- and magic-byte-checked and capped at 1 MB for avatars and 5 MB for press kit photos. Stored images are served only if their blob's type is one their lexicon accepts (PNG, JPEG or WebP), since a PDS doesn't check, with a sandboxing CSP and `nosniff`.
-- `/media/audio/<did>/<cid>` streams only a blob that an indexed `computer.localnetwork.dj.recording` of an active project's manager references, as the type and size that record declares, with Range answered by the app since `getBlob` ignores it. The type and size limits are the lexicon's own (`audio/*` or `video/mp4`, at most 300 MiB); `video/mp4` is what a PDS calls an M4A it can't tell is audio, so it goes out as `audio/mp4`. It stores nothing, and sends a locked-down CSP and `nosniff`. The page CSP allows media only from the site, plyr.fm's CDN and archive.org's download hosts, and scripts only from SoundCloud's and Mixcloud's widget hosts besides its own.
+- `/media/audio/<did>/<cid>` streams only a blob that an indexed `computer.localnetwork.dj.recording` of an active project's manager references, as the type and size that record declares, with Range answered by the app since `getBlob` ignores it. The type and size limits are the lexicon's own (`audio/*` or `video/mp4`, at most 300 MiB); `video/mp4` is what a PDS calls an M4A it can't tell is audio, so it goes out as `audio/mp4`. It stores nothing, and sends a locked-down CSP and `nosniff`. The page CSP allows media only from the site, plyr.fm's CDN and archive.org's download hosts, images only from the site and Bluesky's avatar CDN (for sign-in's account suggestions), and scripts only from SoundCloud's and Mixcloud's widget hosts besides its own.
 - ast-grep's [`stored-type-response`](../../tools/ast-grep/rules/stored-type-response.yml) rule fails any response that takes its content type from data, outside the two helpers that check it for stored images and recordings.
-- Rate limits on sign-in, writes, and city search.
+- Rate limits on sign-in, writes, city search, and account suggestions.
 - The [token exchange](#token-exchange) only sends requests to the token endpoints `services.json` lists, and never logs what it relays.
 - Spaces are access control, not end-to-end encryption: the hosting PDSes and this app can read the data they handle.
 
@@ -363,6 +370,7 @@ scripts/                        dev-network (local atproto network), publish-lex
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
 src/lib/headline.json           The homepage headline's words ("<verb> your <noun>."), to edit by hand
+src/lib/hosts.json              The hosts "Make an account" offers, to edit by hand
 src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
@@ -374,6 +382,7 @@ src/lib/server/token-exchange/  The token exchange for locallibrary plugins, and
 src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
 src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
 src/lib/server/meta.ts          What each public page tells link previews and search engines, returned by its load as `meta`
+src/lib/server/meta-records.ts  The records behind a public page, written into its head as at-tags (`at:canonical`, `at:alternate`, `at:author`)
 src/lib/server/structured-data.ts  The schema.org structured data (JSON-LD) a performer, profile, mix or artist page adds to its `meta`
 src/lib/og/cards/               The link-preview pictures (1200×630), one Svelte component each, with their stories
 src/lib/server/og/              Draws them as PNGs for src/routes/og/, keeping recent ones in memory

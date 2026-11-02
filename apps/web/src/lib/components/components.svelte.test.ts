@@ -1,7 +1,7 @@
 import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { sampleReport } from '#lib/mix/sample.ts';
+import { riddenReport, sampleReport } from '#lib/mix/sample.ts';
 import type { DjSetView } from '#lib/types.ts';
 import Avatar from './Avatar.svelte';
 import ClaimFields from './ClaimFields.svelte';
@@ -9,6 +9,7 @@ import DiffTable from './DiffTable.svelte';
 import GenreInput from './GenreInput.svelte';
 import MixList from './MixList.svelte';
 import MixReport from './mix/MixReport.svelte';
+import TempoChart from './mix/TempoChart.svelte';
 import PlacePicker from './PlacePicker.svelte';
 import { djSummary, projectSummary } from '#lib/performers.ts';
 import PerformerCard from './PerformerCard.svelte';
@@ -244,6 +245,25 @@ describe('MixReport', () => {
 		await halogen.first().click();
 		await expect.element(halogen.last()).toHaveAttribute('aria-pressed', 'true');
 		await expect.element(page.getByText(/key clash/).first()).toBeInTheDocument();
+	});
+});
+
+describe('TempoChart', () => {
+	it('says a ridden track went from its slowest to its fastest, and the BPM where it points', async () => {
+		await render(TempoChart, { report: riddenReport, selected: 1 });
+		await expect.element(page.getByText('124.0 to 133.9 BPM')).toBeInTheDocument();
+
+		// 6:40 into the mix, after the fader went up, then 5:40, before it did.
+		const chart = document.querySelector('[aria-label^="Tempo of each track"]')!.parentElement!;
+		const box = chart.getBoundingClientRect();
+		chart.dispatchEvent(
+			new PointerEvent('pointermove', { clientX: box.left + (400 / 1740) * box.width, bubbles: true })
+		);
+		await expect.element(page.getByText('133.9 BPM', { exact: true })).toBeInTheDocument();
+		chart.dispatchEvent(
+			new PointerEvent('pointermove', { clientX: box.left + (340 / 1740) * box.width, bubbles: true })
+		);
+		await expect.element(page.getByText('124.0 BPM', { exact: true })).toBeInTheDocument();
 	});
 });
 

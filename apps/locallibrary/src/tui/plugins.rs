@@ -5,13 +5,14 @@
 //! confirmed and applied as any edit is, and undone with `u`. A question either asks first is a
 //! list to choose from (several, one after another), after which it runs again with the answers.
 //! Each plugin's settings are a form, kept in the store, with a switch for each of its services,
-//! and its access to the store's accounts is beside them, as is signing in to and out of those.
+//! and its access to the store's accounts is beside them, as is signing in to and out of those; a
+//! plugin wanting more of an account it has access to asks in a form of its own.
 //! What the other families of hooks add (cover art and tags from providers, analyzers, checks,
 //! exports, imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one plugin from another: it's
 //! all drawn from their manifests, through the host the command line uses (see
 //! [`crate::plugins`]).
 
-mod access;
+pub(super) mod access;
 mod accounts;
 mod analyzers;
 pub(super) mod checks;

@@ -4,7 +4,7 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 
 | Tool                              | What it is                                                                                                             | Built with                |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| [Local Network](apps/web)         | The website at localnetwork.computer: promoters find local DJs, DJs keep a profile, bookings run in private spaces     | SvelteKit, atproto spaces |
+| [Local Network](apps/web)         | The website at localnetwork.computer: promoters find local DJs, DJs keep a profile, bookings run in member-only spaces | SvelteKit, atproto spaces |
 | [locallibrary](apps/locallibrary) | A command line tool and terminal player that keeps rekordbox USB drives in sync, backed up and edited                  | Rust                      |
 | [localtoolbox](apps/localtoolbox) | A Chrome extension for digging on SoundCloud: track lists, download links, artists' socials, and a queue to batch them | Svelte, Manifest V3       |
 
