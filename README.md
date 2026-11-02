@@ -20,7 +20,7 @@ lexicons/             Every tool's lexicons (computer.localnetwork.*), and copie
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK, and in accounts/ its account plugins, a manifest each
 packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
-packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
+packages/atstore/     Makes each tool's AT Store listing pictures and the website's tool captures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
 ```
@@ -37,7 +37,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
-pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots, and the website's tool captures (packages/atstore)
 pnpm exec ast-grep scan      # the repo's ast-grep rules (sgconfig.yml), over the Rust and TypeScript code
 
 cargo build                  # locallibrary

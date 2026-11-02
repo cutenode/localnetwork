@@ -3,7 +3,7 @@
 // soundcloud.com in September 2026), reduced to the elements that matter.
 //
 // Every builder returns an HTML string; `render` puts it on the page.
-import type { Json } from './chrome.ts';
+import type { Json } from './json.ts';
 
 const esc = (s: string | number | null | undefined) =>
 	String(s ?? '')
