@@ -1090,6 +1090,9 @@ pub fn provision_plan(
     req: &ProvisionRequest,
     ctx: &Ctx<'_>,
 ) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
+    // Before the format's plan, which looks at the machine's disks: a role that isn't one is
+    // refused for what it says, as `provision_steps` checks it first too.
+    let role = req.role.as_deref().map(Role::parse).transpose()?;
     let format = match req.format {
         true => Some(super::format_plan(
             store.root(),
@@ -1098,16 +1101,16 @@ pub fn provision_plan(
         )?),
         false => None,
     };
-    plan_provision(store, req, format)
+    plan_provision(store, req, role, format)
 }
 
-/// [`provision_plan`] with the format's plan, when formatting.
+/// [`provision_plan`] with the request's role, and the format's plan when formatting.
 pub(super) fn plan_provision(
     store: &Store,
     req: &ProvisionRequest,
+    role: Option<Role>,
     format: Option<Planned<FormatPlan, FormatRequest>>,
 ) -> Result<Planned<ProvisionPlan, ProvisionRequest>> {
-    let role = req.role.as_deref().map(Role::parse).transpose()?;
     let mut steps = Vec::new();
     let mut warnings = Vec::new();
     let mut touched = None;
