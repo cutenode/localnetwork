@@ -106,7 +106,7 @@
 			<legend class="mb-1 text-label font-medium text-fg-soft">Mixes only in this press kit</legend>
 			<p class="m-0 text-label text-fg-subtle">Like an unreleased promo. They aren't added to your profile.</p>
 			{#each fields.extraMixes as mix, index (index)}
-				<div class="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+				<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
 					<input name="extraMixTitle" aria-label="Extra mix {index + 1} name" placeholder="Name" maxlength="120" bind:value={mix.title} class={control} />
 					<input name="extraMixUrl" type="url" aria-label="Extra mix {index + 1} address" placeholder="https://" bind:value={mix.url} class={control} />
 					<fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">

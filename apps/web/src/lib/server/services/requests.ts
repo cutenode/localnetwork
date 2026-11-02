@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
 import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
@@ -6,6 +7,7 @@ import { parseMixReportText } from '#lib/mix/schema.ts';
 import type {
 	BlobRefJson,
 	ClaimEvidence,
+	FieldChange,
 	ProjectDetails,
 	ProjectMix,
 	ProjectProfile,
@@ -788,6 +790,57 @@ export class RequestService {
 		const [open] = await this.list({ kind: 'update', projectUri, requester: requesterDid, status: 'open', limit: 1 });
 
 		return open ?? null;
+	}
+
+	/**
+	 * What a request changes in its project's profile and private details. A pending one is compared with the project as
+	 * it is now, and is stale once the project moved past the revision it started from. A published one (approved) shows
+	 * what its approval changed, as the project's audit entry recorded it then: compared with now it would match.
+	 */
+	async changes(
+		request: RequestView,
+		project: ProjectView | null
+	): Promise<{ profile: FieldChange[]; details: FieldChange[]; stale: boolean }> {
+		const { record } = request;
+
+		if (request.status === 'approved' && (record.kind === 'create' || record.kind === 'update')) {
+			const entry = await this.core.db
+				.selectFrom('auditEntry')
+				.select('changes')
+				.where('action', 'in', ['project.create', 'project.update'])
+				.where(sql<string>`json_extract(details, '$.request')`, '=', request.uri)
+				.executeTakeFirst();
+
+			const changes = parseJson<FieldChange[]>(entry?.changes ?? null, []);
+
+			return {
+				profile: changes.filter((change) => change.field.startsWith('profile.')),
+				details: changes.filter((change) => change.field.startsWith('details.')),
+				stale: false
+			};
+		}
+
+		const current = record.kind === 'update' ? project : null;
+
+		const profile =
+			record.kind === 'create'
+				? diff({}, { profile: record.profile })
+				: current
+					? diff({ profile: current.profile }, { profile: record.profile ?? current.profile })
+					: [];
+
+		const details =
+			record.details && record.kind !== 'claim'
+				? diff((current && (await this.projects.details(current.uri))) ?? {}, record.details, 'details')
+				: [];
+
+		const stale =
+			request.status === 'pending' &&
+			!!current &&
+			record.baseRevision !== undefined &&
+			record.baseRevision !== current.revision;
+
+		return { profile, details, stale };
 	}
 
 	async byRkey(rkey: string): Promise<RequestView | null> {

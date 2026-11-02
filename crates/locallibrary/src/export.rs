@@ -203,11 +203,6 @@ pub struct Selection<'a> {
     pub tracks: Vec<&'a Track>,
 }
 
-/// A playlist's tracks in order (entries whose track is gone are skipped).
-pub fn playlist_tracks<'a>(lib: &'a Library, p: &Playlist) -> Vec<&'a Track> {
-    lib.tracks_by_id(&p.track_ids)
-}
-
 /// Playlists below a folder, depth first in display order, with their path below it.
 fn playlists_below<'a>(lib: &'a Library, folder: &Playlist) -> Vec<(&'a Playlist, Vec<String>)> {
     fn walk<'a>(
@@ -254,17 +249,21 @@ pub fn select<'a>(
     };
     let p = lib.find_playlist(query).ok_or_else(|| Error::NotFound(format!("playlist {query:?}")))?;
     let path = lib.playlist_path(p.id);
+    // A playlist's tracks in order (entries whose track is gone are skipped), the library indexed
+    // once for every playlist.
+    let track = lib.track_lookup();
+    let tracks_of = |p: &Playlist| -> Vec<&'a Track> { p.track_ids.iter().filter_map(|&id| track(id)).collect() };
     if !p.is_folder {
         return Ok(vec![Selection {
             file: PathBuf::from(paths::sanitize_component(&p.name)),
             name: path,
-            tracks: playlist_tracks(lib, p),
+            tracks: tracks_of(p),
         }]);
     }
     let below = playlists_below(lib, p);
     if !split {
         let mut seen = FxHashSet::default();
-        let tracks = below.iter().flat_map(|(q, _)| playlist_tracks(lib, q)).filter(|t| seen.insert(t.id)).collect();
+        let tracks = below.iter().flat_map(|(q, _)| tracks_of(q)).filter(|t| seen.insert(t.id)).collect();
         return Ok(vec![Selection { file: PathBuf::from(paths::sanitize_component(&p.name)), name: path, tracks }]);
     }
     let mut used = FxHashSet::default();
@@ -282,7 +281,7 @@ pub fn select<'a>(
                 ));
                 n += 1;
             }
-            Selection { name: lib.playlist_path(q.id), file, tracks: playlist_tracks(lib, q) }
+            Selection { name: lib.playlist_path(q.id), file, tracks: tracks_of(q) }
         })
         .collect())
 }

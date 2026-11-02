@@ -10,9 +10,9 @@ use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use walkdir::WalkDir;
 
 use crate::error::IoContext;
 use crate::fsutil;
@@ -147,49 +147,129 @@ pub fn scan(root: &Path, opts: &ScanOptions, ctx: &Ctx<'_>) -> Result<FileTree> 
         if !dir.is_dir() {
             continue;
         }
-        let walker = WalkDir::new(&dir)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| e.file_name().to_str().is_none_or(|n| !paths::is_ignored_name(n)));
-        for entry in walker {
-            ctx.check()?;
-            let entry = entry.map_err(|e| Error::Io {
-                path: e.path().map(Path::to_path_buf).unwrap_or_else(|| dir.clone()),
-                source: e.into_io_error().unwrap_or_else(|| std::io::Error::other("walk error")),
-            })?;
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let rel = entry.path().strip_prefix(root).expect("walk stays below root");
-            add_entry(&mut tree, rel, entry.path())?;
+        for (rel, class, meta) in walk(root, &dir, ctx)? {
+            insert(&mut tree, &rel, class, &meta);
         }
     }
-    for extra in &opts.extra_keys {
-        let key = paths::key(extra);
-        if tree.entries.contains_key(&key) {
-            continue;
-        }
-        let p = paths::to_fs(root, &key);
-        // Regular files only: never follow a symlink out of the drive.
-        if std::fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_file()) {
-            let rel = p.strip_prefix(root).expect("joined below root").to_path_buf();
-            add_entry_as(&mut tree, &rel, &p, FileClass::Audio)?;
-        }
-    }
-    tree.entries.sort_unstable_keys();
-    tree.folded.sort_unstable_keys();
+    add_extra(&mut tree, &opts.extra_keys)?;
     ctx.phase_end(Phase::Scan);
     Ok(tree)
 }
 
-fn add_entry(tree: &mut FileTree, rel: &Path, abs: &Path) -> Result<()> {
-    let rel_str = rel.to_string_lossy();
-    let Some(class) = paths::classify(&paths::key(&rel_str)) else { return Ok(()) };
-    add_entry_as(tree, rel, abs, class)
+/// A managed file a walk found: its path below the root, its class and its metadata.
+type Found = (PathBuf, FileClass, std::fs::Metadata);
+
+/// What a directory holds, in the order it lists them: a managed file (or the error that ends
+/// the walk there), or its `n`th subdirectory.
+enum Item {
+    File(Result<Found>),
+    Dir(usize),
 }
 
-fn add_entry_as(tree: &mut FileTree, rel: &Path, abs: &Path, class: FileClass) -> Result<()> {
-    let meta = std::fs::metadata(abs).at(abs)?;
+/// The managed files below `top` (below `root`), depth first in the order each directory lists
+/// its entries, OS clutter and symlinks left out, or the first error on the way: what a
+/// [`walkdir::WalkDir`] of `top` gives in that order. Opening directories is most of a scan's
+/// time, and a drive has one per analysed track, so each depth's directories are listed in
+/// parallel. Neither step recurses, so however deep a drive's folders go, the walk's stack stays
+/// the same.
+fn walk(root: &Path, top: &Path, ctx: &Ctx<'_>) -> Result<Vec<Found>> {
+    // Each directory's items, and where its subdirectories' own listings start.
+    let mut listings: Vec<(std::vec::IntoIter<Item>, usize)> = Vec::new();
+    let mut depth = vec![top.to_path_buf()];
+    while !depth.is_empty() {
+        let mut next = listings.len() + depth.len();
+        let listed: Vec<(Vec<Item>, Vec<PathBuf>)> = depth.par_iter().map(|dir| list(root, top, dir, ctx)).collect();
+        depth = Vec::new();
+        for (items, subdirs) in listed {
+            listings.push((items.into_iter(), next));
+            next += subdirs.len();
+            depth.extend(subdirs);
+        }
+    }
+    let mut found = Vec::new();
+    let mut open = vec![0];
+    while let Some(&at) = open.last() {
+        let (items, first) = &mut listings[at];
+        match items.next() {
+            Some(Item::File(file)) => found.push(file?),
+            Some(Item::Dir(n)) => open.push(*first + n),
+            None => {
+                open.pop();
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The items `dir` (in `top`, below `root`) holds, and its subdirectories. Listing stops at an
+/// error, which is the last item.
+fn list(root: &Path, top: &Path, dir: &Path, ctx: &Ctx<'_>) -> (Vec<Item>, Vec<PathBuf>) {
+    let io = |path: &Path, source| Error::Io { path: path.to_path_buf(), source };
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => return (vec![Item::File(Err(io(dir, e)))], Vec::new()),
+    };
+    let (mut items, mut subdirs) = (Vec::new(), Vec::new());
+    for entry in entries {
+        if let Err(e) = ctx.check() {
+            items.push(Item::File(Err(e.into())));
+            break;
+        }
+        // An entry that can't be read is put down to the walk, as walkdir does.
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                items.push(Item::File(Err(io(top, e))));
+                break;
+            }
+        };
+        if entry.file_name().to_str().is_some_and(paths::is_ignored_name) {
+            continue;
+        }
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(t) if t.is_dir() => {
+                items.push(Item::Dir(subdirs.len()));
+                subdirs.push(path);
+            }
+            Ok(t) if t.is_file() => {
+                let rel = path.strip_prefix(root).expect("walk stays below root");
+                if let Some(class) = paths::classify(&paths::key(&rel.to_string_lossy())) {
+                    let found = std::fs::metadata(&path).at(&path).map(|meta| (rel.to_path_buf(), class, meta));
+                    items.push(Item::File(found));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                items.push(Item::File(Err(io(&path, e))));
+                break;
+            }
+        }
+    }
+    (items, subdirs)
+}
+
+/// Add the files at `extra_keys` (see [`ScanOptions::extra_keys`]) that `tree` lacks, as audio.
+pub(crate) fn add_extra(tree: &mut FileTree, extra_keys: &[String]) -> Result<()> {
+    for extra in extra_keys {
+        let key = paths::key(extra);
+        if tree.entries.contains_key(&key) {
+            continue;
+        }
+        let p = paths::to_fs(&tree.root, &key);
+        // Regular files only: never follow a symlink out of the drive.
+        if std::fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_file()) {
+            let rel = p.strip_prefix(&tree.root).expect("joined below root").to_path_buf();
+            let meta = std::fs::metadata(&p).at(&p)?;
+            insert(tree, &rel, FileClass::Audio, &meta);
+        }
+    }
+    tree.entries.sort_unstable_keys();
+    tree.folded.sort_unstable_keys();
+    Ok(())
+}
+
+fn insert(tree: &mut FileTree, rel: &Path, class: FileClass, meta: &std::fs::Metadata) {
     let rel_str = rel.to_string_lossy().replace('\\', "/");
     let key = paths::key(&rel_str);
     if key != rel_str {
@@ -198,9 +278,8 @@ fn add_entry_as(tree: &mut FileTree, rel: &Path, abs: &Path, class: FileClass) -
     tree.folded.insert(key.to_lowercase(), key.clone());
     tree.entries.insert(
         key.clone(),
-        FileEntry { path: key, size: meta.len(), mtime: fsutil::mtime_secs(&meta), class, hash: None },
+        FileEntry { path: key, size: meta.len(), mtime: fsutil::mtime_secs(meta), class, hash: None },
     );
-    Ok(())
 }
 
 /// Persistent `path -> (size, mtime, hash)` cache.

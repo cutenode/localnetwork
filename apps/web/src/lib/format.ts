@@ -28,6 +28,11 @@ export function requestSubject(request: Pick<RequestView, 'kind' | 'project' | '
 	return request.project?.name ?? request.record.profile?.name ?? 'Project';
 }
 
+/** A request's name on every list and page that shows one: its kind and what it's about. */
+export function requestTitle(request: Pick<RequestView, 'kind' | 'project' | 'record' | 'requester'>): string {
+	return `${REQUEST_KIND_LABEL[request.kind]}: ${requestSubject(request)}`;
+}
+
 /** Where an account's profile is: at its handle, or at its DID when it has no verified handle. */
 export function profileHref(account: AccountView): string {
 	return `/@${account.handle ?? account.did}`;

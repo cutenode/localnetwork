@@ -334,6 +334,27 @@ fn rows_can_be_added_after_removals() {
     assert_eq!(db.tracks.iter().find(|t| t.id == tid).unwrap().title(), "After");
 }
 
+/// A new row takes the id after the largest there is, also once the row that had it is gone.
+#[test]
+fn new_ids_follow_the_largest_left() {
+    let mut ed = PdbEditor::from_file(BIGGER).unwrap();
+    let last = ed.database().unwrap().tracks.iter().map(|t| t.id).max().unwrap();
+    ed.remove_tracks(&[last]).unwrap();
+    assert_eq!(ed.add_track(&NewTrack::new("Again", "/Contents/a/Again.mp3")).unwrap(), last);
+    ed.remove_tracks(&[1]).unwrap();
+    assert_eq!(ed.add_track(&NewTrack::new("More", "/Contents/a/More.mp3")).unwrap(), last + 1);
+    let artist = ed.artist_id_for("New Artist").unwrap();
+    ed.remove_rows(TableType::Artists, &[artist]).unwrap();
+    assert_eq!(ed.artist_id_for("Another Artist").unwrap(), artist);
+    let album = ed.album_id_for("New Album", 0).unwrap();
+    ed.remove_rows(TableType::Albums, &[album]).unwrap();
+    assert_eq!(ed.album_id_for("Another Album", 0).unwrap(), album);
+    let artwork = ed.next_artwork_id().unwrap();
+    assert_eq!(ed.add_artwork("/PIONEER/Artwork/00001/a1.jpg").unwrap(), artwork);
+    ed.remove_rows(TableType::Artwork, &[artwork]).unwrap();
+    assert_eq!(ed.next_artwork_id().unwrap(), artwork);
+}
+
 #[test]
 fn remove_lookup_rows() {
     let mut ed = PdbEditor::from_file(BIGGER).unwrap();

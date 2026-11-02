@@ -150,7 +150,56 @@ describe('the popup page', () => {
 			}
 		}
 	});
+
+	// Chrome gives every extension page `body { font-family: system-ui;
+	// font-size: 75% }`, unlayered, and an unlayered rule beats any layer: a
+	// body rule in `@layer base` loses to it, and the popup draws in the system
+	// font at 12px. So the type is set on body outside every layer.
+	it('sets its own type on body where Chrome’s sheet for extension pages cannot beat it', () => {
+		const css = files
+			.filter((file) => file.endsWith('.css'))
+			.map(read)
+			.join('');
+
+		const unlayered = outsideLayers(css);
+		const body = [...unlayered.matchAll(/(?:^|[}\s])body\{([^}]*)\}/g)].map((m) => m[1]).join(';');
+		expect(body).toMatch(/font-family:var\(--font-sans\)/);
+		expect(body).toMatch(/font-size:var\(--text-label\)/);
+	});
 });
+
+/** The stylesheet with every `@layer name { … }` block taken out. */
+function outsideLayers(css: string) {
+	let out = '';
+	let depth = 0;
+
+	for (let i = 0; i < css.length; i++) {
+		if (depth === 0 && css.startsWith('@layer', i)) {
+			const open = css.indexOf('{', i);
+			const statement = css.indexOf(';', i);
+
+			// `@layer a, b;` only declares the order, and has no block.
+			if (statement !== -1 && statement < open) {
+				i = statement;
+				continue;
+			}
+
+			depth = 1;
+			i = open;
+			continue;
+		}
+
+		if (depth > 0) {
+			if (css[i] === '{') depth++;
+			else if (css[i] === '}') depth--;
+			continue;
+		}
+
+		out += css[i];
+	}
+
+	return out;
+}
 
 describe('the bundle', () => {
 	const js = () => files.filter((file) => /\.m?js$/.test(file)).map((file) => [file, read(file)]);

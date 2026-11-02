@@ -6,10 +6,8 @@
 <script lang="ts">
   import Search from '@lucide/svelte/icons/search';
   import X from '@lucide/svelte/icons/x';
+  import HintSwitch from '$lib/components/HintSwitch.svelte';
   import { Input } from '$lib/components/ui/input/index.ts';
-  import { Switch } from '$lib/components/ui/switch/index.ts';
-  import { Label } from '$lib/components/ui/label/index.ts';
-  import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
   import type { createFilter } from '$lib/list-filter.svelte.ts';
 
   interface Props {
@@ -69,19 +67,7 @@
       {/if}
     </div>
 
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <div {...props} class="flex shrink-0 items-center gap-1.5">
-            <Switch {id} bind:checked={filter.hideDownloaded} />
-            <Label for={id} class="text-caption font-normal whitespace-nowrap text-fg-muted">
-              hide downloaded
-            </Label>
-          </div>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content class="max-w-64">{HIDE_HINT}</Tooltip.Content>
-    </Tooltip.Root>
+    <HintSwitch {id} label="hide downloaded" hint={HIDE_HINT} bind:checked={filter.hideDownloaded} />
   </div>
 
   {#if countLine}

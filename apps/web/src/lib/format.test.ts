@@ -11,9 +11,11 @@ import {
 	kindLabel,
 	placeLabel,
 	pluralize,
+	requestTitle,
 	shortDid,
 	timeAgo
 } from './format';
+import { request } from './testing/requests';
 import type { ProjectProfile } from './types';
 
 const profile = (fees?: ProjectProfile['fees']): ProjectProfile => ({
@@ -91,5 +93,17 @@ describe('format helpers', () => {
 		} finally {
 			vi.unstubAllEnvs();
 		}
+	});
+});
+
+describe('requestTitle', () => {
+	it('names the kind and the project, the proposed name for a new one, or the requester for a listing', () => {
+		expect(requestTitle(request('update'))).toBe('Changes: Neon Tide');
+		expect(requestTitle(request('claim'))).toBe('Claim: Neon Tide');
+		expect(requestTitle(request('create', { project: null }))).toBe('New project: Neon Tide');
+		expect(
+			requestTitle(request('create', { project: null, record: { kind: 'create', createdAt: '2026-10-01T00:00:00Z' } }))
+		).toBe('New project: Project');
+		expect(requestTitle(request('list', { project: null }))).toBe('Listing: @neon.test');
 	});
 });

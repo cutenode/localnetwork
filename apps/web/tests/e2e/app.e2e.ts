@@ -377,12 +377,15 @@ test.describe('signed in', () => {
 		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and publish' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and published')).toBeVisible();
 
 		await page.goto('/admin/audit');
-		// The newest entry; earlier projects' approvals read the same.
-		await expect(page.getByText("Approved @neon.test's change request for Saffron Social").first()).toBeVisible();
+		// The newest entry; earlier projects' approvals read the same. A phone shows entries as cards, a desktop as rows.
+		await expect(
+			page.getByText("Approved @neon.test's change request for Saffron Social").filter({ visible: true }).first()
+		).toBeVisible();
 		await page.getByRole('button', { name: 'Verify chain' }).click();
 		await expect(page.getByText(/entries verified/)).toBeVisible();
 		await expectAccessible(page);
@@ -406,6 +409,7 @@ test.describe('signed in', () => {
 		// neon.test manages Neon Tide alone, so its card gives way to their profile once they're listed.
 		await expect(page.getByText(/They also manage Neon Tide, a solo project/)).toBeVisible();
 		await expectAccessible(page);
+		await page.getByRole('radio', { name: 'Approve and list' }).check();
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and listed in Find DJs')).toBeVisible();
 

@@ -267,3 +267,21 @@ deny contains msg if {
 	not filtered("locallibrary", path)
 	msg := sprintf("%s: the Rust code embeds it, so add it to the locallibrary paths filter", [path])
 }
+
+# The filters that say a language's CodeQL results can be reused (ci.yml's codeql_*).
+codeql_filters contains name if {
+	some _, wf in gated
+	some step in wf.jobs.changes.steps
+	startswith(step.uses, "dorny/paths-filter@")
+	some name, _ in yaml.unmarshal(step["with"].filters)
+	startswith(name, "codeql_")
+}
+
+# CodeQL's results change with its config and with the action codeql.yml pins, so a change to
+# either analyses every language again rather than reusing main's.
+deny contains msg if {
+	some name in codeql_filters
+	some path in [".github/codeql/codeql-config.yml", ".github/workflows/codeql.yml"]
+	not filtered(name, path)
+	msg := sprintf("%s: add it to the %s paths filter; CodeQL's results change with it", [path, name])
+}

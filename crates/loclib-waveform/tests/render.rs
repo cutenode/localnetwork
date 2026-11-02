@@ -1,6 +1,6 @@
 use loclib_model::TrackColor;
 use loclib_model::analysis::{Beat, Cue, WaveColumn, WaveLayer, Waveform, WaveformStyle};
-use loclib_waveform::color::scale;
+use loclib_waveform::color::{gradient, mix, scale};
 use loclib_waveform::{CueLane, Detail, Overview, Palette, PhraseStrip, Pixels, Scope, Spectrum, cue_label, vinyl};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -171,6 +171,11 @@ fn spectrum_peaks_hang_above_the_bars() {
     let column: Vec<&str> = (0..4).map(|y| buf[(0, y)].symbol()).collect();
     assert_eq!(column, ["▁", " ", " ", "█"], "the cap three quarters up, the bar a quarter");
     assert_ne!(draw(Some((RED, 1.0)))[(0, 3)].fg, buf[(0, 3)].fg);
+    // Coloured by height: the bar at the bottom of the gradient, the cap paler, near the top.
+    let rgb = |[r, g, b]: [u8; 3]| Color::Rgb(r, g, b);
+    let stops = Palette::DARK.spectrum;
+    assert_eq!(buf[(0, 3)].fg, rgb(gradient(stops, 0.125)));
+    assert_eq!(buf[(0, 0)].fg, rgb(mix(gradient(stops, 0.875), [255, 255, 255], 0.35)));
 }
 
 /// A cue just passed tints the scope too.
@@ -251,6 +256,30 @@ fn plain_palette_reverses_chips_and_leaves_out_pictures() {
     let mut buf = Buffer::empty(area);
     Pixels { width: 20, pixels: &vinyl(20, 2, 0.0, RED, [40, 40, 52]), palette }.render(area, &mut buf);
     assert_eq!(rendered(&buf).trim(), "");
+}
+
+/// A picture is cut to the area it's drawn in, two pixels a cell, and a smaller one leaves the
+/// rest of the area alone.
+#[test]
+fn pixels_fit_the_area() {
+    let (a, b, c) = (Some([1, 1, 1]), Some([2, 2, 2]), Some([3, 3, 3]));
+    // Three pixels wide, two cells tall: the second cell's top row is transparent.
+    let pixels = [a, b, c, c, b, a, None, a, None, b, None, None];
+    let draw = |w, h| {
+        let area = Rect::new(1, 1, w, h);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 5, 4));
+        Pixels { width: 3, pixels: &pixels, palette: Palette::default() }.render(area, &mut buf);
+        buf
+    };
+    let rows =
+        |buf: &Buffer| rendered(buf).chars().collect::<Vec<_>>().chunks(5).map(String::from_iter).collect::<Vec<_>>();
+    let buf = draw(2, 1);
+    assert_eq!(rows(&buf), ["     ", " ▀▀  ", "     ", "     "]);
+    assert_eq!((buf[(1, 1)].fg, buf[(1, 1)].bg), (Color::Rgb(1, 1, 1), Color::Rgb(3, 3, 3)));
+    let buf = draw(4, 3);
+    assert_eq!(rows(&buf), ["     ", " ▀▀▀ ", " ▄▀  ", "     "]);
+    assert_eq!((buf[(2, 2)].fg, buf[(2, 2)].bg), (Color::Rgb(1, 1, 1), Color::Reset));
+    assert!(vinyl(0, 3, 0.0, RED, [40, 40, 52]).is_empty());
 }
 
 /// The record: round, with a spindle hole, a label in the middle and the rest grooved vinyl.

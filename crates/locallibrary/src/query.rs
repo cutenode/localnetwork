@@ -34,6 +34,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::cell::{OnceCell, RefCell};
 
 use crate::device::Device;
@@ -914,26 +915,51 @@ pub fn compare_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
     }
 }
 
-fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
-    let text = |x: &str, y: &str| normalize(x).cmp(&normalize(y));
-    match field {
-        SortField::Title => text(&a.title, &b.title),
-        SortField::Artist => text(&a.artist, &b.artist),
-        SortField::Album => text(&a.album, &b.album),
-        SortField::Genre => text(&a.genre, &b.genre),
-        SortField::Label => text(&a.label, &b.label),
-        SortField::Key => harmony::key_order(&a.key).cmp(&harmony::key_order(&b.key)),
-        SortField::Bpm => a.bpm.total_cmp(&b.bpm),
-        SortField::Rating => a.rating.cmp(&b.rating),
-        SortField::Color => a.color.map_or(u8::MAX, TrackColor::id).cmp(&b.color.map_or(u8::MAX, TrackColor::id)),
-        SortField::Year => a.year.cmp(&b.year),
-        SortField::Plays => a.play_count.cmp(&b.play_count),
-        SortField::Added => a.date_added.cmp(&b.date_added),
-        SortField::Time => a.duration_secs.cmp(&b.duration_secs),
-        SortField::Bitrate => a.bitrate.cmp(&b.bitrate),
-        SortField::Path => crate::paths::key(&a.file_path).cmp(&crate::paths::key(&b.file_path)),
-        // By its values (see `sort_tracks_with`).
-        SortField::Field(_) => std::cmp::Ordering::Equal,
+/// A track's value for one sort key, worked out once per track instead of in every comparison
+/// (text keys are normalised, which allocates).
+enum SortValue<'a> {
+    Text(Cow<'a, str>),
+    Number(u32),
+    Bpm(f64),
+    /// What analyzers worked out for a plugin's field, if the track has a value to show.
+    Field(Option<&'a FieldValue>),
+}
+
+impl<'a> SortValue<'a> {
+    fn of(t: &'a Track, field: SortField, values: Option<&'a TrackValues>) -> SortValue<'a> {
+        let text = |s: &str| SortValue::Text(Cow::Owned(normalize(s)));
+        match field {
+            SortField::Title => text(&t.title),
+            SortField::Artist => text(&t.artist),
+            SortField::Album => text(&t.album),
+            SortField::Genre => text(&t.genre),
+            SortField::Label => text(&t.label),
+            SortField::Key => SortValue::Number(harmony::key_order(&t.key).into()),
+            SortField::Bpm => SortValue::Bpm(t.bpm),
+            SortField::Rating => SortValue::Number(t.rating.into()),
+            SortField::Color => SortValue::Number(t.color.map_or(u8::MAX, TrackColor::id).into()),
+            SortField::Year => SortValue::Number(t.year.into()),
+            SortField::Plays => SortValue::Number(t.play_count.into()),
+            SortField::Added => SortValue::Text(Cow::Borrowed(&t.date_added)),
+            SortField::Time => SortValue::Number(t.duration_secs),
+            SortField::Bitrate => SortValue::Number(t.bitrate),
+            SortField::Path => SortValue::Text(Cow::Owned(crate::paths::key(&t.file_path))),
+            SortField::Field(name) => SortValue::Field(values.and_then(|v| v.shown(t.id, name.as_str()))),
+        }
+    }
+
+    /// Values of one key are all of one kind. Tracks without a value for a plugin's field go
+    /// last, whichever way it's sorted.
+    fn cmp(&self, other: &SortValue<'_>, descending: bool) -> std::cmp::Ordering {
+        let directed = |o: std::cmp::Ordering| if descending { o.reverse() } else { o };
+        match (self, other) {
+            (SortValue::Text(a), SortValue::Text(b)) => directed(a.cmp(b)),
+            (SortValue::Number(a), SortValue::Number(b)) => directed(a.cmp(b)),
+            (SortValue::Bpm(a), SortValue::Bpm(b)) => directed(a.total_cmp(b)),
+            (SortValue::Field(Some(a)), SortValue::Field(Some(b))) => directed(compare_values(a, b)),
+            (SortValue::Field(a), SortValue::Field(b)) => a.is_none().cmp(&b.is_none()),
+            _ => std::cmp::Ordering::Equal,
+        }
     }
 }
 
@@ -945,25 +971,18 @@ pub fn sort_tracks(tracks: &mut [&Track], keys: &[SortKey]) {
 /// [`sort_tracks`] with what analyzers worked out, for keys naming a plugin's field: tracks
 /// without a value for it to show go last, either way (all of them, without `values`).
 pub fn sort_tracks_with(tracks: &mut [&Track], keys: &[SortKey], values: Option<&TrackValues>) {
-    tracks.sort_by(|a, b| {
+    let mut keyed: Vec<(Vec<SortValue<'_>>, &Track)> =
+        tracks.iter().map(|t| (keys.iter().map(|k| SortValue::of(t, k.field, values)).collect(), *t)).collect();
+    keyed.sort_by(|(a, _), (b, _)| {
         keys.iter()
-            .map(|k| {
-                let directed = |o: std::cmp::Ordering| if k.descending { o.reverse() } else { o };
-                match k.field {
-                    // Those without a value last, whichever way it's sorted.
-                    SortField::Field(name) => {
-                        let value = |t: &Track| values.and_then(|v| v.shown(t.id, name.as_str()));
-                        match (value(a), value(b)) {
-                            (Some(x), Some(y)) => directed(compare_values(x, y)),
-                            (x, y) => x.is_none().cmp(&y.is_none()),
-                        }
-                    }
-                    field => directed(compare(a, b, field)),
-                }
-            })
+            .zip(a.iter().zip(b))
+            .map(|(k, (a, b))| a.cmp(b, k.descending))
             .find(|o| o.is_ne())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    for (slot, (_, t)) in tracks.iter_mut().zip(keyed) {
+        *slot = t;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

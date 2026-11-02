@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FormMessage from '#lib/components/FormMessage.svelte';
 	import RequestTable from '#lib/components/RequestTable.svelte';
 	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
@@ -28,7 +29,8 @@
 <svelte:head><title>Requests · Staff</title></svelte:head>
 
 <div class="flex flex-col gap-6">
-	<SectionHeader level={1} title="Requests" lede="New projects, claims and changes. You can't review your own requests." />
+	<SectionHeader level={1} title="Requests" lede="New projects, claims, changes and listings. You can't review your own requests." />
+	{#if data.decided}<FormMessage form={{ success: `${data.decided}. Nothing else is waiting for you to review.` }} />{/if}
 
 	<div class="flex flex-col gap-3">
 		<nav aria-label="Status" class="flex flex-wrap gap-2">

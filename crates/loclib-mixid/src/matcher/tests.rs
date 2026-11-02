@@ -1066,3 +1066,23 @@ fn tracing_hears_a_bin_from_matches_that_share_no_peak(tc: TestCase) {
         assert!(f.end * FRAMES_PER_SEC < gone, "{second:?}: {f:#?}");
     }
 }
+
+/// Every vote of a cell with enough of them is kept, whichever places its two bins fall in,
+/// in key order; nearly all strays, far from any other vote, are dropped before the sort.
+#[test]
+fn ballots_keep_the_votes_cells_need() {
+    let vote = |slot: u64, bin: u64, t| Vote { key: (slot << 32) | (3 << 24) | bin, t, tau: 0 };
+    // Track 1: 3 + 3 votes over a cell starting on an even bin, then 5 + 1 over one starting
+    // on an odd bin (the lone vote is only in the cell before it). Track 2: strays.
+    let cells: Vec<Vote> = [(1000, 3), (1001, 3), (2001, 5), (2002, 1)]
+        .into_iter()
+        .flat_map(|(bin, n)| (0..n).map(move |t| vote(1, bin, t)))
+        .collect();
+    let strays = (0..100).map(|i| vote(2, 5000 + 10 * i, i as u32));
+    let mut ballots = Ballots { cast: strays.chain(cells.iter().copied()).rev().collect(), ..Ballots::default() };
+    ballots.keep();
+    let kept = &ballots.kept;
+    assert!(kept.is_sorted_by_key(|v| v.key));
+    assert!(cells.iter().all(|c| kept.iter().any(|k| (k.key, k.t) == (c.key, c.t))));
+    assert!(kept.len() < cells.len() + 10, "{} kept", kept.len());
+}

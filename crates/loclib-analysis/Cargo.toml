@@ -24,6 +24,7 @@ symphonia.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 hegeltest.workspace = true
 loclib-mixid = { workspace = true, features = ["test-util"] }
 loclib-model = { workspace = true, features = ["test-util"] }
@@ -35,3 +36,7 @@ schemars = ["dep:schemars"]
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "analyze"
+harness = false
