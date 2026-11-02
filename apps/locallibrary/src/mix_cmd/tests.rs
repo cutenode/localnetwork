@@ -14,6 +14,7 @@ fn tentative_and_ridden_plays_say_so() {
         track_end: 60.0,
         tempo: 1.0,
         speed_range: None,
+        lines: Vec::new(),
         played_bpm: None,
         key_lock: None,
         semitones: 0.0,

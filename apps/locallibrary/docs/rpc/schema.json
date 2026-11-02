@@ -20851,6 +20851,12 @@
           "description": "The player's preferences ([`PlayerPrefs`]): its theme, columns, sort, visualiser and\nplayback modes.",
           "default": {}
         },
+        "mix": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "What's set for identifying mixes ([`MixPrefs`]): the largest fingerprint index kept.",
+          "default": {}
+        },
         "plugin_host": {
           "type": "object",
           "additionalProperties": true,
@@ -20870,6 +20876,7 @@
         "players",
         "profile",
         "player",
+        "mix",
         "plugin_host",
         "plugins"
       ],
@@ -27373,6 +27380,13 @@
           "maxItems": 2,
           "description": "The slowest and fastest speeds it was played at, when the pitch fader was ridden during it\n(see [`matcher::Found::speed_range`]); `tempo` is then their average."
         },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlayLine"
+          },
+          "description": "Where it was heard at each speed and from which part of the track, in mix order: one line\nfor a steady play, more for a ride or a loop or cue jump. Reports made before these were\nkept have none."
+        },
         "played_bpm": {
           "type": [
             "number",
@@ -27463,6 +27477,32 @@
         "alternates"
       ],
       "description": "One track heard in the mix."
+    },
+    "PlayLine": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the mix."
+        },
+        "track_start": {
+          "type": "number",
+          "format": "double",
+          "description": "Seconds into the track at `start`."
+        },
+        "tempo": {
+          "type": "number",
+          "format": "double",
+          "description": "Playback speed: 1.0 as recorded."
+        }
+      },
+      "required": [
+        "start",
+        "track_start",
+        "tempo"
+      ],
+      "description": "A stretch of a [`Play`] at one speed, from `start` until the next line's."
     },
     "Alternate": {
       "type": "object",
